@@ -39,3 +39,5 @@ export { OtwPlayDefaultPlaylistPage, OtwPlayPersonalPlaylistPage } from "./ui/pl
 export { OtwPlayPlaylistEditorPage } from "./ui/playlists/playlist-editor-page";
 
 export { OtwPlayDefaultPlaylistManager } from "./ui/playlists/default-playlist-manager";
+
+export { OtwPlayClipsPage } from "./ui/public/clips-page";

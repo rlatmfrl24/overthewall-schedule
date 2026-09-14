@@ -1,3 +1,5 @@
+import { IngestionService } from "../application/ingestion-service";
+import { AdminCatalogService } from "../application/admin-catalog-service";
 import { applyD1Migrations, env } from "cloudflare:test";
 import type { D1Migration } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -64,6 +66,8 @@ beforeEach(async () => {
     db.prepare("DELETE FROM music_ingestion_messages"),
     db.prepare("DELETE FROM music_ingestion_candidates"),
     db.prepare("DELETE FROM music_ingestion_jobs"),
+    db.prepare("DELETE FROM music_performances WHERE id LIKE 'ingestion-workflow-%'"),
+    db.prepare("DELETE FROM music_media_sources WHERE id LIKE 'ingestion-workflow-%'"),
     db.prepare("DELETE FROM music_songs WHERE id LIKE 'ingestion-ready-%'"),
     db.prepare("DELETE FROM music_entities WHERE id LIKE 'ingestion-ready-%'"),
     db.prepare("DELETE FROM music_catalog_events WHERE id LIKE 'ingestion-ready-%'"),
@@ -93,6 +97,123 @@ beforeEach(async () => {
 });
 
 describe("D1IngestionRepository", () => {
+  it("keeps review pages within one import while sharing candidates across histories", async () => {
+    const repository = new D1IngestionRepository(db);
+    const firstJob = await repository.createJob({ jobId: "history-a", actorUserId: "admin-1", input, preflight: { ...preflight, itemCount: 52, rangeEndExclusive: 52, requestedItemCount: 52 }, now: NOW });
+    const videos = Array.from({ length: 51 }, (_, index) => String(index).padStart(11, "A"));
+    await repository.recordPlaylistPage(await repository.readMessage(firstJob.message.idempotencyKey), {
+      items: [...videos, videos[0]!].map((videoId, position) => ({ videoId, position, playlistItemId: `first-${position}` })), nextPageToken: null,
+    }, NOW + 1);
+    const secondJob = await repository.createJob({ jobId: "history-b", actorUserId: "admin-1", input: { ...input, idempotencyKey: "request-second" }, preflight, now: NOW + 2 });
+    await repository.recordPlaylistPage(await repository.readMessage(secondJob.message.idempotencyKey), {
+      items: [videos[0]!, "ZZZZZZZZZZZ"].map((videoId, position) => ({ videoId, position, playlistItemId: `second-${position}` })), nextPageToken: null,
+    }, NOW + 3);
+    const first = await repository.listReviewItems({ jobId: firstJob.job.id, source: "playlist" });
+    expect(first.items).toHaveLength(50);
+    const next = await repository.listReviewItems({ jobId: firstJob.job.id, source: "playlist", cursor: first.nextCursor! });
+    expect(next.items).toHaveLength(1);
+    const allIds = [...first.items, ...next.items].map(item => item.id);
+    expect(new Set(allIds).size).toBe(51);
+    expect(allIds).not.toContain("youtube:ZZZZZZZZZZZ");
+    const second = await repository.listReviewItems({ jobId: secondJob.job.id });
+    expect(second.items.map(item => item.id).sort()).toEqual([`youtube:${videos[0]}`, "youtube:ZZZZZZZZZZZ"].sort());
+    expect(allIds).toContain(`youtube:${videos[0]}`);
+    await expect(repository.listReviewItems({ jobId: secondJob.job.id, source: "playlist", cursor: first.nextCursor! })).rejects.toMatchObject({ code: "validation_failed" });
+  });
+
+  it("paginates the unified inbox without duplicates and binds cursors to filters", async () => {
+    await db.batch(Array.from({ length: 51 }, (_, index) => db.prepare(`INSERT INTO music_ingestion_candidates
+      (id, provider, external_video_id, candidate_kind, status, classification, availability_status, first_discovered_at, last_discovered_at, retention_expires_at, version, created_at, updated_at)
+      VALUES (?, 'youtube', ?, 'official_video', 'discovered', 'pending_metadata', 'unknown', ?, ?, ?, 0, ?, ?)`)
+      .bind(`cursor-${index}`, String(index).padStart(11, "A"), NOW, NOW, NOW + 100000, NOW, NOW)));
+    const repository = new D1IngestionRepository(db);
+    const first = await repository.listReviewItems({ status: "pending" });
+    expect(first.items).toHaveLength(50);
+    expect(first.nextCursor).toBeTruthy();
+    const second = await repository.listReviewItems({ status: "pending", cursor: first.nextCursor! });
+    expect(second.items).toHaveLength(1);
+    expect(new Set([...first.items, ...second.items].map(item => item.id)).size).toBe(51);
+    expect(second.nextCursor).toBeNull();
+    await expect(repository.listReviewItems({ status: "ready", cursor: first.nextCursor! })).rejects.toMatchObject({ code: "validation_failed" });
+  });
+
+  it("imports singing playlists using each upload channel, reuses songs, and exposes a deduplicated review inbox", async () => {
+    const repository = new D1IngestionRepository(db);
+    const created = await repository.createJob({ jobId: "clip-playlist", actorUserId: "admin-1", input: { ...input, candidateKind: "singing_clip" }, preflight, now: NOW });
+    expect(created.job.candidateKind).toBe("singing_clip");
+    expect(await repository.findPreviousImport(preflight.playlistId, "official_video")).toBeNull();
+    expect(await repository.findPreviousImport(preflight.playlistId, "singing_clip")).toMatchObject({ jobId: created.job.id });
+    await expect(repository.createJob({ jobId: "different-kind", actorUserId: "admin-1", input, preflight, now: NOW })).rejects.toMatchObject({ code: "idempotency_conflict" });
+    const children = await repository.recordPlaylistPage(await repository.readMessage(created.message.idempotencyKey), {
+      items: ["AAAAAAAAAAA", "BBBBBBBBBBB", "CCCCCCCCCCC"].map((videoId, position) => ({ videoId, position, playlistItemId: `clip-${position}` })), nextPageToken: null,
+    }, NOW + 1);
+    await repository.recordVideoBatch(await repository.readMessage(children[0]!.idempotencyKey), ["AAAAAAAAAAA", "BBBBBBBBBBB", "CCCCCCCCCCC"].map((videoId, index) => ({ videoId, availabilityStatus: "playable" as const, video: { videoId, channelId: index === 2 ? "UCunknown" : "UCkkkkkkkkkkkkkkkkkkkkkk", channelTitle: "Clip channel", title: "Singing", thumbnailUrl: null, durationSeconds: 180, publishedAt: NOW, availabilityStatus: "playable" as const, madeForKids: false } })), NOW + 2);
+    const items = await repository.listItems(created.job.id, 10, null, {});
+    expect(items.page.items.map(item => item.candidateKind)).toEqual(["singing_clip", "singing_clip", "singing_clip"]);
+    expect(items.page.items[0]).toMatchObject({ catalogChannelId: "ingestion-kirinuki-channel", candidateClassification: "eligible" });
+    expect(items.page.items[2]).toMatchObject({ catalogChannelId: null, candidateClassification: "channel_review" });
+    const song = { kind: "create" as const, title: "Playlist Singing", isOtwOriginal: false, originalReleaseDate: null, originalReleasePrecision: "unknown" as const, aliases: [], originalArtists: [{ subject: { kind: "entity" as const, entityId: "entity-1" }, creditOrder: 0, isPrimary: true }], tags: [] };
+    const saved = await repository.saveCandidateReview({ candidateId: "youtube:AAAAAAAAAAA", expectedVersion: 1, actorUserId: "admin-1", eventId: "ingestion-ready-clip-review", now: NOW + 3,
+      input: { ...reviewInput, song, releaseType: "broadcast", broadcast: { performedOn: null, dateEvidence: null, originalUrl: null, extent: "partial" }, startSeconds: 10, endSeconds: 60 },
+      catalogMaterialization: { entityIds: {}, entityEventIds: {}, songId: "ingestion-ready-clip-song", songEventId: "ingestion-ready-clip-song-event" } });
+    expect(saved).toMatchObject({ status: "ready", candidateKind: "singing_clip", reviewInput: { song: { kind: "existing", songId: "ingestion-ready-clip-song" }, releaseType: "broadcast", startSeconds: 10, endSeconds: 60 } });
+    await repository.saveCandidateReview({ candidateId: "youtube:BBBBBBBBBBB", expectedVersion: 1, actorUserId: "admin-1", eventId: "ingestion-ready-clip-review-2", now: NOW + 4, input: saved.reviewInput! });
+    const feed = await repository.listReviewItems({ candidateKind: "singing_clip", source: "playlist", status: "ready" });
+    expect(feed.items).toHaveLength(2);
+    expect(feed.items[0]!.candidate?.reviewInput?.releaseType).toBe("broadcast");
+    const repeat = await repository.createJob({ jobId: "clip-repeat", actorUserId: "admin-1", input: { ...input, idempotencyKey: "repeat-clip-request", candidateKind: "singing_clip" }, preflight, now: NOW + 5 });
+    await repository.recordPlaylistPage(await repository.readMessage(repeat.message.idempotencyKey), { items: [{ videoId: "AAAAAAAAAAA", position: 0, playlistItemId: "repeat" }], nextPageToken: null }, NOW + 6);
+    expect((await repository.listReviewItems({ status: "ready" })).items).toHaveLength(2);
+    const current = await repository.readReviewCandidate(null, "youtube:CCCCCCCCCCC");
+    const changed = await repository.changeCandidateKind({ candidateId: current.id, expectedVersion: current.version, candidateKind: "official_video", actorUserId: "admin-1", eventId: "kind-change", now: NOW + 7 });
+    expect(changed).toMatchObject({ candidateKind: "official_video", status: "needs_input", catalogChannelId: null });
+    await expect(repository.changeCandidateKind({ candidateId: current.id, expectedVersion: current.version, candidateKind: "singing_clip", actorUserId: "admin-1", eventId: "kind-stale", now: NOW + 8 })).rejects.toMatchObject({ code: "stale_write" });
+    await expect(repository.listReviewItems({ cursor: "malformed" })).rejects.toMatchObject({ code: "validation_failed" });
+    const youtube = {
+      readChannel: async (channelId: string) => ({ channelId, displayName: "Clip channel" }),
+      readVideo: async (videoId: string) => ({ videoId, channelId: "UCkkkkkkkkkkkkkkkkkkkkkk", channelTitle: "Clip channel", title: "Singing", thumbnailUrl: null, durationSeconds: 180, publishedAt: NOW, availabilityStatus: "playable" as const, madeForKids: false }),
+      readVideos: async () => [], readChannelUploads: async () => null, readPlaylistSummary: async () => null,
+      readPlaylistPage: async () => ({ items: [], nextPageToken: null }),
+    };
+    let serial = 0;
+    const createId = () => `ingestion-workflow-${++serial}`;
+    const service = new IngestionService(repository, youtube, { send: async () => {} }, createId, () => NOW + 20,
+      new AdminCatalogService(new D1AdminCatalogRepository(db), youtube, { record: async () => {} }, createId, true, () => NOW + 20));
+    const ready = await repository.listReviewItems({ status: "ready" });
+    const converted = await service.convertCandidates(created.job.id, { candidates: ready.items.map(item => ({ id: item.id, expectedVersion: item.version })) }, { userId: "admin-1", displayName: "Admin", ipAddress: null });
+    expect(converted.results.map(result => result.outcome)).toEqual(["created", "created"]);
+    const persisted = await db.prepare("SELECT relation_type, release_type, publication_status, broadcast_metadata FROM music_performances WHERE id LIKE 'ingestion-workflow-%'").all<{ release_type: string; publication_status: string; broadcast_metadata: string }>();
+    expect(persisted.results).toHaveLength(2);
+    for (const performance of persisted.results) {
+      expect(performance).toMatchObject({ relation_type: "singing_clip", release_type: "broadcast", publication_status: "draft" });
+      expect(JSON.parse(performance.broadcast_metadata)).toMatchObject({ performedOn: null, extent: "partial" });
+    }
+    expect((await repository.listReviewItems({ status: "ready" })).items).toEqual([]);
+    const replay = await service.convertCandidates(created.job.id, { candidates: ready.items.map(item => ({ id: item.id, expectedVersion: item.version })) }, { userId: "admin-1", displayName: "Admin", ipAddress: null });
+    expect(replay.results.every(result => result.outcome !== "created")).toBe(true);
+
+  });
+
+  it("removes completed history durably while preserving candidates and blocking pending work", async () => {
+    const repository = new D1IngestionRepository(db);
+    const created = await repository.createJob({ jobId: "history-job", actorUserId: "admin-1", input, preflight, now: NOW });
+    await expect(repository.deleteJobHistory(created.job.id, "admin-1", NOW + 1)).rejects.toMatchObject({ code: "stale_write" });
+    const page = await repository.readMessage(created.message.idempotencyKey);
+    const children = await repository.recordPlaylistPage(page, {
+      items: [{ playlistItemId: "history-item", videoId: "AAAAAAAAAAA", position: 0 }], nextPageToken: null,
+    }, NOW + 2);
+    await repository.recordVideoBatch(await repository.readMessage(children[0]!.idempotencyKey), [{ videoId: "AAAAAAAAAAA", availabilityStatus: "unavailable", video: null }], NOW + 3);
+    const before = await repository.listItems(created.job.id, 10, null, {});
+    expect(before.page.items).toHaveLength(1);
+    await repository.deleteJobHistory(created.job.id, "admin-1", NOW + 4);
+    await repository.deleteJobHistory(created.job.id, "admin-1", NOW + 5);
+    const fresh = new D1IngestionRepository(db);
+    expect(await fresh.listJobs(100)).toEqual([]);
+    expect(await fresh.findPreviousImport(preflight.playlistId)).toBeNull();
+    expect(await fresh.listItems(created.job.id, 10, null, {})).toEqual(before);
+    expect(await db.prepare("SELECT COUNT(*) AS count FROM music_ingestion_events WHERE job_id = ? AND event_type = 'history_deleted'").bind(created.job.id).first()).toEqual({ count: 1 });
+  });
+
   it("materializes a ready song and external identities for reuse by the next row", async () => {
     const repository = new D1IngestionRepository(db);
     const created = await repository.createJob({
@@ -686,7 +807,7 @@ describe("D1IngestionRepository", () => {
       version: 1,
       status: "ready",
       classification: "eligible",
-      reviewInput: clipReviewInput,
+      reviewInput: { ...clipReviewInput, relationType: "singing_clip" },
     });
 
     const reviewEvent = await db.prepare(
@@ -1338,4 +1459,35 @@ describe("D1IngestionRepository", () => {
     );
     expect(blocked.page.items).toEqual([]);
   });
+});
+
+it("retains overlapping proposal origins and resumes candidate review after rejection", async () => {
+  const repository = new D1IngestionRepository(db);
+  const created = await repository.createJob({ jobId: "overlap-history", actorUserId: "admin-1", input: { ...input, candidateKind: "singing_clip" }, preflight, now: NOW });
+  const children = await repository.recordPlaylistPage(await repository.readMessage(created.message.idempotencyKey), { items: [{ videoId: "AAAAAAAAAAA", position: 0, playlistItemId: "item-1" }], nextPageToken: null }, NOW + 1);
+  await db.prepare(`INSERT INTO music_cover_proposals (id, submitted_by_user_id, idempotency_key, submitted_url, youtube_video_id, submitted_title, created_at, updated_at) VALUES ('overlap-proposal', 'user-1', 'overlap-key', 'https://www.youtube.com/watch?v=AAAAAAAAAAA', 'AAAAAAAAAAA', 'Proposed cover', ?, ?)`).bind(NOW, NOW).run();
+  await repository.recordVideoBatch(await repository.readMessage(children[0]!.idempotencyKey), [{ videoId: "AAAAAAAAAAA", availabilityStatus: "playable", video: { videoId: "AAAAAAAAAAA", channelId: "UCkkkkkkkkkkkkkkkkkkkkkk", channelTitle: "Clips", title: "Clip", thumbnailUrl: null, durationSeconds: 180, publishedAt: NOW, availabilityStatus: "playable", madeForKids: false } }], NOW + 2);
+  for (const filters of [{}, { jobId: created.job.id, source: "playlist" as const, candidateKind: "singing_clip" as const }, { source: "user" as const }]) {
+    const page = await repository.listReviewItems(filters);
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({ id: "youtube:AAAAAAAAAAA", candidateKind: "singing_clip", pendingProposalId: "overlap-proposal", sources: ["playlist", "user"] });
+  }
+  const command = { candidateId: "youtube:AAAAAAAAAAA", expectedVersion: 1, actorUserId: "admin-1", eventId: "overlap-save", now: NOW + 4, input: { ...reviewInput, relationType: "singing_clip" as const, releaseType: "broadcast" as const, startSeconds: 0, endSeconds: 120 } };
+  await expect(repository.saveCandidateReview(command)).rejects.toMatchObject({ code: "validation_failed" });
+  await db.prepare(`UPDATE music_cover_proposals SET status = 'rejected', reviewed_by_user_id = 'admin-1', reviewed_at = ?, review_result_code = 'out_of_scope', version = version + 1 WHERE id = 'overlap-proposal'`).bind(NOW + 3).run();
+  const resolved = await repository.listReviewItems({ jobId: created.job.id });
+  expect(resolved.items[0]).toMatchObject({ pendingProposalId: null, candidate: { classification: "eligible" } });
+  const saved = await repository.saveCandidateReview(command);
+  expect(saved).toMatchObject({ status: "ready", reviewInput: { song: reviewInput.song, relationType: "singing_clip" } });
+});
+
+it("keeps pending proposals visible when the matching candidate was ignored", async () => {
+  const repository = new D1IngestionRepository(db);
+  const created = await repository.createJob({ jobId: "ignored-history", actorUserId: "admin-1", input, preflight, now: NOW });
+  await repository.recordPlaylistPage(await repository.readMessage(created.message.idempotencyKey), { items: [{ videoId: "AAAAAAAAAAA", position: 0, playlistItemId: "item-1" }], nextPageToken: null }, NOW + 1);
+  await db.prepare(`UPDATE music_ingestion_candidates SET status = 'ignored' WHERE external_video_id = 'AAAAAAAAAAA'`).run();
+  await db.prepare(`INSERT INTO music_cover_proposals (id, submitted_by_user_id, idempotency_key, submitted_url, youtube_video_id, submitted_title, created_at, updated_at) VALUES ('ignored-proposal', 'user-1', 'ignored-key', 'https://www.youtube.com/watch?v=AAAAAAAAAAA', 'AAAAAAAAAAA', 'Proposed cover', ?, ?)`).bind(NOW, NOW).run();
+  const pending = await repository.listReviewItems({ source: "user" });
+  expect(pending.items).toHaveLength(1);
+  expect(pending.items[0]).toMatchObject({ id: "ignored-proposal", kind: "proposal" });
 });

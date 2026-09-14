@@ -1,3 +1,5 @@
+import { toPerformanceResponse } from "../http/public-catalog-handler";
+import { parsePlaylistQuery } from "../domain/playlist-query";
 import { applyD1Migrations, env } from "cloudflare:test";
 import type { D1Migration } from "cloudflare:test";
 import type { OtwPlayAdminCatalogSubjectInput } from "@contracts/otw-play";
@@ -357,7 +359,7 @@ describe("D1AdminCatalogRepository", () => {
     expect(Number(published?.count)).toBe(0);
   });
 
-  it("converts an approved kirinuki candidate into a private broadcast draft", async () => {
+  it("completes an existing broadcast draft and preserves policy through publish, alternate sources and revocation", async () => {
     const repository = new D1AdminCatalogRepository(db);
     const singer = await createEntity(repository, "Clip Singer");
     const createdChannel = await repository.createChannel(
@@ -448,7 +450,7 @@ describe("D1AdminCatalogRepository", () => {
           creditOrder: 0,
         }],
         channel: { kind: "existing", channelId: channel.data.id },
-        relationType: "cover",
+        relationType: "singing_clip",
         releaseType: "broadcast",
         participationType: "solo",
         publicationTarget: "draft",
@@ -511,6 +513,82 @@ describe("D1AdminCatalogRepository", () => {
       "clip-performance-publish-blocked",
       NOW + 2,
     )).rejects.toMatchObject({ code: "validation_failed" });
+    const sourceInput = { youtubeUrl: "https://youtu.be/BBBBBBBBBBB", channelId: channel.data.id,
+      startSeconds: 45, endSeconds: 165, sourceRole: "kirinuki" as const, priority: 0, isPrimary: true };
+    const correction = {
+      input: { id: "clip-performance", expectedVersion: result.data.performance.version,
+        songId: song.data.id, relationType: "singing_clip" as const, releaseType: "broadcast" as const,
+        participationType: "solo" as const, qualityStatus: "ok" as const, releasedAt: NOW,
+        internalNote: null, broadcast: { performedOn: null, dateEvidence: null, originalUrl: null, extent: "partial" as const },
+        participants: [{ subject: { kind: "entity" as const, entityId: singer.data.id }, participantRole: "vocal" as const, creditOrder: 0 }],
+        sources: [sourceInput] },
+      sources: [{ input: sourceInput, video, sourceId: "clip-source" }], actor, now: NOW + 3,
+      ids: { entityIds: {}, entityEventIds: {}, eventId: "clip-completed" },
+    };
+    const completed = await repository.updatePerformance(correction);
+    const unboundedInput = { ...sourceInput, youtubeUrl: "https://youtu.be/EEEEEEEEEEE", endSeconds: null, isPrimary: false, priority: 1 };
+    const withUnboundedAlternate = await repository.updatePerformance({ ...correction,
+      input: { ...correction.input, expectedVersion: completed.data.version, sources: [sourceInput, unboundedInput] },
+      sources: [...correction.sources, { input: unboundedInput, video: { ...video, videoId: "EEEEEEEEEEE" }, sourceId: "unbounded-alternate" }],
+      ids: { ...correction.ids, eventId: "clip-unbounded-alternate" } });
+    await expect(repository.transitionPerformance("clip-performance", withUnboundedAlternate.data.version, "published", actor, "invalid-clip-publication", NOW + 4))
+      .rejects.toMatchObject({ code: "validation_failed" });
+    expect(await db.prepare("SELECT publication_status, version FROM music_performances WHERE id = 'clip-performance'").first())
+      .toEqual({ publication_status: "draft", version: withUnboundedAlternate.data.version });
+    expect(await db.prepare("SELECT id FROM music_catalog_events WHERE id = 'invalid-clip-publication'").first()).toBeNull();
+    const repaired = await repository.updatePerformance({ ...correction,
+      input: { ...correction.input, expectedVersion: withUnboundedAlternate.data.version },
+      ids: { ...correction.ids, eventId: "clip-bounds-repaired" } });
+    const visible = await repository.transitionPerformance("clip-performance", repaired.data.version, "published", actor, "clip-published", NOW + 4);
+    const reader = new D1PublicCatalogReader(db);
+    const list = await reader.readPlaylistPerformances(parsePlaylistQuery(new URLSearchParams("scope=broadcast&dateUnknown=1"), visible.catalogRevision));
+    expect(list).toHaveLength(1);
+    expect(toPerformanceResponse(list[0]!).performance).toMatchObject({ id: "clip-performance", relation: "singing_clip", releaseType: "broadcast", releasedAt: new Date(NOW + 4).toISOString(),
+      broadcast: { performedOn: null, originalUrl: null, extent: "partial" },
+      selectedSource: { startSeconds: 45, endSeconds: 165 }, playable: true });
+    expect(await reader.readSongBySlug("clip-song")).toBeNull();
+    expect((await reader.readSongBySlug("clip-song", "all"))?.performances).toHaveLength(1);
+    expect(await reader.listPublishedSeoSongSlugs()).toEqual([]);
+    expect(await reader.resolvePlaylistPerformances(["clip-performance"])).toEqual([]);
+    expect(await reader.resolvePlaylistPerformances(["clip-performance"], "all")).toHaveLength(1);
+    expect(await reader.readPlaylistPerformances(parsePlaylistQuery(new URLSearchParams(), visible.catalogRevision))).toEqual([]);
+    await expect(repository.updatePerformance({ ...correction, ids: { ...correction.ids, eventId: "clip-stale" } })).rejects.toMatchObject({ code: "stale_write" });
+    expect((await reader.readPerformanceById("clip-performance"))?.performance.broadcast?.extent).toBe("partial");
+    const identityBefore = await db.prepare("SELECT dedupe_key FROM music_performances WHERE id='clip-performance'").first();
+    const alternateInput = { ...sourceInput, youtubeUrl: "https://youtu.be/DDDDDDDDDDD", startSeconds: 10, endSeconds: 130, priority: 0 };
+    const originalInput = { ...sourceInput, isPrimary: false, priority: 1 };
+    const edited = await repository.updatePerformance({ ...correction,
+      input: { ...correction.input, expectedVersion: visible.data.version, sources: [alternateInput, originalInput] },
+      sources: [{ input: alternateInput, video: { ...video, videoId: "DDDDDDDDDDD" }, sourceId: "alternate-source" },
+        { input: originalInput, video, sourceId: "clip-source" }],
+      ids: { ...correction.ids, eventId: "clip-alternate" }, now: NOW + 5 });
+    expect(await db.prepare("SELECT dedupe_key FROM music_performances WHERE id='clip-performance'").first()).toEqual(identityBefore);
+    expect((await reader.readPerformanceById("clip-performance"))?.performance.sources).toHaveLength(2);
+    // Legacy data or later metadata changes must not expose an unbounded fallback.
+    await db.prepare("UPDATE music_performance_sources SET end_seconds = NULL WHERE source_id = 'clip-source'").run();
+    expect((await reader.readPerformanceById("clip-performance"))?.performance.sources.map(source => source.id)).toEqual(["alternate-source"]);
+    expect((await reader.resolvePlaylistPerformances(["clip-performance"], "all"))[0]?.performance.sources.map(source => source.id)).toEqual(["alternate-source"]);
+    await db.prepare("UPDATE music_performance_sources SET end_seconds = 165 WHERE source_id = 'clip-source'").run();
+    const secondInput = { ...sourceInput, youtubeUrl: "https://youtu.be/CCCCCCCCCCC" };
+    const second = await repository.createPerformance({ input: { ...correction.input,
+      broadcast: { performedOn: "2026-09-01", dateEvidence: "원본 설명", originalUrl: null, extent: "full" },
+      participants: [{ entityId: singer.data.id, participantRole: "vocal", creditOrder: 0 }], sources: [secondInput] },
+      sources: [{ input: secondInput, video: { ...video, videoId: "CCCCCCCCCCC" }, sourceId: "another-broadcast-source" }],
+      actor, now: NOW + 6, ids: { performanceId: "another-broadcast", eventId: "another-broadcast-created" } });
+    await repository.transitionPerformance(second.data.id, second.data.version, "published", actor, "another-broadcast-published", NOW + 7);
+    expect((await reader.readSongBySlug("clip-song", "all"))?.performances).toHaveLength(2);
+    const recent = await reader.readPlaylistPerformances(parsePlaylistQuery(new URLSearchParams("scope=broadcast"), 0));
+    expect(recent.map(item => item.performance.id)).toEqual(["another-broadcast", "clip-performance"]);
+    const dated = await reader.readPlaylistPerformances(parsePlaylistQuery(new URLSearchParams("scope=broadcast&broadcastFrom=2026-09-01&broadcastTo=2026-09-01"), 0));
+    expect(dated.map(item => item.performance.id)).toEqual(["another-broadcast"]);
+    const unknown = await reader.readPlaylistPerformances(parsePlaylistQuery(new URLSearchParams("scope=broadcast&dateUnknown=1"), 0));
+    expect(unknown.map(item => item.performance.id)).toEqual(["clip-performance"]);
+    await repository.updateChannel({ ...channel.data, expectedVersion: channel.data.version, verificationStatus: "revoked", active: false }, actor, "clip-approval-revoked", NOW + 8);
+    expect(await reader.readPerformanceById("clip-performance")).toBeNull();
+    expect(await reader.resolvePlaylistPerformances(["clip-performance"], "all")).toEqual([]);
+    const withdrawn = await repository.transitionPerformance("clip-performance", edited.data.version, "withdrawn", actor, "clip-withdrawn", NOW + 9);
+    expect(withdrawn.data.publicationStatus).toBe("withdrawn");
+
   });
 
   it("creates a member, external identity, channel, song, performance, event, and projection in one catalog batch", async () => {

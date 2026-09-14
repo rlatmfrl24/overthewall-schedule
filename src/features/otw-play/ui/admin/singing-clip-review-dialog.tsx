@@ -1,5 +1,7 @@
+import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
-import { useEffect, useState } from "react";
+import { preservesPlayReview } from "./review-navigation";
+import { useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type {
   OtwPlayAdminCatalogDto,
@@ -32,7 +34,7 @@ import {
 } from "@/shared/ui/select";
 import { Textarea } from "@/shared/ui/textarea";
 import { useToast } from "@/shared/ui/toast";
-import { ExternalLink, Loader2 } from "lucide-react";
+import { ArrowLeft, ExternalLink, Loader2 } from "lucide-react";
 import {
   convertOtwPlayImportCandidate,
   updateOtwPlayImportCandidate,
@@ -79,24 +81,38 @@ const selectedSubjectFromInput = (
 
 export function SingingClipReviewDialog({
   candidate,
+  candidateKind = "singing_clip",
+  reviewOnly = false,
+  presentation = "dialog",
+  active = true,
+  onManageChannel,
   catalog,
   onOpenChange,
   onConverted,
   onReviewStateChanged,
 }: {
   candidate: OtwPlayChannelMonitorCandidateDto | null;
+  candidateKind?: "official_video" | "singing_clip";
+  reviewOnly?: boolean;
+  presentation?: "dialog" | "page";
+  active?: boolean;
+  onManageChannel?: () => void;
   catalog: OtwPlayAdminCatalogDto;
   onOpenChange: (open: boolean) => void;
   onConverted: (performanceId: string | null) => Promise<void>;
   onReviewStateChanged: () => Promise<void>;
 }) {
   const { toast } = useToast();
+  const id = useId();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { if (presentation === "page" && active) headingRef.current?.focus(); }, [presentation, active]);
   const membersQuery = useQuery({
     queryKey: queryKeys.members.active(),
     queryFn: fetchActiveMembers,
     staleTime: 60_000,
-    enabled: candidate !== null,
+    enabled: candidate !== null && active,
   });
+  const [broadcast, setBroadcast] = useState(EMPTY_BROADCAST);
   const [songId, setSongId] = useState("__new");
   const [songTitle, setSongTitle] = useState("");
   const [songTags, setSongTags] = useState<string[]>([]);
@@ -112,7 +128,7 @@ export function SingingClipReviewDialog({
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const canDiscard = useUnsavedChanges(candidate !== null && dirty);
+  const canDiscard = useUnsavedChanges(candidate !== null && dirty, presentation === "page" ? preservesPlayReview : undefined);
   const [reviewBaseline, setReviewBaseline] = useState<{
     version: number;
     status: OtwPlayChannelMonitorCandidateDto["status"];
@@ -124,14 +140,19 @@ export function SingingClipReviewDialog({
       subjects.findIndex((candidate) => candidate.key === subject.key) === index,
   );
 
+  const initializedCandidate = useRef<string | null>(null);
   useEffect(() => {
     if (!candidate) {
+      initializedCandidate.current = null;
       setReviewBaseline(null);
       return;
     }
+    if (initializedCandidate.current === candidate.candidateId) return;
+    initializedCandidate.current = candidate.candidateId;
     setDirty(false);
     setSaveMessage(null);
     const input = candidate.reviewInput;
+    setBroadcast(input?.broadcast ?? EMPTY_BROADCAST);
     setReviewBaseline({
       version: candidate.candidateVersion,
       status: candidate.status,
@@ -181,6 +202,7 @@ export function SingingClipReviewDialog({
   const songValid = songId !== "__new" ||
     (songTitle.trim().length > 0 && originalArtists.length > 0);
   const canSave = candidate !== null &&
+    !["converted", "ignored"].includes(candidate.status) &&
     candidate.availabilityStatus === "playable" &&
     candidate.catalogChannelId !== null &&
     participants.length > 0 &&
@@ -206,11 +228,12 @@ export function SingingClipReviewDialog({
     let reviewSaved = false;
     try {
       const reviewInput = {
+        ...(candidateKind === "singing_clip" ? { broadcast } : {}),
         song: songId === "__new"
           ? {
               kind: "create" as const,
               title: songTitle.trim(),
-              isOtwOriginal: relationType === "original",
+              isOtwOriginal: candidateKind !== "singing_clip" && relationType === "original",
               originalReleaseDate: null,
               originalReleasePrecision: "unknown" as const,
               aliases: [],
@@ -228,8 +251,8 @@ export function SingingClipReviewDialog({
           creditOrder,
           creditNameSnapshot: participant.label,
         })),
-        relationType,
-        releaseType: "broadcast" as const,
+        relationType: candidateKind === "singing_clip" ? "singing_clip" as const : relationType,
+        releaseType: candidateKind === "singing_clip" ? "broadcast" as const : (reviewBaseline.reviewInput?.releaseType === "official_mv" ? "official_mv" as const : "official_video" as const),
         participationType,
         ...(performanceTags.length > 0 ? { performanceTags } : {}),
         startSeconds: parsedStart,
@@ -249,6 +272,19 @@ export function SingingClipReviewDialog({
         status: reviewed.status,
         reviewInput: reviewed.reviewInput,
       });
+      // Ready saves materialize new songs and subjects before draft conversion.
+      // Keep these canonical references even while the form stays mounted.
+      if (reviewed.reviewInput) {
+        const saved = reviewed.reviewInput;
+        if (saved.song.kind === "existing") setSongId(saved.song.songId);
+        setParticipants(saved.participants.map((participant, index) => ({
+          ...selectedSubjectFromInput(participant.subject, catalog),
+          label: participant.creditNameSnapshot ?? participants[index]?.label ??
+            selectedSubjectFromInput(participant.subject, catalog).label,
+          participantRole: participant.participantRole,
+        })));
+      }
+      if (reviewOnly) { setDirty(false); setSaveMessage("검수 저장 완료"); await onReviewStateChanged(); onOpenChange(false); return; }
       const converted = await convertOtwPlayImportCandidate(candidate.candidateId, {
         expectedVersion: reviewed.version,
       });
@@ -258,7 +294,7 @@ export function SingingClipReviewDialog({
       toast({
         variant: "success",
         description: converted.outcome === "created"
-          ? "검수한 영상을 방송 가창 draft로 저장했습니다."
+          ? "검수한 영상을 가창 임시 항목로 저장했습니다."
           : "이미 등록된 영상과 연결했습니다.",
       });
       setDirty(false);
@@ -272,27 +308,39 @@ export function SingingClipReviewDialog({
       }
       toast({
         variant: "error",
-        description: "검수 영상을 draft로 저장하지 못했습니다. 최신 후보와 입력값을 확인해 주세요.",
+        description: "검수 영상을 임시 항목으로 저장하지 못했습니다. 최신 후보와 입력값을 확인해 주세요.",
       });
     } finally {
       setSaving(false);
     }
   };
 
-  return (
-    <Dialog open={candidate !== null} onOpenChange={async (next) => { if (next || (!saving && await canDiscard())) onOpenChange(next); }}>
-      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>노래 클립 검수 · draft 생성</DialogTitle>
-          <DialogDescription>
-            승인 채널의 개별 영상을 곡과 가창자에 연결합니다. 저장 결과는 비공개
-            방송 가창 draft이며 자동 게시되지 않습니다.
-          </DialogDescription>
-        </DialogHeader>
+  const Header = presentation === "page" ? "header" : DialogHeader;
+  const Title = presentation === "page" ? "h2" : DialogTitle;
+  const Description = presentation === "page" ? "p" : DialogDescription;
+  const Footer = presentation === "page" ? "footer" : DialogFooter;
+  const returnToList = () => { if (!saving) onOpenChange(false); };
+  const content = (
+    <>
+        <Header className="space-y-2">
+          {presentation === "page" && <Button variant="ghost" size="sm" disabled={saving} onClick={returnToList}><ArrowLeft /> 검수 목록으로</Button>}
+          <Title ref={headingRef} tabIndex={-1} className="text-xl font-semibold outline-none">{candidateKind === "singing_clip" ? "노래 클립" : "공식 영상"} 검수</Title>
+          <Description className="text-sm text-muted-foreground">
+            {reviewOnly ? "영상과 곡·가창 정보를 확인한 뒤 검수를 저장하세요. 저장한 항목은 목록에서 일괄 임시 등록할 수 있습니다." : "승인 채널의 개별 영상을 곡과 가창자에 연결합니다. 저장 결과는 비공개 가창 임시 항목이며 자동 게시되지 않습니다."}
+          </Description>
+        </Header>
         {candidate ? (
-          <div className="space-y-3" onChangeCapture={() => setDirty(true)} onClickCapture={(event) => { if ((event.target as HTMLElement).closest("[role=combobox],button")) setDirty(true); }}>
-            <div className="flex gap-3 rounded-xl border bg-muted/20 p-3">
-              {candidate.thumbnailUrl ? (
+          <div className={presentation === "page" ? "grid items-start gap-6 lg:grid-cols-[minmax(260px,0.7fr)_minmax(0,1.3fr)]" : "space-y-3"} onChangeCapture={() => setDirty(true)} onClickCapture={(event) => { const target = event.target as HTMLElement; if (!target.closest("aside") && target.closest("[role=combobox],button")) setDirty(true); }}>
+            <aside className={presentation === "page" ? "space-y-3 lg:sticky lg:top-4" : "space-y-3"}>
+            {presentation === "page" && active && <iframe
+              className="aspect-video max-h-80 w-full rounded-lg border"
+              src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(candidate.videoId)}`}
+              title={`검수 영상 · ${candidate.title ?? candidate.videoId}`}
+              allow="encrypted-media; picture-in-picture; fullscreen"
+              allowFullScreen
+            />}
+            <div className="flex flex-wrap gap-3 border-b pb-3">
+              {presentation === "dialog" && candidate.thumbnailUrl ? (
                 <img
                   className="h-24 w-40 shrink-0 rounded-lg object-cover"
                   src={candidate.thumbnailUrl}
@@ -305,8 +353,8 @@ export function SingingClipReviewDialog({
                   {candidate.channelTitle ?? "승인 키리누키 채널"}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <Badge variant="secondary">방송 가창 draft</Badge>
-                  <Badge variant="outline">키리누키 source</Badge>
+                  <Badge variant="secondary">{candidate.status === "ready" ? "등록 준비 완료" : "검수 중"}</Badge>
+                  <Badge variant="outline">{candidateKind === "singing_clip" ? "노래 클립" : "공식 영상"}</Badge>
                   <a
                     className="text-sm text-primary underline"
                     href={`https://www.youtube.com/watch?v=${encodeURIComponent(candidate.videoId)}`}
@@ -319,7 +367,13 @@ export function SingingClipReviewDialog({
               </div>
             </div>
 
+            {candidate.catalogChannelId === null && <p role="status" className="text-sm text-destructive">업로드 채널 승인이 필요합니다. 채널 설정을 확인한 뒤 검수를 저장하세요.</p>}
+            {candidate.availabilityStatus !== "playable" && <p role="status" className="text-sm text-destructive">현재 재생 가능 여부를 확인해야 저장할 수 있습니다.</p>}
+            {onManageChannel && <Button variant="outline" disabled={saving} onClick={onManageChannel}>채널 승인·수집 설정</Button>}
+            </aside>
+            <fieldset disabled={saving} className="min-w-0 space-y-6">
             <section className="grid gap-3 sm:grid-cols-2">
+              <h3 className="text-base font-semibold sm:col-span-2">1. 곡 연결·원곡 정보</h3>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>연결할 곡</Label>
                 <Select value={songId} onValueChange={setSongId}>
@@ -335,9 +389,9 @@ export function SingingClipReviewDialog({
               {songId === "__new" ? (
                 <>
                   <div className="space-y-1.5 sm:col-span-2">
-                    <Label htmlFor="clip-song-title">곡명</Label>
+                    <Label htmlFor={`${id}-clip-song-title`}>곡명</Label>
                     <Input
-                      id="clip-song-title"
+                      id={`${id}-clip-song-title`}
                       value={songTitle}
                       onChange={(event) => setSongTitle(event.target.value)}
                     />
@@ -352,13 +406,13 @@ export function SingingClipReviewDialog({
                       onChange={setOriginalArtists}
                     />
                   </div>
-                  <div className="rounded-lg border p-3 sm:col-span-2">
+                  <div className="sm:col-span-2">
                     <SongTagPicker
                       key={candidate.candidateId}
                       tags={songTags}
                       onChange={setSongTags}
                       label="장르(분류)"
-                      inputId="clip-song-tags"
+                      inputId={`${id}-clip-song-tags`}
                       placeholder="장르 또는 분류 입력"
                       selectedLabel="선택한 장르(분류)"
                       description="카탈로그 검색·필터에 사용할 라벨입니다. 최대 10개까지 추가하거나 삭제할 수 있습니다."
@@ -382,14 +436,18 @@ export function SingingClipReviewDialog({
               )}
               <div className="space-y-1.5">
                 <Label>곡 관계</Label>
-                <Select value={relationType} onValueChange={(value) => setRelationType(value as OtwPlayRelationType)}>
+                {candidateKind === "singing_clip" ? <p className="text-sm font-medium">노래 클립</p> : <Select value={relationType} onValueChange={(value) => setRelationType(value as OtwPlayRelationType)}>
                   <SelectTrigger aria-label="곡 관계"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="cover">커버</SelectItem>
                     <SelectItem value="original">오리지널</SelectItem>
                   </SelectContent>
-                </Select>
+                </Select>}
               </div>
+            </section>
+
+            <section className="space-y-3 border-t pt-4">
+              <h3 className="text-base font-semibold">2. 가창자·참여 형태</h3>
               <div className="space-y-1.5">
                 <Label>참여 형태</Label>
                 <Select value={participationType} onValueChange={(value) => setParticipationType(value as OtwPlayParticipationType)}>
@@ -403,21 +461,7 @@ export function SingingClipReviewDialog({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="rounded-lg border p-3 sm:col-span-2">
-                <SongTagPicker
-                  tags={performanceTags}
-                  onChange={setPerformanceTags}
-                  label="커버 영상 라벨"
-                  inputId="clip-performance-tags"
-                  placeholder="이 영상만의 라벨 입력"
-                  selectedLabel="선택한 커버 영상 라벨"
-                  description="이 방송 가창 구간에만 적용되며 곡 장르·분류와 별도로 저장됩니다."
-                  recommendedTags={[]}
-                />
-              </div>
-            </section>
 
-            <section className="space-y-3">
               <SubjectPicker
                 label="가창 참여자"
                 members={membersQuery.data ?? []}
@@ -449,31 +493,56 @@ export function SingingClipReviewDialog({
               ))}
             </section>
 
-            <section className="grid gap-3 sm:grid-cols-2">
+            <section className="grid gap-3 border-t pt-4 sm:grid-cols-2">
+              <h3 className="text-base font-semibold sm:col-span-2">{candidateKind === "singing_clip" ? "3. 방송 출처·가창 구간" : "3. 영상 재생 구간"}</h3>
+            {candidateKind === "singing_clip" && <div className="sm:col-span-2"><BroadcastFields flat value={broadcast} onChange={value => { setBroadcast(value); setDirty(true); }} /></div>}
               <div className="space-y-1.5">
-                <Label htmlFor="clip-start-seconds">시작 위치(초)</Label>
-                <Input id="clip-start-seconds" type="number" min={0} value={startSeconds} onChange={(event) => setStartSeconds(event.target.value)} />
+                <Label htmlFor={`${id}-clip-start-seconds`}>시작 위치(초)</Label>
+                <Input id={`${id}-clip-start-seconds`} type="number" min={0} value={startSeconds} onChange={(event) => setStartSeconds(event.target.value)} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="clip-end-seconds">종료 위치(초)</Label>
-                <Input id="clip-end-seconds" type="number" min={0} value={endSeconds} onChange={(event) => setEndSeconds(event.target.value)} placeholder="전체 영상이면 비워두기" />
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="clip-internal-note">검수 메모</Label>
-                <Textarea id="clip-internal-note" value={internalNote} onChange={(event) => setInternalNote(event.target.value)} placeholder="원본 방송, 방송일 또는 확인 근거가 있으면 기록" />
+                <Label htmlFor={`${id}-clip-end-seconds`}>종료 위치(초)</Label>
+                <Input id={`${id}-clip-end-seconds`} type="number" min={0} value={endSeconds} onChange={(event) => setEndSeconds(event.target.value)} placeholder="전체 영상이면 비워두기" />
               </div>
             </section>
+            <section className="space-y-3 border-t pt-4">
+              <h3 className="text-base font-semibold">4. 추가 분류·검수 메모</h3>
+              <div className="sm:col-span-2">
+                <SongTagPicker
+                  tags={performanceTags}
+                  onChange={setPerformanceTags}
+                  label={candidateKind === "singing_clip" ? "클립 라벨" : "영상 라벨"}
+                  inputId={`${id}-clip-performance-tags`}
+                  placeholder="이 영상만의 라벨 입력"
+                  selectedLabel="선택한 영상 라벨"
+                  description="이 가창 영상·구간에만 적용되며 곡 장르·분류와 별도로 저장됩니다."
+                  recommendedTags={[]}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor={`${id}-clip-internal-note`}>검수 메모</Label>
+                <Textarea id={`${id}-clip-internal-note`} value={internalNote} onChange={(event) => setInternalNote(event.target.value)} placeholder="원본 방송, 방송일 또는 확인 근거가 있으면 기록" />
+              </div>
+            </section>
+            </fieldset>
           </div>
         ) : null}
         {saveMessage && <p role="status" className="text-sm">{saveMessage}</p>}
-        <DialogFooter className="sticky bottom-0 border-t bg-background py-3">
-          <Button variant="outline" onClick={async () => { if (await canDiscard()) onOpenChange(false); }}>취소</Button>
+        {presentation === "page" && candidate && !saving && (!songValid || participants.length === 0 || !segmentValid) && <p role="status" className="text-sm text-muted-foreground">
+          저장 전 확인: {[!songValid ? "곡명·원곡 가수 또는 기존 곡 선택" : null, participants.length === 0 ? "가창 참여자 선택" : null, !segmentValid ? "영상 길이 안의 시작·종료 위치" : null].filter(Boolean).join(" · ")}
+        </p>}
+        <Footer className="sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-2 border-t bg-background py-3">
+          {presentation === "page" && <p className="mr-auto text-xs text-muted-foreground">{dirty ? "작성 중인 내용은 목록으로 돌아가도 유지됩니다." : "공개는 카탈로그에서 별도로 진행합니다."}</p>}
+          <Button variant="outline" disabled={saving} onClick={async () => { if (presentation === "page" || await canDiscard()) onOpenChange(false); }}>{presentation === "page" ? "목록으로" : "취소"}</Button>
           <Button disabled={!canSave} onClick={() => void save()}>
             {saving ? <Loader2 className="animate-spin" /> : null}
-            검수 완료 후 draft 생성
+            {reviewOnly ? "검수 저장 · 등록 준비 완료" : "검수 완료 후 임시 등록"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </Footer>
+    </>
   );
+  if (presentation === "page") return <section aria-label={`${candidateKind === "singing_clip" ? "노래 클립" : "공식 영상"} 검수 화면`} className="space-y-5">{content}</section>;
+  return <Dialog open={candidate !== null} onOpenChange={async (next) => { if (next || (!saving && await canDiscard())) onOpenChange(next); }}>
+    <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">{content}</DialogContent>
+  </Dialog>;
 }

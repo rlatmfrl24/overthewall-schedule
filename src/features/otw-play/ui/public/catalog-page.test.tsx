@@ -106,6 +106,26 @@ describe("OtwPlayCatalogPage", () => {
     vi.useRealTimers();
   });
 
+  it("searches during Hangul composition without replacing the composing input", () => {
+    const onSearchChange = vi.fn();
+    const { rerender } = render(<OtwPlayCatalogPage search={{ q: "나도" }} onSearchChange={onSearchChange} />);
+    const input = screen.getByRole("textbox", { name: "곡 검색" }) as HTMLInputElement;
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: "내가" } });
+    act(() => vi.advanceTimersByTime(250));
+    expect(onSearchChange).toHaveBeenCalledExactlyOnceWith({ q: "내가" }, true);
+    fireEvent.submit(input.closest("form")!);
+    expect(onSearchChange).toHaveBeenCalledTimes(1);
+    fireEvent.change(input, { target: { value: "내가 죽" } });
+    rerender(<OtwPlayCatalogPage search={{ q: "내가" }} onSearchChange={onSearchChange} />);
+    expect(input.value).toBe("내가 죽");
+    act(() => vi.advanceTimersByTime(250));
+    expect(onSearchChange).toHaveBeenLastCalledWith({ q: "내가 죽" }, true);
+    fireEvent.compositionEnd(input);
+    fireEvent.submit(input.closest("form")!);
+    expect(onSearchChange).toHaveBeenCalledTimes(3);
+  });
+
   it("loads near the list end once, waits for fetching, and stops at the final page", () => {
     const result = {
       ...catalogResult,

@@ -1,6 +1,10 @@
 import { createContext, useCallback, useContext, useState } from "react";
 
 export interface ConsoleSearch {
+  channel?: string;
+  channelKind?: "official_video" | "singing_clip";
+  kind?: "official" | "broadcast" | "all";
+  view?: string;
   sort?: string;
   pageSize?: number;
   tab?: string;
@@ -20,9 +24,11 @@ export interface ConsoleSearch {
 
 export function validateConsoleSearch(search: Record<string, unknown>): ConsoleSearch {
   const result: ConsoleSearch = {};
-  for (const key of ["sort", "tab", "source", "q", "state", "category", "selected", "proposal", "from", "until", "date"] as const) {
+  for (const key of ["channel", "view", "sort", "tab", "source", "q", "state", "category", "selected", "proposal", "from", "until", "date"] as const) {
     if (typeof search[key] === "string" && search[key]) result[key] = search[key].slice(0, 200);
   }
+  if (["official", "broadcast", "all"].includes(String(search.kind))) result.kind = search.kind as ConsoleSearch["kind"];
+  if (search.channelKind === "official_video" || search.channelKind === "singing_clip") result.channelKind = search.channelKind;
   const pageSize = Number(search.pageSize);
   if ([25, 50, 100, 200].includes(pageSize)) result.pageSize = pageSize;
   const page = Number(search.page);

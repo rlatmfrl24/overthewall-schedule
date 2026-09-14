@@ -8,7 +8,7 @@ export { PlaylistError } from "../../domain/playlist-error";
 export interface PlaylistCatalogReader {
   readPlaylistDefaults(): Promise<PlayDefaultPlaylist[]>;
   readPlaylistPerformances(query: PlaylistPerformanceQuery): Promise<PublicCatalogPerformanceDetail[]>;
-  resolvePlaylistPerformances(ids: string[]): Promise<PublicCatalogPerformanceDetail[]>;
+  resolvePlaylistPerformances(ids: string[], scope?: "official" | "all"): Promise<PublicCatalogPerformanceDetail[]>;
 }
 
 export interface PlaylistRepository {

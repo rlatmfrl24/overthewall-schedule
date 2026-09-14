@@ -144,9 +144,10 @@ export function fetchOtwPlayFacets(options: OtwPlayPublicRequestOptions = {}) {
 export function fetchOtwPlaySong(
   slug: string,
   options: OtwPlayPublicRequestOptions = {},
+  scope: "official" | "all" = "official",
 ) {
   return publicGet<OtwPlayPublicSongDetailDto>(
-    apiRoutes.otwPlay.song.build(slug),
+    apiRoutes.otwPlay.song.build(slug) + (scope === "all" ? "?scope=all" : ""),
     options,
   );
 }

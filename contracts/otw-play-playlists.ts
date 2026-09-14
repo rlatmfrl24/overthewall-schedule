@@ -3,6 +3,11 @@ import type { OtwPlayPublicPerformanceResponseDto } from "./otw-play";
 export const PLAY_PLAYLIST_MAX_ITEMS = 1000;
 
 export interface PlayPerformanceQuery {
+  scope?: "official" | "broadcast";
+  songSlug?: string;
+  broadcastFrom?: string;
+  broadcastTo?: string;
+  dateUnknown?: boolean;
   q?: string;
   member?: number;
   relation?: "original" | "cover";

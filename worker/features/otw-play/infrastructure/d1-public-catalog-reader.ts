@@ -1,3 +1,4 @@
+import { readBroadcastMetadata } from "../domain/broadcast-metadata";
 import type { OtwPlayMemberSummary } from "@contracts/otw-play-members";
 import type { PlayDefaultPlaylist } from "@contracts/otw-play-playlists";
 import type { PlaylistPerformanceQuery } from "../application/ports/playlist-repository";
@@ -54,8 +55,9 @@ type CandidateRow = SongRow &
 
 type PerformanceRow = {
   performance_id: string;
-  relation_type: "original" | "cover";
-  release_type: "official_mv" | "official_video";
+  relation_type: "original" | "cover" | "singing_clip";
+  release_type: "official_mv" | "official_video" | "broadcast";
+  broadcast_metadata?: string | null;
   participation_type:
     | "solo"
     | "duet"
@@ -104,7 +106,7 @@ type SourceRow = {
   duration_seconds: number | null;
   provider_published_at: number | null;
   availability_status: PublicCatalogSource["availabilityStatus"];
-  source_role: "official" | "alternate";
+  source_role: "official" | "alternate" | "kirinuki";
   priority: number;
   is_primary: number;
   start_seconds: number;
@@ -140,18 +142,36 @@ const PUBLIC_PERFORMANCE_PREDICATE = `
   performance.publication_status = 'published'
   AND performance.release_type IN ('official_mv', 'official_video')`;
 
+const BROADCAST_PERFORMANCE_PREDICATE = `performance.publication_status = 'published'
+  AND performance.release_type = 'broadcast'
+  AND json_extract(performance.broadcast_metadata, '$.extent') IN ('full', 'partial')
+  AND EXISTS (SELECT 1 FROM music_performance_sources clip_link
+    JOIN music_media_sources clip_source ON clip_source.id = clip_link.source_id
+    JOIN music_channels clip_channel ON clip_channel.id = clip_source.channel_id
+    WHERE clip_link.performance_id = performance.id AND clip_link.source_role = 'kirinuki'
+       AND clip_link.start_seconds >= 0 AND clip_link.end_seconds > clip_link.start_seconds
+       AND clip_source.duration_seconds >= clip_link.end_seconds
+      AND clip_channel.channel_role = 'approved_kirinuki'
+      AND clip_channel.verification_status = 'approved' AND clip_channel.active = 1)`;
+const performancePredicate = (scope: "official" | "broadcast" | "all") => scope === "official"
+  ? PUBLIC_PERFORMANCE_PREDICATE : scope === "broadcast" ? BROADCAST_PERFORMANCE_PREDICATE
+    : `((${PUBLIC_PERFORMANCE_PREDICATE}) OR (${BROADCAST_PERFORMANCE_PREDICATE}))`;
+const performanceDate = (scope: "official" | "broadcast" | "all") => scope === "official"
+  ? "performance.released_at" : "CASE WHEN performance.release_type = 'broadcast' THEN performance.catalog_published_at ELSE performance.released_at END";
+
 const PUBLIC_SONG_PREDICATE = `
   song.archived_at IS NULL
   AND song.merged_into_song_id IS NULL`;
 
-const PUBLIC_SOURCE_PREDICATE = `
-  performance_source.source_role IN ('official', 'alternate')
-  AND channel.verification_status = 'approved'
-  AND channel.active = 1
-  AND channel.channel_role IN (
-    'otw_official', 'unit_official', 'member_music', 'member_main',
-    'project_official'
-  )`;
+const PUBLIC_SOURCE_PREDICATE = `channel.verification_status = 'approved' AND channel.active = 1
+  AND ((performance_source.source_role IN ('official', 'alternate') AND channel.channel_role IN
+    ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'))
+    OR (performance_source.source_role = 'kirinuki' AND channel.channel_role = 'approved_kirinuki'
+      AND performance_source.start_seconds >= 0
+      AND performance_source.end_seconds > performance_source.start_seconds
+      AND source.duration_seconds >= performance_source.end_seconds
+      AND EXISTS (SELECT 1 FROM music_performances clip_performance
+        WHERE clip_performance.id = performance_source.performance_id AND clip_performance.release_type = 'broadcast')))`;
 
 const PUBLIC_PERFORMANCE_ORDER = `
   CASE WHEN performance.released_at IS NULL THEN 1 ELSE 0 END ASC,
@@ -160,17 +180,6 @@ const PUBLIC_PERFORMANCE_ORDER = `
 
 const placeholders = (count: number) =>
   Array.from({ length: count }, () => "?").join(", ");
-
-const groupBy = <Row>(rows: readonly Row[], key: (row: Row) => string) => {
-  const grouped = new Map<string, Row[]>();
-  for (const row of rows) {
-    const value = key(row);
-    const existing = grouped.get(value) ?? [];
-    existing.push(row);
-    grouped.set(value, existing);
-  }
-  return grouped;
-};
 
 const indexedSearchSql = (query: string): SearchSql => {
   const prefix = `${query}*`;
@@ -1286,22 +1295,6 @@ const artistQueryForSongIds = (songIds: readonly string[]): BatchQuery => ({
   binds: [...songIds],
 });
 
-const tagQueryForSongIds = (songIds: readonly string[]): BatchQuery => ({
-  sql: `SELECT song_id, display_name FROM music_song_tags
-    WHERE song_id IN (${placeholders(songIds.length)})
-    ORDER BY song_id, tag_key`,
-  binds: [...songIds],
-});
-
-const performanceTagQueryForPerformanceIds = (
-  performanceIds: readonly string[],
-): BatchQuery => ({
-  sql: `SELECT performance_id, display_name FROM music_performance_tags
-    WHERE performance_id IN (${placeholders(performanceIds.length)})
-    ORDER BY performance_id, tag_key`,
-  binds: [...performanceIds],
-});
-
 const participantQueryForPerformanceIds = (
   performanceIds: readonly string[],
 ): BatchQuery => ({
@@ -1625,11 +1618,12 @@ const mapPerformance = (
   participantRows: readonly ParticipantRow[],
   sourceRows: readonly SourceRow[],
 ): PublicCatalogPerformance => {
-  const selection = selectPublicPlaybackSource(sourceRows.map(mapSource));
+  const selection = selectPublicPlaybackSource(sourceRows.map(mapSource), row.release_type);
   return {
     id: row.performance_id,
     relation: row.relation_type,
     releaseType: row.release_type,
+    ...(row.release_type === "broadcast" ? { broadcast: readBroadcastMetadata(row.broadcast_metadata) } : {}),
     participation: row.participation_type,
     releasedAt: row.released_at === null ? null : Number(row.released_at),
     tags: tagRows.map((tag) => tag.display_name),
@@ -1775,6 +1769,8 @@ export class D1PublicCatalogReader
   }
 
   async readPlaylistPerformances(query: PlaylistPerformanceQuery): Promise<PublicCatalogPerformanceDetail[]> {
+    const scope = query.scope ?? "official";
+    const date = performanceDate(scope);
     const conditions: string[] = [];
     const binds: SqlBind[] = [];
     if (query.relation) { conditions.push("performance.relation_type = ?"); binds.push(query.relation); }
@@ -1797,31 +1793,35 @@ export class D1PublicCatalogReader
           AND participant.participant_role IN ('vocal', 'featured_vocal') AND instr(entity.normalized_name, ?) > 0))`);
       binds.push(query.q, query.q, query.q);
     }
+    if (query.songSlug) { conditions.push("song.slug = ?"); binds.push(query.songSlug); }
+    if (query.broadcastFrom) { conditions.push("json_extract(performance.broadcast_metadata, '$.performedOn') >= ?"); binds.push(query.broadcastFrom); }
+    if (query.broadcastTo) { conditions.push("json_extract(performance.broadcast_metadata, '$.performedOn') <= ?"); binds.push(query.broadcastTo); }
+    if (query.dateUnknown) conditions.push("json_extract(performance.broadcast_metadata, '$.performedOn') IS NULL");
     if (query.after) {
       if (query.after.releasedAt === null) {
-        conditions.push("performance.released_at IS NULL AND performance.id > ?"); binds.push(query.after.id);
+        conditions.push(`${date} IS NULL AND performance.id > ?`); binds.push(query.after.id);
       } else {
-        conditions.push("(performance.released_at < ? OR performance.released_at IS NULL OR (performance.released_at = ? AND performance.id > ?))");
+        conditions.push(`(${date} < ? OR ${date} IS NULL OR (${date} = ? AND performance.id > ?))`);
         binds.push(query.after.releasedAt, query.after.releasedAt, query.after.id);
       }
     }
-    const rows = await this.playlistRows(conditions, [...binds, query.limit + 1], `ORDER BY ${PUBLIC_PERFORMANCE_ORDER} LIMIT ?`);
+    const rows = await this.playlistRows(conditions, [...binds, query.limit + 1], `ORDER BY (${date}) DESC, performance.id ASC LIMIT ?`, scope);
     return this.hydratePlaylistRows(rows);
   }
 
-  async resolvePlaylistPerformances(ids: string[]): Promise<PublicCatalogPerformanceDetail[]> {
+  async resolvePlaylistPerformances(ids: string[], scope: "official" | "all" = "official"): Promise<PublicCatalogPerformanceDetail[]> {
     if (!ids.length) return [];
-    return this.hydratePlaylistRows(await this.playlistRows([`performance.id IN (${placeholders(ids.length)})`], ids));
+    return this.hydratePlaylistRows(await this.playlistRows([`performance.id IN (${placeholders(ids.length)})`], ids, "", scope));
   }
 
-  private playlistRows(conditions: string[], binds: SqlBind[], suffix = "") {
+  private playlistRows(conditions: string[], binds: SqlBind[], suffix = "", scope: "official" | "broadcast" | "all" = "official") {
     return this.all<CandidateRow>(`SELECT song.id AS song_id, song.slug, song.title, song.normalized_title,
       song.is_otw_original, song.original_release_date, song.original_release_precision,
       performance.id AS performance_id, performance.relation_type, performance.release_type,
-      performance.participation_type, performance.released_at, 1 AS published_performance_count,
+      performance.participation_type, performance.broadcast_metadata, ${performanceDate(scope)} AS released_at, 1 AS published_performance_count,
       NULL AS relevance_rank, NULL AS normalized_participant, NULL AS search_phase
       FROM music_performances AS performance JOIN music_songs AS song ON song.id = performance.song_id
-      WHERE ${PUBLIC_PERFORMANCE_PREDICATE} AND ${PUBLIC_SONG_PREDICATE}
+      WHERE ${performancePredicate(scope)} AND ${PUBLIC_SONG_PREDICATE}
       ${conditions.map(condition => `AND (${condition})`).join(" ")} ${suffix}`, binds);
   }
 
@@ -2123,165 +2123,18 @@ export class D1PublicCatalogReader
     };
   }
 
-  async readSongBySlug(slug: string): Promise<PublicCatalogSongDetail | null> {
+  async readSongBySlug(slug: string, scope: "official" | "all" = "official"): Promise<PublicCatalogSongDetail | null> {
     this.resetDiagnostics();
-    const songRows = await this.all<SongRow>(
-      `
-        SELECT
-          song.id AS song_id,
-          song.slug,
-          song.title,
-          song.normalized_title,
-          song.is_otw_original,
-          song.original_release_date,
-          song.original_release_precision
-        FROM music_songs AS song
-        WHERE song.slug = ?
-          AND ${PUBLIC_SONG_PREDICATE}
-          AND EXISTS (
-            SELECT 1
-            FROM music_performances AS performance
-            WHERE performance.song_id = song.id
-              AND ${PUBLIC_PERFORMANCE_PREDICATE}
-          )`,
-      [slug],
-    );
-    const song = songRows[0];
-    if (!song) return null;
-
-    const [
-      artistRows,
-      tagRows,
-      performanceRows,
-      performanceTagRows,
-      participantRows,
-      sourceRows,
-    ] =
-      await this.batchAll([
-        artistQueryForSongIds([song.song_id]),
-        tagQueryForSongIds([song.song_id]),
-        {
-          sql: `
-            SELECT
-              performance.id AS performance_id,
-              performance.relation_type,
-              performance.release_type,
-              performance.participation_type,
-              performance.released_at
-            FROM music_performances AS performance
-            WHERE performance.song_id = ?
-              AND ${PUBLIC_PERFORMANCE_PREDICATE}
-            ORDER BY ${PUBLIC_PERFORMANCE_ORDER}`,
-          binds: [song.song_id],
-        },
-        {
-          sql: `
-            ${performanceTagQueryForPerformanceIds([song.song_id]).sql.replace(
-              /WHERE performance_id IN \(\?\)/,
-              `WHERE performance_id IN (
-                 SELECT id FROM music_performances
-                 WHERE song_id = ?
-                   AND publication_status = 'published'
-                   AND release_type IN ('official_mv', 'official_video')
-               )`,
-            )}`,
-          binds: [song.song_id],
-        },
-        {
-          sql: `
-            ${participantQueryForPerformanceIds([song.song_id]).sql.replace(
-              /WHERE participant\.performance_id IN \(\?\)/,
-              `JOIN music_performances AS public_performance
-                 ON public_performance.id = participant.performance_id
-               WHERE public_performance.song_id = ?
-                 AND public_performance.publication_status = 'published'
-                 AND public_performance.release_type IN ('official_mv', 'official_video')`,
-            )}`,
-          binds: [song.song_id],
-        },
-        {
-          sql: `
-            ${sourceQueryForPerformanceIds([song.song_id]).sql.replace(
-              /WHERE performance_source\.performance_id IN \(\?\)/,
-              `JOIN music_performances AS public_performance
-                 ON public_performance.id = performance_source.performance_id
-               WHERE public_performance.song_id = ?
-                 AND public_performance.publication_status = 'published'
-                 AND public_performance.release_type IN ('official_mv', 'official_video')`,
-            )}`,
-          binds: [song.song_id],
-        },
-      ]);
-    const participantsByPerformance = groupBy(
-      participantRows as ParticipantRow[],
-      (row) => row.performance_id,
-    );
-    const tagsByPerformance = groupBy(
-      performanceTagRows as PerformanceTagRow[],
-      (row) => row.performance_id,
-    );
-    const sourcesByPerformance = groupBy(
-      sourceRows as SourceRow[],
-      (row) => row.performance_id,
-    );
-    return {
-      ...mapSongCore(song, artistRows as ArtistRow[], tagRows as TagRow[]),
-      performances: (performanceRows as PerformanceRow[]).map((performance) =>
-        mapPerformance(
-          performance,
-          tagsByPerformance.get(performance.performance_id) ?? [],
-          participantsByPerformance.get(performance.performance_id) ?? [],
-          sourcesByPerformance.get(performance.performance_id) ?? [],
-        ),
-      ),
-    };
+    const rows = await this.playlistRows(["song.slug = ?"], [slug], `ORDER BY (${performanceDate(scope)}) DESC, performance.id ASC`, scope);
+    if (!rows.length) return null;
+    const tracks = await this.hydratePlaylistRows(rows);
+    return { ...tracks[0].song, performances: tracks.map(track => track.performance) };
   }
 
-  async readPerformanceById(
-    performanceId: string,
-  ): Promise<PublicCatalogPerformanceDetail | null> {
+  async readPerformanceById(performanceId: string): Promise<PublicCatalogPerformanceDetail | null> {
     this.resetDiagnostics();
-    const rows = await this.all<SongRow & PerformanceRow>(
-      `
-        SELECT
-          song.id AS song_id,
-          song.slug,
-          song.title,
-          song.normalized_title,
-          song.is_otw_original,
-          song.original_release_date,
-          song.original_release_precision,
-          performance.id AS performance_id,
-          performance.relation_type,
-          performance.release_type,
-          performance.participation_type,
-          performance.released_at
-        FROM music_performances AS performance
-        JOIN music_songs AS song ON song.id = performance.song_id
-        WHERE performance.id = ?
-          AND ${PUBLIC_PERFORMANCE_PREDICATE}
-          AND ${PUBLIC_SONG_PREDICATE}`,
-      [performanceId],
-    );
-    const row = rows[0];
-    if (!row) return null;
-
-    const [artistRows, tagRows, performanceTagRows, participantRows, sourceRows] = await this.batchAll([
-      artistQueryForSongIds([row.song_id]),
-      tagQueryForSongIds([row.song_id]),
-      performanceTagQueryForPerformanceIds([performanceId]),
-      participantQueryForPerformanceIds([performanceId]),
-      sourceQueryForPerformanceIds([performanceId]),
-    ]);
-    return {
-      song: mapSongCore(row, artistRows as ArtistRow[], tagRows as TagRow[]),
-      performance: mapPerformance(
-        row,
-        performanceTagRows as PerformanceTagRow[],
-        participantRows as ParticipantRow[],
-        sourceRows as SourceRow[],
-      ),
-    };
+    const rows = await this.playlistRows(["performance.id = ?"], [performanceId], "", "all");
+    return (await this.hydratePlaylistRows(rows))[0] ?? null;
   }
 
   private async readCandidates(

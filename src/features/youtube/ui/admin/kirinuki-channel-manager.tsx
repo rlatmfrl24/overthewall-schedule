@@ -76,7 +76,7 @@ export function KirinukiChannelManager() {
       console.error("Failed to load kirinuki channels:", channelsQuery.error);
       toast({
         variant: "error",
-        description: "키리누키 채널 목록을 불러오지 못했습니다.",
+        description: "방송 클립 채널 목록을 불러오지 못했습니다.",
       });
     }
   }, [channelsQuery.error, toast]);
@@ -103,15 +103,15 @@ export function KirinukiChannelManager() {
       toast({
         variant: "success",
         description: variables.channelId
-          ? "키리누키 채널을 수정했습니다."
-          : "키리누키 채널을 등록했습니다.",
+          ? "방송 클립 채널을 수정했습니다."
+          : "방송 클립 채널을 등록했습니다.",
       });
     },
     onError: (error) => {
       console.error("Failed to save channel:", error);
       toast({
         variant: "error",
-        description: "키리누키 채널 저장에 실패했습니다.",
+        description: "방송 클립 채널 저장에 실패했습니다.",
       });
     },
   });
@@ -124,14 +124,14 @@ export function KirinukiChannelManager() {
       });
       toast({
         variant: "success",
-        description: "키리누키 채널을 삭제했습니다.",
+        description: "방송 클립 채널을 삭제했습니다.",
       });
     },
     onError: (error) => {
       console.error("Delete failed:", error);
       toast({
         variant: "error",
-        description: "키리누키 채널 삭제에 실패했습니다.",
+        description: "방송 클립 채널 삭제에 실패했습니다.",
       });
     },
     onSettled: () => setDeletingChannel(null),
@@ -177,7 +177,7 @@ export function KirinukiChannelManager() {
   return (
     <div className="space-y-4">
       <AdminSectionHeader
-        title="키리누키 채널 관리"
+        title="방송 클립 채널 관리"
         description="VOD 페이지 키리누키 섹션에 표시될 유튜브 채널을 관리합니다."
         count={channelsQuery.data ? sortedChannels.length : undefined}
         actions={
@@ -186,7 +186,7 @@ export function KirinukiChannelManager() {
               value={channelSort}
               onValueChange={(value) => setChannelSort(value as KirinukiSortKey)}
             >
-              <SelectTrigger aria-label="키리누키 채널 정렬" size="sm" className="w-[170px]">
+              <SelectTrigger aria-label="방송 클립 채널 정렬" size="sm" className="w-[170px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -200,7 +200,7 @@ export function KirinukiChannelManager() {
             <Button
               variant="outline"
               size="sm"
-              aria-label="키리누키 채널 상태 새로고침"
+              aria-label="방송 클립 채널 상태 새로고침"
               onClick={() => void channelsQuery.refetch()}
               disabled={channelsQuery.isFetching}
             >
@@ -218,7 +218,7 @@ export function KirinukiChannelManager() {
         }
       />
 
-      <div className="flex flex-wrap gap-3"><Input aria-label="키리누키 채널 검색" placeholder="채널명 검색" className="max-w-sm" value={search.q ?? ""} onChange={(event) => updateSearch({q: event.target.value})}/><a className="text-sm underline" href="/admin/otw-play?tab=channels">Play 승인 채널 →</a><a className="text-sm underline" href="/admin/otw-play?tab=play-monitor">Play 감시 대상 →</a></div>
+      <div className="flex flex-wrap gap-3"><Input aria-label="방송 클립 채널 검색" placeholder="채널명 검색" className="max-w-sm" value={search.q ?? ""} onChange={(event) => updateSearch({q: event.target.value})}/><a className="text-sm underline" href="/admin/otw-play?tab=clip-channels">노래 클립 채널 관리 →</a><a className="text-sm underline" href="/admin/otw-play?tab=play-monitor">Play 감시 대상 →</a></div>
       <QueryReadback updatedAt={channelsQuery.dataUpdatedAt} fetching={channelsQuery.isFetching} error={channelsQuery.isError} />
       {channelsQuery.isError && !channelsQuery.data ? <p>채널 목록을 확인할 수 없습니다.</p> : channelsQuery.isFetching && sortedChannels.length === 0 ? (
         <div className="flex h-44 items-center justify-center rounded-xl border border-dashed">
@@ -226,7 +226,7 @@ export function KirinukiChannelManager() {
         </div>
       ) : sortedChannels.length === 0 ? (
         <div className="flex h-44 items-center justify-center rounded-xl border border-dashed bg-muted/30 text-sm text-muted-foreground">
-          등록된 키리누키 채널이 없습니다.
+          등록된 방송 클립 채널이 없습니다.
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border bg-card">
@@ -292,7 +292,7 @@ export function KirinukiChannelManager() {
           if (!open) setDeletingChannel(null);
         }}
         title="채널 삭제 확인"
-        description="정말로 이 키리누키 채널을 삭제하시겠습니까?"
+        description="정말로 이 방송 클립 채널을 삭제하시겠습니까?"
         confirmLabel="삭제"
         destructive
         onConfirm={() => {

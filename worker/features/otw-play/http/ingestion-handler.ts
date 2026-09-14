@@ -94,6 +94,19 @@ export const createIngestionHandler = (
       request.headers.get("X-Forwarded-For"),
   };
   try {
+    if (request.method === "GET" && url.pathname === "/api/play/admin/review-items") {
+      const kind = url.searchParams.get("candidateKind");
+      const source = url.searchParams.get("source");
+      const status = url.searchParams.get("status");
+      const cursor = url.searchParams.get("cursor");
+      const jobId = url.searchParams.get("jobId");
+      if ([...url.searchParams.keys()].some(key => !["candidateKind", "source", "status", "cursor", "jobId"].includes(key) || url.searchParams.getAll(key).length > 1)
+        || (jobId !== null && (!jobId.trim() || jobId !== jobId.trim() || jobId.length > 200 || (source !== null && source !== "playlist")))
+        || (kind !== null && !["official_video", "singing_clip"].includes(kind))
+        || (source !== null && !["playlist", "automatic", "user"].includes(source))
+        || (status !== null && !["pending", "ready", "completed"].includes(status)) || (cursor?.length ?? 0) > 2000) return errorResponse(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "Invalid review filters");
+      return responseJson({ data: await service.listReviewItems({ jobId: jobId ?? undefined, candidateKind: kind as "official_video" | "singing_clip" | undefined ?? undefined, source: source as "playlist" | "automatic" | "user" | undefined ?? undefined, status: status as "pending" | "ready" | "completed" | undefined ?? undefined, cursor: cursor ?? undefined }) });
+    }
     if (
       request.method === "GET" &&
       url.pathname === "/api/play/admin/imports"
@@ -321,6 +334,10 @@ export const createIngestionHandler = (
       url.pathname,
       /^\/api\/play\/admin\/imports\/([^/]+)$/u,
     );
+    if (request.method === "DELETE" && jobId) {
+      await service.deleteJobHistory(jobId, admin.user.id);
+      return responseJson({ data: { deleted: true } });
+    }
     if (request.method === "GET" && jobId) {
       if ([...url.searchParams.keys()].length > 0) {
         return errorResponse(
@@ -369,7 +386,7 @@ export const createIngestionHandler = (
         ? 404
         : error.code === "validation_failed"
           ? 422
-        : error.code === "idempotency_conflict"
+        : (error.code === "idempotency_conflict" || error.code === "stale_write")
           ? 409
           : error.code === "stale_message"
             ? 409
@@ -381,7 +398,7 @@ export const createIngestionHandler = (
           ? "PLAY_ADMIN_NOT_FOUND"
           : error.code === "validation_failed"
             ? "PLAY_ADMIN_VALIDATION_FAILED"
-          : error.code === "idempotency_conflict"
+          : (error.code === "idempotency_conflict" || error.code === "stale_write")
             ? "PLAY_ADMIN_STALE_WRITE"
             : error.code === "stale_message"
               ? "PLAY_ADMIN_STALE_WRITE"

@@ -364,6 +364,7 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     path: "/api/play/submissions/:id/withdraw",
     methods: [MEMBER_POLICY_NO_STORE_POST],
   },
+  { id: "otw-play.admin.review-items", owner: "otw-play", path: "/api/play/admin/review-items", methods: [ADMIN_GET] },
   {
     id: "otw-play.admin.import-jobs.list",
     owner: "otw-play",
@@ -386,7 +387,7 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     id: "otw-play.admin.import-job.read",
     owner: "otw-play",
     path: "/api/play/admin/imports/:jobId",
-    methods: [ADMIN_GET],
+    methods: [ADMIN_GET, ADMIN_DELETE],
   },
   {
     id: "otw-play.admin.import-job.items",

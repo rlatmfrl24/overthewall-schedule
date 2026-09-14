@@ -23,6 +23,7 @@ import {
 export const relationLabel = {
   original: "오리지널",
   cover: "공식 커버",
+  singing_clip: "노래 클립",
 } as const;
 
 const participationLabel = {
@@ -34,6 +35,7 @@ const participationLabel = {
 } as const;
 
 const releaseTypeLabel = {
+  broadcast: "노래 클립",
   official_mv: "공식 MV",
   official_video: "공식 영상",
 } as const;
@@ -110,7 +112,7 @@ export function OtwPlayPerformanceMetadata({
       )}
       aria-label="가창 분류"
     >
-      <span>{relationLabel[performance.relation]}</span>
+      <span>{performance.releaseType === "broadcast" && performance.relation === "cover" ? "커버 가창" : relationLabel[performance.relation]}</span>
       <span aria-hidden="true">·</span>
       <span>{releaseTypeLabel[performance.releaseType]}</span>
       <span aria-hidden="true">·</span>
@@ -145,7 +147,7 @@ export function OtwPlayPerformanceBadges({
         variant="outline"
         className="h-6 border-primary/25 bg-primary/5 px-2 text-[11px] font-medium text-primary"
       >
-        {relationLabel[performance.relation]}
+        {performance.releaseType === "broadcast" && performance.relation === "cover" ? "커버 가창" : relationLabel[performance.relation]}
       </Badge>
       <Badge
         variant="secondary"

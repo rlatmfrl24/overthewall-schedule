@@ -19,6 +19,21 @@ describe("playlist asynchronous actions", () => {
     act(() => result.current.add("a", ["a"], true));
     await waitFor(() => expect(mocks.append).toHaveBeenCalledWith([], 0, true));
   });
+  it("tracks resolved items and clears progress after cancellation", async () => {
+    let finish!: (value: typeof empty) => void;
+    mocks.collect.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const { result } = renderHook(usePlaylistActions);
+    act(() => result.current.add("cover", { relation: "cover" }, true, 120));
+    await waitFor(() => expect(mocks.collect).toHaveBeenCalledOnce());
+    expect(result.current.progress).toEqual({ completed: 0, total: 120 });
+    act(() => mocks.collect.mock.calls[0][2](60));
+    expect(result.current.progress).toEqual({ completed: 60, total: 120 });
+    act(() => result.current.cancel());
+    act(() => mocks.collect.mock.calls[0][2](120));
+    expect(result.current.progress).toBeNull();
+    await act(async () => finish(empty));
+    expect(mocks.append).not.toHaveBeenCalled();
+  });
   it("serializes different clicks and resolves each whole list before appending", async () => {
     let finish!: (value: typeof empty) => void;
     mocks.collect.mockReturnValueOnce(new Promise(resolve => { finish = resolve; })).mockResolvedValueOnce(empty);

@@ -59,3 +59,28 @@ it("중복 확인 요청은 한 번만 실행하며 Escape 취소는 작업을 �
   fireEvent.click(await screen.findByRole("button", { name: "확인" }));
   await waitFor(() => expect(execute).toHaveBeenCalledOnce());
 });
+
+it("preserves mounted form navigation but still blocks leaving and other dirty forms", async () => {
+  function Editor() {
+    const [text, setText] = useState("");
+    const [otherDirty, setOtherDirty] = useState(false);
+    useUnsavedChanges(Boolean(text), ({ current, next }) => current.pathname === next.pathname);
+    useUnsavedChanges(otherDirty);
+    return <><input aria-label="보존 입력" value={text} onChange={event => setText(event.target.value)} /><button onClick={() => setOtherDirty(true)}>다른 편집 시작</button></>;
+  }
+  const router = renderApp(Editor);
+  fireEvent.change(await screen.findByLabelText("보존 입력"), { target: { value: "draft" } });
+  await router.navigate({ to: "/", search: { panel: "channel" } as never });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(screen.getByLabelText("보존 입력")).toHaveProperty("value", "draft");
+  const unload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(true);
+  void router.navigate({ to: "/weekly" });
+  fireEvent.click(await screen.findByRole("button", { name: "계속 편집" }));
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  expect(router.state.location.pathname).toBe("/");
+  fireEvent.click(screen.getByRole("button", { name: "다른 편집 시작" }));
+  void router.navigate({ to: "/", search: { panel: "review" } as never });
+  expect(await screen.findByRole("alertdialog")).toBeTruthy();
+});

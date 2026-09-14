@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  useCatalog: vi.fn(() => ({ isPending: false, isError: false, data: { pages: [{ data: { items: [] } }] } })),
   useConfig: vi.fn(),
   useUser: vi.fn(),
   useAdminStatus: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock("../../queries/use-public-catalog", () => ({
     return <>{children}</>;
   },
   useOtwPlayConfig: mocks.useConfig,
+  useOtwPlayCatalog: mocks.useCatalog,
 }));
 vi.mock("../../player/play-player-context", () => ({
   OtwPlayPlayerProvider: ({
@@ -168,6 +170,54 @@ describe("OtwPlayShell config gate", () => {
     // Focus must scroll the content, without scrolling the header out of the frame.
     expect(screen.getByTestId("otw-play-app-frame").className).toContain("overflow-clip");
     expect(screen.getByTestId("otw-play-content-scroll").className).toContain("overflow-y-auto");
+  });
+
+  it("searches paused Hangul composition without submitting the page", () => {
+    vi.useFakeTimers();
+    try {
+      render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+      const input = screen.getByRole("textbox", { name: "곡, 원곡 가수, 참여자 검색" });
+      fireEvent.compositionStart(input);
+      fireEvent.change(input, { target: { value: "바" } });
+      expect(screen.getByRole("status", { name: "노래 검색 중" })).toBeTruthy();
+      act(() => vi.advanceTimersByTime(250));
+      expect(mocks.useCatalog).toHaveBeenLastCalledWith({ q: "바", limit: 6 }, { enabled: true });
+      expect(screen.queryByRole("status", { name: "노래 검색 중" })).toBeNull();
+      fireEvent.submit(screen.getByRole("search", { name: "OTW Play 빠른 검색" }));
+      expect(mocks.navigate).not.toHaveBeenCalled();
+      fireEvent.change(input, { target: { value: "바움" } });
+      act(() => vi.advanceTimersByTime(250));
+      expect(mocks.useCatalog).toHaveBeenLastCalledWith({ q: "바움", limit: 6 }, { enabled: true });
+      fireEvent.compositionEnd(input);
+      fireEvent.submit(screen.getByRole("search", { name: "OTW Play 빠른 검색" }));
+      expect(mocks.navigate).toHaveBeenCalledWith({ to: "/play/songs", search: { q: "바움" } });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("navigates search actions with arrows and returns focus with Escape", () => {
+    vi.useFakeTimers();
+    const scroll = vi.fn();
+    const previousScroll = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scroll;
+    try {
+      render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+      const input = screen.getByRole("textbox", { name: "곡, 원곡 가수, 참여자 검색" });
+      fireEvent.change(input, { target: { value: "바" } });
+      act(() => vi.advanceTimersByTime(250));
+      act(() => input.focus());
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      const all = screen.getByRole("button", { name: "전체 검색 결과 보기" });
+      expect(document.activeElement).toBe(all);
+      fireEvent.keyDown(all, { key: "ArrowUp" });
+      expect(document.activeElement).toBe(input);
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(all, { key: "Escape" });
+      expect(document.activeElement).toBe(input);
+      expect(screen.queryByRole("button", { name: "전체 검색 결과 보기" })).toBeNull();
+    } finally {
+      HTMLElement.prototype.scrollIntoView = previousScroll;
+      vi.useRealTimers();
+    }
   });
 
   it("opens the integrated contribution menu with keyboard navigation", async () => {

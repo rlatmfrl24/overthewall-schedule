@@ -11,7 +11,7 @@ export const fetchDefaultPlaylists = (request: PlaylistRequestOptions = {}) =>
   apiFetch<OtwPlayPublicEnvelope<{ items: PlayDefaultPlaylist[] }>>(apiRoutes.otwPlay.playlistDefaults.build(), options(request));
 export const fetchPlaylistPerformances = (query: PlayPerformanceQuery, request: PlaylistRequestOptions = {}) => {
   const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== "") params.set(key, String(value));
+  for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== "" && value !== false) params.set(key, key === "dateUnknown" ? (value ? "1" : "") : String(value));
   return apiFetch<OtwPlayPublicEnvelope<{ items: OtwPlayPublicPerformanceResponseDto[] }>>(
     withRouteSearch(apiRoutes.otwPlay.performances.build(), params), options(request));
 };

@@ -6,6 +6,8 @@ import {
   convertOtwPlayImportCandidate,
   convertOtwPlayImportCandidates,
   createOtwPlayPerformance,
+  fetchOtwPlayReviewItems,
+  deleteOtwPlayImportHistory,
   deleteOtwPlayEntity,
   deleteOtwPlayPerformance,
   deleteOtwPlaySong,
@@ -36,6 +38,17 @@ describe("OTW Play admin API", () => {
   beforeEach(() => {
     apiFetchMock.mockReset();
     apiFetchMock.mockResolvedValue({ data: {} });
+  });
+
+  it("loads review filters through the authenticated shared route", async () => {
+    await fetchOtwPlayReviewItems({ candidateKind: "singing_clip", source: "playlist", status: "ready", jobId: "job one" });
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/play/admin/review-items?candidateKind=singing_clip&source=playlist&status=ready&jobId=job+one", { auth: "required" });
+  });
+
+  it("deletes import history through the authenticated job endpoint", async () => {
+    apiFetchMock.mockResolvedValueOnce({ data: { deleted: true } });
+    expect(await deleteOtwPlayImportHistory("job one")).toEqual({ deleted: true });
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/play/admin/imports/job%20one", { auth: "required", method: "DELETE" });
   });
 
   it("always uses required authentication", async () => {

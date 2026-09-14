@@ -700,6 +700,10 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleOtwPlayMemberSubmissions,
   },
   {
+    id: "otw-play.admin.review-items", owner: "otw-play", path: apiRoutes.otwPlay.admin.reviewItems.pattern,
+    methods: methods(get(ADMIN_NO_STORE)), handler: handleOtwPlayIngestion,
+  },
+  {
     id: "otw-play.admin.import-jobs.list",
     owner: "otw-play",
     path: apiRoutes.otwPlay.admin.importJobs.pattern,
@@ -724,7 +728,7 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     id: "otw-play.admin.import-job.read",
     owner: "otw-play",
     path: apiRoutes.otwPlay.admin.importJob.pattern,
-    methods: methods(get(ADMIN_NO_STORE)),
+    methods: methods(get(ADMIN_NO_STORE), del(ADMIN_NO_STORE)),
     handler: handleOtwPlayIngestion,
   },
   {

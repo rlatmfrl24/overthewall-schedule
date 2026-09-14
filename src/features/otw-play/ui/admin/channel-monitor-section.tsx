@@ -532,7 +532,7 @@ export function ChannelMonitorSection({
                       </div>
                     </Field>
                   </div>
-                  </>) : <a className="block border-b p-3 text-sm underline" href="/admin/otw-play?tab=play-monitor">채널 감시 설정 확인 →</a>}
+                  </>) : <a className="block border-b p-3 text-sm underline" href="/admin/otw-play?tab=clip-channels">채널 감시 설정 확인 →</a>}
                   {mode !== "sources" ? (<>
                   <div className="divide-y">
                     {candidatesQuery.isLoading ? (

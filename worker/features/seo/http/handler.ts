@@ -2,6 +2,7 @@ import {
   buildFeedSiteSeo,
   buildNotFoundSiteSeo,
   buildPlayPrivateSiteSeo,
+  buildPlayClipsSiteSeo,
   type SiteSeoMetadata,
 } from "@contracts/site-seo";
 import type { Env } from "../../../platform/types";
@@ -144,6 +145,7 @@ const unavailable = (request: Request) =>
 
 type PlayRoute =
   | { kind: "home"; canonicalPath: "/play"; trailing: boolean }
+  | { kind: "clips"; canonicalPath: string; trailing: boolean }
   | { kind: "songs"; canonicalPath: "/play/songs"; trailing: boolean }
   | { kind: "member"; canonicalPath: string; trailing: boolean; rawSlug: string }
   | { kind: "song"; canonicalPath: string; trailing: boolean; rawSlug: string }
@@ -162,6 +164,7 @@ const classifyPlayRoute = (pathname: string): PlayRoute | null => {
   if (canonicalPath === "/play") {
     return { kind: "home", canonicalPath: "/play", trailing };
   }
+  if (canonicalPath === "/play/clips" || /^\/play\/clips\/[^/]+$/.test(canonicalPath)) return { kind: "clips", canonicalPath, trailing };
   if (canonicalPath === "/play/songs") {
     return { kind: "songs", canonicalPath: "/play/songs", trailing };
   }
@@ -289,6 +292,10 @@ export const createSiteSeoHandler = (
           request,
           rewritePlayHtml(asset, buildNotFoundSiteSeo(url.pathname), 404),
         );
+      }
+      if (playRoute.kind === "clips") {
+        const asset = await env.ASSETS!.fetch(assetRequest(request, "/"));
+        return toHeadResponse(request, rewritePlayHtml(asset, buildPlayClipsSiteSeo(playRoute.canonicalPath)));
       }
       if (playRoute.kind === "private") {
         const asset = await env.ASSETS!.fetch(assetRequest(request, "/"));

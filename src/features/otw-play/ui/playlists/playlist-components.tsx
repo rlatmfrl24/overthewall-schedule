@@ -19,8 +19,23 @@ export function PlaylistLoginGate({ children, className }: { children: ReactNode
 }
 export function PlaylistFeedback({ actions }: { actions: ReturnType<typeof usePlaylistActions> }) {
   if (!actions.message && actions.pending.length === 0) return null;
-  return <div className="flex min-h-7 items-center gap-3 text-sm"><p role="status">{actions.message}</p>
-    {actions.pending.length > 0 && <Button variant="ghost" size="sm" onClick={actions.cancel}>취소</Button>}</div>;
+  const busy = actions.pending.length > 0;
+  const progress = actions.progress;
+  const percent = progress?.total && progress.total > 0 && progress.completed > 0
+    ? Math.min(99, Math.round(progress.completed / progress.total * 100)) : undefined;
+  return <div className="flex min-h-7 items-center gap-3 text-sm">
+    {busy ? <div className="min-w-0 flex-1 space-y-1">
+      <div role="progressbar" aria-label="플레이리스트 대기열 추가 진행률"
+        aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}
+        aria-valuetext={progress ? `${progress.completed}개 확인 완료` : "대기열 추가 준비 중"}
+        className="h-2 overflow-hidden rounded-full bg-muted">
+        <div className={percent === undefined ? "playlist-add-indeterminate h-full w-1/3 rounded-full bg-primary" : "h-full rounded-full bg-primary transition-[width] motion-reduce:transition-none"}
+          style={percent === undefined ? undefined : { width: `${percent}%` }} />
+      </div>
+      <span className="sr-only" role="status">대기열에 추가하고 있습니다.</span>
+    </div> : <p role="status">{actions.message}</p>}
+    {busy && <Button variant="ghost" size="sm" onClick={actions.cancel}>취소</Button>}
+  </div>;
 }
 export function DefaultPlaylistCard({ playlist }: { playlist: PlayDefaultPlaylist }) {
   const member = !playlist.query.relation;
@@ -33,7 +48,7 @@ export function DefaultPlaylistCard({ playlist }: { playlist: PlayDefaultPlaylis
       <div className="playlist-card-copy">
         <span className="playlist-card-kicker">{member ? "멤버 가창곡" : "OTW PLAY COLLECTION"}</span>
         <div className="playlist-card-title"><h3>{title}</h3><p>{playlist.description}</p></div>
-        <div className="playlist-card-footer"><span>{playlist.songCount}곡 · 가창 {playlist.performanceCount}개</span>
+        <div className="playlist-card-footer"><span>{playlist.songCount}곡</span>
           <strong><span className="sr-only">목록 보기</span><ArrowUpRight aria-hidden="true" className="size-5" /></strong></div>
       </div>
     </Link>

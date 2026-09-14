@@ -61,8 +61,11 @@ export const selectPublicPlaybackSource = <
   Source extends PublicSourceCandidate,
 >(
   candidates: readonly Source[],
+  releaseType: "official_mv" | "official_video" | "broadcast" = "official_video",
 ): PublicSourceSelection<Source> => {
-  const sources = candidates.filter(isPublicSource).sort(comparePublicSources);
+  const sources = candidates.filter(source => releaseType === "broadcast"
+    ? source.channelApproved && source.channelActive && source.channelRole === "approved_kirinuki" && source.sourceRole === "kirinuki"
+    : isPublicSource(source)).sort(comparePublicSources);
   const primarySource =
     sources.filter((source) => source.isPrimary).sort(comparePublicSources)[0] ??
     null;

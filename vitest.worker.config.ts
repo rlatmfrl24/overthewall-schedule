@@ -34,27 +34,6 @@ const OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES = [
   // Actual authority table used to recognize enabled member YouTube links.
   "0027_heavy_cassandra_nova.sql",
   ...OTW_PLAY_PUBLIC_CATALOG_MIGRATION_NAMES,
-  "0064_loud_black_tom.sql",
-  "0070_otw-play-performance-tags.sql",
-] as const;
-const OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES = [
-  ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.slice(0, 4),
-  "0038_misty_speed_demon.sql",
-  ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.slice(4),
-] as const;
-const OTW_PLAY_SOURCE_HEALTH_MIGRATION_NAME = "0056_moaning_killmonger.sql";
-const OTW_PLAY_INGESTION_MIGRATION_NAMES = [
-  "0057_numerous_luminals.sql",
-  "0058_awesome_lorna_dane.sql",
-  "0059_demonic_luke_cage.sql",
-  "0060_ancient_cardiac.sql",
-] as const;
-const OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES = [
-  ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.filter(
-    (name) =>
-      name !== "0064_loud_black_tom.sql" &&
-      name !== "0070_otw-play-performance-tags.sql",
-  ),
   "0059_demonic_luke_cage.sql",
   "0060_ancient_cardiac.sql",
   "0061_otw-play-member-entity-backfill.sql",
@@ -64,7 +43,17 @@ const OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES = [
   "0065_otw_play_authority_retention.sql",
   "0066_otw_play_integrity_drift.sql",
   "0070_otw-play-performance-tags.sql",
+  "0089_ambitious_titania.sql",
+  "0090_demonic_sugar_man.sql",
+  "0091_tranquil_luke_cage.sql",
 ] as const;
+const OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES = [
+  ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.slice(0, 4),
+  "0038_misty_speed_demon.sql",
+  ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.slice(4),
+] as const;
+const OTW_PLAY_SOURCE_HEALTH_MIGRATION_NAME = "0056_moaning_killmonger.sql";
+const OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES = OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES;
 const OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATION_NAME =
   "0067_otw-play-external-identity-consolidation.sql";
 const OTW_PLAY_HARDENING_MIGRATION_NAMES = [
@@ -108,7 +97,7 @@ export default defineConfig({
         ({ name }) =>
           !OTW_PLAY_HARDENING_MIGRATION_NAMES.includes(
             name as (typeof OTW_PLAY_HARDENING_MIGRATION_NAMES)[number],
-          ) && name !== OTW_PLAY_PERFORMANCE_TAGS_MIGRATION_NAME,
+          ) && name !== OTW_PLAY_PERFORMANCE_TAGS_MIGRATION_NAME && name !== "0091_tranquil_luke_cage.sql",
       );
       const otwPlayHardeningMigrations =
         OTW_PLAY_HARDENING_MIGRATION_NAMES.flatMap((name) => {
@@ -117,14 +106,9 @@ export default defineConfig({
         });
       const otwPlayPreSourceHealthMigrations =
         OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES
-          .filter(
-            (name) =>
-              name !== OTW_PLAY_SOURCE_HEALTH_MIGRATION_NAME &&
-              name !== "0064_loud_black_tom.sql" &&
-              !OTW_PLAY_INGESTION_MIGRATION_NAMES.includes(
-                name as (typeof OTW_PLAY_INGESTION_MIGRATION_NAMES)[number],
-              ),
-          )
+          // This suite verifies the 0056 backfill from its actual predecessor.
+          // Later catalog migrations depend on ingestion tables absent here.
+          .filter((name) => name < OTW_PLAY_SOURCE_HEALTH_MIGRATION_NAME)
           .flatMap((name) => {
             const migration = migrationsByName.get(name);
             return migration ? [migration] : [];
@@ -252,6 +236,7 @@ export default defineConfig({
             ).map(migration => /^(0071_|0072_)/.test(migration.name)
               ? { ...migration, queries: migration.queries.filter(query => /^\s*ALTER TABLE `x_/.test(query)) }
               : migration),
+            OTW_PLAY_CHANNEL_SEPARATION_MIGRATIONS: migrations.filter(({ name }) => name === "0017_short_satana.sql"),
             OTW_PLAY_CATALOG_MIGRATIONS: otwPlayCatalogMigrations,
             OTW_PLAY_PROPOSAL_SEARCH_MIGRATIONS:
               otwPlayProposalSearchMigrations,

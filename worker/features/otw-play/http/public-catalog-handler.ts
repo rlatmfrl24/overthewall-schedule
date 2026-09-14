@@ -139,10 +139,12 @@ const toParticipant = (
 
 const toSource = (
   source: PublicCatalogSource,
+  releaseType: PublicCatalogPerformance["releaseType"] = "official_video",
 ): OtwPlayPublicSourceDto | null => {
   if (
-    (source.sourceRole !== "official" && source.sourceRole !== "alternate") ||
-    !ALLOWED_PUBLIC_CHANNEL_ROLES.has(source.channel.channelRole)
+    releaseType === "broadcast"
+      ? source.sourceRole !== "kirinuki" || source.channel.channelRole !== "approved_kirinuki"
+      : (source.sourceRole !== "official" && source.sourceRole !== "alternate") || !ALLOWED_PUBLIC_CHANNEL_ROLES.has(source.channel.channelRole)
   ) {
     return null;
   }
@@ -174,12 +176,13 @@ const toPerformanceBase = (
 ): OtwPlayPublicPerformanceSummaryDto => {
   if (
     performance.releaseType !== "official_mv" &&
-    performance.releaseType !== "official_video"
+    performance.releaseType !== "official_video" &&
+    performance.releaseType !== "broadcast"
   ) {
     throw new PublicCatalogProjectionError();
   }
   const sources = performance.sources
-    .map(toSource)
+    .map(source => toSource(source, performance.releaseType))
     .filter((source): source is OtwPlayPublicSourceDto => source !== null);
   const selectedSource =
     sources.find(({ sourceId }) => sourceId === performance.playbackSourceId) ??
@@ -187,6 +190,7 @@ const toPerformanceBase = (
   const playable = selectedSource?.playable === true;
   return {
     id: performance.id,
+    ...(performance.releaseType === "broadcast" ? { broadcast: performance.broadcast } : {}),
     relation: performance.relation,
     releaseType: performance.releaseType,
     participation: performance.participation,
@@ -208,7 +212,7 @@ const toPerformanceDetail = (
   return {
     ...summary,
     sources: performance.sources
-      .map(toSource)
+      .map(source => toSource(source, performance.releaseType))
       .filter((source): source is OtwPlayPublicSourceDto => source !== null),
   };
 };
@@ -641,7 +645,8 @@ export const createPublicCatalogHandler = (
 
     const songMatch = url.pathname.match(/^\/api\/play\/songs\/([^/]+)$/);
     if (songMatch) {
-      if (url.searchParams.size > 0) {
+      const scope = url.searchParams.get("scope") ?? "official";
+      if ((scope !== "official" && scope !== "all") || [...url.searchParams.keys()].some(key => key !== "scope") || url.searchParams.getAll("scope").length > 1) {
         throw new PublicCatalogQueryError("unknown_parameter", "query");
       }
       const slug = decodePathSegment(songMatch[1] ?? "");
@@ -652,7 +657,7 @@ export const createPublicCatalogHandler = (
           "PLAY_NOT_FOUND",
         );
       const result = handleDetailResult(
-        await service.readSong(slug, context, meta),
+        await service.readSong(slug, scope === "all" ? { ...context, allowSharedCache: false } : context, meta, scope),
         toSongDetail,
       );
       if (result.status === "disabled") {
@@ -672,8 +677,8 @@ export const createPublicCatalogHandler = (
       return tracked(await successResponse(
         request,
         result.document,
-        CACHE_CONTROL.detail,
-        `play-song-v1|${result.document.catalogRevision}|${slug}`,
+        scope === "all" ? CACHE_CONTROL.private : CACHE_CONTROL.detail,
+        `play-song-v1|${scope}|${result.document.catalogRevision}|${slug}`,
         createEtag,
         requestId,
       ), result.cacheStatus);
@@ -714,7 +719,7 @@ export const createPublicCatalogHandler = (
       return tracked(await successResponse(
         request,
         result.document,
-        CACHE_CONTROL.detail,
+        "no-store",
         `play-performance-v1|${result.document.catalogRevision}|${performanceId}`,
         createEtag,
         requestId,

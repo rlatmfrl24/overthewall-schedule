@@ -1,3 +1,4 @@
+import { BroadcastInformation } from "./broadcast-information";
 import { ArrowLeft, ExternalLink, LoaderCircle, Play } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { ApiError } from "@/shared/api/client";
@@ -19,13 +20,15 @@ import { OtwPlayQueryError } from "./public-query-state";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
 
 export function OtwPlaySongDetailPage({
+  clipMode = false,
   songSlug,
   highlightedPerformanceId,
 }: {
+  clipMode?: boolean;
   songSlug: string;
   highlightedPerformanceId?: string;
 }) {
-  const query = useOtwPlaySong(songSlug);
+  const query = useOtwPlaySong(songSlug, {}, "all");
   const player = useOtwPlayPlayer();
 
   if (query.isPending) {
@@ -51,7 +54,7 @@ export function OtwPlaySongDetailPage({
   if (!song) return null;
   const heroPerformance =
     song.performances.find(({ id }) => id === highlightedPerformanceId) ??
-    song.performances[0];
+    (clipMode ? song.performances.find(performance => performance.releaseType === "broadcast") : undefined) ?? song.performances[0];
 
   return (
     <div className="play-page">
@@ -62,7 +65,7 @@ export function OtwPlaySongDetailPage({
           size="sm"
           className="-ml-2 min-h-11 justify-self-start px-2 text-muted-foreground hover:text-foreground"
         >
-          <Link to="/play/songs"><ArrowLeft aria-hidden="true" /> 곡 검색</Link>
+          <Link to={clipMode ? "/play/clips" : "/play/songs"}><ArrowLeft aria-hidden="true" /> {clipMode ? "노래 클립" : "곡 검색"}</Link>
         </Button>
 
       <section className="play-detail-hero gap-5 border bg-card p-4 md:p-6">
@@ -101,10 +104,10 @@ export function OtwPlaySongDetailPage({
 
       <section className="space-y-3">
         <div>
-          <h2 className="play-section-title">공식 버전</h2>
-          <p className="text-sm text-muted-foreground">모든 공개 공식 가창과 검수된 source를 비교합니다.</p>
+          <h2 className="play-section-title">공식 버전과 방송 가창</h2>
+          <p className="text-sm text-muted-foreground">같은 곡의 공식 영상과 방송에서 부른 노래를 구분해 살펴보세요.</p>
         </div>
-        {song.performances.map((performance) => {
+        {[...song.performances].sort((a, b) => Number(a.releaseType === "broadcast") - Number(b.releaseType === "broadcast")).map((performance) => {
           const highlighted = performance.id === highlightedPerformanceId;
           return (
             <article
@@ -115,9 +118,11 @@ export function OtwPlaySongDetailPage({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
+                    <Badge>{performance.releaseType === "broadcast" ? "방송 가창" : "공식 버전"}</Badge>
                     <OtwPlayPerformanceMetadata performance={performance} />
                     {highlighted ? <Badge>직접 링크로 선택됨</Badge> : null}
                   </div>
+                  {performance.releaseType === "broadcast" && <div className="mt-3"><BroadcastInformation broadcast={performance.broadcast} /></div>}
                   <div className="mt-3">
                     <OtwPlayParticipantCreditGroups participants={performance.participants} />
                   </div>
@@ -133,7 +138,7 @@ export function OtwPlaySongDetailPage({
               </div>
 
               <div className="mt-4 space-y-2 border-t pt-4">
-                <h3 className="text-sm font-semibold">공식 source</h3>
+                <h3 className="text-sm font-semibold">{performance.releaseType === "broadcast" ? "클립 영상" : "공식 영상"}</h3>
                 {performance.sources.length === 0 ? (
                   <p className="text-sm text-muted-foreground">공개 가능한 source가 없습니다.</p>
                 ) : performance.sources.map((source) => (

@@ -14,6 +14,7 @@ import {
 
 const catalogTabs = [
   { label: "발견", to: "/play" as const, search: undefined },
+  { label: "노래 클립", to: "/play/clips" as const, search: undefined },
   { label: "곡 검색", to: "/play/songs" as const, search: {} },
   { label: "플레이리스트", to: "/play/playlists" as const, search: undefined },
 ];

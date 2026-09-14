@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/shared/api/client";
 import type { OtwPlayTrack } from "./play-player-context";
 import {
   OTW_PLAY_QUEUE_STORAGE_KEY,
@@ -81,6 +82,11 @@ const track = {
   },
 } satisfies OtwPlayTrack;
 
+const clipTrack: OtwPlayTrack = { ...track,
+  performance: { ...track.performance, id: "clip", releaseType: "broadcast" },
+  source: { ...track.source, sourceRole: "kirinuki", startSeconds: 30, endSeconds: 150,
+    channel: { ...track.source.channel, role: "approved_kirinuki" } } };
+
 const alternateSource = {
   ...track.source,
   sourceId: "source-2",
@@ -127,9 +133,11 @@ function Consumer() {
     <div>
       <div ref={player.setHostElement} data-testid="host" />
       <button type="button" onClick={() => player.play(track)}>play</button>
+      <button type="button" onClick={() => player.play(clipTrack)}>play clip</button>
       <button type="button" onClick={() => player.play(detailTrack)}>play detail</button>
       <button type="button" onClick={() => player.play({ ...track, source: alternateSource })}>play alternate</button>
       <button type="button" onClick={player.pause}>pause</button>
+      <button type="button" onClick={player.resume}>resume</button>
       <button type="button" onClick={() => player.enqueue(track)}>enqueue</button>
       <button type="button" onClick={() => player.enqueueBatch([track], 0, true)}>add playlist</button>
       <button type="button" onClick={() => player.enqueueBatch([], 0, true)}>add empty playlist</button>
@@ -188,6 +196,53 @@ describe("OtwPlayPlayerProvider", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it("revalidates a clip before loading its segment into the same player", async () => {
+    mocks.fetchPerformance.mockResolvedValue({ data: { song: clipTrack.song, performance: { ...clipTrack.performance, sources: [clipTrack.source] } } });
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play clip" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledWith({ videoId: clipTrack.source.externalId, startSeconds: 30, endSeconds: 150 }));
+    expect(mocks.fetchPerformance).toHaveBeenCalledWith("clip", { adminPreview: false });
+    expect(mocks.createPlayer).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenLastCalledWith({ videoId: track.source.externalId, startSeconds: 0 }));
+    expect(mocks.createPlayer).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("queue-size").textContent).toBe("2");
+  });
+  it("preserves pause while the clip publication check is pending", async () => {
+    let complete!: (value: unknown) => void;
+    mocks.fetchPerformance.mockReturnValueOnce(new Promise(resolve => { complete = resolve; }));
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play clip" }));
+    await waitFor(() => expect(mocks.fetchPerformance).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "pause" }));
+    await act(async () => complete({ data: { song: clipTrack.song, performance: { ...clipTrack.performance, sources: [clipTrack.source] } } }));
+    expect(mocks.controller.load).not.toHaveBeenCalled();
+    expect(screen.getByTestId("status").textContent).toBe("paused");
+    mocks.fetchPerformance.mockResolvedValueOnce({ data: { song: clipTrack.song, performance: { ...clipTrack.performance, sources: [clipTrack.source] } } });
+    fireEvent.click(screen.getByRole("button", { name: "resume" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledOnce());
+    expect(mocks.fetchPerformance).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not autoplay a clip when its pending check completes after the surface is hidden", async () => {
+    let complete!: (value: unknown) => void;
+    mocks.fetchPerformance.mockReturnValueOnce(new Promise(resolve => { complete = resolve; }));
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play clip" }));
+    await waitFor(() => expect(mocks.fetchPerformance).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "hide surface" }));
+    await act(async () => complete({ data: { song: clipTrack.song, performance: { ...clipTrack.performance, sources: [clipTrack.source] } } }));
+    expect(mocks.controller.load).not.toHaveBeenCalled();
+  });
+
+  it("does not load a revoked clip from an older catalog result", async () => {
+    mocks.fetchPerformance.mockRejectedValue(new ApiError("withdrawn", 404, { code: "PLAY_NOT_FOUND" }));
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play clip" }));
+    await waitFor(() => expect(screen.getByTestId("unavailable-size").textContent).toBe("1"));
+    expect(mocks.controller.load).not.toHaveBeenCalled();
   });
 
   it("creates and loads one player only after a visible user gesture, then destroys it on leave", async () => {

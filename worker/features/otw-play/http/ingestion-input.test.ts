@@ -10,6 +10,13 @@ import {
 } from "./ingestion-input";
 
 describe("OTW Play ingestion input", () => {
+  it("accepts explicit singing imports and rejects invalid kinds and unversioned corrections", () => {
+    expect(parseCreatePlaylistImport({ playlistUrl: "PL1234567890", mode: "all_new", candidateKind: "singing_clip", idempotencyKey: "request_1234" })).toMatchObject({ ok: true, value: { candidateKind: "singing_clip" } });
+    expect(parsePlaylistPreflight({ playlistUrl: "PL1234567890", mode: "all_new", candidateKind: "broadcast" }).ok).toBe(false);
+    expect(parseUpdateIngestionCandidate({ action: "change_kind", candidateKind: "singing_clip", expectedVersion: 3 })).toMatchObject({ ok: true });
+    expect(parseUpdateIngestionCandidate({ action: "change_kind", candidateKind: "singing_clip" }).ok).toBe(false);
+  });
+
   it("accepts bounded recent imports and normalizes surrounding whitespace", () => {
     expect(parseCreatePlaylistImport({
       playlistUrl: "  PL1234567890  ",

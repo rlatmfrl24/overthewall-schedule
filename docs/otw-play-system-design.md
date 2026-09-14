@@ -1,5 +1,7 @@
 # OTW Play 시스템·DB 설계
 
+> 2026-09-14 노래 클립 확장 기준안: DEC-081에 따라 `music_songs`·`music_performances`·영상 소스·참여자 모델은 공유하고 공식/방송별 게시 정책·공개 조회 범위는 분리한다. 클립 전용 곡 카탈로그를 복제하지 않는다. [상세 데이터·계약 설계와 이행 계획](otw-play-singing-clips-requirements-and-plan.md#5-데이터와-분류-설계)을 따른다. 방송일·근거·원본 URL·완곡 여부는 가창의 `broadcast_metadata`, 최초 공개 시각은 `catalog_published_at`에 저장한다. 0089는 기존 행과 참조를 보존하는 추가 마이그레이션이다. 기존 공식 공개 predicate를 무조건 확대하지 않고 새 방송 정책을 명시적으로 적용해야 한다.
+
 > 2026-09-09 현행 운영: `Cron → Workflow → Outbox → Queue → 수집기`. 승인된 활성 채널의 uploads playlist를 시간당 조회한다. Play 자동화 중지와 공개 flag는 유지한다. WebSub 구독·갱신·해제 작업은 종료됐으며 callback은 HTTP 410이다. 구형 직접 스케줄러와 테스트 전용 소스 선택·상태 전이 정책은 사용하지 않는다. 저장된 대표 소스와 사용 가능한 대체 소스, 실제 서비스의 승인·철회·CAS가 권위다. [현행 수집 계약](operations/channel-upload-polling.md), [정리 적용 계약](operations/retired-implementation-cleanup.md)을 따른다. 아래 과거 PR·단계별 구현 및 WebSub 설명은 당시 이력이며 재구현·secret 설정·구독 재개 지침이 아니다.
 
 > 2026-09-08 구현 갱신: `/profile/{code}`와 `/play/members/{memberCode}`의 SEO를 함께 구현했다.
@@ -884,7 +886,7 @@ erDiagram
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `entity_kind`           | `person`, `group`, `organization`                                                                                |
 | `channel_role`          | `otw_official`, `unit_official`, `member_music`, `member_main`, `project_official`, `approved_kirinuki`, `other` |
-| `relation_type`         | `original`, `cover`                                                                                              |
+| `relation_type`         | `original`, `cover`, `singing_clip` (방송 가창에 고정)                                                                                              |
 | `release_type`          | `official_mv`, `official_video`, `broadcast`, `live`, `shorts`                                                   |
 | `participation_type`    | `solo`, `duet`, `unit`, `group`, `external_collab`                                                               |
 | participant role        | `vocal`, `featured_vocal`, `chorus`, `other`                                                                     |
@@ -1916,3 +1918,8 @@ song/performance detail 조회도 published performance의 태그만 해당 perf
   최근 감상은 인정 기준·보관/삭제 정책을 정한 뒤 수집하며 public cache·SEO에 노출하지 않는다.
 
 멤버 SEO의 실제 구현·검증은 구현 가이드 30절에 기록했다. 방송 가창·개인 감상 탭은 설계 인계이며 후속 구현 대상이다.
+
+> 2026-09-14 확정: 원본·방송일 미확인 허용, 완곡/일부 구분, 승인 YouTube 키리누키, `/play/clips`, 현재 대기열 혼합·개인 저장 후속, noindex·공식 집계 제외. 노래 클립 채널과 방송 클립 채널의 개별 등록·삭제·수집 설정을 분리한다. 구현·검증과 운영 공개 상태는 [상세 기록](otw-play-singing-clips-requirements-and-plan.md#11-구현검증-기록)을 따른다.
+
+
+> 2026-09-14 후속 확정: 관리자 작업별 5개 탭과 OTW Play 채널 통합, 노래 클립 플레이리스트 일괄 임시 등록을 적용한다. 이전 채널 탭 분리 안내보다 [관리자 작업 흐름 통합 기록](otw-play-admin-workflow-integration.md)을 우선한다. 일반 방송 클립 채널의 독립 관리는 유지한다.

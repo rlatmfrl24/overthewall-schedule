@@ -19,9 +19,9 @@ import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 export type ConsoleArea = "review" | "collection" | "content" | "otw-play" | "resources" | "history";
 const tabs: Record<ConsoleArea, readonly (readonly [string, string])[]> = {
   review: [["schedule", "일정 승인"], ["rejections", "거부 제외"]],
-  collection: [["x", "X"], ["naver-cafe", "네이버 카페"], ["schedule", "일정 수집"], ["youtube", "YouTube 피드·캐시"], ["kirinuki", "키리누키 채널"]],
+  collection: [["x", "X"], ["naver-cafe", "네이버 카페"], ["schedule", "일정 수집"], ["youtube", "YouTube 피드·캐시"], ["kirinuki", "방송 클립 채널"]],
   content: [["notices", "공지"], ["ddays", "D-Day"], ["snapshot", "스냅샷"]],
-  "otw-play": [["catalog", "카탈로그"], ["playlists", "기본 플레이리스트"], ["review", "영상 검토"], ["import", "가져오기 검토"], ["channels", "채널 관리"], ["operations", "재생·공개 관리"]],
+  "otw-play": [["catalog", "카탈로그"], ["import", "가져오기/검수"], ["channels", "채널"], ["playlists", "기본 플레이리스트"], ["operations", "운영"]],
   resources: [["usage", "사용량·한도"], ["media", "이미지 정리"]],
   history: [["runs", "작업 실행"], ["schedule", "일정 변경"], ["audit", "관리자 감사"]],
 };
@@ -30,12 +30,13 @@ export function ConsoleScreen({ area }: { area: ConsoleArea }) {
   const queryClient = useQueryClient();
   const [search, update] = useConsoleSearch();
   const wanted = area === "collection" ? search.source
-    : area === "otw-play" && search.tab === "automatic-review" ? "review"
-    : area === "otw-play" && search.tab === "play-monitor" ? "channels"
+    : area === "otw-play" && ["automatic-review", "review"].includes(search.tab ?? "") ? "import"
+    : area === "otw-play" && ["play-monitor", "clip-channels"].includes(search.tab ?? "") ? "channels"
     : area === "otw-play" && search.tab === "source-health" ? "operations"
+    : area === "otw-play" && search.tab === "clips" ? "catalog"
     : search.tab;
   const tab = tabs[area].some(([key]) => key === wanted) ? wanted! : tabs[area][0][0];
-  const searchForTab = (next: string) => ({ ...search, ...(area === "collection" ? { source: next } : { tab: next, source: undefined }), sort: undefined, pageSize: undefined, q: undefined, state: undefined, category: undefined, page: undefined, selected: undefined, proposal: undefined, from: undefined, until: undefined });
+  const searchForTab = (next: string) => ({ ...search, ...(area === "collection" ? { source: next } : { tab: next, source: undefined }), channel: undefined, channelKind: undefined, sort: undefined, pageSize: undefined, q: undefined, state: undefined, category: undefined, page: undefined, selected: undefined, proposal: undefined, view: undefined, kind: undefined, from: undefined, until: undefined });
   const select = (next: string) => update(searchForTab(next), false);
   let content;
   if (area === "review") {
@@ -46,7 +47,7 @@ export function ConsoleScreen({ area }: { area: ConsoleArea }) {
     const date = search.date && /^\d{4}-\d{2}-\d{2}$/.test(search.date) && isValid(parseISO(search.date)) && format(parseISO(search.date), "yyyy-MM-dd") === search.date ? search.date : format(new Date(), "yyyy-MM-dd");
     content = tab === "notices" ? <NoticeManager /> : tab === "ddays" ? <DDayManager /> : <SnapshotPreviewManager date={date} mode={search.mode ?? "grid"} theme={search.theme ?? "light"} onDateChange={(date) => update({ date })} onModeChange={(mode) => update({ mode })} onThemeChange={(theme) => update({ theme })} />;
   } else if (area === "otw-play") {
-    content = tab === "playlists" ? <OtwPlayDefaultPlaylistManager /> : <OtwPlayCatalogManager activeSection={tab as "catalog" | "automatic-review" | "review" | "import" | "channels" | "source-health" | "operations"} onSectionChange={select} />;
+    content = tab === "playlists" ? <OtwPlayDefaultPlaylistManager /> : <OtwPlayCatalogManager activeSection={tab as "clips" | "clip-channels" | "catalog" | "automatic-review" | "review" | "import" | "channels" | "source-health" | "operations"} onSectionChange={select} />;
   } else if (area === "history") {
     content = tab === "runs" ? <OperationsDashboard view="history" /> : <AutoUpdateLogsManager view={tab === "audit" ? "audit" : "schedule"} />;
   } else {
@@ -56,6 +57,6 @@ export function ConsoleScreen({ area }: { area: ConsoleArea }) {
     <SectionNavigation label="업무 선택" className="console-tabs">
       {tabs[area].map(([key, label]) => <Link key={key} to="." search={searchForTab(key)} resetScroll={false}
         aria-current={tab === key ? "page" : undefined} className={sectionNavigationItemClassName}>{label}</Link>)}
-    </SectionNavigation><div key={tab}>{content}</div>
+    </SectionNavigation><div>{content}</div>
   </div>;
 }

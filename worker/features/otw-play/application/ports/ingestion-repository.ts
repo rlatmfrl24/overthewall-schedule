@@ -86,13 +86,17 @@ export interface SaveCandidateReviewCommand {
 }
 
 export interface IngestionRepository {
+  listReviewItems(filters: import("@contracts/otw-play").OtwPlayReviewFilters): Promise<import("@contracts/otw-play").OtwPlayReviewPageDto>;
   findPreviousImport(
     playlistId: string,
+    candidateKind?: "official_video" | "singing_clip",
   ): Promise<OtwPlayPlaylistPreflightDto["previousImport"]>;
   createJob(
     command: CreateIngestionJobCommand,
   ): Promise<{ job: OtwPlayIngestionJobDto; message: OtwPlayIngestionQueueMessage }>;
+  changeCandidateKind(command: { candidateId: string; expectedVersion: number; candidateKind: "official_video" | "singing_clip"; actorUserId: string; eventId: string; now: number }): Promise<IngestionReviewCandidate>;
   getJob(jobId: string): Promise<OtwPlayIngestionJobDto>;
+  deleteJobHistory(jobId: string, actorUserId: string, now: number): Promise<void>;
   listJobs(limit: number): Promise<OtwPlayIngestionJobDto[]>;
   listItems(
     jobId: string,

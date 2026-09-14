@@ -1,3 +1,4 @@
+import { readBroadcastMetadata } from "../domain/broadcast-metadata";
 import type {
   OtwPlayAdminCatalogDto,
   OtwPlayAdminCatalogEntryPreflightDto,
@@ -111,6 +112,7 @@ type PerformanceRow = {
   publication_status: OtwPlayAdminPerformanceDto["publicationStatus"];
   quality_status: OtwPlayAdminPerformanceDto["qualityStatus"];
   released_at: number | null;
+  broadcast_metadata: string | null;
   internal_note: string | null;
   version: number;
 };
@@ -486,7 +488,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         .prepare(`SELECT channel_id, entity_id FROM music_channel_entities
         ORDER BY channel_id, entity_id`),
       this.database.prepare(`SELECT id, song_id, relation_type, release_type,
-        participation_type, publication_status, quality_status, released_at,
+        participation_type, publication_status, quality_status, released_at, broadcast_metadata,
         internal_note, version FROM music_performances ORDER BY created_at DESC, id`),
       this.database.prepare(`SELECT performance_id, tag_key, display_name
         FROM music_performance_tags ORDER BY performance_id, tag_key`),
@@ -603,6 +605,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         songId: row.song_id,
         relationType: row.relation_type,
         releaseType: row.release_type,
+        ...(row.release_type === "broadcast" ? { broadcast: readBroadcastMetadata(row.broadcast_metadata) } : {}),
         participationType: row.participation_type,
         publicationStatus: row.publication_status,
         qualityStatus: row.quality_status,
@@ -1668,7 +1671,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       ) {
         throw new AdminCatalogRepositoryError(
           "validation_failed",
-          "Broadcast drafts require approved Kirinuki sources",
+          "Broadcast performances require approved Kirinuki sources",
           { sources: "approved_kirinuki_required" },
         );
       }
@@ -1730,8 +1733,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           `INSERT INTO music_performances (
         id, song_id, dedupe_key, relation_type, release_type, participation_type,
         publication_status, quality_status, released_at, internal_note, version,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, 0, ?, ?)`,
+        created_at, updated_at, broadcast_metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, 0, ?, ?, ?)`,
         )
         .bind(
           ids.performanceId,
@@ -1745,6 +1748,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           input.internalNote?.trim() || null,
           now,
           now,
+          input.broadcast ? JSON.stringify(input.broadcast) : null,
         ),
       ...performanceTagStatements(this.database, ids.performanceId, input.tags),
       ...input.participants.map((participant) =>
@@ -2416,8 +2420,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           `INSERT INTO music_performances (
           id, song_id, dedupe_key, relation_type, release_type, participation_type,
           publication_status, quality_status, released_at, internal_note, version,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ok', ?, ?, 0, ?, ?)`,
+          created_at, updated_at, broadcast_metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ok', ?, ?, 0, ?, ?, ?)`,
         )
         .bind(
           ids.performanceId,
@@ -2431,6 +2435,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           input.internalNote?.trim() || null,
           now,
           now,
+          input.broadcast ? JSON.stringify(input.broadcast) : null,
         ),
       ...performanceTagStatements(
         this.database,
@@ -2649,16 +2654,19 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     const catalog = await this.readCatalog();
     const current = await this.database
       .prepare(
-        `SELECT song_id, publication_status
+        `SELECT song_id, publication_status, release_type, broadcast_metadata, dedupe_key
       FROM music_performances WHERE id = ?`,
       )
       .bind(input.id)
-      .first<{ song_id: string; publication_status: string }>();
+      .first<{ song_id: string; publication_status: string; release_type: string; broadcast_metadata: string | null; dedupe_key: string }>();
     if (!current)
       throw new AdminCatalogRepositoryError(
         "not_found",
         "Performance not found",
       );
+    if ((current.release_type === "broadcast") !== (input.releaseType === "broadcast")) {
+      throw new AdminCatalogRepositoryError("validation_failed", "공식 곡과 방송 가창 사이의 유형 변경은 지원하지 않습니다. 올바른 영역에 새 가창을 등록해 주세요.");
+    }
     const targetSong = catalog.songs.find(
       (song) => song.id === input.songId && song.archivedAt === null,
     );
@@ -2834,8 +2842,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     });
     if (
       input.releaseType === "broadcast" &&
-      (current.publication_status !== "draft" ||
-        sources.some((source, index) =>
+      (sources.some((source, index) =>
           source.input.sourceRole !== "kirinuki" ||
           selectedChannels[index]?.channelRole !== "approved_kirinuki" ||
           selectedChannels[index]?.verificationStatus !== "approved" ||
@@ -2844,7 +2851,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     ) {
       throw new AdminCatalogRepositoryError(
         "validation_failed",
-        "Broadcast drafts require approved Kirinuki sources",
+        "Broadcast performances require approved Kirinuki sources",
         { sources: "approved_kirinuki_required" },
       );
     }
@@ -2869,6 +2876,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       );
     }
     if (current.publication_status === "published") {
+      if (input.releaseType === "broadcast" && (!readBroadcastMetadata(input.broadcast === undefined ? current.broadcast_metadata : JSON.stringify(input.broadcast)).extent || sources.some(source => source.input.endSeconds == null || source.video.availabilityStatus !== "playable"))) {
+        throw new AdminCatalogRepositoryError("validation_failed", "공개 노래 클립은 완곡 여부와 재생 구간을 확인해야 합니다.");
+      }
       if (
         !input.participants.some(
           (item) =>
@@ -2884,6 +2894,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       }
       const allChannelsEligible = selectedChannels.every(
         (channel) =>
+          input.releaseType !== "broadcast" &&
           channel.verificationStatus === "approved" &&
           channel.active &&
           [
@@ -2892,7 +2903,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             "member_music",
             "member_main",
             "project_official",
-          ].includes(channel.channelRole),
+          ].includes(channel.channelRole) ||
+          (input.releaseType === "broadcast" && channel.verificationStatus === "approved" &&
+            channel.active && channel.channelRole === "approved_kirinuki"),
       );
       if (!allChannelsEligible) {
         throw new AdminCatalogRepositoryError(
@@ -2924,12 +2937,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         existing: Boolean(existingSource),
       });
     }
-    const primarySource = resolvedSources.find((source) => source.input.isPrimary)!;
-    const dedupeKey = createPerformanceDedupeKeyMaterial({
-      songId: input.songId,
-      sourceId: primarySource.resolvedSourceId,
-      startSeconds: primarySource.input.startSeconds,
-    });
+    const dedupeKey = current.dedupe_key;
     const previousSourceRows = await this.database
       .prepare(
         "SELECT source_id FROM music_performance_sources WHERE performance_id = ?",
@@ -2947,7 +2955,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         .prepare(
           `UPDATE music_performances SET song_id = ?, dedupe_key = ?, relation_type = ?,
         release_type = ?, participation_type = ?, quality_status = ?, released_at = ?,
-        internal_note = ?, version = version + 1, updated_at = ?
+        internal_note = ?, broadcast_metadata = ?, version = version + 1, updated_at = ?
         WHERE id = ? AND version = ? AND publication_status IN ('draft', 'published')`,
         )
         .bind(
@@ -2959,6 +2967,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           input.qualityStatus,
           input.releasedAt,
           input.internalNote?.trim() || null,
+          input.broadcast === undefined ? current.broadcast_metadata : input.broadcast ? JSON.stringify(input.broadcast) : null,
           now,
           input.id,
           input.expectedVersion,
@@ -3111,17 +3120,38 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     const meta = await this.readRevision();
     const current = await this.database
       .prepare(
-        `SELECT song_id, publication_status
+        `SELECT song_id, publication_status, release_type, broadcast_metadata, dedupe_key
       FROM music_performances WHERE id = ?`,
       )
       .bind(id)
-      .first<{ song_id: string; publication_status: string }>();
+      .first<{ song_id: string; publication_status: string; release_type: string; broadcast_metadata: string | null; dedupe_key: string }>();
     if (!current)
       throw new AdminCatalogRepositoryError(
         "not_found",
         "Performance not found",
       );
     const expectedStatus = target === "published" ? "draft" : "published";
+    const isBroadcast = current.release_type === "broadcast";
+    const sourcePolicy = isBroadcast
+      ? `link.source_role = 'kirinuki' AND channel.channel_role = 'approved_kirinuki'
+         AND source.availability_status = 'playable' AND link.end_seconds IS NOT NULL
+         AND link.end_seconds > link.start_seconds AND source.duration_seconds >= link.end_seconds`
+      : `link.source_role IN ('official', 'alternate') AND channel.channel_role IN
+         ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official')`;
+    // Validate alternates too: playback can fall back to any attached source.
+    // Reuse this guard in the UPDATE so publication stays atomic with validation.
+    const allBroadcastSourcesValid = isBroadcast ? `NOT EXISTS (
+      SELECT 1 FROM music_performance_sources AS link
+      LEFT JOIN music_media_sources AS source ON source.id = link.source_id
+      LEFT JOIN music_channels AS channel ON channel.id = source.channel_id
+      WHERE link.performance_id = ? AND NOT COALESCE((
+        ${sourcePolicy} AND link.start_seconds >= 0
+        AND channel.verification_status = 'approved' AND channel.active = 1
+      ), 0)
+    )` : "1";
+    if (target === "published" && isBroadcast && !readBroadcastMetadata(current.broadcast_metadata).extent) {
+      throw new AdminCatalogRepositoryError("validation_failed", "완곡 또는 일부 가창 여부를 확인해 주세요.", { broadcast: "extent_required" });
+    }
     if (target === "published") {
       const eligibility = await this.database
         .prepare(
@@ -3136,20 +3166,18 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           JOIN music_media_sources AS source ON source.id = link.source_id
           JOIN music_channels AS channel ON channel.id = source.channel_id
           WHERE link.performance_id = ? AND link.is_primary = 1
-            AND link.source_role IN ('official', 'alternate')
+            AND ${sourcePolicy}
             AND channel.verification_status = 'approved' AND channel.active = 1
-            AND channel.channel_role IN (
-              'otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'
-            )
-        ) AS has_source
+        ) AS has_source,
+        ${allBroadcastSourcesValid} AS valid_sources
       `,
         )
-        .bind(id, id)
-        .first<{ has_participant: number; has_source: number }>();
-      if (!eligibility?.has_participant || !eligibility.has_source) {
+        .bind(id, id, ...(isBroadcast ? [id] : []))
+        .first<{ has_participant: number; has_source: number; valid_sources: number }>();
+      if (!eligibility?.has_participant || !eligibility.has_source || !eligibility.valid_sources) {
         throw new AdminCatalogRepositoryError(
           "validation_failed",
-          "Published performance requires a singing participant and approved active official source",
+          "Published performance requires a singing participant and approved sources with valid playback bounds",
         );
       }
     }
@@ -3165,25 +3193,24 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           JOIN music_media_sources AS source ON source.id = link.source_id
           JOIN music_channels AS channel ON channel.id = source.channel_id
           WHERE link.performance_id = ? AND link.is_primary = 1
-            AND link.source_role IN ('official', 'alternate')
+            AND ${sourcePolicy}
             AND channel.verification_status = 'approved' AND channel.active = 1
-            AND channel.channel_role IN (
-              'otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'
-            )
-        )`
+        ) AND ${allBroadcastSourcesValid}`
         : "";
     const updateBinds: SqlValue[] = [
       target,
+      now,
       now,
       id,
       expectedVersion,
       expectedStatus,
     ];
-    if (target === "published") updateBinds.push(id, id);
+    if (target === "published") updateBinds.push(id, id, ...(isBroadcast ? [id] : []));
     const statements: D1PreparedStatement[] = [
       this.database
         .prepare(
           `UPDATE music_performances SET publication_status = ?,
+        catalog_published_at = CASE WHEN release_type = 'broadcast' AND publication_status = 'draft' THEN COALESCE(catalog_published_at, ?) ELSE catalog_published_at END,
         version = version + 1, updated_at = ?
         WHERE id = ? AND version = ? AND publication_status = ?
         ${publishValidation}`,

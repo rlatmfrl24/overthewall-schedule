@@ -64,6 +64,15 @@ const setup = (state: "public" | "private") => {
 };
 
 describe("SEO HTML worker", () => {
+  it.each(["/play/clips", "/play/clips/clip-only-song"])("serves %s as a noindex application route", async path => {
+    const { handler, testEnv } = setup("public");
+    const response = await handler(new Request(`https://otw-schedule.info${path}`), testEnv);
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("X-Robots-Tag")).toBe("noindex,follow");
+    expect(response?.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response?.text()).toContain('content="noindex,follow"');
+  });
+
   it("rewrites feed metadata from public settings", async () => {
     const { handler, testEnv } = setup("public");
     const response = await handler(new Request("https://otw-schedule.info/feed"), testEnv);

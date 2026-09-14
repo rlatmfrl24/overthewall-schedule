@@ -147,6 +147,7 @@ export const apiRoutes = {
         "/api/play/admin/imports/playlist/preflight",
       ),
       playlistImports: staticRoute("/api/play/admin/imports/playlist"),
+      reviewItems: staticRoute("/api/play/admin/review-items"),
       importJobs: staticRoute("/api/play/admin/imports"),
       importJob: dynamicRoute(
         "/api/play/admin/imports/:jobId",

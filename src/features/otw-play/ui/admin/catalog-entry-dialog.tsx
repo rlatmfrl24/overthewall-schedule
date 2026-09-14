@@ -1,3 +1,4 @@
+import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useEffect, useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -155,8 +156,8 @@ const reuseCreatedSubjects = (
 
 export function SubjectPicker({
   label,
-  placeholder = "멤버 또는 기존 외부 identity 검색",
-  helpText = "기존 외부 identity 후보를 먼저 보여주며, 새 칩은 자동 병합하지 않고 별도 identity로 저장합니다.",
+  placeholder = "멤버 또는 인물·그룹 검색",
+  helpText = "기존 인물·그룹을 검색해 선택하세요. 찾는 대상이 없으면 새로 등록할 수 있습니다.",
   members,
   entities,
   draftSubjects = [],
@@ -414,8 +415,10 @@ export function CatalogEntryDialog({
   onOpenChange,
   catalog,
   preselectedSongId,
+  clip = false,
   onSaved,
 }: {
+  clip?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   catalog: OtwPlayAdminCatalogDto;
@@ -430,6 +433,7 @@ export function CatalogEntryDialog({
     enabled: open,
   });
   const members = membersQuery.data ?? [];
+  const [broadcast, setBroadcast] = useState(EMPTY_BROADCAST);
   const [step, setStep] = useState(0);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const canDiscard = useUnsavedChanges(open && youtubeUrl.trim().length > 0);
@@ -472,6 +476,7 @@ export function CatalogEntryDialog({
   useEffect(() => {
     if (!open) return;
     setStep(0);
+    setBroadcast(EMPTY_BROADCAST);
     setYoutubeUrl("");
     setSegmentEnabled(false);
     setStartSeconds("0");
@@ -480,7 +485,7 @@ export function CatalogEntryDialog({
     setErrorMessage(null);
     setChannelChoice("pending");
     setChannelRole("project_official");
-    setVideoKind(null);
+    setVideoKind(clip ? "cover" : null);
     setRegistrationMode("standard");
     setSongQuery("");
     setCoverOriginalTitle("");
@@ -498,7 +503,7 @@ export function CatalogEntryDialog({
     } else {
       setSongId("");
     }
-  }, [open, preselectedSongId]);
+  }, [open, preselectedSongId, clip]);
 
   const runPreflight = async () => {
     setChecking(true);
@@ -526,12 +531,14 @@ export function CatalogEntryDialog({
     }
   };
 
-  const channelCanPublish =
+  const clipChannelReady = preflight?.channel.state === "approved" && preflight.channel.channelRole === "approved_kirinuki";
+  const explicitSongMode = clip || registrationMode === "medley_segment";
+  const channelCanPublish = !clip && (
     preflight?.channel.state === "approved" ||
     preflight?.channel.state === "recognized_member" ||
-    (preflight?.channel.state !== "revoked" && channelChoice === "approved");
+    (preflight?.channel.state !== "revoked" && channelChoice === "approved"));
   const needsChannelOwnerChoice = Boolean(
-    preflight &&
+    !clip && preflight &&
       preflight.channel.state !== "approved" &&
       preflight.channel.state !== "recognized_member" &&
       !(preflight.channel.catalogChannelId && channelChoice === "pending"),
@@ -562,13 +569,13 @@ export function CatalogEntryDialog({
       preflight &&
         !preflight.duplicate &&
         preflight.channel.state !== "revoked" &&
-        segmentValid,
+        segmentValid && (!clip || clipChannelReady),
     ),
-    videoKind === "original" ||
+    (clip ? (videoKind === "original" || videoKind === "cover") && hasExplicitSong : videoKind === "original" ||
       (videoKind === "cover" &&
         (registrationMode === "medley_segment"
           ? hasExplicitSong
-          : hasExistingSong || hasNewSongDetails)),
+          : hasExistingSong || hasNewSongDetails))),
     participants.length > 0 &&
       (!needsChannelOwnerChoice || channelOwners.length > 0),
     true,
@@ -595,12 +602,12 @@ export function CatalogEntryDialog({
       registrationMode,
       song: songId && songId !== "__new"
         ? { kind: "existing", songId }
-        : videoKind === "original"
+        : videoKind === "original" && !clip
           ? songTags.length > 0 ? { kind: "from_video", tags: songTags } : { kind: "from_video" }
           : {
               kind: "create",
               title: coverOriginalTitle.trim(),
-              isOtwOriginal: false,
+              isOtwOriginal: !clip && videoKind === "original",
               originalReleaseDate: null,
               originalReleasePrecision: "unknown",
               aliases: [],
@@ -618,8 +625,9 @@ export function CatalogEntryDialog({
         creditNameSnapshot: participant.label,
       })),
       channel,
-      relationType: videoKind,
-      releaseType,
+      relationType: clip ? "singing_clip" : videoKind,
+      releaseType: clip ? "broadcast" : releaseType,
+      ...(clip ? { broadcast } : {}),
       participationType,
       ...(performanceTags.length > 0 ? { performanceTags } : {}),
       publicationTarget,
@@ -681,8 +689,8 @@ export function CatalogEntryDialog({
       <Dialog open={open} onOpenChange={(next) => { if (!saving) void close(next); }}>
         <DialogContent className="h-[100dvh] max-h-[100dvh] max-w-none overflow-y-auto rounded-none sm:h-auto sm:max-h-[92vh] sm:max-w-5xl sm:rounded-xl">
           <DialogHeader>
-            <DialogTitle>새 YouTube 영상 등록</DialogTitle>
-            <DialogDescription>영상을 확인하고 유형·참여자·공식 채널만 선택하면 내부 곡과 가창이 함께 등록됩니다.</DialogDescription>
+            <DialogTitle>{clip ? "노래 클립 직접 등록" : "새 YouTube 영상 등록"}</DialogTitle>
+            <DialogDescription>{clip ? "승인된 노래 클립 채널의 영상을 곡·가창자에 연결하고 임시 저장합니다. 검토 후 노래 클립 목록에서 게시하세요." : "영상을 확인하고 유형·참여자·공식 채널만 선택하면 내부 곡과 가창이 함께 등록됩니다."}</DialogDescription>
           </DialogHeader>
           {!completedMedleySegment && (
             <ol className="grid grid-cols-4 gap-1" aria-label="등록 단계">
@@ -713,7 +721,7 @@ export function CatalogEntryDialog({
             {step === 0 && (
               <>
                 <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-                  <div className="space-y-1.5"><Label htmlFor="catalog-youtube-url">YouTube URL</Label><Input id="catalog-youtube-url" value={youtubeUrl} disabled={checking} onChange={(event) => { setYoutubeUrl(event.target.value); setEndSeconds(""); setPreflight(null); setVideoKind(null); setRegistrationMode("standard"); }} placeholder="https://www.youtube.com/watch?v=..." /></div>
+                  <div className="space-y-1.5"><Label htmlFor="catalog-youtube-url">YouTube URL</Label><Input id="catalog-youtube-url" value={youtubeUrl} disabled={checking} onChange={(event) => { setYoutubeUrl(event.target.value); setEndSeconds(""); setPreflight(null); setVideoKind(clip ? "cover" : null); setRegistrationMode("standard"); }} placeholder="https://www.youtube.com/watch?v=..." /></div>
                   <Button onClick={() => void runPreflight()} disabled={checking || !youtubeUrl.trim()}>{checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} 영상 확인</Button>
                 </div>
                 <div className="space-y-3">
@@ -744,6 +752,7 @@ export function CatalogEntryDialog({
                     </div>
                   )}
                 </div>
+                {clip && preflight && !clipChannelReady && <p role="alert" className="rounded border p-3 text-sm">승인된 노래 클립 채널에서만 등록할 수 있습니다. <a className="underline" href="/admin/otw-play?tab=clip-channels">노래 클립 채널 관리</a>에서 채널을 등록·승인해 주세요.</p>}
                 {preflight && (
                   <div className="grid gap-3 rounded-xl border bg-muted/20 p-3 md:grid-cols-[240px_1fr]">
                     <img src={preflight.video.thumbnailUrl ?? `https://i.ytimg.com/vi/${preflight.video.videoId}/hqdefault.jpg`} alt="확인한 영상 썸네일" className="aspect-video w-full rounded-lg object-cover" />
@@ -751,7 +760,7 @@ export function CatalogEntryDialog({
                       <div><div className="font-semibold">{preflight.video.title}</div><div className="text-sm text-muted-foreground">{preflight.video.channelTitle}</div></div>
                       {preflight.duplicate && <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm"><strong>이미 등록된 영상 구간입니다.</strong><div>곡 {preflight.duplicate.songId} · 가창 {preflight.duplicate.performanceId}</div><Button type="button" variant="link" className="h-auto p-0" onClick={() => onOpenChange(false)}>기존 항목 보기</Button></div>}
                       <div className="flex flex-wrap items-center gap-2"><Badge variant={preflight.channel.state === "revoked" ? "destructive" : "secondary"}>채널: {preflight.channel.state === "approved" ? "승인됨" : preflight.channel.state === "recognized_member" ? "멤버 채널 자동 인식" : preflight.channel.state === "pending" ? "검수 대기" : preflight.channel.state === "inactive" ? "비활성" : preflight.channel.state === "revoked" ? "철회됨" : "미등록"}</Badge><Badge variant="outline">{segmentLabel}</Badge><Badge variant="outline">catalog r{preflight.catalogRevision}</Badge></div>
-                      {preflight.channel.state === "revoked" ? <p className="text-sm text-destructive">철회된 채널에서는 등록하거나 게시할 수 없습니다. 고급 관리에서 상태를 확인하세요.</p> : preflight.channel.state !== "approved" && preflight.channel.state !== "recognized_member" && <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1.5"><Label>채널 처리</Label><Select value={channelChoice} onValueChange={(value) => setChannelChoice(value as "approved" | "pending")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="approved">공식 채널로 승인</SelectItem><SelectItem value="pending">보류하고 draft만 저장</SelectItem></SelectContent></Select></div><div className="space-y-1.5"><Label>채널 역할</Label><Select value={channelRole} onValueChange={(value) => setChannelRole(value as typeof channelRole)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="otw_official">OTW 공식</SelectItem><SelectItem value="unit_official">유닛 공식</SelectItem><SelectItem value="member_music">멤버 노래 채널</SelectItem><SelectItem value="member_main">멤버 메인 채널</SelectItem><SelectItem value="project_official">승인 프로젝트</SelectItem></SelectContent></Select></div></div>}
+                      {preflight.channel.state === "revoked" ? <p className="text-sm text-destructive">철회된 채널에서는 등록하거나 게시할 수 없습니다. 고급 관리에서 상태를 확인하세요.</p> : !clip && preflight.channel.state !== "approved" && preflight.channel.state !== "recognized_member" && <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1.5"><Label>채널 처리</Label><Select value={channelChoice} onValueChange={(value) => setChannelChoice(value as "approved" | "pending")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="approved">공식 채널로 승인</SelectItem><SelectItem value="pending">보류하고 draft만 저장</SelectItem></SelectContent></Select></div><div className="space-y-1.5"><Label>채널 역할</Label><Select value={channelRole} onValueChange={(value) => setChannelRole(value as typeof channelRole)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="otw_official">OTW 공식</SelectItem><SelectItem value="unit_official">유닛 공식</SelectItem><SelectItem value="member_music">멤버 노래 채널</SelectItem><SelectItem value="member_main">멤버 메인 채널</SelectItem><SelectItem value="project_official">승인 프로젝트</SelectItem></SelectContent></Select></div></div>}
                     </div>
                   </div>
                 )}
@@ -763,15 +772,15 @@ export function CatalogEntryDialog({
                 <div>
                   <h3 className="font-semibold">이 영상은 어떤 유형인가요?</h3>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    메들리는 별도 유형이 아니라 수록곡마다 독립적인 공식 커버곡으로 등록합니다.
+                    {clip ? "방송에서 부른 곡을 기존 카탈로그에 연결하거나 새 곡으로 입력합니다." : "메들리는 별도 유형이 아니라 수록곡마다 독립적인 공식 커버곡으로 등록합니다."}
                   </p>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-3" role="group" aria-label="영상 유형">
+                {clip ? <p className="text-sm">곡 관계 · <strong>노래 클립</strong></p> : <div className="grid gap-3 sm:grid-cols-3" role="group" aria-label="영상 유형">
                   {([
                     ["original", "오리지널곡", "선택한 참여자를 원곡 가수로 사용합니다."],
                     ["cover", "공식 커버곡", "원곡 제목과 원곡 가수를 구분해 입력합니다."],
                     ["karaoke", "노래방송", "여러 곡과 구간 연결이 필요해 후속 단계에서 지원합니다."],
-                  ] as const).map(([kind, label, description]) => (
+                  ] as const).filter(([kind]) => !clip || kind !== "karaoke").map(([kind, label, description]) => (
                     <button
                       key={kind}
                       type="button"
@@ -783,20 +792,20 @@ export function CatalogEntryDialog({
                       }`}
                       onClick={() => {
                         setVideoKind(kind);
-                        if (kind !== "cover") {
+                        if (kind !== "cover" && !clip) {
                           setRegistrationMode("standard");
                           if (songId === "__new") setSongId("");
                         }
                       }}
                     >
-                      <span className="font-semibold">{label}</span>
+                      <span className="font-semibold">{clip && kind === "cover" ? "커버 가창" : label}</span>
                       <span className="mt-2 block text-sm text-muted-foreground">
                         {description}
                       </span>
                     </button>
                   ))}
-                </div>
-                {videoKind === "cover" && (
+                </div>}
+                {!clip && videoKind === "cover" && (
                   <label className="flex items-start gap-3 rounded-xl border bg-card p-3">
                     <Checkbox
                       checked={registrationMode === "medley_segment"}
@@ -833,7 +842,7 @@ export function CatalogEntryDialog({
                     을 자동으로 재사용합니다.
                   </div>
                 )}
-                {videoKind === "cover" && registrationMode === "medley_segment" && (
+                {(clip || videoKind === "cover") && explicitSongMode && (
                   <div className="rounded-xl border bg-card p-3">
                     <SongConnectionPicker
                       inputKey="catalog-medley"
@@ -858,9 +867,8 @@ export function CatalogEntryDialog({
                     />
                   </div>
                 )}
-                {videoKind === "cover" &&
-                  ((registrationMode === "standard" && !songId) ||
-                    (registrationMode === "medley_segment" && songId === "__new")) && (
+                {(clip || videoKind === "cover") &&
+                  ((!explicitSongMode && !songId) || (explicitSongMode && songId === "__new")) && (
                   <div className="space-y-3 rounded-xl border bg-card p-3">
                     <div>
                       <h4 className="font-semibold">원곡 정보</h4>
@@ -906,6 +914,7 @@ export function CatalogEntryDialog({
               </div>
             )}
 
+            {clip && step === 2 && <BroadcastFields value={broadcast} onChange={setBroadcast} />}
             {step === 2 && (
               <>
                 <SubjectPicker label="가창 참여자" members={members} entities={catalog.entities} draftSubjects={draftExternalSubjects} selected={participants} onChange={setParticipants} />
@@ -928,10 +937,10 @@ export function CatalogEntryDialog({
                   <div className="space-y-1.5">
                     <Label>영상 유형</Label>
                     <div className="flex h-9 items-center rounded-md border bg-muted/30 px-3 text-sm">
-                      {videoKind === "original" ? "오리지널곡" : "공식 커버곡"}
+                      {clip ? "노래 클립" : videoKind === "original" ? "오리지널곡" : "공식 커버곡"}
                     </div>
                   </div>
-                  <div className="space-y-1.5"><Label>공개 형태</Label><Select value={releaseType} onValueChange={(value) => setReleaseType(value as typeof releaseType)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="official_video">공식 영상</SelectItem><SelectItem value="official_mv">공식 MV</SelectItem></SelectContent></Select></div>
+                  {!clip && <div className="space-y-1.5"><Label>공개 형태</Label><Select value={releaseType} onValueChange={(value) => setReleaseType(value as typeof releaseType)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="official_video">공식 영상</SelectItem><SelectItem value="official_mv">공식 MV</SelectItem></SelectContent></Select></div>}
                   <div className="space-y-1.5"><Label>참여 형태</Label><Select value={participationType} onValueChange={(value) => setParticipationType(value as OtwPlayParticipationType)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(participationLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
                 </div>
                 <div className="rounded-xl border bg-card p-3">
@@ -978,7 +987,7 @@ export function CatalogEntryDialog({
                     </div>
                   </div>
                   <div><div className="text-sm font-semibold">참여자</div><div className="flex flex-wrap gap-1">{participants.map((participant) => <Badge key={participant.key} variant="secondary">{participant.label}</Badge>)}</div></div>
-                  <div><div className="text-sm font-semibold">분류</div><div className="text-sm text-muted-foreground">{videoKind === "original" ? "오리지널곡" : "공식 커버곡"} · {releaseType === "official_mv" ? "공식 MV" : "공식 영상"} · {participationLabels[participationType]}</div></div>
+                  <div><div className="text-sm font-semibold">분류</div><div className="text-sm text-muted-foreground">{clip ? "노래 클립" : videoKind === "original" ? "오리지널곡" : "공식 커버곡"} · {clip ? "노래 클립" : releaseType === "official_mv" ? "공식 MV" : "공식 영상"} · {participationLabels[participationType]}</div></div>
                   {songTags.length > 0 ? <div><div className="text-sm font-semibold">곡 분류</div><div className="mt-1 flex flex-wrap gap-1">{songTags.map((tag) => <Badge key={tag}>{tag}</Badge>)}</div></div> : null}
                   {performanceTags.length > 0 ? <div><div className="text-sm font-semibold">커버 영상 라벨</div><div className="mt-1 flex flex-wrap gap-1">{performanceTags.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}</div></div> : null}
                   <div className="rounded-md bg-muted p-3 text-sm">{registrationMode === "medley_segment" ? "메들리의 각 커버 구간은 검토를 위해 비공개 draft로만 저장됩니다." : "임시 저장은 공개되지 않습니다. 게시는 승인·활성 채널에서만 가능하며 확인 후 즉시 공개 상태가 됩니다."}</div>
@@ -996,7 +1005,7 @@ export function CatalogEntryDialog({
           ) : (
             <DialogFooter className="border-t pt-4 sm:justify-between">
               <div><Button type="button" variant="outline" onClick={() => setStep((value) => Math.max(0, value - 1))} disabled={step === 0 || saving}><ArrowLeft className="h-4 w-4" /> 이전</Button></div>
-              {step < 3 ? <Button type="button" onClick={() => setStep((value) => Math.min(3, value + 1))} disabled={!stepReady}>다음 <ArrowRight className="h-4 w-4" /></Button> : <div className="flex flex-col-reverse gap-2 sm:flex-row"><Button type="button" variant="outline" disabled={saving} onClick={() => void save("draft")}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} 임시 저장</Button>{registrationMode === "standard" ? <Button type="button" disabled={saving || !channelCanPublish} title={channelCanPublish ? undefined : "승인·활성 채널에서만 게시할 수 있습니다."} onClick={() => setConfirmPublish(true)}>게시</Button> : null}</div>}
+              {step < 3 ? <Button type="button" onClick={() => setStep((value) => Math.min(3, value + 1))} disabled={!stepReady}>다음 <ArrowRight className="h-4 w-4" /></Button> : <div className="flex flex-col-reverse gap-2 sm:flex-row"><Button type="button" variant="outline" disabled={saving} onClick={() => void save("draft")}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} 임시 저장</Button>{!clip && registrationMode === "standard" ? <Button type="button" disabled={saving || !channelCanPublish} title={channelCanPublish ? undefined : "승인·활성 채널에서만 게시할 수 있습니다."} onClick={() => setConfirmPublish(true)}>게시</Button> : null}</div>}
             </DialogFooter>
           )}
         </DialogContent>

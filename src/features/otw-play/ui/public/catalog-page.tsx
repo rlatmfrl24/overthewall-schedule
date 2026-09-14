@@ -66,6 +66,7 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
     }
   };
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const composingRef = useRef(false);
   const query = useMemo(() => catalogQueryFromRouteSearch(search), [search]);
   const catalog = useOtwPlayCatalog(query);
   const facets = useOtwPlayFacets();
@@ -89,7 +90,7 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
   }, [loadMoreTarget, fetchNextPage, hasNextPage, isFetching, isFetchNextPageError]);
   const memberUids = query.member ?? [];
 
-  useEffect(() => setSearchInput(search.q ?? ""), [search.q]);
+  useEffect(() => { if (!composingRef.current) setSearchInput(search.q ?? ""); }, [search.q]);
   useEffect(
     () => () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -164,6 +165,7 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
           className="flex min-w-0 flex-1 gap-2"
           onSubmit={(event) => {
             event.preventDefault();
+            if (composingRef.current) return;
             submitSearch(searchInput);
           }}
         >
@@ -176,6 +178,17 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
               maxLength={80}
               placeholder="곡명, 원곡 가수, 참여자 검색"
               className="pl-9"
+              onCompositionStart={() => {
+                composingRef.current = true;
+                if (debounceRef.current) clearTimeout(debounceRef.current);
+              }}
+              onCompositionEnd={(event) => {
+                composingRef.current = false;
+                scheduleSearch(event.currentTarget.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229)) event.preventDefault();
+              }}
               onChange={(event) => scheduleSearch(event.target.value)}
             />
           </div>

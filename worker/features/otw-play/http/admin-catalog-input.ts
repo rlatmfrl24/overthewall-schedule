@@ -1,3 +1,4 @@
+import { parseBroadcastMetadata } from "../domain/broadcast-metadata";
 import {
   OTW_PLAY_CHANNEL_ROLES,
   OTW_PLAY_CHANNEL_VERIFICATION_STATUSES,
@@ -189,7 +190,8 @@ export const parseCreateSong = (
 
 const parsePerformanceCore = (value: JsonObject) => {
   const songId = nonEmptyString(value.songId, 128);
-  const relationType = inValues(value.relationType, OTW_PLAY_RELATION_TYPES);
+  const relationType = value.releaseType === "broadcast" && inValues(value.relationType, OTW_PLAY_RELATION_TYPES) ? "singing_clip" as const : inValues(value.relationType, OTW_PLAY_RELATION_TYPES);
+  const broadcast = value.broadcast == null ? value.broadcast : parseBroadcastMetadata(value.broadcast);
   const releaseType = inValues(value.releaseType, [
     "official_mv",
     "official_video",
@@ -271,6 +273,9 @@ const parsePerformanceCore = (value: JsonObject) => {
     !songId ||
     !relationType ||
     !releaseType ||
+    (relationType === "singing_clip" && releaseType !== "broadcast") ||
+    (value.broadcast != null && !broadcast) ||
+    (releaseType !== "broadcast" && broadcast != null) ||
     !participationType ||
     !qualityStatus ||
     (value.releasedAt !== null && releasedAt === null) ||
@@ -291,6 +296,7 @@ const parsePerformanceCore = (value: JsonObject) => {
     participationType,
     qualityStatus,
     releasedAt,
+    ...(broadcast === undefined ? {} : { broadcast }),
     internalNote: nullableString(value.internalNote, 2_000),
     tags,
     participants,
@@ -631,7 +637,8 @@ export const parseUpdatePerformance = (
   const id = nonEmptyString(value.id, 128);
   const expectedVersion = integer(value.expectedVersion);
   const songId = nonEmptyString(value.songId, 128);
-  const relationType = inValues(value.relationType, OTW_PLAY_RELATION_TYPES);
+  const relationType = value.releaseType === "broadcast" && inValues(value.relationType, OTW_PLAY_RELATION_TYPES) ? "singing_clip" as const : inValues(value.relationType, OTW_PLAY_RELATION_TYPES);
+  const broadcast = value.broadcast == null ? value.broadcast : parseBroadcastMetadata(value.broadcast);
   const releaseType = inValues(value.releaseType, [
     "official_mv",
     "official_video",
@@ -715,6 +722,9 @@ export const parseUpdatePerformance = (
     !songId ||
     !relationType ||
     !releaseType ||
+    (relationType === "singing_clip" && releaseType !== "broadcast") ||
+    (value.broadcast != null && !broadcast) ||
+    (releaseType !== "broadcast" && broadcast != null) ||
     !participationType ||
     !qualityStatus ||
     tags === null ||
@@ -743,6 +753,7 @@ export const parseUpdatePerformance = (
       participationType,
       qualityStatus,
       releasedAt,
+    ...(broadcast === undefined ? {} : { broadcast }),
       internalNote: nullableString(value.internalNote, 2_000),
       ...(tags === undefined ? {} : { tags }),
       participants: parsedParticipants.sort(
@@ -826,7 +837,8 @@ export const parseCreateCatalogEntry = (
   ) {
     return fail({ endSeconds: "invalid_segment" });
   }
-  const relationType = inValues(value.relationType, OTW_PLAY_RELATION_TYPES);
+  const relationType = value.releaseType === "broadcast" && inValues(value.relationType, OTW_PLAY_RELATION_TYPES) ? "singing_clip" as const : inValues(value.relationType, OTW_PLAY_RELATION_TYPES);
+  const broadcast = value.broadcast == null ? value.broadcast : parseBroadcastMetadata(value.broadcast);
   const releaseType = inValues(value.releaseType, [
     "official_mv",
     "official_video",
@@ -1008,8 +1020,11 @@ export const parseCreateCatalogEntry = (
     (channelOwners !== null && hasDuplicateCatalogSubjects(channelOwners)) ||
     !channel ||
     !relationType ||
-    (song?.kind === "from_video" && relationType !== "original") ||
+    (song?.kind === "from_video" && (relationType !== "original" || releaseType === "broadcast")) ||
     !releaseType ||
+    (relationType === "singing_clip" && releaseType !== "broadcast") ||
+    (value.broadcast != null && !broadcast) ||
+    (releaseType !== "broadcast" && broadcast != null) ||
     (releaseType === "broadcast" && publicationTarget !== "draft") ||
     !participationType ||
     performanceTags === null ||
@@ -1038,6 +1053,7 @@ export const parseCreateCatalogEntry = (
       participationType,
       ...(performanceTags === undefined ? {} : { performanceTags }),
       publicationTarget,
+      ...(broadcast === undefined ? {} : { broadcast }),
       internalNote,
     },
   };

@@ -1,3 +1,4 @@
+import type { OtwPlayBroadcastMetadata } from "@contracts/otw-play";
 import type { OtwPlayMemberSummary } from "@contracts/otw-play-members";
 import type { PublicCatalogCursorPosition } from "../../domain/public-catalog-cursor";
 import type {
@@ -59,7 +60,7 @@ export interface PublicCatalogSource {
     | "deleted"
     | "region_blocked"
     | "unavailable";
-  sourceRole: "official" | "alternate";
+  sourceRole: "official" | "alternate" | "kirinuki";
   priority: number;
   isPrimary: boolean;
   startSeconds: number;
@@ -72,16 +73,19 @@ export interface PublicCatalogSource {
       | "unit_official"
       | "member_music"
       | "member_main"
-      | "project_official";
+      | "project_official"
+      | "approved_kirinuki";
   };
 }
 
 export interface PublicCatalogPerformance {
+  broadcast?: OtwPlayBroadcastMetadata | null;
   id: string;
-  relation: PublicCatalogRelation;
+  relation: PublicCatalogRelation | "singing_clip";
   releaseType:
     | "official_mv"
-    | "official_video";
+    | "official_video"
+    | "broadcast";
   participation: PublicCatalogParticipationType;
   releasedAt: number | null;
   tags: string[];
@@ -157,7 +161,7 @@ export interface PublicCatalogReader {
   readMeta(): Promise<PublicCatalogMeta>;
   readCatalog(query: PublicCatalogReaderQuery): Promise<PublicCatalogReaderPage>;
   readFacets(): Promise<PublicCatalogFacets>;
-  readSongBySlug(slug: string): Promise<PublicCatalogSongDetail | null>;
+  readSongBySlug(slug: string, scope?: "official" | "all"): Promise<PublicCatalogSongDetail | null>;
   readPerformanceById(
     performanceId: string,
   ): Promise<PublicCatalogPerformanceDetail | null>;
