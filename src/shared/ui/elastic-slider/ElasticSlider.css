@@ -1,8 +1,8 @@
 .elastic-slider {
   width: 100%;
   min-width: 0;
-  /* Reserve room for the original zoom within the player's volume controls. */
-  padding-inline: 12px;
+  /* Reserve proportional space for 1.2x zoom and elastic edge travel. */
+  padding-inline: 15%;
 }
 .elastic-slider-wrapper {
   display: flex;

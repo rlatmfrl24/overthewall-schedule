@@ -76,7 +76,9 @@ export default function ElasticSlider({
     origin.set(nextRegion === 'left' ? 'right' : 'left');
     const distance = Math.max(bounds.left - event.clientX, event.clientX - bounds.right, 0);
     // Interrupt any old rebound while directly manipulating the track.
-    overflow.jump(decay(distance, MAX_OVERFLOW));
+    // Scale the elastic travel with the track, keeping it inside the reserved gutter.
+    const travel = Math.min(MAX_OVERFLOW, bounds.width * 0.1);
+    overflow.jump(decay(distance, travel));
   };
   const finish = event => {
     if (activePointer.current !== event.pointerId) return;

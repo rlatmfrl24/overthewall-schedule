@@ -71,10 +71,10 @@ export const SnapshotTimeline = ({
   }
 
   return (
-    <div className="flex flex-col gap-4 w-full max-w-none mx-0 px-0">
+    <div className="flex w-full flex-col gap-3">
       {boardModel.mainItems.length > 0 && (
-        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-[0_6px_16px_rgba(15,23,42,0.08)] dark:border-zinc-700 dark:bg-zinc-900">
-          <div className="grid min-h-11 grid-cols-[92px_1fr] items-center border-b border-zinc-200 bg-zinc-50 text-[13px] font-extrabold text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+        <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="grid min-h-10 grid-cols-[80px_minmax(0,1fr)] items-center border-b border-zinc-200 bg-zinc-50 text-[13px] font-semibold text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
             <span className="flex h-full items-center justify-center text-center">
               시간
             </span>
@@ -82,7 +82,7 @@ export const SnapshotTimeline = ({
               멤버 / 일정
             </span>
           </div>
-          <div className="divide-y divide-zinc-200 dark:divide-zinc-700">
+          <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {boardModel.mainItems.map((entry) => {
               const member = memberMap.get(entry.schedule.member_uid);
               if (!member) return null;
@@ -130,35 +130,31 @@ const SnapshotScheduleRow = ({
   const { textRef, textStyle } = useAutoFitText<HTMLHeadingElement>({
     contentKey: `${entry.schedule.id}:${title}:snapshot-main`,
     maxLines: 2,
-    minFontSizePx: 14,
+    minFontSizePx: 16,
     stepPx: 1,
   });
 
   return (
-    <div className="grid min-h-[72px] grid-cols-[92px_1fr] items-center">
-      <div className="flex h-full items-center justify-center border-r border-zinc-200 bg-zinc-50/70 px-3 dark:border-zinc-700 dark:bg-zinc-800/60">
-        <span className="font-mono text-lg font-black tabular-nums text-zinc-800 dark:text-zinc-100">
+    <div className="grid min-h-[88px] grid-cols-[80px_minmax(0,1fr)] items-center">
+      <div className="flex h-full items-center justify-center border-r border-zinc-100 bg-zinc-50/70 px-2 dark:border-zinc-800 dark:bg-zinc-950/40">
+        <span className="text-[20px] font-bold tabular-nums tracking-tight text-teal-800 dark:text-teal-200">
           {formatScheduleTime(entry.schedule.start_time)}
         </span>
       </div>
-      <div className="flex min-w-0 items-center gap-3 px-4 py-3">
-        <span
-          className="h-10 w-1.5 shrink-0 rounded-full shadow-sm"
-          style={{ backgroundColor: mainColor }}
-        />
+      <div className="flex min-w-0 items-center gap-3 px-4 py-4">
         <img
           src={`/profile/${member.code}.webp`}
           alt={member.name}
-          className="h-11 w-11 shrink-0 rounded-full border-2 object-cover shadow-sm"
+          className="h-10 w-10 shrink-0 rounded-full border-2 object-cover"
           style={{ borderColor: hexToRgba(mainColor, 0.55) }}
         />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="mb-1 flex min-w-0 flex-wrap items-center gap-1.5">
-            <p className="min-w-0 max-w-full whitespace-normal break-words text-sm font-black leading-snug text-zinc-950 dark:text-zinc-50">
+            <p className="min-w-0 max-w-full whitespace-normal break-words text-sm font-semibold leading-snug text-zinc-600 dark:text-zinc-300">
               {member.name}
             </p>
             {member.unit_name && (
-              <span className="inline-flex min-h-6 max-w-full shrink-0 items-center rounded-full border border-zinc-200 bg-zinc-100 px-2 py-1 text-[10px] font-black leading-snug text-zinc-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+              <span className="inline-flex max-w-full items-center rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium leading-snug text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
                 {member.unit_name}
               </span>
             )}
@@ -166,7 +162,7 @@ const SnapshotScheduleRow = ({
           <h3
             ref={textRef}
             style={textStyle}
-            className="whitespace-normal break-words text-lg font-black leading-tight text-zinc-950 dark:text-zinc-50"
+            className="whitespace-normal break-words text-lg font-bold leading-snug text-zinc-950 dark:text-zinc-50"
           >
             {title}
           </h3>
@@ -189,8 +185,8 @@ const SnapshotSideGroup = ({
   const Icon = meta.icon;
 
   return (
-    <section className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-[0_6px_16px_rgba(15,23,42,0.08)] dark:border-zinc-700 dark:bg-zinc-900">
-      <div className="flex min-h-11 items-center gap-2 border-b border-zinc-200 bg-zinc-50 px-4 dark:border-zinc-700 dark:bg-zinc-800">
+    <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex min-h-11 items-center gap-2 border-b border-zinc-100 px-4 dark:border-zinc-800">
         <span
           className={cn(
             "inline-flex h-7 w-7 items-center justify-center rounded-lg border",
@@ -199,14 +195,14 @@ const SnapshotSideGroup = ({
         >
           <Icon className="h-4 w-4" />
         </span>
-        <h3 className="text-sm font-black text-zinc-900 dark:text-zinc-50">
+        <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-50">
           {meta.title}
-        </h3>
-        <span className="inline-flex min-h-6 items-center rounded-md bg-zinc-200 px-2 py-1 text-xs font-black leading-none text-zinc-700 dark:bg-zinc-700 dark:text-zinc-100">
-          {items.length}
+        </h2>
+        <span className="ml-auto text-xs font-medium tabular-nums text-zinc-600 dark:text-zinc-400">
+          {items.length}개
         </span>
       </div>
-      <div className="divide-y divide-zinc-200 dark:divide-zinc-700">
+      <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
         {items.map((entry) => {
           const member = memberMap.get(entry.schedule.member_uid);
           if (!member) return null;
@@ -214,7 +210,7 @@ const SnapshotSideGroup = ({
           return (
             <div
               key={entry.schedule.id}
-              className="grid min-h-[58px] grid-cols-[40px_1fr_auto] items-center gap-3 px-4 py-3"
+              className="grid min-h-[58px] grid-cols-[40px_1fr_auto] items-center gap-3 px-4 py-4"
             >
               <img
                 src={`/profile/${member.code}.webp`}
@@ -248,19 +244,20 @@ const SnapshotNoScheduleGroup = ({
   entries: NoScheduleMemberEntry[];
 }) => {
   return (
-    <section className="overflow-hidden rounded-xl border border-zinc-300 bg-white shadow-[0_6px_16px_rgba(15,23,42,0.08)] dark:border-zinc-700 dark:bg-zinc-900">
-      <div className="flex min-h-11 items-center gap-2 border-b border-zinc-200 bg-zinc-50 px-4 dark:border-zinc-700 dark:bg-zinc-800">
-        <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-          <Calendar className="h-4 w-4" />
-        </span>
-        <h3 className="text-sm font-black text-zinc-900 dark:text-zinc-50">
+    <section className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-center gap-2">
+        <Calendar className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+        <h2 className="text-sm font-bold text-zinc-700 dark:text-zinc-200">
           일정 없음
-        </h3>
-        <span className="inline-flex min-h-6 items-center rounded-md bg-zinc-200 px-2 py-1 text-xs font-black leading-none text-zinc-700 dark:bg-zinc-700 dark:text-zinc-100">
-          {entries.length}
+        </h2>
+        <span className="ml-auto text-xs font-medium tabular-nums text-zinc-600 dark:text-zinc-400">
+          {entries.length}명
         </span>
       </div>
-      <div className="divide-y divide-zinc-200 dark:divide-zinc-700">
+      <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+        오늘 등록된 일정이 없습니다
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
         {entries.map((entry) => (
           <SnapshotNoScheduleItem
             key={`snapshot-no-schedule-${entry.member.uid}`}
@@ -272,27 +269,16 @@ const SnapshotNoScheduleGroup = ({
   );
 };
 
-const SnapshotNoScheduleItem = ({
-  entry,
-}: {
-  entry: NoScheduleMemberEntry;
-}) => (
-  <div className="grid min-h-[58px] grid-cols-[40px_1fr] items-center gap-3 px-4 py-2.5">
+const SnapshotNoScheduleItem = ({ entry }: { entry: NoScheduleMemberEntry }) => (
+  <div className="flex min-w-0 items-center gap-2.5">
     <img
       src={`/profile/${entry.member.code}.webp`}
       alt={entry.member.name}
-      className="h-9 w-9 rounded-full object-cover ring-1 ring-zinc-200"
+      className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-zinc-200 dark:ring-zinc-700"
     />
-    <div className="min-w-0">
-      <div className="flex min-w-0 items-center gap-2">
-        <p className="whitespace-normal break-words text-sm font-black leading-snug text-zinc-950 dark:text-zinc-50">
-          {entry.member.name}
-        </p>
-      </div>
-      <p className="mt-1 whitespace-normal break-words text-[13px] font-semibold leading-snug text-zinc-600 dark:text-zinc-300">
-        오늘 등록된 일정이 없습니다
-      </p>
-    </div>
+    <p className="min-w-0 whitespace-normal break-words text-[13px] font-semibold leading-snug text-zinc-700 dark:text-zinc-300">
+      {entry.member.name}
+    </p>
   </div>
 );
 
