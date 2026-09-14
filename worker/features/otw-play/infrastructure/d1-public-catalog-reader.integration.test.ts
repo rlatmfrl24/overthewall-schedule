@@ -441,6 +441,8 @@ describe("D1PublicCatalogReader", () => {
     expect((await reader.readPlaylistPerformances({ ...query, member: 1 })).map(item => item.performance.id)).toEqual(["playlist-000", "playlist-001"]);
     expect((await reader.readPlaylistPerformances({ ...query, q: "current a" })).map(item => item.performance.id)).toEqual(["playlist-000", "playlist-001"]);
     const defaults = await reader.readPlaylistDefaults();
+    expect(defaults.find(item => item.id === "original")?.imageUrl)
+      .toBe("https://i.ytimg.com/vi/PFcPopYxft4/hqdefault.jpg");
     expect(defaults.find(item => item.id === "cover")).toMatchObject({ songCount: 1, performanceCount: 65 });
     expect(defaults.find(item => item.id === "member-3")).toMatchObject({ songCount: 0, performanceCount: 0 });
     expect(await reader.resolvePlaylistPerformances(["playlist-hidden", "missing"])).toEqual([]);

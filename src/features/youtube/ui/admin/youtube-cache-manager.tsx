@@ -485,6 +485,20 @@ export function YouTubeCacheManager() {
         }
       />
 
+      {status?.vodChannels && status.vodChannels.length > 0 ? (
+        <Card>
+          <CardHeader><CardTitle>유튜브 다시보기 채널</CardTitle><CardDescription>프로필에 등록된 전용 채널을 예약 수집합니다. 채널 ID가 없으면 수집할 수 없습니다.</CardDescription></CardHeader>
+          <CardContent className="space-y-2">
+            {status.vodChannels.map((channel, index) => <div key={`${channel.memberUid}-${index}`} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
+              <span>{channel.memberName} · {channel.label}</span>
+              <Badge variant={channel.issue === "missing_channel_id" || channel.issue === "invalid_channel_id" || channel.issue === "collection_failed" ? "destructive" : "secondary"}>
+                {channel.issue === "missing_channel_id" ? "채널 ID 누락" : channel.issue === "invalid_channel_id" ? "채널 ID 형식 오류" : channel.issue === "collection_failed" ? "수집 실패 · 예약 재시도 대기" : channel.issue === "initializing" ? "초기 수집 대기" : "수집 완료"}
+              </Badge>
+            </div>)}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <QueryReadback updatedAt={statusQuery.dataUpdatedAt} fetching={isLoading} error={statusQuery.isError || settingsQuery.isError}/>
       <p className="text-sm"><a className="underline" href="/admin/history?tab=runs&source=youtube_feed_collection">신규 피드 수집 실행 확인 →</a> · 아래는 요청 시 사용하는 캐시 상태입니다.</p>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

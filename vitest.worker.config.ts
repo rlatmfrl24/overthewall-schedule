@@ -241,7 +241,7 @@ export default defineConfig({
               /^(0004_|0005_)/.test(name)
             ),
             YOUTUBE_FEED_MIGRATIONS: migrations.filter(({ name }) =>
-              /^(0000_|0009_|0011_|0017_|0035_|0037_|0068_|0069_|0071_|0082_|0086_)/.test(name)
+              /^(0000_|0009_|0011_|0017_|0027_|0035_|0037_|0068_|0069_|0071_|0082_|0086_)/.test(name)
             ).map(migration => migration.name.startsWith("0071_")
               ? { ...migration, queries: migration.queries.filter(query =>
                   /^\s*CREATE (?:TABLE|(?:UNIQUE )?INDEX) `(?:youtube_feed_|u?idx_youtube_feed_)/.test(query)

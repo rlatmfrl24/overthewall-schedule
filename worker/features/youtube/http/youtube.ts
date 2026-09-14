@@ -1,3 +1,4 @@
+import { decodeVodCursor, YouTubeVodInputError } from "../domain/vod-cursor";
 import { requireAdminUser } from "../../../platform/auth";
 import {
   badRequest,
@@ -57,7 +58,7 @@ export const createYouTubeHandler =
     const cacheStatus = await application.readCacheOverview(windowHours);
 
     return json(
-      cacheStatus,
+      { ...cacheStatus, vodChannels: await application.readVodChannelStatus() },
       200,
       {
         headers: {
@@ -102,6 +103,26 @@ export const createYouTubeHandler =
         );
       }
       throw error;
+    }
+  }
+
+  if (url.pathname === "/api/youtube/vods") {
+    if (request.method !== "GET") return methodNotAllowed();
+    const rawMembers = url.searchParams.get("memberUids");
+    if (rawMembers !== null && (!/^\d+(,\d+)*$/.test(rawMembers) || rawMembers.split(",").length > 50)) return badRequest("Invalid memberUids");
+    const memberUids = rawMembers ? rawMembers.split(",").map(Number) : [];
+    if (memberUids.some((uid) => !Number.isSafeInteger(uid) || uid < 1)) return badRequest("Invalid memberUids");
+    const limit = parseYouTubeMaxResults(url.searchParams.get("limit"));
+    if (limit === null) return badRequest("limit must be an integer between 1 and 20");
+    try {
+      decodeVodCursor(url.searchParams.get("cursor"), [...new Set(memberUids)].sort((a, b) => a - b));
+      const result = await application.readVods({ memberUids, limit, cursor: url.searchParams.get("cursor") });
+      // Re-evaluate active profile links on every request, including after disablement.
+      return json(result, 200, { headers: { "Cache-Control": "no-store" } });
+    } catch (error) {
+      if (error instanceof YouTubeVodInputError) return badRequest(error.message);
+      console.error("Failed to read YouTube VODs", error);
+      return json({ error: "youtube_vods_unavailable" }, 503, { headers: { "Cache-Control": "no-store", "Retry-After": "15" } });
     }
   }
 

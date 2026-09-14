@@ -1,4 +1,5 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useContext, useLayoutEffect, useRef, useState } from "react";
+import { SnapshotFontContext } from "./snapshot-fonts";
 
 interface FindAutoFitFontSizeOptions {
   baseFontSizePx: number;
@@ -64,6 +65,7 @@ export const useAutoFitText = <T extends HTMLElement>({
 }: UseAutoFitTextOptions) => {
   const textRef = useRef<T | null>(null);
   const [fontSizePx, setFontSizePx] = useState<number | null>(null);
+  const fontMode = useContext(SnapshotFontContext);
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
@@ -101,7 +103,7 @@ export const useAutoFitText = <T extends HTMLElement>({
     setFontSizePx((currentFontSizePx) =>
       currentFontSizePx === nextFontSizePx ? currentFontSizePx : nextFontSizePx,
     );
-  }, [contentKey, maxLines, minFontSizePx, stepPx]);
+  }, [contentKey, maxLines, minFontSizePx, stepPx, fontMode]);
 
   return {
     textRef,

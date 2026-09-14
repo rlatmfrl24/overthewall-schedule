@@ -60,7 +60,7 @@ describe("useWeeklySchedule", () => {
   });
 
   it("주간 보드 aggregate 조회 결과와 다이얼로그 동작을 처리한다", async () => {
-    saveScheduleWithConflictsMock.mockResolvedValue(undefined);
+    saveScheduleWithConflictsMock.mockResolvedValue({ success: true, action: "update", scheduleId: 11, deletedIds: [] });
 
     const { result } = renderHook(() => useWeeklySchedule(), {
       wrapper: createQueryWrapper(),

@@ -6,10 +6,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError } from "@/shared/api/client";
 import { OtwPlayDefaultPlaylistManager } from "./default-playlist-manager";
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), read: vi.fn(), save: vi.fn(), browse: vi.fn(), resolve: vi.fn() }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), read: vi.fn(), save: vi.fn(), browse: vi.fn(), resolve: vi.fn(), discard: vi.fn() }));
 vi.mock("@clerk/clerk-react", () => ({ useUser: () => ({ user: { id: "admin" } }) }));
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: ReactNode }) => <a>{children}</a> }));
-vi.mock("@/shared/lib/unsaved-changes", () => ({ useUnsavedChanges: () => async () => true }));
+vi.mock("@/shared/lib/unsaved-changes", () => ({ useUnsavedChanges: () => mocks.discard }));
 vi.mock("../../api/playlists", () => ({ fetchAdminDefaultPlaylists: mocks.list, fetchAdminDefaultPlaylist: mocks.read,
   saveAdminDefaultPlaylist: mocks.save, fetchPlaylistPerformances: mocks.browse, resolvePlaylistPerformances: mocks.resolve }));
 const base = { id: "cover", title: "커버곡 모음", description: "기본 설명", version: 0, representativePerformanceId: null,
@@ -25,6 +25,8 @@ const show = () => {
 };
 beforeEach(() => {
   vi.stubGlobal("React", React); vi.resetAllMocks();
+  mocks.discard.mockResolvedValue(true);
+  HTMLElement.prototype.scrollIntoView = vi.fn();
   mocks.list.mockResolvedValue({ data: [base] }); mocks.read.mockResolvedValue({ data: base });
   mocks.browse.mockResolvedValue({ data: { items: [track(1)] }, nextCursor: null });
   mocks.resolve.mockResolvedValue({ data: { items: [track(61)], unavailableIds: [] } });
@@ -32,6 +34,28 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("default playlist management flow", () => {
+  it("uses the shared select and preserves the current editor when discarding is cancelled", async () => {
+    const original = { ...base, id: "original", title: "오리지널 모음", query: { relation: "original" },
+      defaults: { ...base.defaults, title: "오리지널 모음" } };
+    mocks.list.mockResolvedValue({ data: [base, original] });
+    const { client } = show();
+    const select = await screen.findByRole("combobox", { name: "플레이리스트" });
+    expect(select.getAttribute("data-slot")).toBe("select-trigger");
+    fireEvent.change(screen.getByLabelText("이름"), { target: { value: "저장 전 제목" } });
+    mocks.discard.mockResolvedValueOnce(false);
+    fireEvent.keyDown(select, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "오리지널 모음" }));
+    await waitFor(() => expect(mocks.discard).toHaveBeenCalledOnce());
+    expect(select.textContent).toContain("커버곡 모음");
+    expect(screen.getByLabelText("이름")).toHaveProperty("value", "저장 전 제목");
+    fireEvent.keyDown(select, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "오리지널 모음" }));
+    await waitFor(() => expect(screen.getByLabelText("이름")).toHaveProperty("value", "오리지널 모음"));
+    expect(select.textContent).toContain("오리지널 모음");
+    expect(mocks.save).not.toHaveBeenCalled();
+    client.clear();
+  });
+
   it("selects a representative after page 60, saves metadata, and shows authoritative readback", async () => {
     mocks.browse.mockResolvedValueOnce({ data: { items: Array.from({ length: 60 }, (_, i) => track(i + 1)) }, nextCursor: "page-two" })
       .mockResolvedValueOnce({ data: { items: [track(61)] }, nextCursor: null });

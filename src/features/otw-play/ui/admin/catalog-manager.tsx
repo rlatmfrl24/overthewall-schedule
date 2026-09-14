@@ -526,6 +526,7 @@ function ProposalSection({
   const approvalPreflightRequestId = useRef(0);
   const [singingCreditConfirmed, setSingingCreditConfirmed] = useState(false);
   const [savingLocal, setSavingLocal] = useState(false);
+  const [preflightError, setPreflightError] = useState<string | null>(null);
   const [channelRole, setChannelRole] =
     useState<Extract<OtwPlayChannelRole, "otw_official" | "unit_official" | "member_music" | "member_main" | "project_official">>("project_official");
   const [reviewTitle, setReviewTitle] = useState("");
@@ -549,9 +550,23 @@ function ProposalSection({
     approvalPreflight &&
       ["unknown", "pending", "inactive"].includes(approvalPreflight.channel.state),
   );
+  const approvalBlockers: string[] = [];
+  if (savingLocal) approvalBlockers.push("영상·채널을 확인하고 있습니다.");
+  else if (!approvalPreflight) approvalBlockers.push("영상·채널 확인을 먼저 실행해 주세요.");
+  if (approvalPreflight?.duplicate) approvalBlockers.push("이미 등록된 영상입니다. 기존 카탈로그 항목을 확인해 주세요.");
+  if (approvalPreflight?.channel.state === "revoked") approvalBlockers.push("승인이 취소된 채널입니다. 채널 관리에서 상태를 확인해 주세요.");
+  if (channelNeedsConfirmation && (reviewChannelOwners.length === 0 || reviewChannelOwners.some((owner) => !owner.submittedNameSnapshot.trim()))) approvalBlockers.push("공식 채널의 소유자를 입력해 주세요.");
+  if (!reviewTitle.trim()) approvalBlockers.push("곡명을 입력해 주세요.");
+  if (reviewSongId === "__new" && (reviewArtists.length === 0 || reviewArtists.some((artist) => !artist.submittedNameSnapshot.trim()))) approvalBlockers.push("새 곡의 원곡 가수를 입력해 주세요.");
+  if (reviewParticipants.length === 0 || reviewParticipants.some((participant) => !participant.submittedNameSnapshot.trim())) approvalBlockers.push("가창 참여자 이름을 입력해 주세요.");
+  if (!reviewParticipants.some((participant) => participant.participantRole !== "other")) approvalBlockers.push("보컬 역할의 가창 참여자가 한 명 이상 필요합니다.");
+  if (!singingCreditConfirmed) approvalBlockers.push("영상의 실제 가창자와 입력한 참여자가 일치하는지 확인해 주세요.");
+  if (saving !== null) approvalBlockers.push("진행 중인 저장 작업이 끝날 때까지 기다려 주세요.");
 
   useEffect(() => {
     setProposalDirty(false);
+    setPreflightError(null);
+    setSavingLocal(false);
     selectedProposalIdRef.current = selected?.id ?? null;
     approvalPreflightRequestId.current += 1;
     if (!selected) {
@@ -645,6 +660,8 @@ function ProposalSection({
     const selectedProposalId = selected.id;
     const requestId = ++approvalPreflightRequestId.current;
     setSavingLocal(true);
+    setApprovalPreflight(null);
+    setPreflightError(null);
     try {
       const result = await preflightOtwPlayCatalogEntry({
           youtubeUrl: selected.submittedUrl,
@@ -654,12 +671,16 @@ function ProposalSection({
         requestId === approvalPreflightRequestId.current &&
         selectedProposalIdRef.current === selectedProposalId
       ) setApprovalPreflight(result);
+    } catch (error) {
+      if (requestId === approvalPreflightRequestId.current && selectedProposalIdRef.current === selectedProposalId) {
+        setPreflightError(error instanceof Error ? error.message : "영상·채널 확인에 실패했습니다. 다시 시도해 주세요.");
+      }
     } finally {
       if (requestId === approvalPreflightRequestId.current) setSavingLocal(false);
     }
   };
   const approveSelected = async () => {
-    if (!selected || !approvalPreflight || !singingCreditConfirmed) return;
+    if (!selected || !approvalPreflight || approvalBlockers.length > 0) return;
     if (channelNeedsConfirmation && reviewChannelOwners.length === 0) return;
     const participantSubjects = reviewParticipants.map((participant, index) => ({
       subject: proposalSubject(participant, `proposal-participant-${index}`),
@@ -840,7 +861,7 @@ function ProposalSection({
           </div>
         ) : null}
         {!error && selected && (
-          <div className="grid gap-3 rounded-xl border bg-muted/20 p-3 lg:grid-cols-[minmax(280px,420px)_1fr]">
+          <div className="mx-auto grid w-full min-w-0 max-w-6xl gap-4 rounded-xl border bg-muted/20 p-4 lg:grid-cols-[minmax(240px,360px)_minmax(0,1fr)]">
             <div className="aspect-video overflow-hidden rounded-lg bg-black">
               <iframe
                 className="h-full w-full"
@@ -850,7 +871,7 @@ function ProposalSection({
                 allowFullScreen
               />
             </div>
-            <div className="space-y-2 text-sm">
+            <div className="min-w-0 space-y-2 text-sm">
               <div className="font-semibold">{selected.submittedTitle}</div>
               <div>
                 제출자{" "}
@@ -880,22 +901,14 @@ function ProposalSection({
                 </div>
               )}
               <div className="flex flex-wrap items-center gap-2 pt-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={savingLocal || saving !== null}
-                  onClick={() => void verifySelected()}
-                >
-                  {savingLocal ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-                  영상·채널 확인
-                </Button>
                 {approvalPreflight ? (
                   <Badge variant={approvalPreflight.channel.state === "revoked" ? "destructive" : "secondary"}>
                     channel {approvalPreflight.channel.state}
                   </Badge>
                 ) : null}
               </div>
+            </div>
+            <div className="min-w-0 space-y-4 text-sm lg:col-span-2 [&_[data-slot=select-trigger]]:w-full">
               {approvalPreflight && channelNeedsConfirmation ? (
                 <div className="space-y-3 rounded-lg border bg-background p-3">
                   <Field label="공식 채널 역할">
@@ -948,7 +961,7 @@ function ProposalSection({
                   {reviewChannelOwners.map((owner, index) => (
                     <div
                       key={owner.rowKey}
-                      className="grid gap-2 sm:grid-cols-[11rem_7rem_minmax(0,1fr)_2.25rem]"
+                      className="grid min-w-0 grid-cols-[minmax(0,1fr)_6rem] gap-2 rounded-md bg-muted/20 p-3 lg:grid-cols-[11rem_6rem_minmax(0,1fr)_2.25rem]"
                     >
                       <Select
                         value={
@@ -1065,11 +1078,11 @@ function ProposalSection({
                   ))}
                 </div>
               ) : null}
-              <div className="space-y-3 rounded-lg border bg-background p-3">
+              <div className="space-y-5 rounded-lg border bg-background p-4">
                 <div>
                   <p className="font-semibold">승인 내용 편집</p>
                   <p className="text-xs text-muted-foreground">
-                    원 제안 snapshot은 보존하고, 아래 값으로 catalog에 반영합니다.
+                    곡 정보와 가창 정보를 확인한 뒤 아래에서 영상을 확인하고 승인해 주세요.
                   </p>
                 </div>
                 <Field label="연결할 곡">
@@ -1137,7 +1150,7 @@ function ProposalSection({
                         ><Plus /> 가수 추가</Button>
                       </div>
                       {reviewArtists.map((artist, index) => (
-                        <div key={artist.rowKey} className="grid gap-2 sm:grid-cols-[11rem_7rem_minmax(0,1fr)_2.25rem]">
+                        <div key={artist.rowKey} className="grid min-w-0 grid-cols-[minmax(0,1fr)_6rem] gap-2 rounded-md bg-muted/20 p-3 lg:grid-cols-[11rem_6rem_minmax(0,1fr)_2.25rem]">
                           <Select
                             value={artist.resolvedEntityId ? `entity:${artist.resolvedEntityId}` : "external"}
                             onValueChange={(value) => {
@@ -1211,7 +1224,7 @@ function ProposalSection({
                     ><Plus /> 참여자 추가</Button>
                   </div>
                   {reviewParticipants.map((participant, index) => (
-                    <div key={participant.rowKey} className="grid gap-2 sm:grid-cols-[10rem_7rem_minmax(0,1fr)_9rem_2.25rem]">
+                    <div key={participant.rowKey} className="grid min-w-0 grid-cols-[minmax(0,1fr)_8rem] gap-2 rounded-md bg-muted/20 p-3 lg:grid-cols-[10rem_6rem_minmax(0,1fr)_8rem_2.25rem] [&>button:last-child]:col-start-2 [&>button:last-child]:justify-self-end lg:[&>button:last-child]:col-start-auto">
                       <Select
                         value={participant.resolvedEntityId ? `entity:${participant.resolvedEntityId}` : "external"}
                         onValueChange={(value) => {
@@ -1325,34 +1338,38 @@ function ProposalSection({
                   recommendedTags={[]}
                 />
               </div>
-              <label className="flex items-start gap-2 rounded-lg border bg-background p-3">
+              <div className="space-y-3 rounded-lg border bg-background p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="font-semibold">최종 확인 및 승인</p>
+                  <Button type="button" size="sm" variant="outline" disabled={savingLocal || saving !== null} onClick={() => void verifySelected()}>
+                    {savingLocal ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                    영상·채널 확인
+                  </Button>
+                </div>
+                {preflightError && <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">영상·채널 확인 실패: {preflightError}</p>}
+                {approvalPreflight && !approvalPreflight.duplicate && <p className="text-xs text-muted-foreground">영상·채널 확인 완료 · {approvalPreflight.video.title}</p>}
+              <label className="flex items-start gap-2 rounded-md bg-muted/30 p-3">
                 <Checkbox
                   checked={singingCreditConfirmed}
                   onCheckedChange={(checked) => setSingingCreditConfirmed(checked === true)}
                 />
                 <span>영상의 실제 가창자와 입력된 참여자 credit이 일치함을 확인했습니다.</span>
               </label>
+              <div id="proposal-approval-status" role="status" className="text-xs text-muted-foreground">
+                {approvalBlockers.length > 0 ? (
+                  <ul className="list-disc space-y-1 pl-4">{approvalBlockers.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+                ) : "승인 준비가 완료되었습니다. 승인하면 공개 카탈로그에 게시됩니다."}
+              </div>
               <Button
                 size="sm"
-                disabled={
-                  !approvalPreflight ||
-                  Boolean(approvalPreflight.duplicate) ||
-                  approvalPreflight.channel.state === "revoked" ||
-                  (channelNeedsConfirmation &&
-                    (reviewChannelOwners.length === 0 ||
-                      reviewChannelOwners.some((owner) => !owner.submittedNameSnapshot.trim()))) ||
-                  !reviewTitle.trim() ||
-                  (reviewSongId === "__new" && (reviewArtists.length === 0 || reviewArtists.some((artist) => !artist.submittedNameSnapshot.trim()))) ||
-                  reviewParticipants.length === 0 ||
-                  reviewParticipants.some((participant) => !participant.submittedNameSnapshot.trim()) ||
-                  !reviewParticipants.some((participant) => participant.participantRole !== "other") ||
-                  !singingCreditConfirmed ||
-                  saving !== null
-                }
+                className="w-full sm:w-auto"
+                disabled={approvalBlockers.length > 0}
+                aria-describedby="proposal-approval-status"
                 onClick={() => void approveSelected()}
               >
                 확인 후 승인·게시
               </Button>
+              </div>
             </div>
           </div>
         )}

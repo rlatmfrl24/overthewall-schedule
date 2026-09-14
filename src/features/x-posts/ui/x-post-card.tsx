@@ -3,7 +3,6 @@ import SourceIcon from "@/assets/icon_x.svg";
 import {
   type ReactNode,
   useMemo,
-  useState,
 } from "react";
 import type { MemberDto } from "@contracts/members";
 import type {
@@ -13,7 +12,6 @@ import type {
 import type { XPostViewModel } from "../model/types";
 import IconX from "@/assets/icon_x.svg";
 import { PostActions, PostHeader, PostImage, PostMedia, PostText } from "@/shared/ui/post-content";
-import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/utils";
 import {
   ExternalLink,
@@ -316,10 +314,8 @@ const XEmbeddedPostCard = ({
 
 const XReplyPreviewCard = ({
   post,
-  embedded = false,
 }: {
   post: NonNullable<NonNullable<XPostViewModel["reply"]>["post"]>;
-  embedded?: boolean;
 }) => {
   const href = post.url;
   const handle = post.username === "i" ? null : `@${post.username}`;
@@ -334,7 +330,7 @@ const XReplyPreviewCard = ({
       target="_blank"
       rel="noopener noreferrer"
       aria-label={`${author} 답글 원문 열기`}
-      className={cn("flex min-h-11 min-w-0 items-start gap-2.5 p-2.5 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", embedded ? "pt-0" : "rounded-xl border border-border/70 bg-muted/15")}
+      className="flex min-h-11 min-w-0 items-start gap-2.5 border-t border-border/60 p-2.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       {post.profileImageUrl ? (
         <img
@@ -389,27 +385,15 @@ const XReplyPreviewCard = ({
   );
 };
 
-const XReplyContextCard = ({ memberName, reply, appearance }: { memberName?: string; reply: NonNullable<XPostViewModel["reply"]>; appearance?: "card" | "feed" }) => {
-  const [expanded, setExpanded] = useState(false);
+const XReplyContextCard = ({ memberName, reply }: { memberName?: string; reply: NonNullable<XPostViewModel["reply"]> }) => {
   const author = memberName || (reply.targetUsername && reply.targetUsername !== "i" ? `@${reply.targetUsername}` : reply.post?.username !== "i" ? reply.post?.name || reply.post?.username : null);
-  if (appearance === "feed") return <div className="ml-1 flex min-w-0 gap-2.5">
-    <CornerDownRight aria-hidden="true" className="mt-3 size-4 shrink-0 text-muted-foreground" />
-    <div className="min-w-0 flex-1 overflow-hidden rounded-lg border border-border/60 bg-muted/20">
-      <div className="flex min-h-9 items-center justify-between gap-2 px-3 text-[11px] text-muted-foreground">
-        <span className="min-w-0 truncate">{author ? `${author}에게 답글` : "다른 게시글에 답글"}</span>
-        {!reply.post && <a href={`https://x.com/i/web/status/${reply.postId}`} target="_blank" rel="noopener noreferrer" aria-label="답글 원문 열기" className="inline-flex min-h-11 shrink-0 items-center gap-1">대화 보기 <ExternalLink className="size-3" /></a>}
-      </div>
-      {reply.post && <XReplyPreviewCard embedded post={reply.post} />}
+  return <div role="group" aria-label="답글 대상 게시글" className="min-w-0 overflow-hidden rounded-lg border border-border/70 bg-muted/40">
+    <div className="flex min-h-8 items-center gap-2 px-2.5 text-xs">
+      <CornerDownRight aria-hidden="true" className="size-4 shrink-0 text-foreground/70" />
+      <span className="min-w-0 flex-1 break-words py-1.5 font-medium text-foreground [overflow-wrap:anywhere]">{author ? `${author}에게 답글` : "다른 게시글에 답글"}</span>
+      {!reply.post && <a href={`https://x.com/i/web/status/${reply.postId}`} target="_blank" rel="noopener noreferrer" aria-label="답글 원문 열기" className="inline-flex min-h-8 shrink-0 items-center gap-1 rounded px-1 text-muted-foreground underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-sm:min-h-11 pointer-coarse:min-h-11">대화 보기 <ExternalLink aria-hidden="true" className="size-3" /></a>}
     </div>
-  </div>;
-  return <div className="text-xs text-muted-foreground">
-    <div className="flex min-w-0 items-center gap-1">
-      <MessageCircle className="size-3.5 shrink-0" />
-      <span className="min-w-0 truncate">{author ? `${author}에게 답글` : "다른 게시글에 답글"}</span>
-      {reply.post ? <Button type="button" variant="ghost" className="min-h-11 shrink-0 px-2 text-xs" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "대화 접기" : "대화 보기"}</Button> :
-        <a href={`https://x.com/i/web/status/${reply.postId}`} target="_blank" rel="noopener noreferrer" aria-label="답글 원문 열기" className="inline-flex min-h-11 shrink-0 items-center gap-1 px-2">대화 보기 <ExternalLink className="size-3.5" /></a>}
-    </div>
-    {expanded && reply.post && <XReplyPreviewCard post={reply.post} />}
+    {reply.post && <XReplyPreviewCard post={reply.post} />}
   </div>;
 };
 
@@ -621,10 +605,10 @@ export const XPostCard = ({ post, member, compactTime, appearance = "card" }: XP
   const displayText = useMemo(() => stripReplyMentionPrefix(post), [post]);
   const name = member?.name ?? post.username;
   const title = `${name}의 X 게시글`;
-  return <article aria-label={title} className={cn("relative min-w-0 overflow-hidden", appearance === "feed" ? "space-y-1.5 border-b border-border/60 bg-background px-3.5 py-2.5 sm:px-[18px]" : "space-y-2.5 rounded-lg border border-border/70 bg-card p-3 shadow-sm sm:p-4", appearance === "feed" ? "after:pointer-events-none after:absolute after:inset-y-0 after:left-1 after:w-[3px] after:rounded-full after:bg-[var(--post-accent)]" : "border-l-4")} style={{ "--post-accent": member?.main_color ?? "transparent", borderLeftColor: appearance === "card" ? member?.main_color ?? "transparent" : undefined } as CSSProperties}>
+  return <article aria-label={title} className={cn("relative min-w-0 overflow-hidden", appearance === "feed" ? "space-y-1.5 border-b border-border/60 bg-background px-3.5 pt-2.5 pb-0 sm:px-[18px]" : "space-y-2.5 rounded-lg border border-border/70 bg-card p-3 pr-2 pb-0 shadow-sm sm:p-4 sm:pr-3 sm:pb-0", appearance === "feed" ? "after:pointer-events-none after:absolute after:inset-y-0 after:left-1 after:w-[3px] after:rounded-full after:bg-[var(--post-accent)]" : "border-l-4")} style={{ "--post-accent": member?.main_color ?? "transparent", borderLeftColor: appearance === "card" ? member?.main_color ?? "transparent" : undefined } as CSSProperties}>
     <PostHeader appearance={appearance} name={name} profileSrc={member ? `/profile/${member.code}.webp` : undefined} accent={member?.main_color ?? undefined} source="X" sourceIcon={<img src={SourceIcon} alt="X" className="size-4 object-contain dark:invert" />} secondary={`@${post.username}`} time={compactTime ?? formatRelativeDate(post.createdAt)} dateTime={post.createdAt} />
     {displayText && <PostText>{renderPostText(post, displayText)}</PostText>}
-    {post.reply && <XReplyContextCard appearance={appearance} memberName={post.replyTargetMemberName} reply={post.reply} />}
+    {post.reply && <XReplyContextCard memberName={post.replyTargetMemberName} reply={post.reply} />}
     <XQuotePostCard post={post} />
     <XLinkPreviewList post={post} />
     <XMediaGrid post={post} />

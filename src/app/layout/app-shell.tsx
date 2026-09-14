@@ -4,10 +4,11 @@ import {
   SignedIn,
   SignedOut,
   SignInButton,
-  UserButton,
+  useClerk,
+  useUser,
 } from "@clerk/clerk-react";
 import { Link, useLocation } from "@tanstack/react-router";
-import { Menu } from "lucide-react";
+import { ChevronDown, LogOut, Menu, Settings, UserRound } from "lucide-react";
 import { useState, type ComponentProps, type ReactNode } from "react";
 import {
   getPublicSidebarMode,
@@ -18,6 +19,7 @@ import {
 } from "./app-navigation";
 import { ModeToggle } from "@/app/layout/mode-toggle";
 import { Button } from "@/shared/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import {
   Sheet,
   SheetContent,
@@ -95,8 +97,7 @@ export function PublicAppShell({ children }: PublicAppShellProps) {
           <BrandLink compact onNavigate={() => setMobileOpen(false)} />
 
           <div className="ml-auto flex items-center gap-2">
-            <ModeToggle />
-            <AuthControls compact />
+            <PublicUserMenu compact />
           </div>
         </header>
 
@@ -143,21 +144,11 @@ function PublicSidebar({
 
       <div
         className={cn(
-          "flex shrink-0 items-center border-t border-sidebar-border",
-          collapsed
-            ? "h-[5.5rem] justify-center px-0 py-2"
-            : "h-14 px-3",
+          "flex h-14 shrink-0 items-center border-t border-sidebar-border",
+          collapsed ? "justify-center px-0" : "px-3",
         )}
       >
-        <div
-          className={cn(
-            "flex items-center gap-2",
-            collapsed ? "flex-col" : "w-full justify-between",
-          )}
-        >
-          <ModeToggle />
-          <AuthControls compact={collapsed} />
-        </div>
+        <PublicUserMenu compact={collapsed} side="top" />
       </div>
     </aside>
   );
@@ -333,6 +324,68 @@ function BrandLink({
   );
 }
 
+function PublicUserMenu({
+  compact = false,
+  side = "bottom",
+}: {
+  compact?: boolean;
+  side?: "top" | "bottom";
+}) {
+  const { user } = useUser();
+  const displayName = user?.username || user?.fullName || user?.firstName || (user ? "회원" : "게스트");
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size={compact ? "icon" : "default"}
+          className={cn("h-10 min-w-0 gap-2.5 rounded-lg", compact ? "w-10" : "w-full justify-start px-2")}
+          aria-label={`${displayName} 사용자 메뉴`}
+          title={displayName}
+        >
+          {user?.imageUrl ? (
+            <img src={user.imageUrl} alt="" className="h-7 w-7 shrink-0 rounded-full object-cover" />
+          ) : (
+            <UserRound className="h-5 w-5" />
+          )}
+          {!compact && (
+            <>
+              <span className="min-w-0 flex-1 truncate text-left">{displayName}</span>
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            </>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        side={side}
+        align={side === "top" ? "start" : "end"}
+        sideOffset={8}
+        className="w-72 overflow-hidden rounded-xl p-0 shadow-lg"
+        aria-label="사용자 메뉴"
+      >
+        <div className="flex min-w-0 items-center gap-3 px-4 py-3">
+          {user?.imageUrl ? (
+            <img src={user.imageUrl} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+          ) : (
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
+              <UserRound className="h-4 w-4 text-muted-foreground" />
+            </div>
+          )}
+          <span className="min-w-0 truncate text-sm font-semibold" title={displayName}>{displayName}</span>
+        </div>
+        <div className="space-y-2 border-t px-3 py-3">
+          <div className="px-1 text-xs font-medium text-muted-foreground">화면 테마</div>
+          <ModeToggle />
+        </div>
+        <div className="border-t p-1.5">
+          <AuthControls />
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function LoginButton({
   compact,
   className,
@@ -353,8 +406,10 @@ function LoginButton({
 }
 
 function AuthControls({ compact = false }: { compact?: boolean }) {
+  const { openUserProfile, signOut } = useClerk();
+
   return (
-    <div aria-label="auth" className="flex items-center justify-center">
+    <div aria-label="auth" className="flex flex-col gap-0.5">
       <ClerkLoading>
         <LoginButton
           compact={compact}
@@ -375,13 +430,14 @@ function AuthControls({ compact = false }: { compact?: boolean }) {
         </SignInButton>
       </SignedOut>
       <SignedIn>
-        <UserButton
-          appearance={{
-            elements: {
-              avatarBox: compact ? "w-8 h-8" : "w-9 h-9",
-            },
-          }}
-        />
+        <Button variant="ghost" className="h-10 justify-start gap-2.5 rounded-lg px-3" onClick={() => openUserProfile()}>
+          <Settings className="h-4 w-4 text-muted-foreground" />
+          계정 관리
+        </Button>
+        <Button variant="ghost" className="h-10 justify-start gap-2.5 rounded-lg px-3 text-muted-foreground hover:text-foreground" onClick={() => void signOut()}>
+          <LogOut className="h-4 w-4" />
+          로그아웃
+        </Button>
       </SignedIn>
     </div>
   );

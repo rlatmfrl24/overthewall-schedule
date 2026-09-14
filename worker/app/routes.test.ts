@@ -193,6 +193,12 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [PUBLIC_MEDIA_GET],
   },
   {
+    id: "youtube.vods",
+    owner: "youtube",
+    path: "/api/youtube/vods",
+    methods: [{ method: "GET", auth: "public", cache: "no-store", successStatus: 200 }],
+  },
+  {
     id: "youtube.videos",
     owner: "youtube",
     path: "/api/youtube/videos",

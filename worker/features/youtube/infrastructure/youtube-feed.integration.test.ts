@@ -7,6 +7,7 @@ import { clearActiveYouTubeChannelsCacheForTests } from "./d1-active-channels";
 import {
   hasScheduledYouTubeFeedWork,
   importLegacyOfficialShorts,
+  runScheduledYouTubeFeedCollection,
 } from "./youtube-feed";
 
 const testEnv = env as unknown as Env & { YOUTUBE_FEED_MIGRATIONS: D1Migration[] };
@@ -58,7 +59,7 @@ const seedLegacyCache = async () => {
   }] }), now(), now() + 86_400_000, now() + 86_400_000).run();
 };
 
-const fakeYouTube = (count: number) => vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+const fakeYouTube = (count: number, duration = "PT30S") => vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
   const url = new URL(String(input));
   if (url.pathname.endsWith("/channels")) return Response.json({
     items: [{ contentDetails: { relatedPlaylists: { uploads: "uploads" } } }],
@@ -71,7 +72,7 @@ const fakeYouTube = (count: number) => vi.spyOn(globalThis, "fetch").mockImpleme
   if (url.pathname.endsWith("/videos")) return Response.json({
     items: (url.searchParams.get("id") ?? "").split(",").filter(Boolean).map((id) => ({
       id, snippet: { title: `Short ${id}`, publishedAt: "2026-09-01T00:00:00Z" },
-      contentDetails: { duration: "PT30S" }, statistics: { viewCount: "123" },
+      contentDetails: { duration }, statistics: { viewCount: "123" },
     })),
   });
   throw new Error(`Unexpected external request: ${url.pathname}`);
@@ -86,9 +87,10 @@ beforeEach(async () => {
     database.prepare("DELETE FROM youtube_api_usage_events"),
     database.prepare("DELETE FROM scheduled_usage_daily"),
     database.prepare("DELETE FROM kirinuki_channels"),
+    database.prepare("DELETE FROM member_links"),
     database.prepare("DELETE FROM members"),
     database.prepare("DELETE FROM settings WHERE key <> 'youtube_api_daily_quota_units'"),
-    database.prepare("INSERT INTO settings (key, value) VALUES ('youtube_feed_enabled', 'true')"),
+    database.prepare("INSERT INTO settings (key, value) VALUES ('youtube_feed_enabled', 'true'), ('scheduled_v2_youtube_feed_collection_enabled', 'true')"),
     database.prepare("INSERT INTO members (uid, code, name, youtube_channel_id) VALUES (1, 'one', 'One', ?)").bind(channelId),
   ]);
   clearActiveYouTubeChannelsCacheForTests();
@@ -206,5 +208,113 @@ describe("YouTube scheduled work admission", () => {
     expect(await hasScheduledYouTubeFeedWork(readyEnv, now())).toBe(true);
     await database.prepare("UPDATE settings SET value = 'false' WHERE key = 'youtube_feed_enabled'").run();
     expect(await hasScheduledYouTubeFeedWork(readyEnv, now())).toBe(false);
+  });
+});
+
+const requestVods = (search = "", db: D1Database = database) => handle(
+  new Request(`https://otw.test/api/youtube/vods${search}`),
+  { ...testEnv, otw_db: db, YOUTUBE_API_KEY: "test" },
+);
+const linkVod = (channel: string | null = channelId, uid = 1) => database.prepare(
+  "INSERT INTO member_links (member_uid, type, label, url, youtube_channel_id, enabled) VALUES (?, 'youtube_vod', '다시보기', 'https://youtube.com/@vod', ?, 1)",
+).bind(uid, channel).run();
+
+describe("dedicated YouTube VOD channels", () => {
+  it("collects a dedicated channel through the scheduler and keeps public main-channel access restricted", async () => {
+    await database.prepare("UPDATE members SET youtube_channel_id = NULL WHERE uid = 1").run();
+    await linkVod();
+    await database.prepare("INSERT INTO settings (key, value) VALUES (?, 'true')").bind(checkpointKey).run();
+    expect(await hasScheduledYouTubeFeedWork({ ...testEnv, YOUTUBE_API_KEY: "test" }, now())).toBe(true);
+    fakeYouTube(25, "PT1H");
+    await runScheduledYouTubeFeedCollection({ ...testEnv, YOUTUBE_API_KEY: "test" });
+    const result = await requestVods();
+    expect(result.status).toBe(200);
+    const first = await result.json() as import("@contracts/youtube").YouTubeVodsResponseDto;
+    expect(first.items).toHaveLength(20);
+    expect(first.availableMemberUids).toEqual([1]);
+    expect(first.items[0].memberUids).toEqual([1]);
+    expect(first.collection.state).toBe("ready");
+    const second = await (await requestVods(`?cursor=${encodeURIComponent(first.nextCursor!)}`)).json() as typeof first;
+    expect(second.items).toHaveLength(5);
+    expect(new Set([...first.items, ...second.items].map((item) => item.videoId)).size).toBe(25);
+    expect(second.hasMore).toBe(false);
+    const denied = await handle(new Request(`https://otw.test/api/youtube/videos?channelIds=${channelId}`), { ...testEnv, YOUTUBE_API_KEY: "test" });
+    expect(denied.status).toBe(400);
+  });
+
+  it("does not follow the past-history cursor of a VOD-only channel", async () => {
+    await database.prepare("UPDATE members SET youtube_channel_id = NULL WHERE uid = 1").run();
+    await linkVod();
+    await seedSource();
+    await database.prepare("UPDATE youtube_feed_sources SET backfill_page_token = 'older', backfill_exhausted_at = NULL").run();
+    await database.prepare("INSERT INTO settings (key, value) VALUES (?, 'true')").bind(checkpointKey).run();
+    expect(await hasScheduledYouTubeFeedWork({ ...testEnv, YOUTUBE_API_KEY: "test" }, now())).toBe(false);
+    const upstream = fakeYouTube(10);
+    await runScheduledYouTubeFeedCollection({ ...testEnv, YOUTUBE_API_KEY: "test" });
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
+  it("removes disabled links immediately, reports missing IDs, and uses no public writes", async () => {
+    await linkVod();
+    await linkVod(null);
+    await seedSource();
+    const watched = observe();
+    const result = await (await requestVods("", watched.db)).json() as import("@contracts/youtube").YouTubeVodsResponseDto;
+    expect(result.availableMemberUids).toEqual([1]);
+    expect(watched.statements.every((sql) => !/^\s*(INSERT|UPDATE|DELETE)/i.test(sql))).toBe(true);
+    const { readYouTubeVodChannelStatus } = await import("./d1-youtube-vods");
+    expect((await readYouTubeVodChannelStatus(database)).some((row) => row.issue === "missing_channel_id")).toBe(true);
+    await database.prepare("UPDATE member_links SET enabled = 0").run();
+    const disabled = await (await requestVods()).json() as typeof result;
+    expect(disabled.items).toEqual([]);
+    expect(disabled.collection.state).toBe("unregistered");
+  });
+
+  it("keeps one source for shared main/VOD registrations and excludes Shorts", async () => {
+    await linkVod();
+    await linkVod();
+    fakeYouTube(5);
+    await runScheduledYouTubeFeedCollection({ ...testEnv, YOUTUBE_API_KEY: "test" });
+    expect((await database.prepare("SELECT COUNT(*) AS count FROM youtube_feed_sources").first<{ count: number }>())?.count).toBe(1);
+    const result = await (await requestVods()).json() as import("@contracts/youtube").YouTubeVodsResponseDto;
+    expect(result.items).toEqual([]);
+    expect(result.collection.state).toBe("ready");
+    await database.prepare("UPDATE member_links SET youtube_channel_id = ?").bind(otherChannelId).run();
+    const changed = await (await requestVods()).json() as typeof result;
+    expect(changed.collection.state).toBe("initializing");
+    expect(changed.items).toEqual([]);
+  });
+
+  it("maps shared channels to all linked members and excludes deprecated members", async () => {
+    await linkVod();
+    await database.prepare("INSERT INTO members (uid,code,name) VALUES (2,'two','Two')").run();
+    await linkVod(channelId, 2);
+    fakeYouTube(2, "PT1H");
+    await runScheduledYouTubeFeedCollection({ ...testEnv, YOUTUBE_API_KEY: "test" });
+    const result = await (await requestVods("?memberUids=2")).json() as import("@contracts/youtube").YouTubeVodsResponseDto;
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0].memberUids).toEqual([1, 2]);
+    await database.prepare("UPDATE members SET is_deprecated = 1 WHERE uid = 2").run();
+    const retired = await (await requestVods("?memberUids=2")).json() as typeof result;
+    expect(retired.items).toEqual([]);
+    expect(retired.availableMemberUids).toEqual([1]);
+  });
+
+  it("shows upstream collection failure without claiming an empty successful result", async () => {
+    await linkVod();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ error: { message: "upstream unavailable" } }, { status: 503 }));
+    await runScheduledYouTubeFeedCollection({ ...testEnv, YOUTUBE_API_KEY: "test" });
+    const result = await (await requestVods()).json() as import("@contracts/youtube").YouTubeVodsResponseDto;
+    expect(result.collection.state).toBe("error");
+    const { readYouTubeVodChannelStatus } = await import("./d1-youtube-vods");
+    expect((await readYouTubeVodChannelStatus(database))[0].issue).toBe("collection_failed");
+  });
+
+  it("rejects invalid limits, member filters, and foreign cursors", async () => {
+    expect((await requestVods("?limit=21")).status).toBe(400);
+    expect((await requestVods("?memberUids=0")).status).toBe(400);
+    expect((await requestVods("?cursor=invalid")).status).toBe(400);
+    const { encodeVodCursor } = await import("../domain/vod-cursor");
+    expect((await requestVods(`?memberUids=2&cursor=${encodeURIComponent(encodeVodCursor(now(), "id", [1]))}`)).status).toBe(400);
   });
 });

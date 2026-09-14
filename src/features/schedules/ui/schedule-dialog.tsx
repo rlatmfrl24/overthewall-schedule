@@ -1,6 +1,6 @@
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { cn } from "@/shared/lib/utils";
 import type { Member } from "@/features/members";
@@ -62,10 +62,6 @@ type TimeParts = {
 const DEFAULT_TIME: TimeParts = { hour: "00", minute: "00" };
 const LEGACY_UNSCHEDULED_STATUS: ScheduleStatus = "미정";
 const EXCLUSIVE_STATUSES: ScheduleStatus[] = ["휴방", "게릴라"];
-const AUTO_TITLE_STATUSES: ScheduleStatus[] = [
-  ...EXCLUSIVE_STATUSES,
-  LEGACY_UNSCHEDULED_STATUS,
-];
 const STATUS_OPTIONS: ScheduleStatus[] = ["방송", ...EXCLUSIVE_STATUSES];
 const QUICK_TIME_PRESET_GROUPS = [
   {
@@ -140,7 +136,14 @@ export const ScheduleDialog = ({
   const [alertMessage, setAlertMessage] = useState("");
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [impactConfirmOpen, setImpactConfirmOpen] = useState(false);
-  const [impactDeleteCount, setImpactDeleteCount] = useState<number | null>(0);
+  const [impactSchedules, setImpactSchedules] = useState<ScheduleItem[]>([]);
+  const [formError, setFormError] = useState("");
+  const statusDrafts = useRef<Partial<Record<ScheduleStatus, {
+    title: string;
+    isTimeUndecided: boolean;
+    hour: string;
+    minute: string;
+  }>>>({});
   const [pendingSubmitData, setPendingSubmitData] =
     useState<ScheduleSubmitData | null>(null);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
@@ -191,17 +194,13 @@ export const ScheduleDialog = ({
   const handleStatusChange = (nextStatus: ScheduleStatus) => {
     if (isBusy || nextStatus === status) return;
 
-    if (isExclusiveStatus(nextStatus)) {
-      setLastDecidedTime({ hour: startHour, minute: startMinute });
-      setIsTimeUndecided(true);
-      setTitle(nextStatus);
-      setStatus(nextStatus);
-      return;
-    }
-
-    if (AUTO_TITLE_STATUSES.includes(title as ScheduleStatus)) {
-      setTitle("");
-    }
+    statusDrafts.current[status] = {
+      title, isTimeUndecided, hour: startHour, minute: startMinute,
+    };
+    const draft = statusDrafts.current[nextStatus];
+    setTitle(draft?.title ?? (isExclusiveStatus(nextStatus) ? nextStatus : ""));
+    setIsTimeUndecided(draft?.isTimeUndecided ?? true);
+    applyTime(draft?.hour ?? DEFAULT_TIME.hour, draft?.minute ?? DEFAULT_TIME.minute);
     setStatus(nextStatus);
   };
 
@@ -253,7 +252,9 @@ export const ScheduleDialog = ({
       setHasAttemptedSubmit(false);
       setImpactConfirmOpen(false);
       setPendingSubmitData(null);
-      setImpactDeleteCount(0);
+      setImpactSchedules([]);
+      setFormError("");
+      statusDrafts.current = {};
       setIsImpactChecking(false);
     }
   }, [schedule, isOpen, initialDate, initialMemberUid]);
@@ -276,17 +277,18 @@ export const ScheduleDialog = ({
     };
   };
 
-  const estimateDeleteCount = async (data: ScheduleSubmitData) => {
+  const findConflicts = async (data: ScheduleSubmitData) => {
     const existing = await fetchSchedulesByDate(format(data.date, "yyyy-MM-dd"));
-    const memberSchedules = existing.filter(
-      (item) => item.member_uid === data.member_uid
+    // Match the save endpoint's conflict policy; other broadcasts can coexist.
+    return existing.filter((item) =>
+      item.member_uid === data.member_uid && item.id !== data.id &&
+      (data.status !== "방송" || item.status !== "방송")
     );
-
-    return memberSchedules.filter((item) => item.id !== data.id).length;
   };
 
   const submitSchedule = async (data: ScheduleSubmitData) => {
     setIsSubmitting(true);
+    setFormError("");
     try {
       await Promise.resolve(onSubmit(data));
       if (!controlledOpen) {
@@ -294,8 +296,7 @@ export const ScheduleDialog = ({
       }
     } catch (error) {
       console.error(error);
-      setAlertMessage("스케쥴 저장 중 오류가 발생했습니다.");
-      setAlertOpen(true);
+      setFormError("스케쥴을 저장하지 못했습니다. 입력 내용은 유지됩니다. 연결 상태를 확인한 뒤 다시 저장해주세요.");
     } finally {
       setIsSubmitting(false);
       setPendingSubmitData(null);
@@ -314,27 +315,29 @@ export const ScheduleDialog = ({
     const submitData = createSubmitData();
     if (!submitData) return;
 
-    if (isExclusiveStatus(submitData.status)) {
+    setFormError("");
+    setIsImpactChecking(true);
+    let conflicts: ScheduleItem[];
+    try {
+      conflicts = await findConflicts(submitData);
+    } catch (error) {
+      console.error("Failed to check schedule conflicts", error);
+      setFormError("기존 일정의 영향을 확인하지 못했습니다. 입력 내용은 유지됩니다. 다시 조회해주세요.");
+      return;
+    } finally {
+      setIsImpactChecking(false);
+    }
+    if (conflicts.length > 0 || isExclusiveStatus(submitData.status)) {
       setPendingSubmitData(submitData);
-      setIsImpactChecking(true);
-      try {
-        const count = await estimateDeleteCount(submitData);
-        setImpactDeleteCount(count);
-      } catch (error) {
-        console.error("Failed to estimate schedule conflicts", error);
-        setImpactDeleteCount(null);
-      } finally {
-        setIsImpactChecking(false);
-        setImpactConfirmOpen(true);
-      }
+      setImpactSchedules(conflicts);
+      setImpactConfirmOpen(true);
       return;
     }
-
     await submitSchedule(submitData);
   };
 
   const onConfirmImpactSubmit = async () => {
-    if (!pendingSubmitData) return;
+    if (!pendingSubmitData || isBusy) return;
     setImpactConfirmOpen(false);
     await submitSchedule(pendingSubmitData);
   };
@@ -388,22 +391,22 @@ export const ScheduleDialog = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent closeLabel="닫기" className="max-h-[calc(100dvh-2rem)] gap-4 overflow-y-auto p-4 sm:max-w-xl sm:p-5">
+        <DialogHeader className="text-left pr-6">
           <DialogTitle>{isEditMode ? "스케쥴 수정" : "스케쥴 추가"}</DialogTitle>
-          <DialogDescription>{dialogDescription}</DialogDescription>
+          <DialogDescription className="sr-only">{dialogDescription}</DialogDescription>
         </DialogHeader>
         <form onSubmit={(e) => void handleSubmit(e)} aria-busy={isBusy}>
-          <FieldGroup>
+          <FieldGroup className="gap-4">
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field>
+              <Field className="gap-2">
                 <FieldLabel htmlFor="schedule-member">멤버</FieldLabel>
                 <Select
                   disabled={isBusy}
                   value={memberUid.toString()}
                   onValueChange={(value) => setMemberUid(Number(value))}
                 >
-                  <SelectTrigger id="schedule-member" aria-invalid={hasMemberError} aria-describedby={hasMemberError ? "schedule-member-error" : undefined}>
+                  <SelectTrigger className="h-11 sm:h-9" id="schedule-member" aria-required="true" aria-invalid={hasMemberError} aria-describedby={hasMemberError ? "schedule-member-error" : memberUid === "" ? "schedule-member-hint" : undefined}>
                     <SelectValue placeholder="멤버 선택" />
                   </SelectTrigger>
                   <SelectContent>
@@ -413,15 +416,16 @@ export const ScheduleDialog = ({
                           key={member.uid}
                           value={member.uid.toString()}
                         >
-                          {member.name}
+                          {member.oshi_mark && <span aria-hidden="true">{member.oshi_mark} </span>}{member.name}
                         </SelectItem>
                       ))}
                     </SelectGroup>
                   </SelectContent>
                 </Select>
+                {memberUid === "" && <FieldDescription className="text-xs" id="schedule-member-hint">멤버를 선택하면 스케쥴을 추가할 수 있어요.</FieldDescription>}
                 <FieldError id="schedule-member-error">{hasMemberError ? "멤버를 선택해주세요." : null}</FieldError>
               </Field>
-              <Field>
+              <Field className="gap-2">
                 <FieldLabel htmlFor="date">날짜</FieldLabel>
                 <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
                   <PopoverTrigger asChild>
@@ -430,7 +434,7 @@ export const ScheduleDialog = ({
                       id="date"
                       disabled={isBusy}
                       className={cn(
-                        "w-full justify-between text-left font-normal",
+                        "h-11 w-full justify-between text-left font-normal sm:h-9",
                         !date && "text-muted-foreground"
                       )}
                     >
@@ -456,16 +460,12 @@ export const ScheduleDialog = ({
                 </Popover>
               </Field>
             </div>
-            <Field>
+            <Field className="gap-2">
               <FieldLabel>상태</FieldLabel>
-              <FieldDescription>
-                휴방/게릴라는 기존 일정 정리 확인 후 저장됩니다.
-              </FieldDescription>
-
               <div
                 role="group"
                 aria-label="스케쥴 상태"
-                className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3"
+                className="grid w-full grid-cols-3 gap-2"
               >
                 {STATUS_OPTIONS.map((option) => (
                   <Button
@@ -474,7 +474,7 @@ export const ScheduleDialog = ({
                     disabled={isBusy}
                     variant={status === option ? "default" : "outline"}
                     aria-pressed={status === option}
-                    className="justify-center"
+                    className="h-11 justify-center sm:h-9"
                     onClick={() => handleStatusChange(option)}
                   >
                     {option}
@@ -482,124 +482,109 @@ export const ScheduleDialog = ({
                 ))}
               </div>
             </Field>
-            <Field>
+            <Field className="gap-2">
               <FieldLabel htmlFor="schedule-title">제목</FieldLabel>
               <Input
                 id="schedule-title"
+                className="h-11 sm:h-9"
                 disabled={isBusy}
                 value={title}
-                placeholder="방송 예정"
+                placeholder="방송 내용을 입력해주세요"
                 onChange={(e) => setTitle(e.target.value)}
               />
             </Field>
             {status === "방송" && (
-              <Field>
-                <FieldLabel htmlFor="schedule-time">시간</FieldLabel>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
-                  <div className="flex-1 space-y-3">
-                    <Input
-                      id="schedule-time"
-                      type="time"
-                      disabled={isBusy || isTimeUndecided}
+              <Field className="gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <FieldLabel>시간</FieldLabel>
+                  <div className="flex min-h-8 items-center gap-2">
+                  <Checkbox
+                    id="time-undecided"
+                    disabled={isBusy}
+                    checked={isTimeUndecided}
+                    onCheckedChange={(checked) => {
+                      const undecided = checked === true;
+                      setIsTimeUndecided(undecided);
+                      if (undecided) {
+                        setLastDecidedTime({ hour: startHour, minute: startMinute });
+                      } else {
+                        applyTime(lastDecidedTime.hour, lastDecidedTime.minute);
+                      }
+                    }}
+                  />
+                  <label htmlFor="time-undecided" className="cursor-pointer text-sm">시간 미정</label>
+                  </div>
+                </div>
+                {isTimeUndecided ? (
+                  <FieldDescription className="text-xs">아직 정해지지 않았어요. 시간 없이 등록할 수 있어요.</FieldDescription>
+                ) : (
+                  <div className="space-y-2">
+                    <label htmlFor="schedule-time" className="sr-only">방송 시작 시간</label>
+                    <Input id="schedule-time" className="h-11 sm:h-9" type="time" disabled={isBusy}
                       value={currentTimeValue}
                       onChange={(e) => {
                         const parsed = parseTimeValue(e.target.value);
-                        if (!parsed) return;
-                        applyTime(parsed.hour, parsed.minute);
-                      }}
-                    />
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {QUICK_TIME_PRESET_GROUPS.map((group) => (
-                        <div
-                          key={group.label}
-                          className="rounded-lg border bg-muted/30 p-3 space-y-2"
-                        >
-                          <p className="text-xs font-semibold text-muted-foreground">
-                            {group.label}
-                          </p>
-                          <div className="grid grid-cols-2 gap-2">
-                            {group.times.map((preset) => (
-                              <Button
-                                key={preset}
-                                type="button"
-                                size="sm"
-                                className={cn(
-                                  "w-full justify-center",
-                                  !isTimeUndecided &&
-                                    preset === currentTimeValue &&
-                                    "shadow-sm"
-                                )}
-                                variant={
-                                  !isTimeUndecided && preset === currentTimeValue
-                                    ? "default"
-                                    : "outline"
-                                }
-                                disabled={isBusy}
-                                onClick={() => {
-                                  const parsed = parseTimeValue(preset);
-                                  if (!parsed) return;
-                                  setIsTimeUndecided(false);
-                                  applyTime(parsed.hour, parsed.minute);
-                                }}
-                              >
-                                {preset}
-                              </Button>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                        if (parsed) applyTime(parsed.hour, parsed.minute);
+                      }} />
                   </div>
-
-                  <div className="flex items-center space-x-2 min-w-fit sm:pt-2">
-                    <Checkbox
-                      id="time-undecided"
-                      disabled={isBusy}
-                      checked={isTimeUndecided}
-                      onCheckedChange={(checked) => {
-                        const isChecked = checked === true;
-                        setIsTimeUndecided(isChecked);
-                        if (isChecked) {
-                          setLastDecidedTime({ hour: startHour, minute: startMinute });
-                          return;
-                        }
-                        applyTime(lastDecidedTime.hour, lastDecidedTime.minute);
-                      }}
-                    />
-                    <label
-                      htmlFor="time-undecided"
-                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                    >
-                      시간 미정
-                    </label>
+                )}
+                <div className="hidden sm:block">
+                  <p className="text-xs font-medium text-muted-foreground">빠른 시간 선택</p>
+                  <div className="mt-2 grid grid-cols-2 gap-3">
+                    {QUICK_TIME_PRESET_GROUPS.map((group) => (
+                      <div key={group.label} className="space-y-2">
+                        <p className="text-xs font-semibold text-muted-foreground">{group.label}</p>
+                        <div className="grid grid-cols-4 gap-2">
+                          {group.times.map((preset) => (
+                            <Button key={preset} type="button" size="sm"
+                              className="w-full justify-center px-1"
+                              variant={!isTimeUndecided && preset === currentTimeValue ? "default" : "outline"}
+                              aria-pressed={!isTimeUndecided && preset === currentTimeValue}
+                              disabled={isBusy}
+                              onClick={() => {
+                                const parsed = parseTimeValue(preset);
+                                if (!parsed) return;
+                                setIsTimeUndecided(false);
+                                applyTime(parsed.hour, parsed.minute);
+                              }}>{preset}</Button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </Field>
             )}
-            <DialogFooter className="border-t pt-4 sm:justify-between">
+            {formError && (
+              <div role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive space-y-2">
+                <p>{formError}</p>
+                <Button type="submit" variant="outline" disabled={!canSubmit}>다시 조회하고 저장</Button>
+              </div>
+            )}
+            <DialogFooter className="sticky -bottom-4 flex-col gap-2 bg-background pt-2 sm:-bottom-5 sm:flex-row sm:items-center sm:justify-end">
               {isEditMode && onDelete ? (
                 <Button
                   type="button"
                   variant="destructive"
+                  className="h-11 sm:mr-auto sm:h-9"
                   disabled={isBusy}
                   onClick={handleDelete}
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
                   스케쥴 삭제
                 </Button>
-              ) : (
-                <div />
-              )}
-              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              ) : null}
+              <div className="flex w-full gap-2 sm:w-auto sm:justify-end">
                 <Button
                   type="button"
                   variant="outline"
+                  className="h-11 flex-1 sm:h-9 sm:flex-none"
                   disabled={isBusy}
                   onClick={() => handleDialogOpenChange(false)}
                 >
                   취소
                 </Button>
-                <Button type="submit" disabled={!canSubmit}>
+                <Button type="submit" className="h-11 flex-[2] sm:h-9 sm:flex-none" disabled={!canSubmit}>
                   {submitLabel}
                 </Button>
               </div>
@@ -624,12 +609,20 @@ export const ScheduleDialog = ({
 
       <ConfirmActionDialog open={impactConfirmOpen}
         onOpenChange={(open) => { setImpactConfirmOpen(open); if (!open) setPendingSubmitData(null); }}
-        title="기존 일정 정리 확인" confirmLabel="삭제 후 저장" isProcessing={isSubmitting}
+        title={impactSchedules.length ? `기존 일정 ${impactSchedules.length}건 삭제 확인` : "스케쥴 저장 확인"}
+        confirmLabel={impactSchedules.length ? "삭제 후 저장" : `${impactStatus ?? "일정"} 저장`}
+        destructive={impactSchedules.length > 0} isProcessing={isSubmitting}
         onConfirm={() => void onConfirmImpactSubmit()}
         description={<div className="space-y-2">
           <p><strong>{impactMemberName}</strong> · <strong>{impactDateLabel}</strong></p>
-          <p>상태를 <strong>{impactStatus}</strong>(으)로 저장하면 기존 일정이 정리됩니다.</p>
-          <p>{impactDeleteCount === null ? "삭제될 일정 수를 계산하지 못했습니다." : `삭제될 일정: ${impactDeleteCount}건`}</p>
+          {impactSchedules.length ? <>
+            <p>{impactStatus} 일정으로 저장하면 아래 일정이 삭제됩니다.</p>
+            <ul className="max-h-48 overflow-y-auto list-disc pl-5 space-y-1">
+              {impactSchedules.map((item) => <li key={item.id}>
+                {item.start_time?.slice(0, 5) ?? "시간 미정"} · {item.title || item.status} ({item.status})
+              </li>)}
+            </ul>
+          </> : <p>기존 일정 변경 없음 · {impactStatus} 일정을 저장합니다.</p>}
         </div>} />
       <ConfirmActionDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}
         title="삭제 확인" description="이 스케쥴을 삭제합니다. 삭제 후에는 되돌릴 수 없습니다."

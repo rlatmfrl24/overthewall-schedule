@@ -2,7 +2,7 @@ import { Checkbox } from "@/shared/ui/checkbox";
 import { SelectField } from "@/shared/ui/select-field"
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type {
   OtwPlayAdminCatalogDto,
@@ -76,6 +76,7 @@ import { CatalogSearchInput } from "./catalog-search-input";
 
 type Run = (label: string, task: () => Promise<unknown>) => Promise<boolean>;
 const EMPTY_MEMBERS: Member[] = [];
+const CATALOG_BATCH_SIZE = 25;
 
 const relationLabel = (value: string) => (value === "original" ? "오리지널" : "커버");
 const publicationLabel = (value: string) =>
@@ -152,9 +153,38 @@ export function WorkflowCatalog({
       (!consoleSearch.category || song.tags?.includes(consoleSearch.category)) &&
       (!consoleSearch.state || catalog.performances.some((item) => item.songId === song.id && item.publicationStatus === consoleSearch.state));
   });
-  const totalPages = Math.max(1, Math.ceil(filteredSongs.length / 25));
-  const page = Math.min(consoleSearch.page ?? 1, totalPages);
-  const visibleSongs = filteredSongs.slice((page - 1) * 25, page * 25);
+  const filterKey = JSON.stringify([consoleSearch.q, consoleSearch.category, consoleSearch.state, consoleSearch.page]);
+  // Old page links still reveal their results, now together with preceding rows.
+  const initialCount = (consoleSearch.page ?? 1) * CATALOG_BATCH_SIZE;
+  const [windowState, setWindowState] = useState({ filterKey, count: initialCount });
+  if (windowState.filterKey !== filterKey) {
+    setWindowState({ filterKey, count: initialCount });
+  }
+  const requestedCount = windowState.filterKey === filterKey ? windowState.count : initialCount;
+  const selectedIndex = filteredSongs.findIndex((song) => song.id === consoleSearch.selected);
+  const visibleCount = Math.min(filteredSongs.length, Math.max(requestedCount, selectedIndex + 1));
+  const visibleSongs = filteredSongs.slice(0, visibleCount);
+  const hasMore = visibleCount < filteredSongs.length;
+  const [loadMoreTarget, setLoadMoreTarget] = useState<HTMLDivElement | null>(null);
+  const showMore = useCallback(() => {
+    setWindowState({ filterKey, count: visibleCount + CATALOG_BATCH_SIZE });
+  }, [filterKey, visibleCount]);
+
+  useEffect(() => {
+    if (!loadMoreTarget || !hasMore || typeof IntersectionObserver === "undefined") return;
+    let requested = false;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting || requested) return;
+      requested = true;
+      observer.unobserve(loadMoreTarget);
+      showMore();
+    }, { root: loadMoreTarget.closest("main"), rootMargin: "240px 0px" });
+    observer.observe(loadMoreTarget);
+    return () => {
+      requested = true;
+      observer.disconnect();
+    };
+  }, [loadMoreTarget, hasMore, showMore]);
   const activeSongIds = new Set(activeSongs.map((song) => song.id));
   const draftPerformances = catalog.performances.filter(
     (performance) =>
@@ -273,8 +303,7 @@ export function WorkflowCatalog({
         <CatalogSearchInput value={consoleSearch.q ?? ""} onSearch={(q) => updateConsole({ q, page: 1 })} />
         <SelectField aria-label="게시 상태" value={consoleSearch.state ?? ""} onValueChange={(value) => updateConsole({ state: value, page: 1 })} options={[{ value: "", label: "모든 게시 상태" }, { value: "draft", label: "임시 저장만" }, { value: "published", label: "게시됨" }, { value: "withdrawn", label: "철회된 가창" }]} />
         <SelectField aria-label="곡 분류" value={consoleSearch.category ?? ""} onValueChange={(value) => updateConsole({ category: value, page: 1 })} options={[{ value: "", label: "모든 분류" }, ...[...new Set(activeSongs.flatMap((song) => song.tags ?? []))].sort().map((tag) => ({ value: tag, label: tag }))]} />
-        <span className="ml-auto text-sm">{filteredSongs.length}곡 · {page}/{totalPages}</span>
-        <Button variant="outline" disabled={page <= 1} onClick={() => updateConsole({ page: page - 1 }, false)}>이전</Button><Button variant="outline" disabled={page >= totalPages} onClick={() => updateConsole({ page: page + 1 }, false)}>다음</Button>
+        <span className="ml-auto text-sm text-muted-foreground">전체 {filteredSongs.length}곡 · {visibleCount}곡 표시</span>
       </div>
       {filteredSongs.length === 0 && <p role="status" className="p-3">조건에 맞는 곡이 없습니다.</p>}
       {activeSongs.length === 0 ? (
@@ -356,6 +385,15 @@ export function WorkflowCatalog({
             })}
           </div>
         </>
+      )}
+      {filteredSongs.length > 0 && (
+        <div ref={setLoadMoreTarget} className="flex justify-center py-4">
+          {hasMore ? (
+            <Button variant="ghost" onClick={showMore}>곡 더 보기</Button>
+          ) : (
+            <p role="status" className="text-xs text-muted-foreground">모든 곡을 표시했습니다.</p>
+          )}
+        </div>
       )}
       <SongEditDialog catalog={catalog} song={editSong} onOpenChange={(open) => !open && setEditSong(null)} run={run} />
       <PerformanceEditDialog catalog={catalog} performance={editPerformance} onOpenChange={(open) => !open && setEditPerformance(null)} run={run} />

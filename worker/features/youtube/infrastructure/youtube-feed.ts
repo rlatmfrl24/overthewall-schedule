@@ -1,3 +1,4 @@
+import { OFFICIAL_CHANNEL_TARGETS_SQL } from "./official-channel-targets";
 import type {
   YouTubeShortsResponseDto,
   YouTubeVideoDto,
@@ -153,10 +154,8 @@ const syncSourceRegistry = async (env: Env, timestamp: number) => {
     .prepare(
       `DELETE FROM youtube_feed_sources
        WHERE source_kind = 'official' AND NOT EXISTS (
-         SELECT 1 FROM members member
-         WHERE member.uid = youtube_feed_sources.member_uid
-           AND member.youtube_channel_id = youtube_feed_sources.youtube_channel_id
-           AND (member.is_deprecated IS NULL OR member.is_deprecated != 1)
+         SELECT 1 FROM (${OFFICIAL_CHANNEL_TARGETS_SQL}) target
+         WHERE target.youtube_channel_id = youtube_feed_sources.youtube_channel_id
        )`,
     )
     .run();
@@ -175,9 +174,8 @@ const syncSourceRegistry = async (env: Env, timestamp: number) => {
       `INSERT INTO youtube_feed_sources
         (source_kind, member_uid, youtube_channel_id, enabled,
          collection_started_at, next_check_at, created_at, updated_at)
-       SELECT 'official', uid, youtube_channel_id, 1, ?, ?, ?, ? FROM members
-       WHERE youtube_channel_id IS NOT NULL AND length(trim(youtube_channel_id)) > 0
-         AND (is_deprecated IS NULL OR is_deprecated != 1)
+       SELECT 'official', member_uid, youtube_channel_id, 1, ?, ?, ?, ?
+       FROM (${OFFICIAL_CHANNEL_TARGETS_SQL}) WHERE 1
        ON CONFLICT(youtube_channel_id, source_kind) DO UPDATE SET
          member_uid = excluded.member_uid, enabled = 1, deactivated_at = NULL,
          updated_at = excluded.updated_at
@@ -209,6 +207,7 @@ const readSources = async (
   env: Env,
   channelIds?: readonly string[],
   sourceKind: "official" | "kirinuki" = "official",
+  mainChannelsOnly = false,
 ) => {
   const channelClause = channelIds?.length
     ? ` AND youtube_channel_id IN (${channelIds.map(() => "?").join(",")})`
@@ -222,6 +221,7 @@ const readSources = async (
          backfill_lease_until, backfill_retry_after, consecutive_failures
        FROM youtube_feed_sources
        WHERE source_kind = ? AND enabled = 1${channelClause}
+         ${mainChannelsOnly ? "AND youtube_channel_id IN (SELECT youtube_channel_id FROM members WHERE is_deprecated IS NULL OR is_deprecated != 1)" : ""}
        ORDER BY id`,
     )
     .bind(sourceKind, ...(channelIds ?? []))
@@ -726,6 +726,7 @@ const scanOfficialBackfill = async (
   origin: YouTubeRequestOrigin,
 ) => {
   const progress = emptyScanProgress();
+  if (channelIds.length === 0) return progress;
   for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
     const timestamp = Date.now();
     const sources = (await readSources(env, channelIds))
@@ -836,19 +837,19 @@ export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) =
                        AND uploads_playlist_id IS NOT NULL
                        AND (backfill_page_token IS NOT NULL OR backfill_exhausted_at IS NOT NULL))))
              OR (source_kind = 'official' AND backfill_exhausted_at IS NULL
+                 AND (initialization_completed_at IS NULL OR youtube_channel_id IN (
+                   SELECT youtube_channel_id FROM members WHERE is_deprecated IS NULL OR is_deprecated != 1))
                  AND (backfill_lease_until IS NULL OR backfill_lease_until <= ?)
                  AND (backfill_retry_after IS NULL OR backfill_retry_after <= ?))
            )
          )
          OR EXISTS (SELECT 1 FROM youtube_feed_videos WHERE available = 1 AND fetched_at <= ?)
          OR EXISTS (
-           SELECT 1 FROM members member
+           SELECT 1 FROM (${OFFICIAL_CHANNEL_TARGETS_SQL}) target
            LEFT JOIN youtube_feed_sources source
-             ON source.youtube_channel_id = member.youtube_channel_id AND source.source_kind = 'official'
-           WHERE member.youtube_channel_id IS NOT NULL AND length(trim(member.youtube_channel_id)) > 0
-             AND (member.is_deprecated IS NULL OR member.is_deprecated != 1)
-             AND (source.id IS NULL OR source.member_uid IS NOT member.uid
-                  OR source.enabled != 1 OR source.deactivated_at IS NOT NULL)
+             ON source.youtube_channel_id = target.youtube_channel_id AND source.source_kind = 'official'
+           WHERE source.id IS NULL OR source.member_uid IS NOT target.member_uid
+             OR source.enabled != 1 OR source.deactivated_at IS NOT NULL
          )
          OR EXISTS (
            SELECT 1 FROM kirinuki_channels channel
@@ -859,9 +860,8 @@ export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) =
          OR EXISTS (
            SELECT 1 FROM youtube_feed_sources source WHERE
              (source.source_kind = 'official' AND NOT EXISTS (
-               SELECT 1 FROM members member WHERE member.uid = source.member_uid
-                 AND member.youtube_channel_id = source.youtube_channel_id
-                 AND (member.is_deprecated IS NULL OR member.is_deprecated != 1)
+               SELECT 1 FROM (${OFFICIAL_CHANNEL_TARGETS_SQL}) target
+               WHERE target.youtube_channel_id = source.youtube_channel_id
              )) OR (source.source_kind = 'kirinuki' AND NOT EXISTS (
                SELECT 1 FROM kirinuki_channels channel WHERE channel.id = source.kirinuki_channel_id
                  AND channel.youtube_channel_id = source.youtube_channel_id
@@ -959,7 +959,7 @@ export const runScheduledYouTubeFeedCollection = async (env: Env) => {
       if (error instanceof YouTubeQuotaAdmissionError) break;
     }
   }
-  const sources = await readSources(env);
+  const sources = await readSources(env, undefined, "official", true);
   const backfill = await scanOfficialBackfill(
     env,
     sources.map((source) => source.youtube_channel_id),

@@ -10,6 +10,7 @@ decision records that are no longer the source of truth into `docs/archive/`.
 | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | `../README.md`                                         | Product overview, active features, and local development entry points.                             |
 | `../Design.md`                                         | Current UI design system and screen-level implementation guidance.                                 |
+| `font-consistency-review.md`                           | SUL-11 adopted font policy, snapshot fallback behavior, and validation evidence.                     |
 | `../AGENTS.md`                                         | Agent configuration entrypoint and `.agent` / `.cursor` mirror policy.                             |
 | `architecture.md`                                      | Current system diagrams, capability flows, dependency direction, and architecture gates.           |
 | `testing.md`                                           | Current test entry points, coverage scope, isolation, and regression maintenance.                   |

@@ -8,7 +8,6 @@ import {
 } from "@/features/chzzk";
 import {
   deleteSchedule,
-  saveScheduleWithConflicts,
   ScheduleDialog,
   type ScheduleItem,
   type ScheduleStatus,
@@ -63,7 +62,10 @@ import {
 import { useScheduleBoard } from "../../queries/use-schedule-board";
 import { useAdminLiveScheduleAutoFill } from "../../use-cases/use-admin-live-schedule-auto-fill";
 import { queryKeys } from "@/shared/query/query-keys";
+import { useScheduleSaveFeedback } from "../../queries/use-schedule-save-feedback";
+import { ScheduleSaveNotice } from "../components/schedule-save-notice";
 import { ScheduleUpdatedAt } from "../components/schedule-updated-at";
+import { readSnapshotFonts, forceSystemSnapshotFonts } from "./snapshot/snapshot-fonts";
 
 type LiveDebugRow = {
   memberUid: number;
@@ -85,6 +87,7 @@ export const DailySchedule = ({
   enableAdminLiveScheduleAutoFill = false,
 }: DailyScheduleProps) => {
   const queryClient = useQueryClient();
+  const scheduleSave = useScheduleSaveFeedback();
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(
     null,
   );
@@ -241,18 +244,9 @@ export const DailySchedule = ({
     title: string;
     status: ScheduleStatus;
   }) => {
-    try {
-      await saveScheduleWithConflicts(data);
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.schedules.all,
-      });
-      setIsEditDialogOpen(false);
-      setEditingSchedule(null);
-    } catch (e) {
-      console.error(e);
-      setAlertMessage("스케쥴 저장 실패");
-      setAlertOpen(true);
-    }
+    await scheduleSave.save(data);
+    setIsEditDialogOpen(false);
+    setEditingSchedule(null);
   };
 
   const handleDeleteSchedule = async (id: number) => {
@@ -333,11 +327,7 @@ export const DailySchedule = ({
         throw new Error("snapshot-iframe-doc-missing");
       }
 
-      if (doc.fonts?.ready) {
-        await doc.fonts.ready;
-      }
-
-      const targetNode = await waitForSnapshotReady(doc);
+      let targetNode = await waitForSnapshotReady(doc);
 
       const images = Array.from(doc.images);
       await Promise.all(
@@ -355,26 +345,36 @@ export const DailySchedule = ({
       );
 
       const backgroundColor = getComputedStyle(doc.body).backgroundColor;
-      const width = targetNode.scrollWidth;
-      const height = targetNode.scrollHeight;
       const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
 
       const { toPng } = await import("html-to-image");
-      const dataUrl = await toPng(targetNode, {
+      let fontState = readSnapshotFonts(targetNode);
+      const capture = () => toPng(targetNode, {
         cacheBust: true,
-        width,
-        height,
-        canvasWidth: width,
-        canvasHeight: height,
+        fontEmbedCSS: fontState.css,
+        width: targetNode.scrollWidth,
+        height: targetNode.scrollHeight,
+        canvasWidth: targetNode.scrollWidth,
+        canvasHeight: targetNode.scrollHeight,
         backgroundColor,
         pixelRatio,
       });
+      let dataUrl: string;
+      try {
+        dataUrl = await capture();
+      } catch (error) {
+        if (fontState.mode === "system") throw error;
+        forceSystemSnapshotFonts(targetNode);
+        targetNode = await waitForSnapshotReady(doc);
+        fontState = readSnapshotFonts(targetNode);
+        dataUrl = await capture();
+      }
 
       const response = await fetch(dataUrl);
       if (!response.ok) {
         throw new Error("snapshot-response-failed");
       }
-      return await response.blob();
+      return { blob: await response.blob(), systemFonts: fontState.mode === "system" };
     } finally {
       iframe.remove();
     }
@@ -394,12 +394,12 @@ export const DailySchedule = ({
     setIsSnapshotProcessing(true);
 
     try {
-      const blob = await createSnapshotBlob();
+      const { blob, systemFonts } = await createSnapshotBlob();
       await navigator.clipboard.write([
         new ClipboardItem({ "image/png": blob }),
       ]);
 
-      setAlertMessage("스케쥴 일정표를 클립보드에 복사했습니다.");
+      setAlertMessage(systemFonts ? "시스템 폰트로 스케쥴 일정표를 클립보드에 복사했습니다." : "스케쥴 일정표를 클립보드에 복사했습니다.");
       setAlertOpen(true);
     } catch (error) {
       console.error("Failed to copy snapshot", error);
@@ -414,7 +414,7 @@ export const DailySchedule = ({
     setIsSnapshotProcessing(true);
 
     try {
-      const blob = await createSnapshotBlob();
+      const { blob, systemFonts } = await createSnapshotBlob();
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       const modeLabel = viewMode === "grid" ? "일정표" : "편성표";
@@ -425,7 +425,7 @@ export const DailySchedule = ({
       anchor.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
 
-      setAlertMessage("스케쥴 일정표를 다운로드했습니다.");
+      setAlertMessage(systemFonts ? "시스템 폰트로 스케쥴 일정표를 다운로드했습니다." : "스케쥴 일정표를 다운로드했습니다.");
       setAlertOpen(true);
     } catch (error) {
       console.error("Failed to download snapshot", error);
@@ -651,6 +651,9 @@ export const DailySchedule = ({
               )}
             </div>
           )}
+
+          <ScheduleSaveNotice feedback={scheduleSave.feedback} members={members}
+            onView={setCurrentDate} onDismiss={scheduleSave.dismiss} onRetry={scheduleSave.retryRefresh} />
 
           {/* D-Day & Notice Row */}
           {hasDailyContextRow && (

@@ -90,15 +90,18 @@ export function PostActions({ url, title, text, children, appearance = "card" }:
       setStatus("링크 복사됨");
     } catch { setStatus("링크 복사 실패. 원문 링크를 이용해 주세요."); }
   };
-  return <div className={cn("pt-1", appearance === "card" && "border-t border-border/70")}>
+  return <div className={cn(
+    "border-t border-border/70 py-2",
+    appearance === "card" ? "-ml-3 -mr-2 pl-3 pr-2 sm:-ml-4 sm:-mr-3 sm:pl-4 sm:pr-3" : "-mx-3.5 px-3.5 sm:-mx-[18px] sm:px-[18px]",
+  )}>
     <div className="flex flex-wrap items-center justify-between gap-x-2">
       <div className="flex items-center gap-3 text-xs tabular-nums text-muted-foreground">{children}</div>
       <div className="flex items-center gap-1">
-        <Button type="button" variant="ghost" size="icon-sm" className={cn("size-11 p-0", appearance === "feed" && "size-8 max-sm:size-11")} aria-label={`${title} 공유`} title="공유" onClick={() => void share()}><Share2 className={appearance === "feed" ? "size-3.5" : "size-4"} /></Button>
-        <Button asChild variant="ghost" className={cn("min-h-11 gap-1.5 px-2 text-xs", appearance === "feed" && "h-8 min-h-8 gap-1 px-1.5 py-1 text-[11px] max-sm:min-h-11")}><a href={url} target="_blank" rel="noopener noreferrer" aria-label={`${title} 원문 보기 (새 탭)`}>원문 보기 <ExternalLink className={appearance === "feed" ? "size-3" : "size-3.5"} /></a></Button>
+        <Button type="button" variant="ghost" size="icon-sm" className="size-7 p-0 pointer-coarse:size-11" aria-label={`${title} 공유`} title="공유" onClick={() => void share()}><Share2 className="size-3.5" /></Button>
+        <Button asChild variant="ghost" className="h-7 min-h-7 gap-1 px-1.5 py-1 text-[11px] pointer-coarse:min-h-11"><a href={url} target="_blank" rel="noopener noreferrer" aria-label={`${title} 원문 보기 (새 탭)`}>원문 보기 <ExternalLink className="size-3" /></a></Button>
       </div>
     </div>
-    <p role="status" className="text-xs text-muted-foreground">{status}</p>
+    <p role="status" className={cn("text-xs text-muted-foreground", status && "pt-1")}>{status}</p>
   </div>;
 }
 
