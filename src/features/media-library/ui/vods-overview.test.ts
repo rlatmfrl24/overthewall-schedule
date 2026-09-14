@@ -55,6 +55,7 @@ vi.mock("@/features/youtube", async () => {
         { "data-testid": "official-youtube-section" },
         `official:${selectedMemberUids?.join(",") || "all"}`,
       ),
+    YouTubeVodsSection: () => ReactModule.createElement("section", { "data-testid": "youtube-vods-section" }, "vods"),
     KirinukiSection: () =>
       ReactModule.createElement(
         "section",
@@ -156,6 +157,7 @@ const chzzkMembers = [members[0], members[2]];
 
 describe("VodsOverview", () => {
   beforeEach(() => {
+    HTMLElement.prototype.scrollIntoView = vi.fn();
     useScheduleDataMock.mockReturnValue({
       members,
       loading: false,
@@ -176,6 +178,15 @@ describe("VodsOverview", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("opens the dedicated VOD tab without mounting other YouTube sections", () => {
+    render(React.createElement(VodsOverview));
+    expect(screen.queryByTestId("youtube-vods-section")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "유튜브 다시보기" }));
+    expect(screen.getByTestId("youtube-vods-section")).toBeTruthy();
+    expect(screen.queryByTestId("official-youtube-section")).toBeNull();
+    expect(screen.queryByTestId("kirinuki-section")).toBeNull();
   });
 
   it("4개 상위 탭을 표시하고 공식 유튜브를 기본 탭으로 렌더링한다", () => {

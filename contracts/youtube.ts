@@ -198,6 +198,7 @@ export interface YouTubeCacheAnalyticsDto {
 }
 
 export interface YouTubeCacheStatusResponseDto {
+  vodChannels?: YouTubeVodChannelStatusDto[];
   updatedAt: string;
   window: { hours: number; since: number; until: number };
   cache: {
@@ -264,4 +265,27 @@ export interface YouTubeCacheStatusResponseDto {
     kirinuki: { total: number; fresh: number; stale: number; expired: number; missing: number };
   };
   legacyScheduledRuns: YouTubeWarmupRunSummaryDto[];
+}
+
+export interface YouTubeVodsRequest {
+  memberUids: number[];
+  limit: number;
+  cursor: string | null;
+}
+
+export interface YouTubeVodsResponseDto {
+  items: Array<YouTubeVideoDto & { memberUids: number[] }>;
+  availableMemberUids: number[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  updatedAt: string | null;
+  collection: { state: "unregistered" | "initializing" | "ready" | "partial" | "disabled" | "error" };
+}
+
+export interface YouTubeVodChannelStatusDto {
+  memberUid: number;
+  memberName: string;
+  label: string;
+  channelId: string | null;
+  issue: "missing_channel_id" | "invalid_channel_id" | "initializing" | "collection_failed" | null;
 }

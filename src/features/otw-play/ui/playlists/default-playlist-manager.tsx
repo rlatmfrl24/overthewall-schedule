@@ -4,6 +4,8 @@ import { useUser } from "@clerk/clerk-react";
 import type { PlayAdminDefaultPlaylist, PlayDefaultPlaylistWrite } from "@contracts/otw-play-playlists";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { Label } from "@/shared/ui/label";
+import { SelectField } from "@/shared/ui/select-field";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { ApiError } from "@/shared/api/client";
 import { fetchAdminDefaultPlaylists, fetchAdminDefaultPlaylist, saveAdminDefaultPlaylist, resolvePlaylistPerformances } from "../../api/playlists";
@@ -32,10 +34,20 @@ function Manager({ owner }: { owner?: string }) {
   if (query.isError) return <div role="alert">기본 플레이리스트를 불러오지 못했습니다. <Button onClick={() => void query.refetch()}>다시 시도</Button></div>;
   return <section className="space-y-3"><h2 className="text-xl font-semibold">기본 플레이리스트 관리</h2>
     <p className="text-sm text-muted-foreground">자동으로 구성되는 목록의 이름, 설명과 대표곡을 지정합니다.</p>
-    <label className="flex items-center gap-2 text-sm">플레이리스트
-      <select className="min-w-0 max-w-full rounded-md border bg-background p-2" value={playlist?.id ?? ""} onChange={event => {
-        const id = event.target.value; void discard().then(ok => { if (ok) { setDirty(false); setSelected(id); } });
-      }}>{query.data.data.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+    <div className="grid min-w-0 gap-2 sm:max-w-md">
+      <Label htmlFor="default-playlist-selection">플레이리스트</Label>
+      <SelectField
+        id="default-playlist-selection"
+        className="w-full min-w-0"
+        value={playlist?.id ?? ""}
+        disabled={query.data.data.length === 0}
+        options={query.data.data.map(item => ({ value: item.id, label: item.title }))}
+        onValueChange={id => {
+          if (id === playlist?.id) return;
+          void discard().then(ok => { if (ok) { setDirty(false); setSelected(id); } });
+        }}
+      />
+    </div>
     {playlist && <DefaultEditor key={playlist.id} initial={playlist} owner={owner} onDirty={setDirty} discard={discard} />}
   </section>;
 }

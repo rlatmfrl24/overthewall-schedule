@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import React, { type ReactNode } from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const clerkState = vi.hoisted(() => ({
   status: "signed-in" as "error" | "loading" | "signed-in" | "signed-out",
   signIn: vi.fn(),
+  openUserProfile: vi.fn(),
+  signOut: vi.fn(),
 }));
 
 vi.mock("@clerk/clerk-react", async () => {
@@ -14,6 +16,8 @@ vi.mock("@clerk/clerk-react", async () => {
   );
 
   return {
+    useUser: () => ({ user: clerkState.status === "signed-in" ? { imageUrl: "/avatar.png", username: "테스트닉네임" } : null }),
+    useClerk: () => ({ openUserProfile: clerkState.openUserProfile, signOut: clerkState.signOut }),
     SignedIn: ({ children }: { children?: ReactNode }) =>
       clerkState.status === "signed-in"
         ? createElement(Fragment, null, children)
@@ -34,11 +38,6 @@ vi.mock("@clerk/clerk-react", async () => {
       isValidElement<{ onClick?: () => void }>(children)
         ? cloneElement(children, { onClick: clerkState.signIn })
         : createElement(Fragment, null, children),
-    UserButton: () =>
-      createElement("button", {
-        "aria-label": "사용자 메뉴",
-        type: "button",
-      }),
   };
 });
 
@@ -69,19 +68,6 @@ vi.mock("./app-navigation", () => ({
   usePublicNavigationSections: () => [],
 }));
 
-vi.mock("@/app/layout/mode-toggle", async () => {
-  const { createElement } = await import("react");
-
-  return {
-    ModeToggle: () =>
-      createElement(
-        "button",
-        { "aria-label": "테마 선택", type: "button" },
-        "테마",
-      ),
-  };
-});
-
 import { PublicAppShell } from "./app-shell";
 
 describe("PublicAppShell", () => {
@@ -94,24 +80,25 @@ describe("PublicAppShell", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps collapsed sidebar utilities separated within a tall enough footer", () => {
+  it("groups account and theme controls behind one footer button", () => {
     const { container } = render(
-      React.createElement(
-        PublicAppShell,
-        null,
-        React.createElement("div", null, "content"),
-      ),
+      React.createElement(PublicAppShell, null, "content"),
     );
+    const footer = container.querySelector("aside")?.lastElementChild;
+    expect(footer?.className).toContain("h-14");
+    expect(footer?.querySelector("button")?.getAttribute("aria-label")).toBe("테스트닉네임 사용자 메뉴");
+    expect(footer?.querySelectorAll("button")).toHaveLength(1);
+    expect(screen.queryByRole("group", { name: "테마 선택" })).toBeNull();
 
-    const sidebar = container.querySelector("aside");
-    const footer = sidebar?.lastElementChild as HTMLElement | null;
-    const controls = footer?.firstElementChild as HTMLElement | null;
-
-    expect(sidebar?.className).toContain("w-16");
-    expect(footer?.className).toContain("h-[5.5rem]");
-    expect(footer?.className).toContain("py-2");
-    expect(controls?.className).toContain("flex-col");
-    expect(controls?.className).toContain("gap-2");
+    fireEvent.click(screen.getAllByRole("button", { name: /사용자 메뉴$/ })[0]);
+    expect(screen.getByRole("button", { name: "계정 관리" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "계정 관리" }));
+    expect(clerkState.openUserProfile).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+    expect(clerkState.signOut).toHaveBeenCalledOnce();
+    expect(screen.getByRole("group", { name: "테마 선택" })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(screen.queryByRole("group", { name: "테마 선택" })).toBeNull();
   });
 
   it("renders the login action when the viewer is signed out", () => {
@@ -125,9 +112,10 @@ describe("PublicAppShell", () => {
       ),
     );
 
+    fireEvent.click(screen.getAllByRole("button", { name: /사용자 메뉴$/ })[0]);
     const loginButtons = screen.getAllByRole("button", { name: "로그인" });
 
-    expect(loginButtons).toHaveLength(2);
+    expect(loginButtons).toHaveLength(1);
     expect(loginButtons.every((button) => !button.hasAttribute("disabled"))).toBe(
       true,
     );
@@ -151,9 +139,10 @@ describe("PublicAppShell", () => {
         ),
       );
 
+      fireEvent.click(screen.getAllByRole("button", { name: /사용자 메뉴$/ })[0]);
       const loginButtons = screen.getAllByRole("button", { name: "로그인" });
 
-      expect(loginButtons).toHaveLength(2);
+      expect(loginButtons).toHaveLength(1);
       expect(
         loginButtons.every(
           (button) =>

@@ -245,7 +245,7 @@ describe("XPostCard", () => {
     expect(container.querySelectorAll("a a")).toHaveLength(0);
   });
 
-  it("답글 맥락은 접혀 있고 펼치면 원문을 표시하며 선두 멘션만 제거한다", () => {
+  it("답글 원문은 별도 영역에 바로 표시하며 선두 멘션만 제거한다", () => {
     const replyToPostId = "2059529979700846500";
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     const { container } = renderCard(
@@ -278,9 +278,9 @@ describe("XPostCard", () => {
       {},
     );
 
-    expect(screen.queryByText("parent post body")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "대화 보기" }));
     const parentText = screen.getByText("parent post body");
+    expect(screen.getByRole("group", { name: "답글 대상 게시글" }).contains(parentText)).toBe(true);
+    expect(screen.queryByRole("button", { name: /대화 보기|대화 접기/ })).toBeNull();
     const replyText = screen.getByText((content, element) =>
       element?.tagName === "DIV" && content.includes("실제 답글"),
     );
@@ -323,7 +323,6 @@ describe("XPostCard", () => {
   it("작성자 정보가 없어도 확보된 답글 원문과 직접 링크를 표시한다", () => {
     const parent = makeLinkedPost({ username: "i", name: null, text: "확보된 원문", url: "https://x.com/i/web/status/9876543210" });
     renderCard(makePost({ reply: { postId: parent.id, conversationId: null, post: parent } }));
-    fireEvent.click(screen.getByRole("button", { name: "대화 보기" }));
     expect(screen.getByText("작성자 정보 없음")).toBeTruthy();
     expect(screen.getByText("확보된 원문")).toBeTruthy();
     expect(screen.queryByText("@i")).toBeNull();

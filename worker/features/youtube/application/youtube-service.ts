@@ -1,3 +1,4 @@
+import type { YouTubeVodsRequest, YouTubeVodsResponseDto, YouTubeVodChannelStatusDto } from "@contracts/youtube";
 import type {
   CreateKirinukiChannelDto,
   KirinukiChannelDto,
@@ -44,6 +45,8 @@ export type YouTubeWarmupAuditInput = YouTubeActor & {
 };
 
 export interface YouTubeApplicationPorts {
+  readVods?(input: YouTubeVodsRequest): Promise<YouTubeVodsResponseDto>;
+  readVodChannelStatus?(): Promise<YouTubeVodChannelStatusDto[]>;
   isApiConfigured(): boolean;
   readAllowedChannelIds(): Promise<ReadonlySet<string>>;
   readChannelsWithSWR(
@@ -122,6 +125,11 @@ const sortNewestFirst = (items: YouTubeVideoDto[]) =>
 export const createYouTubeApplication = (
   ports: YouTubeApplicationPorts,
 ) => ({
+  async readVods(input: YouTubeVodsRequest) {
+    if (!ports.readVods) throw new Error("YouTube VOD reader unavailable");
+    return await ports.readVods(input);
+  },
+  async readVodChannelStatus() { return ports.readVodChannelStatus?.() ?? []; },
   async readCacheOverview(windowHours: number) {
     const [analytics, warmupStatus, targets] = await Promise.all([
       ports.readCacheAnalytics(windowHours),

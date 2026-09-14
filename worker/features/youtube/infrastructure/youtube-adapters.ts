@@ -1,3 +1,4 @@
+import { readYouTubeVods, readYouTubeVodChannelStatus } from "./d1-youtube-vods";
 import { getDb } from "../../../platform/db";
 import {
   insertAdminAuditLog,
@@ -30,6 +31,8 @@ export const buildYouTubeApplication = (env: Env) => {
   );
 
   return createYouTubeApplication({
+    readVods: (input) => readYouTubeVods(env, input),
+    readVodChannelStatus: () => readYouTubeVodChannelStatus(env.otw_db),
     isApiConfigured: () => Boolean(env.YOUTUBE_API_KEY?.trim()),
     readAllowedChannelIds: () => readActiveYouTubeChannels(env.otw_db),
     readChannelsWithSWR: (targets, ctx) =>

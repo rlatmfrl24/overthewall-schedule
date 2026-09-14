@@ -1,4 +1,3 @@
-import { ChoiceGroup } from "@/shared/ui/choice-group";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -280,7 +279,7 @@ function MemberAutocomplete({
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
         }}
       >
-        <Search className="pointer-events-none absolute left-3 top-3 size-4 text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           id={inputId}
           role="combobox"
@@ -346,24 +345,24 @@ function ParticipantRoleEditor({
 }) {
   if (items.length === 0) return null;
   return (
-    <div className="space-y-2" aria-label="가창자 역할 분류">
+    <div className="space-y-3 border-t pt-4" aria-label="가창자 역할 분류">
       <div>
         <p className="text-sm font-medium">가창 역할</p>
         <p className="text-xs text-muted-foreground">
           메인 보컬은 발견 화면과 Player에 우선 표시됩니다.
         </p>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="overflow-hidden rounded-lg border bg-background">
         {items.map((item) => (
-          <div key={item.key} className="grid grid-cols-[minmax(0,1fr)_9rem] items-center gap-2 rounded-lg border bg-background p-2">
-            <span className="truncate text-sm font-medium">{item.label}</span>
+          <div key={item.key} className="grid grid-cols-[minmax(0,1fr)_8rem] items-center gap-3 border-b px-3 py-2 last:border-b-0">
+            <span className="min-w-0 break-words text-sm font-medium">{item.label}</span>
             <Select
               value={item.role}
               onValueChange={(value) =>
                 onRoleChange(item.key, value as OtwPlayParticipantRole)
               }
             >
-              <SelectTrigger aria-label={`${item.label} 가창 역할`}>
+              <SelectTrigger className="w-full" aria-label={`${item.label} 가창 역할`}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -396,7 +395,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
   const [clientRequestId, setClientRequestId] = useState(initialDraft?.clientRequestId ?? newClientRequestId);
   const [youtubeUrl, setYoutubeUrl] = useState(initialDraft?.youtubeUrl ?? "");
   const [title, setTitle] = useState(initialDraft?.title ?? "");
-  const [songMode, setSongMode] = useState<"new" | "existing">(initialDraft?.songMode ?? "new");
+  const [songMode, setSongMode] = useState<"new" | "existing">(initialDraft?.songMode ?? "existing");
   const [suggestedSongId, setSuggestedSongId] = useState<string | null>(initialDraft?.suggestedSongId ?? null);
   const [songTags, setSongTags] = useState<string[]>(initialDraft?.songTags ?? []);
   const [originalArtists, setOriginalArtists] = useState<string[]>(initialDraft?.originalArtists ?? []);
@@ -629,7 +628,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
   };
   const searchSongCandidates = async () => {
     setMessage(null);
-    setCandidateSearchAttempted(true);
+    setCandidateSearchAttempted(false);
     const requestId = ++preflightRequestId.current;
     const data = await preflightMutation.mutateAsync({ youtubeUrl, title }).catch((error: unknown) => {
       if (requestId !== preflightRequestId.current) return null;
@@ -637,6 +636,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
       return null;
     });
     if (data && requestId === preflightRequestId.current) {
+      setCandidateSearchAttempted(true);
       setPreflight(
         editDetail.data &&
           data.duplicate === "pending" &&
@@ -651,14 +651,27 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
     setSuggestedSongId(candidate.id);
     setTitle(candidate.title);
     setOriginalArtists(candidate.originalArtists);
+    setOriginalArtistMemberUids({});
+    setSongTags([]);
   };
   const selectNewSong = () => { setSongMode("new"); setSuggestedSongId(null); };
+  const changeSong = () => {
+    preflightRequestId.current += 1;
+    setSongMode("existing");
+    setSuggestedSongId(null);
+    setOriginalArtists([]);
+    setOriginalArtistMemberUids({});
+    setSongTags([]);
+    setCandidateSearchAttempted(false);
+    setMessage(null);
+  };
+  const songSelected = songMode === "new" || suggestedSongId !== null;
   const canReview = title.trim().length > 0 && originalArtists.length > 0 && originalArtists.length <= ORIGINAL_ARTIST_LIMIT && participantCount > 0 && participantCount <= PARTICIPANT_LIMIT && (songMode === "new" || suggestedSongId !== null);
   const resetForm = () => {
     preflightRequestId.current += 1;
     sessionStorage.removeItem(draftKey);
     setStep(0); setClientRequestId(newClientRequestId()); setYoutubeUrl(""); setTitle("");
-    setSongMode("new"); setSuggestedSongId(null); setSongTags([]); setOriginalArtists([]); setMemberUids([]);
+    setSongMode("existing"); setSuggestedSongId(null); setSongTags([]); setOriginalArtists([]); setMemberUids([]);
     setExternalParticipants([]); setMemberRoles({}); setExternalRoles({}); setNote(""); setPreflight(null); setCandidateSearchAttempted(false);
     setMessage(null); setSuccess(null);
   };
@@ -742,72 +755,88 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
         {step === 1 ? (
           <div className="space-y-7">
             {preflight ? <VideoSummary preflight={preflight} /> : null}
-            <fieldset className="space-y-4 rounded-xl border p-4 sm:p-5">
+            <fieldset className="min-w-0 rounded-xl border px-4 pb-4 pt-3">
               <legend className="px-1 font-semibold">곡 정보</legend>
-              <ChoiceGroup label="곡 연결 방식" value={songMode} onValueChange={(value) => value === "new" ? selectNewSong() : setSongMode(value)}
-                presentation="cards" cardColumns={2} options={[
-                  { value: "new", label: "새 곡으로 제안", description: "새 곡명과 원곡 가수 정보를 제출합니다." },
-                  { value: "existing", label: "기존 곡 연결", description: "검색한 카탈로그 곡에 새 가창을 연결합니다." },
-                ]} />
-              <div className="space-y-2">
-                <Label htmlFor="submission-title">곡명 *</Label>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input id="submission-title" value={title} onChange={(event) => { preflightRequestId.current += 1; setTitle(event.target.value); }} maxLength={300} />
-                  <Button type="button" variant="outline" onClick={() => void searchSongCandidates()} disabled={!title.trim() || preflightMutation.isPending}>
-                    {preflightMutation.isPending ? <LoaderCircle className="animate-spin" /> : <Search />} 기존 곡 찾기
-                  </Button>
-                </div>
+              <div className="space-y-4">
+                {!songSelected ? (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="submission-title">곡명 *</Label>
+                      <p className="text-xs text-muted-foreground">먼저 등록된 곡을 검색해 주세요. 찾는 곡이 없으면 새 곡을 추가할 수 있습니다.</p>
+                      <div className="flex gap-2">
+                        <Input id="submission-title" value={title} placeholder="곡명으로 검색" onChange={(event) => { preflightRequestId.current += 1; setTitle(event.target.value); setCandidateSearchAttempted(false); setMessage(null); }} onKeyDown={(event) => { if (event.key === "Enter" && title.trim() && !preflightMutation.isPending) { event.preventDefault(); void searchSongCandidates(); } }} maxLength={300} />
+                        <Button type="button" variant="outline" onClick={() => void searchSongCandidates()} disabled={!title.trim() || preflightMutation.isPending}>
+                          {preflightMutation.isPending ? <LoaderCircle className="animate-spin" /> : <Search />} 검색
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-3" aria-live="polite">
+                      {preflightMutation.isPending ? <p className="text-sm text-muted-foreground">기존 곡을 검색하고 있습니다.</p> : candidateSearchAttempted ? (
+                        <>
+                          {preflight?.songCandidates.length ? (
+                            <div className="overflow-hidden rounded-lg border">{preflight.songCandidates.map((song) => (
+                              <button type="button" key={song.id} onClick={() => selectCandidate(song)} className="flex w-full items-center justify-between gap-3 border-b p-3 text-left text-sm last:border-b-0 hover:bg-muted focus-visible:bg-muted">
+                                <span className="min-w-0"><span className="block break-words font-medium">{song.title}</span><span className="block break-words text-xs text-muted-foreground">{song.originalArtists.join(", ")}</span></span>
+                                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                              </button>
+                            ))}</div>
+                          ) : <p className="text-sm text-muted-foreground">일치하는 기존 곡이 없습니다.</p>}
+                          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/40 p-3">
+                            <p className="text-sm text-muted-foreground">찾는 곡이 없나요?</p>
+                            <Button type="button" size="sm" variant="outline" onClick={selectNewSong}><Plus /> 새 곡 추가</Button>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3"><Badge variant="secondary">{songMode === "new" ? "새 곡 정보" : "연결한 곡"}</Badge><Button type="button" size="sm" variant="ghost" onClick={changeSong}>다른 곡 검색</Button></div>
+                    {songMode === "new" ? <div className="space-y-2"><Label htmlFor="submission-title">곡명 *</Label><Input id="submission-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={300} /></div> : <div className="rounded-lg border bg-muted/20 p-3"><p className="break-words font-medium">{title}</p><p className="mt-1 text-sm text-muted-foreground">{originalArtists.join(", ")}</p></div>}
+                  </div>
+                )}
+                {songSelected ? <>
+                {songMode === "new" ? (
+                  <SongTagPicker
+                    tags={songTags}
+                    onChange={setSongTags}
+                    inputId="submission-song-tags"
+                    description="새로 등록할 곡의 장르나 분류를 선택하거나 직접 입력해 주세요. 선택 사항이며 최대 10개까지 저장됩니다."
+                  />
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    기존 곡을 연결하면 카탈로그에 저장된 장르(분류)를 그대로 사용합니다.
+                  </p>
+                )}
+                {songMode === "new" ? <ChipInput
+                  id="submission-original-artists"
+                  label="원곡 가수"
+                  values={originalArtists}
+                  onChange={(values) => {
+                    setOriginalArtists(values);
+                    setOriginalArtistMemberUids((current) =>
+                      Object.fromEntries(
+                        Object.entries(current).filter(([name]) => values.includes(name)),
+                      ),
+                    );
+                  }}
+                  placeholder="가수명 입력"
+                  maxValues={ORIGINAL_ARTIST_LIMIT}
+                  required
+                /> : null}
+                </> : null}
               </div>
-              {candidateSearchAttempted ? (
-                <div className="space-y-2" aria-live="polite">
-                  <div className="flex items-center justify-between gap-3"><Label>기존 곡 후보</Label>{suggestedSongId ? <Button type="button" size="sm" variant="ghost" onClick={selectNewSong}>선택 해제</Button> : null}</div>
-                  {preflightMutation.isPending ? <p className="text-sm text-muted-foreground"><LoaderCircle className="mr-1 inline size-4 animate-spin" /> 검색 중</p> : preflight?.songCandidates.length ? (
-                    <div className="grid gap-2">{preflight.songCandidates.map((song) => (
-                      <button type="button" key={song.id} onClick={() => selectCandidate(song)} className={`rounded-lg border p-3 text-left text-sm ${suggestedSongId === song.id ? "border-primary bg-primary/5" : "hover:bg-muted"}`}>
-                        <span className="font-medium">{song.title}</span>{song.originalArtists.length ? <span className="ml-2 text-muted-foreground">{song.originalArtists.join(", ")}</span> : null}
-                      </button>
-                    ))}</div>
-                  ) : <p className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">일치하는 기존 곡이 없습니다. 새 곡으로 제안해 주세요.</p>}
-                </div>
-              ) : null}
-              {songMode === "existing" && !suggestedSongId ? <p className="text-sm text-muted-foreground">기존 곡을 검색한 뒤 후보를 선택해 주세요.</p> : null}
-              {songMode === "new" ? (
-                <SongTagPicker
-                  tags={songTags}
-                  onChange={setSongTags}
-                  inputId="submission-song-tags"
-                  description="새로 등록할 곡의 장르나 분류를 선택하거나 직접 입력해 주세요. 선택 사항이며 최대 10개까지 저장됩니다."
-                />
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  기존 곡을 연결하면 카탈로그에 저장된 장르(분류)를 그대로 사용합니다.
-                </p>
-              )}
-              <ChipInput
-                id="submission-original-artists"
-                label="원곡 가수"
-                values={originalArtists}
-                onChange={(values) => {
-                  setOriginalArtists(values);
-                  setOriginalArtistMemberUids((current) =>
-                    Object.fromEntries(
-                      Object.entries(current).filter(([name]) => values.includes(name)),
-                    ),
-                  );
-                }}
-                placeholder="가수명 입력"
-                maxValues={ORIGINAL_ARTIST_LIMIT}
-                required
-              />
             </fieldset>
 
-            <fieldset className="space-y-5 rounded-xl border p-4 sm:p-5">
+            <fieldset className="min-w-0 rounded-xl border px-4 pb-4 pt-3">
               <legend className="px-1 font-semibold">가창 참여자</legend>
-              <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2 text-sm"><span>OTW 멤버와 외부 참여자를 함께 선택해 주세요.</span><span className="font-medium">{participantCount}/{PARTICIPANT_LIMIT}</span></div>
-              <MemberAutocomplete members={members.data ?? []} selectedUids={memberUids} onChange={setMemberUids} maxReached={participantCount >= PARTICIPANT_LIMIT} />
-              <ChipInput id="submission-external-participants" label="외부 참여자" values={externalParticipants} onChange={setExternalParticipants} placeholder="외부 인물 또는 그룹명" maxValues={Math.max(PARTICIPANT_LIMIT - memberUids.length, 0)} />
-              <ParticipantRoleEditor items={participantRoleItems} onRoleChange={changeParticipantRole} />
-              {participantCount === 0 ? <p className="text-sm text-muted-foreground">가창 참여자를 1명 이상 선택해 주세요.</p> : null}
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-3 text-sm"><span className="text-muted-foreground">OTW 멤버와 외부 참여자를 함께 선택해 주세요.</span><span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs font-medium tabular-nums">{participantCount}/{PARTICIPANT_LIMIT}</span></div>
+                <MemberAutocomplete members={members.data ?? []} selectedUids={memberUids} onChange={setMemberUids} maxReached={participantCount >= PARTICIPANT_LIMIT} />
+                <ChipInput id="submission-external-participants" label="외부 참여자" values={externalParticipants} onChange={setExternalParticipants} placeholder="외부 인물 또는 그룹명" maxValues={Math.max(PARTICIPANT_LIMIT - memberUids.length, 0)} />
+                <ParticipantRoleEditor items={participantRoleItems} onRoleChange={changeParticipantRole} />
+                {participantCount === 0 ? <p className="text-sm text-muted-foreground">가창 참여자를 1명 이상 선택해 주세요.</p> : null}
+              </div>
             </fieldset>
             <div className="flex flex-col-reverse justify-between gap-2 sm:flex-row"><Button variant="ghost" onClick={() => setStep(0)}><ChevronLeft /> 이전</Button><Button disabled={!canReview} onClick={() => setStep(2)}>검토하기 <ChevronRight /></Button></div>
           </div>

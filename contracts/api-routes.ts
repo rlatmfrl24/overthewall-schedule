@@ -344,6 +344,7 @@ export const apiRoutes = {
     runCollectionNow: staticRoute("/api/settings/x-collection/run-now"),
   },
   youtube: {
+    vods: staticRoute("/api/youtube/vods"),
     videos: staticRoute("/api/youtube/videos"),
     shorts: staticRoute("/api/youtube/shorts"),
     cacheStatus: staticRoute("/api/youtube/cache/status"),

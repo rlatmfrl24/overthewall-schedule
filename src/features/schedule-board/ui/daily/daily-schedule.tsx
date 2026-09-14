@@ -8,7 +8,6 @@ import {
 } from "@/features/chzzk";
 import {
   deleteSchedule,
-  saveScheduleWithConflicts,
   ScheduleDialog,
   type ScheduleItem,
   type ScheduleStatus,
@@ -63,6 +62,8 @@ import {
 import { useScheduleBoard } from "../../queries/use-schedule-board";
 import { useAdminLiveScheduleAutoFill } from "../../use-cases/use-admin-live-schedule-auto-fill";
 import { queryKeys } from "@/shared/query/query-keys";
+import { useScheduleSaveFeedback } from "../../queries/use-schedule-save-feedback";
+import { ScheduleSaveNotice } from "../components/schedule-save-notice";
 import { ScheduleUpdatedAt } from "../components/schedule-updated-at";
 
 type LiveDebugRow = {
@@ -85,6 +86,7 @@ export const DailySchedule = ({
   enableAdminLiveScheduleAutoFill = false,
 }: DailyScheduleProps) => {
   const queryClient = useQueryClient();
+  const scheduleSave = useScheduleSaveFeedback();
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(
     null,
   );
@@ -241,18 +243,9 @@ export const DailySchedule = ({
     title: string;
     status: ScheduleStatus;
   }) => {
-    try {
-      await saveScheduleWithConflicts(data);
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.schedules.all,
-      });
-      setIsEditDialogOpen(false);
-      setEditingSchedule(null);
-    } catch (e) {
-      console.error(e);
-      setAlertMessage("스케쥴 저장 실패");
-      setAlertOpen(true);
-    }
+    await scheduleSave.save(data);
+    setIsEditDialogOpen(false);
+    setEditingSchedule(null);
   };
 
   const handleDeleteSchedule = async (id: number) => {
@@ -651,6 +644,9 @@ export const DailySchedule = ({
               )}
             </div>
           )}
+
+          <ScheduleSaveNotice feedback={scheduleSave.feedback} members={members}
+            onView={setCurrentDate} onDismiss={scheduleSave.dismiss} onRetry={scheduleSave.retryRefresh} />
 
           {/* D-Day & Notice Row */}
           {hasDailyContextRow && (

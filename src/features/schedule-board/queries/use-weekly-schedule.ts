@@ -10,15 +10,16 @@ import {
 } from "date-fns";
 import {
   deleteSchedule,
-  saveScheduleWithConflicts,
   type ScheduleItem,
   type ScheduleStatus,
 } from "@/features/schedules";
+import { useScheduleSaveFeedback } from "./use-schedule-save-feedback";
 import { useScheduleBoard } from "./use-schedule-board";
 import { queryKeys } from "@/shared/query/query-keys";
 
 export function useWeeklySchedule() {
   const queryClient = useQueryClient();
+  const scheduleSave = useScheduleSaveFeedback();
   const [currentDate, setCurrentDate] = useState(new Date());
 
   // Dialog & Alert State
@@ -54,18 +55,9 @@ export function useWeeklySchedule() {
     title: string;
     status: ScheduleStatus;
   }) => {
-    try {
-      await saveScheduleWithConflicts(data);
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.schedules.all,
-      });
-      setIsEditDialogOpen(false);
-      setEditingSchedule(null);
-    } catch (e) {
-      console.error(e);
-      setAlertMessage("스케쥴 저장 실패");
-      setAlertOpen(true);
-    }
+    await scheduleSave.save(data);
+    setIsEditDialogOpen(false);
+    setEditingSchedule(null);
   };
 
   const handleDeleteSchedule = async (id: number) => {
@@ -96,6 +88,8 @@ export function useWeeklySchedule() {
   };
 
   return {
+    scheduleSave,
+    setCurrentDate,
     currentDate,
     updatedAt: scheduleBoard.board?.updatedAt,
     members: scheduleBoard.members,

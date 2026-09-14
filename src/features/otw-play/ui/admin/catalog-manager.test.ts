@@ -304,7 +304,55 @@ describe("OtwPlayCatalogManager", () => {
     deletePerformanceMock.mockResolvedValue({ data: { id: "performance-draft" }, catalogRevision: 8 });
   });
 
-  it("keeps all active categories across pages, category changes and empty searches", async () => {
+  it("appends catalog rows on intersection, stops at the end and resets on search", async () => {
+    const observers: { notify: (visible: boolean) => void; disconnect: ReturnType<typeof vi.fn> }[] = [];
+    vi.stubGlobal("IntersectionObserver", class {
+      disconnect = vi.fn();
+      observe = vi.fn();
+      unobserve = vi.fn();
+      constructor(callback: IntersectionObserverCallback) {
+        observers.push({
+          notify: (visible) => callback(
+            [{ isIntersecting: visible } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          ),
+          disconnect: this.disconnect,
+        });
+      }
+    });
+    try {
+      const songs = Array.from({ length: 60 }, (_, index) => ({
+        id: `song-${index}`, title: `Song ${index}`, isOtwOriginal: false,
+        archivedAt: null, version: 0, tags: [], aliases: [], originalArtists: [],
+      }));
+      fetchCatalogMock.mockResolvedValue({ ...catalog, songs });
+      render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
+      await screen.findByText("전체 60곡 · 25곡 표시");
+      expect(screen.queryByRole("button", { name: "다음" })).toBeNull();
+      const first = observers.at(-1)!;
+      act(() => first.notify(false));
+      expect(screen.getByText("전체 60곡 · 25곡 표시")).toBeTruthy();
+      act(() => { first.notify(true); first.notify(true); });
+      expect(screen.getByText("전체 60곡 · 50곡 표시")).toBeTruthy();
+      expect(screen.getAllByText("Song 0")).toHaveLength(2);
+      expect(screen.getAllByText("Song 49")).toHaveLength(2);
+      expect(first.disconnect).toHaveBeenCalled();
+      const last = observers.at(-1)!;
+      act(() => last.notify(true));
+      expect(screen.getByText("전체 60곡 · 60곡 표시")).toBeTruthy();
+      expect(screen.getByText("모든 곡을 표시했습니다.")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "곡 더 보기" })).toBeNull();
+      fireEvent.change(screen.getByRole("textbox", { name: "곡명·원곡 가수 검색" }), { target: { value: "Song" } });
+      expect(screen.getByText("전체 60곡 · 25곡 표시")).toBeTruthy();
+      act(() => last.notify(true));
+      expect(screen.getByText("전체 60곡 · 25곡 표시")).toBeTruthy();
+      expect(fetchCatalogMock).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }, 15_000);
+
+  it("keeps all active categories across appended batches, category changes and empty searches", async () => {
     const songs = Array.from({length: 26}, (_, index) => ({
       id: `song-${index}`, title: `Song ${index}`, isOtwOriginal: false,
       archivedAt: null, version: 0, tags: [index < 25 ? "POP" : "J-POP"], aliases: [], originalArtists: [],
@@ -324,12 +372,12 @@ describe("OtwPlayCatalogManager", () => {
       fireEvent.click(await screen.findByRole("option", { name }));
     };
     expect(await options()).toEqual(["모든 분류", "J-POP", "POP"]);
-    fireEvent.click(screen.getByRole("button", {name: "다음"}));
+    fireEvent.click(screen.getByRole("button", {name: "곡 더 보기"}));
     expect(await options()).toEqual(["모든 분류", "J-POP", "POP"]);
     await selectCategory("POP");
     expect(await options()).toContain("J-POP");
     await selectCategory("J-POP");
-    expect(screen.getByText("1곡 · 1/1")).toBeTruthy();
+    expect(screen.getByText("전체 1곡 · 1곡 표시")).toBeTruthy();
     fireEvent.change(screen.getByRole("textbox", {name: "곡명·원곡 가수 검색"}), {target: {value: "no matching song"}});
     expect(screen.getByText("조건에 맞는 곡이 없습니다.")).toBeTruthy();
     expect(await options()).toEqual(["모든 분류", "J-POP", "POP"]);
@@ -480,6 +528,7 @@ describe("OtwPlayCatalogManager", () => {
       name: "확인 후 승인·게시",
     }) as HTMLButtonElement;
     expect(approveButton.disabled).toBe(true);
+    expect(screen.getByText("영상·채널 확인을 먼저 실행해 주세요.")).toBeTruthy();
     expect(within(screen.getByLabelText("선택한 장르(분류)")).getByText("J-POP")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
@@ -531,6 +580,30 @@ describe("OtwPlayCatalogManager", () => {
     );
     expect(confirm).toHaveBeenCalledOnce();
     confirm.mockRestore();
+  });
+
+  it("shows verification failures and blocks approval during a fresh verification", async () => {
+    render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
+    fireEvent.click(await screen.findByRole("tab", { name: "영상 검토" }));
+    const verify = screen.getByRole("button", { name: "영상·채널 확인" });
+    const approve = screen.getByRole("button", { name: "확인 후 승인·게시" });
+    fireEvent.click(verify);
+    await screen.findByText(/영상·채널 확인 완료/);
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(approve).toHaveProperty("disabled", false);
+
+    let rejectVerification!: (error: Error) => void;
+    preflightEntryMock.mockImplementationOnce(() => new Promise((_, reject) => { rejectVerification = reject; }));
+    fireEvent.click(verify);
+    expect(approve).toHaveProperty("disabled", true);
+    expect(screen.getByText("영상·채널을 확인하고 있습니다.")).toBeTruthy();
+    await act(async () => rejectVerification(new Error("YouTube 응답을 확인할 수 없습니다.")));
+    expect(screen.getByRole("alert").textContent).toContain("YouTube 응답을 확인할 수 없습니다.");
+    expect(approve).toHaveProperty("disabled", true);
+    fireEvent.click(verify);
+    await waitFor(() => expect(approve).toHaveProperty("disabled", false));
+    expect(screen.queryByText(/영상·채널 확인 실패:/)).toBeNull();
+    expect(approveProposalMock).not.toHaveBeenCalled();
   });
 
   it("requires an explicit channel owner and preserves new group identities", async () => {

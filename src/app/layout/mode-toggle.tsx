@@ -1,38 +1,37 @@
-import { Moon, Sun } from "lucide-react";
+import { Monitor, Moon, Sun } from "lucide-react";
 
 import { Button } from "@/shared/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/shared/ui/dropdown-menu";
 import { useTheme } from "@/app/providers/theme-provider";
 import { cn } from "@/shared/lib/utils";
 
+const THEME_OPTIONS = [
+  { value: "light", label: "라이트", icon: Sun },
+  { value: "dark", label: "다크", icon: Moon },
+  { value: "system", label: "시스템", icon: Monitor },
+] as const;
+
 export function ModeToggle({ className }: { className?: string }) {
-  const { setTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="icon" className={cn("h-8 w-8", className)}>
-          <Sun className="h-[1.2rem] w-[1.2rem] scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
-          <Moon className="absolute h-[1.2rem] w-[1.2rem] scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" />
-          <span className="sr-only">Toggle theme</span>
+    <div role="group" aria-label="테마 선택" className={cn("grid grid-cols-3 gap-1 rounded-lg bg-muted p-1", className)}>
+      {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
+        <Button
+          key={value}
+          variant="ghost"
+          className={cn(
+            "h-11 gap-1.5 rounded-md px-1 text-xs",
+            theme === value
+              ? "bg-background text-foreground shadow-sm hover:bg-background"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          aria-pressed={theme === value}
+          onClick={() => setTheme(value)}
+        >
+          <Icon className="h-4 w-4" />
+          {label}
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => setTheme("light")}>
-          Light
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("dark")}>
-          Dark
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("system")}>
-          System
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      ))}
+    </div>
   );
 }

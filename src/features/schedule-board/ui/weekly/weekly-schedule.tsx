@@ -13,10 +13,13 @@ import { useWeeklySchedule } from "../../queries/use-weekly-schedule";
 import { WeeklyHeader } from "./components/weekly-header";
 import { WeeklyGrid } from "./components/weekly-grid";
 import { NoticeBanner } from "@/features/notices";
+import { ScheduleSaveNotice } from "../components/schedule-save-notice";
 import { ScheduleUpdatedAt } from "../components/schedule-updated-at";
 
 export const WeeklySchedule = () => {
   const {
+    scheduleSave,
+    setCurrentDate,
     currentDate,
     updatedAt,
     members,
@@ -55,6 +58,9 @@ export const WeeklySchedule = () => {
           onToday={goToday}
           onAddSchedule={() => openAddDialog(currentDate)}
         />
+
+        <ScheduleSaveNotice feedback={scheduleSave.feedback} members={members}
+          onView={setCurrentDate} onDismiss={scheduleSave.dismiss} onRetry={scheduleSave.retryRefresh} />
 
         {/* Notice Banner */}
         <div className="container mx-auto mb-4 px-8">

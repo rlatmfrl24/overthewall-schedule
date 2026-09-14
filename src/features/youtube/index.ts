@@ -41,3 +41,5 @@ export { KirinukiSection } from "./ui/kirinuki-section";
 export { YouTubeSection } from "./ui/youtube-section";
 export { KirinukiChannelManager } from "./ui/admin/kirinuki-channel-manager";
 export { YouTubeCacheManager } from "./ui/admin/youtube-cache-manager";
+
+export { YouTubeVodsSection } from "./ui/youtube-vods-section";

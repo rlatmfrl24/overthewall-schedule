@@ -424,6 +424,13 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleVods,
   },
   {
+    id: "youtube.vods",
+    owner: "youtube",
+    methods: methods(get(PUBLIC_NO_STORE)),
+    path: apiRoutes.youtube.vods.pattern,
+    handler: handleYouTube,
+  },
+  {
     id: "youtube.videos",
     owner: "youtube",
     path: apiRoutes.youtube.videos.pattern,

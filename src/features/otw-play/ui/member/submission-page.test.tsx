@@ -95,7 +95,14 @@ const verifyVideo = async () => {
   await screen.findByLabelText("곡명 *");
 };
 
+const startNewSong = async () => {
+  fireEvent.change(screen.getByLabelText("곡명 *"), { target: { value: "테스트 커버" } });
+  fireEvent.click(screen.getByRole("button", { name: "검색" }));
+  fireEvent.click(await screen.findByRole("button", { name: "새 곡 추가" }));
+};
+
 const completeDetails = async () => {
+  if (!screen.queryByLabelText("원곡 가수 *")) await startNewSong();
   fireEvent.change(screen.getByLabelText("곡명 *"), { target: { value: "테스트 커버" } });
   const artistInput = screen.getByLabelText("원곡 가수 *");
   fireEvent.change(artistInput, { target: { value: "원곡 가수" } });
@@ -238,18 +245,59 @@ describe("OtwPlaySubmissionPage", () => {
       ...preflight,
       songCandidates: [{ id: "song-one", title: "기존 곡", originalArtists: ["기존 가수"] }],
     });
-    fireEvent.click(screen.getByRole("button", { name: /기존 곡 찾기/ }));
+    fireEvent.click(screen.getByRole("button", { name: "검색" }));
     fireEvent.click(await screen.findByRole("button", { name: /기존 곡.*기존 가수/ }));
 
-    expect(screen.getByDisplayValue("기존 곡")).toBeTruthy();
+    expect(screen.getByText("연결한 곡")).toBeTruthy();
+    expect(screen.queryByLabelText("원곡 가수 *")).toBeNull();
     expect(screen.getAllByText("기존 가수").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: "선택 해제" }));
-    expect((screen.getByRole("radio", { name: /새 곡으로 제안/ }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "다른 곡 검색" }));
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(screen.queryByRole("button", { name: "새 곡 추가" })).toBeNull();
+    expect(screen.getByRole("button", { name: /검토하기/ }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("requires a successful search before new-song entry and discards stale results", async () => {
+    renderPage();
+    await verifyVideo();
+    expect(screen.queryByLabelText("원곡 가수 *")).toBeNull();
+    expect(screen.queryByRole("button", { name: "새 곡 추가" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("곡명 *"), { target: { value: "첫 검색" } });
+    mocks.preflight.mockRejectedValueOnce(new Error("offline"));
+    fireEvent.click(screen.getByRole("button", { name: "검색" }));
+    await screen.findByText("기존 곡 검색에 실패했습니다.");
+    expect(screen.queryByRole("button", { name: "새 곡 추가" })).toBeNull();
+    let resolveSearch!: (value: typeof preflight) => void;
+    mocks.preflight.mockReturnValueOnce(new Promise((resolve) => { resolveSearch = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "검색" }));
+    fireEvent.change(screen.getByLabelText("곡명 *"), { target: { value: "다른 곡" } });
+    await act(async () => resolveSearch(preflight));
+    await waitFor(() => expect(screen.getByRole("button", { name: "검색" }).hasAttribute("disabled")).toBe(false));
+    expect(screen.queryByRole("button", { name: "새 곡 추가" })).toBeNull();
+    fireEvent.keyDown(screen.getByLabelText("곡명 *"), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("button", { name: "새 곡 추가" }));
+    expect(screen.getByDisplayValue("다른 곡")).toBeTruthy();
+    expect(screen.getByLabelText("원곡 가수 *")).toBeTruthy();
+  });
+
+  it("submits the selected catalog song without requiring new-song inputs", async () => {
+    renderPage();
+    await verifyVideo();
+    fireEvent.change(screen.getByLabelText("곡명 *"), { target: { value: "기존 곡" } });
+    mocks.preflight.mockResolvedValueOnce({ ...preflight, songCandidates: [{ id: "song-one", title: "기존 곡", originalArtists: ["기존 가수"] }] });
+    fireEvent.click(screen.getByRole("button", { name: "검색" }));
+    fireEvent.click(await screen.findByRole("button", { name: /기존 곡.*기존 가수/ }));
+    fireEvent.change(screen.getByLabelText("OTW 참여 멤버"), { target: { value: "member-one" } });
+    fireEvent.keyDown(screen.getByLabelText("OTW 참여 멤버"), { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: /검토하기/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "최종 제출" }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ suggestedSongId: "song-one", title: "기존 곡", tags: [], originalArtists: [{ kind: "external", displayName: "기존 가수" }] })));
   });
 
   it("adds chips only explicitly and supports keyboard member autocomplete", async () => {
     renderPage();
     await verifyVideo();
+    await startNewSong();
     const artistInput = screen.getByLabelText("원곡 가수 *");
     fireEvent.change(artistInput, { target: { value: "가수 A" } });
     fireEvent.blur(artistInput);
@@ -272,6 +320,7 @@ describe("OtwPlaySubmissionPage", () => {
     renderPage();
     await verifyVideo();
     fireEvent.change(screen.getByLabelText("곡명 *"), { target: { value: "테스트 커버" } });
+    await startNewSong();
     const artistInput = screen.getByLabelText("원곡 가수 *");
     fireEvent.change(artistInput, { target: { value: "원곡 가수" } });
     fireEvent.keyDown(artistInput, { key: "Enter" });
@@ -294,6 +343,7 @@ describe("OtwPlaySubmissionPage", () => {
   it("submits editable genre classifications only for a new song", async () => {
     renderPage();
     await verifyVideo();
+    await startNewSong();
     fireEvent.click(screen.getByRole("button", { name: "J-POP" }));
     expect(screen.getByLabelText("선택한 장르(분류)").textContent).toContain("J-POP");
     await completeDetails();

@@ -1,4 +1,3 @@
-import { ModeToggle } from "@/app/layout/mode-toggle";
 import { ConsoleSearchContext, validateConsoleSearch, type ConsoleSearch } from "@/shared/lib/admin-console-search";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { cn } from "@/shared/lib/utils";
@@ -105,8 +104,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         ))}
       </nav>
 
-      <div className="p-4 border-t space-y-3">
-        <div className="flex items-center justify-between"><span className="text-xs text-muted-foreground">화면 테마</span><ModeToggle /></div>
+      <div className="p-4 border-t">
         <Button asChild variant="outline" className="w-full gap-2 justify-start h-9">
           <Link to="/">
             <LogOut className="w-4 h-4" />
