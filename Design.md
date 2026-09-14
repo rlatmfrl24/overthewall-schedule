@@ -500,7 +500,12 @@ body 전체에 관리자/Play 클래스를 붙여 다른 화면을 오염시키�
 
 ## 타이포그래피
 
-- 기본 폰트는 `Inter`.
+- 기본 폰트는 `Inter`, 한글은 `Pretendard Variable`을 사용한다.
+- Inter 4.1과 Pretendard 1.3.9의 전체 가변 WOFF2를 자체 제공하며,
+  400–900 굵기를 지원한다. `font-display: swap`과 시스템 폰트 대체를 유지한다.
+- 스냅샷은 최대 3초 동안 폰트를 준비하고, 준비 완료 후 글자 크기를 다시
+  계산한다. 폰트 준비 또는 포함 실패 시 시스템 폰트로 저장·복사를 계속
+  제공하고 완료 메시지에 대체 사용 사실을 표시한다.
 - 페이지 제목: `text-xl`-`text-2xl`, `font-semibold` 또는 `font-bold`.
 - 카드 제목: `text-sm`-`text-base`, 중요 멤버명은 더 크게 허용.
 - 메타 텍스트: `text-xs`-`text-sm text-muted-foreground`.

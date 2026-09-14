@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/shared/lib/utils";
 import type { ScheduleItem } from "@/features/schedules";
@@ -6,6 +6,8 @@ import { useScheduleBoard } from "../../../queries/use-schedule-board";
 import { SnapshotCardMember } from "./snapshot-card-member";
 import { SnapshotTimeline } from "./snapshot-timeline";
 import { ScheduleUpdatedAt } from "../../components/schedule-updated-at";
+import { useSnapshotFonts } from "./use-snapshot-fonts";
+import { SnapshotFontContext, SNAPSHOT_FONT_FAMILY, SYSTEM_FONT_FAMILY } from "./snapshot-fonts";
 
 interface SnapshotScheduleProps {
   date: string;
@@ -19,7 +21,10 @@ export const SnapshotSchedule = ({
   theme,
 }: SnapshotScheduleProps) => {
   const { board, members, schedules, hasLoaded } = useScheduleBoard(date, date);
-  const [isSnapshotReady, setIsSnapshotReady] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const fontMode = useSnapshotFonts(rootRef);
+  const renderKey = useMemo(() => ({ date, mode, theme, fontMode, board }), [date, mode, theme, fontMode, board]);
+  const [readyKey, setReadyKey] = useState<typeof renderKey | null>(null);
   const snapshotWidth = mode === "timeline" ? 520 : 1280;
 
   const currentDate = useMemo(() => parseISO(date), [date]);
@@ -42,21 +47,16 @@ export const SnapshotSchedule = ({
   }, [theme]);
 
   useEffect(() => {
-    setIsSnapshotReady(false);
-    if (!hasLoaded) return;
+    setReadyKey(null);
+    if (!hasLoaded || fontMode === "loading") return;
     let cancelled = false;
     let frame1: number | null = null;
     let frame2: number | null = null;
 
-    const markSnapshotReady = async () => {
-      if (document.fonts?.ready) {
-        await document.fonts.ready;
-      }
-      if (cancelled) return;
-
+    const markSnapshotReady = () => {
       frame1 = requestAnimationFrame(() => {
         frame2 = requestAnimationFrame(() => {
-          if (!cancelled) setIsSnapshotReady(true);
+          if (!cancelled) setReadyKey(renderKey);
         });
       });
     };
@@ -68,7 +68,7 @@ export const SnapshotSchedule = ({
       if (frame1 !== null) cancelAnimationFrame(frame1);
       if (frame2 !== null) cancelAnimationFrame(frame2);
     };
-  }, [date, hasLoaded, members.length, schedules.length]);
+  }, [renderKey, hasLoaded, fontMode]);
 
   const schedulesByMemberUid = useMemo(() => {
     const grouped = new Map<number, ScheduleItem[]>();
@@ -83,47 +83,52 @@ export const SnapshotSchedule = ({
     return grouped;
   }, [schedules]);
 
-  const isReady = hasLoaded && isSnapshotReady;
+  const isReady = hasLoaded && fontMode !== "loading" && readyKey === renderKey;
 
   return (
-    <div
-      data-snapshot-root="true"
-      data-snapshot-ready={isReady ? "true" : "false"}
-      className={cn(
-        "inline-block bg-background text-foreground",
-        mode === "timeline" ? "p-3" : "p-5",
-      )}
-    >
+    <SnapshotFontContext value={fontMode}>
       <div
-        className={cn("flex flex-col", mode === "timeline" ? "gap-3" : "gap-5")}
-        style={{ width: snapshotWidth }}
-      >
-        <SnapshotHeader
-          dateLabel={format(currentDate, "yyyy년 M월 d일")}
-          dateValue={date}
-          mode={mode}
-          updatedAt={board?.updatedAt}
-        />
-
-        {mode === "timeline" ? (
-          <SnapshotTimeline members={members} schedules={schedules} />
-        ) : (
-          <div className="grid grid-cols-3 items-start gap-4">
-            {members.map((member) => {
-              const memberSchedules =
-                schedulesByMemberUid.get(member.uid) ?? [];
-              return (
-                <SnapshotCardMember
-                  key={`snapshot-${member.uid}`}
-                  member={member}
-                  schedules={memberSchedules}
-                />
-              );
-            })}
-          </div>
+        ref={rootRef}
+        data-snapshot-root="true"
+        data-snapshot-ready={isReady ? "true" : "false"}
+        data-snapshot-font-mode={fontMode}
+        style={{ fontFamily: fontMode === "web" ? SNAPSHOT_FONT_FAMILY : SYSTEM_FONT_FAMILY }}
+        className={cn(
+          "inline-block bg-background text-foreground",
+          mode === "timeline" ? "p-3" : "p-5",
         )}
+      >
+        <div
+          className={cn("flex flex-col", mode === "timeline" ? "gap-3" : "gap-5")}
+          style={{ width: snapshotWidth }}
+        >
+          <SnapshotHeader
+            dateLabel={format(currentDate, "yyyy년 M월 d일")}
+            dateValue={date}
+            mode={mode}
+            updatedAt={board?.updatedAt}
+          />
+
+          {mode === "timeline" ? (
+            <SnapshotTimeline members={members} schedules={schedules} />
+          ) : (
+            <div className="grid grid-cols-3 items-start gap-4">
+              {members.map((member) => {
+                const memberSchedules =
+                  schedulesByMemberUid.get(member.uid) ?? [];
+                return (
+                  <SnapshotCardMember
+                    key={`snapshot-${member.uid}`}
+                    member={member}
+                    schedules={memberSchedules}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </SnapshotFontContext>
   );
 };
 
