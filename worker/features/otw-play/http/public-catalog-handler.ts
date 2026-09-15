@@ -266,6 +266,7 @@ export const toPerformanceResponse = (
     title: detail.song.title,
     isOtwOriginal: detail.song.isOtwOriginal,
     tags: detail.song.tags,
+    originalArtists: detail.song.originalArtists.map(toCredit),
   },
   performance: toPerformanceDetail(detail.performance),
 });

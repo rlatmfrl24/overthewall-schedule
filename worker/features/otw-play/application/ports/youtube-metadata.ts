@@ -25,6 +25,10 @@ export interface OtwPlayYouTubeVideoMetadata {
   availabilityStatus: OtwPlaySourceAvailabilityStatus;
   madeForKids?: boolean | null;
   scopeReview?: boolean;
+  description?: string;
+  tags?: string[];
+  privacyStatus?: string;
+  actualStartTime?: string | null;
 }
 
 export interface OtwPlayYouTubeVideoObservation {

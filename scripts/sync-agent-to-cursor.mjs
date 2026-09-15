@@ -1,171 +1,144 @@
 #!/usr/bin/env node
-
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
-const isCheckMode = process.argv.includes("--check");
-const repoRoot = process.cwd();
-
-const mappings = [
-  {
-    source: ".agent/rules/project-standards.md",
-    target: ".cursor/rules/project-standards.mdc",
-  },
-  {
-    source: ".agent/rules/architecture.md",
-    target: ".cursor/rules/architecture.mdc",
-  },
-  {
-    source: ".agent/rules/drizzle-workflow.md",
-    target: ".cursor/rules/drizzle-workflow.mdc",
-  },
-  {
-    source: ".agent/skills/code-review/SKILL.md",
-    target: ".cursor/skills/code-review-otw/SKILL.md",
-  },
-  {
-    source: ".agent/skills/code-review/agents/openai.yaml",
-    target: ".cursor/skills/code-review-otw/agents/openai.yaml",
-  },
-  {
-    source: ".agent/skills/branch-maintenance/SKILL.md",
-    target: ".cursor/skills/branch-maintenance/SKILL.md",
-  },
-  {
-    source: ".agent/skills/branch-maintenance/agents/openai.yaml",
-    target: ".cursor/skills/branch-maintenance/agents/openai.yaml",
-  },
-  {
-    source: ".agent/skills/db-migration/SKILL.md",
-    target: ".cursor/skills/db-migration/SKILL.md",
-  },
-  {
-    source: ".agent/skills/db-migration/references/checklist.md",
-    target: ".cursor/skills/db-migration/references/checklist.md",
-  },
-  {
-    source: ".agent/skills/db-migration/agents/openai.yaml",
-    target: ".cursor/skills/db-migration/agents/openai.yaml",
-  },
-  {
-    source: ".agent/skills/worker-api-change/SKILL.md",
-    target: ".cursor/skills/worker-api-change/SKILL.md",
-  },
-  {
-    source: ".agent/skills/worker-api-change/references/touchpoints.md",
-    target: ".cursor/skills/worker-api-change/references/touchpoints.md",
-  },
-  {
-    source: ".agent/skills/worker-api-change/agents/openai.yaml",
-    target: ".cursor/skills/worker-api-change/agents/openai.yaml",
-  },
-  {
-    source: ".agent/skills/release-ops/SKILL.md",
-    target: ".cursor/skills/release-ops/SKILL.md",
-  },
-  {
-    source: ".agent/skills/release-ops/references/preflight-checklist.md",
-    target: ".cursor/skills/release-ops/references/preflight-checklist.md",
-  },
-  {
-    source: ".agent/skills/release-ops/agents/openai.yaml",
-    target: ".cursor/skills/release-ops/agents/openai.yaml",
-  },
+// Explicit inventory makes removal or accidental omission of a skill visible.
+const skills = [
+  ["branch-maintenance", "branch-maintenance"],
+  ["code-review", "code-review-otw"],
+  ["db-migration", "db-migration"],
+  ["worker-api-change", "worker-api-change"],
+  ["release-ops", "release-ops"],
 ];
+const rules = ["project-standards", "architecture", "drizzle-workflow"];
+const slash = (value) => value.replaceAll("\\", "/");
 
-const readTextFile = async (filePath) => {
-  return fs.readFile(filePath, "utf8");
-};
-
-const tryReadTextFile = async (filePath) => {
-  try {
-    return await fs.readFile(filePath, "utf8");
-  } catch {
-    return null;
+async function filesUnder(directory) {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) throw new Error(`Unexpected symlink: ${directory}/${entry.name}`);
+    const target = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await filesUnder(target));
+    else files.push(target);
   }
-};
+  return files.sort();
+}
 
-const ensureDirectory = async (filePath) => {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-};
+function localLinks(content) {
+  const prose = content.replace(/```[^\n]*\n[\s\S]*?```/g, "");
+  return [...prose.matchAll(/!?\[[^\]]*\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g)]
+    .map((match) => match[1].replace(/^<|>$/g, ""))
+    .filter((link) => !/^(?:[a-z][a-z0-9+.-]*:|#|\/\/)/i.test(link));
+}
 
-const relativePath = (absolutePath) => {
-  return path.relative(repoRoot, absolutePath).replace(/\\/g, "/");
-};
+async function checkLinks(root, file, content, errors, pending = new Set()) {
+  for (const link of localLinks(content)) {
+    let pathname;
+    try { pathname = decodeURIComponent(link.split(/[?#]/)[0]); }
+    catch { errors.push(`Invalid link in ${file}: ${link}`); continue; }
+    if (!pathname) continue;
+    const target = path.resolve(root, path.dirname(file), pathname);
+    if (pending.has(target)) continue;
+    try { await fs.access(target); }
+    catch { errors.push(`Broken link in ${file}: ${link}`); }
+  }
+}
 
-const run = async () => {
-  let syncedCount = 0;
-  let unchangedCount = 0;
-  const driftPaths = [];
-  const missingSources = [];
-
-  for (const mapping of mappings) {
-    const sourcePath = path.resolve(repoRoot, mapping.source);
-    const targetPath = path.resolve(repoRoot, mapping.target);
-
-    let sourceContent;
+export async function syncAgentFiles({ root = process.cwd(), check = false } = {}) {
+  const errors = [];
+  const outputs = new Map();
+  const canonical = new Map();
+  const read = async (file) => {
     try {
-      sourceContent = await readTextFile(sourcePath);
-    } catch {
-      missingSources.push(relativePath(sourcePath));
-      continue;
-    }
-
-    const targetContent = await tryReadTextFile(targetPath);
-    if (targetContent === sourceContent) {
-      unchangedCount += 1;
-      continue;
-    }
-
-    if (isCheckMode) {
-      driftPaths.push(relativePath(targetPath));
-      continue;
-    }
-
-    await ensureDirectory(targetPath);
-    await fs.writeFile(targetPath, sourceContent, "utf8");
-    syncedCount += 1;
-    console.log(
-      `[sync] ${relativePath(sourcePath)} -> ${relativePath(targetPath)}`,
-    );
+      const content = await fs.readFile(path.join(root, file), "utf8");
+      canonical.set(file, content);
+      return content;
+    } catch { errors.push(`Missing source: ${file}`); return null; }
+  };
+  for (const rule of rules) {
+    const content = await read(`.agent/rules/${rule}.md`);
+    if (content !== null) outputs.set(`.cursor/rules/${rule}.mdc`, content);
   }
-
-  if (missingSources.length > 0) {
-    console.error("[error] Missing source files:");
-    for (const source of missingSources) {
-      console.error(`  - ${source}`);
+  for (const [folder, name] of skills) {
+    const base = `.agent/skills/${folder}`;
+    const entry = await read(`${base}/SKILL.md`);
+    await read(`${base}/agents/openai.yaml`);
+    if (entry === null) continue;
+    const header = entry.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+    if (!header || !new RegExp(`^name: ${name}$`, "m").test(header[1].replaceAll("\r", "")) ||
+        !/^description: .+/m.test(header[1])) {
+      errors.push(`Invalid skill frontmatter: ${base}/SKILL.md`);
+      continue;
+    }
+    for (const absolute of await filesUnder(path.join(root, base))) {
+      const relative = slash(path.relative(path.join(root, base), absolute));
+      const content = await read(`${base}/${relative}`);
+      if (content !== null) outputs.set(`.cursor/skills/${name}/${relative}`, content);
+    }
+    const metadata = canonical.get(`${base}/agents/openai.yaml`);
+    if (metadata !== undefined) outputs.set(`.agents/skills/${name}/agents/openai.yaml`, metadata);
+    outputs.set(`.agents/skills/${name}/SKILL.md`,
+      `---\n${header[1].replaceAll("\r", "")}\n---\n\n` +
+      `<!-- Generated by scripts/sync-agent-to-cursor.mjs. Do not edit. -->\n\n` +
+      `Read the [canonical ${name} skill](../../../${base}/SKILL.md) before acting.\n` +
+      `Resolve its references relative to that canonical file.\n`);
+  }
+  for (const absolute of await filesUnder(path.join(root, ".agent"))) {
+    const file = slash(path.relative(root, absolute));
+    if (file.endsWith(".md") && !canonical.has(file)) await read(file);
+    if (file.startsWith(".agent/skills/") &&
+        !skills.some(([folder]) => file.startsWith(`.agent/skills/${folder}/`))) {
+      errors.push(`Unregistered canonical skill file: ${file}`);
     }
   }
-
-  if (isCheckMode) {
-    if (driftPaths.length > 0) {
-      console.error("[drift] Cursor mirror is out of date:");
-      for (const driftPath of driftPaths) {
-        console.error(`  - ${driftPath}`);
+  for (const [file, content] of canonical) {
+    if (file.endsWith(".md")) await checkLinks(root, file, content, errors);
+  }
+  const pending = check ? new Set() : new Set([...outputs.keys()].map((file) => path.resolve(root, file)));
+  for (const [file, content] of outputs) {
+    if (/\.(md|mdc)$/.test(file)) await checkLinks(root, file, content, errors, pending);
+  }
+  for (const directory of [".cursor/skills", ".agents/skills", ".cursor/rules"]) {
+    try {
+      for (const file of await filesUnder(path.join(root, directory))) {
+        const relative = slash(path.relative(root, file));
+        if (!outputs.has(relative)) errors.push(`Unmanaged generated file: ${relative}`);
       }
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
     }
+  }
+  // Do not perform partial generation when sources or references are invalid.
+  if (errors.length) return { errors, written: 0, unchanged: 0, expected: outputs.size };
+  let written = 0;
+  let unchanged = 0;
+  for (const [file, content] of outputs) {
+    const target = path.join(root, file);
+    let actual = null;
+    try { actual = await fs.readFile(target, "utf8"); }
+    catch (error) { if (error.code !== "ENOENT") throw error; }
+    if (actual === content) { unchanged++; continue; }
+    if (check) { errors.push(`Drift or missing generated file: ${file}`); continue; }
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, content, "utf8");
+    written++;
+  }
+  return { errors, written, unchanged, expected: outputs.size };
+}
 
-    if (driftPaths.length === 0 && missingSources.length === 0) {
-      console.log(
-        `[ok] Mirror check passed (${unchangedCount} files in sync, 0 drift)`,
-      );
-      return;
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  try {
+    const result = await syncAgentFiles({ check: process.argv.includes("--check") });
+    if (result.errors.length) {
+      for (const error of result.errors) console.error(`[error] ${error}`);
+      process.exitCode = 1;
+    } else {
+      console.log(`[ok] Agent sync: ${result.written} written, ${result.unchanged} unchanged, ${result.expected} managed files; references valid`);
     }
-
-    process.exitCode = 1;
-    return;
-  }
-
-  console.log(
-    `[done] Synced ${syncedCount} files, ${unchangedCount} already up to date`,
-  );
-
-  if (missingSources.length > 0) {
+  } catch (error) {
+    console.error(`[error] Agent sync failed: ${error.message}`);
     process.exitCode = 1;
   }
-};
-
-run().catch((error) => {
-  console.error("[error] Sync failed:", error);
-  process.exitCode = 1;
-});
+}

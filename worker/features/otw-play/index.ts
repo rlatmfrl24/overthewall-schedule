@@ -1,6 +1,12 @@
 export { createPerformanceDedupeKeyMaterial, createSongDedupeKeyMaterial, createVideoBackedSongDedupeKeyMaterial } from "./domain/duplicate-policy";
 export type { PerformanceDedupeKeyInput, SongDedupeKeyInput, VideoBackedSongDedupeKeyInput } from "./domain/duplicate-policy";
 export { normalizeOtwPlaySearchText } from "./domain/search-normalization";
+export { AiReviewService } from "./application/ai-review-service";
+export { AiReviewError } from "./application/ports/ai-review";
+export { createAiReviewHandler } from "./http/ai-review-handler";
+export { D1AiReviewRepository } from "./infrastructure/d1-ai-review-repository";
+export { D1AiReviewContext } from "./infrastructure/d1-ai-review-context";
+export { GeminiReviewAnalyzer } from "./infrastructure/gemini-review-analyzer";
 
 
 
@@ -88,3 +94,4 @@ export { readAdminReviewSummary } from "./infrastructure/admin-review-summary";
 export { readOtwPlayAutomationPaused } from "./infrastructure/play-automation-settings";
 
 export { D1DefaultPlaylistSettingsRepository } from "./infrastructure/d1-default-playlist-settings-repository";
+export { AiReviewBroadcastMetadataReader } from "./infrastructure/ai-review-broadcast-reader";

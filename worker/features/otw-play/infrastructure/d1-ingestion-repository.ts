@@ -532,11 +532,11 @@ export class D1IngestionRepository implements IngestionRepository {
       SELECT 'c:' || c.id AS sort_id, c.id, 'candidate' AS kind, c.candidate_kind, c.title, c.status, c.version, c.first_discovered_at AS created_at,
         ${candidateOrigins} AS playlist, ${automaticOrigins} AS automatic,
         (${pendingProposal} IS NOT NULL) AS user, ${pendingProposal} AS pending_proposal_id
-      FROM music_ingestion_candidates c
+      FROM music_ingestion_candidates c ${filters.source === "user" ? "WHERE 0" : ""}
       UNION ALL
-      SELECT 'p:' || p.id, p.id, 'proposal', 'official_video', p.submitted_title, p.status, p.version, p.created_at, 0, 0, 1, NULL
+      SELECT 'p:' || p.id, p.id, 'proposal', CASE WHEN p.submission_kind = 'singing_clip' THEN 'singing_clip' ELSE 'official_video' END, p.submitted_title, p.status, p.version, p.created_at, 0, 0, 1, NULL
       FROM music_cover_proposals p
-      WHERE NOT (p.status = 'pending_review' AND p.segment_start_seconds = 0 AND EXISTS (
+      WHERE (${filters.source === "user" ? "1" : "0"} = 1) OR NOT (p.status = 'pending_review' AND p.segment_start_seconds = 0 AND EXISTS (
         SELECT 1 FROM music_ingestion_candidates c WHERE c.external_video_id = p.youtube_video_id
           AND c.status NOT IN ('converted', 'ignored')))
     ) SELECT review.*,
@@ -553,7 +553,7 @@ export class D1IngestionRepository implements IngestionRepository {
       FROM review WHERE (? IS NULL OR candidate_kind = ?)
       AND (? IS NULL OR (kind = 'candidate' AND EXISTS (SELECT 1 FROM music_ingestion_candidate_origins history_origin WHERE history_origin.candidate_id = review.id AND history_origin.job_id = ?)))
       AND (? IS NULL OR (? = 'playlist' AND playlist = 1) OR (? = 'automatic' AND automatic = 1) OR (? = 'user' AND user = 1))
-      AND ((? = 'pending' AND status NOT IN ('converted','ignored','approved','rejected')) OR (? = 'ready' AND status = 'ready') OR (? = 'completed' AND status IN ('converted','ignored','approved','rejected')))
+      AND ((? = 'pending' AND status NOT IN ('converted','ignored','approved','rejected','withdrawn')) OR (? = 'ready' AND status = 'ready') OR (? = 'completed' AND status IN ('converted','ignored','approved','rejected','withdrawn')))
       AND (? IS NULL OR created_at < ? OR (created_at = ? AND sort_id < ?))
       ORDER BY created_at DESC, sort_id DESC LIMIT 51`)
       .bind(filters.candidateKind ?? null, filters.candidateKind ?? null, filters.jobId ?? null, filters.jobId ?? null, filters.source ?? null, filters.source ?? null, filters.source ?? null, filters.source ?? null,

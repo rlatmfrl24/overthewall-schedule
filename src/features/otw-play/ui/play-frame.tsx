@@ -1,3 +1,4 @@
+import type { OtwPlaySubmissionKind } from "@contracts/otw-play";
 import { SectionNavigation } from "@/shared/ui/section-navigation";
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, ListPlus, ListTodo, Music2 } from "lucide-react";
@@ -25,12 +26,14 @@ export function OtwPlayFrame({
   status,
   showCatalogTabs = false,
   submissionActive = false,
+  submissionKind,
 }: {
   children: ReactNode;
   search?: ReactNode;
   status?: ReactNode;
   showCatalogTabs?: boolean;
   submissionActive?: boolean;
+  submissionKind?: OtwPlaySubmissionKind;
 }) {
   const feedback = useButtonFeedback();
   return (
@@ -44,6 +47,7 @@ export function OtwPlayFrame({
         status={status}
         showCatalogTabs={showCatalogTabs}
         submissionActive={submissionActive}
+        submissionKind={submissionKind}
       />
       {children}
     </div>
@@ -55,11 +59,13 @@ function OtwPlayHeader({
   status,
   showCatalogTabs,
   submissionActive,
+  submissionKind,
 }: {
   search?: ReactNode;
   status?: ReactNode;
   showCatalogTabs: boolean;
   submissionActive: boolean;
+  submissionKind?: OtwPlaySubmissionKind;
 }) {
   return (
     <header className="play-header z-20 h-16 shrink-0 border-b">
@@ -98,14 +104,14 @@ function OtwPlayHeader({
               ))}
             </SectionNavigation>
           ) : null}
-          <SubmissionMenu active={submissionActive} />
+          <SubmissionMenu active={submissionActive} kind={submissionKind} />
         </div>
       </div>
     </header>
   );
 }
 
-function SubmissionMenu({ active }: { active: boolean }) {
+function SubmissionMenu({ active, kind }: { active: boolean; kind?: OtwPlaySubmissionKind }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -125,7 +131,7 @@ function SubmissionMenu({ active }: { active: boolean }) {
         <DropdownMenuItem asChild>
           <Link
             to="/play/submit"
-            search={{ edit: undefined }}
+            search={{ edit: undefined, submissionKind: kind }}
             activeProps={{ "aria-current": "page", className: "bg-accent" }}
           >
             <ListPlus /> 새 곡 제안

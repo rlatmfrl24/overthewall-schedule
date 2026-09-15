@@ -30,6 +30,8 @@ type VideoItem = {
     channelTitle?: string;
     title?: string;
     publishedAt?: string;
+    description?: string;
+    tags?: string[];
     liveBroadcastContent?: string;
     thumbnails?: {
       high?: { url?: string };
@@ -138,6 +140,10 @@ const videoMetadata = (
     channelId,
     channelTitle: item.snippet?.channelTitle?.trim() || channelId,
     title: item.snippet?.title?.trim() || videoId,
+    description: item.snippet?.description ?? "",
+    tags: item.snippet?.tags ?? [],
+    privacyStatus: item.status?.privacyStatus,
+    actualStartTime: item.liveStreamingDetails?.actualStartTime ?? null,
     thumbnailUrl:
       item.snippet?.thumbnails?.high?.url ??
       item.snippet?.thumbnails?.medium?.url ??

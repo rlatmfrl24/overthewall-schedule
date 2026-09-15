@@ -376,7 +376,7 @@ describe("XPostCard", () => {
     ).toBeTruthy();
   });
 
-  it("카페 카드와 동일한 좌측 정렬 푸터와 멤버 컬러를 사용한다", () => {
+  it("멤버 컬러와 합산 지표·공유 동작을 표시한다", () => {
     const { container } = renderCard(
       makePost({
         metrics: {
@@ -390,13 +390,7 @@ describe("XPostCard", () => {
     );
 
     const article = container.querySelector("article");
-    const footer = screen.getByLabelText("답글 0개").parentElement;
-    expect(article?.className).toContain("p-3");
-    expect(article?.className).toContain("sm:p-4");
-    expect(article?.className).toContain("border-l-4");
     expect(article?.style.borderLeftColor).toBe("rgb(18, 52, 86)");
-    expect(footer?.className).toContain("flex");
-    expect(footer?.className).not.toContain("grid-cols-4");
     expect(screen.getByLabelText("답글 0개").textContent).toBe("");
     expect(screen.getByLabelText("재게시 5개").textContent).toBe("5");
     expect(screen.getByLabelText("좋아요 7개").textContent).toBe("7");

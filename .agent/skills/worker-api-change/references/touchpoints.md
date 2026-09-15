@@ -1,6 +1,7 @@
 # Worker API Change Touchpoints
 
 ## Worker Routing Entry
+- `contracts/api-routes.ts`: shared route contracts; update the manifest together with route registration when adding or changing an endpoint.
 - `worker/app/routes.ts`: exact method/path registry and route manifest.
 - `worker/app/route-registry.ts`: matching, `404`/`405`, numeric parameter, and cache policy enforcement.
 - `worker/index.ts`: thin Cloudflare runtime entry only.
@@ -31,7 +32,7 @@
 ## Contract Change Checklist
 1. Update worker handler and route wiring.
 2. Update client module and related types.
-3. Update UI or hook consumers.
+3. Update UI/query consumers and invalidation; verify normal entry, persisted readback, and observable results. For queued work verify terminal outcomes separately from request acceptance.
 4. Add or update tests.
 5. Run `pnpm architecture:check`, `pnpm typecheck:test`, `pnpm lint`,
    `pnpm test`, and `pnpm build` when needed.

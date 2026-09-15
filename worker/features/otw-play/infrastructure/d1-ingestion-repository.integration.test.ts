@@ -61,6 +61,7 @@ const reviewInput = {
 beforeEach(async () => {
   await applyD1Migrations(db, testEnv.OTW_PLAY_INGESTION_MIGRATIONS);
   await db.batch([
+    db.prepare("DELETE FROM music_cover_proposals WHERE id IN ('overlap-proposal', 'ignored-proposal')"),
     db.prepare("DELETE FROM music_ingestion_events"),
     db.prepare("DELETE FROM music_ingestion_candidate_origins"),
     db.prepare("DELETE FROM music_ingestion_messages"),
@@ -1467,7 +1468,7 @@ it("retains overlapping proposal origins and resumes candidate review after reje
   const children = await repository.recordPlaylistPage(await repository.readMessage(created.message.idempotencyKey), { items: [{ videoId: "AAAAAAAAAAA", position: 0, playlistItemId: "item-1" }], nextPageToken: null }, NOW + 1);
   await db.prepare(`INSERT INTO music_cover_proposals (id, submitted_by_user_id, idempotency_key, submitted_url, youtube_video_id, submitted_title, created_at, updated_at) VALUES ('overlap-proposal', 'user-1', 'overlap-key', 'https://www.youtube.com/watch?v=AAAAAAAAAAA', 'AAAAAAAAAAA', 'Proposed cover', ?, ?)`).bind(NOW, NOW).run();
   await repository.recordVideoBatch(await repository.readMessage(children[0]!.idempotencyKey), [{ videoId: "AAAAAAAAAAA", availabilityStatus: "playable", video: { videoId: "AAAAAAAAAAA", channelId: "UCkkkkkkkkkkkkkkkkkkkkkk", channelTitle: "Clips", title: "Clip", thumbnailUrl: null, durationSeconds: 180, publishedAt: NOW, availabilityStatus: "playable", madeForKids: false } }], NOW + 2);
-  for (const filters of [{}, { jobId: created.job.id, source: "playlist" as const, candidateKind: "singing_clip" as const }, { source: "user" as const }]) {
+  for (const filters of [{}, { jobId: created.job.id, source: "playlist" as const, candidateKind: "singing_clip" as const }]) {
     const page = await repository.listReviewItems(filters);
     expect(page.items).toHaveLength(1);
     expect(page.items[0]).toMatchObject({ id: "youtube:AAAAAAAAAAA", candidateKind: "singing_clip", pendingProposalId: "overlap-proposal", sources: ["playlist", "user"] });
@@ -1490,4 +1491,14 @@ it("keeps pending proposals visible when the matching candidate was ignored", as
   const pending = await repository.listReviewItems({ source: "user" });
   expect(pending.items).toHaveLength(1);
   expect(pending.items[0]).toMatchObject({ id: "ignored-proposal", kind: "proposal" });
+  const userRows = await repository.listReviewItems({ source: "user" });
+  expect(userRows.items[0]).toMatchObject({ id: "ignored-proposal", candidateKind: "official_video" });
+  await db.prepare("UPDATE music_cover_proposals SET submission_kind = 'singing_clip' WHERE id = 'ignored-proposal'").run();
+  expect((await repository.listReviewItems({ source: "user", candidateKind: "singing_clip" })).items[0]).toMatchObject({ id: "ignored-proposal", candidateKind: "singing_clip" });
+  expect((await repository.listReviewItems({ source: "user", candidateKind: "official_video" })).items).toEqual([]);
+
+  await db.prepare("UPDATE music_cover_proposals SET status = 'withdrawn' WHERE id = 'ignored-proposal'").run();
+  expect((await repository.listReviewItems({ source: "user" })).items).toEqual([]);
+  expect((await repository.listReviewItems({ source: "user", status: "completed" })).items[0]?.id).toBe("ignored-proposal");
+
 });

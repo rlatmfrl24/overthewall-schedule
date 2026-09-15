@@ -8,7 +8,7 @@
 ## Generate
 - Edit `db/schema/index.ts`.
 - Run `pnpm drizzle:generate` or `pnpm drizzle:generate:custom`.
-- Ensure only one new migration number is introduced for this change set.
+- Verify generated migration numbering and journal entries are consistent; preserve unrelated migrations.
 - Confirm generation does not require remote Cloudflare/D1 credentials.
 
 ## Review SQL
@@ -38,8 +38,10 @@
   queries, and UI.
 
 ## Promote
-- Run `pnpm drizzle:migrate:remote` only after local validation succeeds.
-- Remote checks use `pnpm d1:doctor --remote` or release preflight only.
+- Enter promotion only for an authorized remote migration/release, after local validation.
+- Verify the target account and database, compatibility with deployed code, and the recovery plan.
+- Run `pnpm drizzle:migrate:remote`, then verify applied/pending state and affected data.
+- Use `pnpm d1:doctor -- --remote` for an intended remote check; ordinary preflight checks local D1.
 - Document operational caveats in PR notes or release notes.
 
 ## Commit Set

@@ -1,4 +1,8 @@
 import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
+import { ReviewPublicationPreview } from "./review-publication-preview";
+import { AI_REVIEW_FIELDS, type AiReviewFields } from "@contracts/otw-play-ai-review";
+import { AiReviewPanel } from "./ai-review-panel";
+import { aiPersonSelection, useAiReviewForm } from "./ai-review-form";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { preservesPlayReview } from "./review-navigation";
 import { useEffect, useId, useRef, useState } from "react";
@@ -125,6 +129,8 @@ export function SingingClipReviewDialog({
   const [startSeconds, setStartSeconds] = useState("0");
   const [endSeconds, setEndSeconds] = useState("");
   const [internalNote, setInternalNote] = useState("");
+  const [releaseType, setReleaseType] = useState<"official_video" | "official_mv">("official_video");
+  const [previewSeconds, setPreviewSeconds] = useState(0);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -141,6 +147,36 @@ export function SingingClipReviewDialog({
   );
 
   const initializedCandidate = useRef<string | null>(null);
+  const ai = useAiReviewForm(candidate?.candidateId ?? "", {
+    song: [songId, songTitle, originalArtists, songTags], participants,
+    classification: [relationType, releaseType], participationType, performanceTags,
+    segment: [startSeconds, endSeconds], broadcastDate: [broadcast.performedOn, broadcast.dateEvidence], originalUrl: broadcast.originalUrl, extent: broadcast.extent,
+  }, (field, value) => {
+    setDirty(true);
+    switch(field) {
+      case "song": { const v=value as AiReviewFields["song"]; setSongId(v.existingSongId ?? "__new"); setSongTitle(v.title); setOriginalArtists(v.existingSongId ? [] : v.originalArtists.map(aiPersonSelection)); setSongTags(v.existingSongId ? [] : v.tags); break; }
+      case "participants": setParticipants((value as AiReviewFields["participants"]).map(p=>({...aiPersonSelection(p),participantRole:p.role}))); break;
+      case "classification": {const v=value as AiReviewFields["classification"]; if(v.releaseType!=="broadcast"){setRelationType(v.relationType);setReleaseType(v.releaseType);} break;}
+      case "participationType": setParticipationType(value as AiReviewFields["participationType"]); break;
+      case "performanceTags": setPerformanceTags(value as string[]); break;
+      case "segment": {const v=value as AiReviewFields["segment"];setStartSeconds(String(v.startSeconds));setEndSeconds(String(v.endSeconds));break;}
+      case "broadcastDate": setBroadcast(old=>({...old,...value as AiReviewFields["broadcastDate"]})); break;
+      case "originalUrl": setBroadcast(old=>({...old,originalUrl:value as string})); break;
+      case "extent": setBroadcast(old=>({...old,extent:value as "full"|"partial"})); break;
+    }
+  }, (field,value)=>{
+    switch(field){
+      case "song": {const v=value as [string,string,SelectedSubject[],string[]];setSongId(v[0]);setSongTitle(v[1]);setOriginalArtists(v[2]);setSongTags(v[3]);break;}
+      case "participants": setParticipants(value as SelectedParticipant[]);break;
+      case "classification": {const v=value as [OtwPlayRelationType,typeof releaseType];setRelationType(v[0]);setReleaseType(v[1]);break;}
+      case "participationType": setParticipationType(value as OtwPlayParticipationType);break;
+      case "performanceTags":setPerformanceTags(value as string[]);break;
+      case "segment": {const v=value as string[];setStartSeconds(v[0]);setEndSeconds(v[1]);break;}
+      case "broadcastDate": {const v=value as [string|null,string|null];setBroadcast(old=>({...old,performedOn:v[0],dateEvidence:v[1]}));break;}
+      case "originalUrl":setBroadcast(old=>({...old,originalUrl:value as string|null}));break;
+      case "extent":setBroadcast(old=>({...old,extent:value as "full"|"partial"|null}));break;
+    }
+  }, candidate?.reviewInput ? AI_REVIEW_FIELDS : []);
   useEffect(() => {
     if (!candidate) {
       initializedCandidate.current = null;
@@ -178,6 +214,7 @@ export function SingingClipReviewDialog({
       })) ?? [],
     );
     setRelationType(input?.relationType ?? "cover");
+    setReleaseType(input?.releaseType === "official_mv" ? "official_mv" : "official_video");
     setParticipationType(input?.participationType ?? "solo");
     setStartSeconds(String(input?.startSeconds ?? 0));
     setEndSeconds(
@@ -252,7 +289,7 @@ export function SingingClipReviewDialog({
           creditNameSnapshot: participant.label,
         })),
         relationType: candidateKind === "singing_clip" ? "singing_clip" as const : relationType,
-        releaseType: candidateKind === "singing_clip" ? "broadcast" as const : (reviewBaseline.reviewInput?.releaseType === "official_mv" ? "official_mv" as const : "official_video" as const),
+        releaseType: candidateKind === "singing_clip" ? "broadcast" as const : releaseType,
         participationType,
         ...(performanceTags.length > 0 ? { performanceTags } : {}),
         startSeconds: parsedStart,
@@ -329,12 +366,23 @@ export function SingingClipReviewDialog({
             {reviewOnly ? "영상과 곡·가창 정보를 확인한 뒤 검수를 저장하세요. 저장한 항목은 목록에서 일괄 임시 등록할 수 있습니다." : "승인 채널의 개별 영상을 곡과 가창자에 연결합니다. 저장 결과는 비공개 가창 임시 항목이며 자동 게시되지 않습니다."}
           </Description>
         </Header>
+        {candidate && active && <ReviewPublicationPreview key={candidate.candidateId}
+          videoId={candidate.videoId}
+          title={selectedExistingSong?.title ?? songTitle}
+          originalArtists={selectedExistingSong ? (selectedExistingSong.originalArtists ?? []).map(artist => artist.displayName) : originalArtists.map(artist => artist.label)}
+          songTags={selectedExistingSong ? selectedExistingSongTags : songTags}
+          participants={participants} relation={candidateKind === "singing_clip" ? "singing_clip" : relationType}
+          releaseType={candidateKind === "singing_clip" ? "broadcast" : releaseType} participation={participationType}
+          performanceTags={performanceTags} broadcast={broadcast} thumbnailUrl={candidate.thumbnailUrl}
+          publishedAt={candidate.publishedAt} channelTitle={candidate.channelTitle}
+          startSeconds={startSeconds} endSeconds={endSeconds} segmentValid={segmentValid} existingSong={selectedExistingSong !== null}
+        />}
         {candidate ? (
           <div className={presentation === "page" ? "grid items-start gap-6 lg:grid-cols-[minmax(260px,0.7fr)_minmax(0,1.3fr)]" : "space-y-3"} onChangeCapture={() => setDirty(true)} onClickCapture={(event) => { const target = event.target as HTMLElement; if (!target.closest("aside") && target.closest("[role=combobox],button")) setDirty(true); }}>
             <aside className={presentation === "page" ? "space-y-3 lg:sticky lg:top-4" : "space-y-3"}>
             {presentation === "page" && active && <iframe
               className="aspect-video max-h-80 w-full rounded-lg border"
-              src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(candidate.videoId)}`}
+              src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(candidate.videoId)}?start=${previewSeconds}`}
               title={`검수 영상 · ${candidate.title ?? candidate.videoId}`}
               allow="encrypted-media; picture-in-picture; fullscreen"
               allowFullScreen
@@ -370,13 +418,14 @@ export function SingingClipReviewDialog({
             {candidate.catalogChannelId === null && <p role="status" className="text-sm text-destructive">업로드 채널 승인이 필요합니다. 채널 설정을 확인한 뒤 검수를 저장하세요.</p>}
             {candidate.availabilityStatus !== "playable" && <p role="status" className="text-sm text-destructive">현재 재생 가능 여부를 확인해야 저장할 수 있습니다.</p>}
             {onManageChannel && <Button variant="outline" disabled={saving} onClick={onManageChannel}>채널 승인·수집 설정</Button>}
+            <AiReviewPanel key={`${candidate.candidateId}:${candidateKind}`} target={{candidateId:candidate.candidateId}} videoId={candidate.videoId} candidateKind={candidateKind} durationSeconds={durationSeconds} initialRange={parsedEnd!==null?{startSeconds:parsedStart,endSeconds:parsedEnd}:null} form={ai} disabled={saving || !active || ["converted","ignored"].includes(candidate.status)} onSeek={presentation==="page"?setPreviewSeconds:undefined} />
             </aside>
             <fieldset disabled={saving} className="min-w-0 space-y-6">
             <section className="grid gap-3 sm:grid-cols-2">
               <h3 className="text-base font-semibold sm:col-span-2">1. 곡 연결·원곡 정보</h3>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>연결할 곡</Label>
-                <Select value={songId} onValueChange={setSongId}>
+                <Select value={songId} onValueChange={(value) => { ai.touch("song"); setSongId(value); }}>
                   <SelectTrigger aria-label="연결할 곡"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__new">새 곡 만들기</SelectItem>
@@ -393,7 +442,7 @@ export function SingingClipReviewDialog({
                     <Input
                       id={`${id}-clip-song-title`}
                       value={songTitle}
-                      onChange={(event) => setSongTitle(event.target.value)}
+                      onChange={(event) => { ai.touch("song"); setSongTitle(event.target.value); }}
                     />
                   </div>
                   <div className="sm:col-span-2">
@@ -403,14 +452,14 @@ export function SingingClipReviewDialog({
                       entities={catalog.entities}
                       draftSubjects={draftExternalSubjects}
                       selected={originalArtists}
-                      onChange={setOriginalArtists}
+                      onChange={(value) => { ai.touch("song"); setOriginalArtists(value); }}
                     />
                   </div>
                   <div className="sm:col-span-2">
                     <SongTagPicker
                       key={candidate.candidateId}
                       tags={songTags}
-                      onChange={setSongTags}
+                      onChange={(value) => { ai.touch("song"); setSongTags(value); }}
                       label="장르(분류)"
                       inputId={`${id}-clip-song-tags`}
                       placeholder="장르 또는 분류 입력"
@@ -436,7 +485,7 @@ export function SingingClipReviewDialog({
               )}
               <div className="space-y-1.5">
                 <Label>곡 관계</Label>
-                {candidateKind === "singing_clip" ? <p className="text-sm font-medium">노래 클립</p> : <Select value={relationType} onValueChange={(value) => setRelationType(value as OtwPlayRelationType)}>
+                {candidateKind === "singing_clip" ? <p className="text-sm font-medium">노래 클립</p> : <Select value={relationType} onValueChange={(value) => { ai.touch("classification"); setRelationType(value as OtwPlayRelationType); }}>
                   <SelectTrigger aria-label="곡 관계"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="cover">커버</SelectItem>
@@ -444,13 +493,14 @@ export function SingingClipReviewDialog({
                   </SelectContent>
                 </Select>}
               </div>
+              {candidateKind === "official_video" && <label>공개 형태<select aria-label="공개 형태" className="block rounded border bg-background p-2" value={releaseType} onChange={e=>{ai.touch("classification");setReleaseType(e.target.value as typeof releaseType);}}><option value="official_video">공식 영상</option><option value="official_mv">공식 MV</option></select></label>}
             </section>
 
             <section className="space-y-3 border-t pt-4">
               <h3 className="text-base font-semibold">2. 가창자·참여 형태</h3>
               <div className="space-y-1.5">
                 <Label>참여 형태</Label>
-                <Select value={participationType} onValueChange={(value) => setParticipationType(value as OtwPlayParticipationType)}>
+                <Select value={participationType} onValueChange={(value) => { ai.touch("participationType"); setParticipationType(value as OtwPlayParticipationType); }}>
                   <SelectTrigger aria-label="참여 형태"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="solo">솔로</SelectItem>
@@ -468,18 +518,18 @@ export function SingingClipReviewDialog({
                 entities={catalog.entities}
                 draftSubjects={draftExternalSubjects}
                 selected={participants}
-                onChange={updateParticipantSubjects}
+                onChange={(value) => { ai.touch("participants"); updateParticipantSubjects(value); }}
               />
               {participants.map((participant) => (
                 <div key={participant.key} className="flex items-center gap-3 rounded-lg border p-3">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{participant.label}</span>
                   <Select
                     value={participant.participantRole}
-                    onValueChange={(value) => setParticipants((current) => current.map((item) =>
+                    onValueChange={(value) => { ai.touch("participants"); setParticipants((current) => current.map((item) =>
                       item.key === participant.key
                         ? { ...item, participantRole: value as OtwPlayParticipantRole }
                         : item
-                    ))}
+                    )); }}
                   >
                     <SelectTrigger className="w-36" aria-label={`${participant.label} 역할`}><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -495,14 +545,14 @@ export function SingingClipReviewDialog({
 
             <section className="grid gap-3 border-t pt-4 sm:grid-cols-2">
               <h3 className="text-base font-semibold sm:col-span-2">{candidateKind === "singing_clip" ? "3. 방송 출처·가창 구간" : "3. 영상 재생 구간"}</h3>
-            {candidateKind === "singing_clip" && <div className="sm:col-span-2"><BroadcastFields flat value={broadcast} onChange={value => { setBroadcast(value); setDirty(true); }} /></div>}
+            {candidateKind === "singing_clip" && <div className="sm:col-span-2"><BroadcastFields flat value={broadcast} onChange={value => { if (value.performedOn !== broadcast.performedOn || value.dateEvidence !== broadcast.dateEvidence) ai.touch("broadcastDate"); if(value.originalUrl !== broadcast.originalUrl) ai.touch("originalUrl"); if(value.extent !== broadcast.extent) ai.touch("extent"); setBroadcast(value); setDirty(true); }} /></div>}
               <div className="space-y-1.5">
                 <Label htmlFor={`${id}-clip-start-seconds`}>시작 위치(초)</Label>
-                <Input id={`${id}-clip-start-seconds`} type="number" min={0} value={startSeconds} onChange={(event) => setStartSeconds(event.target.value)} />
+                <Input id={`${id}-clip-start-seconds`} type="number" min={0} value={startSeconds} onChange={(event) => { ai.touch("segment"); setStartSeconds(event.target.value); }} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={`${id}-clip-end-seconds`}>종료 위치(초)</Label>
-                <Input id={`${id}-clip-end-seconds`} type="number" min={0} value={endSeconds} onChange={(event) => setEndSeconds(event.target.value)} placeholder="전체 영상이면 비워두기" />
+                <Input id={`${id}-clip-end-seconds`} type="number" min={0} value={endSeconds} onChange={(event) => { ai.touch("segment"); setEndSeconds(event.target.value); }} placeholder="전체 영상이면 비워두기" />
               </div>
             </section>
             <section className="space-y-3 border-t pt-4">
@@ -510,7 +560,7 @@ export function SingingClipReviewDialog({
               <div className="sm:col-span-2">
                 <SongTagPicker
                   tags={performanceTags}
-                  onChange={setPerformanceTags}
+                  onChange={(value) => { ai.touch("performanceTags"); setPerformanceTags(value); }}
                   label={candidateKind === "singing_clip" ? "클립 라벨" : "영상 라벨"}
                   inputId={`${id}-clip-performance-tags`}
                   placeholder="이 영상만의 라벨 입력"

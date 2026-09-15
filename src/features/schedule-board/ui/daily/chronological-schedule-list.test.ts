@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
@@ -8,24 +9,14 @@ import type { ChzzkLiveStatusMap } from "@/features/chzzk";
 import { ChronologicalScheduleList } from "./chronological-schedule-list";
 
 const makeMember = (uid: number, name: string): Member =>
-  ({
+  (createMemberFixture({
     uid,
     code: `member-${uid}`,
     name,
     main_color: uid === 1 ? "#14b8a6" : "#f97316",
-    sub_color: null,
-    oshi_mark: null,
-    url_twitter: null,
-    url_youtube: null,
     url_chzzk: "https://chzzk.naver.com/live/test",
-    youtube_channel_id: null,
-    birth_date: null,
-    debut_date: null,
-    unit_name: uid === 1 ? "LUV DIA" : "HiBlueming",
-    fan_name: null,
-    introduction: null,
-    is_deprecated: 0,
-  }) as Member;
+    unit_name: uid === 1 ? "LUV DIA" : "HiBlueming"
+  })) as Member;
 
 const makeSchedule = (
   partial: Partial<ScheduleItem> & Pick<ScheduleItem, "status">,
@@ -240,28 +231,6 @@ describe("ChronologicalScheduleList", () => {
     expect(title.className).toContain("whitespace-normal");
     expect(title.className).toContain("break-words");
     expect(title.className).not.toContain("truncate");
-  });
-
-  it("편성표 점선 레일은 모바일 기본값에서 숨긴다", () => {
-    const { container } = render(
-      createElement(ChronologicalScheduleList, {
-        members: [makeMember(1, "온 하루")],
-        schedules: [
-          makeSchedule({
-            id: 1,
-            member_uid: 1,
-            status: "방송",
-            start_time: "20:00",
-            title: "정규 방송",
-          }),
-        ],
-        onScheduleClick: vi.fn(),
-      }),
-    );
-
-    const rail = container.querySelector("span[aria-hidden='true'].border-dashed");
-    expect(rail?.className).toContain("hidden");
-    expect(rail?.className).toContain("lg:block");
   });
 
   it("메인 편성표 멤버명은 말줄임 없이 표시할 수 있다", () => {

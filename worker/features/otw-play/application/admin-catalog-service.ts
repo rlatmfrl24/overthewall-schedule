@@ -309,6 +309,10 @@ export class AdminCatalogService {
         { endSeconds: "duration_unavailable" },
       );
     }
+    // An omitted clip end means the end of this verified video, not an unbounded source.
+    if (input.releaseType === "broadcast" && input.endSeconds == null && video.durationSeconds !== null) {
+      input = { ...input, endSeconds: video.durationSeconds };
+    }
     this.validateSourceSegment(
       input.startSeconds,
       input.endSeconds,
@@ -471,7 +475,7 @@ export class AdminCatalogService {
   }
 
   private async verifyPerformanceSources(
-    input: Pick<OtwPlayAdminCreatePerformanceRequest, "sources">,
+    input: Pick<OtwPlayAdminCreatePerformanceRequest, "sources" | "releaseType">,
   ) {
     if (
       input.sources.length === 0 ||
@@ -497,15 +501,6 @@ export class AdminCatalogService {
           { [`sources.${index}.youtubeUrl`]: "invalid" },
         );
       }
-      const segmentKey = `${videoId}:${source.startSeconds}:${source.endSeconds ?? ""}`;
-      if (seenSegments.has(segmentKey)) {
-        throw new AdminCatalogServiceError(
-          "invalid_request",
-          "Duplicate source segments are not allowed",
-          { sources: "duplicate_segment" },
-        );
-      }
-      seenSegments.add(segmentKey);
       const metadata = await this.youtube.readVideo(videoId);
       if (!metadata) {
         throw new AdminCatalogServiceError(
@@ -527,12 +522,20 @@ export class AdminCatalogService {
           { [`sources.${index}.channelId`]: "mismatch" },
         );
       }
+      const sourceInput = input.releaseType === "broadcast" && source.endSeconds == null && metadata.durationSeconds !== null
+        ? { ...source, endSeconds: metadata.durationSeconds }
+        : source;
+      const segmentKey = `${videoId}:${sourceInput.startSeconds}:${sourceInput.endSeconds ?? ""}`;
+      if (seenSegments.has(segmentKey)) {
+        throw new AdminCatalogServiceError("invalid_request", "Duplicate source segments are not allowed", { sources: "duplicate_segment" });
+      }
+      seenSegments.add(segmentKey);
       this.validateSourceSegment(
-        source.startSeconds,
-        source.endSeconds,
+        sourceInput.startSeconds,
+        sourceInput.endSeconds,
         metadata.durationSeconds,
       );
-      verified.push({ input: source, video: metadata, sourceId: this.createId() });
+      verified.push({ input: sourceInput, video: metadata, sourceId: this.createId() });
     }
     return verified;
   }
@@ -747,7 +750,7 @@ export class AdminCatalogService {
   ) {
     validateVersion(input.expectedVersion);
     validateVersion(input.expectedCatalogRevision);
-    if (!this.officialCoverPolicyEnabled) {
+    if (input.releaseType !== "broadcast" && !this.officialCoverPolicyEnabled) {
       throw new AdminCatalogServiceError(
         "policy_unresolved",
         "Official cover acceptance policy GATE-01 is not resolved",
@@ -801,10 +804,10 @@ export class AdminCatalogService {
     if (input.channel.kind === "pending") {
       throw new AdminCatalogServiceError(
         "validation_failed",
-        "Publishing requires an approved active official channel",
+        "게시하려면 신청 유형에 맞는 승인된 활성 채널이 필요합니다.",
       );
     }
-    const allowedRoles = new Set([
+    const allowedRoles = new Set(input.releaseType === "broadcast" ? ["approved_kirinuki"] : [
       "otw_official",
       "unit_official",
       "member_music",
@@ -835,9 +838,16 @@ export class AdminCatalogService {
     ) {
       throw new AdminCatalogServiceError(
         "validation_failed",
-        "Proposal video must belong to an approved active official channel",
+        "영상의 채널이 승인된 활성 채널인지, 공식 영상·클립 분류에 맞는지 확인해 주세요.",
       );
     }
+    const startSeconds = input.startSeconds ?? 0;
+    const endSeconds = input.releaseType === "broadcast" ? input.endSeconds ?? video.durationSeconds : input.endSeconds;
+    this.validateSourceSegment(startSeconds, endSeconds, video.durationSeconds);
+    if (input.releaseType === "broadcast" && (!input.broadcast?.extent || endSeconds == null || video.durationSeconds == null)) {
+      throw new AdminCatalogServiceError("validation_failed", "클립의 완곡 여부와 재생 종료 구간을 확인해 주세요.", { broadcast: "extent_and_segment_required" });
+    }
+    input = { ...input, startSeconds, endSeconds };
     const subjects = [
       ...input.participants.map((item) => item.subject),
       ...(input.song.kind === "create"

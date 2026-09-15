@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { XReferenceHydrationResultDto } from "@contracts/x-posts";
 import type { Env } from "../../../platform/types";
 import type { ScheduledJobItemRecord } from "../../../platform/scheduled-jobs";
-import { IngestionService } from "../../otw-play";
+import { AiReviewService, IngestionService } from "../../otw-play";
 import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
 import {
   ScheduledJobExecutor,
@@ -50,13 +50,15 @@ describe("scheduled job executor outcomes", () => {
     vi.spyOn(ScheduledJobCoordinator.prototype, "dispatchPending")
       .mockResolvedValue({ claimed: 1, dispatched: 1, failed: 0 });
     const cleanup = vi.spyOn(IngestionService.prototype, "clearExpiredApiData").mockResolvedValue(2);
+    const aiCleanup = vi.spyOn(AiReviewService.prototype, "clearExpired").mockResolvedValue(1);
     const executor = new ScheduledJobExecutor(env, repository as never);
 
     expect(await executor.execute({ run_id: "run", phase: "recover-scheduled" } as ScheduledJobItemRecord))
       .toMatchObject({ status: "succeeded", result: { recovered: 1, dispatched: 1 } });
     expect(await executor.execute({ run_id: "run", phase: "cleanup" } as ScheduledJobItemRecord))
-      .toMatchObject({ status: "succeeded", result: { cleared: 2 } });
+      .toMatchObject({ status: "succeeded", result: { cleared: 2, aiCleared: 1 } });
     expect(cleanup).toHaveBeenCalledWith(20);
+    expect(aiCleanup).toHaveBeenCalledOnce();
   });
 
   it.each(["websub_maintenance", "recent_reconcile"])("skips already dispatched retired %s work without D1 mutations", async (jobType) => {

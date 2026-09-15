@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import { format } from "date-fns";
 import { createElement } from "react";
@@ -48,24 +49,15 @@ class ResizeObserverMock {
   disconnect = vi.fn();
 }
 
-const member: MemberDto = {
-  uid: 1,
-  code: "member-1",
-  name: "온 하루",
-  main_color: "#14b8a6",
-  sub_color: "#99f6e4",
-  oshi_mark: null,
-  url_twitter: null,
-  url_youtube: null,
-  url_chzzk: "https://chzzk.naver.com/member-channel",
-  youtube_channel_id: null,
-  birth_date: null,
-  debut_date: null,
-  unit_name: "LUV DIA",
-  fan_name: null,
-  introduction: null,
-  is_deprecated: 0,
-};
+const member: MemberDto = createMemberFixture({
+    uid: 1,
+    code: "member-1",
+    name: "온 하루",
+    main_color: "#14b8a6",
+    sub_color: "#99f6e4",
+    url_chzzk: "https://chzzk.naver.com/member-channel",
+    unit_name: "LUV DIA"
+  });
 
 const makeSchedule = (): ScheduleDto => ({
   id: 1,

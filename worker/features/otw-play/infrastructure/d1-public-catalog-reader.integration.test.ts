@@ -39,6 +39,7 @@ const PUBLIC_MIGRATION_NAMES = [
   "0089_ambitious_titania.sql",
   "0090_demonic_sugar_man.sql",
   "0091_tranquil_luke_cage.sql",
+  "0093_omniscient_sunset_bain.sql",
 ] as const;
 
 type PublicCatalogTestEnv = Env & {

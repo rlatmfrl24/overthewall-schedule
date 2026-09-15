@@ -158,7 +158,7 @@ describe("D1MemberSubmissionRepository", () => {
     expect(JSON.stringify(result)).not.toContain("proposal-member");
   });
 
-  it("returns only published song candidates and preserves commas in artist names", async () => {
+  it.each(["official_video", "broadcast"] as const)("returns only published %s song candidates and preserves commas in artist names", async (releaseType) => {
     const repository = new D1MemberSubmissionRepository(db);
     await db.batch([
       db.prepare(
@@ -197,6 +197,9 @@ describe("D1MemberSubmissionRepository", () => {
       ).bind(NOW, NOW, NOW, NOW),
     ]);
 
+    if (releaseType === "broadcast") {
+      await db.prepare("UPDATE music_performances SET release_type = 'broadcast', relation_type = 'singing_clip' WHERE id LIKE 'submission-candidate-performance-%'").run();
+    }
     const result = await repository.preflight("member-a", "ZZZZZZZZZZZ", "Candidate Song");
     expect(result.songCandidates).toEqual([
       expect.objectContaining({
@@ -588,7 +591,7 @@ describe("D1MemberSubmissionRepository", () => {
     ]);
 
     expect((await repository.readMine("member-a", created.data.id)).approvedSong)
-      .toMatchObject({ publicLinkAvailable: true });
+      .toMatchObject({ publicLinkAvailable: true, performanceId: "approved-performance" });
 
     await db.prepare("UPDATE music_channels SET active = 0 WHERE id = 'approved-channel'").run();
     expect((await repository.readMine("member-a", created.data.id)).approvedSong)
@@ -635,4 +638,16 @@ describe("D1MemberSubmissionRepository", () => {
       .first<{ count: number }>();
     expect(Number(count?.count)).toBe(0);
   });
+  it("persists clip information without catalog mutation and protects idempotency across kinds", async () => {
+    const repository = new D1MemberSubmissionRepository(db);
+    const broadcast = { performedOn: "2026-09-01", dateEvidence: "영상 설명", originalUrl: "https://youtu.be/AAAAAAAAAAA", extent: null };
+    const created = await create(repository, "member-a", "1", { submissionKind: "singing_clip", broadcast });
+    expect(await repository.readMine("member-a", created.data.id)).toMatchObject({ submissionKind: "singing_clip", broadcast });
+    expect((await db.prepare("SELECT count(*) AS count FROM music_performances").first<{ count: number }>())?.count).toBe(0);
+    await expect(create(repository, "member-a", "1", { submissionKind: "official_cover" })).rejects.toMatchObject({ code: "idempotency_conflict" });
+    await expect(create(repository, "member-b", "1", { submissionKind: "official_cover" })).rejects.toMatchObject({ code: "duplicate" });
+    const updated = await repository.update({ userId: "member-a", proposalId: created.data.id, eventId: "clip-edit", input: { ...input("1"), submissionKind: "singing_clip", broadcast: { ...broadcast, extent: "full" }, expectedVersion: 0 }, videoId: created.data.youtubeVideoId, canonicalUrl: created.data.youtubeUrl, now: NOW + 3 });
+    expect(updated).toMatchObject({ version: 1, submissionKind: "singing_clip", broadcast: { ...broadcast, extent: "full" } });
+  });
+
 });

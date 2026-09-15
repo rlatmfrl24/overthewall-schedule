@@ -768,6 +768,8 @@ export interface OtwPlayPublicPerformanceResponseDto {
     title: string;
     isOtwOriginal: boolean;
     tags: string[];
+    /** Included by current readers; optional for older cached responses. */
+    originalArtists?: OtwPlayPublicCreditDto[];
   };
   performance: OtwPlayPublicPerformanceDetailDto;
 }
@@ -836,6 +838,8 @@ export type OtwPlaySubmissionParticipantInput =
       participantRole?: OtwPlayParticipantRole;
     };
 
+export type OtwPlaySubmissionKind = "official_cover" | "singing_clip";
+
 export interface OtwPlaySubmissionPreflightRequest {
   youtubeUrl: string;
   title?: string;
@@ -848,6 +852,7 @@ export interface OtwPlaySubmissionSongCandidateDto {
 }
 
 export interface OtwPlaySubmissionPreflightDto {
+  video?: { title: string; channelName: string; durationSeconds: number | null };
   videoId: string;
   canonicalUrl: string;
   thumbnailUrl: string;
@@ -856,6 +861,8 @@ export interface OtwPlaySubmissionPreflightDto {
 }
 
 export interface OtwPlayCreateSubmissionRequest {
+  submissionKind?: OtwPlaySubmissionKind;
+  broadcast?: OtwPlayBroadcastMetadata | null;
   clientRequestId: string;
   youtubeUrl: string;
   title: string;
@@ -881,6 +888,8 @@ export type OtwPlayMemberSubmissionStatus = Extract<
 >;
 
 export interface OtwPlayMemberSubmissionDto {
+  submissionKind?: OtwPlaySubmissionKind;
+  broadcast?: OtwPlayBroadcastMetadata | null;
   id: string;
   clientRequestId: string;
   youtubeUrl: string;
@@ -907,6 +916,8 @@ export interface OtwPlayMemberSubmissionDto {
     participantRole: OtwPlayParticipantRole;
   }>;
   approvedSong: {
+    performanceId?: string;
+    releaseType?: "official_mv" | "official_video" | "broadcast";
     id: string;
     slug: string;
     title: string;
@@ -1210,6 +1221,8 @@ export interface OtwPlayAdminPerformanceDto {
 }
 
 export interface OtwPlayAdminProposalDto {
+  submissionKind?: OtwPlaySubmissionKind;
+  broadcast?: OtwPlayBroadcastMetadata | null;
   id: string;
   submittedByUserId: string;
   submittedUrl: string;
@@ -1463,7 +1476,10 @@ export interface OtwPlayAdminApproveProposalRequest
   performanceTags?: string[];
   participants: OtwPlayAdminCatalogParticipantInput[];
   channel: OtwPlayAdminCatalogChannelDecision;
-  releaseType: Extract<OtwPlayReleaseType, "official_mv" | "official_video">;
+  releaseType: Extract<OtwPlayReleaseType, "official_mv" | "official_video" | "broadcast">;
+  startSeconds?: number;
+  endSeconds?: number | null;
+  broadcast?: OtwPlayBroadcastMetadata | null;
   participationType: OtwPlayParticipationType;
   singingCreditConfirmed: true;
   publish: true;

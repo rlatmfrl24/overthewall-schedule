@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -29,24 +30,12 @@ const makePost = (id: string, memberUid?: number): XPostViewModel => ({
   memberUid,
 });
 
-const makeMember = (): MemberDto => ({
-  uid: 1,
-  code: "member",
-  name: "멤버",
-  main_color: null,
-  sub_color: null,
-  oshi_mark: null,
-  url_twitter: "https://x.com/member",
-  url_youtube: null,
-  url_chzzk: null,
-  youtube_channel_id: null,
-  birth_date: null,
-  debut_date: null,
-  unit_name: null,
-  fan_name: null,
-  introduction: null,
-  is_deprecated: 0,
-});
+const makeMember = (): MemberDto => (createMemberFixture({
+    uid: 1,
+    code: "member",
+    name: "멤버",
+    url_twitter: "https://x.com/member"
+  }));
 
 describe("filterXPostsByMembers", () => {
   it("선택된 멤버가 없으면 원본 배열을 반환한다", () => {

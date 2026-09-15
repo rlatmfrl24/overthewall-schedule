@@ -44,7 +44,9 @@ Do not recreate `src/components`, `src/hooks`, `src/lib/api`, `src/db`,
 
 ## Required Verification
 
-Run `pnpm architecture:check` after structural changes. For broad changes also
-run `pnpm typecheck:test`, `pnpm lint`, `pnpm test`, `pnpm test:coverage`, and
-`pnpm build`. Keep isolated D1 concurrency and rollback checks in
-`pnpm test:worker-integration`.
+Run `pnpm architecture:check` after structural changes. Use focused tests while
+editing and `pnpm preflight` for final broad verification; it runs typecheck,
+lint, all unit/D1 tests, build, D1 doctor, and mirror checks once. Do not repeat
+its tests for the same unchanged revision. Coverage is an optional diagnostic,
+not a release gate. Keep real D1 concurrency and rollback coverage in the
+Worker integration project included by `pnpm test`.

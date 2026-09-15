@@ -5,6 +5,7 @@ import type {
   OtwPlayParticipantRole,
   OtwPlaySubmissionSubjectInput,
 } from "@contracts/otw-play";
+import { readBroadcastMetadata } from "../domain/broadcast-metadata";
 import { normalizeOtwPlaySearchText } from "../domain/search-normalization";
 import type { MemberSubmissionCursor } from "../domain/member-submission-cursor";
 import {
@@ -20,6 +21,8 @@ type ProposalRow = {
   idempotency_key: string;
   submitted_url: string;
   youtube_video_id: string;
+  submission_kind: "official_cover" | "singing_clip";
+  submitted_broadcast_json: string | null;
   submitted_title: string;
   submitted_tags_json: string;
   suggested_song_id: string | null;
@@ -33,8 +36,9 @@ type ProposalRow = {
   approved_song_title: string | null;
   approved_song_archived_at: number | null;
   approved_song_merged_into_song_id: string | null;
+  approved_performance_id: string | null;
   approved_performance_publication_status: string | null;
-  approved_performance_release_type: string | null;
+  approved_performance_release_type: "official_mv" | "official_video" | "broadcast" | null;
   approved_performance_has_public_source: number;
   public_read_enabled: number | null;
 };
@@ -86,12 +90,14 @@ const groupChildren = (rows: ChildRow[]) => {
 
 const proposalSelect = `SELECT proposal.id, proposal.idempotency_key,
   proposal.submitted_url, proposal.youtube_video_id, proposal.submitted_title,
+  proposal.submission_kind, proposal.submitted_broadcast_json,
   proposal.submitted_tags_json, proposal.suggested_song_id, proposal.submitted_note, proposal.status,
   proposal.version, proposal.created_at, proposal.updated_at,
   song.id AS approved_song_id, song.slug AS approved_song_slug,
   song.title AS approved_song_title,
   song.archived_at AS approved_song_archived_at,
   song.merged_into_song_id AS approved_song_merged_into_song_id,
+  approved_performance.id AS approved_performance_id,
   approved_performance.publication_status AS approved_performance_publication_status,
   approved_performance.release_type AS approved_performance_release_type,
   EXISTS (
@@ -99,7 +105,7 @@ const proposalSelect = `SELECT proposal.id, proposal.idempotency_key,
     JOIN music_media_sources AS source ON source.id = link.source_id
     JOIN music_channels AS channel ON channel.id = source.channel_id
     WHERE link.performance_id = approved_performance.id
-      AND link.source_role IN ('official', 'alternate')
+      AND link.source_role IN ('official', 'alternate', 'kirinuki')
       AND channel.verification_status = 'approved' AND channel.active = 1
   ) AS approved_performance_has_public_source,
   meta.public_read_enabled
@@ -161,7 +167,7 @@ export class D1MemberSubmissionRepository
             SELECT 1 FROM music_performances AS performance
             WHERE performance.song_id = song.id
               AND performance.publication_status = 'published'
-              AND performance.release_type IN ('official_mv', 'official_video')
+              AND performance.release_type IN ('official_mv', 'official_video', 'broadcast')
           )
           AND (
             song.normalized_title = ? OR song.normalized_title GLOB ?
@@ -289,6 +295,8 @@ export class D1MemberSubmissionRepository
       youtubeUrl: row.submitted_url,
       youtubeVideoId: row.youtube_video_id,
       title: row.submitted_title,
+      submissionKind: row.submission_kind,
+      broadcast: row.submitted_broadcast_json ? readBroadcastMetadata(row.submitted_broadcast_json) : null,
       suggestedSongId: row.suggested_song_id,
       tags: parseTagsJson(row.submitted_tags_json),
       note: row.submitted_note,
@@ -318,6 +326,8 @@ export class D1MemberSubmissionRepository
       approvedSong:
         row.approved_song_id && row.approved_song_slug && row.approved_song_title
           ? {
+              performanceId: row.approved_performance_id ?? undefined,
+              releaseType: row.approved_performance_release_type ?? undefined,
               id: row.approved_song_id,
               slug: row.approved_song_slug,
               title: row.approved_song_title,
@@ -325,7 +335,8 @@ export class D1MemberSubmissionRepository
                 row.public_read_enabled === 1 &&
                 row.approved_performance_publication_status === "published" &&
                 (row.approved_performance_release_type === "official_mv" ||
-                row.approved_performance_release_type === "official_video") &&
+                row.approved_performance_release_type === "official_video" ||
+                row.approved_performance_release_type === "broadcast") &&
                 row.approved_performance_has_public_source === 1 &&
                 row.approved_song_archived_at === null &&
                 row.approved_song_merged_into_song_id === null,
@@ -380,6 +391,8 @@ export class D1MemberSubmissionRepository
         : `member:${subject.submittedMemberUid}`;
     return (
       existing.youtubeUrl === canonicalUrl &&
+      (existing.submissionKind ?? "official_cover") === (input.submissionKind ?? "official_cover") &&
+      JSON.stringify(existing.broadcast ?? null) === JSON.stringify(input.broadcast ?? null) &&
       normalizeSnapshot(existing.title) === normalizeSnapshot(input.title) &&
       existing.suggestedSongId === (input.suggestedSongId ?? null) &&
       JSON.stringify(existing.tags) === JSON.stringify(input.tags ?? []) &&
@@ -485,9 +498,9 @@ export class D1MemberSubmissionRepository
         `INSERT INTO music_cover_proposals (
           id, submitted_by_user_id, idempotency_key, submitted_url,
           youtube_video_id, segment_start_seconds, submitted_title,
-          submitted_tags_json, suggested_song_id, submitted_note, status, version, created_at, updated_at
+          submission_kind, submitted_broadcast_json, submitted_tags_json, suggested_song_id, submitted_note, status, version, created_at, updated_at
         )
-        SELECT ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'pending_review', 0, ?, ?
+        SELECT ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'pending_review', 0, ?, ?
         WHERE (
           SELECT COUNT(*) FROM music_cover_proposals
           WHERE submitted_by_user_id = ? AND created_at >= ? AND created_at < ?
@@ -500,6 +513,8 @@ export class D1MemberSubmissionRepository
         canonicalUrl,
         videoId,
         normalizeSnapshot(input.title),
+        input.submissionKind ?? "official_cover",
+        input.broadcast ? JSON.stringify(input.broadcast) : null,
         JSON.stringify(input.tags ?? []),
         input.suggestedSongId ?? null,
         input.note?.trim() || null,
@@ -719,7 +734,11 @@ export class D1MemberSubmissionRepository
     const nextTags = input.suggestedSongId
       ? []
       : (input.tags ?? current.tags);
+    const nextKind = input.submissionKind ?? current.submissionKind ?? "official_cover";
+    const nextBroadcast = nextKind === "singing_clip" ? (input.broadcast === undefined ? current.broadcast : input.broadcast) ?? null : null;
     const changedFields = [
+      current.submissionKind !== nextKind ? "submissionKind" : null,
+      JSON.stringify(current.broadcast) !== JSON.stringify(nextBroadcast) ? "broadcast" : null,
       current.youtubeUrl !== canonicalUrl ? "youtubeUrl" : null,
       normalizeSnapshot(current.title) !== normalizeSnapshot(input.title)
         ? "title"
@@ -754,6 +773,7 @@ export class D1MemberSubmissionRepository
       .prepare(
         `UPDATE music_cover_proposals
          SET submitted_url = ?, youtube_video_id = ?, submitted_title = ?,
+             submission_kind = ?, submitted_broadcast_json = ?,
              submitted_tags_json = ?, suggested_song_id = ?, submitted_note = ?, version = version + 1,
              updated_at = ?
          WHERE id = ? AND submitted_by_user_id = ?
@@ -773,6 +793,8 @@ export class D1MemberSubmissionRepository
         canonicalUrl,
         videoId,
         normalizeSnapshot(input.title),
+        nextKind,
+        nextBroadcast ? JSON.stringify(nextBroadcast) : null,
         JSON.stringify(nextTags),
         input.suggestedSongId ?? null,
         input.note?.trim() || null,

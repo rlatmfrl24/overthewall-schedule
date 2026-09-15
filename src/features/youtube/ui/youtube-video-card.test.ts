@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import React from "react";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -10,24 +11,14 @@ vi.mock("@/assets/icon_youtube_shorts.svg", () => ({
   default: "youtube-shorts.svg",
 }));
 
-const member: MemberDto = {
-  uid: 1,
-  code: "m1",
-  name: "멤버1",
-  main_color: "#336699",
-  sub_color: "#99bbdd",
-  oshi_mark: null,
-  url_twitter: null,
-  url_youtube: null,
-  url_chzzk: null,
-  youtube_channel_id: "UC1",
-  birth_date: null,
-  debut_date: null,
-  unit_name: null,
-  fan_name: null,
-  introduction: null,
-  is_deprecated: 0,
-};
+const member: MemberDto = createMemberFixture({
+    uid: 1,
+    code: "m1",
+    name: "멤버1",
+    main_color: "#336699",
+    sub_color: "#99bbdd",
+    youtube_channel_id: "UC1"
+  });
 
 const kirinukiVideo: YouTubeVideo = {
   videoId: "kirinuki-1",

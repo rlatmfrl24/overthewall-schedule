@@ -10,6 +10,7 @@ import {
   encodeMemberSubmissionCursor,
 } from "../domain/member-submission-cursor";
 import { extractYouTubeVideoId } from "../domain/youtube-video-id";
+import type { OtwPlayYouTubeMetadataReader } from "./ports/youtube-metadata";
 import type { MemberSubmissionRepository } from "./ports/member-submission-repository";
 
 export class MemberSubmissionServiceError extends Error {
@@ -41,15 +42,18 @@ export class MemberSubmissionService {
   private readonly repository: MemberSubmissionRepository;
   private readonly createId: () => string;
   private readonly clock: () => number;
+  private readonly youtube?: OtwPlayYouTubeMetadataReader;
 
   constructor(
     repository: MemberSubmissionRepository,
     createId: () => string,
     clock: () => number = Date.now,
+    youtube?: OtwPlayYouTubeMetadataReader,
   ) {
     this.repository = repository;
     this.createId = createId;
     this.clock = clock;
+    this.youtube = youtube;
   }
 
   async preflight(userId: string, input: OtwPlaySubmissionPreflightRequest) {
@@ -65,10 +69,17 @@ export class MemberSubmissionService {
       videoId,
       input.title?.trim() || null,
     );
+    const video = input.title ? null : await this.youtube?.readVideo(videoId).catch(() => {
+      throw new MemberSubmissionServiceError("unavailable", "영상 정보를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.");
+    });
+    if (!input.title && (!video || video.availabilityStatus !== "playable")) {
+      throw new MemberSubmissionServiceError("invalid_request", "공개되어 재생할 수 있는 YouTube 영상인지 확인해 주세요.");
+    }
     return {
+      ...(video ? { video: { title: video.title, channelName: video.channelTitle, durationSeconds: video.durationSeconds } } : {}),
       videoId,
       canonicalUrl: canonicalYouTubeUrl(videoId),
-      thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+      thumbnailUrl: video?.thumbnailUrl ?? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
       ...result,
     };
   }

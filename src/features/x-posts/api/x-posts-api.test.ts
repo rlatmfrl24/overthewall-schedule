@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MemberDto } from "@contracts/members";
 import type { XPostDto } from "@contracts/x-posts";
@@ -8,24 +9,12 @@ vi.mock("@/shared/api/client", () => ({
   apiFetch: apiFetchMock,
 }));
 
-const makeMember = (uid: number, urlTwitter?: string | null): MemberDto => ({
+const makeMember = (uid: number, urlTwitter?: string | null): MemberDto => (createMemberFixture({
     uid,
     code: `m${uid}`,
     name: `멤버${uid}`,
-    main_color: null,
-    sub_color: null,
-    oshi_mark: null,
-    url_twitter: urlTwitter ?? null,
-    url_youtube: null,
-    url_chzzk: null,
-    youtube_channel_id: null,
-    birth_date: null,
-    debut_date: null,
-    unit_name: null,
-    fan_name: null,
-    introduction: null,
-    is_deprecated: 0,
-  });
+    url_twitter: urlTwitter ?? null
+  }));
 
 const makePost = (id: string, username: string): XPostDto => ({
   id,

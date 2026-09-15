@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -6,24 +7,14 @@ import type { MemberDto } from "@contracts/members";
 import type { ChzzkClip } from "../model/types";
 import { ChzzkClipsPlaylist } from "./chzzk-clips-playlist";
 
-const member: MemberDto = {
-  uid: 1,
-  code: "m1",
-  name: "멤버1",
-  main_color: "#336699",
-  sub_color: "#99bbdd",
-  oshi_mark: null,
-  url_twitter: null,
-  url_youtube: null,
-  url_chzzk: "https://chzzk.naver.com/aaa",
-  youtube_channel_id: null,
-  birth_date: null,
-  debut_date: null,
-  unit_name: null,
-  fan_name: null,
-  introduction: null,
-  is_deprecated: 0,
-};
+const member: MemberDto = createMemberFixture({
+    uid: 1,
+    code: "m1",
+    name: "멤버1",
+    main_color: "#336699",
+    sub_color: "#99bbdd",
+    url_chzzk: "https://chzzk.naver.com/aaa"
+  });
 
 const member2: MemberDto = {
   ...member,

@@ -469,4 +469,10 @@ describe("OTW Play admin input", () => {
     });
     if (parsed.ok) expect(parsed.value).not.toHaveProperty("youtubeUrl");
   });
+  it("accepts bounded clip approval while keeping direct clip registration in draft", () => {
+    const input = { expectedVersion: 0, expectedCatalogRevision: 1, song: { kind: "existing", songId: "song-1" }, participants: [{ subject: { kind: "entity", entityId: "entity-1" }, participantRole: "vocal", creditOrder: 0, creditNameSnapshot: "Singer" }], channel: { kind: "existing", channelId: "channel-1" }, releaseType: "broadcast", participationType: "solo", singingCreditConfirmed: true, publish: true, startSeconds: 1, endSeconds: 120, broadcast: { performedOn: null, dateEvidence: null, originalUrl: null, extent: "partial" } };
+    expect(parseApproveProposal(input)).toMatchObject({ ok: true, value: { releaseType: "broadcast", startSeconds: 1, endSeconds: 120, broadcast: input.broadcast } });
+    expect(parseApproveProposal({ ...input, endSeconds: 0 }).ok).toBe(false);
+  });
+
 });

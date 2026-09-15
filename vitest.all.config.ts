@@ -5,6 +5,7 @@ export default defineConfig({
   resolve: { alias: testAliases },
   test: {
     projects: ["vitest.config.ts", "vitest.worker.config.ts"],
+    reporters: ["dot"],
     maxWorkers: testMaxWorkers,
     coverage: testCoverage,
   },

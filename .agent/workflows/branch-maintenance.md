@@ -5,7 +5,7 @@ description: Compatibility wrapper for safe merged-branch cleanup and default-br
 # Branch Maintenance Workflow (Compatibility)
 
 Use the canonical skill:
-- Skill: `../skills/branch-maintenance/SKILL.md`
+- [Branch maintenance skill](../skills/branch-maintenance/SKILL.md)
 
 Minimum sequence:
 1. Fetch and prune remote refs.

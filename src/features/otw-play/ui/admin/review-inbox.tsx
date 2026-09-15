@@ -12,7 +12,7 @@ import { Badge } from "@/shared/ui/badge";
 import { useOtwPlayImportJobs } from "../../queries/use-admin-catalog";
 import { SingingClipReviewDialog } from "./singing-clip-review-dialog";
 
-const statusLabels: Record<string, string> = { discovered: "검수 대기", needs_input: "정보 입력 필요", ready: "등록 준비 완료", blocked: "확인 필요", converted: "등록 완료", ignored: "제외됨", pending_review: "제안 검수 대기", approved: "승인됨", rejected: "거절됨" };
+const statusLabels: Record<string, string> = { withdrawn: "철회", discovered: "검수 대기", needs_input: "정보 입력 필요", ready: "등록 준비 완료", blocked: "확인 필요", converted: "등록 완료", ignored: "제외됨", pending_review: "제안 검수 대기", approved: "승인됨", rejected: "거절됨" };
 const sourceLabels = { playlist: "플레이리스트", automatic: "자동 수집", user: "사용자 제안" };
 export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalog, active = true }: { active?: boolean; catalog: OtwPlayAdminCatalogDto | null; onProposal: (id: string) => void; onManageChannel: (id: string, kind?: "official_video" | "singing_clip") => void; onOpenCatalog: () => void }) {
   const [search, update] = useConsoleSearch();

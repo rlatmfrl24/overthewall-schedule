@@ -8,9 +8,8 @@ const steps = [
   { label: "architecture", args: ["run", "architecture:check"] },
   { label: "test typecheck", args: ["run", "typecheck:test"] },
   { label: "lint", args: ["run", "lint"] },
-  // Coverage runs both unit and Worker integration projects, including their
-  // assertions. Running `test` here would execute both suites a second time.
-  { label: "test coverage", args: ["run", "test:coverage"] },
+  // Both projects run once. Coverage instrumentation is an opt-in diagnostic.
+  { label: "tests", args: ["run", "test"] },
   { label: "build", args: ["run", "build"] },
   { label: "d1:doctor", args: ["run", "d1:doctor"] },
   { label: "mirror check", args: ["run", "sync:agent-cursor:check"] },

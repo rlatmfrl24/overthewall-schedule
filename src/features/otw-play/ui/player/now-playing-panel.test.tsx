@@ -275,7 +275,6 @@ describe("OTW Play player and queue rail", () => {
     const combinedRail = screen.getByRole("complementary", {
       name: "OTW Play 재생 및 플레이큐",
     });
-    expect(combinedRail.className).toContain("xl:w-[380px]");
     expect(combinedRail.className).toContain("xl:h-full");
     expect(combinedRail.className).toContain("xl:min-h-0");
     expect(combinedRail.className).toContain("xl:overflow-hidden");

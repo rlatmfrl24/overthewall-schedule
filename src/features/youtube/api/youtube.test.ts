@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MemberDto } from "@contracts/members";
 
@@ -10,24 +11,12 @@ vi.mock("@/shared/api/client", () => ({
 const makeMember = (
   uid: number,
   youtubeChannelId?: string | null,
-): MemberDto => ({
-  uid,
-  code: `m${uid}`,
-  name: `멤버${uid}`,
-  main_color: null,
-  sub_color: null,
-  oshi_mark: null,
-  url_twitter: null,
-  url_youtube: null,
-  url_chzzk: null,
-  youtube_channel_id: youtubeChannelId ?? null,
-  birth_date: null,
-  debut_date: null,
-  unit_name: null,
-  fan_name: null,
-  introduction: null,
-  is_deprecated: 0,
-});
+): MemberDto => (createMemberFixture({
+    uid,
+    code: `m${uid}`,
+    name: `멤버${uid}`,
+    youtube_channel_id: youtubeChannelId ?? null
+  }));
 
 describe("youtube api", () => {
   beforeEach(() => {

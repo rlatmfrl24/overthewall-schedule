@@ -129,6 +129,15 @@ export const createMemberSubmissionHandler = (
           parsed.fields,
         );
       }
+      // Song searches only read the public catalog; reserve the provider budget for video checks.
+      if (!parsed.value.title) {
+        const edgeLimit = await consumeEdgeLimit(env, `preflight:${auth.user.id}`);
+        if (edgeLimit !== "allowed") {
+          return errorResponse(requestId, edgeLimit === "limited" ? 429 : 503,
+            edgeLimit === "limited" ? "PLAY_SUBMISSION_RATE_LIMITED" : "PLAY_SUBMISSION_UNAVAILABLE",
+            "영상 확인 요청이 많거나 확인 기능을 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+        }
+      }
       return responseJson({ data: await service.preflight(auth.user.id, parsed.value) });
     }
 

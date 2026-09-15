@@ -358,6 +358,23 @@ describe("OTW Play public catalog HTTP handler", () => {
     });
   });
 
+  it("includes canonical original artists in the performance response used by clip results", async () => {
+    const reader = makeReader();
+    reader.readPerformanceById = async () => ({
+      song: { id: "song-1", slug: "song-1", title: "Song", normalizedTitle: "song", isOtwOriginal: false,
+        originalReleaseDate: null, originalReleasePrecision: "unknown", tags: [],
+        originalArtists: [{ id: "artist-1", slug: "artist-1", displayName: "Original Artist", entityKind: "person", isPrimary: true, creditOrder: 0 }] },
+      performance: { id: "clip-1", relation: "cover", releaseType: "broadcast", participation: "solo", releasedAt: null,
+        tags: [], participants: [], sources: [], primarySourceId: null, playbackSourceId: null, playable: false, fallbackReason: "missing_primary" },
+    });
+    const { handler } = makeHandler(reader);
+    const response = await handler(request("/api/play/performances/clip-1"), env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ data: {
+      song: { originalArtists: [{ displayName: "Original Artist", slug: "artist-1" }] }, performance: { id: "clip-1" },
+    } });
+  });
+
   it("does not emit a public slug that the request boundary rejects", async () => {
     const reader = makeReader();
     reader.readFacets = async () => ({

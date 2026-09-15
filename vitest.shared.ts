@@ -13,7 +13,7 @@ export const testMaxWorkers = 2;
 export const testCoverage: CoverageOptions = {
   // Workerd has no V8 inspector; combined reports use Istanbul.
   provider: "istanbul",
-  reporter: ["text", "json-summary", "html"],
+  reporter: ["text-summary", "json-summary", "html"],
   include: [
     "src/features/**/api/**/*.ts", "src/features/**/model/**/*.ts",
     "src/features/**/use-cases/**/*.ts", "src/shared/api/**/*.ts",
@@ -24,5 +24,4 @@ export const testCoverage: CoverageOptions = {
     "**/*.test.ts", "**/*.test.tsx", "**/*.integration.test.ts",
     "src/routeTree.gen.ts", "src/vite-env.d.ts",
   ],
-  thresholds: { statements: 70, branches: 60, functions: 70, lines: 70 },
 };

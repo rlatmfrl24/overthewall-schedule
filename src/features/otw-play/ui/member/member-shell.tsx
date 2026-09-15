@@ -23,7 +23,7 @@ export function OtwPlayMemberShell({ children }: { children: ReactNode }) {
             <Music2 className="mx-auto mb-3 size-9" />
             <h1 className="text-xl font-semibold">로그인 후 곡을 제안할 수 있어요</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              회원 제안은 공식 커버 영상만 접수하며 관리자 검수 후 반영됩니다.
+              공식 커버와 한 곡을 담은 노래 클립을 제안하면 관리자 검수 후 반영됩니다.
             </p>
             <SignInButton>
               <Button className="mt-5 w-full rounded-full">로그인</Button>

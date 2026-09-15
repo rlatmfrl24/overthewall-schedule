@@ -28,6 +28,7 @@ import { OtwPlayFrame } from "../play-frame";
 import { OtwPlayPlayerQueuePanel } from "../player/now-playing-panel";
 
 export function OtwPlayShell({ children }: { children: ReactNode }) {
+  const pathname = useRouterState({ select: state => state.location.pathname });
   const { isLoaded, isSignedIn, user } = useUser();
   const publicConfig = useOtwPlayConfig();
   const adminStatusQuery = useAdminStatus(
@@ -112,7 +113,7 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
         description="곡 제안과 내 제안은 공개 전에도 계속 이용할 수 있습니다."
       >
         <Button asChild className="w-full rounded-full">
-          <Link to="/play/submit" search={{ edit: undefined }}>곡 제안하기</Link>
+          <Link to="/play/submit" search={{ edit: undefined, submissionKind: pathname.startsWith("/play/clips") ? "singing_clip" : pathname.startsWith("/play/songs") ? "official_cover" : undefined }}>곡 제안하기</Link>
         </Button>
       </OtwPlayAccessCard>
     );
@@ -194,11 +195,13 @@ function OtwPlayExperience({
   adminPreview?: boolean;
   children: ReactNode;
 }) {
-  const editing = useRouterState({ select: state => state.location.pathname === "/play/playlists/new" || /^\/play\/playlists\/[^/]+\/edit$/.test(state.location.pathname) });
+  const pathname = useRouterState({ select: state => state.location.pathname });
+  const editing = pathname === "/play/playlists/new" || /^\/play\/playlists\/[^/]+\/edit$/.test(pathname);
   return (
     <OtwPlayPlayerProvider adminPreview={adminPreview} playbackDisabled={editing}>
       <OtwPlayFrame
         search={<PlayHeaderSearch />}
+        submissionKind={pathname.startsWith("/play/clips") ? "singing_clip" : pathname.startsWith("/play/songs") ? "official_cover" : undefined}
         status={
           adminPreview ? (
             <span className="hidden items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 min-[1800px]:inline-flex dark:text-amber-300">

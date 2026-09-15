@@ -1,7 +1,8 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 import { UnsavedChangesContext } from "@/shared/lib/unsaved-changes";
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -32,26 +33,18 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 
 import { OtwPlaySubmissionPage } from "./submission-page";
 
-const member = {
-  uid: 1,
-  code: "member-one",
-  name: "멤버 한명",
-  main_color: null,
-  sub_color: null,
-  oshi_mark: "🎵",
-  url_twitter: null,
-  url_youtube: null,
-  url_chzzk: null,
-  youtube_channel_id: "UC123",
-  birth_date: null,
-  debut_date: null,
-  unit_name: "Unit",
-  fan_name: null,
-  introduction: null,
-  is_deprecated: false,
-};
+const member = createMemberFixture({
+    uid: 1,
+    code: "member-one",
+    name: "멤버 한명",
+    oshi_mark: "🎵",
+    youtube_channel_id: "UC123",
+    unit_name: "Unit",
+    is_deprecated: false
+  });
 
 const preflight = {
+  video: { title: "영상 제목", channelName: "업로더", durationSeconds: 180 },
   videoId: "dQw4w9WgXcQ",
   canonicalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
   thumbnailUrl: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
@@ -82,7 +75,7 @@ const renderPage = (editId?: string) => {
   });
   return render(
     <QueryClientProvider client={client}>
-      <OtwPlaySubmissionPage editId={editId} />
+      <OtwPlaySubmissionPage editId={editId} initialKind="official_cover" />
     </QueryClientProvider>,
   );
 };
@@ -107,16 +100,17 @@ const completeDetails = async () => {
   const artistInput = screen.getByLabelText("원곡 가수 *");
   fireEvent.change(artistInput, { target: { value: "원곡 가수" } });
   fireEvent.keyDown(artistInput, { key: "Enter" });
-  const memberInput = screen.getByLabelText("OTW 참여 멤버");
-  fireEvent.change(memberInput, { target: { value: "member-one" } });
-  fireEvent.keyDown(memberInput, { key: "Enter" });
-  await waitFor(() => expect(screen.getByLabelText("선택한 OTW 멤버")).toBeTruthy());
-  fireEvent.click(screen.getByRole("button", { name: /검토하기/ }));
+  fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
+  await waitFor(() => expect(screen.getByRole("button", { name: new RegExp(member.name) }).getAttribute("aria-pressed")).toBe("true"));
+  fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
   await screen.findByText("관리자에게 전할 메모 (선택)");
 };
 
 describe("OtwPlaySubmissionPage", () => {
   beforeEach(() => {
+    // jsdom has no layout engine; content resizing is also verified in the browser.
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} });
     vi.clearAllMocks();
     sessionStorage.clear();
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
@@ -129,7 +123,52 @@ describe("OtwPlaySubmissionPage", () => {
     mocks.update.mockRejectedValue(new Error("network failed"));
     mocks.editDetail.mockReturnValue({ isPending: false, data: null });
   });
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+  it("keeps the final step visible and locks navigation until the save settles", async () => {
+    let rejectSave!: (reason: Error) => void;
+    mocks.create.mockReturnValueOnce(new Promise((_, reject) => { rejectSave = reject; }));
+    renderPage();
+    expect((screen.getByRole("button", { name: "4. 확인" }) as HTMLButtonElement).disabled).toBe(true);
+    await verifyVideo();
+    await startNewSong();
+    await completeDetails();
+    fireEvent.click(screen.getByRole("button", { name: "검수 요청하기" }));
+    await screen.findByRole("button", { name: "제출 중" });
+    expect(screen.getByRole("heading", { name: "이 내용으로 보낼까요?" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "2. 노래" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "노래 수정" }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => rejectSave(new Error("offline")));
+    await screen.findByRole("button", { name: "검수 요청하기" });
+    fireEvent.click(screen.getByRole("button", { name: "2. 노래" }));
+    expect(screen.getByRole("heading", { name: "어떤 노래인가요?" })).toBeTruthy();
+    expect((screen.getByLabelText("곡명 *") as HTMLInputElement).value).toBe("테스트 커버");
+  });
+
+  it("separates song and singer questions while retaining input between steps", async () => {
+    renderPage();
+    await verifyVideo();
+    await startNewSong();
+    expect(screen.getByRole("heading", { name: "어떤 노래인가요?" })).toBeTruthy();
+    expect(screen.queryByLabelText("OTW 참여 멤버 *")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "J-POP" }));
+    fireEvent.change(screen.getByLabelText("원곡 가수 *"), { target: { value: "원곡 가수" } });
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    expect(screen.getByRole("heading", { name: "누가 불렀나요?" })).toBeTruthy();
+    await waitFor(() => expect(screen.queryByLabelText("장르(분류)")).toBeNull());
+    fireEvent.change(screen.getByLabelText("외부 참여자"), { target: { value: "게스트" } });
+    expect(screen.queryByPlaceholderText("멤버 이름·코드·유닛 검색")).toBeNull();
+    expect(screen.queryByText("테스트 커버")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
+    expect(document.activeElement).toBe(screen.getByLabelText("OTW 참여 멤버 *"));
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(member.name) }));
+    fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
+    expect(screen.getByRole("heading", { name: "이 내용으로 보낼까요?" })).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "가창자" })).getByText("게스트")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "노래 수정" }));
+    expect(screen.getByLabelText("선택한 장르(분류)").textContent).toContain("J-POP");
+    expect(screen.getByRole("button", { name: "원곡 가수 제거" })).toBeTruthy();
+  });
 
   it("shows the canonical video preview and blocks a duplicate without losing the URL", async () => {
     mocks.preflight.mockResolvedValueOnce({ ...preflight, duplicate: "pending" });
@@ -144,6 +183,19 @@ describe("OtwPlaySubmissionPage", () => {
     expect((await screen.findAllByText(/검토 중인 영상/)).length).toBeGreaterThan(0);
     expect(screen.getByDisplayValue("https://youtu.be/dQw4w9WgXcQ")).toBeTruthy();
     expect(screen.queryByLabelText("곡명 *")).toBeNull();
+  });
+
+  it("preserves the URL and focuses it after metadata failure, then retries normally", async () => {
+    mocks.preflight.mockRejectedValueOnce(new Error("offline"));
+    renderPage();
+    fireEvent.change(screen.getByLabelText("YouTube 영상 URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    const retry = await screen.findByRole("button", { name: "영상 확인 다시 시도" });
+    expect(document.activeElement).toBe(screen.getByLabelText("YouTube 영상 URL"));
+    expect(screen.getByDisplayValue("https://youtu.be/dQw4w9WgXcQ")).toBeTruthy();
+    fireEvent.click(retry);
+    await screen.findByLabelText("곡명 *");
+    expect(mocks.preflight).toHaveBeenCalledTimes(2);
   });
 
   it("ignores a late preflight response after the URL changes", async () => {
@@ -164,18 +216,25 @@ describe("OtwPlaySubmissionPage", () => {
     expect(screen.getByDisplayValue("https://youtu.be/AAAAAAAAAAA")).toBeTruthy();
   });
 
-  it("restores the draft and idempotency key after the wizard remounts", async () => {
+  it("discards browser drafts and starts blank after leaving the page or restoring from BFCache", async () => {
+    sessionStorage.setItem("otw-play:member-submission-draft:v1", JSON.stringify({ youtubeUrl: "old input", title: "old song" }));
+    sessionStorage.setItem("unrelated-draft", "keep");
     const first = renderPage();
-    fireEvent.change(screen.getByLabelText("YouTube 영상 URL"), {
-      target: { value: "https://youtu.be/dQw4w9WgXcQ" },
-    });
-    await waitFor(() => expect(sessionStorage.getItem("otw-play:member-submission-draft:v1")).toContain("dQw4w9WgXcQ"));
+    expect((screen.getByLabelText("YouTube 영상 URL") as HTMLInputElement).value).toBe("");
+    fireEvent.change(screen.getByLabelText("YouTube 영상 URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
+    expect(sessionStorage.getItem("otw-play:member-submission-draft:v1")).toBeNull();
     first.unmount();
     renderPage();
-    expect(screen.getByDisplayValue("https://youtu.be/dQw4w9WgXcQ")).toBeTruthy();
+    expect((screen.getByLabelText("YouTube 영상 URL") as HTMLInputElement).value).toBe("");
+    fireEvent.change(screen.getByLabelText("YouTube 영상 URL"), { target: { value: "another input" } });
+    const restored = new Event("pageshow");
+    Object.defineProperty(restored, "persisted", { value: true });
+    act(() => { window.dispatchEvent(restored); });
+    expect((screen.getByLabelText("YouTube 영상 URL") as HTMLInputElement).value).toBe("");
+    expect(sessionStorage.getItem("unrelated-draft")).toBe("keep");
   });
 
-  it("keeps an unsaved edit draft with its original concurrency baseline", async () => {
+  it("ignores an old edit draft and uses the saved proposal with its server version", async () => {
     sessionStorage.setItem(
       "otw-play:member-submission-draft:v1:edit:proposal-one",
       JSON.stringify({
@@ -219,20 +278,17 @@ describe("OtwPlaySubmissionPage", () => {
 
     renderPage("proposal-one");
 
-    await waitFor(() => {
-      expect(screen.getByText("저장하지 않은 제목")).toBeTruthy();
-    });
-    expect(screen.getByDisplayValue("저장하지 않은 메모")).toBeTruthy();
-    expect(sessionStorage.getItem(
-      "otw-play:member-submission-draft:v1:edit:proposal-one",
-    )).toContain("저장하지 않은 제목");
+    expect(screen.queryByText("저장하지 않은 제목")).toBeNull();
+    expect((screen.getByLabelText("YouTube 영상 URL") as HTMLInputElement).value).toBe(preflight.canonicalUrl);
+    expect(sessionStorage.getItem("otw-play:member-submission-draft:v1:edit:proposal-one")).toBeNull();
+    await verifyVideo();
+    expect((screen.getByLabelText("곡명 *") as HTMLInputElement).value).toBe("테스트 커버");
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
     fireEvent.click(screen.getByRole("button", { name: "수정 저장" }));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(
       "proposal-one",
-      expect.objectContaining({
-        expectedVersion: 6,
-        title: "저장하지 않은 제목",
-      }),
+      expect.objectContaining({ expectedVersion: 7, title: "테스트 커버" }),
     ));
     expect(mocks.create).not.toHaveBeenCalled();
   });
@@ -254,7 +310,8 @@ describe("OtwPlaySubmissionPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "다른 곡 검색" }));
     expect(screen.queryByRole("radio")).toBeNull();
     expect(screen.queryByRole("button", { name: "새 곡 추가" })).toBeNull();
-    expect(screen.getByRole("button", { name: /검토하기/ }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    expect(screen.getByRole("alert").textContent).toContain("곡명과 원곡 가수");
   });
 
   it("requires a successful search before new-song entry and discards stale results", async () => {
@@ -287,14 +344,14 @@ describe("OtwPlaySubmissionPage", () => {
     mocks.preflight.mockResolvedValueOnce({ ...preflight, songCandidates: [{ id: "song-one", title: "기존 곡", originalArtists: ["기존 가수"] }] });
     fireEvent.click(screen.getByRole("button", { name: "검색" }));
     fireEvent.click(await screen.findByRole("button", { name: /기존 곡.*기존 가수/ }));
-    fireEvent.change(screen.getByLabelText("OTW 참여 멤버"), { target: { value: "member-one" } });
-    fireEvent.keyDown(screen.getByLabelText("OTW 참여 멤버"), { key: "Enter" });
-    fireEvent.click(screen.getByRole("button", { name: /검토하기/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "최종 제출" }));
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
+    fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "검수 요청하기" }));
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ suggestedSongId: "song-one", title: "기존 곡", tags: [], originalArtists: [{ kind: "external", displayName: "기존 가수" }] })));
   });
 
-  it("adds chips only explicitly and supports keyboard member autocomplete", async () => {
+  it("adds chips explicitly and selects member cards without a search field", async () => {
     renderPage();
     await verifyVideo();
     await startNewSong();
@@ -309,11 +366,10 @@ describe("OtwPlaySubmissionPage", () => {
     fireEvent.keyDown(artistInput, { key: "Enter" });
     expect(screen.getByRole("alert", { name: "" }).textContent).toContain("이미 추가한 이름");
 
-    const memberInput = screen.getByLabelText("OTW 참여 멤버");
-    fireEvent.change(memberInput, { target: { value: "Unit" } });
-    expect(await screen.findByRole("option", { name: /멤버 한명/ })).toBeTruthy();
-    fireEvent.keyDown(memberInput, { key: "Enter" });
-    expect(screen.getByLabelText("선택한 OTW 멤버").textContent).toContain("멤버 한명");
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    expect(await screen.findByRole("button", { name: /멤버 한명/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
+    expect(screen.getByRole("button", { name: /멤버 한명/ }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("submits the selected singing role for each participant", async () => {
@@ -324,15 +380,14 @@ describe("OtwPlaySubmissionPage", () => {
     const artistInput = screen.getByLabelText("원곡 가수 *");
     fireEvent.change(artistInput, { target: { value: "원곡 가수" } });
     fireEvent.keyDown(artistInput, { key: "Enter" });
-    const memberInput = screen.getByLabelText("OTW 참여 멤버");
-    fireEvent.change(memberInput, { target: { value: "member-one" } });
-    fireEvent.keyDown(memberInput, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
 
     fireEvent.click(await screen.findByLabelText("🎵 멤버 한명 가창 역할"));
     fireEvent.click(await screen.findByRole("option", { name: "코러스" }));
-    fireEvent.click(screen.getByRole("button", { name: /검토하기/ }));
-    expect(await screen.findByText(/멤버 한명 · 코러스/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "최종 제출" }));
+    fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
+    expect(await within(screen.getByRole("region", { name: "가창자" })).findByText("OTW 멤버 · 코러스")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "검수 요청하기" }));
 
     await waitFor(() => expect(mocks.create).toHaveBeenCalled());
     expect(mocks.create.mock.calls[0]?.[0].participants).toEqual([
@@ -347,8 +402,8 @@ describe("OtwPlaySubmissionPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "J-POP" }));
     expect(screen.getByLabelText("선택한 장르(분류)").textContent).toContain("J-POP");
     await completeDetails();
-    expect(screen.getByText("장르(분류)")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "최종 제출" }));
+    expect(within(screen.getByRole("region", { name: "노래 정보" })).getByText("장르(분류)")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "검수 요청하기" }));
 
     await waitFor(() => expect(mocks.create).toHaveBeenCalled());
     expect(mocks.create.mock.calls[0]?.[0].tags).toEqual(["J-POP"]);
@@ -361,12 +416,12 @@ describe("OtwPlaySubmissionPage", () => {
     fireEvent.change(screen.getByLabelText("관리자에게 전할 메모 (선택)"), {
       target: { value: "이 입력은 유지되어야 합니다." },
     });
-    fireEvent.click(screen.getByRole("button", { name: "최종 제출" }));
+    fireEvent.click(screen.getByRole("button", { name: "검수 요청하기" }));
     await screen.findByText("제안 제출에 실패했습니다.");
 
     expect(screen.getByDisplayValue("이 입력은 유지되어야 합니다.")).toBeTruthy();
     const firstRequestId = mocks.create.mock.calls[0]?.[0].clientRequestId;
-    fireEvent.click(screen.getByRole("button", { name: "최종 제출" }));
+    fireEvent.click(screen.getByRole("button", { name: "검수 요청하기" }));
     await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(2));
     expect(mocks.create.mock.calls[1]?.[0].clientRequestId).toBe(firstRequestId);
   });
@@ -376,7 +431,7 @@ describe("OtwPlaySubmissionPage", () => {
     renderPage();
     await verifyVideo();
     await completeDetails();
-    fireEvent.click(screen.getByRole("button", { name: "최종 제출" }));
+    fireEvent.click(screen.getByRole("button", { name: "검수 요청하기" }));
 
     expect(await screen.findByText("곡 제안 접수 완료")).toBeTruthy();
     expect(screen.getByRole("link", { name: "내 제안에서 확인" }).getAttribute("href")).toBe("/play/submissions");
@@ -394,4 +449,26 @@ describe("OtwPlaySubmissionPage", () => {
     window.dispatchEvent(leave);
     expect(leave.defaultPrevented).toBe(true);
   });
+  it("does not block navigation just because the entry point preselected a kind", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><UnsavedChangesContext value={{ register: mocks.registerDirty, confirm: async () => false }}><OtwPlaySubmissionPage initialKind="official_cover" /></UnsavedChangesContext></QueryClientProvider>);
+    expect(mocks.registerDirty.mock.calls.at(-1)?.[1]).toBe(false);
+    fireEvent.change(screen.getByLabelText("YouTube 영상 URL"), { target: { value: "draft" } });
+    expect(mocks.registerDirty.mock.calls.at(-1)?.[1]).toBe(true);
+  });
+  it("submits an edited clip with optional broadcast metadata and commits pending names on Next", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /노래 클립.*방송에서/ }));
+    await verifyVideo(); await startNewSong();
+    fireEvent.change(screen.getByLabelText("원곡 가수 *"), { target: { value: "원곡 가수" } });
+    fireEvent.keyDown(screen.getByLabelText("원곡 가수 *"), { key: "Enter", isComposing: true });
+    expect(screen.queryByLabelText("원곡 가수 선택 목록")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
+    fireEvent.change(screen.getByLabelText("방송일 (선택)"), { target: { value: "2026-09-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "검수 요청하기" }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ submissionKind: "singing_clip", broadcast: { performedOn: "2026-09-01", dateEvidence: null, originalUrl: null, extent: null }, originalArtists: [{ kind: "external", displayName: "원곡 가수" }] })));
+  });
+
 });

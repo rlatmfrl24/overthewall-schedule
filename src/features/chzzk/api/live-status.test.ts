@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MemberDto } from "@contracts/members";
 import type { ScheduleDto } from "@contracts/schedules";
@@ -10,24 +11,12 @@ vi.mock("@/shared/api/client", () => ({
 
 const channelId = "a".repeat(32);
 
-const makeMember = (uid: number, urlChzzk: string | null): MemberDto => ({
-  uid,
-  code: `member-${uid}`,
-  name: `멤버 ${uid}`,
-  main_color: null,
-  sub_color: null,
-  oshi_mark: null,
-  url_twitter: null,
-  url_youtube: null,
-  url_chzzk: urlChzzk,
-  youtube_channel_id: null,
-  birth_date: null,
-  debut_date: null,
-  unit_name: null,
-  fan_name: null,
-  introduction: null,
-  is_deprecated: 0,
-});
+const makeMember = (uid: number, urlChzzk: string | null): MemberDto => (createMemberFixture({
+    uid,
+    code: `member-${uid}`,
+    name: `멤버 ${uid}`,
+    url_chzzk: urlChzzk
+  }));
 
 const makeSchedule = (title: string): ScheduleDto => ({
   id: 1,

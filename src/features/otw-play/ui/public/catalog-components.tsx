@@ -1,10 +1,12 @@
+import { catalogResultDestination, type CatalogResultSong } from "../../model/catalog-result-song";
+import { BroadcastInformation } from "./broadcast-information";
+import { ClipProvenance } from "./clip-provenance";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, CalendarDays, Check, Disc3, ListPlus, Play, StepForward } from "lucide-react";
 import type {
   OtwPlayPublicParticipantDto,
   OtwPlayPublicPerformanceDetailDto,
   OtwPlayPublicPerformanceSummaryDto,
-  OtwPlayPublicSongSummaryDto,
 } from "@contracts/otw-play";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -349,7 +351,7 @@ export function OtwPlaySongRow({
   song,
   hero = false,
 }: {
-  song: OtwPlayPublicSongSummaryDto;
+  song: CatalogResultSong;
   hero?: boolean;
 }) {
   const performance = song.representativePerformance;
@@ -415,20 +417,18 @@ export function OtwPlaySongRow({
             </div>
           ) : null}
           <Link
-            to="/play/songs/$songSlug"
-            params={{ songSlug: song.slug }}
-            search={{ performance: undefined }}
+            {...catalogResultDestination(song)}
             className={cn("play-song-title font-bold hover:underline", hero ? "text-2xl sm:text-4xl" : "line-clamp-2 text-base")}
           >
             {song.title}
           </Link>
           <p
             className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
-            aria-label={`원곡 가수 ${song.originalArtists.map(({ displayName }) => displayName).join(", ") || "정보 없음"}`}
+            aria-label={`원곡 가수 ${(song.originalArtists ?? []).map(({ displayName }) => displayName).join(", ") || "정보 없음"}`}
           >
             <Disc3 className="size-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate">
-              {song.originalArtists.map(({ displayName }) => displayName).join(", ") || "아티스트 정보 없음"}
+              {(song.originalArtists ?? []).map(({ displayName }) => displayName).join(", ") || "아티스트 정보 없음"}
             </span>
           </p>
         </div>
@@ -448,10 +448,14 @@ export function OtwPlaySongRow({
             ) : null}
           </div>
         ) : null}
+        {performance.releaseType === "broadcast" && <>
+          <ClipProvenance performance={performance} />
+          <BroadcastInformation broadcast={performance.broadcast} showDate={false} />
+        </>}
         <div className={cn("play-song-actions flex flex-wrap items-center gap-2", !hero && "mt-auto pt-2.5")}>
           <OtwPlayPerformanceActions song={song} performance={performance} compact={!hero} />
           <Button asChild variant="outline" size={hero ? "default" : "sm"}>
-            <Link to="/play/songs/$songSlug" params={{ songSlug: song.slug }} search={{ performance: undefined }}>
+            <Link {...catalogResultDestination(song)}>
               곡 상세 <ArrowRight />
             </Link>
           </Button>

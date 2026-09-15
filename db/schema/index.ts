@@ -11,6 +11,52 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+export const musicAiReviews = sqliteTable("music_ai_reviews", {
+  id: text().primaryKey(),
+  candidate_id: text(),
+  video_id: text().notNull(),
+  candidate_kind: text().notNull(),
+  range_json: text().notNull(),
+  target_key: text().notNull(),
+  input_hash: text().notNull(),
+  input_json: text(),
+  model: text().notNull(),
+  prompt_version: text().notNull(),
+  status: text().notNull(),
+  result_json: text(),
+  usage_json: text(),
+  attempts: integer().notNull().default(0),
+  lease_token: text(),
+  lease_until: integer(),
+  next_retry_at: integer(),
+  error_code: text(),
+  error_message: text(),
+  created_at: integer().notNull(),
+  updated_at: integer().notNull(),
+  expires_at: integer().notNull(),
+}, table => [
+  index("idx_music_ai_reviews_target").on(table.target_key, table.created_at),
+  index("idx_music_ai_reviews_recovery").on(table.status, table.next_retry_at),
+  uniqueIndex("uidx_music_ai_reviews_active").on(table.input_hash).where(sql`${table.status} IN ('queued','running','retry_wait')`),
+  check("music_ai_reviews_status", sql`${table.status} IN ('queued','running','retry_wait','succeeded','partial','failed')`),
+  check("music_ai_reviews_kind", sql`${table.candidate_kind} IN ('official_video','singing_clip')`),
+  check("music_ai_reviews_attempts", sql`${table.attempts} BETWEEN 0 AND 3`),
+]);
+export const musicAiReviewRequests = sqliteTable("music_ai_review_requests", {
+  request_key: text().primaryKey(),
+  request_hash: text().notNull(),
+  review_id: text().notNull().references(() => musicAiReviews.id, { onDelete: "cascade" }),
+  created_at: integer().notNull(),
+});
+export const musicAiReviewAttempts = sqliteTable("music_ai_review_attempts", {
+  token: text().primaryKey(),
+  review_id: text().notNull().references(() => musicAiReviews.id, { onDelete: "cascade" }),
+  started_at: integer().notNull(),
+  finished_at: integer(),
+  outcome: text().notNull().default("running"),
+  usage_json: text(),
+}, table => [index("idx_music_ai_review_attempts_started").on(table.started_at)]);
+
 export const musicPlaylists = sqliteTable("music_playlists", {
   id: text().primaryKey(),
   owner_user_id: text().notNull(),
@@ -1995,6 +2041,8 @@ export const musicCoverProposals = sqliteTable(
     segment_start_seconds: integer("segment_start_seconds")
       .notNull()
       .default(0),
+    submission_kind: text("submission_kind").$type<"official_cover" | "singing_clip">().notNull().default("official_cover"),
+    submitted_broadcast_json: text("submitted_broadcast_json"),
     submitted_title: text("submitted_title").notNull(),
     submitted_tags_json: text("submitted_tags_json").notNull().default("[]"),
     suggested_song_id: text("suggested_song_id").references(

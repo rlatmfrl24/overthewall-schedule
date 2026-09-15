@@ -386,7 +386,7 @@ flowchart LR
 공개 읽기와 외부 검증의 경로를 분리한다.
 
 - 사용자의 검색·상세·재생 요청: Cache API와 D1만 사용
-- 회원 제안: URL/ID 형식, D1 exact duplicate와 정책만 검사
+- 회원 제안: URL/ID 형식, D1 duplicate와 정책을 검사하고, 영상 확인에서 제한된 YouTube metadata 조회를 수행한다. 곡명 검색은 provider 호출을 생략한다.
 - 관리자 승인: 저장된 제안을 읽은 뒤 YouTube metadata와 공식 채널을 검증
 - Cron: 재검사 시점이 된 소스만 제한된 묶음으로 YouTube에 조회
 
@@ -1923,3 +1923,15 @@ song/performance detail 조회도 published performance의 태그만 해당 perf
 
 
 > 2026-09-14 후속 확정: 관리자 작업별 5개 탭과 OTW Play 채널 통합, 노래 클립 플레이리스트 일괄 임시 등록을 적용한다. 이전 채널 탭 분리 안내보다 [관리자 작업 흐름 통합 기록](otw-play-admin-workflow-integration.md)을 우선한다. 일반 방송 클립 채널의 독립 관리는 유지한다.
+# Gemini 검수 분석 설계 추가 (2026-09-15)
+
+`otw-play` 분석 application service가 metadata/analyzer/repository/queue 포트를 사용한다. Gemini와 D1 구현은 infrastructure, 조립과 Queue 분기는 Worker app에 둔다. 별도 작업·멱등 요청·호출 기록에 제안을 저장하고 기존 검수 저장 경계는 유지한다. 전용 큐의 중복 전달·lease·UTC 호출 예산·복구 및 보관 정책은 [Gemini 검수 자동 입력](otw-play-ai-review.md)을 따른다.
+
+
+### 회원 제안 유형 확장 (2026-09-15)
+
+`submissionKind`는 `official_cover | singing_clip`, `broadcast`는 기존 방송 metadata 계약을 사용한다. 생성·수정·본인 조회·관리자 제안 조회에 전달한다. 이전 요청·행은 공식 커버로 해석하며 `music_cover_proposals`의 `submission_kind`, `submitted_broadcast_json`에 저장한다. 기존 멱등 키·영상 중복·CAS·일일 제한은 그대로 유지한다.
+
+사용자 제안 필터는 가져온 후보와 영상이 겹쳐도 신청 유형을 기준으로 proposal을 보여준다. 일반 통합 목록의 후보 중복 묶기는 유지한다. 관리자가 게시 유형을 정정할 수 있으므로 승인 후 링크는 실제 승인 가창의 release type을 사용한다.
+
+승인 시 공통 카탈로그 저장 트랜잭션으로 proposal 상태·가창·소스·검색 projection을 원자적으로 저장한다. 공식 커버에는 기존 공식 채널 정책을 적용하고, 클립에는 승인된 활성 `approved_kirinuki` 채널, 확인한 완곡 여부, 검증한 재생 범위를 요구한다. 생략된 클립 종료는 조회한 영상 길이로 한정한다. 분석·신청만으로 카탈로그나 채널을 생성하지 않는다.

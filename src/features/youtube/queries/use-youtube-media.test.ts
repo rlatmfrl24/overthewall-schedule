@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,24 +21,12 @@ vi.mock("../api/youtube", () => ({
 const makeMember = (
   uid: number,
   youtubeChannelId: string | null = null,
-): MemberDto => ({
-  uid,
-  code: `m${uid}`,
-  name: `멤버${uid}`,
-  main_color: null,
-  sub_color: null,
-  oshi_mark: null,
-  url_twitter: null,
-  url_youtube: null,
-  url_chzzk: null,
-  youtube_channel_id: youtubeChannelId,
-  birth_date: null,
-  debut_date: null,
-  unit_name: null,
-  fan_name: null,
-  introduction: null,
-  is_deprecated: 0,
-});
+): MemberDto => (createMemberFixture({
+    uid,
+    code: `m${uid}`,
+    name: `멤버${uid}`,
+    youtube_channel_id: youtubeChannelId
+  }));
 
 const refreshingCache = (oldestFetchedAt: string) => ({
   state: "refreshing" as const,
