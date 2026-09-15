@@ -32,9 +32,9 @@ describe("OTW Play public API client", () => {
 
   it("uses the member path and only songbook query fields in public and preview requests", async () => {
     await fetchOtwPlayMembers();
-    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/members", { auth: "omit" });
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/members", { auth: "required" });
     await fetchOtwPlayMemberSongbook("Alpha", { category: "collaboration", participantRole: "chorus", cursor: "next", limit: 60 });
-    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/members/Alpha/songbook?category=collaboration&participantRole=chorus&limit=60&cursor=next", { auth: "omit" });
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/members/Alpha/songbook?category=collaboration&participantRole=chorus&limit=60&cursor=next", { auth: "required" });
     await fetchOtwPlayMemberSongbook("Alpha", {}, { adminPreview: true });
     expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/members/Alpha/songbook", { auth: "required", headers: { [OTW_PLAY_ADMIN_PREVIEW_HEADER]: "1" } });
   });
@@ -100,7 +100,7 @@ describe("OTW Play public API client", () => {
     );
   });
 
-  it("모든 공개 endpoint를 bearer 없이 호출한다", async () => {
+  it("설정은 익명으로, 카탈로그는 회원 인증으로 호출한다", async () => {
     await fetchOtwPlayConfig();
     await fetchOtwPlayCatalog({ member: [2, 1], relation: "original" });
     await fetchOtwPlayFacets();
@@ -115,22 +115,22 @@ describe("OTW Play public API client", () => {
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       2,
       `${apiRoutes.otwPlay.catalog.build()}?member=1&member=2&relation=original`,
-      { auth: "omit" },
+      { auth: "required" },
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       3,
       apiRoutes.otwPlay.facets.build(),
-      { auth: "omit" },
+      { auth: "required" },
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       4,
       "/api/play/songs/%ED%95%9C%20%EA%B3%A1-slug",
-      { auth: "omit" },
+      { auth: "required" },
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       5,
       "/api/play/performances/performance-id",
-      { auth: "omit" },
+      { auth: "required" },
     );
   });
 

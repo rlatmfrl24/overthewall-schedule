@@ -53,9 +53,9 @@ const releaseActions = (
   if (!flags.publicReadEnabled && !flags.navigationVisible) {
     return [{
       transition: "enable_public_read",
-      label: "공개 API canary 시작",
-      title: "공개 API를 활성화할까요?",
-      description: "익명 사용자가 직접 URL로 OTW Play를 사용할 수 있습니다. 내비게이션과 검색 색인은 아직 숨겨집니다.",
+      label: "회원 이용 canary 시작",
+      title: "회원 이용을 활성화할까요?",
+      description: "로그인한 회원이 직접 URL로 공식 영상을 이용할 수 있습니다. 노래 클립은 관리자 전용이며 메뉴는 아직 숨겨집니다.",
       rollback: "문제가 있으면 같은 운영 화면에서 0/0으로 즉시 rollback합니다.",
       confirmation: "direct_routes_verified",
       target: { publicReadEnabled: true, navigationVisible: false },
@@ -67,9 +67,9 @@ const releaseActions = (
     return [
       {
         transition: "enable_navigation",
-        label: "내비게이션·색인 공개",
+        label: "내비게이션 공개",
         title: "OTW Play를 최종 공개할까요?",
-        description: "내비게이션을 노출하고 /play와 published 곡을 sitemap·색인 대상으로 전환합니다.",
+        description: "메뉴에 OTW Play를 표시합니다. 로그인한 회원만 이용할 수 있으며 노래 클립은 관리자 전용입니다.",
         rollback: "문제가 있으면 먼저 navigation만 끄거나 전체 공개를 0/0으로 되돌릴 수 있습니다.",
         confirmation: "public_canary_verified",
         target: { publicReadEnabled: true, navigationVisible: true },
@@ -78,9 +78,9 @@ const releaseActions = (
       },
       {
         transition: "rollback_all",
-        label: "공개 API rollback",
+        label: "회원 이용 rollback",
         title: "OTW Play 공개를 모두 중단할까요?",
-        description: "익명 public read를 중단하고 navigation을 숨깁니다. 관리자 preview와 회원 경로는 유지됩니다.",
+        description: "회원의 카탈로그 조회와 메뉴 노출을 중단합니다. 관리자와 곡 제안 경로는 유지됩니다.",
         rollback: "재공개하려면 직접 경로 검증부터 다시 수행해야 합니다.",
         confirmation: "rollback_reviewed",
         target: { publicReadEnabled: false, navigationVisible: false },
@@ -94,8 +94,8 @@ const releaseActions = (
       {
         transition: "disable_navigation",
         label: "내비게이션 숨기기",
-        title: "내비게이션과 색인을 숨길까요?",
-        description: "익명 직접 URL은 유지하지만 내비게이션을 숨기고 Play sitemap 항목을 제외합니다.",
+        title: "내비게이션을 숨길까요?",
+        description: "회원의 직접 URL 접근은 유지하고 내비게이션에서 메뉴를 숨깁니다.",
         rollback: "canary 상태에서 문제를 확인한 뒤 다시 최종 공개할 수 있습니다.",
         confirmation: "rollback_reviewed",
         target: { publicReadEnabled: true, navigationVisible: false },
@@ -318,8 +318,8 @@ function ReleasePanel({
       )}
       <div className="mx-3 mt-3 divide-y overflow-hidden rounded-lg border">
         {([
-          ["public", "공개 API", state.publicReadEnabled, "익명 직접 URL과 public catalog read"],
-          ["navigation", "내비게이션·색인", state.navigationVisible, "메뉴 노출, index와 sitemap 포함"],
+          ["public", "회원 이용", state.publicReadEnabled, "로그인한 회원의 공식 영상 조회·재생"],
+          ["navigation", "내비게이션", state.navigationVisible, "회원용 메뉴 노출 · 검색엔진 색인 제외"],
         ] as const).map(([control, title, enabled, description]) => (
           <div key={control} className="grid gap-3 p-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
             <div className="min-w-0">

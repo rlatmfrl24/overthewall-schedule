@@ -4,8 +4,8 @@ import type { PlayAdminDefaultPlaylist, PlayDefaultPlaylistWrite, PlayDefaultPla
 import { apiFetch } from "@/shared/api/client";
 
 export interface PlaylistRequestOptions { adminPreview?: boolean; signal?: AbortSignal }
-const options = (request: PlaylistRequestOptions, member = false) => ({ signal: request.signal,
-  auth: member || request.adminPreview ? "required" as const : "omit" as const,
+const options = (request: PlaylistRequestOptions) => ({ signal: request.signal,
+  auth: "required" as const,
   headers: request.adminPreview ? { [OTW_PLAY_ADMIN_PREVIEW_HEADER]: "1" } : undefined });
 export const fetchDefaultPlaylists = (request: PlaylistRequestOptions = {}) =>
   apiFetch<OtwPlayPublicEnvelope<{ items: PlayDefaultPlaylist[] }>>(apiRoutes.otwPlay.playlistDefaults.build(), options(request));
@@ -19,15 +19,15 @@ export const resolvePlaylistPerformances = (performanceIds: string[], request: P
   apiFetch<OtwPlayPublicEnvelope<PlayResolvedPerformances>>(apiRoutes.otwPlay.resolvePerformances.build(),
     { ...options(request), method: "POST", json: { performanceIds } });
 export const fetchMyPlaylists = (request: PlaylistRequestOptions = {}) =>
-  apiFetch<{ data: PlayPlaylistSummary[] }>(apiRoutes.otwPlay.myPlaylists.build(), options(request, true));
+  apiFetch<{ data: PlayPlaylistSummary[] }>(apiRoutes.otwPlay.myPlaylists.build(), options(request));
 export const fetchMyPlaylist = (id: string, request: PlaylistRequestOptions = {}) =>
-  apiFetch<{ data: PlayPlaylist }>(apiRoutes.otwPlay.myPlaylist.build(id), options(request, true));
+  apiFetch<{ data: PlayPlaylist }>(apiRoutes.otwPlay.myPlaylist.build(id), options(request));
 export const createMyPlaylist = (input: PlayPlaylistWrite, requestId: string, request: PlaylistRequestOptions = {}) =>
-  apiFetch<{ data: PlayPlaylist }>(apiRoutes.otwPlay.myPlaylists.build(), { ...options(request, true), method: "POST", json: { ...input, requestId } });
+  apiFetch<{ data: PlayPlaylist }>(apiRoutes.otwPlay.myPlaylists.build(), { ...options(request), method: "POST", json: { ...input, requestId } });
 export const saveMyPlaylist = (id: string, input: PlayPlaylistWrite, expectedVersion: number, request: PlaylistRequestOptions = {}) =>
-  apiFetch<{ data: PlayPlaylist }>(apiRoutes.otwPlay.myPlaylist.build(id), { ...options(request, true), method: "PUT", json: { ...input, expectedVersion } });
+  apiFetch<{ data: PlayPlaylist }>(apiRoutes.otwPlay.myPlaylist.build(id), { ...options(request), method: "PUT", json: { ...input, expectedVersion } });
 export const deleteMyPlaylist = (id: string, expectedVersion: number, request: PlaylistRequestOptions = {}) =>
-  apiFetch<{ data: { deleted: true } }>(apiRoutes.otwPlay.myPlaylist.build(id), { ...options(request, true), method: "DELETE", json: { expectedVersion } });
+  apiFetch<{ data: { deleted: true } }>(apiRoutes.otwPlay.myPlaylist.build(id), { ...options(request), method: "DELETE", json: { expectedVersion } });
 
 export const fetchAdminDefaultPlaylists = (signal?: AbortSignal) =>
   apiFetch<{ data: PlayAdminDefaultPlaylist[] }>(apiRoutes.otwPlay.admin.playlistDefaults.build(), { auth: "required", signal });

@@ -537,9 +537,8 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     path: apiRoutes.otwPlay.catalog.pattern,
     methods: methods(
       get({
-        auth: "public",
-        cache:
-          "public, max-age=60, s-maxage=300; q => private, max-age=30; cursor => private, max-age=60; auth/cookie => no-store",
+        auth: "member-policy",
+        cache: "no-store",
         successStatus: 200,
       }),
     ),
@@ -549,14 +548,14 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     id: "otw-play.members",
     owner: "otw-play",
     path: apiRoutes.otwPlay.members.pattern,
-    methods: methods(get({ auth: "public", cache: "no-store", successStatus: 200 })),
+    methods: methods(get({ auth: "member-policy", cache: "no-store", successStatus: 200 })),
     handler: handleOtwPlayPublicCatalog,
   },
   {
     id: "otw-play.memberSongbook",
     owner: "otw-play",
     path: apiRoutes.otwPlay.memberSongbook.pattern,
-    methods: methods(get({ auth: "public", cache: "no-store", successStatus: 200 })),
+    methods: methods(get({ auth: "member-policy", cache: "no-store", successStatus: 200 })),
     handler: handleOtwPlayPublicCatalog,
   },
   {
@@ -565,8 +564,8 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     path: apiRoutes.otwPlay.facets.pattern,
     methods: methods(
       get({
-        auth: "public",
-        cache: "public, max-age=60, s-maxage=1800; auth/cookie => no-store",
+        auth: "member-policy",
+        cache: "no-store",
         successStatus: 200,
       }),
     ),
@@ -578,8 +577,8 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     path: apiRoutes.otwPlay.song.pattern,
     methods: methods(
       get({
-        auth: "public",
-        cache: "public, max-age=60, s-maxage=600; auth/cookie => no-store",
+        auth: "member-policy",
+        cache: "no-store",
         successStatus: 200,
       }),
     ),
@@ -600,21 +599,21 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     id: "otw-play.playlists.defaults",
     owner: "otw-play",
     path: apiRoutes.otwPlay.playlistDefaults.pattern,
-    methods: methods(get(PUBLIC_NO_STORE)),
+    methods: methods(get({ auth: "member-policy", cache: "no-store", successStatus: 200 })),
     handler: handleOtwPlayPlaylists,
   },
   {
     id: "otw-play.performances",
     owner: "otw-play",
     path: apiRoutes.otwPlay.performances.pattern,
-    methods: methods(get(PUBLIC_NO_STORE)),
+    methods: methods(get({ auth: "member-policy", cache: "no-store", successStatus: 200 })),
     handler: handleOtwPlayPlaylists,
   },
   {
     id: "otw-play.performances.resolve",
     owner: "otw-play",
     path: apiRoutes.otwPlay.resolvePerformances.pattern,
-    methods: methods(post(PUBLIC_NO_STORE)),
+    methods: methods(post({ auth: "member-policy", cache: "no-store", successStatus: 200 })),
     handler: handleOtwPlayPlaylists,
   },
   {
@@ -639,8 +638,8 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     path: apiRoutes.otwPlay.performance.pattern,
     methods: methods(
       get({
-        auth: "public",
-        cache: "public, max-age=60, s-maxage=600; auth/cookie => no-store",
+        auth: "member-policy",
+        cache: "no-store",
         successStatus: 200,
       }),
     ),

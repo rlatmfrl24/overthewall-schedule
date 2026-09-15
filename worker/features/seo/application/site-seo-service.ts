@@ -41,7 +41,7 @@ const validatePlayState = (state: PlaySeoState): PlaySeoState => {
 };
 
 const playRobots = (state: PlaySeoState): SiteRobots =>
-  !state.publicReadEnabled
+  (state.requiresMembership || !state.publicReadEnabled)
     ? "noindex,nofollow"
     : state.navigationVisible
       ? "index,follow"
@@ -76,7 +76,7 @@ export class SiteSeoService {
   async readPlaySongs(): Promise<SiteSeoMetadata> {
     const state = await this.readPlayState();
     return buildPlaySongsSiteSeo(
-      state.publicReadEnabled ? "noindex,follow" : "noindex,nofollow",
+      !state.requiresMembership && state.publicReadEnabled ? "noindex,follow" : "noindex,nofollow",
     );
   }
 
@@ -84,7 +84,7 @@ export class SiteSeoService {
     slug: string,
   ): Promise<SiteSeoMetadata | null> {
     const state = await this.readPlayState();
-    if (!state.publicReadEnabled) {
+    if (state.requiresMembership || !state.publicReadEnabled) {
       return buildPlaySongPlaceholderSeo(
         `/play/songs/${encodeURIComponent(slug)}`,
       );
@@ -95,7 +95,7 @@ export class SiteSeoService {
 
   async findPlayMember(code: string): Promise<SiteSeoMetadata | null> {
     const state = await this.readPlayState();
-    if (!state.publicReadEnabled) return buildPlaySongPlaceholderSeo(`/play/members/${encodeURIComponent(code)}`);
+    if (state.requiresMembership || !state.publicReadEnabled) return buildPlaySongPlaceholderSeo(`/play/members/${encodeURIComponent(code)}`);
     const members = await this.reader.readPlayMemberSummaries();
     await this.assertPlaySnapshot(state);
     const member = members.find(item => item.code.toLowerCase() === code.toLowerCase());
@@ -117,7 +117,7 @@ export class SiteSeoService {
     const urls = new Set(STATIC_SITEMAP_URLS);
     if (feed.isPublic) urls.add(feed.metadata.canonical);
     for (const code of codes) urls.add(toSiteUrl(`/profile/${code}`));
-    if (playState.navigationVisible) {
+    if (!playState.requiresMembership && playState.navigationVisible) {
       const slugs = [
         ...new Set(await this.reader.listPublishedPlaySongSlugs()),
       ];

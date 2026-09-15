@@ -44,6 +44,23 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); });
 
+it.each(["/api/play/playlists/defaults", "/api/play/performances", "/api/play/performances/resolve"])("requires membership before playlist reads: %s", async path => {
+  auth.authenticateRequest.mockResolvedValue({ ok: false, response: new Response(null, { status: 401 }) });
+  expect((await handler(request(path), env)).status).toBe(401);
+  expect(readPublicState).not.toHaveBeenCalled();
+});
+
+it("keeps broadcast browsing and resolution administrator-only", async () => {
+  const path = "/api/play/performances?scope=broadcast";
+  expect((await handler(request(path), env)).status).toBe(403);
+  expect(reader.readPlaylistPerformances).not.toHaveBeenCalled();
+  reader.readPlaylistPerformances.mockResolvedValue([]);
+  auth.requireAdminUser.mockResolvedValue({ ok: true, user: { id: "admin" } });
+  expect((await handler(request(path, "GET", undefined, { [OTW_PLAY_ADMIN_PREVIEW_HEADER]: "1" }), env)).status).toBe(200);
+  await handler(request("/api/play/performances/resolve", "POST", { performanceIds: ["clip"] }, { [OTW_PLAY_ADMIN_PREVIEW_HEADER]: "1" }), env);
+  expect(reader.resolvePlaylistPerformances).toHaveBeenLastCalledWith(["clip"], "all");
+});
+
 async function expectError(response: Response, status: number, code: string) {
   expect(response.status).toBe(status);
   expect(response.headers.get("Cache-Control")).toBe("no-store");
@@ -164,8 +181,8 @@ describe("playlist HTTP boundary with the real application service", () => {
     expect(readPublicState).not.toHaveBeenCalled();
     const response = await handler(request("/api/play/performances/resolve", "POST", { performanceIds: input(60).performanceIds }), env);
     expect(response.status).toBe(200);
-    expect(reader.resolvePlaylistPerformances).toHaveBeenCalledWith(input(60).performanceIds, "all");
-    expect(auth.authenticateRequest).not.toHaveBeenCalled();
+    expect(reader.resolvePlaylistPerformances).toHaveBeenCalledWith(input(60).performanceIds, "official");
+    expect(auth.authenticateRequest).toHaveBeenCalled();
   });
 
   it("does not leak internal persistence failures into the HTTP response", async () => {

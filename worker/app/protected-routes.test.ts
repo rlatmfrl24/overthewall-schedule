@@ -15,6 +15,19 @@ const dispatch = async (request: Request) => {
 };
 
 describe("protected worker routes", () => {
+  it.each([
+    ["GET", "/api/play/catalog"], ["GET", "/api/play/facets"],
+    ["GET", "/api/play/members"], ["GET", "/api/play/members/member/songbook"],
+    ["GET", "/api/play/songs/song?scope=all"], ["GET", "/api/play/performances/clip"],
+    ["GET", "/api/play/performances?scope=broadcast"], ["POST", "/api/play/performances/resolve"],
+    ["GET", "/api/play/playlists/defaults"], ["POST", "/api/play/admin/ai-reviews"],
+  ])("requires authentication through the real route dispatcher: %s %s", async (method, path) => {
+    const response = await dispatch(new Request(`https://example.com${path}`, {
+      method, headers: { "If-None-Match": "*" },
+    }));
+    expect(response.status).toBe(401);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
   it("/api/settings rejects unauthenticated requests", async () => {
     const response = await dispatch(
       new Request("https://example.com/api/settings"),

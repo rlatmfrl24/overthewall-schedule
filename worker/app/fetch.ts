@@ -36,8 +36,8 @@ const createSiteSeoService = (env: Env) => {
     findActiveProfileByCode(code) {
       return members.findProfileByCode(code);
     },
-    readPlayState() {
-      return play.readSeoState();
+    async readPlayState() {
+      return { ...await play.readSeoState(), requiresMembership: true };
     },
     readPlayMemberSummaries() { return play.readMemberSummaries(); },
     listPublishedPlaySongSlugs() {

@@ -113,7 +113,7 @@ const publicGet = <T>(
           auth: "required",
           headers: { [OTW_PLAY_ADMIN_PREVIEW_HEADER]: "1" },
         }
-      : { auth: "omit" },
+      : { auth: path === apiRoutes.otwPlay.config.build() ? "omit" : "required" },
   );
 
 export function fetchOtwPlayConfig(options: OtwPlayPublicRequestOptions = {}) {

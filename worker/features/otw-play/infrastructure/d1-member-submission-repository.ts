@@ -167,7 +167,7 @@ export class D1MemberSubmissionRepository
             SELECT 1 FROM music_performances AS performance
             WHERE performance.song_id = song.id
               AND performance.publication_status = 'published'
-              AND performance.release_type IN ('official_mv', 'official_video', 'broadcast')
+              AND performance.release_type IN ('official_mv', 'official_video')
           )
           AND (
             song.normalized_title = ? OR song.normalized_title GLOB ?
@@ -335,8 +335,7 @@ export class D1MemberSubmissionRepository
                 row.public_read_enabled === 1 &&
                 row.approved_performance_publication_status === "published" &&
                 (row.approved_performance_release_type === "official_mv" ||
-                row.approved_performance_release_type === "official_video" ||
-                row.approved_performance_release_type === "broadcast") &&
+                row.approved_performance_release_type === "official_video") &&
                 row.approved_performance_has_public_source === 1 &&
                 row.approved_song_archived_at === null &&
                 row.approved_song_merged_into_song_id === null,

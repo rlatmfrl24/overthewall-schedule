@@ -36,6 +36,8 @@ const CACHE_TTL_SECONDS = {
 } as const;
 
 export interface PublicCatalogReadContext {
+  /** Granted only after administrator authentication at the HTTP boundary. */
+  allowBroadcastRead?: boolean;
   allowSharedCache: boolean;
   allowDisabledRead?: boolean;
 }
@@ -310,6 +312,7 @@ export class PublicCatalogService {
     preloadedMeta?: PublicCatalogMeta,
     scope: "official" | "all" = "official",
   ): Promise<PublicCatalogDetailResult<PublicCatalogSongDetail>> {
+    if (!context.allowBroadcastRead) scope = "official";
     return this.readCachedDetail(
       "song",
       `songs/${encodeURIComponent(slug)}${scope === "all" ? "?scope=all" : ""}`,
@@ -330,7 +333,10 @@ export class PublicCatalogService {
       `performances/${encodeURIComponent(performanceId)}`,
       "performance_not_found",
       { ...context, allowSharedCache: false },
-      () => this.reader.readPerformanceById(performanceId),
+      async () => {
+        const item = await this.reader.readPerformanceById(performanceId);
+        return item?.performance.releaseType === "broadcast" && !context.allowBroadcastRead ? null : item;
+      },
       preloadedMeta,
     );
   }

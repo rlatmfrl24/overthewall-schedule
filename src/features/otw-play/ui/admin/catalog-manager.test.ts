@@ -486,7 +486,7 @@ describe("OtwPlayCatalogManager", () => {
     await waitFor(() => expect(fetchReleaseMock).toHaveBeenCalledOnce());
     await waitFor(() => expect(fetchSourceHealthMock).toHaveBeenCalledOnce());
     expect(screen.getByText(/Analytics 조회 token/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /공개 API canary 시작/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /회원 이용 canary 시작/ })).toBeTruthy();
   });
 
   it("keeps the operations and rollback path reachable when catalog loading fails", async () => {
@@ -502,7 +502,7 @@ describe("OtwPlayCatalogManager", () => {
       await screen.findByRole("heading", { name: "운영·공개 권위" }),
     ).toBeTruthy();
     expect(fetchReleaseMock).toHaveBeenCalledOnce();
-    expect(screen.getByRole("button", { name: /공개 API canary 시작/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /회원 이용 canary 시작/ })).toBeTruthy();
   });
 
   it("renders a proposal query failure instead of an empty review queue and retries", async () => {
@@ -527,7 +527,7 @@ describe("OtwPlayCatalogManager", () => {
     renderCatalogManager();
     await screen.findByText("OTW Play 카탈로그");
     fireEvent.click(screen.getByRole("tab", { name: "운영" }));
-    const trigger = await screen.findByRole("button", { name: /공개 API canary 시작/ });
+    const trigger = await screen.findByRole("button", { name: /회원 이용 canary 시작/ });
     fireEvent.click(trigger);
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "권위 상태 변경" }));

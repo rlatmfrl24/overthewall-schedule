@@ -3,7 +3,9 @@ import { PublicCatalogService } from "../application/public-catalog-service";
 import { createPublicCatalogHandler } from "../http/public-catalog-handler";
 import { applyD1Migrations, env } from "cloudflare:test";
 import type { D1Migration } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as auth from "../../../platform/auth";
+afterEach(() => vi.restoreAllMocks());
 import type { PublicCatalogReaderQuery } from "../application/ports/public-catalog-reader";
 import { parsePublicCatalogQuery } from "../domain/public-catalog-query";
 import { encodePublicCatalogGroupKey } from "../domain/public-group-key";
@@ -513,6 +515,7 @@ describe("D1PublicCatalogReader", () => {
     expect(second.document.data.items[0]?.id).not.toBe(first.document.data.items[0]?.id);
     await expect(service.readMemberSongbook("current-c", query(`limit=1&sort=title&cursor=${cursor}`), context)).rejects.toThrow();
     await expect(service.readMemberSongbook("current-a", query(`category=collaboration&limit=1&sort=title&cursor=${cursor}`), context)).rejects.toThrow();
+    vi.spyOn(auth, "authenticateRequest").mockResolvedValue({ ok: true, user: { id: "member", displayName: null, sessionId: "session", claims: {} } });
     const handler = createPublicCatalogHandler(() => service, async () => '"test"');
     const response = await handler(new Request("https://example.com/api/play/members/current-a/songbook?category=collaboration"), testEnv);
     expect(response.status).toBe(200);

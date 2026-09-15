@@ -158,7 +158,7 @@ describe("D1MemberSubmissionRepository", () => {
     expect(JSON.stringify(result)).not.toContain("proposal-member");
   });
 
-  it.each(["official_video", "broadcast"] as const)("returns only published %s song candidates and preserves commas in artist names", async (releaseType) => {
+  it.each(["official_video", "broadcast"] as const)("returns only member-visible %s song candidates and preserves commas in artist names", async (releaseType) => {
     const repository = new D1MemberSubmissionRepository(db);
     await db.batch([
       db.prepare(
@@ -201,7 +201,7 @@ describe("D1MemberSubmissionRepository", () => {
       await db.prepare("UPDATE music_performances SET release_type = 'broadcast', relation_type = 'singing_clip' WHERE id LIKE 'submission-candidate-performance-%'").run();
     }
     const result = await repository.preflight("member-a", "ZZZZZZZZZZZ", "Candidate Song");
-    expect(result.songCandidates).toEqual([
+    expect(result.songCandidates).toEqual(releaseType === "broadcast" ? [] : [
       expect.objectContaining({
         id: "submission-candidate-published",
         originalArtists: ["Earth, Wind & Fire"],

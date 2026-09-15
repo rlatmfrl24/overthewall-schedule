@@ -15,7 +15,7 @@ import type {
   OtwPlayPublicSourceDto,
 } from "@contracts/otw-play";
 import { OTW_PLAY_ADMIN_PREVIEW_HEADER } from "@contracts/otw-play";
-import { requireAdminUser } from "../../../platform/auth";
+import { authenticateRequest, requireAdminUser } from "../../../platform/auth";
 import type { Env } from "../../../platform/types";
 import {
   PublicCatalogService,
@@ -405,7 +405,7 @@ const readContext = (
   request: Request,
   allowDisabledRead: boolean,
 ): PublicCatalogReadContext => ({
-  allowSharedCache: !hasPrivateHeaders(request),
+  allowSharedCache: new URL(request.url).pathname === "/api/play/config" && !hasPrivateHeaders(request),
   allowDisabledRead,
 });
 
@@ -496,7 +496,7 @@ export const createPublicCatalogHandler = (
     } catch {
       // A telemetry adapter cannot change the public catalog response.
     }
-    return response;
+    return url.pathname === "/api/play/config" ? response : withPrivateResponseHeaders(response);
   };
 
   if (request.method !== "GET") {
@@ -511,6 +511,12 @@ export const createPublicCatalogHandler = (
   }
 
   try {
+    if (url.pathname !== "/api/play/config") {
+      const auth = await authenticateRequest(request, env);
+      if (!auth.ok) return tracked(Response.json({ error: {
+        code: "PLAY_AUTH_REQUIRED", message: "OTW Play는 로그인한 회원만 이용할 수 있습니다.", requestId,
+      } }, { status: auth.response.status }));
+    }
     const adminPreviewRequested =
       request.headers.get(OTW_PLAY_ADMIN_PREVIEW_HEADER) === "1";
     if (adminPreviewRequested) {
@@ -529,6 +535,7 @@ export const createPublicCatalogHandler = (
     readDiagnostics = application.readDiagnostics;
     const service = application.service;
     const context = readContext(request, adminPreviewRequested);
+    context.allowBroadcastRead = adminPreviewRequested;
     const meta = await service.readPublicState();
 
     if (url.pathname === "/api/play/config") {

@@ -245,7 +245,7 @@ export function OtwPlaySubmissionsPage() {
                       </Button>
                     </Link>
                   ) : (
-                    <p className="text-muted-foreground">현재 OTW Play는 관리자만 확인할 수 있습니다.</p>
+                    <p className="text-muted-foreground">이 제안의 게시 화면은 현재 비공개입니다.</p>
                   )}
                 </div>
               )
