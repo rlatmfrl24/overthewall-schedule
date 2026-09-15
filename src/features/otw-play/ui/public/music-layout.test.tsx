@@ -7,6 +7,7 @@ import type { OtwPlayPublicSongSummaryDto } from "@contracts/otw-play";
 const mocks = vi.hoisted(() => ({
   useCatalog: vi.fn(),
   useFacets: vi.fn(),
+  useMembers: vi.fn(),
 }));
 vi.mock("../playlists/playlists-page", () => ({ OtwPlayPlaylistDiscovery: () => <section aria-label="플레이리스트">플레이리스트</section> }));
 vi.mock("../../queries/use-member-colors", () => ({ useOtwPlayMemberColors: () => ({ data: new Map([[1, "#ff6699"]]) }) }));
@@ -38,7 +39,7 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("../../queries/use-public-catalog", () => ({
   useOtwPlayCatalog: mocks.useCatalog,
   useOtwPlayFacets: mocks.useFacets,
-  useOtwPlayMembers: () => ({ data: undefined, isError: false }),
+  useOtwPlayMembers: mocks.useMembers,
 }));
 vi.mock("../../player/play-player-context", () => ({
   useOtwPlayPlayer: () => ({
@@ -187,6 +188,18 @@ describe("OTW Play discover layout", () => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
+
+  it.each([false, true].flatMap(enabled => [0, 2, 3, 8].map(songCount => ({ enabled, songCount }))))(
+    "always searches by member with visibility=$enabled and songs=$songCount",
+    ({ enabled, songCount }) => {
+      mocks.useMembers.mockReturnValue({ data: { data: { members: [{ uid: 1, songCount, pageEligible: enabled && songCount >= 3 }] } }, isError: false });
+      render(<OtwPlayHomePage />);
+      const link = screen.getByRole("link", { name: "멤버 1 메인 보컬·피처링 곡 보기" });
+      expect(link.getAttribute("href")).toBe("/play/songs");
+      expect(JSON.parse(link.dataset.search ?? "{}")).toEqual({ member: "1" });
+      expect(mocks.useMembers).not.toHaveBeenCalled();
+    },
+  );
 
   it("uses discovery as a compact featured entry point", () => {
     render(<OtwPlayHomePage />);

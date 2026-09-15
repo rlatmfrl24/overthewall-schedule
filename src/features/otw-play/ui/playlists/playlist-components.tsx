@@ -57,11 +57,13 @@ export function DefaultPlaylistCard({ playlist }: { playlist: PlayDefaultPlaylis
 export function PerformanceRow({ item, children, compact = false }: { item: OtwPlayPublicPerformanceResponseDto; children?: ReactNode; compact?: boolean }) {
   const player = useOtwPlayPlayer(), source = item.performance.selectedSource;
   const participants = item.performance.participants.map(p => p.displayName).join(" · ");
-  const version = `${item.performance.relation === "cover" ? "커버" : "오리지널"} · ${item.performance.releasedAt?.slice(0, 10) ?? "날짜 미상"}`;
+  const relation = item.performance.relation === "cover" ? "커버" : "오리지널";
+  const version = `${relation} · ${item.performance.releasedAt?.slice(0, 10) ?? "날짜 미상"}`;
+
   return <div className={`playlist-track${compact ? " playlist-track-compact" : ""}`}>
     {source?.thumbnailUrl ? <img src={source.thumbnailUrl} alt="" loading="lazy" /> : <Music2 className="m-3 size-6 shrink-0" />}
     <div className="min-w-0 flex-1"><Link to="/play/songs/$songSlug" params={{ songSlug: item.song.slug }} search={{ performance: item.performance.id }} className={compact ? "block truncate text-sm font-medium" : "font-medium"} title={item.song.title}>{item.song.title}</Link>
-      {compact ? <p className="flex min-w-0 gap-1 text-xs text-muted-foreground"><span className="truncate" title={`${participants} · ${version}`}>{participants} · {version}</span>{!item.performance.playable && <span className="shrink-0">재생 불가</span>}</p> : <>
+      {compact ? <p className="playlist-track-summary text-xs text-muted-foreground"><span title={participants}>{participants}</span></p> : <>
         <p className="text-xs text-muted-foreground">{participants}</p>
         <p className="text-xs text-muted-foreground">{version}{!item.performance.playable && " · 재생 불가"}</p></>}</div>
     {children ?? <Button size="sm" variant="outline" disabled={!source || !item.performance.playable}

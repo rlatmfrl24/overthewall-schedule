@@ -70,6 +70,7 @@ type PlayPlayerContextValue = {
   playNext: (track: OtwPlayTrack) => void;
   select: (index: number) => void;
   remove: (itemId: string) => void;
+  clearQueue: () => void;
   retry: (itemId: string) => void;
   retryPlayback: () => void;
   move: (itemId: string, direction: -1 | 1) => void;
@@ -87,6 +88,21 @@ type PlayPlayerContextValue = {
 };
 
 const PlayPlayerContext = createContext<PlayPlayerContextValue | null>(null);
+
+const VOLUME_STORAGE_KEY = "otw-play:volume";
+
+const initialVolume = () => {
+  try {
+    const stored = window.localStorage.getItem(VOLUME_STORAGE_KEY);
+    if (stored === null || stored.trim() === "") return 100;
+    const parsed: unknown = JSON.parse(stored);
+    return typeof parsed === "number" && Number.isFinite(parsed) && parsed >= 0 && parsed <= 100
+      ? Math.round(parsed)
+      : 100;
+  } catch {
+    return 100;
+  }
+};
 
 const initialQueue = () => {
   if (typeof window === "undefined") return createEmptyOtwPlayQueue();
@@ -173,7 +189,7 @@ export function OtwPlayPlayerProvider({
   const playbackSurfaceActive = surfaceActive && !playbackDisabled;
   const [playerReadyVersion, setPlayerReadyVersion] = useState(0);
   const [status, setStatus] = useState<PlayerStatus>("idle");
-  const [volume, setVolumeState] = useState(100);
+  const [volume, setVolumeState] = useState(initialVolume);
   const [muted, setMuted] = useState(false);
   const [playbackPositionSeconds, setPlaybackPositionSeconds] = useState(0);
   const [playbackDurationSeconds, setPlaybackDurationSeconds] = useState(0);
@@ -831,6 +847,15 @@ export function OtwPlayPlayerProvider({
       });
       failedSourceIdsRef.current.delete(itemId);
     },
+    clearQueue() {
+      playbackRequestedRef.current = false;
+      dispatch({ type: "clear" });
+      setTracks(new Map());
+      setUnavailableItemIds(new Set());
+      setRetryableItemIds(new Set());
+      failedSourceIdsRef.current.clear();
+      setAnnouncement("플레이큐를 비우고 재생을 중지했습니다.");
+    },
     retry(itemId) {
       setRetryableItemIds((current) => {
         if (!current.has(itemId)) return current;
@@ -893,9 +918,15 @@ export function OtwPlayPlayerProvider({
     },
     seek,
     setVolume(nextVolume) {
+      if (!Number.isFinite(nextVolume)) return;
       const clamped = Math.round(Math.min(100, Math.max(0, nextVolume)));
       volumeRef.current = clamped;
       setVolumeState(clamped);
+      try {
+        window.localStorage.setItem(VOLUME_STORAGE_KEY, String(clamped));
+      } catch {
+        // Playback controls remain available when browser storage is unavailable.
+      }
       if (clamped > 0 && mutedRef.current) {
         mutedRef.current = false;
         setMuted(false);

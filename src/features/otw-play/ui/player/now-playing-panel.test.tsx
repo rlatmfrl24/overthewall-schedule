@@ -35,6 +35,7 @@ const actions = {
   select: vi.fn(),
   move: vi.fn(),
   remove: vi.fn(),
+  clearQueue: vi.fn(),
   retry: vi.fn(),
   retryPlayback: vi.fn(),
 };
@@ -198,6 +199,21 @@ describe("OTW Play player and queue rail", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it.each([
+    [DESKTOP_PLAYER_QUERY, "플레이큐"],
+    [PHONE_PLAYER_QUERY, "모바일 플레이큐"],
+  ])("offers queue clearing through %s", (query, region) => {
+    createMatchMediaController({ [query]: true });
+    mocks.usePlayer.mockReturnValue({ ...emptyPlayer, queue: { ...emptyPlayer.queue,
+      items: [{ id: "item-1", performanceId: "performance-1", sourceId: "source-1" }] }, trackForItem: () => track });
+    render(<OtwPlayPlayerQueuePanel />);
+    if (query === PHONE_PLAYER_QUERY) {
+      fireEvent.click(screen.getByRole("button", { name: "Now Playing 화면 열기" }));
+    }
+    fireEvent.click(within(screen.getByRole("region", { name: region })).getByRole("button", { name: "플레이큐 비우기" }));
+    expect(actions.clearQueue).toHaveBeenCalledOnce();
   });
 
   it("hides an empty rail, opens for queued tracks before hydration, and hides after the last removal", () => {

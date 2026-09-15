@@ -1,7 +1,5 @@
-import { isOtwPlayMemberPageEligible } from "@contracts/otw-play-members";
 import {
   buildFeedSiteSeo,
-  buildPlayMemberSiteSeo,
   buildPlayHomeSiteSeo,
   buildPlaySongPlaceholderSeo,
   buildPlaySongsSiteSeo,
@@ -93,15 +91,6 @@ export class SiteSeoService {
     return song ? buildPlaySongSiteSeo(song, playRobots(state)) : null;
   }
 
-  async findPlayMember(code: string): Promise<SiteSeoMetadata | null> {
-    const state = await this.readPlayState();
-    if (state.requiresMembership || !state.publicReadEnabled) return buildPlaySongPlaceholderSeo(`/play/members/${encodeURIComponent(code)}`);
-    const members = await this.reader.readPlayMemberSummaries();
-    await this.assertPlaySnapshot(state);
-    const member = members.find(item => item.code.toLowerCase() === code.toLowerCase());
-    return member ? buildPlayMemberSiteSeo({ ...member, pageEligible: isOtwPlayMemberPageEligible(member, state) }) : null;
-  }
-
   private async assertPlaySnapshot(state: PlaySeoState) {
     const current = await this.readPlayState();
     if (current.revision !== state.revision || current.publicReadEnabled !== state.publicReadEnabled ||
@@ -124,11 +113,7 @@ export class SiteSeoService {
       if (slugs.length > MAX_PLAY_SITEMAP_SONGS) {
         throw new Error("OTW Play sitemap exceeds the supported song limit");
       }
-      const members = await this.reader.readPlayMemberSummaries();
       await this.assertPlaySnapshot(playState);
-      for (const member of members) {
-        if (isOtwPlayMemberPageEligible(member, playState)) urls.add(toSiteUrl(`/play/members/${encodeURIComponent(member.code)}`));
-      }
       urls.add(toSiteUrl("/play"));
       for (const slug of slugs) {
         urls.add(toSiteUrl(`/play/songs/${encodeURIComponent(slug)}`));

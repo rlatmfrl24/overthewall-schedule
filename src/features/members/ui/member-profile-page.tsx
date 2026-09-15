@@ -428,7 +428,7 @@ const ProfileAiImageNotice = ({ className }: { className?: string }) => {
 
 export function MemberProfilePage({ code, renderPlayLink }: {
   code: string;
-  renderPlayLink?: (memberCode: string) => ReactNode;
+  renderPlayLink?: (memberUid: number) => ReactNode;
 }) {
   const [activeBackgroundLoadKey, setActiveBackgroundLoadKey] = useState<
     string | null
@@ -990,7 +990,7 @@ export function MemberProfilePage({ code, renderPlayLink }: {
               <h1 className="break-keep text-4xl font-black leading-[1.04] tracking-normal drop-shadow-[0_8px_22px_rgba(0,0,0,0.42)] sm:whitespace-nowrap sm:text-5xl lg:text-7xl xl:text-[4.8rem]">
                 {member.name}
               </h1>
-              {renderPlayLink?.(member.code)}
+              {renderPlayLink?.(member.uid)}
             </div>
 
             {activeImage && (

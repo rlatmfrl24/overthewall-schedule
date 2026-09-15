@@ -324,11 +324,19 @@ export const createSiteSeoHandler = (
             rewritePlayHtml(asset, buildNotFoundSiteSeo(url.pathname), 404),
           );
         }
-        metadata = playRoute.kind === "member" ? await service.findPlayMember(slug) : await service.findPlaySong(slug);
-        if (metadata && playRoute.kind === "member" && metadata.path !== url.pathname) {
-          const response = redirect(url, metadata.path, true);
-          response.headers.set("Cache-Control", "no-store");
-          return response;
+        if (playRoute.kind === "member") {
+          const member = await service.findProfile(slug);
+          if (member) {
+            const target = new URL("/play/songs", url.origin);
+            // TanStack Router encodes numeric-looking string search values as JSON strings.
+            target.searchParams.set("member", JSON.stringify(String(member.uid)));
+            return new Response(null, { status: 301, headers: {
+              Location: target.toString(), "Cache-Control": "no-store",
+            } });
+          }
+          metadata = null;
+        } else {
+          metadata = await service.findPlaySong(slug);
         }
       }
 

@@ -1,4 +1,3 @@
-import type { OtwPlayMemberSongbookQuery } from "@contracts/otw-play-members";
 import {
   createContext,
   createElement,
@@ -14,8 +13,6 @@ import type { OtwPlayPublicCatalogQuery } from "@contracts/otw-play";
 import { queryKeys } from "@/shared/query/query-keys";
 import {
   fetchOtwPlayMembers,
-  fetchOtwPlayMemberSongbook,
-  serializeMemberSongbookQuery,
   fetchOtwPlayCatalog,
   fetchOtwPlayConfig,
   fetchOtwPlayFacets,
@@ -144,20 +141,6 @@ export function useOtwPlayMembers(options: PublicQueryOptions = {}) {
   return useQuery({
     queryKey: queryKeys.otwPlay.members(request.audience),
     queryFn: () => fetchOtwPlayMembers(request),
-    enabled: options.enabled ?? true,
-    staleTime: 0,
-    retry: false,
-  });
-}
-
-export function useOtwPlayMemberSongbook(code: string, query: OtwPlayMemberSongbookQuery, options: PublicQueryOptions = {}) {
-  const request = usePublicRequestOptions(options);
-  return useQuery({
-    queryKey: queryKeys.otwPlay.memberSongbook(code, serializeMemberSongbookQuery(query).toString(), request.audience),
-    queryFn: () => fetchOtwPlayMemberSongbook(code, query, request),
-    placeholderData: (previousData, previousQuery) =>
-      previousData?.data.member.code.toLowerCase() === code.toLowerCase() &&
-      previousQuery?.queryKey[1] === request.audience ? previousData : undefined,
     enabled: options.enabled ?? true,
     staleTime: 0,
     retry: false,

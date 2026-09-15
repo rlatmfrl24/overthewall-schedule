@@ -689,6 +689,22 @@ function PlaybackProgress({ player }: { player: OtwPlayPlayerContext }) {
   );
 }
 
+function QueueClearButton({ player }: { player: OtwPlayPlayerContext }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      aria-label="플레이큐 비우기"
+      title="현재 곡을 포함한 플레이큐를 비우고 재생을 중지합니다"
+      disabled={player.queue.items.length === 0}
+      onClick={player.clearQueue}
+    >
+      <Trash2 aria-hidden="true" />
+    </Button>
+  );
+}
+
 function QueueShuffleButton({ player }: { player: OtwPlayPlayerContext }) {
   return <Button type="button" variant="ghost" size="icon-sm"
     aria-label="현재 곡을 제외하고 대기열 섞기" title="대기열 섞기"
@@ -723,7 +739,10 @@ function DesktopQueue({
             {player.queue.items.length}
           </span>
         </div>
-        <QueueShuffleButton player={player} />
+        <div className="flex shrink-0 items-center gap-1">
+          <QueueShuffleButton player={player} />
+          <QueueClearButton player={player} />
+        </div>
       </div>
 
       {hasQueue ? (
@@ -869,7 +888,10 @@ function MobilePlayerQueue({
         <span className="text-xs text-muted-foreground">
           {player.queue.items.length}곡
         </span>
-        <QueueShuffleButton player={player} />
+        <div className="flex shrink-0 items-center gap-1">
+          <QueueShuffleButton player={player} />
+          <QueueClearButton player={player} />
+        </div>
       </div>
       <ol className="space-y-1 pb-4">
         {player.queue.items.map((item, index) => {
