@@ -8,6 +8,7 @@ import { createSiteSeoHandler } from "./handler";
 const shell = `<!doctype html><html lang="ko"><head><title>home</title><meta data-site-seo="description" name="description" content="home"><meta data-site-seo="robots" name="robots" content="index,follow"><link data-site-seo="canonical" rel="canonical" href="https://otw-schedule.info/"><meta data-site-seo="og:title" property="og:title" content="home"><meta data-site-seo="og:description" property="og:description" content="home"><meta data-site-seo="og:url" property="og:url" content="https://otw-schedule.info/"><meta data-site-seo="og:type" property="og:type" content="website"><meta data-site-seo="twitter:card" name="twitter:card" content="summary"></head><body><div id="root"></div></body></html>`;
 
 const profile = {
+  uid: 1,
   code: "Alpha",
   name: "알파",
   introduction: "알파 소개",
@@ -368,37 +369,40 @@ describe("SEO HTML worker", () => {
 
 describe("member profile and Play SEO policy", () => {
   const state = { revision: 9, readModelRevision: 9, publicReadEnabled: true, navigationVisible: true, updatedAt: 1 };
-  const member = { uid: 1, code: "Alpha", name: "알파", oshiMark: null, unitName: null, imageUrl: "/profile/Alpha.webp", songCount: 3, performanceCount: 4 };
-  it.each([0, 1, 2, 3])("serves count %i with independent profile and member sitemap eligibility", async count => {
+  it.each([false, true])("redirects member URLs independently of Play visibility %s and drops old filters", async enabled => {
     const reader = createReader({
-      readPlayState: async () => state,
-      readPlayMemberSummaries: async () => [{ ...member, songCount: count }],
+      readPlayState: async () => ({ ...state, publicReadEnabled: enabled, navigationVisible: enabled }),
+      readPlayMemberSummaries: async () => { throw new Error("Must not read member catalog"); },
       findActiveProfileByCode: async code => code.toLowerCase() === "alpha" ? profile : null,
       listActiveProfileCodes: async () => ["Alpha"],
     });
     const handler = createSiteSeoHandler(() => new SiteSeoService(reader));
     const testEnv = { ASSETS: testAssets } as unknown as Env;
     for (const method of ["GET", "HEAD"]) {
-      const response = await handler(new Request("https://otw-schedule.info/play/members/Alpha?q=test&participantRole=chorus", { method }), testEnv);
-      expect(response?.status).toBe(200);
-      expect(response?.headers.get("Cache-Control")).toBe("no-store");
-      const html = await response!.text();
-      if (method === "HEAD") expect(html).toBe("");
-      else {
-        expect(html).toContain("알파 노래 모음 | OTW Play");
-        expect(html).toContain(`공식곡 ${count}곡`);
-        expect(html).toContain(`content="${count >= 3 ? 'index,follow' : 'noindex,follow'}"`);
-        expect(html).toContain('href="https://otw-schedule.info/play/members/Alpha"');
-        expect(html.match(/property="og:image"/g)).toHaveLength(1);
+      for (const code of ["Alpha", "alpha/", "ALPHA"]) {
+        const response = await handler(new Request(`https://otw-schedule.info/play/members/${code}?q=test&participantRole=chorus&cursor=old`, { method }), testEnv);
+        expect(response?.status).toBe(301);
+        expect(response?.headers.get("Location")).toBe("https://otw-schedule.info/play/songs?member=%221%22");
+        expect(response?.headers.get("Cache-Control")).toBe("no-store");
+        expect(await response!.text()).toBe("");
       }
     }
     const xml = await (await handler(new Request("https://otw-schedule.info/sitemap.xml"), testEnv))!.text();
     expect(xml).toContain("/profile/Alpha</loc>");
-    expect(xml.includes("/play/members/Alpha</loc>")).toBe(count >= 3);
-    const redirect = await handler(new Request("https://otw-schedule.info/play/members/alpha/"), testEnv);
-    expect(redirect?.status).toBe(301);
-    expect(redirect?.headers.get("Location")).toBe("https://otw-schedule.info/play/members/Alpha");
-    expect((await handler(new Request("https://otw-schedule.info/play/members/missing"), testEnv))?.status).toBe(404);
+    expect(xml).not.toContain("/play/members/");
+    for (const code of ["missing", "inactive", "bad%2Fcode"]) {
+      expect((await handler(new Request(`https://otw-schedule.info/play/members/${code}`), testEnv))?.status).toBe(404);
+    }
+  });
+
+  it("returns a retryable error when the member lookup fails", async () => {
+    const handler = createSiteSeoHandler(() => new SiteSeoService(createReader({
+      findActiveProfileByCode: async () => { throw new Error("offline"); },
+    })));
+    const response = await handler(new Request("https://otw-schedule.info/play/members/Alpha"), { ASSETS: testAssets } as unknown as Env);
+    expect(response?.status).toBe(503);
+    expect(response?.headers.get("Retry-After")).toBe("300");
+    expect(response?.headers.has("Location")).toBe(false);
   });
 
   it("does not reuse shell validators or duplicate sharing images in rewritten profile HTML", async () => {
@@ -448,15 +452,4 @@ describe("member profile and Play SEO policy", () => {
     }
   });
 
-  it("disables member indexing when navigation is hidden and before public release", async () => {
-    for (const publicReadEnabled of [true, false]) {
-      const service = new SiteSeoService(createReader({
-        readPlayState: async () => ({ ...state, publicReadEnabled, navigationVisible: false }),
-        readPlayMemberSummaries: async () => [member],
-      }));
-      const metadata = await service.findPlayMember("Alpha");
-      expect(metadata?.robots).toBe(publicReadEnabled ? "noindex,follow" : "noindex,nofollow");
-      expect(metadata?.sitemap).toBe(false);
-    }
-  });
 });

@@ -38,7 +38,6 @@ describe("SiteSeoService", () => {
     }));
     expect((await service.buildSitemapUrls()).some(url => url.includes("/play"))).toBe(false);
     expect(await service.findPlaySong("private-title")).toMatchObject({ robots: "noindex,nofollow" });
-    expect(await service.findPlayMember("member")).toMatchObject({ robots: "noindex,nofollow" });
   });
   it("includes only public feed and active profiles in a deduplicated sitemap", async () => {
     const reader = createReader({

@@ -1,4 +1,3 @@
-import type { OtwPlayPublicMemberDto } from "./otw-play-members";
 import type { MemberProfileDto } from "./members";
 
 export const SITE_ORIGIN = "https://otw-schedule.info";
@@ -199,19 +198,6 @@ export const buildPlaySongSiteSeo = (
       : {}),
   });
 };
-
-export const buildPlayMemberSiteSeo = (
-  member: OtwPlayPublicMemberDto,
-  publicReadEnabled = true,
-): SiteSeoMetadata => define({
-  path: `/play/members/${encodeURIComponent(member.code)}`,
-  title: `${member.name} 노래 모음 | OTW Play`,
-  description: normalizeDescription(`${member.name}의 공식곡 ${member.songCount}곡을 만나보세요. 공식 오리지널·커버 영상을 OTW Play에서 감상하세요.`),
-  robots: !publicReadEnabled ? "noindex,nofollow" : member.pageEligible ? "index,follow" : "noindex,follow",
-  sitemap: publicReadEnabled && member.pageEligible,
-  ogType: "profile",
-  image: new URL(member.imageUrl, SITE_ORIGIN).toString(),
-});
 
 export const buildPlaySongPlaceholderSeo = (
   path: string,

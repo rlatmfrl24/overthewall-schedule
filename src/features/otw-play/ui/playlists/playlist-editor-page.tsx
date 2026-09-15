@@ -145,8 +145,8 @@ function PlaylistEditor({ initial, saved, tracks }: { initial: PlayPlaylistWrite
           if (!busy) setDraft(current => ({ ...current, performanceIds }));
         }}>{draft.performanceIds.map((id, index) => { const item = trackMap.get(id); return <PlaylistReorderItem key={id} id={id} index={index} disabled={busy} onDraggingChange={setDragging}>
           {handle => <>
-          <div className="playlist-edit-item-info">{handle}<span className="shrink-0 text-xs tabular-nums text-muted-foreground">{index + 1}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium" title={item?.song.title}>{draft.representativePerformanceId === id && <span className="mr-1 text-xs text-primary">대표곡</span>}{item?.song.title ?? "이용할 수 없는 항목"}</p>
-            {item && <p className="truncate text-xs text-muted-foreground" title={item.performance.participants.map(p => p.displayName).join(" · ")}>{item.performance.participants.map(p => p.displayName).join(" · ")} · {item.performance.releasedAt?.slice(0, 10)}</p>}</div></div>
+          <div className="playlist-edit-item-info">{handle}<span className="playlist-edit-item-number">{index + 1}</span><div className="playlist-edit-item-copy"><p className="playlist-edit-item-title" title={item?.song.title}>{item?.song.title ?? "이용할 수 없는 항목"}</p>
+            {item && <p className="playlist-edit-item-meta" title={item.performance.participants.map(p => p.displayName).join(" · ")}>{item.performance.participants.map(p => p.displayName).join(" · ")}</p>}</div></div>
           <div className="playlist-edit-item-actions"><Button size="icon-sm" variant="ghost" title={draft.representativePerformanceId === id ? "대표곡" : "대표곡 지정"}
             aria-label={`${index + 1}번 대표곡 지정`} aria-pressed={draft.representativePerformanceId === id}
             disabled={busy || !performanceArtwork(item)} onClick={() => setDraft(current => ({ ...current, representativePerformanceId: id }))}>
@@ -154,7 +154,7 @@ function PlaylistEditor({ initial, saved, tracks }: { initial: PlayPlaylistWrite
             <Button size="icon-sm" variant="ghost" aria-label={`${index + 1}번 아래로 이동`} disabled={busy || index === draft.performanceIds.length - 1} onClick={() => move(id, index + 1)}><ArrowDown /></Button>
             <Button size="icon-sm" variant="ghost" aria-label={`${index + 1}번 삭제`} disabled={busy} onClick={() => setDraft(current => ({ ...current, representativePerformanceId: current.representativePerformanceId === id ? null : current.representativePerformanceId, performanceIds: current.performanceIds.filter(value => value !== id) }))}><X /></Button></div></>}
         </PlaylistReorderItem>; })}</Reorder.Group>
-        {!draft.performanceIds.length && <p className="playlist-empty">왼쪽에서 노래를 찾아 추가해 주세요.</p>}
+        {!draft.performanceIds.length && <p className="playlist-empty">곡 찾기에서 노래를 검색해 추가해 주세요.</p>}
       </motion.section>
     </div>
   </div>;

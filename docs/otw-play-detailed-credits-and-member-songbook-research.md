@@ -1,5 +1,23 @@
 # OTW Play 상세 크레딧·멤버별 노래책 조사 및 확장 요구사항
 
+## 현재 멤버 탐색·SEO 정책 (2026-09-16)
+
+이 결정은 아래의 멤버 전용 노래책 화면·SEO 정책(DEC-079 포함)을 대체한다.
+발견의 멤버와 공개 프로필의 Play 링크는 멤버 UID로 필터링된 `/play/songs`로 연결한다.
+발견의 목적지는 공개 설정·곡 수·`pageEligible`에 의존하지 않는다. 프로필 링크는 기존
+Play 공개 탐색 조건(`publicReadEnabled`와 `navigationVisible`)으로만 표시한다.
+기존 `/play/members/{code}`는 활성 멤버를 조회하여 기본 멤버 검색으로 HTTP 301 이동하며,
+클라이언트 이동은 replace로 처리한다. 코드 대소문자와 후행 슬래시는 허용하고 과거
+검색 조건·cursor는 버린다. 미등록·비활성 멤버는 404, 조회 장애는 재시도 가능한 오류다.
+숫자 모양의 member 문자열은 현재 라우터 형식으로 직렬화한다(예: `member=%221%22`).
+
+멤버 탐색은 검색 화면, 멤버 SEO는 공개 프로필이 담당한다. 회원 전용 검색은 서버와
+브라우저 모두 `noindex,nofollow`, canonical은 `/play/songs`이며 사이트맵에서 제외한다.
+기존 멤버 URL도 사이트맵에서 제외한다. 공개 `/profile/{code}`의 멤버별 제목·설명·canonical,
+`index,follow`와 사이트맵 포함은 유지한다. 전용 멤버 화면은 제거하되 기존 멤버 API·DTO·DB는
+호환성을 위해 유지하며 스키마는 변경하지 않는다.
+
+
 > 2026-09-08 구현 갱신: `/profile/{code}`와 `/play/members/{memberCode}`의 SEO를 함께 구현했다.
 > 기본 목록·상단 집계·SEO는 메인 보컬(`vocal`)·피처링(`featured_vocal`)만 포함한다.
 > 코러스는 별도 역할 필터이며 기본 집계에서 제외한다. 개인 프로필은 Play 공개·곡 수와 무관하게

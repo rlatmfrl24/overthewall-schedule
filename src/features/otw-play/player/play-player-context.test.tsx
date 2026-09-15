@@ -137,6 +137,7 @@ function Consumer() {
       <button type="button" onClick={() => player.play(detailTrack)}>play detail</button>
       <button type="button" onClick={() => player.play({ ...track, source: alternateSource })}>play alternate</button>
       <button type="button" onClick={player.pause}>pause</button>
+      <button type="button" onClick={player.clearQueue}>clear queue</button>
       <button type="button" onClick={player.resume}>resume</button>
       <button type="button" onClick={() => player.enqueue(track)}>enqueue</button>
       <button type="button" onClick={() => player.enqueueBatch([track], 0, true)}>add playlist</button>
@@ -150,6 +151,7 @@ function Consumer() {
         retry current
       </button>
       <button type="button" onClick={() => player.setVolume(35)}>volume 35</button>
+      <button type="button" onClick={() => player.setVolume(0)}>volume 0</button>
       <button type="button" onClick={player.toggleMuted}>toggle mute</button>
       <button type="button" onClick={() => player.seek(90)}>seek 90</button>
       <button type="button" onClick={() => player.setPlaybackSurfaceActive(false)}>
@@ -182,6 +184,7 @@ function Consumer() {
 describe("OtwPlayPlayerProvider", () => {
   beforeEach(() => {
     sessionStorage.clear();
+    window.localStorage.clear();
     vi.clearAllMocks();
     mocks.controller.getCurrentTime.mockReturnValue(65);
     mocks.controller.getDuration.mockReturnValue(184);
@@ -195,7 +198,78 @@ describe("OtwPlayPlayerProvider", () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it.each([35, 0])("remembers volume %s across visits and applies it to playback", async (volume) => {
+    const view = render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: `volume ${volume}` }));
+    expect(window.localStorage.getItem("otw-play:volume")).toBe(String(volume));
+    view.unmount();
+    sessionStorage.clear();
+
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    expect(screen.getByTestId("volume").textContent).toBe(String(volume));
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalled());
+    expect(mocks.controller.setVolume).toHaveBeenLastCalledWith(volume);
+  });
+
+  it.each(["", "broken", "null", "true", '"35"', "-1", "101", "1e999"])(
+    "uses the default volume for invalid stored data %j",
+    (stored) => {
+      window.localStorage.setItem("otw-play:volume", stored);
+      render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+      expect(screen.getByTestId("volume").textContent).toBe("100");
+    },
+  );
+
+  it("keeps volume controls working when local storage cannot be read or written", async () => {
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("Storage blocked", "SecurityError");
+    });
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    expect(screen.getByTestId("volume").textContent).toBe("100");
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "volume 35" }));
+    expect(screen.getByTestId("volume").textContent).toBe("35");
+    expect(mocks.controller.setVolume).toHaveBeenLastCalledWith(35);
+  });
+
+  it("clears playback and session storage, then allows the same song to play again", async () => {
+    const view = render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "clear queue" }));
+    expect(screen.getByTestId("queue-size").textContent).toBe("0");
+    expect(screen.getByTestId("status").textContent).toBe("idle");
+    expect(screen.getByTestId("position").textContent).toBe("0");
+    expect(screen.getByTestId("duration").textContent).toBe("0");
+    expect(mocks.controller.stop).toHaveBeenCalled();
+    expect(mocks.controller.destroy).toHaveBeenCalled();
+    expect(JSON.parse(sessionStorage.getItem(OTW_PLAY_QUEUE_STORAGE_KEY)!)).toMatchObject({
+      items: [], currentIndex: null,
+    });
+    view.unmount();
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    expect(screen.getByTestId("queue-size").textContent).toBe("0");
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not revive a cleared queue when a pending clip check completes", async () => {
+    let complete!: (value: unknown) => void;
+    mocks.fetchPerformance.mockReturnValueOnce(new Promise(resolve => { complete = resolve; }));
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play clip" }));
+    await waitFor(() => expect(mocks.fetchPerformance).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "clear queue" }));
+    await act(async () => complete({ data: { song: clipTrack.song, performance: { ...clipTrack.performance, sources: [clipTrack.source] } } }));
+    expect(mocks.controller.load).not.toHaveBeenCalled();
+    expect(screen.getByTestId("queue-size").textContent).toBe("0");
+    expect(screen.getByTestId("status").textContent).toBe("idle");
   });
 
   it("revalidates a clip before loading its segment into the same player", async () => {

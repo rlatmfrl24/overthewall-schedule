@@ -8,5 +8,5 @@ export const Route = createFileRoute("/profile/$code")({
 
 function RouteComponent() {
   const { code } = Route.useParams();
-  return <MemberProfilePage code={code} renderPlayLink={memberCode => <OtwPlayMemberProfileLink code={memberCode} />} />;
+  return <MemberProfilePage code={code} renderPlayLink={memberUid => <OtwPlayMemberProfileLink memberUid={memberUid} />} />;
 }
