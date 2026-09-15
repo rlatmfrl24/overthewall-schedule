@@ -38,7 +38,7 @@
     "CLOUDFLARE_ACCOUNT_ID": "46e1801b290196fbec7cfae87710ffcf",
     "CLOUDFLARE_D1_DATABASE_ID": "133b980d-1701-427e-93fd-8c9dcca1132e",
     "OTW_PLAY_PUBLIC_ORIGIN": "https://otw-schedule.info",
-    "OTW_PLAY_AI_REVIEW_ENABLED": "false",
+    "OTW_PLAY_AI_REVIEW_ENABLED": "true",
     "OTW_PLAY_AI_REVIEW_MODEL": "gemini-3.8-flash",
     "OTW_PLAY_AI_REVIEW_DAILY_LIMIT": "100",
   },

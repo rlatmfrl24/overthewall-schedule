@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   useAdminStatus: vi.fn(),
   childMounted: vi.fn(),
   navigate: vi.fn(),
+  pathname: "/play/songs",
   providerModes: [] as boolean[],
   playerModes: [] as boolean[],
 }));
@@ -19,7 +20,7 @@ vi.mock("@tanstack/react-router", () => ({
     ({ children, to, ...props }, ref) => <a ref={ref} href={to} {...props}>{children}</a>,
   ),
   useNavigate: () => mocks.navigate,
-  useRouterState: ({ select }: { select: (state: { location: { pathname: string } }) => unknown }) => select({ location: { pathname: "/play/songs" } }),
+  useRouterState: ({ select }: { select: (state: { location: { pathname: string } }) => unknown }) => select({ location: { pathname: mocks.pathname } }),
 }));
 vi.mock("@clerk/clerk-react", () => ({
   SignInButton: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -68,6 +69,7 @@ function ChildCatalogRequest() {
 describe("OtwPlayShell config gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.pathname = "/play/songs";
     mocks.providerModes.length = 0;
     mocks.playerModes.length = 0;
     mocks.useUser.mockReturnValue({
@@ -117,7 +119,7 @@ describe("OtwPlayShell config gate", () => {
 
     render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
 
-    expect(screen.getByText("OTW Play 공개 준비 중입니다")).toBeTruthy();
+    expect(screen.getByText("로그인하고 OTW Play를 만나보세요")).toBeTruthy();
     expect(screen.getByRole("button", { name: "로그인" })).toBeTruthy();
     expect(mocks.useConfig).toHaveBeenCalledWith();
     expect(mocks.childMounted).not.toHaveBeenCalled();
@@ -143,7 +145,7 @@ describe("OtwPlayShell config gate", () => {
 
   it("mounts the administrator preview while public read is off", () => {
     render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
-    expect(screen.getByText("관리자 미리보기 · 공개 비활성")).toBeTruthy();
+    expect(screen.getByText("관리자 전용 · 노래 클립 비공개")).toBeTruthy();
     expect(screen.getByText("catalog child")).toBeTruthy();
     expect(mocks.childMounted).toHaveBeenCalledOnce();
     expect(mocks.useConfig).toHaveBeenCalledWith();
@@ -234,7 +236,7 @@ describe("OtwPlayShell config gate", () => {
     expect(screen.getByRole("menuitem", { name: "내 제안" })).toBeTruthy();
   });
 
-  it("mounts the anonymous public experience for 1/0 without preview auth", () => {
+  it("requires login even when catalog reads are enabled", () => {
     mocks.useUser.mockReturnValue({
       isLoaded: true,
       isSignedIn: false,
@@ -247,12 +249,9 @@ describe("OtwPlayShell config gate", () => {
       refetch: vi.fn(),
     });
     render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
-    expect(screen.getByText("catalog child")).toBeTruthy();
-    expect(mocks.childMounted).toHaveBeenCalledOnce();
-    expect(mocks.useConfig).toHaveBeenCalledWith();
-    expect(mocks.providerModes).toEqual([false]);
-    expect(mocks.playerModes).toEqual([false]);
-    expect(screen.queryByText("관리자 미리보기 · 공개 비활성")).toBeNull();
+    expect(screen.getByText("로그인하고 OTW Play를 만나보세요")).toBeTruthy();
+    expect(mocks.childMounted).not.toHaveBeenCalled();
+    expect(mocks.playerModes).toEqual([]);
   });
 
   it("uses the same public API/cache experience for signed-in members in 1/0", () => {
@@ -262,12 +261,28 @@ describe("OtwPlayShell config gate", () => {
       data: { data: { publicReadEnabled: true, navigationVisible: false } },
       refetch: vi.fn(),
     });
+    mocks.useAdminStatus.mockReturnValue({ data: { isAdmin: false }, isPending: false, isError: false });
     render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
 
     expect(screen.getByText("catalog child")).toBeTruthy();
     expect(mocks.providerModes).toEqual([false]);
     expect(mocks.playerModes).toEqual([false]);
     expect(screen.queryByText("OTW Play 공개 준비 중입니다")).toBeNull();
+  });
+
+  it("hides clip navigation and blocks a direct clip route for members", () => {
+    mocks.useAdminStatus.mockReturnValue({ data: { isAdmin: false }, isPending: false, isError: false });
+    mocks.useConfig.mockReturnValue({ isPending: false, isError: false, data: { data: { publicReadEnabled: true, navigationVisible: true } } });
+    const view = render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+    expect(screen.queryByRole("link", { name: "노래 클립" })).toBeNull();
+    mocks.pathname = "/play/clips/song";
+    view.rerender(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+    expect(screen.getByText("노래 클립은 아직 비공개입니다")).toBeTruthy();
+    expect(screen.queryByText("catalog child")).toBeNull();
+    mocks.useUser.mockReturnValue({ isLoaded: true, isSignedIn: false, user: null });
+    view.rerender(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+    expect(screen.getByRole("button", { name: "로그인" })).toBeTruthy();
+    expect(screen.queryByText("catalog child")).toBeNull();
   });
 
   it("uses the real public path for administrators after public read opens", () => {
@@ -279,9 +294,9 @@ describe("OtwPlayShell config gate", () => {
     });
     render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
 
-    expect(mocks.useConfig).toHaveBeenCalledTimes(1);
+    expect(mocks.useConfig).toHaveBeenCalledTimes(2);
     expect(mocks.useConfig).toHaveBeenCalledWith();
-    expect(mocks.providerModes).toEqual([false]);
-    expect(mocks.playerModes).toEqual([false]);
+    expect(mocks.providerModes).toEqual([true]);
+    expect(mocks.playerModes).toEqual([true]);
   });
 });

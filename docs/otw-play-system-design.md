@@ -1,5 +1,10 @@
 # OTW Play 시스템·DB 설계
 
+> 2026-09-15 회원 공개 정책: OTW Play 카탈로그·재생·플레이리스트는 로그인한 회원만 이용합니다. 노래 클립의 목록·상세·재생 조회는 관리자 전용이며, 일반 회원의 곡 상세·일괄 재생 조회·제안용 곡 검색에서도 제외합니다. 기존 `publicReadEnabled`는 회원 이용 활성화, `navigationVisible`은 메뉴 표시를 제어하며 익명 공개 또는 검색엔진 색인 허용을 의미하지 않습니다. 설정 조회만 익명으로 허용하고 카탈로그 응답은 인증 후 `no-store`로 반환합니다. 회원 전용 곡 정보는 SEO·사이트맵에서 제외합니다.
+>
+> 관리자 Gemini 자동 검수는 운영에서 활성화합니다(`OTW_PLAY_AI_REVIEW_ENABLED=true`). 기존 관리자 권한·일일 호출 한도·Queue·검수 저장 절차를 유지하며 일반 회원에게 AI 실행 권한을 부여하지 않습니다. 운영 secret/Queue를 확인하고 회원 접근 제어 배포 후 운영 화면에서 회원 이용 → 메뉴 표시 순서로 활성화합니다. 비활성화 시 AI 플래그를 false로 배포하고, 회원 이용 중단은 운영 화면의 전체 중단을 사용합니다.
+
+
 > 2026-09-14 노래 클립 확장 기준안: DEC-081에 따라 `music_songs`·`music_performances`·영상 소스·참여자 모델은 공유하고 공식/방송별 게시 정책·공개 조회 범위는 분리한다. 클립 전용 곡 카탈로그를 복제하지 않는다. [상세 데이터·계약 설계와 이행 계획](otw-play-singing-clips-requirements-and-plan.md#5-데이터와-분류-설계)을 따른다. 방송일·근거·원본 URL·완곡 여부는 가창의 `broadcast_metadata`, 최초 공개 시각은 `catalog_published_at`에 저장한다. 0089는 기존 행과 참조를 보존하는 추가 마이그레이션이다. 기존 공식 공개 predicate를 무조건 확대하지 않고 새 방송 정책을 명시적으로 적용해야 한다.
 
 > 2026-09-09 현행 운영: `Cron → Workflow → Outbox → Queue → 수집기`. 승인된 활성 채널의 uploads playlist를 시간당 조회한다. Play 자동화 중지와 공개 flag는 유지한다. WebSub 구독·갱신·해제 작업은 종료됐으며 callback은 HTTP 410이다. 구형 직접 스케줄러와 테스트 전용 소스 선택·상태 전이 정책은 사용하지 않는다. 저장된 대표 소스와 사용 가능한 대체 소스, 실제 서비스의 승인·철회·CAS가 권위다. [현행 수집 계약](operations/channel-upload-polling.md), [정리 적용 계약](operations/retired-implementation-cleanup.md)을 따른다. 아래 과거 PR·단계별 구현 및 WebSub 설명은 당시 이력이며 재구현·secret 설정·구독 재개 지침이 아니다.

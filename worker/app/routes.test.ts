@@ -34,10 +34,6 @@ const expectedPolicies = [
     cache: "no-store", paths: [
     "/api/youtube/vods",
     "/api/members/:code",
-    "/api/play/members",
-    "/api/play/members/:code/songbook",
-    "/api/play/playlists/defaults",
-    "/api/play/performances",
     "/api/play/webhooks/youtube/:token",
     "/api/schedule-board",
     "/api/schedules",
@@ -161,23 +157,27 @@ const expectedPolicies = [
   { method: "GET", auth: "public", successStatus: 200,
     cache: "public, max-age=60, s-maxage=1800; auth/cookie => no-store", paths: [
     "/api/play/config",
-    "/api/play/facets",
   ] },
-  { method: "GET", auth: "public", successStatus: 200,
-    cache: "public, max-age=60, s-maxage=300; q => private, max-age=30; cursor => private, max-age=60; auth/cookie => no-store", paths: [
+  { method: "GET", auth: "member-policy", successStatus: 200,
+    cache: "no-store", paths: [
     "/api/play/catalog",
   ] },
-  { method: "GET", auth: "public", successStatus: 200,
-    cache: "public, max-age=60, s-maxage=600; auth/cookie => no-store", paths: [
+  { method: "GET", auth: "member-policy", successStatus: 200,
+    cache: "no-store", paths: [
     "/api/play/songs/:slug",
     "/api/play/performances/:id",
   ] },
-  { method: "POST", auth: "public", successStatus: 200,
+  { method: "POST", auth: "member-policy", successStatus: 200,
     cache: "no-store", paths: [
     "/api/play/performances/resolve",
   ] },
   { method: "GET", auth: "member-policy", successStatus: 200,
     cache: "no-store", paths: [
+    "/api/play/members",
+    "/api/play/members/:code/songbook",
+    "/api/play/playlists/defaults",
+    "/api/play/performances",
+    "/api/play/facets",
     "/api/play/me/playlists",
     "/api/play/me/playlists/:id",
     "/api/play/submissions/mine",

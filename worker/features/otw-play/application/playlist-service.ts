@@ -35,6 +35,7 @@ export class PlaylistService {
     let nextCursor: string | null = null;
     const result = await this.consistent(context, async revision => {
       const query = parsePlaylistQuery(params, revision);
+      if (query.scope === "broadcast" && !context.allowBroadcastRead) throw new PlaylistError(403, "PLAY_CLIPS_PRIVATE");
       const rows = await this.reader.readPlaylistPerformances(query);
       const items = rows.slice(0, query.limit);
       const last = items.at(-1);
@@ -45,7 +46,7 @@ export class PlaylistService {
   }
   resolve(context: PublicCatalogReadContext, ids: string[]) {
     return this.consistent(context, async () => {
-      const items = await this.reader.resolvePlaylistPerformances(ids, "all");
+      const items = await this.reader.resolvePlaylistPerformances(ids, context.allowBroadcastRead ? "all" : "official");
       const found = new Set(items.map(item => item.performance.id));
       return { items, unavailableIds: ids.filter(id => !found.has(id)) };
     });

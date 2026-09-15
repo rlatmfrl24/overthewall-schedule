@@ -49,14 +49,6 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
     return <OtwPlayConfigError onRetry={() => void publicConfig.refetch()} />;
   }
 
-  if (publicConfig.data.data.publicReadEnabled) {
-    return (
-      <OtwPlayCatalogRequestProvider>
-        <OtwPlayExperience>{children}</OtwPlayExperience>
-      </OtwPlayCatalogRequestProvider>
-    );
-  }
-
   if (!isLoaded) {
     return (
       <main className="flex min-h-0 flex-1 items-center justify-center" aria-busy="true">
@@ -70,8 +62,8 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
   if (!isSignedIn) {
     return (
       <OtwPlayAccessCard
-        title="OTW Play 공개 준비 중입니다"
-        description="현재는 관리자 미리보기만 제공됩니다. 관리자라면 로그인해 주세요."
+        title="로그인하고 OTW Play를 만나보세요"
+        description="OTW 회원이라면 노래를 듣고 플레이리스트와 곡 제안을 이용할 수 있어요."
       >
         <SignInButton>
           <Button className="w-full rounded-full">로그인</Button>
@@ -106,20 +98,32 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!adminStatusQuery.data?.isAdmin) {
-    return (
-      <OtwPlayAccessCard
-        title="OTW Play 공개 준비 중입니다"
-        description="곡 제안과 내 제안은 공개 전에도 계속 이용할 수 있습니다."
-      >
-        <Button asChild className="w-full rounded-full">
-          <Link to="/play/submit" search={{ edit: undefined, submissionKind: pathname.startsWith("/play/clips") ? "singing_clip" : pathname.startsWith("/play/songs") ? "official_cover" : undefined }}>곡 제안하기</Link>
-        </Button>
-      </OtwPlayAccessCard>
-    );
+  if (adminStatusQuery.data?.isAdmin) {
+    return <AuthorizedOtwPlayShell key={user?.id}>{children}</AuthorizedOtwPlayShell>;
   }
 
-  return <AuthorizedOtwPlayShell>{children}</AuthorizedOtwPlayShell>;
+  if (pathname.startsWith("/play/clips")) {
+    return <OtwPlayAccessCard title="노래 클립은 아직 비공개입니다" description="현재 노래 클립은 관리자만 확인할 수 있어요.">
+      <Button asChild className="w-full rounded-full"><Link to="/play/songs" search={{}}>곡 검색하기</Link></Button>
+    </OtwPlayAccessCard>;
+  }
+
+  if (publicConfig.data.data.publicReadEnabled) {
+    return <OtwPlayCatalogRequestProvider key={user?.id}>
+      <OtwPlayExperience>{children}</OtwPlayExperience>
+    </OtwPlayCatalogRequestProvider>;
+  }
+
+  return (
+    <OtwPlayAccessCard
+      title="OTW Play 공개 준비 중입니다"
+      description="곡 제안과 내 제안은 공개 전에도 계속 이용할 수 있습니다."
+    >
+      <Button asChild className="w-full rounded-full">
+        <Link to="/play/submit" search={{ edit: undefined, submissionKind: pathname.startsWith("/play/songs") ? "official_cover" : undefined }}>곡 제안하기</Link>
+      </Button>
+    </OtwPlayAccessCard>
+  );
 }
 
 function OtwPlayAccessCard({
@@ -205,11 +209,12 @@ function OtwPlayExperience({
         status={
           adminPreview ? (
             <span className="hidden items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 min-[1800px]:inline-flex dark:text-amber-300">
-              <Eye className="size-3.5" /> 관리자 미리보기 · 공개 비활성
+              <Eye className="size-3.5" /> 관리자 전용 · 노래 클립 비공개
             </span>
           ) : undefined
         }
         showCatalogTabs
+        showClips={adminPreview}
       >
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <main

@@ -25,6 +25,7 @@ export function OtwPlayFrame({
   search,
   status,
   showCatalogTabs = false,
+  showClips = false,
   submissionActive = false,
   submissionKind,
 }: {
@@ -32,6 +33,7 @@ export function OtwPlayFrame({
   search?: ReactNode;
   status?: ReactNode;
   showCatalogTabs?: boolean;
+  showClips?: boolean;
   submissionActive?: boolean;
   submissionKind?: OtwPlaySubmissionKind;
 }) {
@@ -46,6 +48,7 @@ export function OtwPlayFrame({
         search={search}
         status={status}
         showCatalogTabs={showCatalogTabs}
+        showClips={showClips}
         submissionActive={submissionActive}
         submissionKind={submissionKind}
       />
@@ -58,12 +61,14 @@ function OtwPlayHeader({
   search,
   status,
   showCatalogTabs,
+  showClips,
   submissionActive,
   submissionKind,
 }: {
   search?: ReactNode;
   status?: ReactNode;
   showCatalogTabs: boolean;
+  showClips: boolean;
   submissionActive: boolean;
   submissionKind?: OtwPlaySubmissionKind;
 }) {
@@ -83,7 +88,7 @@ function OtwPlayHeader({
           {status}
           {showCatalogTabs ? (
             <SectionNavigation label="OTW Play 탐색" className="play-tabs flex min-w-0 gap-1 overflow-x-auto">
-              {catalogTabs.map((tab) => (
+              {catalogTabs.filter(tab => showClips || tab.to !== "/play/clips").map((tab) => (
                 <Link
                   key={`${tab.label}:${JSON.stringify(tab.search)}`}
                   to={tab.to}

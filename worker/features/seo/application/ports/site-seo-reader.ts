@@ -9,6 +9,7 @@ export interface FeedSeoState {
 }
 
 export interface PlaySeoState {
+  requiresMembership?: boolean;
   revision: number;
   readModelRevision: number | null;
   publicReadEnabled: boolean;

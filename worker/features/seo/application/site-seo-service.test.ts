@@ -30,6 +30,16 @@ const createReader = (
 });
 
 describe("SiteSeoService", () => {
+  it("keeps member-only catalog data out of anonymous SEO even with navigation enabled", async () => {
+    const privateRead = async (): Promise<never> => { throw new Error("Member catalog must not be read for SEO"); };
+    const service = new SiteSeoService(createReader({
+      readPlayState: async () => ({ revision: 1, readModelRevision: 1, publicReadEnabled: true, navigationVisible: true, updatedAt: 1, requiresMembership: true }),
+      listPublishedPlaySongSlugs: privateRead, findPublishedPlaySongBySlug: privateRead, readPlayMemberSummaries: privateRead,
+    }));
+    expect((await service.buildSitemapUrls()).some(url => url.includes("/play"))).toBe(false);
+    expect(await service.findPlaySong("private-title")).toMatchObject({ robots: "noindex,nofollow" });
+    expect(await service.findPlayMember("member")).toMatchObject({ robots: "noindex,nofollow" });
+  });
   it("includes only public feed and active profiles in a deduplicated sitemap", async () => {
     const reader = createReader({
       readFeedState: async () => ({

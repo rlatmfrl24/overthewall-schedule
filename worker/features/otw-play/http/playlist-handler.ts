@@ -61,9 +61,11 @@ export const createPlaylistHandler = (resolve: (env: Env) => PlaylistService) =>
       return json({ data: await service.saveDefault(id, parseDefaultPlaylistWrite(input), version(input.expectedVersion),
         { userId: admin.user.id, displayName: actor.actorName, ipAddress: actor.actorIp }) });
     }
+    const auth = await authenticateRequest(request, env);
+    if (!auth.ok) return json({ error: { code: "PLAY_AUTH_REQUIRED", message: "로그인이 필요합니다." } }, auth.response.status);
     const preview = request.headers.get(OTW_PLAY_ADMIN_PREVIEW_HEADER) === "1";
     if (preview) { const admin = await requireAdminUser(request, env); if (!admin.ok) return json({ error: { code: "PLAY_AUTH_REQUIRED", message: "관리자 미리보기 권한이 필요합니다." } }, admin.response.status); }
-    const context = { allowDisabledRead: preview, allowSharedCache: false };
+    const context = { allowDisabledRead: preview, allowSharedCache: false, allowBroadcastRead: preview };
     const service = resolve(env);
     if (url.pathname === "/api/play/playlists/defaults") {
       if (url.searchParams.size) return invalid();
@@ -79,8 +81,6 @@ export const createPlaylistHandler = (resolve: (env: Env) => PlaylistService) =>
       const result = await service.resolve(context, requested);
       return json({ ...result, data: { ...result.data, items: result.data.items.map(toPerformanceResponse) } });
     }
-    const auth = await authenticateRequest(request, env);
-    if (!auth.ok) return json({ error: { code: "PLAY_AUTH_REQUIRED", message: "로그인이 필요합니다." } }, auth.response.status);
     if (url.searchParams.size) return invalid();
     const owner = auth.user.id;
     if (url.pathname === "/api/play/me/playlists") {

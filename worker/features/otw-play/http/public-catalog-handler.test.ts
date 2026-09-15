@@ -14,10 +14,12 @@ import { PublicCatalogService } from "../application/public-catalog-service";
 import { encodePublicCatalogCursor } from "../domain/public-catalog-cursor";
 const authMocks = vi.hoisted(() => ({
   requireAdminUser: vi.fn(),
+  authenticateRequest: vi.fn(),
 }));
 
 vi.mock("../../../platform/auth", () => ({
   requireAdminUser: authMocks.requireAdminUser,
+  authenticateRequest: authMocks.authenticateRequest,
 }));
 
 import { createPublicCatalogHandler } from "./public-catalog-handler";
@@ -102,6 +104,7 @@ const request = (path: string, init?: RequestInit) =>
 
 describe("OTW Play public catalog HTTP handler", () => {
   beforeEach(() => {
+    authMocks.authenticateRequest.mockResolvedValue({ ok: true, user: { id: "member" } });
     authMocks.requireAdminUser.mockReset();
     authMocks.requireAdminUser.mockResolvedValue({
       ok: true,
@@ -111,6 +114,24 @@ describe("OTW Play public catalog HTTP handler", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it.each(["/api/play/catalog", "/api/play/facets", "/api/play/members", "/api/play/songs/song?scope=all", "/api/play/performances/clip"])("authenticates before data and conditional cache reads: %s", async path => {
+    authMocks.authenticateRequest.mockResolvedValue({ ok: false, response: new Response(null, { status: 401 }) });
+    const reader = makeReader(), readMeta = vi.spyOn(reader, "readMeta");
+    const { handler, cache } = makeHandler(reader);
+    const response = await handler(request(path, { headers: { "If-None-Match": 'W/"catalog-etag"' } }), env);
+    expect(response.status).toBe(401);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toMatchObject({ error: { code: "PLAY_AUTH_REQUIRED" } });
+    expect(readMeta).not.toHaveBeenCalled();
+    expect(cache.reads).toBe(0);
+  });
+
+  it("does not expand a member song query to private clips", async () => {
+    const reader = makeReader(), readSong = vi.spyOn(reader, "readSongBySlug");
+    await makeHandler(reader).handler(request("/api/play/songs/song?scope=all"), env);
+    expect(readSong).toHaveBeenCalledWith("song");
   });
 
   it("serves the member index without cache validators and rejects unexpected query fields", async () => {
@@ -368,7 +389,9 @@ describe("OTW Play public catalog HTTP handler", () => {
         tags: [], participants: [], sources: [], primarySourceId: null, playbackSourceId: null, playable: false, fallbackReason: "missing_primary" },
     });
     const { handler } = makeHandler(reader);
-    const response = await handler(request("/api/play/performances/clip-1"), env);
+    const denied = await handler(request("/api/play/performances/clip-1"), env);
+    expect(denied.status).toBe(404);
+    const response = await handler(request("/api/play/performances/clip-1", { headers: { [OTW_PLAY_ADMIN_PREVIEW_HEADER]: "1" } }), env);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ data: {
       song: { originalArtists: [{ displayName: "Original Artist", slug: "artist-1" }] }, performance: { id: "clip-1" },
@@ -553,7 +576,7 @@ describe("OTW Play public catalog HTTP handler", () => {
       expect.objectContaining({
         event: "play.catalog.read",
         requestId: "ray-1",
-        cacheStatus: "miss",
+        cacheStatus: "bypass",
         d1RowsRead: 7,
         d1RowsWritten: null,
       }),
@@ -566,7 +589,7 @@ describe("OTW Play public catalog HTTP handler", () => {
     );
     expect(write).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        cacheStatus: "hit",
+        cacheStatus: "bypass",
         d1RowsRead: 1,
       }),
     );
