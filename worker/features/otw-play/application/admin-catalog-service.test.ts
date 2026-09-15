@@ -13,6 +13,52 @@ import type { OtwPlayYouTubeVideoMetadata } from "./ports/youtube-metadata";
 const actor = { userId: "admin", displayName: "Admin", ipAddress: null };
 
 describe("AdminCatalogService", () => {
+  it("approves clips only with an approved clip channel, known extent and verified bounds", async () => {
+    const video: OtwPlayYouTubeVideoMetadata = { videoId: "wum2FhgGljg", channelId: "UCclip", channelTitle: "Clips", title: "Clip", thumbnailUrl: null, durationSeconds: 156, publishedAt: null, availabilityStatus: "playable" };
+    const channel = { id: "channel", externalChannelId: "UCclip", channelRole: "approved_kirinuki", verificationStatus: "approved", active: true };
+    const approveProposal = vi.fn(async () => ({ data: { approvedPerformanceId: "clip" }, catalogRevision: 1 }));
+    const readCatalog = vi.fn(async () => ({ revision: 0, channels: [channel] }));
+    const readVideo = vi.fn(async (): Promise<OtwPlayYouTubeVideoMetadata | null> => video);
+    const service = new AdminCatalogService({
+      readProposals: vi.fn(async () => [{ id: "proposal", version: 0, status: "pending_review", youtubeVideoId: video.videoId }]),
+      readCatalog, approveProposal,
+    } as unknown as AdminCatalogRepository, { readChannel: vi.fn(), readVideo }, { record: vi.fn() }, () => "new-id", false);
+    const input = {
+      expectedVersion: 0, expectedCatalogRevision: 0,
+      song: { kind: "existing" as const, songId: "song" },
+      channel: { kind: "existing" as const, channelId: "channel" },
+      participants: [{ subject: { kind: "member" as const, memberUid: 6 }, participantRole: "vocal" as const, creditOrder: 0 }],
+      releaseType: "broadcast" as const, participationType: "solo" as const,
+      singingCreditConfirmed: true as const, publish: true as const,
+      broadcast: { performedOn: null, dateEvidence: null, originalUrl: null, extent: "full" as const },
+    };
+    readCatalog.mockResolvedValueOnce({ revision: 0, channels: [{ ...channel, channelRole: "member_music" }] });
+    await expect(service.approveProposal("proposal", input, actor)).rejects.toMatchObject({ code: "validation_failed" });
+    readCatalog.mockResolvedValueOnce({ revision: 0, channels: [{ ...channel, active: false }] });
+    await expect(service.approveProposal("proposal", input, actor)).rejects.toMatchObject({ code: "validation_failed" });
+    await expect(service.approveProposal("proposal", { ...input, broadcast: { ...input.broadcast, extent: null } }, actor)).rejects.toMatchObject({ code: "validation_failed" });
+    readVideo.mockResolvedValueOnce({ ...video, durationSeconds: null });
+    await expect(service.approveProposal("proposal", input, actor)).rejects.toMatchObject({ code: "validation_failed" });
+    await expect(service.approveProposal("proposal", { ...input, endSeconds: 200 }, actor)).rejects.toMatchObject({ code: "invalid_request" });
+    expect(approveProposal).not.toHaveBeenCalled();
+    await service.approveProposal("proposal", input, actor);
+    expect(approveProposal).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ startSeconds: 0, endSeconds: 156, broadcast: input.broadcast }) }));
+  });
+
+  it("materializes an omitted clip end from verified duration for registration and correction", async () => {
+    const video = { videoId: "wum2FhgGljg", channelId: "UCtest", channelTitle: "Clips", title: "Clip", thumbnailUrl: null, durationSeconds: 156, publishedAt: 123, availabilityStatus: "playable" as const };
+    const createCatalogEntry = vi.fn(async () => ({ data: { performance: { id: "clip" } } }));
+    const updatePerformance = vi.fn(async () => ({ data: { id: "clip" } }));
+    const service = new AdminCatalogService({ createCatalogEntry, updatePerformance, readCatalog: vi.fn(async () => ({ channels: [{ id: "channel", externalChannelId: "UCtest" }] })) } as unknown as AdminCatalogRepository,
+      { readChannel: vi.fn(), readVideo: vi.fn(async () => video) }, { record: vi.fn() }, () => "new-id", false);
+    const participants = [{ subject: { kind: "member" as const, memberUid: 6 }, participantRole: "vocal" as const, creditOrder: 0 }];
+    const broadcast = { performedOn: null, dateEvidence: null, originalUrl: null, extent: "full" as const };
+    await service.createCatalogEntry({ expectedCatalogRevision: 0, youtubeUrl: "https://youtu.be/wum2FhgGljg", startSeconds: 0, endSeconds: null, song: { kind: "existing", songId: "song" }, channel: { kind: "existing", channelId: "channel" }, participants, relationType: "singing_clip", releaseType: "broadcast", participationType: "solo", publicationTarget: "draft", broadcast }, actor);
+    expect(createCatalogEntry).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ startSeconds: 0, endSeconds: 156 }) }));
+    await service.updatePerformance({ id: "clip", expectedVersion: 0, songId: "song", relationType: "singing_clip", releaseType: "broadcast", participationType: "solo", qualityStatus: "ok", releasedAt: null, internalNote: null, broadcast, participants, sources: [{ youtubeUrl: "https://youtu.be/wum2FhgGljg", channelId: "channel", startSeconds: 0, endSeconds: null, sourceRole: "kirinuki", priority: 0, isPrimary: true }] }, actor);
+    expect(updatePerformance).toHaveBeenCalledWith(expect.objectContaining({ sources: [expect.objectContaining({ input: expect.objectContaining({ startSeconds: 0, endSeconds: 156 }) })] }));
+  });
+
   it("preflights and then re-verifies YouTube metadata before one integrated catalog command", async () => {
     const video = {
       videoId: "dQw4w9WgXcQ",

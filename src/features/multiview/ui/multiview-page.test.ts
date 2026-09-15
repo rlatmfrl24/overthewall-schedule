@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import React from "react";
 import {
@@ -30,24 +31,12 @@ const CHANNEL_A = "29a1ed5c0829fa620fab900dba7e011b";
 const CHANNEL_B = "19a1ed5c0829fa620fab900dba7e011c";
 
 const makeMember = (uid: number, name: string, channelId: string): Member =>
-  ({
+  (createMemberFixture({
     uid,
     code: `m${uid}`,
     name,
-    main_color: null,
-    sub_color: null,
-    oshi_mark: null,
-    url_twitter: null,
-    url_youtube: null,
-    url_chzzk: `https://chzzk.naver.com/${channelId}`,
-    youtube_channel_id: null,
-    birth_date: null,
-    debut_date: null,
-    unit_name: null,
-    fan_name: null,
-    introduction: null,
-    is_deprecated: 0,
-  }) as Member;
+    url_chzzk: `https://chzzk.naver.com/${channelId}`
+  })) as Member;
 
 const memberA = makeMember(1, "라이브 멤버", CHANNEL_A);
 const memberB = makeMember(2, "오프라인 멤버", CHANNEL_B);

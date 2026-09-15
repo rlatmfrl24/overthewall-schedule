@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { createElement } from "react";
@@ -9,24 +10,12 @@ import { SnapshotCardSchedule } from "./snapshot-card-schedule";
 import { SnapshotTimeline } from "./snapshot-timeline";
 
 const makeMember = (uid: number, name: string): Member =>
-  ({
+  (createMemberFixture({
     uid,
     code: `member-${uid}`,
     name,
-    main_color: "#14b8a6",
-    sub_color: null,
-    oshi_mark: null,
-    url_twitter: null,
-    url_youtube: null,
-    url_chzzk: null,
-    youtube_channel_id: null,
-    birth_date: null,
-    debut_date: null,
-    unit_name: null,
-    fan_name: null,
-    introduction: null,
-    is_deprecated: 0,
-  }) as Member;
+    main_color: "#14b8a6"
+  })) as Member;
 
 const makeSchedule = (
   partial: Partial<ScheduleItem> & Pick<ScheduleItem, "status">,

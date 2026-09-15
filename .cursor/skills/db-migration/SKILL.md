@@ -1,34 +1,44 @@
 ---
 name: db-migration
-description: Execute safe Drizzle and D1 migration workflows for OTW Schedule. Use when changing database schema, generating migration SQL, applying local or remote D1 migrations, or reviewing migration safety.
+description: Review, generate, and validate OTW Drizzle/D1 schema or data migrations, and apply them during an authorized release. Use for db/schema/index.ts, drizzle artifacts, or migration-safety requests.
 ---
 
 # DB Migration (OTW)
 
-## Scope
-Use this skill for any change touching:
-- `db/schema/index.ts`
-- `drizzle/*.sql`
-- `drizzle/meta/*`
-- migration apply commands (`drizzle:migrate:*`)
+Follow the [canonical D1 rules](../../../.agent/rules/drizzle-workflow.md) and
+[shared outcome rules](../../../.agent/rules/antigravity.md). Select the mode
+from the user's request and existing authorization.
 
-## Procedure
-1. Update schema definitions in `db/schema/index.ts`.
-2. Choose migration mode:
-   - schema diff: `pnpm drizzle:generate`
-   - custom data migration: `pnpm drizzle:generate:custom`
-3. Review generated SQL for destructive or unexpected statements.
-4. Apply locally with `pnpm drizzle:migrate:local`.
-5. Validate affected API and UI behavior.
-6. Apply remotely with `pnpm drizzle:migrate:remote` only after local validation.
-7. Commit schema and migration artifacts together.
+## Review only
 
-## Safety Rules
-- Do not manually create numbered migration files.
-- Do not edit already-applied migration files.
-- Treat `DROP`, `DELETE`, and wide `UPDATE` operations as high risk and require explicit intent.
-- Keep migration numbering and `drizzle/meta/_journal.json` consistent.
+Inspect the schema, SQL, journal, target database, affected consumers, and
+destructive/backfill/concurrency risks. Do not generate, apply, edit, or commit
+migrations as a consequence of a review request. When chain verification is
+in scope, `pnpm d1:reset:local -- --validate-only` validates in temporary D1
+without replacing the existing local database.
 
-## References
-- Detailed checklist: `references/checklist.md`
-- Canonical rule: `../../rules/drizzle-workflow.md`
+## Generate and validate locally
+
+1. Update `db/schema/index.ts` for schema changes, then use
+   `pnpm drizzle:generate`; use `pnpm drizzle:generate:custom` for data migrations.
+2. Inspect generated SQL and journal consistency. Never hand-create numbered
+   migrations or edit already-applied migrations. Preserve unrelated artifacts.
+3. Validate the full chain with `pnpm d1:reset:local -- --validate-only`.
+   Apply incrementally with `pnpm drizzle:migrate:local` when local apply is
+   intended. Reset/seed with `--force` only when discarding that local data is
+   explicitly intended; an existing database must otherwise be preserved.
+4. Run `pnpm d1:doctor` and verify affected API/UI behavior through the intended
+   flow, including persisted identities, constraints, and authoritative readback.
+
+## Authorized production promotion
+
+Only enter this mode when remote migration is part of the authorized release.
+Verify target account/database (`otw-db`), local evidence, existing deployment
+compatibility, and the recovery plan before `pnpm drizzle:migrate:remote`.
+Confirm applied/pending migration state and affected data after promotion.
+Coordinate schema-dependent deployment using [release-ops](../release-ops/SKILL.md).
+Local success alone is not authorization for remote apply or commit.
+
+When commits are requested, include the related schema, SQL, and metadata
+together. Use the [detailed checklist](references/checklist.md) for chain,
+seed, and promotion details.

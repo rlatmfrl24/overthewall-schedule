@@ -84,6 +84,27 @@ const reviewFixture = () => {
 };
 
 describe("SingingClipReviewDialog", () => {
+  it.each(["singing_clip", "official_video"] as const)("previews %s from the current draft without saving or publishing", async (candidateKind) => {
+    const { candidate, catalog } = reviewFixture();
+    const props = { candidate, catalog, candidateKind, reviewOnly: true, onOpenChange: vi.fn(), onConverted: vi.fn(), onReviewStateChanged: vi.fn(async () => {}) };
+    render(createElement(SingingClipReviewDialog, props), { wrapper: createQueryWrapper() });
+    fireEvent.click(screen.getByRole("button", { name: "OTW Play 게시 미리보기" }));
+    const preview = screen.getByRole("region", { name: "게시 미리보기" });
+    expect(within(preview).getByRole("heading", { name: "Existing Song" })).toBeTruthy();
+    expect(within(preview).getByText("메인 보컬")).toBeTruthy();
+    expect(within(preview).queryByText("source checked")).toBeNull();
+    expect(within(preview).getByRole("heading", { name: candidateKind === "singing_clip" ? "방송 가창" : "공식 버전" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("시작 위치(초)"), { target: { value: "45" } });
+    expect(within(preview).getByText("재생 구간: 45초부터 150초까지")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("종료 위치(초)"), { target: { value: "999" } });
+    expect(within(preview).getByText(/재생 구간을 확인하세요/)).toBeTruthy();
+    expect(updateCandidateMock).not.toHaveBeenCalled();
+    expect(convertCandidateMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "OTW Play 게시 미리보기" }));
+    expect(screen.queryByRole("heading", { name: "게시 후 곡 상세 미리보기" })).toBeNull();
+    expect((screen.getByLabelText("시작 위치(초)") as HTMLInputElement).value).toBe("45");
+  });
+
   it("preserves unfinished input across channel approval readback and saves without conversion in inbox mode", async () => {
     const { candidate, catalog, reviewInput } = reviewFixture();
     const props = { candidate, catalog, reviewOnly: true, onOpenChange: vi.fn(), onConverted: vi.fn(), onReviewStateChanged: vi.fn(async () => {}) };

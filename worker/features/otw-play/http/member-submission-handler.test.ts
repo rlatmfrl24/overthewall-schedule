@@ -196,4 +196,18 @@ describe("member submission handler", () => {
       error: { code: "PLAY_SUBMISSION_STALE_WRITE" },
     });
   });
+  it("limits metadata checks before invoking the provider", async () => {
+    const preflight = vi.fn();
+    const response = await createMemberSubmissionHandler(() => ({ preflight }) as unknown as MemberSubmissionService)(new Request("https://example.com/api/play/submissions/preflight", { method: "POST", body: JSON.stringify({ youtubeUrl: validSubmission.youtubeUrl }) }), { OTW_PLAY_SUBMISSION_RATE_LIMITER: { limit: vi.fn(async () => ({ success: false })) } } as unknown as Env);
+    expect(response.status).toBe(429); expect(preflight).not.toHaveBeenCalled();
+  });
+  it("keeps catalog searches available without consuming the video check limit", async () => {
+    const preflight = vi.fn(async () => ({ songCandidates: [] }));
+    const limit = vi.fn(async () => ({ success: false }));
+    const response = await createMemberSubmissionHandler(() => ({ preflight }) as unknown as MemberSubmissionService)(new Request("https://example.com/api/play/submissions/preflight", { method: "POST", body: JSON.stringify({ youtubeUrl: validSubmission.youtubeUrl, title: "여행" }) }), { OTW_PLAY_SUBMISSION_RATE_LIMITER: { limit } } as unknown as Env);
+    expect(response.status).toBe(200);
+    expect(limit).not.toHaveBeenCalled();
+    expect(preflight).toHaveBeenCalledOnce();
+  });
+
 });

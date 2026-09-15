@@ -2399,7 +2399,7 @@ describe("D1AdminCatalogRepository", () => {
     });
   });
 
-  it("approves a proposal with canonical catalog, events, and projection in one batch", async () => {
+  it.each(["official_video", "broadcast"] as const)("approves a %s proposal atomically with catalog and projection", async (releaseType) => {
     const repository = new D1AdminCatalogRepository(db);
     const singer = await createEntity(repository, "Proposal Singer");
     const artist = await createEntity(
@@ -2411,7 +2411,7 @@ describe("D1AdminCatalogRepository", () => {
       {
         externalChannelId: `UC${"P".repeat(22)}`,
         displayName: "Proposal Channel",
-        channelRole: "member_music",
+        channelRole: releaseType === "broadcast" ? "approved_kirinuki" : "member_music",
         entityIds: [singer.data.id],
       },
       actor,
@@ -2516,7 +2516,9 @@ describe("D1AdminCatalogRepository", () => {
           },
         ],
         channel: { kind: "existing", channelId: channel.data.id },
-        releaseType: "official_video",
+        releaseType,
+        startSeconds: 2, endSeconds: 178,
+        broadcast: releaseType === "broadcast" ? { performedOn: "2026-09-01", dateEvidence: "설명", originalUrl: "https://www.youtube.com/watch?v=AAAAAAAAAAA", extent: "full" } : null,
         participationType: "solo",
         singingCreditConfirmed: true,
         publish: true,
@@ -2576,9 +2578,14 @@ describe("D1AdminCatalogRepository", () => {
         (performance) => performance.id === result.data.approvedPerformanceId,
       )?.publicationStatus,
     ).toBe("published");
-    expect(
-      (await publicReader.readCatalog(publicQuery)).items.map((item) => item.title),
-    ).toContain("Proposal Song");
+    const performance = catalog.performances.find(item => item.id === result.data.approvedPerformanceId)!;
+    expect(performance).toMatchObject({ releaseType, relationType: releaseType === "broadcast" ? "singing_clip" : "cover", sources: [expect.objectContaining({ startSeconds: 2, endSeconds: 178 })] });
+    if (releaseType === "broadcast") {
+      expect(performance.broadcast).toMatchObject({ performedOn: "2026-09-01", extent: "full" });
+      expect(await publicReader.readSongBySlug(catalog.songs.find(song => song.title === "Proposal Song")!.slug, "all")).not.toBeNull();
+    } else {
+      expect((await publicReader.readCatalog(publicQuery)).items.map(item => item.title)).toContain("Proposal Song");
+    }
     const eventTypes = await db
       .prepare(
         `SELECT event_type FROM music_catalog_events

@@ -3,6 +3,8 @@
 ## Canonical Policy
 - `.agent` is the canonical source for project rules and skills.
 - `.cursor` is a generated mirror for Cursor compatibility.
+- `.agents/skills` contains generated Codex discovery entries pointing to `.agent`.
+- Do not manually edit generated discovery entries; the same sync commands maintain both surfaces.
 - Do not manually edit mirrored `.cursor` files listed below.
 - After changing mirrored `.agent` files, run:
   - `pnpm sync:agent-cursor`
@@ -19,7 +21,7 @@
 
 ### Trigger rules
 - Use `branch-maintenance` for merged-branch cleanup, stale ref pruning, or default-branch synchronization requests.
-- Use `code-review-otw` for review, PR review, risk review, or regression review requests.
+- Use `code-review-otw` for code, PR, or implementation regression review; general product/document/skill reviews do not trigger it.
 - Use `db-migration` for schema or migration changes.
 - Use `worker-api-change` for `/api` endpoints, payloads, query params, or frontend API client changes.
 - Use `release-ops` for deployment readiness and release safety checks.
@@ -29,7 +31,7 @@
 2. Sequence skills by dependency:
    - `db-migration` before `release-ops` for schema-aware releases.
    - `worker-api-change` before `release-ops` for API contract releases.
-3. Keep canonical updates in `.agent`; mirror into `.cursor` with the sync script.
+3. Keep canonical updates in `.agent`; generate `.cursor` and `.agents/skills` with the sync script. Its check validates content, managed inventory, and local Markdown references.
 
 ## Canonical Rules
 - `.agent/rules/antigravity.md`
@@ -47,6 +49,17 @@
 - `.cursor/skills/db-migration/SKILL.md`
 - `.cursor/skills/worker-api-change/SKILL.md`
 - `.cursor/skills/release-ops/SKILL.md`
+
+## Codex Discovery
+
+The five `.agents/skills/<skill-name>/SKILL.md` entries and their UI metadata
+are generated from the canonical skills above. They contain portable relative
+links, not personal global paths or symlinks. Branch maintenance stays in this
+repository so a checkout works without a personal global installation.
+
+For agent infrastructure changes, run `node --test scripts/sync-agent-to-cursor.test.mjs`
+and `pnpm sync:agent-cursor:check`. These focused tests exercise missing sources,
+drift, broken references, and portable generation in temporary directories.
 
 ## Compatibility Workflows
 - `.agent/workflows/branch-maintenance.md`

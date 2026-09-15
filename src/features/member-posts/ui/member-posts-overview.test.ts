@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import { createElement } from "react";
 import {
@@ -30,42 +31,23 @@ const renderWithQueryClient = (element: ReturnType<typeof createElement>) => {
 };
 
 const members: MemberDto[] = [
-  {
+  createMemberFixture({
     uid: 1,
     code: "otw",
     name: "테스트 멤버",
     main_color: "#111111",
     sub_color: "#ffffff",
     oshi_mark: "💙",
-    url_twitter: "https://x.com/otw_member",
-    url_youtube: null,
-    url_chzzk: null,
-    youtube_channel_id: null,
-    birth_date: null,
-    debut_date: null,
-    unit_name: null,
-    fan_name: null,
-    introduction: null,
-    is_deprecated: 0,
-  },
-  {
+    url_twitter: "https://x.com/otw_member"
+  }),
+  createMemberFixture({
     uid: 2,
     code: "otw2",
     name: "테스트 멤버2",
     main_color: "#22c55e",
     sub_color: "#ffffff",
-    oshi_mark: "⭐",
-    url_twitter: null,
-    url_youtube: null,
-    url_chzzk: null,
-    youtube_channel_id: null,
-    birth_date: null,
-    debut_date: null,
-    unit_name: null,
-    fan_name: null,
-    introduction: null,
-    is_deprecated: 0,
-  },
+    oshi_mark: "⭐"
+  }),
 ];
 
 vi.mock("@/features/schedule-board", () => ({

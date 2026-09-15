@@ -5,6 +5,7 @@ export default defineConfig({
   resolve: { alias: testAliases },
   test: {
     name: "unit",
+    reporters: ["dot"],
     environment: "node",
     maxWorkers: testMaxWorkers,
     include: [

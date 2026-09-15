@@ -1,3 +1,6 @@
+import { ReviewSegmentPlayer } from "./review-segment-player";
+import { BroadcastMetadataFields } from "../broadcast-metadata-fields";
+import { emptySubmissionBroadcast } from "../../model/submission-broadcast";
 import { ReviewInbox } from "./review-inbox";
 import { ChannelCollectionSettings } from "./channel-collection-settings";
 import { PlayAutomationControl } from "./play-automation-control";
@@ -126,11 +129,12 @@ const participantRoleLabels: Record<OtwPlayParticipantRole, string> = {
 };
 
 const releaseTypeLabels: Record<
-  Extract<OtwPlayReleaseType, "official_mv" | "official_video">,
+  Extract<OtwPlayReleaseType, "official_mv" | "official_video" | "broadcast">,
   string
 > = {
   official_mv: "공식 MV",
   official_video: "공식 영상",
+  broadcast: "노래 클립",
 };
 
 const participationTypeLabels: Record<OtwPlayParticipationType, string> = {
@@ -253,6 +257,13 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
     } catch (error) {
       console.error("OTW Play admin command failed", error);
       const description =
+        error instanceof ApiError && error.fields?.broadcast === "extent_required"
+          ? "가창 수정에서 완곡 또는 일부 가창 여부를 선택한 뒤 저장해 주세요."
+          : error instanceof ApiError && error.fields?.sources === "approved_bounded_source_required"
+            ? "가창 수정에서 재생 구간을 확인하고 저장해 주세요. 노래 클립은 승인·활성 채널의 재생 가능한 영상과 종료 위치가 필요합니다."
+          : error instanceof ApiError && error.fields?.participants === "singing_participant_required"
+            ? "가창 수정에서 메인 보컬·피처링 보컬·코러스 중 하나의 참여자를 지정해 주세요."
+          :
         error instanceof ApiError && error.code === "PLAY_ADMIN_STALE_WRITE"
           ? "다른 점검이 먼저 반영되었습니다. 최신 상태를 다시 불러왔습니다."
           : label === "외부 identity 삭제" &&
@@ -488,7 +499,7 @@ function ProposalSection({
   const [savingLocal, setSavingLocal] = useState(false);
   const [preflightError, setPreflightError] = useState<string | null>(null);
   const [channelRole, setChannelRole] =
-    useState<Extract<OtwPlayChannelRole, "otw_official" | "unit_official" | "member_music" | "member_main" | "project_official">>("project_official");
+    useState<Extract<OtwPlayChannelRole, "otw_official" | "unit_official" | "member_music" | "member_main" | "project_official" | "approved_kirinuki">>("project_official");
   const [reviewTitle, setReviewTitle] = useState("");
   const [reviewSongId, setReviewSongId] = useState("__new");
   const [reviewSongTags, setReviewSongTags] = useState<string[]>([]);
@@ -497,8 +508,11 @@ function ProposalSection({
   const [reviewArtists, setReviewArtists] = useState<ReviewIdentity[]>([]);
   const [reviewChannelOwners, setReviewChannelOwners] = useState<ReviewChannelOwner[]>([]);
   const [reviewReleaseType, setReviewReleaseType] = useState<
-    Extract<OtwPlayReleaseType, "official_mv" | "official_video">
+    Extract<OtwPlayReleaseType, "official_mv" | "official_video" | "broadcast">
   >("official_video");
+  const [reviewBroadcast, setReviewBroadcast] = useState(emptySubmissionBroadcast);
+  const [reviewStart, setReviewStart] = useState(0);
+  const [reviewEnd, setReviewEnd] = useState<number | null>(null);
   const [reviewParticipationType, setReviewParticipationType] =
     useState<OtwPlayParticipationType>("solo");
   const selected =
@@ -511,6 +525,7 @@ function ProposalSection({
       ["unknown", "pending", "inactive"].includes(approvalPreflight.channel.state),
   );
   const approvalBlockers: string[] = [];
+  if (reviewReleaseType === "broadcast" && !reviewBroadcast.extent) approvalBlockers.push("완곡 또는 일부 가창 여부를 확인해 주세요.");
   if (savingLocal) approvalBlockers.push("영상·채널을 확인하고 있습니다.");
   else if (!approvalPreflight) approvalBlockers.push("영상·채널 확인을 먼저 실행해 주세요.");
   if (approvalPreflight?.duplicate) approvalBlockers.push("이미 등록된 영상입니다. 기존 카탈로그 항목을 확인해 주세요.");
@@ -572,7 +587,10 @@ function ProposalSection({
       })),
     );
     setReviewChannelOwners([]);
-    setReviewReleaseType("official_video");
+    setReviewReleaseType(selected.submissionKind === "singing_clip" ? "broadcast" : "official_video");
+    setChannelRole(selected.submissionKind === "singing_clip" ? "approved_kirinuki" : "project_official");
+    setReviewBroadcast(selected.broadcast ?? emptySubmissionBroadcast());
+    setReviewStart(0); setReviewEnd(null);
     setReviewParticipationType(
       selected.participants.length === 1
         ? "solo"
@@ -695,6 +713,8 @@ function ProposalSection({
         participants: participantSubjects,
         channel,
         releaseType: reviewReleaseType,
+        startSeconds: reviewStart, endSeconds: reviewEnd,
+        broadcast: reviewReleaseType === "broadcast" ? reviewBroadcast : null,
         participationType: reviewParticipationType,
         ...(reviewPerformanceTags.length > 0
           ? { performanceTags: reviewPerformanceTags }
@@ -710,7 +730,7 @@ function ProposalSection({
     <Card>
       <CardContent className="space-y-3" onChangeCapture={() => setProposalDirty(true)}>
         <p className="text-sm text-muted-foreground">
-          최신 YouTube metadata, 승인·활성 공식 채널과 실제 가창 credit을 모두 확인한 뒤 게시합니다.
+          영상·채널과 실제 가창자를 확인한 뒤 신청 유형에 맞게 게시합니다. 노래 클립은 승인된 클리퍼 채널과 완곡 여부를 확인해 주세요.
         </p>
         {error ? (
           <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
@@ -755,7 +775,7 @@ function ProposalSection({
                       >
                         {proposal.submittedTitle}
                       </button>
-                      <div className="mt-1"><Badge variant="outline" aria-label="수집 출처: 사용자 제안">사용자 제안</Badge></div>
+                      <div className="mt-1"><Badge variant="outline" aria-label="수집 출처: 사용자 제안">사용자 제안</Badge><Badge className="ml-1" variant="secondary">{proposal.submissionKind === "singing_clip" ? "노래 클립" : "공식 커버"}</Badge></div>
 
                     </TableCell>
                     <TableCell>
@@ -822,14 +842,14 @@ function ProposalSection({
         ) : null}
         {!error && selected && (
           <div className="mx-auto grid w-full min-w-0 max-w-6xl gap-4 rounded-xl border bg-muted/20 p-4 lg:grid-cols-[minmax(240px,360px)_minmax(0,1fr)]">
-            <div className="aspect-video overflow-hidden rounded-lg bg-black">
-              <iframe
-                className="h-full w-full"
+            <div>
+              {reviewReleaseType === "broadcast" ? <ReviewSegmentPlayer videoId={selected.youtubeVideoId} startSeconds={reviewStart} endSeconds={reviewEnd ?? approvalPreflight?.video.durationSeconds ?? null} thumbnailUrl={approvalPreflight?.video.thumbnailUrl ?? null} valid={Number.isSafeInteger(reviewStart) && reviewStart >= 0 && (reviewEnd == null || reviewEnd > reviewStart)} /> : <iframe
+                className="aspect-video w-full"
                 src={`https://www.youtube-nocookie.com/embed/${selected.youtubeVideoId}`}
                 title={`${selected.submittedTitle} 검수 영상`}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
-              />
+              />}
             </div>
             <div className="min-w-0 space-y-2 text-sm">
               <div className="font-semibold">{selected.submittedTitle}</div>
@@ -871,7 +891,7 @@ function ProposalSection({
             <div className="min-w-0 space-y-4 text-sm lg:col-span-2 [&_[data-slot=select-trigger]]:w-full">
               {approvalPreflight && channelNeedsConfirmation ? (
                 <div className="space-y-3 rounded-lg border bg-background p-3">
-                  <Field label="공식 채널 역할">
+                  <Field label="채널 역할">
                     <Select
                       value={channelRole}
                       onValueChange={(value) => {
@@ -886,6 +906,7 @@ function ProposalSection({
                         <SelectItem value="member_music">멤버 노래 채널</SelectItem>
                         <SelectItem value="member_main">멤버 메인 채널</SelectItem>
                         <SelectItem value="project_official">승인 프로젝트</SelectItem>
+                        <SelectItem value="approved_kirinuki">승인 클리퍼</SelectItem>
                       </SelectContent>
                     </Select>
                   </Field>
@@ -1251,12 +1272,14 @@ function ProposalSection({
                     </div>
                   ))}
                 </div>
+                {reviewReleaseType === "broadcast" ? <div className="space-y-4 rounded-lg border p-4"><BroadcastMetadataFields value={reviewBroadcast} onChange={setReviewBroadcast} idPrefix="proposal-broadcast" /><div className="grid grid-cols-2 gap-3"><Field label="재생 시작 (초)"><Input type="number" min={0} value={reviewStart} onChange={event => setReviewStart(Number(event.target.value))} /></Field><Field label="재생 종료 (초)"><Input type="number" min={reviewStart + 1} placeholder="영상 끝까지" value={reviewEnd ?? ""} onChange={event => setReviewEnd(event.target.value === "" ? null : Number(event.target.value))} /></Field></div></div> : null}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="공개 형태">
                     <Select
                       value={reviewReleaseType}
                       onValueChange={(value) => {
                         setReviewReleaseType(value as typeof reviewReleaseType);
+                        setChannelRole(value === "broadcast" ? "approved_kirinuki" : "project_official");
                         setSingingCreditConfirmed(false);
                       }}
                     >
@@ -1291,10 +1314,10 @@ function ProposalSection({
                     setReviewPerformanceTags(tags);
                     setSingingCreditConfirmed(false);
                   }}
-                  label="커버 영상 라벨"
+                  label="영상 라벨"
                   placeholder="이 영상만의 라벨 입력"
-                  selectedLabel="선택한 커버 영상 라벨"
-                  description="승인할 커버 영상에만 적용되며 곡 태그와 별도로 저장됩니다."
+                  selectedLabel="선택한 영상 라벨"
+                  description="승인할 영상에만 적용되며 곡 태그와 별도로 저장됩니다."
                   recommendedTags={[]}
                 />
               </div>

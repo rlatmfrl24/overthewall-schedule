@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,24 +13,12 @@ vi.mock("../api/youtube", () => ({
   fetchMembersYouTubeShorts: fetchMembersYouTubeShortsMock,
 }));
 
-const member: MemberDto = {
-  uid: 1,
-  code: "m1",
-  name: "멤버1",
-  main_color: null,
-  sub_color: null,
-  oshi_mark: null,
-  url_twitter: null,
-  url_youtube: null,
-  url_chzzk: null,
-  youtube_channel_id: `UC${"A".repeat(22)}`,
-  birth_date: null,
-  debut_date: null,
-  unit_name: null,
-  fan_name: null,
-  introduction: null,
-  is_deprecated: 0,
-};
+const member: MemberDto = createMemberFixture({
+    uid: 1,
+    code: "m1",
+    name: "멤버1",
+    youtube_channel_id: `UC${"A".repeat(22)}`
+  });
 
 const makePage = (
   state: YouTubeShortsResponse["collection"]["state"],

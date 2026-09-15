@@ -4,6 +4,7 @@ import {
 } from "@contracts/scheduled-operations";
 import type { Env } from "../platform/types";
 import { handleQueue } from "./queue";
+import { handleAiReviewQueue, isAiReviewMessage } from "./ai-review";
 import {
   handleScheduledControlQueue,
   handleScheduledJobQueue,
@@ -28,6 +29,7 @@ export const handleWorkerQueue = async (
   batch: MessageBatch<unknown>,
   env: Env,
 ) => {
+  if (batch.queue === "otw-play-ai-review") { await handleAiReviewQueue(batch, env); return; }
   if (batch.queue === CONTROL_QUEUE) {
     await handleScheduledControlQueue(batch, env);
     return;
@@ -47,9 +49,11 @@ export const handleWorkerQueue = async (
     );
     const mediaMessages = batch.messages.filter((message) =>
       !isScheduledControlQueueMessage(message.body) &&
-      !isScheduledJobQueueMessage(message.body)
+      !isScheduledJobQueueMessage(message.body) && !isAiReviewMessage(message.body)
     );
+    const aiMessages = batch.messages.filter(message => isAiReviewMessage(message.body));
     await Promise.all([
+      aiMessages.length > 0 ? handleAiReviewQueue(asBatch(batch, aiMessages), env) : Promise.resolve(),
       scheduledMessages.length > 0
         ? handleScheduledJobQueue(asBatch(batch, scheduledMessages), env)
         : Promise.resolve(),

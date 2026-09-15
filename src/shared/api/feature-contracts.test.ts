@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScheduleDto } from "@contracts/schedules";
 import {
@@ -72,25 +73,12 @@ vi.mock("./client", () => ({
 }));
 
 const makeMember = (overrides: Partial<Member> = {}) =>
-  ({
+  (createMemberFixture({
     uid: 1,
     code: "member",
     name: "멤버",
-    main_color: null,
-    sub_color: null,
-    oshi_mark: null,
-    url_twitter: null,
-    url_youtube: null,
-    url_chzzk: null,
-    youtube_channel_id: null,
-    birth_date: null,
-    debut_date: null,
-    unit_name: null,
-    fan_name: null,
-    introduction: null,
-    is_deprecated: 0,
-    ...overrides,
-  }) as Member;
+    ...overrides
+  })) as Member;
 
 const makeSchedule = (
   overrides: Partial<ScheduleDto> = {},

@@ -10,12 +10,12 @@ Node 버전은 `.node-version`, pnpm 버전은 `package.json#packageManager`를 
 | `pnpm test` | 단위·Worker 통합 프로젝트를 한 번씩 실행 |
 | `pnpm test:unit` | `src`, `worker`, `scripts`의 단위 테스트. `*.integration.test.ts` 제외 |
 | `pnpm test:worker-integration` | `worker/**/*.integration.test.ts`, workerd와 격리된 D1 |
-| `pnpm test:coverage` | 전체 프로젝트 실행과 합산 Istanbul 커버리지 |
+| `pnpm test:coverage` | 별도 진단: 전체 프로젝트 실행과 합산 Istanbul 커버리지, 백분율 강제 없음 |
 | `pnpm typecheck:test` | 프런트 테스트·Worker·Vite/Vitest 설정 타입 검사 |
-| `pnpm preflight` | architecture, test typecheck, lint, 전체 coverage, build, D1 doctor, mirror check |
+| `pnpm preflight` | architecture, test typecheck, lint, 전체 test, build, D1 doctor, mirror check |
 
-`preflight`의 coverage 단계는 테스트 assertion도 실행한다. 같은 변경에서 이미
-`preflight`가 통과했다면 단순 확인 목적으로 전체 `test`를 다시 실행할 필요는 없다.
+`preflight`는 커버리지 계측 없이 전체 테스트를 한 번 실행한다. 같은 변경에서 이미
+`preflight`가 통과했다면 단순 확인 목적으로 전체 `test`를 다시 실행하지 않는다.
 실행 구성 자체를 바꿀 때는 `test`와 `test:coverage` 양쪽 진입점을 확인한다.
 
 대상 파일만 확인할 때:
@@ -29,19 +29,32 @@ pnpm test:unit src/features/otw-play/ui/playlists/playlist-editor-page.test.tsx 
 `vitest.config.ts`는 단위 프로젝트, `vitest.worker.config.ts`는 Worker 프로젝트다.
 전체 실행과 coverage는 `vitest.all.config.ts`의 같은 프로젝트 목록을 사용한다.
 이전 `vitest.coverage.config.ts` 직접 호출은 전체 설정 파일로 변경한다.
-공통 별칭·커버리지 범위·임계값·동시 실행 수는 `vitest.shared.ts`에서 관리한다.
+공통 별칭·커버리지 범위·동시 실행 수는 `vitest.shared.ts`에서 관리한다.
 동시 worker는 2개로 제한하며, 실패를 감추려고 timeout이나 assertion을 완화하지 않는다.
+기본 reporter는 `dot`으로 성공 목록을 줄이고 실패 상세·최종 요약을 남긴다.
+상세 시간 조사는 `--reporter=default`, 기계 판독은 `--reporter=json --outputFile=.tmp/test-result.json`을 사용한다.
 
 ## 커버리지 해석
 
 합산 보고서는 `coverage/coverage-summary.json`과 `coverage/index.html`에 생성된다.
 현재 대상은 프런트 API·model·use-cases·공통 API와 Worker application·domain·infrastructure다.
-임계값은 statements 70%, branches 60%, functions 70%, lines 70%다.
+백분율 임계값은 사용하지 않는다. 누락된 요구사항·회귀 위험을 찾는 보조 진단이며
+숫자를 높이기 위한 테스트를 추가하지 않는다. 콘솔에는 합계만, 파일에는 상세 결과를 남긴다.
 UI·queries·player·HTTP 어댑터 등의 테스트도 실행하지만 해당 파일의 코드 커버리지는
 이 수치에 포함하지 않는다. 전체 제품의 검증 비율로 해석하지 않는다.
 단위 설정을 직접 `--coverage`로 실행할 때의 V8 보고서는 Worker를 제외한 진단 결과다.
 
 ## 테스트 작성·정리 기준
+
+- 한 동작의 입력 조합은 해당 도메인·서비스에서 검증한다. HTTP는 인증·입력·응답,
+  UI는 실제 조작·상태 보존·오류 복구를 검증한다. 다른 경계의 고유 위험은 중복이 아니다.
+- 삭제·통합할 때는 보호하던 요구사항과 남는 검증 위치를 기록한다.
+  [전체 테스트 검토 기록](testing-audit.md)에서 관련 기능의 행만 참고한다.
+  이 이력 전체를 매 작업마다 읽거나 다시 생성하지 않는다. 파일 수·테스트 수 목표는 두지 않는다.
+- fixture는 새 객체를 반환하는 작은 함수로 공유하고, 시나리오별 차이는 테스트에 명시한다.
+  기대값을 제품 로직에서 생성하거나 전역 공유 가변 상태를 만들지 않는다.
+- 장식용 CSS 클래스와 전체 구현 객체의 복사본은 검증 대상으로 삼지 않는다.
+  접근성·사용자에게 보이는 상태·명시된 데이터 및 운영 비용 계약은 유지한다.
 
 - 테스트는 해당 capability 코드 옆에 둔다. Worker 단위 테스트는 `.test.ts`,
   실제 D1 실행은 `.integration.test.ts`로 구분한다.

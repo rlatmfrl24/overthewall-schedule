@@ -764,6 +764,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       proposal.submitted_by_user_id, proposal.submitted_url, proposal.youtube_video_id,
       proposal.segment_start_seconds, proposal.submitted_title, proposal.suggested_song_id,
       proposal.submitted_tags_json, proposal.submitted_note, proposal.status, proposal.version,
+      proposal.submission_kind, proposal.submitted_broadcast_json,
       proposal.reviewed_by_user_id, proposal.reviewed_at, proposal.review_result_code,
       proposal.review_note, proposal.approved_performance_id, proposal.created_at
       FROM music_cover_proposals AS proposal ${where}
@@ -788,6 +789,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       submitted_url: string;
       youtube_video_id: string;
       segment_start_seconds: number;
+      submission_kind: "official_cover" | "singing_clip";
+      submitted_broadcast_json: string | null;
       submitted_title: string;
       suggested_song_id: string | null;
       submitted_tags_json: string;
@@ -823,6 +826,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       youtubeVideoId: row.youtube_video_id,
       segmentStartSeconds: Number(row.segment_start_seconds),
       submittedTitle: row.submitted_title,
+      submissionKind: row.submission_kind,
+      broadcast: row.submitted_broadcast_json ? readBroadcastMetadata(row.submitted_broadcast_json) : null,
       suggestedSongId: row.suggested_song_id,
       tags: parseTagsJson(row.submitted_tags_json),
       submittedNote: row.submitted_note,
@@ -3178,6 +3183,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         throw new AdminCatalogRepositoryError(
           "validation_failed",
           "Published performance requires a singing participant and approved sources with valid playback bounds",
+          { ...(!eligibility?.has_participant ? { participants: "singing_participant_required" } : {}), ...(!eligibility?.has_source || !eligibility?.valid_sources ? { sources: "approved_bounded_source_required" } : {}) },
         );
       }
     }
@@ -3587,11 +3593,13 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       input: {
         expectedCatalogRevision: input.expectedCatalogRevision,
         youtubeUrl: `https://www.youtube.com/watch?v=${video.videoId}`,
-        startSeconds: 0,
+        startSeconds: input.startSeconds ?? 0,
+        endSeconds: input.endSeconds,
+        broadcast: input.releaseType === "broadcast" ? input.broadcast : null,
         song: input.song,
         participants: input.participants,
         channel: input.channel,
-        relationType: "cover",
+        relationType: input.releaseType === "broadcast" ? "singing_clip" : "cover",
         releaseType: input.releaseType,
         participationType: input.participationType,
         performanceTags: input.performanceTags,

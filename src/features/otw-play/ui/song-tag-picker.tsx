@@ -4,8 +4,8 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { OTW_PLAY_RECOMMENDED_SONG_TAGS } from "@contracts/otw-play-tags";
 
-const RECOMMENDED_SONG_TAGS = ["K-POP", "J-POP", "보컬로이드"] as const;
 const SONG_TAG_WHITESPACE_PATTERN = /\s+/gu;
 const SONG_TAG_PUNCTUATION_PATTERN = /\p{P}+/gu;
 
@@ -27,7 +27,7 @@ export function SongTagPicker({
   placeholder = "장르 또는 분류 입력",
   selectedLabel = "선택한 장르(분류)",
   description = "곡 자체의 장르·씬 분류입니다. 가창 형태와 별도로 최대 10개까지 입력할 수 있습니다.",
-  recommendedTags = RECOMMENDED_SONG_TAGS,
+  recommendedTags = OTW_PLAY_RECOMMENDED_SONG_TAGS,
 }: {
   tags: string[];
   onChange: (tags: string[]) => void;

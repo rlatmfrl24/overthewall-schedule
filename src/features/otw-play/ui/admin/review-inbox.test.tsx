@@ -1,3 +1,4 @@
+import { createAdminCatalogFixture, createReviewItemFixture } from "../../test/catalog-fixtures";
 // @vitest-environment jsdom
 import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -15,8 +16,8 @@ vi.mock("../../api/admin", () => ({ fetchOtwPlayReviewItems: fetchReview, conver
 vi.mock("@/features/members", () => ({ fetchActiveMembers: vi.fn(async () => []) }));
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 vi.mock("@/shared/lib/confirmation", () => ({ useConfirmation: () => vi.fn(async () => true) }));
-const row = (id: string, status = "ready"): OtwPlayReviewItemDto => ({ id, kind: "candidate", candidateKind: "singing_clip", sources: ["playlist", "automatic"], title: id, version: 4, status, createdAt: 1, channelId: null, candidate: null });
-const catalog = { songs: [], entities: [], channels: [], performances: [], revision: 1, readModelRevision: 1 } as unknown as OtwPlayAdminCatalogDto;
+const row = (id: string, status = "ready"): OtwPlayReviewItemDto => createReviewItemFixture({ id, kind: "candidate", candidateKind: "singing_clip", sources: ["playlist", "automatic"], title: id, version: 4, status, createdAt: 1 });
+const catalog = createAdminCatalogFixture({ revision: 1, readModelRevision: 1 });
 beforeEach(() => {
   vi.clearAllMocks();
   jobs.mockReturnValue({ data: [{ id: "job-a", playlistTitle: "첫 번째 가져오기", createdAt: 1, candidateKind: "singing_clip" }, { id: "job-b", playlistTitle: "두 번째 가져오기", createdAt: 2, candidateKind: "official_video" }], isLoading: false });

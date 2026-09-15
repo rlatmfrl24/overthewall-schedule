@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Review OTW"
+  short_description: "Review OTW changes for quality and risk before merge"
+  default_prompt: "Use $code-review-otw to review this change set for high-risk issues."

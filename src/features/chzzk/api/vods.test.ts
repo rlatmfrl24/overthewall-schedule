@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MemberDto } from "@contracts/members";
 
@@ -8,29 +9,16 @@ vi.mock("@/shared/api/client", () => ({
 }));
 
 const makeMember = (uid: number, channelId?: string) =>
-  ({
+  (createMemberFixture({
     uid,
     code: `m${uid}`,
     name: `멤버${uid}`,
-    main_color: null,
-    sub_color: null,
-    oshi_mark: null,
-    url_twitter: null,
-    url_youtube: null,
-    url_chzzk: channelId ? `https://chzzk.naver.com/${channelId}` : null,
-    youtube_channel_id: null,
-    birth_date: null,
-    debut_date: null,
-    unit_name: null,
-    fan_name: null,
-    introduction: null,
-    is_deprecated: 0,
-  }) as MemberDto;
+    url_chzzk: channelId ? `https://chzzk.naver.com/${channelId}` : null
+  })) as MemberDto;
 
 describe("vods api", () => {
   beforeEach(() => {
     apiFetchMock.mockReset();
-    vi.resetModules();
   });
 
   it("채널별 최신 vod를 멤버 uid로 매핑한다", async () => {

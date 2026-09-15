@@ -7,6 +7,7 @@ import type {
   OtwPlayWithdrawSubmissionRequest,
 } from "@contracts/otw-play";
 import { OTW_PLAY_PARTICIPANT_ROLES } from "@contracts/otw-play";
+import { parseBroadcastMetadata, emptyBroadcastMetadata } from "../domain/broadcast-metadata";
 import { normalizeOtwPlaySearchText } from "../domain/search-normalization";
 
 export type MemberSubmissionInputResult<T> =
@@ -153,6 +154,8 @@ export const parseCreateSubmission = (
     !isObject(value) ||
     !hasExactKeys(value, [
       "clientRequestId",
+      "submissionKind",
+      "broadcast",
       "youtubeUrl",
       "title",
       "suggestedSongId",
@@ -163,6 +166,13 @@ export const parseCreateSubmission = (
     ])
   ) {
     return { ok: false, fields: { body: "invalid_shape" } };
+  }
+  const submissionKind = value.submissionKind ?? "official_cover";
+  const broadcast = value.broadcast == null ? null : parseBroadcastMetadata(value.broadcast);
+  if ((submissionKind !== "official_cover" && submissionKind !== "singing_clip") ||
+      (value.broadcast != null && !broadcast) ||
+      (submissionKind === "official_cover" && broadcast && JSON.stringify(broadcast) !== JSON.stringify(emptyBroadcastMetadata()))) {
+    return { ok: false, fields: { submissionKind: "invalid_submission_kind_or_broadcast" } };
   }
   const clientRequestId = text(value.clientRequestId, 36);
   const youtubeUrl = text(value.youtubeUrl, 500);
@@ -192,6 +202,8 @@ export const parseCreateSubmission = (
     ok: true,
     value: {
       clientRequestId: clientRequestId.toLowerCase(),
+      submissionKind,
+      broadcast: submissionKind === "singing_clip" ? broadcast : null,
       youtubeUrl,
       title,
       suggestedSongId,
@@ -210,6 +222,8 @@ export const parseUpdateSubmission = (
     !isObject(value) ||
     !hasExactKeys(value, [
       "expectedVersion",
+      "submissionKind",
+      "broadcast",
       "youtubeUrl",
       "title",
       "suggestedSongId",
@@ -234,6 +248,8 @@ export const parseUpdateSubmission = (
     ok: true,
     value: {
       expectedVersion: Number(expectedVersion),
+      ...(value.submissionKind !== undefined ? { submissionKind: parsed.value.submissionKind } : {}),
+      ...(value.broadcast !== undefined ? { broadcast: parsed.value.broadcast } : {}),
       youtubeUrl: parsed.value.youtubeUrl,
       title: parsed.value.title,
       suggestedSongId: parsed.value.suggestedSongId,

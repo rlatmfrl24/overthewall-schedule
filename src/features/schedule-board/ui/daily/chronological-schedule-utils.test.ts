@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 import { describe, expect, it } from "vitest";
 import type { Member } from "@/features/members";
 import type { ScheduleItem } from "@/features/schedules";
@@ -36,24 +37,12 @@ const liveStatuses = {
 } satisfies ChzzkLiveStatusMap;
 
 const makeMember = (uid: number): Member =>
-  ({
+  (createMemberFixture({
     uid,
     code: `member-${uid}`,
     name: `멤버 ${uid}`,
-    main_color: null,
-    sub_color: null,
-    oshi_mark: null,
-    url_twitter: null,
-    url_youtube: null,
-    url_chzzk: uid === 7 ? "https://chzzk.naver.com/live-channel" : null,
-    youtube_channel_id: null,
-    birth_date: null,
-    debut_date: null,
-    unit_name: null,
-    fan_name: null,
-    introduction: null,
-    is_deprecated: 0,
-  }) as Member;
+    url_chzzk: uid === 7 ? "https://chzzk.naver.com/live-channel" : null
+  })) as Member;
 
 describe("buildScheduleBoardModel", () => {
   it("방송/게릴라/미정/휴방을 분류하고 시간순으로 정렬한다", () => {

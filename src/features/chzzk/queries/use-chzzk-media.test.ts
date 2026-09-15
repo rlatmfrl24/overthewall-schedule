@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import { createQueryWrapper } from "@/test/query-client";
 import type { MemberDto } from "@contracts/members";
@@ -19,24 +20,12 @@ vi.mock("../api/vods", () => ({
   fetchAllMembersVodVideos: fetchAllMembersVodVideosMock,
 }));
 
-const makeMember = (uid: number, channelId: string): MemberDto => ({
-  uid,
-  code: `m${uid}`,
-  name: `멤버${uid}`,
-  main_color: null,
-  sub_color: null,
-  oshi_mark: null,
-  url_twitter: null,
-  url_youtube: null,
-  url_chzzk: `https://chzzk.naver.com/${channelId}`,
-  youtube_channel_id: null,
-  birth_date: null,
-  debut_date: null,
-  unit_name: null,
-  fan_name: null,
-  introduction: null,
-  is_deprecated: 0,
-});
+const makeMember = (uid: number, channelId: string): MemberDto => (createMemberFixture({
+    uid,
+    code: `m${uid}`,
+    name: `멤버${uid}`,
+    url_chzzk: `https://chzzk.naver.com/${channelId}`
+  }));
 
 describe("CHZZK media queries", () => {
   beforeEach(() => {

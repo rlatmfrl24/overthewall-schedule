@@ -1,62 +1,48 @@
 ---
 name: code-review-otw
-description: Review OTW code changes for correctness, regressions, security, performance, accessibility, release, and documentation risks. Use when a user asks for code review, PR review, change review, risk review, UI review, or includes words like review or 리뷰.
+description: Review OTW code or pull-request changes for contract correctness, regressions, security, performance, accessibility, and release risks. Use for code, PR, or implementation regression reviews; a general product, document, or skill review alone does not trigger this workflow.
 ---
 
 # Code Review (OTW)
 
-## Review Focus
+## Scope and authority
 
-- Prioritize correctness and behavior regressions first.
-- Evaluate security concerns at trust boundaries (input validation, auth or audit, sensitive data).
-- Evaluate performance risks (wasteful rerenders, unnecessary API calls, expensive loops or queries).
-- For UI changes, evaluate accessibility, dark mode, responsive layout, and consistency with `Design.md`.
-- For multiview changes, verify the web-safe Mul.Live iframe fallback, repeated `c=` URL state, public access, responsive height behavior, and absence of extension or cookie-bridge assumptions.
-- For documentation changes, evaluate whether docs point to current source-of-truth files and avoid duplicate active drafts.
-- Validate test impact and identify missing coverage for changed behavior.
+Follow the shared [outcome and authority rules](../../../.agent/rules/antigravity.md).
+Identify the requested review depth: static inspection, targeted verification, or
+release/real-flow verification. A review does not authorize fixes, publication,
+remote mutations, or merging by itself; use existing session authorization.
 
-## Workflow
+## Review procedure
 
-1. Identify exact change scope (files, symbols, runtime paths).
-2. Analyze risks in severity order: high, medium, low.
-3. Capture evidence with concrete file or symbol references.
-4. List open questions for assumptions that cannot be validated from code.
-5. Propose targeted verification tests.
+1. Record the change scope and relevant commit/PR HEAD. Separate working-tree
+   changes, reviewed commits, and deployed artifacts when the difference matters.
+2. Trace accepted requirements through the intended entry point, authorization,
+   application use case, persistence/readback, and the user-visible result.
+   Compare current decisions with implementation; historical drafts and tests
+   must not redefine the accepted outcome.
+3. Inspect trust boundaries, actor/audit behavior, data integrity, idempotency,
+   races, cache invalidation, and failure/retry behavior affected by the change.
+4. For Play changes, follow the relevant current product documents from the
+   [project context](../../../.agent/rules/project-context.md). Check shared song
+   identity, review/registration/publication boundaries, and actual playback
+   when that capability is in scope. For scheduled work, distinguish request
+   acceptance, dispatch, item outcomes, retries, and final operation status.
+5. For UI changes, use [Design.md](../../../Design.md) and inspect the rendered
+   affected flow when practical. For multiview, preserve public Mul.Live iframe
+   behavior and repeated `c=` state without extension or cookie-bridge assumptions.
+6. Execute the smallest relevant checks allowed by the review scope. When actual
+   behavior verification is requested, use the intended UI/runtime and authoritative
+   readback; unit tests or direct lower-level writes cannot replace that flow.
+   For static-only review, propose the remaining runtime checks explicitly.
 
-## Response Template
+## Reporting
 
-Use this structure:
+Lead with actionable findings ordered by severity and likelihood. Give each
+finding a location, concrete trigger, impact, and required correction. If no
+material issues are found, state that clearly and identify the evidence scope.
+Then summarize executed checks, actual results, and remaining verification limits.
+Omit empty severity sections and do not infer readiness from unexecuted tests.
 
-```markdown
-## Findings
-
-### High
-
-- [Issue] Impact and location (`path/to/file.ts:line`, `SymbolName`)
-
-### Medium
-
-- [Issue] Impact and location (`path/to/file.ts:line`, `SymbolName`)
-
-### Low
-
-- [Issue] Impact and location (`path/to/file.ts:line`, `SymbolName`)
-
-## Open Questions
-
-- Assumptions or missing context that can change conclusions.
-
-## Suggested Tests
-
-- Focused checks to validate fixes or prevent regressions.
-
-## Summary
-
-- 1-2 lines on overall risk and readiness.
-```
-
-## Output Rules
-- Sort findings by severity, then by likelihood.
-- If no material issues are found, explicitly state "No material findings."
-- Keep explanations concise and actionable.
-- Lead with findings; keep summaries secondary.
+For an owning open PR, follow the shared PR evidence policy when GitHub writes
+are authorized. Record material PASS/FAIL evidence with the relevant HEAD even
+when readiness or merge is blocked; routine activity belongs in the dev log.

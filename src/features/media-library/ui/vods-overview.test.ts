@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -105,26 +106,17 @@ const makeMember = (
     chzzkChannelId?: string | null;
   } = {},
 ): MemberDto =>
-  ({
+  (createMemberFixture({
     uid,
     code: `m${uid}`,
     name: `멤버${uid}`,
     main_color: "#336699",
     sub_color: "#99bbdd",
-    oshi_mark: null,
-    url_twitter: null,
-    url_youtube: null,
     url_chzzk: options.chzzkChannelId
       ? `https://chzzk.naver.com/${options.chzzkChannelId}`
       : null,
-    youtube_channel_id: options.youtubeChannelId ?? null,
-    birth_date: null,
-    debut_date: null,
-    unit_name: null,
-    fan_name: null,
-    introduction: null,
-    is_deprecated: 0,
-  }) as MemberDto;
+    youtube_channel_id: options.youtubeChannelId ?? null
+  })) as MemberDto;
 
 const makeVideo = (member: MemberDto): ChzzkVideo => ({
   videoNo: 12345,

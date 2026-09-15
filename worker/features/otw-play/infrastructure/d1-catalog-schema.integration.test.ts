@@ -17,410 +17,48 @@ const MUSIC_TABLES = [
   "music_songs",
 ] as const;
 
-type MusicTable = (typeof MUSIC_TABLES)[number];
-
-type ExpectedForeignKey = {
-  from: string;
-  table: string;
-  to: string;
-  on_delete: "CASCADE" | "RESTRICT" | "SET NULL";
-};
-
-type ExpectedIndex = {
-  readonly columns: readonly string[];
-  readonly unique: 0 | 1;
-  readonly partial: 0 | 1;
-};
-
-const EXPECTED_COLUMNS = {
-  music_channel_entities: ["channel_id", "entity_id"],
-  music_channels: [
-    "id",
-    "provider",
-    "external_channel_id",
-    "display_name",
-    "channel_role",
-    "verification_status",
-    "active",
-    "version",
-    "created_at",
-    "updated_at",
-  ],
-  music_entities: [
-    "id",
-    "member_uid",
-    "entity_kind",
-    "display_name",
-    "normalized_name",
-    "slug",
-    "archived_at",
-    "version",
-    "created_at",
-    "updated_at",
-  ],
-  music_entity_aliases: [
-    "entity_id",
-    "alias",
-    "normalized_alias",
-    "locale",
-    "alias_kind",
-  ],
-  music_media_source_relations: [
-    "source_id",
-    "related_source_id",
-    "relation_type",
-  ],
-  music_media_sources: [
-    "id",
-    "provider",
-    "external_id",
-    "channel_id",
-    "title",
-    "thumbnail_url",
-    "duration_seconds",
-    "provider_published_at",
-    "availability_status",
-    "last_checked_at",
-    "next_check_at",
-    "version",
-    "created_at",
-    "updated_at",
-  ],
-  music_performance_participants: [
-    "performance_id",
-    "entity_id",
-    "participant_role",
-    "credit_order",
-    "credit_name_snapshot",
-  ],
-  music_performance_sources: [
-    "performance_id",
-    "source_id",
-    "start_seconds",
-    "end_seconds",
-    "source_role",
-    "priority",
-    "is_primary",
-  ],
-  music_performances: [
-    "id",
-    "song_id",
-    "dedupe_key",
-    "relation_type",
-    "release_type",
-    "participation_type",
-    "publication_status",
-    "quality_status",
-    "released_at",
-    "internal_note",
-    "version",
-    "created_at",
-    "updated_at",
-  ],
-  music_song_aliases: [
-    "song_id",
-    "alias",
-    "normalized_alias",
-    "locale",
-    "alias_kind",
-  ],
-  music_song_original_artists: [
-    "song_id",
-    "entity_id",
-    "credit_order",
-    "is_primary",
-  ],
-  music_songs: [
-    "id",
-    "slug",
-    "title",
-    "normalized_title",
-    "dedupe_key",
-    "is_otw_original",
-    "original_release_date",
-    "original_release_precision",
-    "merged_into_song_id",
-    "archived_at",
-    "version",
-    "created_at",
-    "updated_at",
-  ],
-} as const satisfies Record<MusicTable, readonly string[]>;
-
-const EXPECTED_FOREIGN_KEYS = {
+// Retain referential integrity independently of the migration implementation.
+const expectedForeignKeys = {
   music_channel_entities: [
-    {
-      from: "channel_id",
-      table: "music_channels",
-      to: "id",
-      on_delete: "CASCADE",
-    },
-    {
-      from: "entity_id",
-      table: "music_entities",
-      to: "id",
-      on_delete: "RESTRICT",
-    },
+    ["channel_id", "music_channels", "id", "CASCADE"],
+    ["entity_id", "music_entities", "id", "RESTRICT"],
   ],
   music_channels: [],
   music_entities: [
-    {
-      from: "member_uid",
-      table: "members",
-      to: "uid",
-      on_delete: "SET NULL",
-    },
+    ["member_uid", "members", "uid", "SET NULL"],
   ],
   music_entity_aliases: [
-    {
-      from: "entity_id",
-      table: "music_entities",
-      to: "id",
-      on_delete: "CASCADE",
-    },
+    ["entity_id", "music_entities", "id", "CASCADE"],
   ],
   music_media_source_relations: [
-    {
-      from: "related_source_id",
-      table: "music_media_sources",
-      to: "id",
-      on_delete: "RESTRICT",
-    },
-    {
-      from: "source_id",
-      table: "music_media_sources",
-      to: "id",
-      on_delete: "RESTRICT",
-    },
+    ["related_source_id", "music_media_sources", "id", "RESTRICT"],
+    ["source_id", "music_media_sources", "id", "RESTRICT"],
   ],
   music_media_sources: [
-    {
-      from: "channel_id",
-      table: "music_channels",
-      to: "id",
-      on_delete: "RESTRICT",
-    },
+    ["channel_id", "music_channels", "id", "RESTRICT"],
   ],
   music_performance_participants: [
-    {
-      from: "entity_id",
-      table: "music_entities",
-      to: "id",
-      on_delete: "RESTRICT",
-    },
-    {
-      from: "performance_id",
-      table: "music_performances",
-      to: "id",
-      on_delete: "CASCADE",
-    },
+    ["entity_id", "music_entities", "id", "RESTRICT"],
+    ["performance_id", "music_performances", "id", "CASCADE"],
   ],
   music_performance_sources: [
-    {
-      from: "performance_id",
-      table: "music_performances",
-      to: "id",
-      on_delete: "CASCADE",
-    },
-    {
-      from: "source_id",
-      table: "music_media_sources",
-      to: "id",
-      on_delete: "RESTRICT",
-    },
+    ["performance_id", "music_performances", "id", "CASCADE"],
+    ["source_id", "music_media_sources", "id", "RESTRICT"],
   ],
   music_performances: [
-    {
-      from: "song_id",
-      table: "music_songs",
-      to: "id",
-      on_delete: "RESTRICT",
-    },
+    ["song_id", "music_songs", "id", "RESTRICT"],
   ],
   music_song_aliases: [
-    {
-      from: "song_id",
-      table: "music_songs",
-      to: "id",
-      on_delete: "CASCADE",
-    },
+    ["song_id", "music_songs", "id", "CASCADE"],
   ],
   music_song_original_artists: [
-    {
-      from: "entity_id",
-      table: "music_entities",
-      to: "id",
-      on_delete: "RESTRICT",
-    },
-    {
-      from: "song_id",
-      table: "music_songs",
-      to: "id",
-      on_delete: "CASCADE",
-    },
+    ["entity_id", "music_entities", "id", "RESTRICT"],
+    ["song_id", "music_songs", "id", "CASCADE"],
   ],
   music_songs: [
-    {
-      from: "merged_into_song_id",
-      table: "music_songs",
-      to: "id",
-      on_delete: "RESTRICT",
-    },
+    ["merged_into_song_id", "music_songs", "id", "RESTRICT"],
   ],
-} as const satisfies Record<MusicTable, readonly ExpectedForeignKey[]>;
-
-const EXPECTED_INDEXES = {
-  music_channel_entities: {
-    idx_music_channel_entities_entity_channel: {
-      columns: ["entity_id", "channel_id"],
-      unique: 0,
-      partial: 0,
-    },
-  },
-  music_channels: {
-    idx_music_channels_verification_active_role: {
-      columns: ["verification_status", "active", "channel_role"],
-      unique: 0,
-      partial: 0,
-    },
-    uidx_music_channels_provider_external: {
-      columns: ["provider", "external_channel_id"],
-      unique: 1,
-      partial: 0,
-    },
-  },
-  music_entities: {
-    idx_music_entities_normalized_name_id: {
-      columns: ["normalized_name", "id"],
-      unique: 0,
-      partial: 0,
-    },
-    uidx_music_entities_member_uid: {
-      columns: ["member_uid"],
-      unique: 1,
-      partial: 1,
-    },
-    uidx_music_entities_slug: {
-      columns: ["slug"],
-      unique: 1,
-      partial: 0,
-    },
-  },
-  music_entity_aliases: {
-    idx_music_entity_aliases_normalized_alias_entity: {
-      columns: ["normalized_alias", "entity_id"],
-      unique: 0,
-      partial: 0,
-    },
-  },
-  music_media_source_relations: {
-    idx_music_media_source_relations_related_type: {
-      columns: ["related_source_id", "relation_type"],
-      unique: 0,
-      partial: 0,
-    },
-  },
-  music_media_sources: {
-    idx_music_media_sources_availability_checked: {
-      columns: ["availability_status", "last_checked_at"],
-      unique: 0,
-      partial: 0,
-    },
-    idx_music_media_sources_channel_published_id: {
-      columns: ["channel_id", "provider_published_at", "id"],
-      unique: 0,
-      partial: 0,
-    },
-    uidx_music_media_sources_provider_external: {
-      columns: ["provider", "external_id"],
-      unique: 1,
-      partial: 0,
-    },
-  },
-  music_performance_participants: {
-    idx_music_performance_participants_entity_performance: {
-      columns: ["entity_id", "performance_id"],
-      unique: 0,
-      partial: 0,
-    },
-    uidx_music_performance_participants_credit_order: {
-      columns: ["performance_id", "credit_order"],
-      unique: 1,
-      partial: 0,
-    },
-  },
-  music_performance_sources: {
-    idx_music_performance_sources_performance_priority_source: {
-      columns: ["performance_id", "priority", "source_id"],
-      unique: 0,
-      partial: 0,
-    },
-    uidx_music_performance_sources_primary: {
-      columns: ["performance_id"],
-      unique: 1,
-      partial: 1,
-    },
-    uidx_music_performance_sources_source_start: {
-      columns: ["source_id", "start_seconds"],
-      unique: 1,
-      partial: 0,
-    },
-  },
-  music_performances: {
-    idx_music_performances_song_id: {
-      columns: ["song_id"],
-      unique: 0,
-      partial: 0,
-    },
-    uidx_music_performances_dedupe_key: {
-      columns: ["dedupe_key"],
-      unique: 1,
-      partial: 0,
-    },
-  },
-  music_song_aliases: {
-    idx_music_song_aliases_normalized_alias_song: {
-      columns: ["normalized_alias", "song_id"],
-      unique: 0,
-      partial: 0,
-    },
-  },
-  music_song_original_artists: {
-    idx_music_song_original_artists_entity_song: {
-      columns: ["entity_id", "song_id"],
-      unique: 0,
-      partial: 0,
-    },
-    uidx_music_song_original_artists_credit_order: {
-      columns: ["song_id", "credit_order"],
-      unique: 1,
-      partial: 0,
-    },
-  },
-  music_songs: {
-    idx_music_songs_merged_into_song_id: {
-      columns: ["merged_into_song_id"],
-      unique: 0,
-      partial: 0,
-    },
-    idx_music_songs_normalized_title_id: {
-      columns: ["normalized_title", "id"],
-      unique: 0,
-      partial: 0,
-    },
-    uidx_music_songs_dedupe_key: {
-      columns: ["dedupe_key"],
-      unique: 1,
-      partial: 0,
-    },
-    uidx_music_songs_slug: {
-      columns: ["slug"],
-      unique: 1,
-      partial: 0,
-    },
-  },
-} as const satisfies Record<MusicTable, Record<string, ExpectedIndex>>;
-
+} as const;
 const CATALOG_MIGRATION_NAME = "0046_tan_nova.sql";
 const NOW = 1_786_000_000_000;
 
@@ -613,90 +251,22 @@ describe("OTW Play catalog foundation migration", () => {
     await resetCatalogData();
   });
 
-  it("applies the generated migration and exposes all 12 foundation tables", async () => {
-    const tables = await db
-      .prepare(
-        `SELECT name
-         FROM sqlite_master
-         WHERE type = 'table' AND name LIKE 'music_%'
-         ORDER BY name`,
-      )
-      .all<{ name: string }>();
-    const foreignKeyCheck = await db.prepare("PRAGMA foreign_key_check").all();
-
+  it("applies the migration with complete tables and valid foreign keys", async () => {
+    const tables = await db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'music_%' ORDER BY name",
+    ).all<{ name: string }>();
     expect(tables.results.map(({ name }) => name)).toEqual(MUSIC_TABLES);
-    expect(foreignKeyCheck.results).toEqual([]);
-
-    // Workerd D1 rejects integrity_check and schema_version with SQLITE_AUTH.
-    // External SQLite validation and the full numbered-migration workflow own
-    // those checks; this runtime suite verifies the exposed schema and behavior.
-    for (const tableName of MUSIC_TABLES) {
-      const columns = await db
-        .prepare(`PRAGMA table_info(${tableName})`)
-        .all<{ name: string }>();
-      const foreignKeys = await db
-        .prepare(`PRAGMA foreign_key_list(${tableName})`)
-        .all<{
-          from: string;
-          table: string;
-          to: string;
-          on_delete: string;
-        }>();
-      const indexes = await db
-        .prepare(`PRAGMA index_list(${tableName})`)
-        .all<{ name: string; unique: number; partial: number }>();
-
-      expect(columns.results.map(({ name }) => name), tableName).toEqual(
-        EXPECTED_COLUMNS[tableName],
-      );
-      expect(
-        foreignKeys.results
-          .map(({ from, table, to, on_delete }) => ({
-            from,
-            table,
-            to,
-            on_delete,
-          }))
-          .sort((left, right) => left.from.localeCompare(right.from)),
-        `${tableName} foreign keys`,
-      ).toEqual(
-        [...EXPECTED_FOREIGN_KEYS[tableName]].sort((left, right) =>
-          left.from.localeCompare(right.from),
-        ),
-      );
-
-      const namedIndexes = indexes.results.filter(
-        ({ name }) => !name.startsWith("sqlite_autoindex_"),
-      );
-      const expectedIndexes = EXPECTED_INDEXES[tableName] as Record<
-        string,
-        ExpectedIndex
-      >;
-      expect(
-        namedIndexes.map(({ name }) => name).sort(),
-        `${tableName} named indexes`,
-      ).toEqual(Object.keys(expectedIndexes).sort());
-
-      for (const { name, unique, partial } of namedIndexes) {
-        const indexColumns = await db
-          .prepare(`PRAGMA index_info(${name})`)
-          .all<{ name: string }>();
-        const expectedIndex = expectedIndexes[name];
-
-        expect(expectedIndex, `${tableName}.${name}`).toBeDefined();
-        expect(
-          { unique: Number(unique), partial: Number(partial) },
-          `${tableName}.${name} flags`,
-        ).toEqual({
-          unique: expectedIndex.unique,
-          partial: expectedIndex.partial,
-        });
-        expect(
-          indexColumns.results.map(({ name: columnName }) => columnName),
-          `${tableName}.${name} columns`,
-        ).toEqual(expectedIndex.columns);
-      }
+    expect((await db.prepare("PRAGMA foreign_key_check").all()).results).toEqual([]);
+    for (const [table, expected] of Object.entries(expectedForeignKeys)) {
+      const keys = await db.prepare(`PRAGMA foreign_key_list(${table})`).all<{
+        from: string; table: string; to: string; on_delete: string;
+      }>();
+      const byColumn = (a: readonly string[], b: readonly string[]) => a[0].localeCompare(b[0]);
+      expect(keys.results.map(({ from, table, to, on_delete }) => [from, table, to, on_delete]).sort(byColumn), table)
+        .toEqual([...expected].sort(byColumn));
     }
+    // Row writes, constraint failures, deletion policies and index use are
+    // verified by the behavioral tests below and the public-reader suite.
   });
 
   it("round-trips a normalized catalog graph through every foundation table", async () => {

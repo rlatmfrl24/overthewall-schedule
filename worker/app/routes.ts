@@ -1,4 +1,6 @@
 import { apiRoutes } from "@contracts/api-routes";
+import { createAiReviewHandler } from "../features/otw-play";
+import { createOtwPlayAiReviewService } from "./ai-review";
 import { createAuthStatusHandler } from "../features/auth";
 import {
   createHandleR2Asset,
@@ -248,6 +250,10 @@ const handleOtwPlayMemberSubmissionsCore = createMemberSubmissionHandler(
     new MemberSubmissionService(
       new D1MemberSubmissionRepository(env.otw_db),
       () => crypto.randomUUID(),
+      Date.now,
+      new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY, fetch, {
+        db: env.otw_db, priority: "core", origin: "otw_play_member_preflight",
+      }),
     ),
 );
 const handleOtwPlayMemberSubmissions = withPlayOperationsTelemetry(
@@ -258,6 +264,7 @@ const handleOtwPlayIngestion = withPlayOperationsTelemetry(
   createIngestionHandler(createOtwPlayIngestionService),
   resolvePlayTelemetry,
 );
+const handleOtwPlayAiReview = createAiReviewHandler(createOtwPlayAiReviewService);
 const handleOtwPlayChannelMonitors = withPlayOperationsTelemetry(
   createChannelMonitorHandler(createOtwPlayChannelMonitorService),
   resolvePlayTelemetry,
@@ -703,6 +710,8 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     id: "otw-play.admin.review-items", owner: "otw-play", path: apiRoutes.otwPlay.admin.reviewItems.pattern,
     methods: methods(get(ADMIN_NO_STORE)), handler: handleOtwPlayIngestion,
   },
+  { id: "otw-play.admin.ai-reviews", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviews.pattern, methods: methods(get(ADMIN_NO_STORE), post({ ...ADMIN_NO_STORE, successStatus: 202 })), handler: handleOtwPlayAiReview },
+  { id: "otw-play.admin.ai-review", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReview.pattern, methods: methods(get(ADMIN_NO_STORE)), handler: handleOtwPlayAiReview },
   {
     id: "otw-play.admin.import-jobs.list",
     owner: "otw-play",

@@ -14,18 +14,22 @@ const repository = () =>
   }) satisfies MemberSubmissionRepository;
 
 describe("MemberSubmissionService", () => {
-  it("canonicalizes YouTube without calling metadata", async () => {
+  it("canonicalizes YouTube and verifies metadata once while song search skips the provider", async () => {
     const repo = repository();
-    const service = new MemberSubmissionService(repo, () => "proposal-1");
+    const youtube = { readChannel: vi.fn(), readVideo: vi.fn(async () => ({ videoId: "dQw4w9WgXcQ", title: "영상 제목", channelId: "channel", channelTitle: "클리퍼", thumbnailUrl: null, durationSeconds: 180, publishedAt: null, availabilityStatus: "playable" as const })) };
+    const service = new MemberSubmissionService(repo, () => "proposal-1", Date.now, youtube);
     await expect(
       service.preflight("user-1", {
         youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDfoo",
       }),
     ).resolves.toMatchObject({
+      video: { title: "영상 제목", channelName: "클리퍼", durationSeconds: 180 },
       videoId: "dQw4w9WgXcQ",
       canonicalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       thumbnailUrl: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
     });
+    await service.preflight("user-1", { youtubeUrl: "https://youtu.be/dQw4w9WgXcQ", title: "곡 검색" });
+    expect(youtube.readVideo).toHaveBeenCalledTimes(1);
   });
 
   it("uses KST calendar-day bounds", () => {

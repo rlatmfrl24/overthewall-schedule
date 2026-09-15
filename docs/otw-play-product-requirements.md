@@ -127,7 +127,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-040 | 데스크톱 우측 player rail은 화면 높이에 따라 정보를 압축하되 iframe과 queue 조작 가능성을 함께 보존한다. | 확정 | 높이 720px 미만에서는 게시 채널 출처 행을 먼저 숨기고 참여자 identity와 이름은 한 줄 말줄임으로 유지한다. 참여자 옆 YouTube·곡 상세 action과 iframe 200px, queue 최소 144px은 보존한다. 높이 640px 미만은 단일 iframe을 계속 보인 채 `현재 재생`과 `플레이큐` 상세 영역을 전환하며, 전환은 pause·재마운트·두 번째 iframe을 만들지 않는다. rail과 queue는 `min-height: 0` 내부 스크롤 경계를 가진다. |
 | DEC-041 | 640–1279px에서 전체 `Now Playing`을 닫으면 같은 player를 우측 하단 visible miniplayer로 축소한다. | 부분 대체됨 | miniplayer의 단일 visible host는 유지한다. 닫기 전 pause와 명시적 재개 경계는 DEC-070이 대체한다. |
 | DEC-042 | player 정보 계층은 영상 다음에 곡명과 메인 참여자를 먼저 식별하고, 분류·재생 조작·출처를 단계적으로 제공한다. | 확정 | 현재 멤버는 권위 profile image와 이름, 외부 인물은 중립 person icon, 그룹은 group icon으로 표시한다. YouTube 외부 링크와 곡 상세 action은 참여자 이름 옆에 둔다. 음악 분류, 곡 관계, 공개 형태, 참여 형태와 게시일은 identity 아래에서 의미별 개별 chip으로 분리한다. seek progress 다음의 한 기능 행에 repeat·previous/play/next·shuffle·volume trigger를 배치한다. volume trigger는 클릭 시 위쪽 popover에서 세로 0–100 slider, 현재 수치와 명시적 mute action을 제공하며 키보드 조작과 Escape 닫기를 지원한다. 게시 채널 label도 chip으로 구분하며 참여자 profile image를 channel avatar처럼 재사용하지 않는다. 긴 참여자·channel 이름은 한 줄 말줄임과 title을 제공한다. |
-| DEC-043 | 로그인 회원은 운영 공개 flag와 분리된 인증 경로에서 공식 커버만 제안하고 자신의 제안만 조회한다. | 확정 | `/play/submit`, `/play/submissions`는 관리자 catalog preview와 다른 member shell을 사용한다. 제출 단계에서는 YouTube API를 호출하거나 외부 identity를 생성하지 않고, status·submitter·reviewer·publication은 서버가 소유한다. |
+| DEC-043 | 로그인 회원은 운영 공개 flag와 분리된 인증 경로에서 공식 커버·노래 클립을 제안하고 자신의 제안만 조회한다. | 확정 | `/play/submit`, `/play/submissions`는 관리자 catalog preview와 다른 member shell을 사용한다. 영상 확인은 제한된 YouTube metadata 조회를 사용하되 외부 identity를 생성하지 않고, status·submitter·reviewer·publication은 서버가 소유한다. |
 | DEC-044 | 공식 커버 승인은 `official_cover_v1` 정책을 만족할 때만 proposal과 published catalog를 같은 D1 batch로 전이한다. | 확정 | 승인·활성 상태의 OTW·유닛·멤버 음악·멤버 메인·승인 프로젝트 공식 채널, 최신 YouTube video/channel·playable 일치와 관리자의 실제 가창 credit 확인을 모두 요구한다. |
 | DEC-045 | 회원 제출 제한과 반려 정보 노출을 최소 권한으로 운영한다. | 확정 | KST 기준 사용자당 일 5회와 Cloudflare edge 60초당 3회를 적용한다. 회원에게는 반려 상태와 일반 안내만 표시하고 review code·내부 note는 노출하지 않는다. 수정·철회 권한은 DEC-054를 따른다. |
 | DEC-046 | 회원 공식 커버 제안 진입점은 별도 제품 메뉴가 아니라 OTW Play 경험 안에 통합한다. | 확정 | 전역 콘텐츠 메뉴는 역할과 관계없이 `OTW Play` 하나만 사용한다. 관리자 catalog header의 `발견`·`곡 검색` 옆과 회원 제안 shell에 `곡 제안` 메뉴를 두고 `새 곡 제안`·`내 제안`으로 이동한다. 회원 route는 같은 brand frame을 공유하지만 public config·catalog·player를 마운트하지 않는다. |
@@ -443,9 +443,9 @@ MVP는 공식 영상을 처음부터 끝까지 재생한다. 구간 재생은 �
 - FR-024: 특정 곡을 다시 열 수 있는 URL을 제공해야 한다.
 - FR-025: 가능하면 특정 가창 기록 또는 버전을 직접 여는 URL을 제공해야 한다.
 
-### 9.6 회원 공식 커버 등록 제안
+### 9.6 회원 공식 커버·노래 클립 제안
 
-- FR-030: 로그인 회원은 공식 커버곡 등록을 제안할 수 있어야 한다.
+- FR-030: 로그인 회원은 공식 커버와 한 곡을 담은 편집된 노래 클립을 분류해 제안할 수 있어야 한다.
 - FR-031: 제안 시 YouTube URL, 곡명, 원곡 가수와 가창 참여자를 입력할 수 있어야 하며, 새 곡으로 제안할 때는 장르(분류)를 최대 10개까지 선택적으로 추가·삭제할 수 있어야 한다. 기존 곡 연결은 카탈로그의 분류를 유지한다.
 - FR-032: 제안자는 선택적으로 출처 또는 확인에 필요한 메모를 추가할 수 있어야 한다.
 - FR-033: 회원 제안은 관리자 승인 전 공개 검색, 곡 목록과 플레이어에 노출되지 않아야 한다.
@@ -459,12 +459,9 @@ MVP는 공식 영상을 처음부터 끝까지 재생한다. 구간 재생은 �
 - FR-041: 회원은 자신의 `pending_review` 제안을 명시적 확인 뒤 철회할 수 있어야 한다.
 - FR-042: 수정·철회가 관리자 검수와 충돌하면 먼저 성공한 version만 유지하고 최신 상태를 다시 보여줘야 한다.
 
-회원 제안 대상은 공식 커버곡으로 제한한다. 오리지널곡 등록은 현재 MVP에서
-관리자 전용이다.
+회원 제안 대상은 공식 커버와 편집된 한 곡의 노래 클립이다. 오리지널곡과 전체 다시보기의 구간 지정 신청은 제외한다. 방송일·날짜 근거·원본 방송 URL·완곡 여부·장르는 선택 입력이며, 미확인 값은 관리자가 검수한다.
 
-제출 단계에서는 YouTube 채널 metadata를 조회하거나 proposal에 channel ID를
-저장하지 않는다. 채널과 공개일의 권위 검증은 후속 관리자 승인 과정에서만
-수행한다. 제안 메모, 내부 검수 메모와 review result는 공개 catalog나 event
+영상 확인 단계에서 실제 제목·채널명·길이·썸네일을 조회한다. 곡 검색은 metadata 호출 없이 수행한다. 채널 승인과 게시 여부는 후속 관리자 승인에서 검증한다. 업로더를 가창자로, 업로드일을 방송일로 추정하지 않는다. 제안 메모, 내부 검수 메모와 review result는 공개 catalog나 event
 detail로 자동 복사하지 않는다.
 
 ### 9.7 멤버 페이지 SEO [높음]와 제작 참여·정정 [낮음]
@@ -634,7 +631,7 @@ FR-044의 `만든 곡`, FR-045·047·048 및 ADM-031·032·037은 낮은 우선�
 | 입력 주체 | 제안 심사 | 카탈로그 공개 | 비고 |
 | --- | --- | --- | --- |
 | 관리자 직접 등록 | 해당 없음 | `draft`에서 검수 후 `published` | 오리지널곡과 공식 커버곡 등록 가능 |
-| 로그인 회원 제안 | `pending_review`에서 `approved` 또는 `rejected` | 승인 작업에서 별도 `published` 기록 생성 | 공식 커버곡만 제안 가능 |
+| 로그인 회원 제안 | `pending_review`에서 `approved` 또는 `rejected` | 승인 작업에서 별도 `published` 기록 생성 | 공식 커버·편집된 노래 클립 제안 가능 |
 
 자동 수집 candidate는 회원 제안이나 카탈로그 공개 상태에 추가하지 않는다. playlist와
 clip channel discovery는 별도 candidate aggregate를 공유하되 `candidate_kind`로
@@ -1022,3 +1019,6 @@ production WebSub 설정으로 해결되었다.
 
 
 > 2026-09-14 후속 확정: 관리자 작업별 5개 탭과 OTW Play 채널 통합, 노래 클립 플레이리스트 일괄 임시 등록을 적용한다. 이전 채널 탭 분리 안내보다 [관리자 작업 흐름 통합 기록](otw-play-admin-workflow-integration.md)을 우선한다. 일반 방송 클립 채널의 독립 관리는 유지한다.
+# Gemini 검수 자동 입력 추가 요구사항 (2026-09-15)
+
+공식 영상·노래 클립의 후보 검수와 URL 직접 등록은 관리자 단건 실행으로 제목·설명·메타데이터·실제 영상 기반 자동 입력을 제공한다. 전체/지정 구간 분석과 여러 곡 중 선택을 지원한다. 저장된 검수와 직접 수정한 필드를 보호하고 근거·비교·되돌리기를 제공한다. AI는 승인·게시 또는 신규 카탈로그 생성을 자동 수행하지 않는다. 구현·운영·실사용 완료 기준은 [Gemini 검수 자동 입력](otw-play-ai-review.md)을 따른다.

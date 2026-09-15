@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import { UnsavedChangesContext } from "@/shared/lib/unsaved-changes";
 import React from "react";
@@ -16,24 +17,14 @@ class ResizeObserverMock {
   disconnect = vi.fn();
 }
 
-const member: Member = {
-  uid: 1,
-  code: "m1",
-  name: "테스트 멤버",
-  main_color: "#336699",
-  sub_color: "#99bbdd",
-  oshi_mark: "🌙",
-  url_twitter: null,
-  url_youtube: null,
-  url_chzzk: null,
-  youtube_channel_id: null,
-  birth_date: null,
-  debut_date: null,
-  unit_name: null,
-  fan_name: null,
-  introduction: null,
-  is_deprecated: 0,
-};
+const member: Member = createMemberFixture({
+    uid: 1,
+    code: "m1",
+    name: "테스트 멤버",
+    main_color: "#336699",
+    sub_color: "#99bbdd",
+    oshi_mark: "🌙"
+  });
 
 const schedule: ScheduleItem = {
   id: 10,

@@ -1,12 +1,11 @@
+import { useCatalogView } from "../../model/use-catalog-view";
+import { CatalogViewSelector } from "./catalog-view-selector";
 import {
   ChevronDown,
   FilterX,
-  LayoutGrid,
-  LayoutList,
   LoaderCircle,
   Search,
   SlidersHorizontal,
-  TableProperties,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -18,7 +17,6 @@ import {
 import { useOtwPlayCatalog, useOtwPlayFacets } from "../../queries/use-public-catalog";
 import { Button } from "@/shared/ui/button";
 import { ApiError } from "@/shared/api/client";
-import { ButtonGroup } from "@/shared/ui/button-group";
 import { FilterChip } from "@/shared/ui/filter-chip";
 import { QueryState } from "@/shared/ui/query-state";
 import { Badge } from "@/shared/ui/badge";
@@ -32,7 +30,6 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { Separator } from "@/shared/ui/separator";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { OtwPlaySongRow } from "./catalog-components";
 import { OtwPlaySongGrid, OtwPlaySongTable } from "./catalog-result-views";
 import { OtwPlayQueryError } from "./public-query-state";
@@ -42,29 +39,10 @@ type Props = {
   onSearchChange: (next: OtwPlayCatalogRouteSearch, replace?: boolean) => void;
 };
 
-type CatalogView = "card" | "table" | "grid";
-const VIEW_STORAGE_KEY = "otw-play:catalog-view:v1";
-const readCatalogView = (): CatalogView => {
-  try {
-    const value = window.localStorage.getItem(VIEW_STORAGE_KEY);
-    return value === "table" || value === "grid" ? value : "card";
-  } catch {
-    return "card";
-  }
-};
-
 export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
   const [searchInput, setSearchInput] = useState(search.q ?? "");
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [view, setView] = useState<CatalogView>(readCatalogView);
-  const changeView = (next: CatalogView) => {
-    setView(next);
-    try {
-      window.localStorage.setItem(VIEW_STORAGE_KEY, next);
-    } catch {
-      // Browsers may deny storage; the current page remains usable.
-    }
-  };
+  const [view, changeView] = useCatalogView();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const composingRef = useRef(false);
   const query = useMemo(() => catalogQueryFromRouteSearch(search), [search]);
@@ -377,30 +355,7 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
       </div>
 
       <section className="space-y-2" aria-label="검색 결과">
-        <ButtonGroup aria-label="보기 방식">
-          {([
-            { value: "card", label: "카드", icon: LayoutList },
-            { value: "table", label: "표 리스트", icon: TableProperties },
-            { value: "grid", label: "그리드", icon: LayoutGrid },
-          ] as const).map(({ value, label, icon: Icon }) => (
-            <Tooltip key={value}>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant={view === value ? "default" : "outline"}
-                  className="max-sm:size-11"
-                  aria-label={label}
-                  aria-pressed={view === value}
-                  onClick={() => changeView(value)}
-                >
-                  <Icon aria-hidden="true" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{label}</TooltipContent>
-            </Tooltip>
-          ))}
-        </ButtonGroup>
+        <CatalogViewSelector view={view} onChange={changeView} />
 
       {catalog.isPending ? (
         <QueryState state="loading" title="곡 목록 불러오는 중" className="min-h-40" />

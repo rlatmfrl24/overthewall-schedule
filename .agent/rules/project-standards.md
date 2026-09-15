@@ -79,7 +79,9 @@ alwaysApply: true
 - Run `pnpm architecture:check` after moving modules or changing imports.
 - Run `pnpm typecheck:test` when test fixtures or shared contracts change.
 - Run `pnpm lint` after meaningful code changes.
-- Run `pnpm test` for regression coverage.
-- Run `pnpm test:coverage` for architecture-wide changes.
+- Run focused tests while editing and `pnpm preflight` for final verification.
+- `pnpm test` runs all unit and Worker integration tests once. Do not repeat it after a passing preflight for unchanged code.
+- Use `pnpm test:coverage` only for a coverage investigation or when validating test/coverage configuration changes. Percentages are diagnostic, not release gates.
+- Keep contract, authorization, persistence, concurrency, cost, and user-flow regressions. Consolidate duplicate fixtures/assertions; do not add tests for decorative classes or trivial forwarding already covered at the owning boundary.
 - Run `pnpm build` when changes impact routing, types, build configuration, or release paths.
 - If full verification is not possible, document what was skipped and why.

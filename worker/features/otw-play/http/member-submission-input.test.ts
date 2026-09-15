@@ -100,4 +100,15 @@ describe("member submission input", () => {
     });
     expect(parseWithdrawSubmission({ expectedVersion: 3, reason: "secret" }).ok).toBe(false);
   });
+  it("defaults legacy submissions to covers and validates optional clip metadata", () => {
+    expect(parseCreateSubmission(valid())).toMatchObject({ ok: true, value: { submissionKind: "official_cover", broadcast: null } });
+    const broadcast = { performedOn: null, dateEvidence: null, originalUrl: null, extent: null };
+    expect(parseCreateSubmission({ ...valid(), submissionKind: "singing_clip", broadcast })).toMatchObject({ ok: true, value: { submissionKind: "singing_clip", broadcast } });
+    for (const extra of [{ performedOn: "2026-02-30" }, { originalUrl: "javascript:alert(1)" }, { extent: "unknown" }]) {
+      expect(parseCreateSubmission({ ...valid(), submissionKind: "singing_clip", broadcast: { ...broadcast, ...extra } }).ok).toBe(false);
+    }
+    expect(parseCreateSubmission({ ...valid(), submissionKind: "original" }).ok).toBe(false);
+    expect(parseCreateSubmission({ ...valid(), broadcast: { ...broadcast, performedOn: "2026-09-01" } }).ok).toBe(false);
+  });
+
 });

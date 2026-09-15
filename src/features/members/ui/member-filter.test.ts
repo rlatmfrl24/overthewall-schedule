@@ -1,3 +1,4 @@
+import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import React, { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -6,42 +7,22 @@ import type { MemberDto } from "@contracts/members";
 import { MemberFilter } from "./member-filter";
 
 const members: MemberDto[] = [
-  {
+  createMemberFixture({
     uid: 1,
     code: "m1",
     name: "멤버1",
     main_color: "#336699",
     sub_color: "#99bbdd",
-    oshi_mark: null,
-    url_twitter: null,
-    url_youtube: null,
-    url_chzzk: null,
-    youtube_channel_id: "UC1",
-    birth_date: null,
-    debut_date: null,
-    unit_name: null,
-    fan_name: null,
-    introduction: null,
-    is_deprecated: 0,
-  },
-  {
+    youtube_channel_id: "UC1"
+  }),
+  createMemberFixture({
     uid: 2,
     code: "m2",
     name: "멤버2",
     main_color: "#993366",
     sub_color: "#dd99bb",
-    oshi_mark: null,
-    url_twitter: null,
-    url_youtube: null,
-    url_chzzk: null,
-    youtube_channel_id: "UC2",
-    birth_date: null,
-    debut_date: null,
-    unit_name: null,
-    fan_name: null,
-    introduction: null,
-    is_deprecated: 0,
-  },
+    youtube_channel_id: "UC2"
+  }),
 ];
 
 const StatefulMemberFilter = () => {

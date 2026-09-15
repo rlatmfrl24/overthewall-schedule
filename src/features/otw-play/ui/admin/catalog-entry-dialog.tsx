@@ -1,4 +1,8 @@
 import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
+import type { AiReviewFields, AiReviewField } from "@contracts/otw-play-ai-review";
+import type { OtwPlayParticipantRole } from "@contracts/otw-play";
+import { AiReviewPanel } from "./ai-review-panel";
+import { aiPersonSelection, useAiReviewForm } from "./ai-review-form";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useEffect, useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -455,11 +459,12 @@ export function CatalogEntryDialog({
   const [coverOriginalArtists, setCoverOriginalArtists] = useState<SelectedSubject[]>([]);
   const [songTags, setSongTags] = useState<string[]>([]);
   const [performanceTags, setPerformanceTags] = useState<string[]>([]);
-  const [participants, setParticipants] = useState<SelectedSubject[]>([]);
+  const [participants, setParticipants] = useState<(SelectedSubject & { participantRole?: OtwPlayParticipantRole })[]>([]);
   const [channelOwners, setChannelOwners] = useState<SelectedSubject[]>([]);
   const [releaseType, setReleaseType] = useState<"official_mv" | "official_video">("official_video");
   const [participationType, setParticipationType] = useState<OtwPlayParticipationType>("solo");
   const [internalNote, setInternalNote] = useState("");
+  const [explicitOriginal, setExplicitOriginal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmPublish, setConfirmPublish] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -472,6 +477,36 @@ export function CatalogEntryDialog({
     ...participants,
     ...channelOwners,
   ]);
+
+  const ai = useAiReviewForm(`${open}:${youtubeUrl}:${clip}`, {
+    song:[songId,coverOriginalTitle,coverOriginalArtists,songTags,explicitOriginal,songQuery],participants,
+    classification:[videoKind,releaseType],participationType,performanceTags,segment:[startSeconds,endSeconds,segmentEnabled],
+    broadcastDate:[broadcast.performedOn,broadcast.dateEvidence],originalUrl:broadcast.originalUrl,extent:broadcast.extent,
+  },(field,value)=>{
+    switch(field){
+      case "song": {const v=value as AiReviewFields["song"];setSongId(v.existingSongId??"__new");setSongQuery(v.title);setCoverOriginalTitle(v.title);setCoverOriginalArtists(v.existingSongId ? [] : v.originalArtists.map(aiPersonSelection));setSongTags(v.existingSongId?[]:v.tags);setExplicitOriginal(true);break;}
+      case "participants":setParticipants((value as AiReviewFields["participants"]).map(p=>({...aiPersonSelection(p),participantRole:p.role})));break;
+      case "classification": {const v=value as AiReviewFields["classification"];if(!clip && v.releaseType!=="broadcast" && v.relationType!=="singing_clip"){setVideoKind(v.relationType);setReleaseType(v.releaseType);}break;}
+      case "participationType":setParticipationType(value as OtwPlayParticipationType);break;
+      case "performanceTags":setPerformanceTags(value as string[]);break;
+      case "segment":{const v=value as AiReviewFields["segment"];setStartSeconds(String(v.startSeconds));setEndSeconds(String(v.endSeconds));setSegmentEnabled(true);break;}
+      case "broadcastDate":setBroadcast(old=>({...old,...value as AiReviewFields["broadcastDate"]}));break;
+      case "originalUrl":setBroadcast(old=>({...old,originalUrl:value as string}));break;
+      case "extent":setBroadcast(old=>({...old,extent:value as "full"|"partial"}));break;
+    }
+  },(field,value)=>{
+    switch(field){
+      case "song":{const v=value as [string,string,SelectedSubject[],string[],boolean,string];setSongId(v[0]);setCoverOriginalTitle(v[1]);setCoverOriginalArtists(v[2]);setSongTags(v[3]);setExplicitOriginal(v[4]);setSongQuery(v[5]);break;}
+      case "participants":setParticipants(value as typeof participants);break;
+      case "classification":{const v=value as [VideoKind|null,typeof releaseType];setVideoKind(v[0]);setReleaseType(v[1]);break;}
+      case "participationType":setParticipationType(value as OtwPlayParticipationType);break;
+      case "performanceTags":setPerformanceTags(value as string[]);break;
+      case "segment":{const v=value as [string,string,boolean];setStartSeconds(v[0]);setEndSeconds(v[1]);setSegmentEnabled(v[2]);break;}
+      case "broadcastDate":{const v=value as [string|null,string|null];setBroadcast(old=>({...old,performedOn:v[0],dateEvidence:v[1]}));break;}
+      case "originalUrl":setBroadcast(old=>({...old,originalUrl:value as string|null}));break;
+      case "extent":setBroadcast(old=>({...old,extent:value as "full"|"partial"|null}));break;
+    }
+  }, preselectedSongId ? ["song"] as AiReviewField[] : []);
 
   useEffect(() => {
     if (!open) return;
@@ -497,6 +532,7 @@ export function CatalogEntryDialog({
     setReleaseType("official_video");
     setParticipationType("solo");
     setInternalNote("");
+    setExplicitOriginal(false);
     setCompletedMedleySegment(null);
     if (preselectedSongId) {
       setSongId(preselectedSongId);
@@ -532,7 +568,7 @@ export function CatalogEntryDialog({
   };
 
   const clipChannelReady = preflight?.channel.state === "approved" && preflight.channel.channelRole === "approved_kirinuki";
-  const explicitSongMode = clip || registrationMode === "medley_segment";
+  const explicitSongMode = clip || registrationMode === "medley_segment" || explicitOriginal;
   const channelCanPublish = !clip && (
     preflight?.channel.state === "approved" ||
     preflight?.channel.state === "recognized_member" ||
@@ -571,7 +607,7 @@ export function CatalogEntryDialog({
         preflight.channel.state !== "revoked" &&
         segmentValid && (!clip || clipChannelReady),
     ),
-    (clip ? (videoKind === "original" || videoKind === "cover") && hasExplicitSong : videoKind === "original" ||
+    (clip ? (videoKind === "original" || videoKind === "cover") && hasExplicitSong : (videoKind === "original" && (!explicitOriginal || hasExplicitSong)) ||
       (videoKind === "cover" &&
         (registrationMode === "medley_segment"
           ? hasExplicitSong
@@ -602,7 +638,7 @@ export function CatalogEntryDialog({
       registrationMode,
       song: songId && songId !== "__new"
         ? { kind: "existing", songId }
-        : videoKind === "original" && !clip
+        : videoKind === "original" && !clip && !explicitOriginal
           ? songTags.length > 0 ? { kind: "from_video", tags: songTags } : { kind: "from_video" }
           : {
               kind: "create",
@@ -620,7 +656,7 @@ export function CatalogEntryDialog({
             },
       participants: participants.map((participant, index) => ({
         subject: participant.subject,
-        participantRole: "vocal",
+        participantRole: participant.participantRole ?? "vocal",
         creditOrder: index,
         creditNameSnapshot: participant.label,
       })),
@@ -718,6 +754,7 @@ export function CatalogEntryDialog({
             </div>
           ) : (
           <div className="min-h-[360px] space-y-3 py-2">
+            {preflight && <AiReviewPanel key={`${preflight.video.videoId}:${clip}`} target={{youtubeUrl,candidateKind:clip?"singing_clip":"official_video"}} videoId={preflight.video.videoId} candidateKind={clip?"singing_clip":"official_video"} durationSeconds={preflight.video.durationSeconds} initialRange={segmentEnabled && Number(endSeconds)>Number(startSeconds)?{startSeconds:Number(startSeconds),endSeconds:Number(endSeconds)}:null} form={ai} disabled={saving || checking || !open} />}
             {step === 0 && (
               <>
                 <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
@@ -732,7 +769,7 @@ export function CatalogEntryDialog({
                         checked={segmentEnabled}
                         disabled={checking}
                         onCheckedChange={(checked) => {
-                          setSegmentEnabled(checked === true);
+                          ai.touch("segment"); setSegmentEnabled(checked === true);
                           if (checked !== true) {
                             setStartSeconds("0");
                             setEndSeconds("");
@@ -747,8 +784,8 @@ export function CatalogEntryDialog({
                   </div>
                   {segmentEnabled && (
                     <div className="grid gap-3 sm:max-w-sm sm:grid-cols-2">
-                      <div className="space-y-1.5"><Label htmlFor="catalog-start">시작 위치(초)</Label><Input id="catalog-start" type="number" min="0" value={startSeconds} disabled={checking} onChange={(event) => { setStartSeconds(event.target.value); setPreflight(null); }} /></div>
-                      <div className="space-y-1.5"><Label htmlFor="catalog-end">종료 위치(초)</Label><Input id="catalog-end" type="number" min="1" value={endSeconds} disabled={checking} onChange={(event) => { setEndSeconds(event.target.value); setPreflight(null); }} placeholder="확인 후 자동 입력" /></div>
+                      <div className="space-y-1.5"><Label htmlFor="catalog-start">시작 위치(초)</Label><Input id="catalog-start" type="number" min="0" value={startSeconds} disabled={checking} onChange={(event) => { ai.touch("segment"); setStartSeconds(event.target.value); setPreflight(null); }} /></div>
+                      <div className="space-y-1.5"><Label htmlFor="catalog-end">종료 위치(초)</Label><Input id="catalog-end" type="number" min="1" value={endSeconds} disabled={checking} onChange={(event) => { ai.touch("segment"); setEndSeconds(event.target.value); setPreflight(null); }} placeholder="확인 후 자동 입력" /></div>
                     </div>
                   )}
                 </div>
@@ -791,10 +828,10 @@ export function CatalogEntryDialog({
                           : "hover:bg-muted"
                       }`}
                       onClick={() => {
-                        setVideoKind(kind);
+                        ai.touch("classification"); setVideoKind(kind);
                         if (kind !== "cover" && !clip) {
                           setRegistrationMode("standard");
-                          if (songId === "__new") setSongId("");
+                          if (songId === "__new" && !explicitOriginal) { ai.touch("song"); setSongId(""); }
                         }
                       }}
                     >
@@ -810,6 +847,7 @@ export function CatalogEntryDialog({
                     <Checkbox
                       checked={registrationMode === "medley_segment"}
                       onCheckedChange={(checked) => {
+                        ai.touch("song");
                         setRegistrationMode(
                           checked === true ? "medley_segment" : "standard",
                         );
@@ -819,7 +857,7 @@ export function CatalogEntryDialog({
                           setCoverOriginalTitle("");
                           setCoverOriginalArtists([]);
                           setSongTags([]);
-                        } else if (checked !== true && songId === "__new") {
+                        } else if (checked !== true && songId === "__new" && !explicitOriginal) {
                           setSongId("");
                         }
                       }}
@@ -842,23 +880,23 @@ export function CatalogEntryDialog({
                     을 자동으로 재사용합니다.
                   </div>
                 )}
-                {(clip || videoKind === "cover") && explicitSongMode && (
+                {(clip || videoKind === "cover" || explicitOriginal) && explicitSongMode && (
                   <div className="rounded-xl border bg-card p-3">
                     <SongConnectionPicker
                       inputKey="catalog-medley"
                       catalog={catalog}
                       selectedSongId={songId}
                       query={songQuery}
-                      onQueryChange={setSongQuery}
+                      onQueryChange={(value) => { ai.touch("song"); setSongQuery(value); }}
                       onSelectExisting={(nextSongId, title) => {
-                        setSongId(nextSongId);
+                        ai.touch("song"); setSongId(nextSongId);
                         setSongQuery(title);
                         setCoverOriginalTitle("");
                         setCoverOriginalArtists([]);
                         setSongTags([]);
                       }}
                       onSelectNew={(title) => {
-                        setSongId("__new");
+                        ai.touch("song"); setSongId("__new");
                         setSongQuery(title);
                         setCoverOriginalTitle(title);
                         setCoverOriginalArtists([]);
@@ -867,7 +905,7 @@ export function CatalogEntryDialog({
                     />
                   </div>
                 )}
-                {(clip || videoKind === "cover") &&
+                {(clip || videoKind === "cover" || explicitOriginal) &&
                   ((!explicitSongMode && !songId) || (explicitSongMode && songId === "__new")) && (
                   <div className="space-y-3 rounded-xl border bg-card p-3">
                     <div>
@@ -881,7 +919,7 @@ export function CatalogEntryDialog({
                       <Input
                         id="cover-original-title"
                         value={coverOriginalTitle}
-                        onChange={(event) => setCoverOriginalTitle(event.target.value)}
+                        onChange={(event) => { ai.touch("song"); setCoverOriginalTitle(event.target.value); }}
                         placeholder="예: 원곡의 정식 제목"
                         maxLength={300}
                       />
@@ -894,16 +932,16 @@ export function CatalogEntryDialog({
                       entities={catalog.entities}
                       draftSubjects={draftExternalSubjects}
                       selected={coverOriginalArtists}
-                      onChange={setCoverOriginalArtists}
+                      onChange={(value) => { ai.touch("song"); setCoverOriginalArtists(value); }}
                     />
                   </div>
                 )}
-                {(videoKind === "original" && !songId) ||
+                {(videoKind === "original" && (!songId || songId === "__new")) ||
                 (videoKind === "cover" &&
                   ((registrationMode === "standard" && !songId) ||
                     songId === "__new")) ? (
                   <div className="rounded-xl border bg-card p-3">
-                    <SongTagPicker tags={songTags} onChange={setSongTags} />
+                    <SongTagPicker tags={songTags} onChange={(value) => { ai.touch("song"); setSongTags(value); }} />
                   </div>
                 ) : null}
                 {videoKind === "karaoke" && (
@@ -914,10 +952,11 @@ export function CatalogEntryDialog({
               </div>
             )}
 
-            {clip && step === 2 && <BroadcastFields value={broadcast} onChange={setBroadcast} />}
+            {clip && step === 2 && <BroadcastFields value={broadcast} onChange={(value) => { if(value.performedOn!==broadcast.performedOn || value.dateEvidence!==broadcast.dateEvidence)ai.touch("broadcastDate");if(value.originalUrl!==broadcast.originalUrl)ai.touch("originalUrl");if(value.extent!==broadcast.extent)ai.touch("extent");setBroadcast(value); }} />}
             {step === 2 && (
               <>
-                <SubjectPicker label="가창 참여자" members={members} entities={catalog.entities} draftSubjects={draftExternalSubjects} selected={participants} onChange={setParticipants} />
+                <SubjectPicker label="가창 참여자" members={members} entities={catalog.entities} draftSubjects={draftExternalSubjects} selected={participants} onChange={(value) => { ai.touch("participants"); setParticipants(value.map(p=>({...p,participantRole:participants.find(old=>old.key===p.key)?.participantRole ?? "vocal"}))); }} />
+                {participants.map((participant,index)=><label key={participant.key} className="flex items-center gap-2 text-sm">{participant.label} 역할<select aria-label={`${participant.label} 역할`} className="rounded border bg-background p-2" value={participant.participantRole ?? "vocal"} onChange={e=>{ai.touch("participants");setParticipants(old=>old.map((p,i)=>i===index?{...p,participantRole:e.target.value as OtwPlayParticipantRole}:p));}}><option value="vocal">메인 보컬</option><option value="featured_vocal">피처링 보컬</option><option value="chorus">코러스</option><option value="other">기타</option></select></label>)}
                 {needsChannelOwnerChoice && (
                   <div className="rounded-lg border p-3">
                     <SubjectPicker
@@ -940,13 +979,13 @@ export function CatalogEntryDialog({
                       {clip ? "노래 클립" : videoKind === "original" ? "오리지널곡" : "공식 커버곡"}
                     </div>
                   </div>
-                  {!clip && <div className="space-y-1.5"><Label>공개 형태</Label><Select value={releaseType} onValueChange={(value) => setReleaseType(value as typeof releaseType)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="official_video">공식 영상</SelectItem><SelectItem value="official_mv">공식 MV</SelectItem></SelectContent></Select></div>}
-                  <div className="space-y-1.5"><Label>참여 형태</Label><Select value={participationType} onValueChange={(value) => setParticipationType(value as OtwPlayParticipationType)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(participationLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
+                  {!clip && <div className="space-y-1.5"><Label>공개 형태</Label><Select value={releaseType} onValueChange={(value) => { ai.touch("classification"); setReleaseType(value as typeof releaseType); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="official_video">공식 영상</SelectItem><SelectItem value="official_mv">공식 MV</SelectItem></SelectContent></Select></div>}
+                  <div className="space-y-1.5"><Label>참여 형태</Label><Select value={participationType} onValueChange={(value) => { ai.touch("participationType"); setParticipationType(value as OtwPlayParticipationType); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(participationLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
                 </div>
                 <div className="rounded-xl border bg-card p-3">
                   <SongTagPicker
                     tags={performanceTags}
-                    onChange={setPerformanceTags}
+                    onChange={(value) => { ai.touch("performanceTags"); setPerformanceTags(value); }}
                     label="커버 영상 라벨"
                     placeholder="이 영상만의 라벨 입력"
                     selectedLabel="선택한 커버 영상 라벨"
@@ -974,14 +1013,14 @@ export function CatalogEntryDialog({
                     <div>
                       {songId && songId !== "__new"
                         ? catalog.songs.find((song) => song.id === songId)?.title
-                        : videoKind === "cover"
+                        : videoKind === "cover" || explicitOriginal
                           ? coverOriginalTitle
                           : preflight.video.title}
                     </div>
                     <div className="text-sm text-muted-foreground">
                       {songId && songId !== "__new"
                         ? "기존 곡을 자동 재사용"
-                        : videoKind === "original"
+                        : videoKind === "original" && !explicitOriginal
                           ? "영상 제목으로 자동 생성 · 참여자를 원곡 가수로 사용"
                           : `원곡 가수: ${coverOriginalArtists.map((artist) => artist.label).join(", ")}`}
                     </div>

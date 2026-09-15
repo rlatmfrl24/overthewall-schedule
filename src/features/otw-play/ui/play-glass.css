@@ -328,7 +328,7 @@
 .otw-play-glass .play-result-table :is(th, td) { padding: 10px 8px; vertical-align: middle; }
 .otw-play-glass .play-result-table tbody tr { border-bottom: 1px solid var(--border); }
 .otw-play-glass .play-result-table tbody tr:hover { background: var(--muted); }
-.otw-play-glass .play-result-table .play-result-artwork { width: 64px; }
+.otw-play-glass .play-result-table .play-result-artwork { width: 112px; }
 .otw-play-glass .play-result-table .play-result-controls { width: 156px; }
 .otw-play-glass .play-result-table .play-result-participants { width: 22%; }
 .otw-play-glass .play-result-table .play-result-relation { width: 88px; }
@@ -351,7 +351,23 @@
   .otw-play-glass .play-result-table tbody { display: block; }
   .otw-play-glass .play-result-table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr); padding: 8px 0; }
   .otw-play-glass .play-result-table td { display: block; padding: 4px 0; }
-  .otw-play-glass .play-result-table .play-result-controls { width: auto; padding-left: 76px; }
+  .otw-play-glass .play-result-table .play-result-controls { width: auto; padding-left: 124px; }
+}
+/* Clip provenance remains in dedicated columns at every width. */
+.otw-play-glass .play-result-table.play-clip-table { min-width: 960px; }
+.otw-play-glass .play-clip-table .play-result-participants { width: 14%; }
+.otw-play-glass .play-clip-table .play-result-clipper { width: 150px; }
+.otw-play-glass .play-clip-table .play-result-broadcast-date { width: 112px; }
+@container play-page (max-width: 719.98px) {
+  .otw-play-glass .play-clip-table :is(.play-result-participants, .play-result-relation) { display: table-cell; }
+  .otw-play-glass .play-clip-table .play-result-mobile-meta { display: none; }
+}
+@container play-page (max-width: 479.98px) {
+  .otw-play-glass .play-clip-table thead { display: table-header-group; }
+  .otw-play-glass .play-clip-table tbody { display: table-row-group; }
+  .otw-play-glass .play-clip-table tbody tr { display: table-row; padding: 0; }
+  .otw-play-glass .play-clip-table td { display: table-cell; padding: 10px 8px; }
+  .otw-play-glass .play-clip-table .play-result-controls { width: 156px; padding-left: 8px; }
 }
 /* Preserve left artwork/right information until mobile controls no longer fit. */
 .otw-play-glass .play-song-row { grid-template-columns: minmax(0, 1fr); }

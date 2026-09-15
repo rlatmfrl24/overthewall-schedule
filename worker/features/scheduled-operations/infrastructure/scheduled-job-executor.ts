@@ -26,6 +26,7 @@ import { getDb } from "../../../platform/db";
 import type { Env } from "../../../platform/types";
 import { createOtwPlayChannelMonitorService } from "../../../app/channel-monitors";
 import { createOtwPlayIngestionService } from "../../../app/ingestion";
+import { createOtwPlayAiReviewService } from "../../../app/ai-review";
 import type {
   D1ScheduledJobRepository,
   ScheduledJobItemRecord,
@@ -422,13 +423,17 @@ export class ScheduledJobExecutor {
         }
         const service = createOtwPlayIngestionService(this.env);
         if (item.phase === "cleanup") {
-          return succeeded({ cleared: await service.clearExpiredApiData(20) });
+          return succeeded({ cleared: await service.clearExpiredApiData(20), aiCleared: await createOtwPlayAiReviewService(this.env).clearExpired() });
         }
         if (item.phase === "requeue") {
+          const ai = await createOtwPlayAiReviewService(this.env).recover();
           const result = await service.requeuePendingWithOutcome(
             20,
             async () => !(await readOtwPlayAutomationPaused(this.env.otw_db)),
           );
+          result.attempted += ai.queued + ai.failed;
+          result.enqueued += ai.queued;
+          result.failed += ai.failed;
           return {
             status: result.failed > 0
               ? result.enqueued > 0 ? "partial" : "failed"

@@ -1,0 +1,37 @@
+/* React Bits Stepper-JS-CSS: scoped, compact OTW theme. */
+.react-bits-stepper { width: 100%; min-width: 0; }
+.react-bits-stepper .step-circle-container { width: 100%; min-width: 0; }
+.react-bits-stepper .step-indicator-row { display: flex; align-items: center; gap: .5rem; padding: .25rem 0 1.5rem; }
+.react-bits-stepper .step-indicator { display: flex; flex-direction: column; align-items: center; gap: .5rem; min-width: 2.75rem; min-height: 2.75rem; border-radius: .5rem; color: var(--muted-foreground); cursor: pointer; }
+.react-bits-stepper .step-indicator:disabled { cursor: default; }
+.react-bits-stepper .step-indicator-inner { display: flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 50%; background: var(--muted); font-weight: 600; }
+.react-bits-stepper[data-reduced-motion="false"] .step-indicator-inner { transition: background-color .3s, color .3s !important; }
+.react-bits-stepper .step-indicator[data-status="active"] { color: var(--primary); font-weight: 600; }
+.react-bits-stepper .step-indicator[data-status="active"] .step-indicator-inner,
+.react-bits-stepper .step-indicator[data-status="complete"] .step-indicator-inner { background: var(--primary); color: var(--primary-foreground); }
+.react-bits-stepper .step-label { font-size: .75rem; white-space: nowrap; }
+.react-bits-stepper .active-dot { width: .625rem; height: .625rem; border-radius: 50%; background: var(--primary-foreground); }
+.react-bits-stepper .step-number { font-size: .875rem; }
+.react-bits-stepper .step-connector { position: relative; height: 2px; flex: 1; margin-bottom: 1.5rem; border-radius: 1rem; overflow: hidden; background: var(--border); }
+.react-bits-stepper .step-connector-inner { position: absolute; inset: 0 auto 0 0; height: 100%; background: var(--primary, #5227ff); }
+.react-bits-stepper .check-icon { width: 1rem; height: 1rem; }
+.react-bits-stepper .step-default { padding: .25rem; }
+.react-bits-stepper .step-content-default { margin: -.25rem; }
+.react-bits-stepper .footer-container { padding-top: 1rem; }
+.react-bits-stepper .footer-nav { display: flex; align-items: center; gap: .75rem; }
+.react-bits-stepper .footer-nav.spread { justify-content: space-between; }
+.react-bits-stepper .footer-nav.end { justify-content: flex-end; }
+.react-bits-stepper .back-button,
+.react-bits-stepper .next-button { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 2.75rem; padding: .625rem 1.125rem; border-radius: 9999px; font-size: .875rem; font-weight: 500; cursor: pointer; transition: background-color 150ms, opacity 150ms; }
+.react-bits-stepper .back-button { color: var(--muted-foreground); }
+.react-bits-stepper .back-button:hover { background: var(--muted); color: var(--foreground); }
+.react-bits-stepper .next-button { background: var(--primary); color: var(--primary-foreground); }
+.react-bits-stepper .next-button:hover { opacity: .9; }
+.react-bits-stepper .back-button:disabled,
+.react-bits-stepper .next-button:disabled { opacity: .45; cursor: not-allowed; }
+.react-bits-stepper button:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.react-bits-stepper .next-button svg,
+.react-bits-stepper .back-button svg { width: 1rem; height: 1rem; }
+@media (prefers-reduced-motion: reduce) {
+  .react-bits-stepper button { transition: none; }
+}

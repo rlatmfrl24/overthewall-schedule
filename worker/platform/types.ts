@@ -7,6 +7,11 @@ import type { ScheduledOperationsWorkflowParams } from "@contracts/scheduled-ope
 
 export interface Env {
   YOUTUBE_API_KEY: string;
+  GEMINI_API_KEY?: string;
+  OTW_PLAY_AI_REVIEW_ENABLED?: string;
+  OTW_PLAY_AI_REVIEW_MODEL?: string;
+  OTW_PLAY_AI_REVIEW_DAILY_LIMIT?: string;
+  OTW_PLAY_AI_REVIEW_QUEUE?: Queue<unknown>;
   X_BEARER_TOKEN?: string;
   VITE_CLERK_PUBLISHABLE_KEY?: string;
   CLERK_JWKS_URL?: string;

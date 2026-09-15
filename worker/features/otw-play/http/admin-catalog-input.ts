@@ -462,19 +462,21 @@ export const parseApproveProposal = (
   const parsed = parseCreateCatalogEntry({
     expectedCatalogRevision: value.expectedCatalogRevision,
     youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
-    startSeconds: 0,
+    startSeconds: value.startSeconds ?? 0,
+    endSeconds: value.endSeconds,
+    broadcast: value.broadcast,
     song: value.song,
     participants: value.participants,
     channel: value.channel,
-    relationType: "cover",
+    relationType: value.releaseType === "broadcast" ? "singing_clip" : "cover",
     releaseType: value.releaseType,
     participationType: value.participationType,
     performanceTags: value.performanceTags,
-    publicationTarget: "published",
+    publicationTarget: value.releaseType === "broadcast" ? "draft" : "published",
   });
   if (!parsed.ok) return fail(parsed.fields);
-  if (parsed.value.releaseType === "broadcast") {
-    return fail({ releaseType: "official_required" });
+  if (parsed.value.song.kind === "from_video" || (parsed.value.releaseType !== "broadcast" && parsed.value.song.kind === "create" && parsed.value.song.isOtwOriginal)) {
+    return fail({ song: "cover_song_required" });
   }
   return {
     ok: true,
@@ -485,6 +487,9 @@ export const parseApproveProposal = (
       participants: parsed.value.participants,
       channel: parsed.value.channel,
       releaseType: parsed.value.releaseType,
+      startSeconds: parsed.value.startSeconds,
+      endSeconds: parsed.value.endSeconds,
+      broadcast: parsed.value.broadcast,
       participationType: parsed.value.participationType,
       performanceTags: parsed.value.performanceTags,
       singingCreditConfirmed: true,

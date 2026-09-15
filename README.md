@@ -40,20 +40,18 @@ content discovery, and lightweight admin workflows.
 Use Node.js 24 LTS (the tested patch is recorded in `.node-version`) and
 `pnpm@11.7.0` for project commands. Match this Node version in Cloudflare Builds
 with `NODE_VERSION=24.20.0`; the deployed Worker still runs on workerd.
-`pnpm preflight` runs the unit and Worker integration suites once through the
-combined coverage project.
-`pnpm test` uses the same unit/Worker project list without coverage;
+`pnpm preflight` runs the unit and Worker integration suites once through
+`pnpm test`, without coverage instrumentation. `pnpm test:coverage` is an
+optional diagnostic report, with no percentage gate.
+`pnpm test` uses the combined unit/Worker project list;
 `pnpm test:unit` and `pnpm test:worker-integration` run an individual project.
 See [Testing](docs/testing.md) for focused commands, isolation rules, and coverage scope.
 
 ```bash
 pnpm dev
-pnpm architecture:check
-pnpm typecheck:test
-pnpm lint
-pnpm test
-pnpm test:coverage
-pnpm build
+# While editing: run the relevant test files
+pnpm test:unit path/to/changed.test.ts
+# Final verification (includes all tests and build)
 pnpm preflight
 ```
 
