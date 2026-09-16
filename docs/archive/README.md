@@ -22,8 +22,9 @@
 | Play 검토 | [폐기된 3개 화면](otw-play-three-screen-design.md), [release 검토](otw-play-release-review.md), [9/14 통합 검토](session-consolidation-review-2026-09-14.md) |
 | UI·검사 | [UI inventory](ui-component-inventory.md), [UI audit](ui-system-audit.md), [test audit](testing-audit.md) |
 | 운영 | [미사용 구현](unused-implementation-audit-2026-09-09.md), [관측 변경](observation-validity-2026-09-09.md), [종료 Hub 진단](websub-hub-diagnosis-2026-09-09.md), [X provider 사고](x-provider-upload-404-incident-closeout.md) |
-| 미승인 구현 제안 | [공유 배너](external-share-banner-review.md), [VOD AI](vod-ai-summary-highlight-technical-review.md) |
+| 범위에서 제외된 조사 | [공유 배너: 요구사항 삭제](external-share-banner-review.md), [VOD AI: 별도 프로젝트 분리](vod-ai-summary-highlight-technical-review.md) |
 | 이번 정리 | [문서 closeout](documentation-closeout-2026-09-17.md) |
+| 후속 작업 판단 | [남은 작업 설명·중요도 보고서](remaining-work-priority-report-2026-09-17.md) |
 
 원문의 날짜·수치·실패·미완료는 당시 상태다. 링크는 이동 경로로 정리했고 과거 임시 경로의
 파일이 지금도 존재한다고 보장하지 않는다.

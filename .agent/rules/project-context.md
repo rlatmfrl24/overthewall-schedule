@@ -59,9 +59,13 @@ trigger: always_on
   decisions and corresponding implementation evidence. A merged implementation
   does not prove production flags, collection, or playback were verified.
 - AI review work in the current working tree must be checked for actual commit
-  and deployment state before reporting it as released. The separate
-  [VOD AI technical review](../../docs/archive/vod-ai-summary-highlight-technical-review.md)
-  contains proposals and feasibility limits, not an approved production contract.
+  and deployment state before reporting it as released. AI quality testing is
+  planned; automatic collection still needs functional verification.
+- The 2026-09-17 user decision closes X cost tracking and removes player original-artist
+  display, member production-credit expansion, and external sharing banners from
+  this project backlog. VOD AI summaries/highlights belong to a separate project.
+  Do not restore these items from archived proposals. Existing catalog metadata
+  and vocal credits remain in scope.
 
 ## Key Directories
 - `contracts`: frontend/Worker wire DTOs and shared contract policy.

@@ -31,6 +31,6 @@ Play global pause는 관리자 채널 관리에서 처리하고 재개 시 최�
 
 한시적 관측 예약 7의 삭제와 잔여 0건은 최종 보고서에 기록되어 있다.
 같은 관측을 다시 예약하거나 삭제할 필요가 없으며 서비스 Cron은 계속 유지한다.
-Play 신규 업로드 canary, X 30일 관측과 계정 이전은 이 7일 closeout에 포함되지 않는다.
-[개발 상태](../development-status.md)에서 별도로 추적한다.
+X 비용 추적은 이 7일 관측과 별도로 2026-09-17 사용자 결정으로 종료했다.
+Play 자동 수집 기능 확인과 계정 이전은 [개발 상태](../development-status.md)에서 계속 추적한다.
 이전 구현·배포·측정 과정은 [정리 전 기록](../archive/backend-cost-optimization-before-2026-09-17.md)에 보존한다.

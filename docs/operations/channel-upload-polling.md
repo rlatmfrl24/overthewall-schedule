@@ -1,5 +1,7 @@
 # Channel upload polling
 
+> 2026-09-17 사용자 결정: **자동 수집 기능 확인 필요**. 현재 수집 제어·예약 전달·후보 저장의 실제 연결을 확인할 작업으로 유지한다. 운영 pause 해제나 강제 수집은 이번 상태 변경에 포함하지 않는다.
+
 Status: implemented, 2026-09-09. Final release evidence is recorded in the owning pull request.
 
 ## Decision

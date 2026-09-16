@@ -9,6 +9,7 @@
 | --- | --- |
 | [개요](../README.md) · [제품 결정](../PRODUCT.md) | 제공 범위·로컬 개발·승인된 방향 |
 | [개발·운영 상태](development-status.md) | 구현·종료·미완료·미승인 작업의 단일 상태표 |
+| [남은 작업 중요도 보고서](archive/remaining-work-priority-report-2026-09-17.md) | 9/17 기준 쉬운 설명·중요도·완료 조건·권장 순서 |
 | [Design](../Design.md) · [폰트 정책](font-consistency-review.md) | 현재 디자인·접근성·타이포그래피 |
 | [아키텍처](architecture.md) | capability·의존성·실제 연결 경로 |
 | [테스트](testing.md) · [D1 workflow](drizzle-workflow.md) | 검사·격리·migration |
@@ -35,7 +36,7 @@
 | [비용 운영](operations/backend-cost-optimization.md) | 읽기 전용 관측·현재 비용 경계 |
 | [7일 최종 보고](operations/backend-cost-observation-final-2026-09-16.md) | 종료된 9/9~9/15 관측 증거 |
 | [종료 구현 유지](operations/retired-implementation-cleanup.md) | WebSub/warmup 재도입 방지·유지 제약 |
-| [X 비용](operations/x-api-cost-minimization-design.md) | 신규행 수집·cache·30일 관측 |
+| [X 비용](operations/x-api-cost-minimization-design.md) | 신규행 수집·cache·비용 추적 종료 기록 |
 | [X 이력·보관](operations/x-member-history-and-archive-design.md) · [게시물 저장](operations/member-post-storage-policy.md) | 보관·redaction·공개 읽기 |
 | [계정 이전](cloudflare-production-account-migration.md) | runtime 통합·남은 provisioning/cutover |
 | [편성 자동갱신](auto-update.md) · [YouTube](youtube-optimization.md) · [Cache](cache-policy.md) | 기능별 운영·캐시 |

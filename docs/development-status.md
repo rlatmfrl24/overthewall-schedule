@@ -28,8 +28,18 @@
 | 폐기한 Play 3개 화면·WebSub 계획 | 현재 발견/검색/playlist와 polling으로 대체. 과거 이력·무결성 계약 보존 |
 | WebSub 리소스 제거 | [9/16 최종 보고](operations/backend-cost-observation-final-2026-09-16.md)에서 Queue·secret·binding 부재 확인. 49시간 대기를 재등록하지 않음 |
 | 백엔드 비용 7일 관측 | UTC 9/9~9/15, 168시간 관측 종료. claim 읽기 감소 목표 충족; 전체 청구액 인과 효과는 미증명 |
+| X 비용 추적 / OPS-X-30D | 2026-09-17 사용자 판단: 현재 비용 수용 가능. 추가 추적·30일 비용 보고 종료; 일반 수집·예산 제한 유지 |
 | 관측 예약 종료 | 같은 보고서에 예약 7 삭제·동일 작업 잔여 0건 기록. 이번에 재삭제하지 않음 |
 | 문서 통합 | [이번 closeout](archive/documentation-closeout-2026-09-17.md). 기능·운영 전체 완료와 구분 |
+
+## 2026-09-17 사용자 결정
+
+- **X 비용 추적 종료:** 현재 비용이 괜찮다는 사용자 판단으로 종료한다. 10/2까지 관측하거나 최종 비용 보고를 작성하는 의무는 해제한다. 정량 절감 목표 달성을 새로 입증했다는 뜻은 아니다.
+- **AI 품질:** 테스트 예정으로 유지한다.
+- **자동 수집:** 기능 확인이 필요한 작업으로 유지한다. 이 문서 변경으로 운영 pause를 해제하지 않는다.
+- **요구사항 삭제:** player 원곡 가수 표시(BACKLOG-PLAYER / FR-021의 해당 표시 부분), 제작 참여·만든 곡(LATER-CREDIT / FR-045·ADM-031 및 관련 제작 참여 확장), 외부 공유 배너를 이 프로젝트 범위에서 제외한다.
+- **별도 프로젝트 분리:** VOD AI 요약·하이라이트를 이 프로젝트의 요구사항·잔여 작업에서 제외한다. 별도 프로젝트 생성·구현은 이번 반영에 포함하지 않는다.
+- 삭제 항목은 완료 기능으로 집계하지 않는다. 기존 원곡 가수 데이터·목록/상세 표시와 가창자 credit은 이번 잔여 요구사항 정리로 제거하지 않는다. 대표곡 지정과 기존 참여 정보 정정은 남기되, 삭제된 제작 참여 기능을 다시 전제하지 않는다.
 
 ## 남은 작업
 
@@ -37,19 +47,15 @@
 
 | ID | 상태 / 다음 행동 | 종료 조건 |
 | --- | --- | --- |
-| OPS-PLAY-UPLOAD | global pause 중 신규 업로드 canary 미검증. 승인된 재개 후 실제 새 업로드 관측 | 예약 전달 → candidate → 관리자 검수/draft readback; 중지 기간 자동 소급 금지 |
+| OPS-PLAY-UPLOAD | 기능 확인 필요(사용자 지정). 수집 제어·예약 전달·후보 저장의 기존 증거와 미검증 구간을 확인; 운영 재개는 별도 결정 | 예약 전달 → candidate → 관리자 검수/draft readback; 중지 기간 자동 소급 금지 |
 | OPS-PLAY-RELEASE | 실제 재생·역할별 접근·source-health 전체 시나리오는 각 release에서 확인 | 대상 Worker/flags와 실제 흐름 증거. 과거 flags 1/1만으로 통과 아님 |
-| OPS-X-30D | 2026-09-02~10-02 비용 관찰 중 | [X 비용 계약](operations/x-api-cost-minimization-design.md)의 원장·Developer Console 대조. 백엔드 7일 관측과 별개 |
 | OPS-ACCOUNT | runtime 통합 검증됨, 전용 계정 provisioning/cutover 대기 | [계정 이전](cloudflare-production-account-migration.md)의 별도 승인·대상 리소스·데이터·실사용 readback |
-| AI-QUALITY | 실제 모델 호출 이후 전체 품질·운영 효과는 별도 검증 | [AI 문서](otw-play-ai-review.md)의 원본 입력·출력·관리자 적용·실패/예산 확인 |
-| LATER-CREDIT | FR-045·ADM-031 제작 참여/만든 곡 | 공식 근거·관리자 검증과 실제 표시 |
+| AI-QUALITY | 테스트 예정(사용자 지정). 아직 테스트 완료로 처리하지 않음 | [AI 문서](otw-play-ai-review.md)의 원본 입력·출력·관리자 적용·실패/예산 확인 |
 | LATER-PIN | FR-047·ADM-032 대표곡 pin | 최대 5곡·순서·fallback과 재조회 |
 | LATER-CORRECTION | FR-048·ADM-037 참여 정보 정정 | 본인 제출·근거·승인 전 비반영·승인/거절 |
 | BACKLOG-MERGE | ADM-009 가창 병합 | 실제 관리자 병합과 참조/중복/이력 무결성 |
-| BACKLOG-PLAYER | FR-021 player 원곡 가수 표시 | 목록/상세와 별도로 재생 패널에서 표시 |
 | NEXT-LIBRARY | 좋아요·최근 청취·멤버 라디오·공동/공개 공유 목록 | 소유·보관·동기화·공유 정책 확정 후 구현. 개인 비공개 playlist와 분리 |
 | NEXT-BROADCAST | 방송별 setlist·원본 방송만으로 재생 | [클립 계약](otw-play-singing-clips-requirements-and-plan.md)과 구분해 범위 결정 |
-| PROPOSALS | [공유 배너](archive/external-share-banner-review.md), [VOD AI](archive/vod-ai-summary-highlight-technical-review.md) 조사 보존 | 조사 종료는 구현 승인·개발 완료가 아님 |
 
 과거 playlist canary·source-health 등의 증거는 이번 정리만으로 모두 완료 또는 미완료로
 재판정하지 않았다. 향후 release에서 기존 증거와 대상 artifact를 대조하고 부족한 검증만 수행한다.
