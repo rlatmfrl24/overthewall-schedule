@@ -6,6 +6,8 @@ import type { ScheduleItem } from "@/features/schedules";
 import { useScheduleBoard } from "../../../queries/use-schedule-board";
 import { SnapshotCardMember } from "./snapshot-card-member";
 import { SnapshotTimeline } from "./snapshot-timeline";
+import { SnapshotLegacy } from "./snapshot-legacy";
+import { getSnapshotGeometry, type SnapshotDesign } from "./snapshot-options";
 import { ScheduleUpdatedAt } from "../../components/schedule-updated-at";
 import { useSnapshotFonts } from "./use-snapshot-fonts";
 import { SnapshotFontContext, SNAPSHOT_FONT_FAMILY, SYSTEM_FONT_FAMILY } from "./snapshot-fonts";
@@ -15,19 +17,23 @@ interface SnapshotScheduleProps {
   date: string;
   mode: "grid" | "timeline";
   theme?: "light" | "dark";
+  design?: SnapshotDesign;
 }
 
 export const SnapshotSchedule = ({
   date,
   mode,
   theme,
+  design = "poster",
 }: SnapshotScheduleProps) => {
   const { board, members, schedules, hasLoaded } = useScheduleBoard(date, date);
   const rootRef = useRef<HTMLDivElement>(null);
   const fontMode = useSnapshotFonts(rootRef);
-  const renderKey = useMemo(() => ({ date, mode, theme, fontMode, board }), [date, mode, theme, fontMode, board]);
+  const effectiveDesign = mode === "grid" ? "poster" : design;
+  const legacy = mode === "timeline" && effectiveDesign === "legacy";
+  const renderKey = useMemo(() => ({ date, mode, theme, design: effectiveDesign, fontMode, board }), [date, mode, theme, effectiveDesign, fontMode, board]);
   const [readyKey, setReadyKey] = useState<typeof renderKey | null>(null);
-  const snapshotWidth = mode === "timeline" ? 520 : 1280;
+  const geometry = getSnapshotGeometry(mode, effectiveDesign);
 
   const currentDate = useMemo(() => parseISO(date), [date]);
 
@@ -94,17 +100,18 @@ export const SnapshotSchedule = ({
         data-snapshot-root="true"
         data-snapshot-ready={isReady ? "true" : "false"}
         data-snapshot-font-mode={fontMode}
-        style={{ fontFamily: fontMode === "web" ? SNAPSHOT_FONT_FAMILY : SYSTEM_FONT_FAMILY }}
+        data-snapshot-design={effectiveDesign}
+        style={{ padding: geometry.padding, fontFamily: fontMode === "web" ? (mode === "timeline" ? '"OTW Snapshot Pretendard", sans-serif' : SNAPSHOT_FONT_FAMILY) : SYSTEM_FONT_FAMILY }}
         className={cn(
           "inline-block bg-background text-foreground",
-          mode === "timeline" ? "snapshot-timetable p-3" : "p-5",
+          mode === "timeline" ? (legacy ? "snapshot-legacy" : "snapshot-timetable") : "p-5",
         )}
       >
         <div
-          className={cn("flex flex-col", mode === "timeline" ? "gap-3" : "gap-5")}
-          style={{ width: snapshotWidth }}
+          className={cn("flex flex-col", mode === "timeline" ? (legacy ? "gap-3" : "snapshot-sheet") : "gap-5")}
+          style={{ width: geometry.contentWidth }}
         >
-          <SnapshotHeader
+          {legacy ? <SnapshotLegacy date={date} members={members} schedules={schedules} updatedAt={board?.updatedAt} /> : <><SnapshotHeader
             dateLabel={format(
               currentDate,
               mode === "timeline" ? "yyyy년 M월 d일 EEEE" : "yyyy년 M월 d일",
@@ -118,9 +125,12 @@ export const SnapshotSchedule = ({
           {mode === "timeline" ? (
             <>
               <SnapshotTimeline members={members} schedules={schedules} />
-              <footer className="snapshot-footer flex items-center justify-between gap-3 px-1 pt-1 text-[11px] leading-relaxed">
-                <span>한국시간(KST) 기준 · 일정은 변경될 수 있습니다</span>
-                <span className="shrink-0 font-semibold">otw-schedule.info</span>
+              <footer className="snapshot-footer">
+                <div className="snapshot-footer-meta">
+                  <ScheduleUpdatedAt updatedAt={board?.updatedAt} label="최종 편집" className="snapshot-updated" />
+                  <span className="snapshot-footer-domain">otw-schedule.info</span>
+                </div>
+                <p>한국시간(KST) 기준 · 일정은 변경될 수 있습니다</p>
               </footer>
             </>
           ) : (
@@ -137,7 +147,7 @@ export const SnapshotSchedule = ({
                 );
               })}
             </div>
-          )}
+          )}</>}
         </div>
       </div>
     </SnapshotFontContext>
@@ -157,30 +167,26 @@ function SnapshotHeader({
 }) {
   if (mode === "timeline") {
     return (
-      <header className="snapshot-heading px-5 py-5">
-        <div className="flex items-center justify-between gap-4">
-          <h1 className="text-[22px] font-bold leading-tight tracking-tight">
-            오늘의 편성표
-          </h1>
+      <header className="snapshot-heading">
+        <div className="snapshot-brand-row">
+          <h1>오늘의 편성표</h1>
           <img
             src="/logo_otw.svg"
             width={76}
             height={25}
             alt="오버더월"
-            className="snapshot-logo h-auto w-[76px] shrink-0"
+            className="snapshot-logo"
           />
         </div>
-        <p
-          className="snapshot-date mt-4 text-[20px] font-bold leading-snug tracking-tight"
-          aria-label={`편성표 날짜 ${dateLabel}`}
-        >
-          <time dateTime={dateValue}>{dateLabel}</time>
-        </p>
-        <ScheduleUpdatedAt
-          updatedAt={updatedAt}
-          label="최종 편집"
-          className="snapshot-updated mt-3 justify-start text-[11px]"
-        />
+        <div className="snapshot-date" aria-label={`편성표 날짜 ${dateLabel}`}>
+          <div>
+            <p className="snapshot-date-year">{format(parseISO(dateValue), "yyyy년")}</p>
+            <time dateTime={dateValue} className="snapshot-date-day">{format(parseISO(dateValue), "MM.dd")}</time>
+          </div>
+          <div className="snapshot-date-aside">
+            <span className="snapshot-date-weekday">{format(parseISO(dateValue), "EEEE", { locale: ko })}</span>
+          </div>
+        </div>
       </header>
     );
   }

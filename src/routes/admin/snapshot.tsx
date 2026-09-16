@@ -1,5 +1,6 @@
 import { format, isValid, parseISO } from "date-fns";
 import { createFileRoute, redirect } from "@tanstack/react-router";
+import { normalizeSnapshotDesign, type SnapshotDesign } from "@/features/schedule-board";
 
 
 type SnapshotMode = "grid" | "timeline";
@@ -39,10 +40,11 @@ const normalizeTheme = (value: unknown): SnapshotTheme => {
 export const Route = createFileRoute("/admin/snapshot")({
   validateSearch: (
     search: Record<string, unknown>,
-  ): { date: string; mode: SnapshotMode; theme: SnapshotTheme } => ({
+  ): { date: string; mode: SnapshotMode; theme: SnapshotTheme; design: SnapshotDesign } => ({
     date: normalizeDate(search.date),
     mode: normalizeMode(search.mode),
     theme: normalizeTheme(search.theme),
+    design: normalizeSnapshotDesign(search.design),
   }),
   beforeLoad: ({ search }) => { throw redirect({ to: "/admin/content", search: { ...search, tab: "snapshot" }, replace: true }); },
 });

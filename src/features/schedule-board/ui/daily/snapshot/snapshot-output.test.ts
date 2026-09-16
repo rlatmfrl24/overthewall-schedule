@@ -1,6 +1,6 @@
 import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Member } from "@/features/members";
@@ -33,6 +33,23 @@ const makeSchedule = (
 describe("snapshot output", () => {
   afterEach(() => {
     cleanup();
+  });
+
+  it("보조 그룹은 실제 제목을 보존하고 상태와 중복 문구만 생략한다", () => {
+    render(createElement(SnapshotTimeline, {
+      members: [makeMember(1, "하네"), makeMember(2, "유리리"), makeMember(3, "온하루")],
+      schedules: [
+        makeSchedule({ id: 1, member_uid: 1, status: "휴방", title: "병원 진료 후 하루 쉬어갑니다" }),
+        makeSchedule({ id: 2, member_uid: 2, status: "게릴라", title: "게릴라", start_time: "20:00" }),
+        makeSchedule({ id: 3, member_uid: 3, status: "미정", title: "일정 조율 중, 시간은 다시 공지할게요" }),
+      ],
+    }));
+    expect(within(screen.getByRole("region", { name: "휴방" })).getByText("병원 진료 후 하루 쉬어갑니다")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "미정" })).getByText("일정 조율 중, 시간은 다시 공지할게요")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "게릴라 예정" })).getByText("유리리")).toBeTruthy();
+    expect(screen.queryByText("게릴라 방송 예정")).toBeNull();
+    expect(within(screen.getByRole("region", { name: "게릴라 예정" })).getByText("20:00")).toBeTruthy();
+    expect(screen.getByText("시간이 확정된 방송이 없습니다.")).toBeTruthy();
   });
 
   it("그리드 카드에서 실제 스케쥴 카드와 동일한 휴방 상태를 표시한다", () => {
@@ -82,7 +99,7 @@ describe("snapshot output", () => {
     expect(screen.queryByText("미정")).toBeNull();
   });
 
-  it("타임라인에서 상태 컬럼과 상태 pill을 출력하지 않는다", () => {
+  it("시간별 방송을 편성 순서로 표시하고 중복 상태 표시는 생략한다", () => {
     render(
       createElement(SnapshotTimeline, {
         members: [makeMember(1, "하네")],
@@ -96,14 +113,14 @@ describe("snapshot output", () => {
       }),
     );
 
-    expect(screen.getByText("시간")).toBeTruthy();
-    expect(screen.getByText("멤버 / 일정")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "방송 일정" })).toBeTruthy();
+    expect(screen.getByText("20:00").tagName).toBe("TIME");
     expect(screen.getByText("정규 컨텐츠")).toBeTruthy();
     expect(screen.queryByText("상태")).toBeNull();
     expect(screen.queryByText("방송")).toBeNull();
   });
 
-  it("타임라인 스냅샷에서 소속 그룹명을 이름과 분리된 칩으로 표시한다", () => {
+  it("타임라인 스냅샷에서 소속 그룹명을 이름과 분리하여 표시한다", () => {
     const member = {
       ...makeMember(1, "빙하유"),
       unit_name: "리브다이아",

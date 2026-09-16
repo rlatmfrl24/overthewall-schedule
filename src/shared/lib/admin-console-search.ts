@@ -20,6 +20,7 @@ export interface ConsoleSearch {
   date?: string;
   mode?: "grid" | "timeline";
   theme?: "light" | "dark";
+  design?: "poster" | "legacy";
 }
 
 export function validateConsoleSearch(search: Record<string, unknown>): ConsoleSearch {
@@ -35,6 +36,7 @@ export function validateConsoleSearch(search: Record<string, unknown>): ConsoleS
   if (Number.isSafeInteger(page) && page > 0) result.page = page;
   if (search.mode === "grid" || search.mode === "timeline") result.mode = search.mode;
   if (search.theme === "light" || search.theme === "dark") result.theme = search.theme;
+  if (search.design === "poster" || search.design === "legacy") result.design = search.design;
   return result;
 }
 

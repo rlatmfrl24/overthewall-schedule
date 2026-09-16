@@ -144,6 +144,19 @@ describe("DailySchedule", () => {
     vi.restoreAllMocks();
   });
 
+  it("offers legacy exports only in the timeline menu without replacing the default actions", async () => {
+    render(createElement(DailySchedule), { wrapper: createQueryWrapper() });
+    fireEvent.keyDown(screen.getByRole("button", { name: "스케쥴 복사 옵션" }), { key: "Enter" });
+    expect(await screen.findByRole("menuitem", { name: /이미지 다운로드/ })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "기존 편성표 다운로드" })).toBeNull();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "시간순 보기 전환" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "스케쥴 복사 옵션" }), { key: "Enter" });
+    expect(await screen.findByRole("menuitem", { name: "기존 편성표 다운로드" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "기존 편성표 복사" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "클립보드 복사" })).toBeTruthy();
+  });
+
   it("방송 중인 모바일·데스크톱 일정 카드는 새 탭 대신 편집 다이얼로그를 연다", async () => {
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
     const { container } = render(createElement(DailySchedule), {

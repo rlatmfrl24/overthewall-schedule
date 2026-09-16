@@ -1,89 +1,57 @@
-/* Export-only palette: the public schedule and grid keep their own theme. */
+/* A fixed-format printed programme, not an application screen. */
 .snapshot-timetable {
-  --snapshot-canvas: #f6dfcc;
-  --snapshot-panel: #fffcf5;
-  --snapshot-ink: #302e2b;
-  --snapshot-muted: #70675e;
-  --snapshot-line: #ebdfd0;
-  --snapshot-coral: #f0ad8f;
-  --snapshot-coral-ink: #663626;
-  --snapshot-sage: #e5ebd9;
-  --snapshot-sage-ink: #48583a;
-  background: var(--snapshot-canvas);
-  color: var(--snapshot-ink);
+  --poster-paper: #fffaf0;
+  --poster-ink: #173b3d;
+  --poster-muted: #526265;
+  --poster-date: #c93655;
+  background: var(--poster-paper);
+  color: var(--poster-ink);
+  font-optical-sizing: auto;
 }
-
 .dark .snapshot-timetable {
-  --snapshot-canvas: #211e1c;
-  --snapshot-panel: #302b27;
-  --snapshot-ink: #fcf4e9;
-  --snapshot-muted: #c4b8aa;
-  --snapshot-line: #4b4139;
-  --snapshot-coral: #e9a082;
-  --snapshot-coral-ink: #48291f;
-  --snapshot-sage: #414b37;
-  --snapshot-sage-ink: #dce8cc;
+  --poster-paper: #142d30;
+  --poster-ink: #fffaf0;
+  --poster-muted: #b8cfcc;
+  --poster-date: var(--otw-1);
 }
-
-.snapshot-timetable .snapshot-heading,
-.snapshot-timetable .snapshot-panel {
-  border: 1px solid var(--snapshot-line);
-  border-radius: 24px;
-  background: var(--snapshot-panel);
-}
-
-.snapshot-timetable .snapshot-heading {
-  border-left: 6px solid var(--snapshot-coral);
-}
-
-.snapshot-timetable .snapshot-logo {
-  box-sizing: content-box;
-  padding: 9px 11px;
-  border-radius: 14px;
-  background: #fff;
-}
-
-.snapshot-timetable .snapshot-date {
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: var(--snapshot-coral);
-  color: var(--snapshot-coral-ink);
-}
-
-.snapshot-timetable .snapshot-updated,
-.snapshot-timetable .snapshot-footer,
-.snapshot-timetable .snapshot-table-heading {
-  color: var(--snapshot-muted);
-}
-
-.snapshot-timetable .snapshot-table-heading {
-  border-bottom: 1px solid var(--snapshot-line);
-}
-
-.snapshot-timetable .snapshot-rows > * + * {
-  border-top: 1px solid var(--snapshot-line);
-}
-
-.snapshot-timetable .snapshot-time {
-  padding: 9px 7px;
-  border-radius: 13px;
-  background: var(--snapshot-coral);
-  color: var(--snapshot-coral-ink);
-}
-
-.snapshot-timetable .snapshot-unit {
-  background: var(--snapshot-sage);
-  color: var(--snapshot-sage-ink);
-}
-
-.snapshot-timetable .snapshot-group-heading {
-  border-bottom: 1px solid var(--snapshot-line);
-}
-
-.snapshot-timetable .snapshot-unscheduled {
-  background: var(--snapshot-sage);
-}
-
-.snapshot-timetable .snapshot-unscheduled :is(h2, p, span, svg) {
-  color: var(--snapshot-sage-ink);
-}
+.snapshot-sheet { background: var(--poster-paper); border-top: 8px solid var(--otw-2); }
+.snapshot-brand-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 36px 12px; }
+.snapshot-brand-row h1 { font-size: 32px; line-height: 1.1; font-weight: 900; letter-spacing: -.055em; }
+.snapshot-logo { width: 126px; height: auto; flex-shrink: 0; }
+.snapshot-date { display: flex; align-items: stretch; justify-content: space-between; gap: 24px; padding: 12px 36px 20px; }
+.snapshot-date-year { font-size: 20px; font-weight: 650; letter-spacing: .08em; margin-bottom: 6px; }
+.snapshot-date-day { display: block; color: var(--poster-date); font-size: 88px; line-height: .95; font-weight: 900; letter-spacing: -.065em; font-variant-numeric: tabular-nums; }
+.snapshot-date-aside { display: flex; flex-direction: column; justify-content: center; align-items: center; align-self: flex-end; padding: 0 0 10px; border-bottom: 7px solid var(--otw-3); }
+.snapshot-date-weekday { font-size: 30px; line-height: 1.2; font-weight: 800; letter-spacing: -.04em; }
+.snapshot-broadcasts > .snapshot-section-heading { margin: 0 36px; padding: 16px 0 12px; border-top: 3px solid var(--poster-ink); }
+.snapshot-section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.snapshot-section-heading h2 { font-size: 24px; font-weight: 800; letter-spacing: -.02em; }
+.snapshot-running-order { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.snapshot-programme-row { display: grid; grid-template-columns: 102px minmax(0, 1fr) 96px; align-items: start; column-gap: 20px; padding: 26px 32px 28px; background: var(--snapshot-member-main); color: var(--snapshot-member-ink); border-left: 12px solid var(--snapshot-member-sub); }
+.snapshot-time { font-size: 36px; line-height: 1.1; font-weight: 850; letter-spacing: -.06em; font-variant-numeric: tabular-nums; padding-top: 18px; }
+.snapshot-programme-copy { min-width: 0; }
+.snapshot-member-line { margin-bottom: 14px; }
+.snapshot-unit { display: block; margin-bottom: 4px; font-size: 18px; line-height: 1.2; font-weight: 600; letter-spacing: .06em; }
+.snapshot-member-name { font-size: 34px; line-height: 1.12; font-weight: 900; letter-spacing: -.05em; overflow-wrap: anywhere; }
+.snapshot-programme-title { font-size: 28px; line-height: 1.4; font-weight: 600; letter-spacing: -.025em; word-break: keep-all; overflow-wrap: anywhere; }
+.snapshot-portrait { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; object-position: center; border: 4px solid var(--snapshot-member-sub); background: white; }
+.snapshot-pending { padding: 24px 36px 0; }
+.snapshot-side-group { padding: 20px 0; }
+.snapshot-side-group + .snapshot-side-group { border-top: 1px solid color-mix(in srgb, var(--poster-ink) 25%, var(--poster-paper)); }
+.snapshot-secondary-heading { margin-bottom: 16px; }
+.snapshot-secondary-heading h2 { font-size: 24px; line-height: 1.4; }
+.snapshot-member-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 22px; list-style: none; margin: 0; padding: 0; }
+.snapshot-compact-member { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.snapshot-compact-member > div { min-width: 0; flex: 1; }
+.snapshot-small-portrait { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; object-position: center; border: 3px solid var(--snapshot-member-main); background: white; flex-shrink: 0; }
+.snapshot-compact-name { font-size: 26px; font-weight: 800; letter-spacing: -.035em; line-height: 1.35; overflow-wrap: anywhere; }
+.snapshot-compact-title { font-size: 22px; line-height: 1.5; margin-top: 5px; color: var(--poster-muted); overflow-wrap: anywhere; }
+.snapshot-side-time { display: block; margin-top: 3px; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.snapshot-status-summary { margin: 0 36px; padding-top: 8px; border-top: 3px solid var(--poster-ink); }
+.snapshot-group-note { margin: -6px 0 14px; font-size: 18px; color: var(--poster-muted); }
+.snapshot-empty { margin: 0 36px; padding: 30px 0; color: var(--poster-muted); font-size: 24px; }
+.snapshot-footer { margin-top: 14px; padding: 20px 36px 22px; border-top: 5px solid var(--otw-2); font-size: 18px; line-height: 1.6; }
+.snapshot-footer-meta { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; margin-bottom: 3px; }
+.snapshot-timetable .snapshot-updated { color: inherit; font-size: 18px; }
+.snapshot-footer-domain { font-size: 20px; font-weight: 800; }
+/* Full titles flow naturally: output height grows with the actual schedule. */
