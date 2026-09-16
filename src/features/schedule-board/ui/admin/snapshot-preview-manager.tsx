@@ -157,15 +157,10 @@ export function SnapshotPreviewManager({
         )
       : 0;
     const rootHeight = snapshotRoot?.scrollHeight ?? 0;
-    const bodyHeight = doc.body?.scrollHeight ?? 0;
-    const documentHeight = doc.documentElement?.scrollHeight ?? 0;
     const nextWidth = Math.max(rootWidth, defaultIframeWidth);
-    const nextHeight = Math.max(
-      rootHeight,
-      bodyHeight,
-      documentHeight,
-      MIN_IFRAME_HEIGHT,
-    );
+    // The h-screen route inherits the old iframe height; only the snapshot
+    // itself can tell us when the new design or date needs a shorter canvas.
+    const nextHeight = Math.max(rootHeight, MIN_IFRAME_HEIGHT);
 
     setIframeWidth((prev) => (prev === nextWidth ? prev : nextWidth));
     setIframeHeight((prev) => (prev === nextHeight ? prev : nextHeight));
