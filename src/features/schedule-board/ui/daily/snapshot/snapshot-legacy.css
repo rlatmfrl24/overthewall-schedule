@@ -1,0 +1,57 @@
+.snapshot-legacy {
+  --legacy-canvas: #fafafa;
+  --legacy-panel: #ffffff;
+  --legacy-ink: #18181b;
+  --legacy-muted: #52525b;
+  --legacy-line: #e4e4e7;
+  --legacy-time-bg: #f4f4f5;
+  --legacy-chip: #f4f4f5;
+  --legacy-accent: #0f766e;
+  --legacy-rule: #14b8a6;
+  background: var(--legacy-canvas);
+  color: var(--legacy-ink);
+}
+.dark .snapshot-legacy {
+  --legacy-canvas: #090909;
+  --legacy-panel: #18181b;
+  --legacy-ink: #f4f4f5;
+  --legacy-muted: #a1a1aa;
+  --legacy-line: #27272a;
+  --legacy-time-bg: #111113;
+  --legacy-chip: #27272a;
+  --legacy-accent: #99f6e4;
+  --legacy-rule: #00cdbb;
+}
+.snapshot-legacy .legacy-panel { background: var(--legacy-panel); border: 1px solid var(--legacy-line); border-radius: 18px; overflow: hidden; }
+.snapshot-legacy .legacy-header { padding: 18px 20px; border-top: 4px solid var(--legacy-rule); }
+.snapshot-legacy .legacy-brand { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.snapshot-legacy .legacy-brand h1 { font-size: 20px; font-weight: 800; line-height: 1.4; }
+.snapshot-legacy .legacy-brand img { width: 76px; height: auto; }
+.snapshot-legacy .legacy-date { display: block; margin-top: 18px; font-size: 18px; font-weight: 750; line-height: 1.5; color: var(--legacy-accent); }
+.snapshot-legacy .legacy-updated { margin-top: 10px; color: var(--legacy-muted); font-size: 11px; }
+.snapshot-legacy .legacy-table-heading { display: grid; grid-template-columns: 80px minmax(0,1fr); min-height: 40px; align-items: center; color: var(--legacy-muted); font-size: 12px; border-bottom: 1px solid var(--legacy-line); }
+.snapshot-legacy .legacy-table-heading span:first-child { text-align: center; }
+.snapshot-legacy .legacy-table-heading span:last-child { padding-left: 16px; }
+.snapshot-legacy .legacy-list { list-style: none; margin: 0; padding: 0; }
+.snapshot-legacy .legacy-list > li + li { border-top: 1px solid var(--legacy-line); }
+.snapshot-legacy .legacy-broadcast { display: grid; grid-template-columns: 80px minmax(0,1fr); min-height: 88px; }
+.snapshot-legacy .legacy-time { display: flex; align-items: center; justify-content: center; background: var(--legacy-time-bg); border-right: 1px solid var(--legacy-line); font-size: 20px; font-weight: 750; font-variant-numeric: tabular-nums; color: var(--legacy-accent); }
+.snapshot-legacy .legacy-programme { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 18px 16px; }
+.snapshot-legacy .legacy-avatar { width: 40px; height: 40px; flex-shrink: 0; border-radius: 50%; border: 2px solid var(--legacy-member); object-fit: cover; background: white; }
+.snapshot-legacy .legacy-copy { min-width: 0; flex: 1; }
+.snapshot-legacy .legacy-member-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin-bottom: 5px; font-size: 13px; color: var(--legacy-muted); }
+.snapshot-legacy .legacy-unit { background: var(--legacy-chip); border-radius: 999px; padding: 3px 8px; font-size: 10px; }
+.snapshot-legacy .legacy-copy h3 { font-size: 18px; font-weight: 750; line-height: 1.45; word-break: keep-all; overflow-wrap: anywhere; }
+.snapshot-legacy .legacy-group-heading { display: flex; align-items: center; gap: 9px; padding: 12px 16px; border-bottom: 1px solid var(--legacy-line); }
+.snapshot-legacy .legacy-group-heading svg { width: 18px; height: 18px; color: var(--legacy-muted); flex-shrink: 0; }
+.snapshot-legacy .legacy-group-heading h2 { font-size: 14px; font-weight: 750; }
+.snapshot-legacy .legacy-group-heading > span { margin-left: auto; font-size: 11px; color: var(--legacy-muted); }
+.snapshot-legacy .legacy-side-member { display: flex; align-items: center; gap: 12px; padding: 15px 16px; min-width: 0; }
+.snapshot-legacy .legacy-side-member h3 { font-size: 14px; font-weight: 750; overflow-wrap: anywhere; }
+.snapshot-legacy .legacy-side-member p { margin-top: 3px; font-size: 13px; color: var(--legacy-muted); overflow-wrap: anywhere; }
+.snapshot-legacy .legacy-side-member > time { color: var(--legacy-muted); font-size: 12px; }
+.snapshot-legacy .legacy-unscheduled .legacy-group-heading { border-bottom: 0; padding-bottom: 6px; }
+.snapshot-legacy .legacy-unscheduled > p { padding: 0 16px; font-size: 11px; color: var(--legacy-muted); }
+.snapshot-legacy .legacy-unscheduled .legacy-avatar { width: 32px; height: 32px; }
+.snapshot-legacy .legacy-footer { display: flex; justify-content: space-between; gap: 10px; padding: 4px; font-size: 10px; color: var(--legacy-muted); line-height: 1.5; }
+.snapshot-legacy .legacy-empty { padding: 24px; color: var(--legacy-muted); }

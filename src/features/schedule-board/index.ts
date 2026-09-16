@@ -8,3 +8,4 @@ export { SnapshotSchedule } from "./ui/daily/snapshot/snapshot-schedule";
 export { WeeklySchedule } from "./ui/weekly/weekly-schedule";
 export { SnapshotPreviewManager } from "./ui/admin/snapshot-preview-manager";
 export { ScheduleUpdatedAt } from "./ui/components/schedule-updated-at";
+export { normalizeSnapshotDesign, type SnapshotDesign } from "./ui/daily/snapshot/snapshot-options";

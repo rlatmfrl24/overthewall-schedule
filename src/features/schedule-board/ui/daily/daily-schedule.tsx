@@ -65,6 +65,7 @@ import { queryKeys } from "@/shared/query/query-keys";
 import { useScheduleSaveFeedback } from "../../queries/use-schedule-save-feedback";
 import { ScheduleUpdatedAt } from "../components/schedule-updated-at";
 import { readSnapshotFonts, forceSystemSnapshotFonts } from "./snapshot/snapshot-fonts";
+import { getSnapshotUrl, getSnapshotFilename, type SnapshotDesign } from "./snapshot/snapshot-options";
 
 type LiveDebugRow = {
   memberUid: number;
@@ -273,7 +274,7 @@ export const DailySchedule = ({
     openEditScheduleDialog(schedule);
   };
 
-  const createSnapshotBlob = async () => {
+  const createSnapshotBlob = async (design: SnapshotDesign) => {
     if (typeof window === "undefined") {
       throw new Error("snapshot-window-missing");
     }
@@ -291,9 +292,8 @@ export const DailySchedule = ({
     };
 
     const date = format(currentDate, "yyyy-MM-dd");
-    const snapshotUrl = `/snapshot?date=${encodeURIComponent(
-      date,
-    )}&mode=${viewMode}&t=${Date.now()}`;
+    const theme = document.documentElement.classList.contains("dark") ? "dark" : "light";
+    const snapshotUrl = `${getSnapshotUrl(date, viewMode, theme, design)}&t=${Date.now()}`;
 
     const iframe = document.createElement("iframe");
     iframe.setAttribute("aria-hidden", "true");
@@ -379,7 +379,7 @@ export const DailySchedule = ({
     }
   };
 
-  const handleCopySnapshot = async () => {
+  const handleCopySnapshot = async (design: SnapshotDesign = "poster") => {
     if (
       typeof window === "undefined" ||
       !navigator.clipboard ||
@@ -393,7 +393,7 @@ export const DailySchedule = ({
     setIsSnapshotProcessing(true);
 
     try {
-      const { blob, systemFonts } = await createSnapshotBlob();
+      const { blob, systemFonts } = await createSnapshotBlob(design);
       await navigator.clipboard.write([
         new ClipboardItem({ "image/png": blob }),
       ]);
@@ -409,16 +409,15 @@ export const DailySchedule = ({
     }
   };
 
-  const handleDownloadSnapshot = async () => {
+  const handleDownloadSnapshot = async (design: SnapshotDesign = "poster") => {
     setIsSnapshotProcessing(true);
 
     try {
-      const { blob, systemFonts } = await createSnapshotBlob();
+      const { blob, systemFonts } = await createSnapshotBlob(design);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
-      const modeLabel = viewMode === "grid" ? "일정표" : "편성표";
       anchor.href = url;
-      anchor.download = `오버더월 스케쥴-${modeLabel}-${format(currentDate, "yyyy-MM-dd")}.png`;
+      anchor.download = getSnapshotFilename(format(currentDate, "yyyy-MM-dd"), viewMode, design);
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -561,7 +560,7 @@ export const DailySchedule = ({
                     ) : (
                       <Download className="h-4 w-4" />
                     )}
-                    이미지 다운로드
+                    이미지 다운로드 (Beta)
                     <span className="ml-2 text-[11px] text-white/90">추천</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -576,6 +575,15 @@ export const DailySchedule = ({
                     )}
                     클립보드 복사
                   </DropdownMenuItem>
+                  {viewMode === "timeline" && <>
+                    <div role="separator" className="bg-border -mx-1 my-1 h-px" />
+                    <DropdownMenuItem onSelect={() => void handleDownloadSnapshot("legacy")} disabled={isSnapshotProcessing}>
+                      <Download className="h-4 w-4" />기존 편성표 다운로드
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => void handleCopySnapshot("legacy")} disabled={isSnapshotProcessing}>
+                      <Copy className="h-4 w-4" />기존 편성표 복사
+                    </DropdownMenuItem>
+                  </>}
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button

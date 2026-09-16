@@ -21,11 +21,14 @@ import { Card, CardContent } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { cn } from "@/shared/lib/utils";
+import { getSnapshotGeometry, getSnapshotUrl, type SnapshotDesign } from "../daily/snapshot/snapshot-options";
 
 interface SnapshotPreviewManagerProps {
   date: string;
   mode: "grid" | "timeline";
   theme: "light" | "dark";
+  design: SnapshotDesign;
+  onDesignChange: (design: SnapshotDesign) => void;
   onDateChange: (nextDate: string) => void;
   onModeChange: (nextMode: "grid" | "timeline") => void;
   onThemeChange: (nextTheme: "light" | "dark") => void;
@@ -36,16 +39,10 @@ const MIN_IFRAME_HEIGHT = 640;
 const PREVIEW_CANVAS_PADDING = 24;
 const HEIGHT_SYNC_INTERVAL_MS = 200;
 const HEIGHT_SYNC_MAX_TICKS = 50;
-const SNAPSHOT_WIDTH_BY_MODE = {
-  grid: 1280,
-  timeline: 520,
-} as const;
-const SNAPSHOT_ROOT_PADDING_BY_MODE = {
-  grid: 40,
-  timeline: 24,
-} as const;
-const getSnapshotPreviewIframeWidth = (mode: "grid" | "timeline") =>
-  SNAPSHOT_WIDTH_BY_MODE[mode] + SNAPSHOT_ROOT_PADDING_BY_MODE[mode];
+const SNAPSHOT_DESIGN_OPTIONS = [
+  { value: "poster", label: "포스터" },
+  { value: "legacy", label: "기존 편성표" },
+] as const;
 const SNAPSHOT_MODE_OPTIONS = [
   { value: "grid", label: "일정표" },
   { value: "timeline", label: "편성표" },
@@ -59,6 +56,8 @@ export function SnapshotPreviewManager({
   date,
   mode,
   theme,
+  design,
+  onDesignChange,
   onDateChange,
   onModeChange,
   onThemeChange,
@@ -68,7 +67,7 @@ export function SnapshotPreviewManager({
   const [isFrameError, setIsFrameError] = useState(false);
   const [iframeHeight, setIframeHeight] = useState<number>(MIN_IFRAME_HEIGHT);
   const [iframeWidth, setIframeWidth] = useState(() =>
-    getSnapshotPreviewIframeWidth(mode),
+    getSnapshotGeometry(mode, design).outputWidth,
   );
   const [previewViewportWidth, setPreviewViewportWidth] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -79,8 +78,8 @@ export function SnapshotPreviewManager({
 
   const baseUrl = useMemo(
     () =>
-      `/snapshot?date=${encodeURIComponent(date)}&mode=${mode}&theme=${theme}`,
-    [date, mode, theme],
+      getSnapshotUrl(date, mode, theme, design),
+    [date, mode, theme, design],
   );
   const dateLabel = useMemo(() => {
     if (!DATE_REGEX.test(date)) return date;
@@ -90,8 +89,8 @@ export function SnapshotPreviewManager({
   }, [date]);
   const modeLabel = mode === "grid" ? "일정표" : "편성표";
   const themeLabel = theme === "dark" ? "다크" : "라이트";
-  const snapshotWidth = SNAPSHOT_WIDTH_BY_MODE[mode];
-  const defaultIframeWidth = getSnapshotPreviewIframeWidth(mode);
+  const snapshotWidth = getSnapshotGeometry(mode, design).outputWidth;
+  const defaultIframeWidth = snapshotWidth;
   const widthLabel = `${snapshotWidth}px`;
 
   const iframeSrc = useMemo(
@@ -296,6 +295,11 @@ export function SnapshotPreviewManager({
                 onThemeChange(nextTheme as "light" | "dark")
               }
             />
+            {mode === "timeline" && <SnapshotSegmentedControl
+              id="snapshot-preview-design" label="디자인" value={design}
+              options={SNAPSHOT_DESIGN_OPTIONS}
+              onChange={(next) => onDesignChange(next as SnapshotDesign)}
+            />}
           </CardContent>
         </Card>
 

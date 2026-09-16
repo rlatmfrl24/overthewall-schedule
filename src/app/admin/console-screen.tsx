@@ -45,7 +45,7 @@ export function ConsoleScreen({ area }: { area: ConsoleArea }) {
     content = tab === "x" || tab === "naver-cafe" ? <MemberPostSettingsManager activeSource={tab} onActiveSourceChange={select} /> : tab === "schedule" ? <AutoUpdateSettingsManager activeTab="settings" /> : tab === "youtube" ? <YouTubeCacheManager /> : <KirinukiChannelManager />;
   } else if (area === "content") {
     const date = search.date && /^\d{4}-\d{2}-\d{2}$/.test(search.date) && isValid(parseISO(search.date)) && format(parseISO(search.date), "yyyy-MM-dd") === search.date ? search.date : format(new Date(), "yyyy-MM-dd");
-    content = tab === "notices" ? <NoticeManager /> : tab === "ddays" ? <DDayManager /> : <SnapshotPreviewManager date={date} mode={search.mode ?? "grid"} theme={search.theme ?? "light"} onDateChange={(date) => update({ date })} onModeChange={(mode) => update({ mode })} onThemeChange={(theme) => update({ theme })} />;
+    content = tab === "notices" ? <NoticeManager /> : tab === "ddays" ? <DDayManager /> : <SnapshotPreviewManager date={date} mode={search.mode ?? "grid"} theme={search.theme ?? "light"} design={search.design ?? "poster"} onDesignChange={(design) => update({ design })} onDateChange={(date) => update({ date })} onModeChange={(mode) => update({ mode })} onThemeChange={(theme) => update({ theme })} />;
   } else if (area === "otw-play") {
     content = tab === "playlists" ? <OtwPlayDefaultPlaylistManager /> : <OtwPlayCatalogManager activeSection={tab as "clips" | "clip-channels" | "catalog" | "automatic-review" | "review" | "import" | "channels" | "source-health" | "operations"} onSectionChange={select} />;
   } else if (area === "history") {

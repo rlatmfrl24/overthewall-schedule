@@ -455,13 +455,20 @@ body 전체에 관리자/Play 클래스를 붙여 다른 화면을 오염시키�
   유지하되, 조작을 위한 여백과 hover 전용 공간은 두지 않는다.
 - 그리드 스냅샷 헤더는 로고, `오늘의 편성표` 제목과 날짜, 우측의 최종 편집
   일시를 한 행에 배치한다. 별도의 `OTW Schedule` 브랜드 문구는 표시하지 않는다.
-- 편성표 스냅샷은 520px 콘텐츠 폭을 유지한다. 헤더에 제목과 로고를 배치하고,
-  날짜·요일을 20px로 강조하며 최종 편집 일시는 그 아래 보조 정보로 표시한다.
-- 타임라인 출력은 크림 패널·피치 배경·코랄 날짜/시간과 세이지 그룹 칩을 사용한다.
-  24px 둥근 패널과 둥근 사각 프로필을 적용하고, 어두운 테마에서는 따뜻한 갈색
-  바탕과 밝은 코랄 강조로 대응한다. 전용 색상은 스냅샷 내부에만 적용한다.
-  시간 열 80px와 제목의 전체 표시를 유지하며, 출력 글꼴은 전용 Inter/Pretendard를
-  사용한다. 준비 실패 시에만 system-ui로 전환한다.
+- The timeline snapshot is a 720px-wide editorial poster, exported at 2x.
+  It is a static publication, not an application UI: no cards, chips, rounded
+  enclosures, gradients, shadows, motion, or interactive spacing conventions.
+- OTW teal anchors thin rules, coral carries the 88px date, and amber underlines
+  the weekday. Place the original transparent logo directly on the paper with
+  no enclosing box. Use a darker coral date ink on light paper for contrast.
+  Light and dark editions retain
+  the same brand and member inks on warm paper or deep teal backgrounds.
+- Each scheduled broadcast occupies a full-width band in its member's main
+  color, with a secondary-color edge. Choose black or white text using measured
+  color contrast. Set time at 36px, member name at 34px, and title at 28px.
+  Keep full titles; grow the poster rather than shrinking or clipping content.
+- Use the embedded Pretendard font for the poster, including date numerals.
+  Preserve the existing verified font-loading and system-font fallback contract.
 - 최종 편집 일시는 조회 시각이 아니라 사용자에게 공개되는 일정 데이터가 실제로
   생성, 수정, 삭제된 시각이다. 수동 편집, 승인 반영, 자동 라이브 반영은 포함하고
   승인 대기 후보 수집과 거부처럼 공개 일정이 바뀌지 않은 처리는 제외한다.
@@ -471,12 +478,19 @@ body 전체에 관리자/Play 클래스를 붙여 다른 화면을 오염시키�
 - 그리드 스냅샷의 일정 카드는 실제 오늘의 스케쥴 카드와 상태, 시간, 제목 표현을
   공유한다. 휴방과 게릴라는 시간을 표시하지 않고, 방송 일정만 지정 시간 또는
   `미정`을 표시한다.
-- 타임라인 스냅샷은 방송 일정을 시간순 표로 보여주고 휴방, 게릴라, 미정,
-  일정 없음은 구분된 보조 그룹으로 표시한다.
-- 시간 열은 80px로 정렬하고 방송 제목은 18px, 긴 제목도 최소 16px로 줄바꿈하여
-  전체 내용을 보존한다. 멤버명·그룹 칩은 제목보다 낮은 강조도로 표시한다.
+- The poster orders confirmed broadcasts by time, then presents guerrilla,
+  undecided, off-day and unregistered members as compact editorial rosters.
+  Place each status heading above its roster, with 26px names and 24px headings
+  so the shared image remains readable at 390px wide. Use circular portraits
+  (96px for broadcasts, 56px for rosters) with member-color outlines; preserve
+  the original image assets and their faces.
+  Member profiles and color marks identify each person without repeating status
+  labels. Preserve actual notes and any explicit times in these rosters.
+  각 명단은 2열이며 상태명만 반복하는 제목은 생략하되 실제 입력한 사유와 제목은 보존한다.
+- 방송 제목은 18px, 긴 제목도 최소 16px로 줄바꿈하여 전체 내용을 보존한다.
+  멤버명은 16px로 표시하고 소속 그룹명은 칩 배경 없이 보조 텍스트로 표시한다.
 - 일정 없는 멤버는 2열의 프로필·이름 목록으로 모으고 공통 안내는 한 번만 표시한다.
-  하단에는 한국시간 기준, 일정 변경 가능성, 사이트 주소를 표시한다.
+  하단에는 최종 편집 일시, 한국시간 기준, 일정 변경 가능성, 사이트 주소를 표시한다.
 
 ### 관리자
 
@@ -716,3 +730,16 @@ Play 채널 목록은 각 행에 수정과 삭제 작업을 함께 표시한다.
 공식 영상·노래 클립 등록은 AI 제안 앞에 업로드 채널의 상태와 해결 행동을 표시한다. 같은 탭의 대상 채널 전용 화면으로 이동하며 미등록 채널 ID와 용도를 전달하고 서버에서 표시명을 조회한다. 등록은 검수 대기·비활성으로 완료하고 해당 채널의 승인 편집으로 이어진다. 영상 사용 허용과 승인은 명시적으로 저장하며 자동 수집은 별도 접이식 설정으로 유지한다. 업로더와 가창자는 자동 연결하지 않는다.
 
 채널 관리 왕복은 신규 등록 작업을 종료하지 않는다. 등록 단계·입력·AI 분석 범위·작업·선택·적용 및 되돌리기 이력을 메모리에 보존하고 원래 목록 검색 조건으로 복귀한다. 버튼과 브라우저 뒤로/앞으로 이동에 같은 규칙을 적용한다. 복귀 시 카탈로그와 영상 조건을 다시 조회하며 실패하면 재확인 전까지 진행·저장을 차단한다. 정확한 대상 채널 왕복만 곡 초안 이탈 경고에서 제외하고 채널 폼 자체의 변경은 보호한다. 새로고침 복구는 지원하지 않으며 초안 없는 복귀 URL은 일반 채널 관리로 표시한다.
+
+### 편성표 디자인 병행 제공
+
+시간순 보기의 기본 다운로드·복사는 확정된 720px 포스터를 유지한다. 구분선 아래의 ‘기존 편성표 다운로드 / 기존 편성표 복사’는 별도 레거시 렌더러를 사용한다. 그리드에는 이 메뉴를 표시하지 않는다. 공개 디자인 선택은 저장하지 않으며, 출력 시작 시점의 날짜·보기·실제 테마를 사용한다. 이미지 생성 중에는 출력 메뉴 전체를 비활성화한다.
+
+기존 편성표는 콘텐츠 520px와 좌우 12px 여백, 둥근 헤더와 민트 상단선, 투명 로고, 전체 날짜·요일·최종 편집 시각, 시간/멤버·일정 2열 표로 구성한다. 멤버 아바타는 원형이며 시그니처 색 테두리를 사용한다. 게릴라·미정·휴방·일정 없음은 하단 독립 패널로 표시하며 실제 제목과 사유·명시된 시간을 보존한다. 다크는 검정/짙은 회색/민트, 라이트는 밝은 회색/흰색/짙은 청록을 사용한다. 두 편성표 모두 임베딩된 Pretendard와 기존 시스템 폰트 대체·이미지 준비·PNG 생성 경로를 공유한다. 레거시 CSS는 `.snapshot-legacy` 아래로 제한한다.
+
+스냅샷의 `design=poster|legacy`는 생략하거나 잘못되면 poster로 처리하고, grid에서는 무시한다. 관리자 편성표 미리보기의 포스터/기존 편성표 선택은 URL 상태로 날짜·테마·새 탭 및 이전 관리자 주소 리다이렉트에 보존한다. 출력 폭과 여백은 실제 PNG와 미리보기가 같은 정의를 사용한다. 레거시 파일명은 `오버더월 스케쥴-기존편성표-YYYY-MM-DD.png`이며 API·DB·사용자 설정 저장·자동 제거 기능은 추가하지 않는다.
+
+### 최종 문구 및 검토 정리 (2026-09-16)
+
+- 공개 메인 버튼은 ‘이미지 다운로드’를 유지하고 기본 다운로드 메뉴 항목만 ‘이미지 다운로드 (Beta)’로 표시한다.
+- 포스터의 시간 확정 건수·상태별 건수·일정 없음 인원 표시는 제거한다. 레거시의 집계 표시는 유지한다.
