@@ -343,7 +343,7 @@ export const DailySchedule = ({
         ),
       );
 
-      const backgroundColor = getComputedStyle(doc.body).backgroundColor;
+      const backgroundColor = getComputedStyle(targetNode).backgroundColor;
       const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
 
       const { toPng } = await import("html-to-image");

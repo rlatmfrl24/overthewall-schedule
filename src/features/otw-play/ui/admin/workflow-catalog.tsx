@@ -244,9 +244,7 @@ export function WorkflowCatalog({
           disabled={saving !== null}
           onClick={() => setConfirmation({
             title: performance.publicationStatus === "withdrawn" ? "철회된 가창을 삭제할까요?" : "임시 저장 가창을 삭제할까요?",
-            description: performance.publicationStatus === "withdrawn"
-              ? "철회 이력과 이 가창의 연결 정보가 영구 삭제됩니다. 이 작업은 되돌릴 수 없습니다."
-              : "이 가창과 연결 정보가 영구 삭제됩니다. 게시 이력은 없으며 이 작업은 되돌릴 수 없습니다.",
+            description: "이 가창과 연결 정보를 영구 삭제합니다. 승인 제안과 작업 이력은 보존됩니다. 이 작업은 되돌릴 수 없습니다.",
             destructive: true,
             confirmLabel: "삭제",
             action: async () => { await run("가창 삭제", () => deleteOtwPlayPerformance(performance.id, { expectedVersion: performance.version })); },
@@ -290,7 +288,7 @@ export function WorkflowCatalog({
         onClick={() => setConfirmation({
           title: "곡을 삭제할까요?",
           description: performances.length > 0
-            ? `곡 정보와 가창 ${performances.length}개${withdrawnCount > 0 ? ` (철회 ${withdrawnCount}개 포함)` : ""}를 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.`
+            ? `곡 정보와 가창 ${performances.length}개${withdrawnCount > 0 ? ` (철회 ${withdrawnCount}개 포함)` : ""}를 영구 삭제합니다. 승인 제안과 작업 이력은 보존됩니다. 이 작업은 되돌릴 수 없습니다.`
             : "곡 정보를 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.",
           destructive: true,
           confirmLabel: "삭제",

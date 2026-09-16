@@ -4,6 +4,7 @@ vi.mock("@/shared/lib/confirmation", () => ({ useConfirmation: () => confirmatio
 // @vitest-environment jsdom
 import { createElement, useState } from "react";
 import { ConsoleSearchContext, type ConsoleSearch } from "@/shared/lib/admin-console-search";
+import { UnsavedChangesContext } from "@/shared/lib/unsaved-changes";
 import {
   act,
   cleanup,
@@ -2320,20 +2321,101 @@ describe("OtwPlayCatalogManager", () => {
     );
   });
 
-  it("keeps karaoke broadcasts out of the current catalog command", async () => {
+  it("requires clip channel approval when switching to karaoke without losing the video", async () => {
     await openVideoRegistration();
     await screen.findByText(/멤버 채널 자동 인식/);
     fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /노래방송/ }));
 
     expect(
-      screen.getByText(/다곡·타임스탬프 연결 기능이 준비될 때까지/),
+      screen.getByRole("alert"),
     ).toBeTruthy();
     expect(
       (screen.getByRole("button", { name: /다음/ }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
     expect(createEntryMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /이전/ }));
+    expect(screen.getByLabelText("YouTube URL")).toHaveProperty("value", "https://youtu.be/dQw4w9WgXcQ");
+    expect(screen.getByText("확인된 영상")).toBeTruthy();
+  });
+
+  it("registers karaoke from the main catalog and continues with the next song segment", async () => {
+    const dirtyStates = new Map<string, boolean>();
+    const confirmDiscard = vi.fn();
+    preflightEntryMock.mockResolvedValue({ catalogRevision: 7,
+      video: { videoId: "dQw4w9WgXcQ", title: "방송 노래 모음", durationSeconds: 180, publishedAt: 1, availabilityStatus: "playable", thumbnailUrl: null, channelId: `UC${"K".repeat(22)}`, channelTitle: "승인 클립 채널" },
+      channel: { state: "approved", catalogChannelId: "clip-channel", verificationStatus: "approved", active: true, channelRole: "approved_kirinuki", memberUid: null }, duplicate: null });
+    render(createElement(UnsavedChangesContext.Provider, { value: {
+      register: (id, dirty) => { dirtyStates.set(id, dirty); }, confirm: confirmDiscard,
+    } }, createElement(OtwPlayCatalogManager)), { wrapper: createQueryWrapper() });
+    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
+    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "다음" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("checkbox", { name: "구간 선택" }));
+    fireEvent.change(screen.getByLabelText("시작 위치(초)"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText("종료 위치(초)"), { target: { value: "90" } });
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "다음" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    fireEvent.click(screen.getByRole("button", { name: /노래방송/ }));
+    expect(screen.queryByText(/지원하지 않습니다/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("기존 곡 검색"), { target: { value: "방송 첫 곡" } });
+    fireEvent.click(screen.getByRole("option", { name: /새 곡 입력/ }));
+    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), { target: { value: "원곡 가수" } });
+    fireEvent.click(screen.getByRole("button", { name: "외부 인물로 추가" }));
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    fireEvent.change(screen.getByLabelText("가창 참여자 검색"), { target: { value: "현재 멤버" } });
+    fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
+    fireEvent.change(screen.getByLabelText("방송일 (선택)"), { target: { value: "2026-09-15" } });
+    fireEvent.keyDown(screen.getByLabelText("가창 범위"), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "일부 가창" }));
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    expect(screen.getByText("방송 첫 곡")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "게시" })).toBeNull();
+    createEntryMock.mockRejectedValueOnce(new Error("저장 재시도"));
+    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "저장 재시도");
+    expect(screen.getByText("방송 첫 곡")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
+    await screen.findByText("노래방송 가창 구간을 임시 저장했습니다.");
+    expect([...dirtyStates.values()].some(Boolean)).toBe(false);
+    expect(screen.getByLabelText("카탈로그 영상 종류")).toHaveProperty("value", "official");
+    expect(createEntryMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      registrationMode: "standard", relationType: "singing_clip", releaseType: "broadcast", publicationTarget: "draft",
+      startSeconds: 10, endSeconds: 90, channel: { kind: "existing", channelId: "clip-channel" },
+      song: expect.objectContaining({ kind: "create", title: "방송 첫 곡", isOtwOriginal: false }),
+      broadcast: { performedOn: "2026-09-15", dateEvidence: null, originalUrl: null, extent: "partial" },
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "같은 영상의 다음 곡 추가" }));
+    expect([...dirtyStates.values()].some(Boolean)).toBe(true);
+    expect(screen.getByLabelText("시작 위치(초)")).toHaveProperty("value", "90");
+    expect(screen.getByLabelText("종료 위치(초)")).toHaveProperty("value", "180");
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "다음" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    expect(screen.getByRole("button", { name: /노래방송/ }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.change(screen.getByLabelText("기존 곡 검색"), { target: { value: "방송 다음 곡" } });
+    fireEvent.click(screen.getByRole("option", { name: /새 곡 입력/ }));
+    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), { target: { value: "다음 원곡 가수" } });
+    fireEvent.click(screen.getByRole("button", { name: "외부 인물로 추가" }));
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    expect(screen.getByLabelText("방송일 (선택)")).toHaveProperty("value", "2026-09-15");
+    expect(screen.getByLabelText("가창 범위").textContent).toBe("확인 필요 — 게시 전 선택");
+    expect(screen.getByLabelText("현재 멤버 역할")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
+    await screen.findByText("노래방송 가창 구간을 임시 저장했습니다.");
+    expect(createEntryMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      registrationMode: "standard", relationType: "singing_clip", releaseType: "broadcast", startSeconds: 90, endSeconds: 180,
+      song: expect.objectContaining({ title: "방송 다음 곡" }),
+      broadcast: expect.objectContaining({ extent: null }),
+    }));
+    expect(screen.getByRole("button", { name: "같은 영상의 다음 곡 추가" })).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: "완료" }));
+    await waitFor(() => expect(screen.getByLabelText("카탈로그 영상 종류")).toHaveProperty("value", "broadcast"));
+    expect(confirmDiscard).not.toHaveBeenCalled();
   });
 
   it("requires an explicit owner before saving an unknown channel", async () => {

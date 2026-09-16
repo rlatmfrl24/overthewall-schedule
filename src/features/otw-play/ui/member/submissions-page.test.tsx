@@ -159,6 +159,20 @@ describe("OtwPlaySubmissionsPage", () => {
     expect(screen.queryByText("승인되었습니다. 운영 공개 준비 중입니다.")).toBeNull();
     expect(screen.getByRole("link", { name: "관리자 미리보기에서 확인" }).getAttribute("href")).toBe("/play/clips/$songSlug?performance=approved-performance");
   });
+  it("keeps approval history visible without a broken link after catalog deletion", () => {
+    const proposal = {
+      id: "deleted-proposal", title: "삭제된 가창 제안", status: "approved", createdAt: 1,
+      youtubeVideoId: "abcdefghijk", youtubeUrl: "https://youtu.be/abcdefghijk",
+      participants: [], originalArtists: [], tags: [], approvedPerformanceDeleted: true, approvedSong: null,
+    };
+    mocks.list.mockReturnValue({ isPending: false, data: { pages: [{ items: [proposal], nextCursor: null }] }, hasNextPage: false });
+    mocks.detail.mockReturnValue({ isPending: false, data: proposal });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /삭제된 가창 제안/ }));
+    expect(screen.getByText("승인 이력은 보존되어 있으며, 연결된 카탈로그 가창은 삭제되었습니다.")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /카탈로그에서 확인|관리자 미리보기에서 확인/ })).toBeNull();
+  });
+
   it("hides only approved cards and can restore them", () => {
     const items = ["approved", "pending_review", "rejected", "withdrawn"].map(status => ({
       id: status, title: `곡 ${status}`, status, createdAt: 1,

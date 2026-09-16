@@ -10,6 +10,7 @@ import {
 } from "../application/ports/admin-catalog-repository";
 import { D1PublicCatalogReader } from "./d1-public-catalog-reader";
 import { D1AdminCatalogRepository } from "./d1-admin-catalog-repository";
+import { D1MemberSubmissionRepository } from "./d1-member-submission-repository";
 
 type TestEnv = Env & {
   OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS: D1Migration[];
@@ -2597,6 +2598,35 @@ describe("D1AdminCatalogRepository", () => {
       "performance.created_inline",
       "proposal.approved",
     ]);
+
+    await expect(repository.deletePerformance(performance.id, performance.version, actor, id("event"), NOW + 3))
+      .rejects.toMatchObject({ code: "validation_failed" });
+    const withdrawn = await repository.transitionPerformance(performance.id, performance.version, "withdrawn", actor, id("event"), NOW + 4);
+    const deleteEntry = (eventId: string) => releaseType === "broadcast"
+      ? repository.deleteSong(performance.songId, catalog.songs.find(song => song.id === performance.songId)!.version, actor, eventId, NOW + 5)
+      : repository.deletePerformance(performance.id, withdrawn.data.version, actor, eventId, NOW + 5);
+    // A failed audit insert must roll back both the archive and deletion.
+    const occupiedEvent = await db.prepare("SELECT id FROM music_catalog_events LIMIT 1").first<{ id: string }>();
+    await expect(deleteEntry(occupiedEvent!.id)).rejects.toThrow();
+    expect((await repository.readProposals("approved"))[0]).toMatchObject({ approvedPerformanceId: performance.id, approvedPerformanceDeleted: false });
+    await deleteEntry(id("event"));
+    expect((await repository.readProposals("approved"))[0]).toMatchObject({
+      id: proposalId, status: "approved", approvedPerformanceId: null, approvedPerformanceDeleted: true,
+      reviewedByUserId: actor.userId,
+    });
+    const archived = await db.prepare("SELECT approved_performance_snapshot_json FROM music_cover_proposals WHERE id = ?")
+      .bind(proposalId).first<{ approved_performance_snapshot_json: string }>();
+    expect(JSON.parse(archived!.approved_performance_snapshot_json)).toMatchObject({
+      performanceId: performance.id, songId: performance.songId, publicationStatus: "withdrawn",
+      sources: [expect.objectContaining({ startSeconds: 2, endSeconds: 178 })], deletedAt: NOW + 5,
+    });
+    expect(await db.prepare("SELECT COUNT(*) AS count FROM music_cover_proposal_participants WHERE proposal_id = ?").bind(proposalId).first()).toEqual({ count: 1 });
+    expect(await db.prepare("SELECT COUNT(*) AS count FROM music_cover_proposal_original_artists WHERE proposal_id = ?").bind(proposalId).first()).toEqual({ count: 1 });
+    expect((await repository.readCatalog()).performances.some(item => item.id === performance.id)).toBe(false);
+    expect(await new D1MemberSubmissionRepository(db).readMine("member-1", proposalId)).toMatchObject({
+      status: "approved", approvedPerformanceDeleted: true, approvedSong: null,
+    });
+    expect((await db.prepare("PRAGMA foreign_key_check").all()).results).toEqual([]);
   });
 
   it("rolls back authority and projection when the authoritative event insert fails", async () => {

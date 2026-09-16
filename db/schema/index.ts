@@ -2062,6 +2062,7 @@ export const musicCoverProposals = sqliteTable(
       () => musicPerformances.id,
       { onDelete: "restrict" },
     ),
+    approved_performance_snapshot_json: text("approved_performance_snapshot_json"),
     created_at: integer("created_at").notNull(),
     updated_at: integer("updated_at").notNull(),
   },
@@ -2155,7 +2156,8 @@ export const musicCoverProposals = sqliteTable(
         OR (${table.status} = 'approved'
           AND ${table.reviewed_by_user_id} IS NOT NULL
           AND ${table.reviewed_at} IS NOT NULL
-          AND ${table.approved_performance_id} IS NOT NULL)
+          AND (${table.approved_performance_id} IS NOT NULL
+            OR ${table.approved_performance_snapshot_json} IS NOT NULL))
         OR (${table.status} = 'rejected'
           AND ${table.reviewed_by_user_id} IS NOT NULL
           AND ${table.reviewed_at} IS NOT NULL
@@ -2166,6 +2168,20 @@ export const musicCoverProposals = sqliteTable(
           AND ${table.review_result_code} IS NULL
           AND ${table.review_note} IS NULL
           AND ${table.approved_performance_id} IS NULL)`,
+    ),
+    check(
+      "music_cover_proposals_deleted_approval_check",
+      sql`${table.approved_performance_snapshot_json} IS NULL OR CASE
+        WHEN json_valid(${table.approved_performance_snapshot_json}) = 0 THEN 0
+        ELSE coalesce(${table.status} = 'approved'
+          AND ${table.approved_performance_id} IS NULL
+          AND json_type(${table.approved_performance_snapshot_json}) = 'object'
+          AND json_type(${table.approved_performance_snapshot_json}, '$.performanceId') = 'text'
+          AND length(trim(json_extract(${table.approved_performance_snapshot_json}, '$.performanceId'))) > 0
+          AND json_type(${table.approved_performance_snapshot_json}, '$.songId') = 'text'
+          AND json_type(${table.approved_performance_snapshot_json}, '$.deletedAt') = 'integer'
+          AND json_extract(${table.approved_performance_snapshot_json}, '$.deletedAt') >= ${table.reviewed_at}, 0)
+        END`,
     ),
     check(
       "music_cover_proposals_terminal_lock_check",

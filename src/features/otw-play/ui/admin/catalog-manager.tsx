@@ -196,7 +196,16 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
   const releaseQuery = useOtwPlayAdminRelease(section === "operations");
   const [saving, setSaving] = useState<string | null>(null);
   const [registrationOpen, setRegistrationOpen] = useState(false);
+  const [registrationClip, setRegistrationClip] = useState(false);
+  const [registeredScope, setRegisteredScope] = useState<"official" | "broadcast" | null>(null);
   const [preselectedSongId, setPreselectedSongId] = useState<string | null>(null);
+  useEffect(() => {
+    if (registrationOpen || !registeredScope) return;
+    if (catalogScope !== "all" && catalogScope !== registeredScope) {
+      updateReviewSearch({ kind: registeredScope });
+    }
+    setRegisteredScope(null);
+  }, [registrationOpen, registeredScope, catalogScope, updateReviewSearch]);
 
   const catalog = catalogQuery.data;
   const refresh = async () => {
@@ -344,6 +353,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
                 size="sm"
                 onClick={() => {
                   setPreselectedSongId(null);
+                  setRegistrationClip(catalogScope === "broadcast");
                   setRegistrationOpen(true);
                 }}
               >
@@ -420,6 +430,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
           onPublishDrafts={publishDraftPerformances}
           onAddPerformance={(songId) => {
             setPreselectedSongId(songId);
+            setRegistrationClip(catalogScope === "broadcast");
             setRegistrationOpen(true);
           }}
         />
@@ -452,12 +463,15 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
       </div>
       {catalog && (
         <CatalogEntryDialog
-          clip={catalogScope === "broadcast"}
+          clip={registrationClip}
           open={registrationOpen}
           onOpenChange={setRegistrationOpen}
           catalog={catalog}
           preselectedSongId={preselectedSongId}
-          onSaved={refresh}
+          onSaved={async (scope) => {
+            await refresh();
+            setRegisteredScope(scope);
+          }}
         />
       )}
     </div>
