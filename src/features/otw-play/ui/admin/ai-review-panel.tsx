@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useAiReviewSession } from "./use-ai-review-session";
+import { useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AI_REVIEW_FIELDS,
@@ -95,6 +96,8 @@ export function AiReviewPanel({
   form,
   disabled = false,
   onSeek,
+  compact = false,
+  session,
 }: {
   target: AiReviewTarget;
   videoId: string;
@@ -104,21 +107,20 @@ export function AiReviewPanel({
   form: AiReviewForm;
   disabled?: boolean;
   onSeek?: (seconds: number) => void;
+  compact?: boolean;
+  session?: ReturnType<typeof useAiReviewSession>;
 }) {
   const client = useQueryClient();
-  const [rangeEnabled, setRangeEnabled] = useState(false);
-  const [start, setStart] = useState(String(initialRange?.startSeconds ?? 0));
-  const [end, setEnd] = useState(
-    String(initialRange?.endSeconds ?? durationSeconds ?? ""),
-  );
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [launching, setLaunching] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<number | null>(null);
-  const [songChoice, setSongChoice] = useState<string>("");
-  const generation = useRef(0);
-  const autoJob = useRef<string | null>(null);
-  const appliedJob = useRef<string | null>(null);
+  const localSession = useAiReviewSession(videoId);
+  const { rangeEnabled, setRangeEnabled, start, setStart, end, setEnd, jobId, setJobId,
+    launching, setLaunching, error, setError, selected, setSelected, songChoice, setSongChoice,
+    generation, autoJob, appliedJob, initialized, previousScope } = session ?? localSession;
+  useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+    setStart(String(initialRange?.startSeconds ?? 0));
+    setEnd(String(initialRange?.endSeconds ?? durationSeconds ?? ""));
+  }, [initialized, setStart, setEnd, initialRange, durationSeconds]);
   const range: AiReviewRange = rangeEnabled
     ? { startSeconds: Number(start), endSeconds: Number(end) }
     : null;
@@ -132,6 +134,8 @@ export function AiReviewPanel({
       range.endSeconds <= durationSeconds);
   const scope = JSON.stringify([target, range]);
   useEffect(() => {
+    if (previousScope.current === scope) return;
+    previousScope.current = scope;
     generation.current++;
     setJobId(null);
     setSelected(null);
@@ -139,12 +143,12 @@ export function AiReviewPanel({
     setError(null);
     autoJob.current = null;
     appliedJob.current = null;
-  }, [scope]);
+  }, [scope, previousScope, generation, autoJob, appliedJob, setJobId, setSelected, setSongChoice, setError]);
   useEffect(
     () => () => {
-      generation.current++;
+      if (!session) generation.current++;
     },
-    [],
+    [generation, session],
   );
   const recent = useQuery({
     queryKey: ["otw-play-ai-review-latest", scope],
@@ -204,7 +208,7 @@ export function AiReviewPanel({
       setSelected(0);
       if (autoJob.current === data.id) apply(result.songs[0]);
     }
-  }, [data, result, apply, disabled, launching]);
+  }, [data, result, apply, disabled, launching, appliedJob, autoJob, setSelected]);
   const launch = async (force: boolean) => {
     const ticket = ++generation.current;
     setLaunching(true);
@@ -243,9 +247,10 @@ export function AiReviewPanel({
   return (
     <section
       aria-label="AI 자동 채우기"
-      className="space-y-3 rounded-lg border p-3 text-sm"
+      className="space-y-2 rounded-lg border bg-muted/10 p-3 text-sm"
     >
       <div className="flex flex-wrap items-center gap-2">
+        <span className="mr-1 font-semibold">AI 제안</span>
         <Button
           type="button"
           size="sm"
@@ -265,8 +270,7 @@ export function AiReviewPanel({
             재분석
           </Button>
         )}
-      </div>
-      <label className="flex items-center gap-2">
+      <label className="flex items-center gap-2 text-xs text-muted-foreground sm:ml-auto">
         <input
           type="checkbox"
           checked={rangeEnabled}
@@ -275,8 +279,14 @@ export function AiReviewPanel({
         />
         지정 구간만 분석
       </label>
+      {data && (
+        <span role="status" className="rounded bg-muted px-2 py-1 text-xs">
+          {statuses[data.status]}
+        </span>
+      )}
+      </div>
       {rangeEnabled && (
-        <div className="flex gap-2">
+        <div className="flex max-w-xs items-center gap-2">
           <Input
             aria-label="AI 분석 시작 초"
             type="number"
@@ -296,18 +306,16 @@ export function AiReviewPanel({
       {!valid && (
         <p role="alert">영상 길이 안의 시작·종료 위치를 입력하세요.</p>
       )}
-      <p className="text-xs text-muted-foreground">
-        자동 채우기는 새 분석 완료 후 수정하지 않은 항목에 적용합니다. 기존
-        검수값·직접 수정한 값은 보호하며, 이전 분석 결과를 다시 열면 자동
-        적용하지 않습니다.
-      </p>
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer rounded focus-visible:outline focus-visible:outline-2">자동 입력·적용 안내</summary>
+        <p className="mt-1 leading-relaxed">새 분석은 미편집 항목만 자동 입력합니다. 기존 검수값·직접 수정한 값은 보호하며, 이전 결과는 자동 적용하지 않습니다. 일괄 적용은 기존 값을 바꾸며 되돌릴 수 있습니다. 저장은 별도로 진행하세요.</p>
+      </details>
       {(error || recent.error || job.error) && (
         <p role="alert">{error ?? (recent.error ?? job.error)?.message}</p>
       )}
-      {data && (
+      {data && (data.errorMessage || data.nextRetryAt) && (
         <p role="status">
-          {statuses[data.status]}
-          {data.errorMessage ? ` · ${data.errorMessage}` : ""}
+          {data.errorMessage}
           {data.nextRetryAt
             ? ` · ${new Date(data.nextRetryAt).toLocaleString("ko-KR")}`
             : ""}
@@ -346,7 +354,7 @@ export function AiReviewPanel({
       {suggestion && (
         <div className="space-y-2">
           {suggestion.values.song && (
-            <p role="status" aria-label="AI 카탈로그 대조 결과" className="rounded border bg-muted/40 p-2">
+            <p role="status" aria-label="AI 카탈로그 대조 결과" className="text-xs leading-relaxed text-muted-foreground">
               {suggestion.values.song.existingSongId
                 ? `카탈로그 확인 완료 · 기존 곡: ${suggestion.values.song.title}. ${form.applied.includes("song") ? "폼에 연결했습니다." : "기존 곡 연결을 제안합니다."}`
                 : suggestion.values.song.candidates.length > 0
@@ -354,23 +362,24 @@ export function AiReviewPanel({
                   : "카탈로그 확인 완료 · 제목·별칭·원곡 가수가 일치하는 곡을 찾지 못했습니다. 새 곡 초안을 제안합니다."}
             </p>
           )}
+          <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
+            size="sm"
             disabled={disabled || pending}
             onClick={() => apply(suggestion, "all")}
           >
             AI 제안 일괄 적용
           </Button>
-          <p className="text-xs text-muted-foreground">
-            선택한 곡의 적용 가능한 제안으로 기존 입력·수정값을 바꿉니다. 새
-            분석 호출 없이 폼에만 적용하며, 되돌릴 수 있습니다. 저장은 별도로
-            진행하세요.
-          </p>
           <p role="status" className="text-xs text-muted-foreground">
             {form.applied.length > 0
               ? `${form.applied.length}개 항목에 AI 제안을 적용했습니다.`
-              : "현재 폼에 적용된 AI 제안이 없습니다. 일괄 적용하거나 항목별로 선택하세요."}
+              : "미적용 · 적용 시 기존 입력값을 바꿉니다."}
           </p>
+          {form.applied.length > 0 && (
+            <Button type="button" size="sm" variant="ghost" onClick={form.undo} disabled={disabled}>AI 입력 되돌리기</Button>
+          )}
+          </div>
           {(suggestion.values.participants?.some((p) => !p.subject) ||
             (suggestion.values.song &&
               !suggestion.values.song.existingSongId &&
@@ -415,22 +424,26 @@ export function AiReviewPanel({
                 </select>
               </label>
             )}
+          <details open={compact ? undefined : true} className="rounded-md border">
+          <summary className="cursor-pointer rounded-md px-3 py-2 text-xs font-medium focus-visible:outline focus-visible:outline-2">항목별 제안 · {Object.keys(suggestion.values).length}개 · 현재 값·근거 확인</summary>
+          <div className="grid items-start gap-2 border-t p-2 sm:grid-cols-2">
           {AI_REVIEW_FIELDS.filter(
             (k) => suggestion.values[k] !== undefined,
           ).map((field) => (
-            <details key={field} className="rounded border p-2">
-              <summary>
-                {labels[field]}
+            <details key={field} className="min-w-0 rounded border bg-background p-2">
+              <summary className="cursor-pointer rounded text-xs leading-relaxed focus-visible:outline focus-visible:outline-2">
+                <span className="font-medium">{labels[field]}</span>
                 {unavailable(field)
                   ? " · 현재 영상 종류에서는 적용 제외"
                   : form.applied.includes(field)
                     ? " · AI 제안 적용됨"
                     : " · 제안 확인"}
+                <span className="mt-1 block truncate text-muted-foreground" title={describe(suggestion.values[field])}>{describe(suggestion.values[field])}</span>
               </summary>
-              <p className="mt-2">
+              <p className="mt-2 break-words text-xs leading-relaxed">
                 현재: {describeCurrent(field, form.snapshots[field])}
               </p>
-              <p>제안: {describe(suggestion.values[field])}</p>
+              <p className="break-words text-xs leading-relaxed">제안: {describe(suggestion.values[field])}</p>
               {suggestion.evidence[field]?.map((e, i) => (
                 <p key={i} className="mt-1 text-xs">
                   {e.source}: {e.text}
@@ -470,6 +483,8 @@ export function AiReviewPanel({
               </Button>
             </details>
           ))}
+          </div>
+          </details>
           {result && result.songs.length > 1 && (
             <Button
               type="button"
@@ -481,17 +496,6 @@ export function AiReviewPanel({
               }}
             >
               선택한 곡의 미편집 항목 채우기
-            </Button>
-          )}
-          {form.applied.length > 0 && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={form.undo}
-              disabled={disabled}
-            >
-              AI 입력 되돌리기
             </Button>
           )}
         </div>

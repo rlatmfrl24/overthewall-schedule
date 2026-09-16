@@ -7,7 +7,7 @@ import { OtwPlayPerformanceActions, relationLabel } from "./catalog-components";
 import { presentOtwPlayParticipants } from "./participant-presentation";
 
 import { OtwPlayParticipantAvatarGroup } from "./participant-avatar-group";
-import { ClipProvenance, ClipperName, ClipBroadcastDate } from "./clip-provenance";
+import { ClipProvenance, ClipperChip, ClipperName, ClipBroadcastDate } from "./clip-provenance";
 
 type SongProps = { song: CatalogResultSong };
 
@@ -65,6 +65,7 @@ export function OtwPlaySongGrid({ songs }: { songs: CatalogResultSong[] }) {
       {songs.map(song => (
         <article key={`${song.id}:${song.representativePerformance.id}`} className="play-grid-card">
           <Artwork song={song} />
+          <ClipperChip performance={song.representativePerformance} />
           <div className="play-grid-copy">
             <div className="play-grid-metadata">
             <SongIdentity song={song} overlay />

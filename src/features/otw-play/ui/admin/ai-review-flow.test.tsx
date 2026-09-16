@@ -51,6 +51,7 @@ const candidate = {
   videoId: "BBBBBBBBBBB",
   title: "[MV] Unclean title",
   channelTitle: "Uploader",
+  publishedAt: null,
   durationSeconds: 180,
   availabilityStatus: "playable",
   status: "needs_input",
@@ -149,6 +150,61 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe("AI suggestions through actual admin forms", () => {
+  it.each([false, true])("starts a fresh registration after abandoning a suspended job (clip=%s)", async (clip) => {
+    const props = { open: true, clip, onOpenChange: vi.fn(), refreshCatalog: vi.fn(async () => {}), catalog, preselectedSongId: null, onSaved: async () => {} };
+    const view = render(createElement(CatalogEntryDialog, props), { wrapper: createQueryWrapper() });
+    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/BBBBBBBBBBB" } });
+    view.rerender(createElement(CatalogEntryDialog, { ...props, suspended: true }));
+    view.rerender(createElement(CatalogEntryDialog, { ...props, open: false }));
+    view.rerender(createElement(CatalogEntryDialog, props));
+    expect(screen.getByLabelText("YouTube URL")).toHaveProperty("value", "");
+    expect(screen.getByLabelText("YouTube URL")).toHaveProperty("disabled", false);
+    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/AAAAAAAAAAA" } });
+    expect(screen.getByRole("button", { name: /영상 확인/ })).toHaveProperty("disabled", false);
+    expect(props.refreshCatalog).not.toHaveBeenCalled();
+    expect(mocks.preflight).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["pending", "approved_kirinuki", "승인 검토"],
+    ["inactive", "approved_kirinuki", "영상 사용 설정"],
+    ["revoked", "approved_kirinuki", "철회 상태 확인"],
+    ["approved", "member_music", "채널 용도 확인"],
+  ])("keeps the clip blocked for %s / %s and exposes %s", async (state, channelRole, action) => {
+    mocks.preflight.mockResolvedValue({ catalogRevision: 1, duplicate: null, video: { videoId: candidate.videoId, title: candidate.title, channelId: "channel", channelTitle: "Uploader", durationSeconds: 180, thumbnailUrl: null, availabilityStatus: "playable" }, channel: { state, catalogChannelId: "channel", channelRole } });
+    const manage = vi.fn();
+    render(createElement(CatalogEntryDialog, { open: true, clip: true, onOpenChange: vi.fn(), onManageChannel: manage, catalog, preselectedSongId: null, onSaved: async () => {} }), { wrapper: createQueryWrapper() });
+    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/BBBBBBBBBBB" } });
+    fireEvent.click(screen.getByRole("button", { name: /영상 확인/ }));
+    fireEvent.click(await screen.findByRole("button", { name: action }));
+    expect(manage).toHaveBeenCalledWith({ externalChannelId: "channel", displayName: "Uploader", kind: "singing_clip", role: "approved_kirinuki" });
+    expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", true);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+  it("preserves AI application and undo across a suspended registration", async () => {
+    const data = result(true);
+    mocks.latest.mockResolvedValue({ data });
+    mocks.get.mockResolvedValue({ data });
+    mocks.preflight.mockResolvedValue({ catalogRevision: 1, duplicate: null, video: { videoId: candidate.videoId, title: candidate.title, channelId: "channel", channelTitle: "Uploader", durationSeconds: 180, thumbnailUrl: null, availabilityStatus: "playable" }, channel: { state: "approved", catalogChannelId: "channel", channelRole: "approved_kirinuki" } });
+    const props = { open: true, clip: true, onOpenChange: vi.fn(), onManageChannel: vi.fn(), refreshCatalog: vi.fn(async () => {}), catalog, preselectedSongId: null, onSaved: async () => {} };
+    const view = render(createElement(CatalogEntryDialog, props), { wrapper: createQueryWrapper() });
+    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/BBBBBBBBBBB" } });
+    fireEvent.click(screen.getByRole("button", { name: /영상 확인/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "AI 제안 일괄 적용" }));
+    expect(screen.getByLabelText("시작 위치(초)")).toHaveProperty("value", "12");
+    view.rerender(createElement(CatalogEntryDialog, { ...props, suspended: true }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    view.rerender(createElement(CatalogEntryDialog, props));
+    await screen.findByText("채널 확인 완료 · 계속 입력하세요.");
+    expect(screen.getByLabelText("시작 위치(초)")).toHaveProperty("value", "12");
+    fireEvent.click(screen.getByRole("button", { name: "AI 입력 되돌리기" }));
+    expect(screen.getByRole("checkbox", { name: "구간 선택" }).getAttribute("data-state")).toBe("unchecked");
+    view.rerender(createElement(CatalogEntryDialog, { ...props, suspended: true }));
+    view.rerender(createElement(CatalogEntryDialog, props));
+    await screen.findByText("채널 확인 완료 · 계속 입력하세요.");
+    expect(screen.getByRole("checkbox", { name: "구간 선택" }).getAttribute("data-state")).toBe("unchecked");
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
   it.each(["candidate", "url"])("links a catalog match and saves the extent from the %s form", async (entry) => {
     const data = result(true);
     const song = data.result!.songs[0].values.song!;
@@ -174,6 +230,10 @@ describe("AI suggestions through actual admin forms", () => {
     await waitFor(() => expect(screen.getByLabelText("AI 카탈로그 대조 결과").textContent).toContain("폼에 연결했습니다"));
     if (entry === "candidate") {
       expect(screen.getByRole("combobox", { name: "가창 범위" }).textContent).toContain("일부 가창");
+      fireEvent.click(screen.getByRole("button", { name: "OTW Play 게시 미리보기" }));
+      expect(screen.getByLabelText("가창 및 공개 정보").textContent).toContain("가창일 2026-09-01");
+      expect(screen.getByLabelText("가창 및 공개 정보").textContent).toContain("일부 가창");
+      expect(screen.getByLabelText("가창 및 공개 정보").textContent).not.toContain("미확인");
       fireEvent.click(screen.getByRole("button", { name: "검수 저장 · 등록 준비 완료" }));
       await waitFor(() => expect(mocks.save).toHaveBeenCalled());
       expect(mocks.save.mock.calls[0][1].input).toMatchObject({ song: { kind: "existing", songId: "catalog-song" }, broadcast: { extent: "partial" } });

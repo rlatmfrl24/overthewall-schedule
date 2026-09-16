@@ -3,6 +3,7 @@ import { BroadcastMetadataFields } from "../broadcast-metadata-fields";
 import { emptySubmissionBroadcast } from "../../model/submission-broadcast";
 import { ReviewInbox } from "./review-inbox";
 import { ChannelCollectionSettings } from "./channel-collection-settings";
+import { isRegistrationChannelSearch, type RegistrationChannelTarget, type RegistrationChannelVisit } from "./registration-channel";
 import { PlayAutomationControl } from "./play-automation-control";
 import { TabsList } from "@/shared/ui/tabs-list";
 import { LabeledField as Field } from "@/shared/ui/labeled-field";
@@ -10,7 +11,7 @@ import { useConfirmation } from "@/shared/lib/confirmation";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { QueryReadback } from "@/shared/ui/query-readback";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type {
   OtwPlayAdminChannelDto,
@@ -63,6 +64,7 @@ import {
 } from "lucide-react";
 import {
   deleteOtwPlayChannel,
+  fetchOtwPlayAdminCatalog,
   createOtwPlayChannel,
   deleteOtwPlayEntity,
   lookupOtwPlayChannel,
@@ -199,6 +201,34 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
   const [registrationClip, setRegistrationClip] = useState(false);
   const [registeredScope, setRegisteredScope] = useState<"official" | "broadcast" | null>(null);
   const [preselectedSongId, setPreselectedSongId] = useState<string | null>(null);
+  const [registrationVisit, setRegistrationVisit] = useState<RegistrationChannelVisit | null>(null);
+  const registrationChannelOpen = Boolean(registrationOpen && registrationVisit && isRegistrationChannelSearch(reviewSearch, registrationVisit));
+  const manageRegistrationChannel = (target: RegistrationChannelTarget) => {
+    setRegistrationVisit({ target, returnSearch: { ...reviewSearch } });
+  };
+  const navigatedRegistrationVisit = useRef<RegistrationChannelVisit | null>(null);
+  useEffect(() => {
+    if (!registrationVisit || navigatedRegistrationVisit.current === registrationVisit) return;
+    navigatedRegistrationVisit.current = registrationVisit;
+    if (!activeSection) setLocalSection("channels");
+    const { target } = registrationVisit;
+    updateReviewSearch({ tab: "channels", view: "channel-edit", channel: target.externalChannelId, channelKind: target.kind, from: "play-registration" }, false);
+  }, [registrationVisit, activeSection, updateReviewSearch]);
+  useEffect(() => {
+    if (registrationOpen && section !== "catalog" && !registrationChannelOpen &&
+      (!registrationVisit || navigatedRegistrationVisit.current === registrationVisit)) {
+      setRegistrationOpen(false);
+      setRegistrationVisit(null);
+    }
+  }, [registrationOpen, section, registrationChannelOpen, registrationVisit]);
+  const returnToRegistration = () => {
+    if (!registrationVisit) return;
+    if (!activeSection) setLocalSection("catalog");
+    updateReviewSearch({ ...Object.fromEntries(Object.keys(reviewSearch).map(key => [key, undefined])), ...registrationVisit.returnSearch }, false);
+  };
+  const registrationChannel = registrationVisit && catalogQuery.data?.channels.find(item => item.externalChannelId === registrationVisit.target.externalChannelId);
+  const registrationChannelReady = registrationChannel?.verificationStatus === "approved" && registrationChannel.active &&
+    (registrationVisit?.target.kind === "singing_clip" ? registrationChannel.channelRole === "approved_kirinuki" : registrationChannel.channelRole !== "approved_kirinuki");
   useEffect(() => {
     if (registrationOpen || !registeredScope) return;
     if (catalogScope !== "all" && catalogScope !== registeredScope) {
@@ -418,8 +448,9 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
         {catalog && reviewSearch.proposal && <ProposalSection catalog={catalog} proposals={proposalsQuery.data ?? []} loading={proposalsQuery.isLoading} fetching={proposalsQuery.isFetching} error={proposalsQuery.error} refetch={proposalsQuery.refetch} saving={effectiveSaving} run={run} />}
       </div>}
       {section === "channels" && catalog && <div className="space-y-3">
+        {registrationChannelOpen && <Button disabled={effectiveSaving !== null} variant={registrationChannelReady ? "default" : "outline"} onClick={returnToRegistration}>{registrationChannelReady ? "설정 완료 · 곡 등록으로 돌아가기" : "작성 중인 곡으로 돌아가기"}</Button>}
         {reviewSearch.from === "play-review" && <Button variant="outline" disabled={effectiveSaving !== null} onClick={returnToReview}>작성 중인 검수로 돌아가기</Button>}
-        <ChannelSection initialExternalChannelId={reviewSearch.channel} initialChannelRole={reviewSearch.channelKind === "official_video" ? "member_music" : "approved_kirinuki"} items={catalog.channels} entities={catalog.entities} saving={effectiveSaving} run={run} />
+        <ChannelSection initialExternalChannelId={reviewSearch.from === "play-registration" && !registrationChannelOpen ? undefined : reviewSearch.channel} initialChannelRole={registrationChannelOpen ? registrationVisit!.target.role : reviewSearch.channelKind === "official_video" ? "member_music" : "approved_kirinuki"} registrationTarget={registrationChannelOpen ? registrationVisit!.target : undefined} items={catalog.channels} entities={catalog.entities} saving={effectiveSaving} run={run} />
       </div>}
       {(section === "catalog") && reviewSearch.view !== "entities" && catalog && (
         <WorkflowCatalog
@@ -465,7 +496,11 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
         <CatalogEntryDialog
           clip={registrationClip}
           open={registrationOpen}
-          onOpenChange={setRegistrationOpen}
+          suspended={registrationOpen && section !== "catalog"}
+          channelVisit={registrationVisit}
+          onManageChannel={manageRegistrationChannel}
+          refreshCatalog={async () => { await queryClient.fetchQuery({ queryKey: queryKeys.otwPlay.adminCatalog(), queryFn: fetchOtwPlayAdminCatalog, staleTime: 0 }); }}
+          onOpenChange={value => { setRegistrationOpen(value); if (!value) setRegistrationVisit(null); }}
           catalog={catalog}
           preselectedSongId={preselectedSongId}
           onSaved={async (scope) => {
@@ -1576,12 +1611,14 @@ function ChannelSection({
   entities,
   initialExternalChannelId,
   initialChannelRole = "approved_kirinuki",
+  registrationTarget,
   saving,
   run,
 }: {
   clipOnly?: boolean;
   initialExternalChannelId?: string;
   initialChannelRole?: OtwPlayChannelRole;
+  registrationTarget?: RegistrationChannelTarget;
   items: OtwPlayAdminChannelDto[];
   entities: OtwPlayAdminEntityDto[];
   saving: string | null;
@@ -1590,9 +1627,9 @@ function ChannelSection({
   const confirm = useConfirmation();
   const [search, updateSearch] = useConsoleSearch();
   const focusedEditor = search.view === "channel-edit" && Boolean(initialExternalChannelId);
-  const editorRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLHeadingElement>(null);
   const [focusRevision, setFocusRevision] = useState(0);
-  useEffect(() => { if (focusedEditor) editorRef.current?.focus(); }, [focusedEditor]);
+  useEffect(() => { if (focusedEditor) editorRef.current?.focus(); }, [focusedEditor, focusRevision]);
   const monitorsQuery = useOtwPlayChannelMonitors();
   const [roleFilter, setRoleFilter] = useState(search.tab === "clip-channels" || search.tab === "play-monitor" ? "clips" : "all");
   const [approvalFilter, setApprovalFilter] = useState("all");
@@ -1629,6 +1666,8 @@ function ChannelSection({
   >("idle");
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [verifiedChannelId, setVerifiedChannelId] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const autoLookupTarget = useRef<string | null>(null);
   const lookupRequestRef = useRef(0);
   const initializedExternalId = useRef<string | null>(null);
   const targetExternalId = initialExternalChannelId ?? (["play-monitor", "clip-channels"].includes(search.tab ?? "") ? monitors.find(monitor => monitor.id === search.category)?.externalChannelId : undefined);
@@ -1641,8 +1680,8 @@ function ChannelSection({
       setVerifiedChannelId(channel.externalChannelId); setLookupStatus("verified");
     } else setForm(current => ({ ...current, externalChannelId: targetExternalId, channelRole: initialChannelRole }));
   }, [targetExternalId, initialChannelRole, items, focusRevision]);
-  const lookupChannel = async () => {
-    const externalChannelId = form.externalChannelId.trim();
+  const lookupChannel = useCallback(async (channelId: string) => {
+    const externalChannelId = channelId.trim();
     if (!/^UC[A-Za-z0-9_-]{22}$/u.test(externalChannelId)) return;
     const requestId = lookupRequestRef.current + 1;
     lookupRequestRef.current = requestId;
@@ -1663,8 +1702,14 @@ function ChannelSection({
       setVerifiedChannelId(null);
       setLookupError("채널을 확인하지 못했습니다. ID와 YouTube API 상태를 확인해 주세요.");
     }
-  };
+  }, []);
+  useEffect(() => {
+    if (!registrationTarget || !targetExternalId || items.some(item => item.externalChannelId === targetExternalId) || autoLookupTarget.current === targetExternalId) return;
+    autoLookupTarget.current = targetExternalId;
+    void lookupChannel(targetExternalId);
+  }, [registrationTarget, targetExternalId, items, lookupChannel]);
   const persist = async () => {
+    setSaveError(null);
     const core = {
       externalChannelId: form.externalChannelId.trim(),
       displayName: form.displayName,
@@ -1682,7 +1727,21 @@ function ChannelSection({
           })
         : createOtwPlayChannel(core),
     );
-    if (!succeeded) return;
+    if (!succeeded) {
+      setSaveError("채널을 저장하지 못했습니다. 입력은 유지되어 있으니 다시 시도하세요.");
+      try {
+        const latest = await fetchOtwPlayAdminCatalog();
+        const current = latest.channels.find(item => item.externalChannelId === core.externalChannelId);
+        if (current && (!editing || current.version !== editing.version)) {
+          setEditing(current);
+          setForm({ externalChannelId: current.externalChannelId, displayName: current.displayName, channelRole: current.channelRole, verificationStatus: current.verificationStatus, active: current.active, entityIds: current.entityIds });
+          setVerifiedChannelId(current.externalChannelId);
+          setLookupStatus("verified");
+          setSaveError("다른 작업에서 저장된 최신 채널을 불러왔습니다. 승인 상태와 용도를 확인한 뒤 다시 저장하세요.");
+        }
+      } catch { /* Preserve the form and allow retry when readback also fails. */ }
+      return;
+    }
     if (focusedEditor) {
       initializedExternalId.current = null;
       setFocusRevision(current => current + 1);
@@ -1728,6 +1787,27 @@ function ChannelSection({
     })
     .sort((left, right) => left.displayName.localeCompare(right.displayName, "ko"));
   const entityById = new Map(entities.map((entity) => [entity.id, entity]));
+  const removeChannel = async (channel: OtwPlayAdminChannelDto) => {
+    if (!await confirm({
+      title: `${channel.displayName} 채널을 삭제할까요?`,
+      description: "Play 채널 등록 정보를 영구 삭제합니다. 연결된 영상·수집 설정이 있으면 삭제할 수 없습니다. YouTube 채널 자체는 삭제되지 않습니다.",
+      confirmLabel: "채널 삭제",
+      destructive: true,
+    })) return;
+    const current = items.find(item => item.id === channel.id) ?? channel;
+    if (!await run("채널 삭제", () => deleteOtwPlayChannel(current.id, { expectedVersion: current.version }))) return;
+    if (editing?.id === channel.id) {
+      lookupRequestRef.current += 1;
+      setEditing(null);
+      setForm({ ...empty, externalChannelId: "" });
+      setLookupStatus("idle");
+      setLookupError(null);
+      setVerifiedChannelId(null);
+      setEntitySearch("");
+      setConfirmingEntityChange(false);
+      if (focusedEditor) updateSearch({ view: undefined, channel: undefined });
+    }
+  };
   return (
     <Card>
       <CardHeader className="border-b px-4 py-3">
@@ -1820,6 +1900,16 @@ function ChannelSection({
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      aria-label={`${item.displayName} 채널 삭제`}
+                      disabled={saving !== null}
+                      onClick={() => void removeChannel(item)}
+                    >
+                      <Trash2 className="h-4 w-4" /> 삭제
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -1829,10 +1919,12 @@ function ChannelSection({
         </div>
 
         </>}
-        <div id="play-channel-editor" ref={editorRef} tabIndex={-1} className={focusedEditor ? "space-y-5 outline-none" : "space-y-3 rounded-xl border bg-muted/20 p-3"}>
+        <div id="play-channel-editor" className={focusedEditor ? "space-y-5" : "space-y-3 rounded-xl border bg-muted/20 p-3"}>
+          {registrationTarget && <p className="text-sm text-muted-foreground">{registrationTarget.displayName} · 곡 등록에 사용할 채널을 확인합니다. {editing ? "등록 완료 · 승인 상태와 영상 사용 허용을 확인하고 저장하세요." : "등록 후 승인 단계로 이어집니다."}</p>}
+          {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="font-medium">{editing ? `${editing.displayName} 수정` : "채널 등록"}</div>
+              <h3 ref={editorRef} tabIndex={-1} className="font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring">{editing ? `${editing.displayName} 수정` : "채널 등록"}</h3>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                 신규 채널은 검수 대기로 생성됩니다. 등록 후 승인 상태와 활성 여부를 확인하세요.
               </p>
@@ -1852,6 +1944,7 @@ function ChannelSection({
                 id="advanced-channel-id"
                 aria-label="YouTube channel ID"
                 value={form.externalChannelId}
+                readOnly={Boolean(registrationTarget)}
                 onChange={(event) => {
                   lookupRequestRef.current += 1;
                   setForm({
@@ -1872,7 +1965,7 @@ function ChannelSection({
                   lookupStatus === "loading" ||
                   saving !== null
                 }
-                onClick={() => void lookupChannel()}
+                onClick={() => void lookupChannel(form.externalChannelId)}
               >
                 {lookupStatus === "loading" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 채널 조회
@@ -1954,7 +2047,7 @@ function ChannelSection({
                   }
                 />
                 <div className="space-y-1">
-                  <Label htmlFor="advanced-channel-active">카탈로그 source에 사용</Label>
+                  <Label htmlFor="advanced-channel-active">이 채널 영상 사용 허용</Label>
                   <p className="text-xs leading-relaxed text-muted-foreground">
                     비활성 채널의 영상은 공개 source 후보로 선택되지 않습니다.
                   </p>
@@ -2049,7 +2142,7 @@ function ChannelSection({
             </Button>
           </div>
         </div>
-        {editing && <><ChannelCollectionSettings channel={items.find(item => item.id === editing.id) ?? editing} /><Button variant="destructive" disabled={saving !== null} onClick={async () => { if (!await confirm({ title: "채널을 삭제할까요?", description: "가창·영상 또는 수집 설정이 연결되어 있으면 삭제할 수 없습니다. 방송 클립용 채널은 유지됩니다.", confirmLabel: "채널 삭제" })) return; if (await run("채널 삭제", () => deleteOtwPlayChannel(editing.id, { expectedVersion: editing.version }))) { setEditing(null); setForm(empty); setVerifiedChannelId(null); } }}>채널 삭제</Button></>}
+        {editing && <><details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">자동 수집 설정 (선택)</summary><div className="mt-3"><ChannelCollectionSettings channel={items.find(item => item.id === editing.id) ?? editing} /></div></details><Button variant="destructive" disabled={saving !== null} onClick={() => void removeChannel(editing)}>채널 삭제</Button></>}
       </CardContent>
       <ConfirmActionDialog
         open={confirmingEntityChange}
