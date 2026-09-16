@@ -22,10 +22,16 @@ content discovery, and lightweight admin workflows.
   quick CHZZK channel selection.
 - **Profile and snapshot routes**: chrome-free profile pages and stable image
   capture surfaces for schedule sharing.
+- **OTW Play**: member music catalog, YouTube player, saved private playlists,
+  song proposals, and admin clip registration, ingestion, and AI-assisted review.
 - **Admin**: notices, schedules, content source settings, auto-update review,
   and operational logs.
 
 ## Documentation
+
+- [Development status](docs/development-status.md): implemented scope, completed
+  work, remaining product and operational gates.
+- [Documentation index](docs/README.md): current contracts and archived evidence.
 
 - `Design.md`: current UI patterns, tone, layout, accessibility, and component
   guidance.
@@ -133,10 +139,11 @@ background assets under `public/profile-background`.
 
 ## Roadmap Notes
 
-- Music catalog/player work must start from the active OTW Play product
-  requirements, system design, UI/UX design, and implementation guide under
-  `docs/`. Archived MVP analysis is historical context only. YouTube embed,
-  API-policy, authentication, and channel-rights gates remain authoritative.
+- OTW Play catalog, player, ingestion, and private playlists are implemented.
+  Extend them from the current [product contract](docs/otw-play-product-requirements.md)
+  and [remaining work](docs/development-status.md), not the archived MVP plan.
+  YouTube embed, authentication, channel-rights, and operational verification
+  gates remain authoritative.
 - Future social/content integrations should reuse the shared content page shell
   and member post/feed card patterns.
 - New release or migration workflows should update `.agent` first, then mirror

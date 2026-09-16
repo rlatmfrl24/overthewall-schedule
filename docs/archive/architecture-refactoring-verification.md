@@ -1,3 +1,5 @@
+> **아카이브 (2026-09-17)**: 조사·설계·검증 당시 기록이다. 제안의 구현 승인이나 현재 운영 상태를 의미하지 않는다. 현재 계약·잔여 작업은 [문서 인덱스](../README.md)와 [개발 상태](../development-status.md)를 따른다.
+
 # 아키텍처 리팩터링 구현 검증 보고서
 
 ## 문서 상태
@@ -7,7 +9,7 @@
 - 구현 브랜치: `refactor/clean-architecture-migration`
 - 기준 commit: `12da6bf17b50e53ffd43d18ba2d0c790c0453366`
 - 현재 구조 기준 문서: `docs/architecture.md`
-- 현재 테스트 실행 기준: [testing.md](testing.md). 아래 도구·실행 결과는 당시 검증 기록이며 현재 coverage는 단위·Worker 통합을 합산한다.
+- 현재 테스트 실행 기준: [testing.md](../testing.md). 아래 도구·실행 결과는 당시 검증 기록이며 현재 coverage는 단위·Worker 통합을 합산한다.
 - 실행 계획 이력: `docs/archive/architecture-refactoring-plan.md`
 
 사용자의 코드 검토 요청에 따라 구현 결과는 commit하지 않았다. 현재

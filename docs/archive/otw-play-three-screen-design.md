@@ -1,3 +1,5 @@
+> **아카이브 (2026-09-17)**: 조사·설계·검증 당시 기록이다. 제안의 구현 승인이나 현재 운영 상태를 의미하지 않는다. 현재 계약·잔여 작업은 [문서 인덱스](../README.md)와 [개발 상태](../development-status.md)를 따른다.
+
 # OTW Play — 현재 기능 중심의 3개 화면과 모션 설계
 
 > 2026-09-07: 전면 개편을 폐기하고 기존 UI 개선으로 방향을 변경했다.
@@ -5,7 +7,7 @@
 
 기준일: 2026-09-05 · 상태: 2026-09-07 폐기, 이전 검토 기록으로만 보존
 
-상위 문서: [제품 요구사항](./otw-play-product-requirements.md) · [UI/UX 설계](./otw-play-ui-ux-design.md)
+상위 문서: [제품 요구사항](otw-play-product-requirements-before-2026-09-17.md) · [UI/UX 설계](otw-play-ui-ux-design-before-2026-09-17.md)
 
 ## 1. 확정한 방향과 범위
 
@@ -24,7 +26,7 @@
 
 ## 2. 발견 — 기존 데이터로 자동 구성
 
-![발견 시안](./assets/otw-play-three-screen/discover.png)
+![발견 시안](../assets/otw-play-three-screen/discover.png)
 
 큰 16:9 음악 이미지와 곡명·가창자·실제 공개일·재생 버튼을 하나의 대표 영역으로 묶는다. 소개 문장을 운영자가 작성하지 않아도 실제 제목과 참여자가 주인공이 되게 한다. 배너 아래에는 간결한 곡 행을 배치하고 오리지널·공식 커버 탐색으로 연결한다. 전체 멤버 디렉터리와 전체 무한 목록을 첫 화면에 모두 반복하지 않는다.
 
@@ -44,7 +46,7 @@
 
 ## 3. 곡 탐색 — 명확한 정보 위계와 버전 비교
 
-![곡 탐색 시안](./assets/otw-play-three-screen/catalog.png)
+![곡 탐색 시안](../assets/otw-play-three-screen/catalog.png)
 
 검색어 없이도 전체 곡을 볼 수 있어 메뉴는 ‘곡 탐색’으로 표현한다. `/play/songs`와 기존 검색 의미는 유지한다. 공통 헤더의 검색 입력은 하나이며, 관계 전환과 현재 적용 조건은 쉽게 확인·해제하고 고급 조건은 접힌 필터로 정리한다.
 
@@ -58,7 +60,7 @@
 
 ## 4. 멤버 — 기존 필터를 시각적으로 탐색
 
-![멤버 시안](./assets/otw-play-three-screen/members.png)
+![멤버 시안](../assets/otw-play-three-screen/members.png)
 
 큰 멤버 선택기를 독립 화면에 두고 선택한 멤버의 메인 보컬 곡을 기존 카탈로그로 조회한다. 시안은 빙하유를 선택한 예다. 별도 프로필·소개글·대표곡 pin·노래책 범주·곡 수 집계 없이 가창 목록과 재생으로 바로 연결한다.
 
@@ -133,7 +135,7 @@ YouTube 최소 viewport·브랜딩·기본 조작을 지키고 숨은 영상 재
 
 ## 9. 이미지 검토 및 원본 보정
 
-내장 ImageGen으로 이 수정안의 3장을 생성하고 직접 확인했다. [정확한 프롬프트](./assets/otw-play-three-screen/prompts.md)를 보관한다. 목표 크기는 1440×1024이나 래스터 결과는 CSS 규격·동작·반응형 검증이 아니다.
+내장 ImageGen으로 이 수정안의 3장을 생성하고 직접 확인했다. [정확한 프롬프트](../assets/otw-play-three-screen/prompts.md)를 보관한다. 목표 크기는 1440×1024이나 래스터 결과는 CSS 규격·동작·반응형 검증이 아니다.
 
 - 메뉴 3개·공통 현재 곡·기존 필터·에디터/저장/노래책 기능 제거를 확인했다.
 - 발견 시안의 「변하지 않는 것」 썸네일은 생성 과정에서 다른 인물로 바뀌었다. 곡 탐색 시안의 해당 실제 곡 이미지와 현재 source 원본을 사용한다.
@@ -146,7 +148,7 @@ YouTube 최소 viewport·브랜딩·기본 조작을 지키고 숨은 영상 재
 
 ## 10. 근거와 변경 이력
 
-현재 코드의 [발견 후보 구성](../src/features/otw-play/ui/public/home-page.tsx), [공개 검색 DTO](../contracts/otw-play.ts), [기존 메뉴](../src/features/otw-play/ui/play-frame.tsx)를 재확인했다. 운영 미리보기의 24곡 첫 페이지·8명·팬서비스 2개 가창은 표본 관찰이며 전체 통계나 현재 배포 SHA의 증명은 아니다.
+현재 코드의 [발견 후보 구성](../../src/features/otw-play/ui/public/home-page.tsx), [공개 검색 DTO](../../contracts/otw-play.ts), [기존 메뉴](../../src/features/otw-play/ui/play-frame.tsx)를 재확인했다. 운영 미리보기의 24곡 첫 페이지·8명·팬서비스 2개 가창은 표본 관찰이며 전체 통계나 현재 배포 SHA의 증명은 아니다.
 
 시각 방향은 앞선 [Apple Music](https://music.apple.com/kr/new), [Spotify 탐색·재생 병행](https://newsroom.spotify.com/2026-04-16/new-tablet-app-experience/), [Myousic](https://dribbble.com/shots/17359370-Myousic-Music-Player-Dashboard), [Fun Player](https://www.behance.net/gallery/237268969/Fun-Player-Music-Streaming-UIUX-Design) 조사에서 얻은 위계·밀도·이미지 원칙을 적용했다. 커뮤니티 시안은 사용성 실험으로 검증된 사실로 해석하지 않는다.
 

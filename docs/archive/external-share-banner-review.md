@@ -1,3 +1,5 @@
+> **아카이브 (2026-09-17)**: 조사·설계·검증 당시 기록이다. 제안의 구현 승인이나 현재 운영 상태를 의미하지 않는다. 현재 계약·잔여 작업은 [문서 인덱스](../README.md)와 [개발 상태](../development-status.md)를 따른다.
+
 # SUL-5 외부 공유용 배너 필요성 검토 및 구현안
 
 검토일: 2026-09-14 KST  
@@ -27,11 +29,11 @@
 
 코드 근거:
 
-- [오늘 일정 및 이미지 내보내기](../src/features/schedule-board/ui/daily/daily-schedule.tsx)
-- [사이트 SEO 계약](../contracts/site-seo.ts), [정적 HTML 생성기](../scripts/generate-seo-assets.ts)
-- [클라이언트 SEO 적용](../src/shared/seo/apply-site-seo.ts), [Worker SEO 응답](../worker/features/seo/http/handler.ts)
-- [정적 자산과 Worker 라우팅](../wrangler.jsonc), [공개 Footer](../src/app/layout/footer.tsx)
-- [권리 안내의 현재 제품 표기](../src/features/rights/ui/rights-page.tsx)
+- [오늘 일정 및 이미지 내보내기](../../src/features/schedule-board/ui/daily/daily-schedule.tsx)
+- [사이트 SEO 계약](../../contracts/site-seo.ts), [정적 HTML 생성기](../../scripts/generate-seo-assets.ts)
+- [클라이언트 SEO 적용](../../src/shared/seo/apply-site-seo.ts), [Worker SEO 응답](../../worker/features/seo/http/handler.ts)
+- [정적 자산과 Worker 라우팅](../../wrangler.jsonc), [공개 Footer](../../src/app/layout/footer.tsx)
+- [권리 안내의 현재 제품 표기](../../src/features/rights/ui/rights-page.tsx)
 
 운영 확인 대상: [홈](https://otw-schedule.info/), [주간 일정](https://otw-schedule.info/weekly), [VOD](https://otw-schedule.info/vods). 인증 없는 GET으로 최초 HTML의 메타 태그를 확인했다. 외부 공유 서비스의 크롤러별 응답·캐시와 실제 게시물 렌더링은 검증하지 않았다.
 

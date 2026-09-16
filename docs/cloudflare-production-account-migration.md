@@ -1,6 +1,6 @@
 # Cloudflare Production Account Migration and Runtime Consolidation
 
-> 2026-09-09 runtime update: use Cron → Workflow → Outbox → Queue → collector and hourly approved-channel polling. WebSub is retired; do not copy its secret, create a new producer, or renew subscriptions. The old source-account Queue is drain-only until the [49-hour removal conditions](operations/retired-implementation-cleanup.md#websub-리소스-후속-제거) are met. Account inventory and completed consolidation evidence below remain dated historical observations.
+> 2026-09-17 문서 정리: 현재 전달은 Cron → Workflow → Outbox → Queue와 시간당 approved-channel polling이다. WebSub Queue·secret·binding은 제거되었으며 drain/49시간 대기 계획은 종료되었다. 새 계정에 WebSub을 복원하지 않는다. [9/16 운영 증거](operations/backend-cost-observation-final-2026-09-16.md)와 [종료 구현 계약](operations/retired-implementation-cleanup.md)을 따른다. 아래 source-account inventory와 통합 검증은 당시 기록이며, 계정 cutover의 미완료 상태는 유지한다.
 
 Status: repository consolidation validated; production-account provisioning and
 cutover pending. Last source-account inventory readback: 2026-08-31.

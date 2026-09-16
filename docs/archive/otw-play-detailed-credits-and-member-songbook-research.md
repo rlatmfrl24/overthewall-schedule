@@ -1,3 +1,5 @@
+> **아카이브 (2026-09-17)**: 조사·설계·검증 당시 기록이다. 제안의 구현 승인이나 현재 운영 상태를 의미하지 않는다. 현재 계약·잔여 작업은 [문서 인덱스](../README.md)와 [개발 상태](../development-status.md)를 따른다.
+
 # OTW Play 상세 크레딧·멤버별 노래책 조사 및 확장 요구사항
 
 ## 현재 멤버 탐색·SEO 정책 (2026-09-16)
@@ -22,7 +24,7 @@ Play 공개 탐색 조건(`publicReadEnabled`와 `navigationVisible`)으로만 �
 > 기본 목록·상단 집계·SEO는 메인 보컬(`vocal`)·피처링(`featured_vocal`)만 포함한다.
 > 코러스는 별도 역할 필터이며 기본 집계에서 제외한다. 개인 프로필은 Play 공개·곡 수와 무관하게
 > 독립적으로 index/sitemap을 유지한다. 세부 API·노출 정책·실제 검증과 제한은
-> [구현 가이드 30절](otw-play-implementation-guide.md#30-개인-프로필play-멤버-seo-통합-구현--2026-09-08)을 따른다.
+> [구현 가이드 30절](otw-play-implementation-guide-before-2026-09-17.md#30-개인-프로필play-멤버-seo-통합-구현--2026-09-08)을 따른다.
 > 기본 큐레이션은 다음 높은 우선순위, 제작 참여·대표곡·정정은 낮은 우선순위로 유지한다.
 
 
@@ -32,7 +34,7 @@ Play 공개 탐색 조건(`publicReadEnabled`와 `navigationVisible`)으로만 �
 > participant 기반 실제 페이지와 함께 다음 개발에 포함한다. 제작 참여 schema·대표곡 pin·
 > 정정 제안은 낮은 우선순위이며 SEO의 선행 조건이 아니다. 방송 가창·개인 감상은
 > 사용자용 OTW Play 내부 탭으로 후속 구체화한다. 최신 착수 기준은
-> [구현 가이드 29절](./otw-play-implementation-guide.md#29-다음-개발-우선순위와-문서-closeout)이다.
+> [구현 가이드 29절](otw-play-implementation-guide-before-2026-09-17.md#29-다음-개발-우선순위와-문서-closeout)이다.
 
 조사일: 2026-08-20
 

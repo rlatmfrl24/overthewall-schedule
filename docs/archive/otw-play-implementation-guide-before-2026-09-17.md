@@ -1,0 +1,1951 @@
+> **과거 기록 (2026-09-17 보존)**: 정리 전 원문이다. 당시 완료·미완료·운영 수치와 폐기된 설계는 현재 상태를 뜻하지 않는다. 현재 계약은 [현행 문서](../otw-play-implementation-guide.md)와 [개발 상태](../development-status.md)를 따른다. 명시적으로 대체하지 않은 요구사항과 무결성 제약은 삭제하거나 완료 처리하지 않는다.
+
+# OTW Play 구현 가이드와 단계별 플랜
+
+## 현재 멤버 탐색·SEO 정책 (2026-09-16)
+
+이 결정은 아래의 멤버 전용 노래책 화면·SEO 정책(DEC-079 포함)을 대체한다.
+발견의 멤버와 공개 프로필의 Play 링크는 멤버 UID로 필터링된 `/play/songs`로 연결한다.
+발견의 목적지는 공개 설정·곡 수·`pageEligible`에 의존하지 않는다. 프로필 링크는 기존
+Play 공개 탐색 조건(`publicReadEnabled`와 `navigationVisible`)으로만 표시한다.
+기존 `/play/members/{code}`는 활성 멤버를 조회하여 기본 멤버 검색으로 HTTP 301 이동하며,
+클라이언트 이동은 replace로 처리한다. 코드 대소문자와 후행 슬래시는 허용하고 과거
+검색 조건·cursor는 버린다. 미등록·비활성 멤버는 404, 조회 장애는 재시도 가능한 오류다.
+숫자 모양의 member 문자열은 현재 라우터 형식으로 직렬화한다(예: `member=%221%22`).
+
+멤버 탐색은 검색 화면, 멤버 SEO는 공개 프로필이 담당한다. 회원 전용 검색은 서버와
+브라우저 모두 `noindex,nofollow`, canonical은 `/play/songs`이며 사이트맵에서 제외한다.
+기존 멤버 URL도 사이트맵에서 제외한다. 공개 `/profile/{code}`의 멤버별 제목·설명·canonical,
+`index,follow`와 사이트맵 포함은 유지한다. 전용 멤버 화면은 제거하되 기존 멤버 API·DTO·DB는
+호환성을 위해 유지하며 스키마는 변경하지 않는다.
+
+
+> 2026-09-15 회원 공개 정책: OTW Play 카탈로그·재생·플레이리스트는 로그인한 회원만 이용합니다. 노래 클립의 목록·상세·재생 조회는 관리자 전용이며, 일반 회원의 곡 상세·일괄 재생 조회·제안용 곡 검색에서도 제외합니다. 기존 `publicReadEnabled`는 회원 이용 활성화, `navigationVisible`은 메뉴 표시를 제어하며 익명 공개 또는 검색엔진 색인 허용을 의미하지 않습니다. 설정 조회만 익명으로 허용하고 카탈로그 응답은 인증 후 `no-store`로 반환합니다. 회원 전용 곡 정보는 SEO·사이트맵에서 제외합니다.
+>
+> 관리자 Gemini 자동 검수는 운영에서 활성화합니다(`OTW_PLAY_AI_REVIEW_ENABLED=true`). 기존 관리자 권한·일일 호출 한도·Queue·검수 저장 절차를 유지하며 일반 회원에게 AI 실행 권한을 부여하지 않습니다. 운영 secret/Queue를 확인하고 회원 접근 제어 배포 후 운영 화면에서 회원 이용 → 메뉴 표시 순서로 활성화합니다. 비활성화 시 AI 플래그를 false로 배포하고, 회원 이용 중단은 운영 화면의 전체 중단을 사용합니다.
+
+
+> 2026-09-14 NEXT-BROADCAST 상세 인계: [노래 클립 요구사항과 구현 계획](../otw-play-singing-clips-requirements-and-plan.md)에 공통 카탈로그·분리된 관리/탐색, 영향 파일, 미결정 정책, 구현 순서와 실제 흐름 수용 기준을 정리했다. 방송 가창의 최신 구체화는 이 상세안이며 29.4절의 setlist·원본 대체 재생은 전체 확장 후보로 남긴다. 문서화 완료를 구현·게시 가능·배포 완료로 해석하지 않는다.
+
+> 2026-09-09 현행 운영: `Cron → Workflow → Outbox → Queue → 수집기`. 승인된 활성 채널의 uploads playlist를 시간당 조회한다. Play 자동화 중지와 공개 flag는 유지한다. WebSub 구독·갱신·해제 작업은 종료됐으며 callback은 HTTP 410이다. 구형 직접 스케줄러와 테스트 전용 소스 선택·상태 전이 정책은 사용하지 않는다. 저장된 대표 소스와 사용 가능한 대체 소스, 실제 서비스의 승인·철회·CAS가 권위다. [현행 수집 계약](../operations/channel-upload-polling.md), [정리 적용 계약](retired-implementation-cleanup-before-2026-09-17.md)을 따른다. 아래 과거 PR·단계별 구현 및 WebSub 설명은 당시 이력이며 재구현·secret 설정·구독 재개 지침이 아니다.
+
+> 2026-09-07: 신규 전면 개편과 후속 수정을 폐기했다. 기존 공개·회원 UI를 `2abb35f` 기준으로 복원했다.
+> 신규 멤버 페이지·하단 콘솔·전용 스타일·버전 펼침·관련 탐색은 구현 대상에서 제외한다.
+> 기존 검색·멤버 필터·곡 상세 버전 비교·단일 플레이어·세션 큐·회원 기능은 유지한다.
+>
+> 2026-09-08 후속 결정: 위 전면 개편 폐기는 유지한다. DEC-079가 새로 지정한
+> 멤버 페이지 SEO에 필요한 최소 멤버 페이지와 기본 큐레이션은 다음 개발 범위다.
+
+상태: 개인 프로필·Play 멤버 SEO와 기본/개인 플레이리스트 구현 — 플레이리스트 검증은 28절, 기존 프로필/SEO 검증은 30절
+
+기준일: 2026-09-08
+
+상위 문서: `otw-play-product-requirements.md`
+
+설계 문서:
+
+- `otw-play-system-design.md`
+- `otw-play-ui-ux-design.md`
+- [폐기된 3개 화면·모션 설계 기록](otw-play-three-screen-design.md)
+
+2026-09-05의 DEC-077은 9월 7일 폐기된 검토 기록이다. 2026-09-08의 신규 큐레이션은
+기존 발견·곡 검색·우측 플레이어를 유지하는 별도 기능이며, [28절](#28-큐레이션-요구사항과-구현-계획)에
+요구사항·권장 설계·후속 분석·남은 구현 목록을 정리한다. 이 문서화로 구현이나 배포를
+수행한 것은 아니며, 다른 P1/P2 기능을 자동으로 구현 범위에 포함하지 않는다.
+이후 사용자 우선순위를 반영한 [29절](#29-다음-개발-우선순위와-문서-closeout)이 최신 착수 인계다.
+
+## 1. 문서 목적
+
+이 문서는 승인된 설계를 실제 구현으로 옮길 때의 순서, 파일 경계, migration,
+테스트, 운영 데이터 입력, 단계적 공개와 rollback 기준을 정의한다. PR-1~PR-9D1,
+WebSub 관리, `singing_clip` 비공개 draft 검수와 2026-08-27 관리자 운영 보완의
+구현·병합은 완료되었다. production Clerk 전환과 실제 로그인·관리자 스모크도 완료했다.
+현재 단계는 flag `0/0`을 유지하면서 P0-A/P0-B 운영 canary, 예약
+source-health, 운영 catalog와 단계적 공개·rollback을 지속 검증하는 것이다. 저장 플레이리스트와 방송
+가창·키리누키 등은 제품 요구사항 DEC-079와 29절의 후속 범위다. 위 운영 상태는 과거
+closeout의 기록이며 이번 문서 정리에서 최신 원격 flag·배포·canary 상태를 재확인하지 않았다.
+
+목표는 테스트만 통과한 조각이 아니라 다음 실제 흐름이 완성되는 것이다.
+
+```mermaid
+flowchart LR
+  admin["관리자 공식 영상 등록·검수"] --> catalog["published 카탈로그"]
+  member["로그인 회원 공식 커버 제안"] --> review["관리자 검수"]
+  review --> catalog
+  catalog --> discover["공개 검색·필터·상세"]
+  discover --> player["보이는 YouTube player"]
+  player --> queue["세션 대기열"]
+```
+
+### 1.1 과거 기록 — 2026-08-26 권위 상태 (운영 지침 종료)
+
+2026-08-26 Clerk production 전환 closeout 기준 현재 상태는 다음과 같다.
+
+- PR-9A~C와 P0-B polling foundation을 포함한 PR #74가 `master`에 병합되었고
+  merge SHA는 `981371ee5c5b60303acb28198d958fc778d655a5`이다.
+- 현재 production deployment는 Worker version
+  `789f32ad-21ce-4678-9669-5823ce9df9c7`을 제공한다.
+- 원격 D1에는 migration 0053–0064가 적용되어 pending migration이 없다.
+  catalog/read-model revision은 `3/3`이며 운영 catalog에는 song 1개, published
+  performance 1개, playable source 1개가 있다.
+- 운영 config는 의도대로 `public_read_enabled=0`, `navigation_visible=0`이다.
+  `/play`는 `200`, `X-Robots-Tag: noindex,nofollow`, `Cache-Control: no-store`를
+  반환하고 sitemap에는 Play 항목이 없다.
+- `OTW_PLAY_ANALYTICS` dataset `otw_play_events`, account ID와 Analytics read-token
+  secret이 최종 Worker version에 연결되어 있다. 인증 없는 관리자 observability와
+  release 요청은 `401`, `no-store`로 닫힌다.
+- `otw-play-ingestion` Queue와 DLQ에 producer/consumer가 연결되어 있다. production
+  ingestion job, candidate와 active channel monitor는 모두 0개이며 승인·활성
+  `approved_kirinuki` channel도 없다.
+- scheduled source health, structured telemetry, 감사 가능한 release command와 운영
+  UI가 구현되었다. source health due count는 0이다.
+- Clerk production instance의 custom domain DNS, Application `2/2`, Email `3/3`,
+  Frontend API·Account Portal SSL 발급을 확인했다. Google OAuth custom production
+  connection·redirect와 external app의 Production 게시 상태도 확인했다. development
+  사용자 22명을 `22/22` 이관했고 production 사용자 수 readback도 22명이다.
+- production build의 `pk_live` key, issuer `https://clerk.otw-schedule.info`, JWKS,
+  production admin ID와 `CLERK_AUTHORIZED_PARTIES=https://otw-schedule.info` 기반 `azp`
+  exact-origin 검증이 적용되었다. 실제 로그인 뒤 사용자 메뉴와 `/admin/operations`,
+  `/admin/settings`, `/admin/logs`의 권위 데이터를 오류 없이 확인해 GATE-07을 해결했다.
+- 사용자 ID 이관 전 production D1 backup을 생성했고 `music_catalog_events.actor_user_id`
+  12건을 development ID에서 대응 production ID로 치환했다. 원격 readback은 이전 ID
+  0건, production ID 12건이며 다른 사용자 참조 필드는 변경 대상이 없었다.
+
+이 snapshot은 PR-9 코드와 Clerk production 전환 closeout의 권위 기준이다. catalog
+정비와 실제 flag 전환은 별도 운영 기록으로 이어가며 이 문서의 완료 상태를 되돌리지
+않는다.
+
+### 1.2 2026-08-27 closeout delta
+
+8월 26일 snapshot 이후 완료된 변경은 다음과 같다.
+
+- PR #76–#80의 WebSub runtime/UI, migration `0063`, 공개 origin·secret, false-active
+  복구와 Cloudflare `fetch` invocation 수정이 병합·배포되었고, 승인된 실제 채널의
+  monitor·WebSub 구독 설정까지 완료했다.
+- PR #81에서 `singing_clip` 후보를 검수해 비공개 `broadcast + kirinuki` draft로
+  원자 변환하는 경로와 monitor surface 회귀 보완을 완료했다.
+- PR #82–#84에서 외부 identity 안전 삭제, 두 후보 검수 화면의 신규 곡 라벨,
+  기존 승인 채널의 연결 주체 교정과 감사 기록을 완료했다.
+- 운영자 확인에 따라 migration `0064`의 production 적용과
+  `music_cover_proposals.submitted_tags_json` readback을 완료 처리했다.
+- 2026-08-27 공개 config readback은 catalog revision `24`,
+  `public_read_enabled=0`, `navigation_visible=0`이다.
+
+closeout에서 제외하는 잔여 gate는 P0-A playlist canary, 실제 신규 upload의
+`WebSub → Queue → candidate → 검수 → draft` readback, catalog 정비와
+공개·rollback 전환이다.
+
+## 2. 구현 착수 gate
+
+### 2.1 구현을 시작할 수 있는 기본 결정
+
+다음은 현재 설계 기본값으로 개발을 진행할 수 있다.
+
+- 공개 route: `/play`
+- 공개 읽기: 로그인 없이 허용
+- 내비게이션 라벨: `OTW Play`
+- player 유지: `/play/*` 내부에서만 유지
+- queue: frontend session 상태, 저장 플레이리스트 아님
+- DB table 접두사: `music_*`
+- 코드 capability: `otw-play`
+- MVP: 오리지널과 공식 커버만 공개
+
+공개 route, 접근 권한과 내비게이션은 후속 API·UI slice의 설계 기본값이다.
+PR-3에서도 해당 route contract나 실행 경로를 만들지 않는다.
+
+### 2.2 관련 slice 전에 확정해야 하는 제품 결정
+
+| ID      | 확인 항목                            | 필요 시점               | 기본 권장안                                      |
+| ------- | ------------------------------------ | ----------------------- | ------------------------------------------------ |
+| GATE-01 | 공식 커버 인정 기준과 허용 채널      | 해결됨                  | DEC-044 `official_cover_v1`                      |
+| GATE-02 | 초기 입력 대상 곡·멤버               | 운영 데이터 입력 전     | 그룹별 대표 5–10곡으로 검증                      |
+| GATE-03 | 전 소속 멤버의 과거 공식곡 포함 범위 | 초기 데이터 입력 전     | 기록 보존, 현재 화면은 external 표시             |
+| GATE-04 | 회원 제안 수정·철회                  | 해결됨                  | DEC-054: 본인 pending_review만 CAS 수정·철회     |
+| GATE-05 | 거절 사유를 회원에게 보이는 범위     | 해결됨                  | 상태·일반 안내만 노출, 내부 code·note 비공개     |
+| GATE-06 | 회원별 제출 제한                     | 해결됨                  | KST 일 5회 + 사용자별 edge 60초당 3회            |
+| GATE-07 | production 인증 권위                 | 해결됨 (2026-08-26)     | `pk_live`·domain/SSL·issuer/JWKS·admin ID·`azp` exact-origin 및 실제 관리자 스모크 |
+| GATE-08 | clip channel 자동 수집 권리          | 해결됨 (2026-08-26)     | 키리누키 제작자 메일 서면 동의 및 `approved_kirinuki` 등록 |
+
+결정되지 않은 slice만 보류하고 독립적인 domain, schema, 공개 read와 관리자
+draft 작업은 계속할 수 있다. 결정 결과는 요구사항 문서의 TBD와 변경 이력에
+먼저 반영한다.
+
+GATE-01·05·06은 DEC-043~045로, GATE-04는 DEC-054로 해결되었다. 회원 수정·철회
+command와 control은 PR-9A에서 구현되었고 GATE-07은 Clerk production 전환과 실제
+관리자 스모크로 해결되었다. GATE-08은 키리누키 제작자의 메일 서면 동의로 해결되었다.
+migration `0063`, WebSub Worker/UI, `OTW_PLAY_PUBLIC_ORIGIN`과
+`OTW_PLAY_WEBSUB_SECRET_V1`을 production에 적용했고 동의받은 정확한 채널의
+approval·monitor·구독 설정도 완료했다. P0-A playlist canary와 P0-B 실제 신규 upload
+canary는 각 운영 흐름의 권위 readback으로 완료한다.
+
+## 3. 전달 전략
+
+### 3.1 원칙
+
+- 한 PR은 하나의 검증 가능한 architecture/foundation slice를 소유한다.
+- schema migration PR과 이를 사용하는 runtime을 순서 없이 나누지 않는다.
+- 중간 slice도 최종 상태 모델과 dependency direction을 사용한다.
+- 임시 공개 endpoint, mock-only data path와 우회 관리자 SQL을 제품 경로로 남기지 않는다.
+- PR-4의 공개 API는 `public_read_enabled=0`인 숨김 상태에서 실제 migration을
+  적용한 격리 D1과 테스트 fixture로 계약·누출 방지·성능만 검증한다. 운영
+  catalog 데이터를 입력하거나 공개 readback으로 검증하지 않는다.
+- 관리자 입력 경로가 완성되는 PR-5 이후에만 실제 검수 데이터를 authoritative
+  readback하고, 공개 UI 검증은 PR-6에서 수행한다.
+- 각 PR의 설명에는 요구사항 ID, migration 영향, cache/auth 경계와 rollback을 적는다.
+
+### 3.2 권장 PR 흐름
+
+| PR    | 결과                                           | 상태      | 원격 영향                                      |
+| ----- | ---------------------------------------------- | --------- | ---------------------------------------------- |
+| PR-1  | 공유 계약, 순수 domain과 공개 index            | 완료      | 없음                                           |
+| PR-2  | catalog foundation schema와 migration          | 완료      | additive migration 적용됨                      |
+| PR-3  | proposal·event·search/meta schema와 migration  | 완료      | additive migration 적용됨                      |
+| PR-4  | 공개 catalog query/API/cache                   | 완료      | 숨겨진 API                                     |
+| PR-5  | 관리자 catalog command와 UI                    | 완료      | 관리자 전용                                    |
+| PR-6  | 공개 Discover/Catalog/Detail과 player          | 완료      | feature flag 뒤                                |
+| PR-7  | 회원 제출·내 제안·관리자 승인 E2E              | 완료      | 로그인/관리자 전용                             |
+| PR-8A | 직접 경로, dynamic metadata와 sitemap          | 완료      | `0/0`에서 noindex·sitemap 제외                 |
+| PR-8B | scheduled source health와 운영 UI              | 완료      | migration 0056 적용, 예약 점검 활성            |
+| PR-8C | structured observability와 release switch      | 완료      | production 배포, flag `0/0` 유지               |
+| PR-9A | 회원 proposal 수정·철회                        | 완료      | production Clerk 권위                           |
+| PR-9B | playlist ingestion job·Queue/DLQ                | 완료      | migration 0057–0062 적용                        |
+| PR-9C | candidate 검수·draft 변환                      | 완료      | 자동 publish 없음                               |
+| PR-9D1 | clip monitor·WebSub·비공개 draft 검수          | 구현 완료 | 실제 신규 upload canary 별도                    |
+| 운영 보완 | 외부 identity 삭제·라벨·채널 주체 교정      | 완료      | PR #82–#84, migration `0064` production 적용 완료 |
+| 메들리 예외 | 새 영상 시작·종료 위치와 곡별 독립 cover 등록 | 구현 반영 | 기존 schema·단건 command 재사용, migration 없음 |
+
+PR 수는 코드 규모에 따라 더 쪼갤 수 있지만 migration 번호 하나에 무관한
+기능을 섞지 않는다.
+
+## 4. 0단계 — 기준선 확정
+
+### 결과
+
+- 제품 요구사항, 시스템 설계, UI 설계와 구현 계획의 경계가 일치한다.
+- 상태 축과 공개·회원·관리자 경계가 확정된다.
+- 구현 PR에서 사용할 requirement trace 표가 준비된다.
+
+### 작업
+
+- 현재 문서의 TBD와 gate 검토
+- `/play` route와 공개 접근 확정
+- 공식 채널 운영 규칙 확정
+- 초기 입력 샘플과 담당자 결정
+- 성능 fixture 규모 결정
+
+권장 fixture:
+
+- 대표: 곡 300개, 내부·외부 인원 80명, 600 performances, 700 sources
+- 상한 검증: 곡 3,000개, search term 10,000개, performances 8,000개
+
+fixture는 성능과 테스트용이며 production seed가 아니다.
+
+### 종료 조건
+
+- 관련 TBD의 상태가 문서에서 명확하다.
+- 공개·제안·관리자 API가 같은 status field를 공유하지 않는다.
+- 구현 파일 이름과 route naming이 합의되어 있다.
+
+## 5. 1단계 — 계약과 순수 domain
+
+### 결과
+
+Cloudflare, React와 D1 없이도 핵심 규칙을 테스트할 수 있다.
+
+### 주요 touchpoint
+
+- `contracts/otw-play.ts`
+- `worker/features/otw-play/domain/*`
+- `worker/features/otw-play/index.ts`
+
+실제 handler가 없는 route 상수는 만들지 않는다. application use case와 port는
+실제 행동과 테스트가 생기는 후속 slice에서만 추가하며 빈 interface나
+pass-through class를 미리 만들지 않는다.
+
+PR-1은 `db/schema/index.ts`, Drizzle migration, `contracts/api-routes.ts`,
+`worker/app/routes.ts`, API handler, frontend route, UI, player와 배포 설정을
+수정하지 않는다. YouTube API도 호출하지 않는다.
+
+### 구현 순서
+
+1. 상태 축, 분류 3축, channel/source role, 참여자 종류와 공개 오류 계약 정의
+2. 검색 정규화 함수
+3. YouTube URL/video ID parser
+4. proposal과 publication 상태 전이
+5. exact/soft duplicate policy
+6. source priority policy
+7. runtime crypto에 의존하지 않는 결정적 dedupe key material
+
+### 필수 단위 테스트
+
+- 한글·일본어·영문과 호환 문자의 NFKC 정규화
+- 공백과 구두점만 다른 입력의 동일 검색 key
+- watch, `youtu.be`, embed와 Shorts URL의 11자리 video ID 추출
+- 악성·유사 host, malformed URL과 잘못된 video ID 거부
+- `pending_review`의 승인·거절과 proposal terminal state 재전이 거부
+- `draft` → `published` → `withdrawn` publication 전이
+- `published + unavailable source` 조합 허용
+- 상태 축 사이 값 혼입 거부
+- exact duplicate와 soft duplicate의 근거 분리 및 자동 병합 금지
+- 같은 입력의 dedupe key material이 결정적임
+- source priority 동시값에서 ID tie-break가 안정적임
+
+### 종료 조건
+
+- `pnpm architecture:check`
+- domain에 runtime adapter import가 없음
+- 공유 계약에 Drizzle row 또는 Cloudflare runtime type이 노출되지 않음
+- 비어 있는 계층과 실행되지 않는 route contract가 없음
+
+## 6. 2단계 — D1 catalog foundation
+
+### 결과
+
+곡, entity, channel, media source, performance와 관계를 정규화해 저장할 수 있다.
+
+### 주요 touchpoint
+
+- `db/schema/index.ts`
+- 생성된 `drizzle/*.sql`
+- 생성된 `drizzle/meta/*`
+- `worker/features/otw-play/infrastructure/*.integration.test.ts`
+- `scripts/d1-local-options.mjs`
+- `scripts/d1-doctor.mjs`, `scripts/d1-doctor-core.mjs`와 회귀 테스트
+- `scripts/d1-seed-local.mjs`, `scripts/d1-seed-guard.mjs`와 회귀 테스트
+- `scripts/fixtures/local-d1-seed.sql`
+
+API contract·handler, `worker/app/routes.ts`, frontend route·UI·player, 배포
+설정과 원격 D1 적용은 PR-2에서 수정하거나 실행하지 않는다. production content와
+운영 seed도 migration에 포함하지 않는다.
+
+seed fixture는 `music_*` row를 삽입하지 않는다. 기존 music row를 보호 대상에
+포함하고 명시적인 fixture 교체에서만 FK child-first 순서로 정리한다. seed와
+doctor의 `--persist-to=<dir>`는 local D1 전용이며 두 명령에 같은 검증 경로를
+전달한다. PR-2에서 remote doctor를 실행하지 않는다.
+
+### migration A: catalog foundation
+
+- `music_entities`, `music_entity_aliases`
+- `music_songs`, `music_song_aliases`, `music_song_original_artists`
+- `music_channels`, `music_channel_entities`
+- `music_media_sources`, `music_media_source_relations`
+- `music_performances`, `music_performance_participants`, `music_performance_sources`
+- FK, CHECK, exact duplicate, source segment UNIQUE와 performance별 primary source
+  partial UNIQUE
+
+### PR-2 exact schema 결정
+
+- `music_songs.is_otw_original`이 OTW 오리지널곡 여부의 권위이며 기본값 없는
+  `NOT NULL` 입력이다.
+- `music_channel_entities`는 별도 relation type 없이 연결 row 자체가 관계이며
+  `(channel_id, entity_id)`를 복합 PK로 사용한다.
+- `music_media_source_relations`는 두 source의 순서가 의미를 갖는 directed
+  relation이며 self relation을 허용하지 않는다.
+- `music_performances.dedupe_key`는 생성 후 immutable이고 metadata 수정으로
+  다시 계산하지 않는다.
+- `music_performance_sources`는 `(source_id, start_seconds)`를 UNIQUE로 유지한다.
+- `music_performance_sources.priority`는 `NOT NULL DEFAULT 0`이고 음수를 거부한다.
+- version, epoch-ms timestamp, credit order, source 구간과 priority는 SQLite
+  `typeof(...) = 'integer'` CHECK로 REAL 값을 거부한다.
+- 알려진 원곡 공개일 precision은 NULL을 허용하지 않고 `day`는 실제 달력 날짜를
+  검증한다.
+- `music_songs(merged_into_song_id)`와 `music_performances(song_id)`에는 FK child
+  lookup을 위한 일반 index를 둔다.
+- entity/song alias의 `alias_kind`는 nullable 자유 텍스트이며 CHECK 대상이 아니다.
+- published performance partial index 세 개는 PR-3 search/meta migration으로
+  미룬다.
+
+### 작업 절차
+
+```text
+1. db/schema/index.ts 수정
+2. pnpm drizzle:generate
+3. 생성 SQL에서 예상하지 않은 DROP/ALTER/RENAME 검토
+4. pnpm d1:reset:local -- --validate-only
+5. 보호된 local D1의 검증 복사본에 `--persist-to`로 incremental migration 적용
+6. 같은 검증 복사본에서 seed guard·fixture와 doctor 검증
+7. 실제 생성 migration을 적용하는 isolated D1 integration test
+```
+
+직접 SQL이 필요한 partial index도 schema 표현 가능 여부를 먼저 확인한다.
+Drizzle이 표현하지 못하는 custom SQL은 `pnpm drizzle:generate:custom`을 별도
+결정으로 사용하며 schema와 migration의 차이를 문서화한다.
+
+### 필수 DB 검증
+
+- `PRAGMA foreign_key_check`
+- `PRAGMA integrity_check`
+- `PRAGMA schema_version`
+- 주요 table의 `PRAGMA table_info`, `index_list`, `foreign_key_list`
+- canonical source와 performance 관계의 round-trip
+- 무효 enum/check insert 실패
+- release source 삭제가 metadata를 연쇄 삭제하지 않음
+- 한 performance에 primary source 하나만 허용
+- `is_otw_original`이 performance relation과 독립적으로 round-trip
+- `is_otw_original` NULL·생략 거부
+- channel/entity 중복 link와 source self relation 거부
+- directed source relation의 양방향 row가 서로 다른 관계로 보존됨
+- 같은 source/start segment의 중복 performance 연결 거부
+- source priority 기본값 `0`, NULL·음수 거부
+- 정수 열의 fractional REAL 값 거부
+- 알려진 공개일 precision의 NULL 및 잘못된 달력 날짜 거부
+- nullable/free `alias_kind` 저장과 enum CHECK 부재
+- performance dedupe key의 `NOT NULL UNIQUE`
+
+performance dedupe key가 metadata 수정 대상에 포함되지 않는지는 PR-2의 DB
+검증이 아니라 후속 repository 허용 field 목록과 application 회귀 테스트에서
+검증한다.
+
+### 종료 조건
+
+- full migration chain과 isolated local D1에서 schema가 재현 가능하다.
+- migration은 additive이며 기존 schedule 기능을 바꾸지 않는다.
+- schema 단일 기준이 `db/schema/index.ts`다.
+- API·UI·배포 설정 변경과 원격 D1 적용이 없다.
+
+## 7. 3단계 — 제안·감사·검색 schema
+
+### 결과
+
+회원 입력을 canonical catalog와 격리하고, 승인 이력과 검색 projection을 제공한다.
+
+API route·DTO contract·handler, application/repository, `worker/app/routes.ts`, frontend
+route·UI, production catalog/proposal content, 배포 설정과 원격 D1 적용은 PR-3에
+포함하지 않는다. PR-3 당시 회원 제안 수정·철회 command, 거절 결과의 회원 노출,
+제출 limit 숫자는 GATE-04~06 확정 전이어서 구현하지 않았다. GATE-04는 이후
+DEC-054로 해결되어 PR-9A에서 구현하며, PR-3에는 quota/counter table도 추가하지
+않았다.
+
+### migration B: proposal·event
+
+- `music_cover_proposals`
+- `music_cover_proposal_participants`
+- `music_cover_proposal_original_artists`
+- `music_catalog_events`
+- 사용자/idempotency UNIQUE, pending video/start partial UNIQUE
+- status/submitter/reviewer와 event aggregate 조회 index
+- proposal에는 channel 열이나 channel index를 두지 않음
+
+### migration C: search·meta
+
+- `music_search_terms`
+- `music_catalog_meta` singleton 초기 row
+- published partial `music_performances(released_at DESC, id)`
+- published partial `music_performances(song_id, released_at DESC, id)`
+- published partial `music_performances(relation_type, released_at DESC, id)`
+
+### PR-3 exact schema 결정
+
+- proposal aggregate는 UUID `TEXT` PK, epoch-ms `created_at/updated_at`, strict
+  INTEGER `version >= 0`을 사용한다. 제출 URL/video/start/title, suggested song,
+  private note, 독립 status, review lock pair, reviewer/time, private result/note와
+  approved performance를 저장한다.
+- proposal status는 `pending_review`, `approved`, `rejected`, `withdrawn`만
+  허용하고 lock, reviewer/time, result/note, approved performance를 상태별 CHECK로
+  일관되게 유지한다. terminal 상태는 lock을 가질 수 없다.
+- suggested song은 `SET NULL`, approved performance는 `RESTRICT + UNIQUE`다.
+  proposal child는 `(proposal_id, credit_order)` PK, proposal `CASCADE`, nullable
+  resolved entity `RESTRICT`와 제출명 snapshot을 사용한다.
+- proposal 제출 단계에는 channel identity를 저장하거나 YouTube API를 호출하지
+  않는다. 채널·공개일 검증은 후속 관리자 승인 과정의 책임이다.
+- event는 polymorphic aggregate FK 없이 ID, aggregate/event, actor, nullable JSON
+  object before/after/detail과 시각을 저장한다. actor만 `member`, `admin`, `system`
+  enum이며 aggregate/event와 `review_result_code`는 non-empty 자유 텍스트다.
+- event detail은 allowlist를 사용하고 회원 note·내부 review note·이메일·token을
+  복사하지 않는다. append-only는 후속 insert-only repository가 소유하며 DB
+  trigger는 추가하지 않는다.
+- `review_result_code`는 DB nullable 자유 텍스트지만 후속 reject command에서는
+  non-empty 사유를 요구한다. GATE-05 전에는 이를 회원 노출 enum으로 만들지 않는다.
+- search term kind는 `title`, `title_alias`, `original_artist`, `participant`다.
+  PK는 `(song_id, term_kind, normalized_term)`이고 song 삭제 시 `CASCADE`다.
+- catalog meta는 `id=1`, `revision=0`, `public_read_enabled=0`,
+  `navigation_visible=0`, `updated_at=0`인 singleton으로 시작한다. navigation은
+  public read 없이 켤 수 없다.
+- catalog revision 단조 증가는 후속 mutation이 search projection·event와 같은
+  D1 batch에서 수행한다. PR-3은 초기 row와 atomic increment SQL을 검증하며
+  revision trigger는 추가하지 않는다.
+
+### 생성 절차와 migration 분리
+
+PR-2의 `0046_*`까지 적용된 schema에서 시작한다. 실제 다음 migration 번호가
+다르면 그 번호를 따르되 현재 기준은 다음 세 artifact다.
+
+1. `0047_*`: `db/schema/index.ts`의 proposal·event 4개 table을
+   `pnpm drizzle:generate`로 생성한다.
+2. `0048_*`: search/meta 2개 table과 published partial index 세 개를
+   `pnpm drizzle:generate`로 생성한다.
+3. `0049_*`: `pnpm drizzle:generate:custom`으로 빈 migration을 만든 뒤 구조적
+   singleton `(1, 0, 0, 0, 0)` INSERT만 작성한다.
+
+generated SQL·snapshot·journal은 직접 작성하거나 번호를 수동 할당하지 않는다.
+custom migration에는 table/index/trigger나 운영 content를 넣지 않는다. 생성 SQL에
+예상하지 않은 DROP, ALTER, RENAME이 없는지 검토하고 full chain과 PR-2 이후
+incremental 적용을 모두 검증한다.
+
+### 필수 integration test
+
+- proposal 저장 시 canonical song/performance가 생기지 않음
+- 같은 사용자·idempotency key가 row를 중복 생성하지 않음
+- 같은 video/start pending 중복 거부
+- 다른 사용자 proposal을 submitter predicate로 읽을 수 없음
+- 잘못된 YouTube ID, enum, fractional integer, lock/status/review/performance 조합 거부
+- proposal child의 순서, unresolved snapshot, role, CASCADE/RESTRICT/SET NULL
+- rejected proposal과 event 보존, event actor pairing과 JSON object CHECK
+- search term의 PK, enum, FK, CASCADE와 lookup index
+- normalized prefix `GLOB` query가 lookup index를 range SEARCH로 사용함
+- meta singleton의 fail-closed 초기값, strict integer/boolean과 navigation ⇒ public CHECK
+- `WHERE revision = ?` CAS 기반 atomic increment와 stale revision 0행
+- published partial index의 exact WHERE와 대표 query의 index 사용
+- `PRAGMA foreign_key_check`, `PRAGMA integrity_check`
+- force fixture seed 후 meta singleton이 보존됨
+
+integration test는 테스트용 CREATE TABLE 복사본이 아니라 실제 `0046`과 PR-3
+migration 세 개를 순서대로 Miniflare D1에 적용한다. local seed guard는 proposal,
+event와 search row를 보호하되 구조적 meta row는 보호 row count와 fixture 삭제에서
+제외한다. migration integration은 singleton의 초기 `(1, 0, 0, 0, 0)` 값을
+검증한다. doctor는 새 여섯 table의 핵심 열, `id=1` singleton row 하나와 운영 중
+현재 값의 type·range·flag invariant를 readback하며 revision과 flag가 0이라고
+가정하지 않는다.
+
+### 종료 조건
+
+- 공개 reader는 proposal table에 의존하지 않는다.
+- production content가 migration SQL에 포함되지 않는다.
+- performance fixture로 hot query의 index 사용을 확인한다.
+- full migration chain과 PR-2 이후 incremental migration이 isolated D1에서 재현된다.
+- API·UI·배포 설정 변경과 원격 D1 적용이 없다.
+
+## 8. 4단계 — 공개 catalog API와 cache
+
+### 결과
+
+승인된 데이터만 검색, filter, 정렬, 상세 조회할 수 있고 외부 API 없이 응답한다.
+config는 공개 read flag가 꺼져 있어도 익명 `200`으로 현재 상태를 알리고, catalog,
+facets와 두 detail endpoint는 `404 PLAY_PUBLIC_READ_DISABLED`로 fail closed한다.
+frontend route·UI·player, 관리자·회원 command와 production content는 만들지 않는다.
+
+### 주요 touchpoint
+
+- `contracts/otw-play.ts`
+- `contracts/api-routes.ts`
+- `db/schema/index.ts`
+- `drizzle/0050_parched_marvel_apes.sql`, additive
+  `0051_clear_mantis.sql`, custom
+  `0052_otw-play-public-read-model-backfill.sql`과 snapshot/journal
+- `worker/features/otw-play/application/public-catalog-service.ts`
+- `worker/features/otw-play/infrastructure/d1-public-catalog-reader.ts`
+- `worker/features/otw-play/infrastructure/cloudflare-public-catalog-cache.ts`
+- `worker/features/otw-play/http/public-catalog-handler.ts`
+- `worker/app/routes.ts`
+- `worker/app/route-registry.ts`
+- `src/features/otw-play/api/public.ts`
+- `src/features/otw-play/queries/*`
+- `src/shared/api/client.ts`
+
+### 구현 순서
+
+1. public repository에 published predicate 고정
+2. public query용 published partial index 두 개를 schema에서 추가하고
+   `pnpm drizzle:generate`로 additive `0050_*` migration 생성
+3. recent/title/participant keyset cursor
+4. 검색 scoring과 member ANY/ALL
+5. bounded IDs + detail batch 조립
+6. strict query parser와 canonical query
+7. versioned Cache API key, weak ETag와 standard error envelope
+8. `apiFetch` 공개 요청의 `auth: omit` 지원
+9. exact route manifest와 contract test
+10. 상한 fixture에서 확인된 participant browse와 contains full-scan을 performance
+    sort key 및 Unicode gram read model로 제거
+11. read-model revision freshness를 config 이외 cache/content read 앞에서 검증
+
+### PR-4 exact public contract
+
+- endpoint는 익명 GET `/api/play/config`, `/api/play/catalog`,
+  `/api/play/facets`, `/api/play/songs/:slug`,
+  `/api/play/performances/:id` 다섯 개다.
+- config는 flag가 꺼져 있어도 `200`이다. 나머지 endpoint는 meta를 먼저 읽고
+  `public_read_enabled=0`이면 cache를 조회하지 않고
+  `404 PLAY_PUBLIC_READ_DISABLED`를 반환한다.
+- catalog 기본값은 `limit=24`, `memberMode=any`, `sort=recent`다. limit 최대 60,
+  member raw 항목은 최대 10개, q는 trim 전 Unicode code point 기준 최대 80자다.
+  중복 single parameter, 상한 초과, unknown parameter·enum, malformed date·cursor를
+  clamp하거나 무시하지 않고 `400`으로 거부한다. 반복 member UID는 raw 상한을
+  먼저 검증한 뒤 중복 제거·numeric 정렬한다.
+- member는 numeric `members.uid`, originalArtist는 public entity slug, group은
+  facets가 발급한 versioned opaque key다. group key kind는 `entity|unit`이며
+  client는 내부 payload를 조립하거나 해석하지 않는다.
+- public song/entity slug는 trim된 Unicode 단일 segment(최대 128 code point)로
+  검증하며 control·surrogate와 경로/URL 예약 구분자를 허용하지 않는다. D1에서
+  emit하는 값과 query/path에서 다시 consume하는 값에 같은 validator를 쓴다.
+- q가 있으면 relevance가 첫 정렬 기준이고 선택한 sort는 동점 해소에 사용한다.
+  exact total과 facet count는 만들지 않고 page data와 `nextCursor`만 반환한다.
+- catalog Cache API는 q와 cursor가 모두 없는 구조화 첫 page만 filter·sort를 포함해
+  5분 저장한다. song/performance detail은 10분, facets/config는 30분이다. 자유
+  검색과 cursor page는 Cache API에 저장하지 않는다.
+- config cache key와 ETag는 revision, 두 flag와 meta updatedAt을 포함한다. 나머지는
+  revision과 canonical path/query의 SHA-256 weak ETag다. 일치하는
+  `If-None-Match`는 body 없는 `304`다.
+- Authorization, Cookie 또는 Set-Cookie가 있는 응답은 shared cache를 읽거나 쓰지
+  않고 `Cache-Control: no-store`다. 정상 frontend public request는
+  `apiFetch(..., { auth: "omit" })`를 사용한다.
+- public GET은 YouTube adapter를 호출하지 않고 Cache API 실패 시 같은 revision을
+  D1에서 읽는다. D1 실패 시 다른 revision의 stale 응답 없이 명시적 `503`이다.
+- 공개 read가 활성인데 catalog revision과 read-model revision이 다르거나 read-model
+  meta가 없으면 config 이외 endpoint는 Cache API를 읽기 전에
+  `503 PLAY_CATALOG_UNAVAILABLE`이다. flag-off에서는 기존 `404`가 우선하며 config는
+  projection freshness와 무관하게 현재 flag와 catalog revision을 계속 반환한다.
+
+기존 `0050_*` schema 변경은 다음 두 published partial index뿐이며 그대로 유지한다.
+
+- `idx_music_performances_published_released_song_id` on
+  `(released_at DESC, song_id, id)`
+- `idx_music_performances_published_participation_released_song_id` on
+  `(participation_type, released_at DESC, song_id, id)`
+
+두 index 모두 exact predicate는 `WHERE publication_status='published'`다. column,
+table 또는 backfill을 섞어 migration history를 다시 쓰지 않는다.
+
+상한 fixture 성능 보완은 후속 migration 두 개로 분리한다.
+
+- additive `0051_clear_mantis.sql`: `music_public_performance_sort_keys`,
+  `music_search_grams`, `music_search_gram_stats`, `music_public_read_model_meta` 네
+  table과 lookup index, composite FK를 위한 `music_performances(id, song_id)` UNIQUE
+- custom `0052_otw-play-public-read-model-backfill.sql`: 모든 performance의 첫
+  participant key, canonical song title과 search term의 Unicode 2·3 code point gram,
+  gram별 song count를 backfill한 뒤 마지막 statement에서 catalog meta revision을
+  read-model meta로 복사
+
+sort key는 performance별 한 row이고 첫 participant는 `credit_order ASC,
+entity_id ASC`다. contains는 query의 모든 고유 bigram 또는 trigram이 stats에
+존재하는지 확인하고 가장 희소한 gram의 song count를 읽는다. 희소 검색은 posting을,
+밀집 검색은 요청한 recent/title/participant sort index를 먼저 순회한다. 2·3 code
+point query는 gram membership 자체가 exact이고 더 긴 query만 canonical normalized
+title과 search term의 실제 infix를 재검증한다. projection은 후보 및 정렬 최적화일
+뿐이며 최종 candidate/hydration은 canonical·non-archived song, published official
+performance와 동일-performance filter를 다시 검증한다. DB trigger, 새로운 API,
+DTO 또는 cursor field는 추가하지 않는다.
+
+### API 테스트
+
+- draft, proposal, rejected가 어떤 공개 query에도 나타나지 않음
+- q, 날짜, enum, cursor, limit의 400 계약
+- member 선택 최대 10개와 limit 최대 60, 중복·unknown parameter를 strict `400`으로 거부
+- config flag-off `200`과 나머지 endpoint의 `404 PLAY_PUBLIC_READ_DISABLED`
+- 공개 read 활성 상태의 read-model meta 누락·stale revision에서 config는 `200`,
+  나머지는 cache 전에 `503 PLAY_CATALOG_UNAVAILABLE`; flag-off에서는 기존 `404`
+- q가 있을 때 relevance 우선, 선택 sort 동점 해소와 결정적 song ID 순서
+- member UID, original artist slug와 facets 발급 group opaque key 검증
+- exact total/facet count가 public DTO에 없음
+- page 사이 중복·누락 없음
+- 같은 의미의 query가 같은 canonical key를 생성
+- current member와 deprecated member 투영
+- source가 없거나 모두 불가인 곡의 `playable=false`
+- public API path에서 YouTube adapter 호출 0회
+- Authorization 없는 공개 request
+- Cache API hit/miss와 cache failure fallback
+- q/cursor/auth/cookie request의 Cache API bypass와 `no-store`
+- config meta-aware ETag, catalog weak ETag와 `If-None-Match` `304`
+- member/admin response cache와 key가 공유되지 않음
+
+### 성능 검증
+
+- `EXPLAIN QUERY PLAN`에서 주요 predicate가 index search를 사용
+- `0050_*` SQL이 두 `CREATE INDEX`만 포함하고 `DROP`, `DELETE`, `ALTER`,
+  `RENAME`이 없음
+- `0051_clear_mantis.sql`이 네 table/index와 composite FK 지원 UNIQUE만 더하는
+  additive DDL이고, `0052_otw-play-public-read-model-backfill.sql`이 projection
+  backfill 후 read-model meta를 마지막에 복사
+- 곡 3,000, search term 10,000, performance 8,000의 선언된 상한 fixture에서
+  meta 포함 최대 6 statements, 100 bind 이하, query별 rows read 5,000 이하
+- 현재 fixture 측정값: indexed recent 3,696, indexed title 3,552,
+  indexed participant 3,552, browse recent 1,105, browse title 849,
+  browse participant 1,337, 희소 contains fallback 232 rows read
+- 공통 2 code point contains 측정값: recent 1,253, title 995,
+  participant 1,483 rows read. 각 sort에서 연속 3 page의 cursor 중복 없음도 검증
+- response gzip 100KB 이하
+- cursor query가 offset을 사용하지 않음
+
+위 수치는 이 대표 fixture와 현재 query 조합의 회귀 기준이다. 모든 가능한
+adversarial 데이터 분포에 대해 rows read 5,000 이하를 수학적으로 보장한다고
+표현하지 않는다. 운영 분포가 달라지면 D1 rows read와 latency를 다시 측정한다.
+
+### 종료 조건
+
+- 공개 API는 feature flag가 꺼진 상태로 배포 가능하다.
+- config 이외 공개 조회는 flag-off에서 cache를 우회해 fail closed한다.
+- 격리 D1 fixture를 통한 공개 API readback에서 승인 데이터만 보인다.
+- 운영 catalog 데이터의 입력과 authoritative public readback은 PR-5 이후로
+  남기며, PR-4 완료 증거로 대체하지 않는다.
+- D1 장애는 명시적 503이며 철회된 오래된 콘텐츠를 임의 제공하지 않는다.
+- read-model freshness가 확인되지 않으면 config 이외 cache와 content를 제공하지 않는다.
+- GATE-01~06의 숫자·운영 vocabulary를 확정하거나 구현하지 않는다.
+- 이 단계에서는 사용자 화면, navigation, 원격 D1과 배포에 변화가 없다.
+
+## 9. 5단계 — 관리자 catalog와 검수
+
+### 결과
+
+관리자가 실제 채널과 영상을 검수하고 곡·가창을 draft로 등록해 게시할 수 있다.
+
+### 주요 touchpoint
+
+- `worker/features/otw-play/application/admin-catalog-service.ts`
+- `worker/features/otw-play/application/ports/admin-catalog-repository.ts`
+- `worker/features/otw-play/infrastructure/d1-admin-catalog-repository.ts`
+- `worker/features/otw-play/infrastructure/youtube-metadata-reader.ts`
+- `worker/features/otw-play/http/admin-catalog-handler.ts`
+- `worker/app/routes.ts`
+- `src/features/otw-play/api/admin.ts`
+- `src/features/otw-play/ui/admin/*`
+- `src/routes/admin/otw-play.tsx`
+- `src/app/admin/admin-layout.tsx`
+- `src/shared/query/query-keys.ts`
+
+### 사용자 흐름
+
+```text
+새 영상 등록 → URL·시작·종료 위치 입력 → YouTube metadata·구간·중복·채널 preflight
+→ 영상 유형과 곡 결정(커버는 원곡 제목·가수, 메들리 입력 모드는 기존·신규 곡 명시)
+→ 현재 멤버·외부 칩과 공개·참여 분류 → 전체 검토
+→ 일반 영상은 draft 또는 confirm 후 publish, 메들리 커버 구간은 draft
+```
+
+DEC-024에 따라 별도 인물·그룹, 공식 채널, 곡, 가창 탭을 일상 진입점으로 사용하지
+않는다. 최상위는 카탈로그와 제안 검수만 유지한다. 현재 멤버와 권위 YouTube channel
+ID는 자동 추천·연결하고, 외부 identity와 unknown channel은 같은 dialog에서 명시적으로
+생성·승인하거나 pending으로 보류한다. 기존 entity/channel endpoint는 고급 수정과
+호환성을 위해 유지한다.
+
+일반 `새 영상 등록`에서는 URL과 항상 보이는 시작·종료 위치를 먼저 입력한다. 전체
+영상의 기본값은 시작 `0`, 종료 `영상 끝`이며 preflight와 commit은 권위 duration을
+기준으로 구간을 검증한다. 이후 오리지널곡·공식 커버곡·노래방송을
+선택한다. 오리지널은 기존 곡 검색과 새 곡 form을 건너뛰고 commit에서 다시 검증한
+YouTube title과 participant로 song을 자동 생성한다. 커버는 영상 유형 단계 안에서
+원곡 제목과 하나 이상의 원곡 가수를 필수로 받으며, 기존 identity 추천 또는 명시적인
+새 외부 identity 칩을 `create` song command에 전달한다. 기존 곡에서 `다른 가창 추가`로
+진입했을 때는 기존 song ID와 원곡 정보를 재사용한다.
+
+DEC-076의 공식 커버 입력 전용 `medley_segment`는 기존 segment schema와 단건 통합
+command만 재사용한다. 관리자는 명시적 시작·종료 위치와 기존 곡 또는 새 곡·원곡 가수를
+입력한다. UI는 `메들리 수록` performance tag를 선택 가능한 추천으로 표시하고 publication
+target을 `draft`로 제한한다. 입력 모드는 DB나 공개 DTO에 저장하지 않는다.
+동일 media source를 upsert한 뒤 서로 다른 `(source_id, start_seconds)` performance를
+각 command의 한 D1 batch로 저장하며 별도 group table, migration, batch publish 또는
+연속 재생 authority를 추가하지 않는다. 저장 성공 뒤 `같은 영상의 다음 커버 추가`는
+직전 종료 위치를 다음 시작 위치로 채우고 URL·채널·참여자 기본값을 재사용하지만 새
+preflight와 commit을 수행한다. 메시업은 지원하지 않으며 source/start를 인위적으로
+달리해 중복 performance를 만들지 않는다.
+
+노래방송은 다곡·구간 연결 계약이
+마련되기 전까지 다음 단계와 저장을 막으며 별도 staging data도 만들지 않는다.
+오리지널 자동 생성 song은 normalized video title과 commit에서 검증한 video ID로
+versioned dedupe key material을 만든다. 커버 song은 normalized original title과 resolved
+original artist ID로 canonical dedupe key material을 만들며 soft duplicate를 자동 병합하지 않는다.
+
+카탈로그의 `곡 정보 수정`은 원곡 공개일 control을 노출하지 않는다. 곡명과 OTW
+오리지널 여부 외에 등록 흐름과 같은 원곡 가수 자동완성·칩을 제공하며, 최소 한 명과
+대표 한 명을 요구한다. 기존 날짜/precision은 read DTO의 값을 그대로 보존한다. 새
+외부 가수 또는 아직 entity가 없는 현재 멤버를 선택한 경우 identity와 song credit,
+검색/read-model projection, event와 revision을 `PUT /api/play/admin/songs`의 한 D1
+batch에서 생성·교체한다.
+
+`가창 정보 수정`은 연결 song, 현재 멤버·외부 participant와 역할·credit snapshot,
+relation/release/participation/quality 축, 공개일시, YouTube URL·channel·segment·source
+role 및 내부 메모를 모두 받는다. `PUT /api/play/admin/performances`는 YouTube metadata를
+다시 확인하고 새 participant identity 생성, participant/source 교체, 이전·새 song의
+projection 재생성, orphan source 정리, event와 두 revision을 한 D1 batch로 수행한다.
+dedupe key와 publication status는 수정하지 않으며 publish/withdraw는 기존 conditional
+command와 confirm UI로만 처리한다. withdrawn performance는 correction 대상이 아니며
+삭제하거나 replacement draft를 만든다.
+
+PR-5 D1 writer는 canonical song/performance/source/participant 변경, 해당 song의
+`music_search_terms`, 모든 변경 performance의 대표 participant sort key, 영향받은
+song의 2·3 code point gram과 gram stats, capability event, catalog revision 증가를
+하나의 batch로 소유한다. 모든 authority·projection statement가 성공한 뒤
+`music_public_read_model_meta`를 같은 새 revision으로 갱신한다. trigger나 후속
+best-effort 갱신으로 분리하지 않으며 어느 statement든 실패하면 전체를 rollback한다.
+command 시작 시 catalog와 read-model revision이 이미 다르면 일부 projection만
+갱신해 정상 상태로 위장하지 않고 `503 PLAY_ADMIN_INTERNAL_ERROR`로 fail closed한다.
+
+PR-5 관리자 route는 `auth=admin`, `Cache-Control: no-store`다. `entity`, `song`,
+`performance`, `channel`, `source` command는 shared DTO와 `expectedVersion`을 사용한다.
+YouTube 영상 command는 client의 제목·채널 주장을 권위값으로 사용하지 않고 외부
+metadata의 video ID와 channel ID를 등록된 내부 channel identity와 다시 대조한다.
+재검사에서 API 호출은 성공했지만 영상 항목이 사라진 경우 기존 source identity와
+metadata를 보존하고 availability만 `unavailable`로 갱신한다. embed 비허용은 별도
+`embed_disabled` 상태로 유지한다.
+capability event가 authoritative audit이며 전역 admin audit mirror 실패는 성공한
+catalog batch를 되돌리지 않는다.
+
+`DELETE /api/play/admin/entities/:id`는 `expectedVersion`을 받고 `member_uid IS NULL`인
+외부 identity만 삭제한다. 곡 원곡 가수, 가창 참여자, 승인 채널, 공개 sort key 또는
+검수 제안·비종료 ingestion candidate의 저장된 검수 참조가 하나라도 있으면 422로 거부한다.
+후보 검수 저장도 기존·활성 identity를 다시 확인해 삭제와 동시에 실행되어도 dangling
+reference를 만들지 않는다. 성공 시 entity alias cascade,
+`entity.deleted` capability event와 catalog/read-model revision 증가를 하나의 D1 batch로
+처리한다. 현재 멤버 identity는 이 command로 삭제할 수 없다.
+
+`DELETE /api/play/admin/performances/:id`는 `draft|withdrawn`을 삭제하고,
+`DELETE /api/play/admin/songs/:id`는 보관되지 않은 곡에 연결된 performance가 없거나 모두
+`draft|withdrawn`일 때 곡과 performance를 함께 삭제한다. 현재 published, merge 대상과 승인
+proposal이 참조하는 performance는 삭제를 거부한다. 소유 child와 orphan source 정리,
+capability event, search/gram/sort projection 및 두 revision 증가는 하나의 D1 batch다.
+
+통합 경로는 `POST /api/play/admin/catalog-entries/preflight`와
+`POST /api/play/admin/catalog-entries`다. preflight는 mutation하지 않고 revision을
+반환하며 commit은 YouTube metadata를 다시 읽는다. entity·channel·song·performance,
+source, event, search/read-model projection과 두 revision은 한 D1 batch로 처리한다.
+stale revision과 duplicate source는 각각 고정 409로 응답한다. DB migration, 공개 UI,
+운영 공개 flag 변경은 이 slice에 포함하지 않는다.
+
+GATE-01이 미확정인 동안 일반 draft 등록·수정, 채널 검수, publish/withdraw와 제안
+거절은 사용할 수 있지만 회원 제안 승인 command는 `409
+PLAY_ADMIN_POLICY_UNRESOLVED`로 fail closed한다. 관리자 UI도 승인 버튼을 비활성화한다.
+이는 권장안을 확정 정책으로 바꾸지 않기 위한 임시 gate이며, GATE-01 결정 뒤 같은
+service policy switch와 UI 검수 조건을 함께 활성화한다.
+
+### 필수 테스트
+
+- 비관리자 401/403
+- 승인되지 않은 channel로 publish 422
+- video metadata와 PK·channel mismatch 422
+- primary source, 참여자와 세 분류축 누락 시 publish 거부
+- publish event와 revision이 함께 반영
+- publish와 함께 search term, sort key, gram/stat 및 read-model revision이 같은
+  batch에서 반영되고 projection 실패 시 전체 rollback
+- 기존 catalog/read-model revision 불일치 상태에서는 command 503 및 무변경
+- event insert 실패 시 publish rollback
+- stale expectedVersion 409
+- 전역 admin audit 실패는 authoritative event를 훼손하지 않음
+- 관리자 UI가 서버 성공 후 authoritative readback
+- 가창 correction에서 연결 곡, 멤버·외부 참여자와 credit, 모든 분류·품질, 공개일시,
+  YouTube source·channel·segment·role과 메모를 함께 수정하고 새 identity·양쪽 song
+  projection·event·revision을 원자적으로 반영
+- 가창 correction의 stale version 또는 identity/event/projection 실패 시 새 identity와
+  authority·revision이 모두 rollback
+- 현재 멤버 자동완성, 외부/그룹 free chip과 기존 identity 명시 재사용
+- 승인 채널 자동 적용, 멤버 채널 자동 연결, unknown 승인·보류와 revoked 차단
+- 오리지널·커버의 수동 곡 연결 생략과 metadata 기반 song+performance 생성, 기존 곡의 `다른 가창 추가`, draft와 confirm publish를 통합 command로 검증
+- 새 영상 등록의 시작·종료 위치가 권위 duration 안인지 검증하고 일반 전체 영상의
+  `0`·`영상 끝` 기본값을 보존
+- `medley_segment` 커버가 영상 제목 추론 없이 기존·신규 song을 명시하고 정확한
+  segment가 있는 draft만 만드는지, `메들리 수록` 태그 없이도 저장되는지 검증
+- 같은 영상의 다음 커버 추가가 직전 종료 위치를 시작 위치로 재사용하되 새 preflight,
+  revision과 exact source/start 중복 검사를 수행하는지 검증
+- 같은 media source의 서로 다른 구간 두 개가 서로 다른 song/performance에 연결되고
+  공개 player가 각 구간의 상대 progress와 종료 경계를 지키는지 검증
+- 노래방송 선택 시 다음 단계와 저장이 불가능하고 mutation이 0건인지 검증
+- YouTube mismatch, 중복, stale revision, event/projection 실패의 전체 rollback
+- 최상위 카탈로그·제안 검수 두 섹션과 오류 후 dialog 입력 보존
+- draft·withdrawn performance 개별 삭제와 published가 없는 song 삭제의 원자성, orphan source 정리,
+  event·projection·revision 동시 반영
+- 현재 published performance 및 해당 곡 hard delete 거부
+- 미참조 외부 인물·그룹 identity 삭제와 alias cascade, event·두 revision의 원자성
+- 현재 멤버 및 곡·가창·채널·sort key·제안·비종료 후보 검수 참조 identity 삭제 거부와 stale version 409
+
+### 종료 조건
+
+- raw remote SQL 없이 관리자 흐름으로 실제 draft와 published 항목을 만들 수 있다.
+- 오류 수정, withdraw와 source 교체도 audit event를 남긴다.
+- 공개 API에서 새 revision의 게시 항목을 확인할 수 있다.
+
+## 10. 6단계 — 공개 UI와 YouTube player
+
+### 결과
+
+사용자가 OTW Play를 음악 앱으로 탐색하고 실제 공식 영상을 이어 들을 수 있다.
+
+### 주요 touchpoint
+
+- `src/routes/play.tsx`
+- `src/routes/play/index.tsx`
+- `src/routes/play/discover.tsx` (기존 링크의 Home redirect)
+- `src/routes/play/songs/$songSlug.tsx`
+- `src/features/otw-play/model/*`
+- `src/features/otw-play/player/*`
+- `src/features/otw-play/ui/catalog/*`
+- `src/features/otw-play/ui/detail/*`
+- `src/features/otw-play/ui/player/*`
+- `src/app/layout/app-navigation.ts`
+- `src/index.css`
+- `Design.md`
+
+### 구현 순서
+
+1. DEC-029와 participant/groupKey 하위 호환 contract
+2. `/play` nested route와 admin-auth 뒤의 config-gated PlayShell
+3. 기존 Home·Discover를 `/play` 발견으로 통합하고 `/play/songs` 곡 검색의
+   URL-synced 검색·filter·정렬 제공
+4. song detail과 performance 직접 링크
+5. first-intent single iframe player provider
+6. queue reducer, repeat, shuffle, bounded unavailable skip
+7. versioned `sessionStorage` restore와 public performance 재검증
+8. 데스크톱 우측 380px PlayerQueuePanel의 상단 player·하단 queue,
+   tablet/mobile 전체 화면 Now Playing
+9. 모든 loading/empty/404/409/503/unavailable state
+10. 64px Play header, 중앙·queue 내부 스크롤, 데스크톱 356×200px iframe과
+    모바일 16:9 iframe을 공유하는 단일 player host
+11. 발견의 겹친 card surface를 단일 full-width 배너로 평면화하고
+    arrow·indicator·pointer drag·horizontal wheel·keyboard 수동 전환 유지
+12. 최근 공개곡을 compact table로 표시하고 좁은 폭에서 보조 열을 숨겨 table
+    horizontal scroll을 만들지 않음
+13. iframe 아래 곡명·참여자 profile/name·YouTube·곡 상세 action을 먼저 표시하고,
+    음악/가창 분류 metadata 뒤에 실제 IFrame 위치를 읽는 seekable progress와 상태 문구 없는
+    단일 transport/control row를 연속 배치함. compact 게시 채널 출처는 transport 아래에 둠
+14. 720px 미만 데스크톱 rail에서 참여자 identity는 한 줄로 유지하고 게시 채널 출처만
+    먼저 숨기는 compact metadata와 640px 미만 `현재 재생`·`플레이큐` 상세 전환.
+    단일 iframe과 YouTube·곡 상세 action은 계속 보이고 queue list만 남은 높이에서 독립 스크롤
+15. 640–1279px 전체 Now Playing의 카탈로그 복귀를 pause 없는 216px 우측 하단
+    miniplayer 전환으로 처리하고, 같은 200×200px iframe host와 재생 위치·볼륨을 유지
+
+비로그인·비관리자는 `/play/*` 직접 route에 도달하더라도 로그인 또는 권한 안내만
+보고 config·catalog 요청을 시작하지 않는다. 관리자는 frontend auth 확인 후
+`auth: required`와 `X-OTW-Play-Admin-Preview: 1`로 config를 읽고, Worker의
+`requireAdminUser` 검증을 통과한 경우 공개 flag가 꺼져 있어도 catalog·facets·detail과
+player를 실제 공개 DTO로 검증한다. preview query key는 익명 public key와 분리하고
+응답은 `no-store`, Cache API bypass로 처리한다. read-model revision mismatch는
+preview에서도 `503`을 유지한다. 관리자 내비게이션은 preview config가 성공하면
+두 공개 flag와 무관하게 표시하되, 익명 public GET의 config 200/나머지 flag-off 404
+계약은 향후 운영 공개 전환을 위해 유지한다. 회원 제안 CTA는 PR-7의 실제 route가
+생기기 전까지 만들지 않는다.
+
+Catalog query는 단일 `participant=<public entity slug>`와
+`participantRole=vocal|featured_vocal|chorus|other`를 제공하고 group participant DTO는
+서버 생성 `groupKey`를 제공한다. identity와 role을 함께 선택하면 같은 participant
+credit row에서 둘 다 만족해야 한다. role만 선택하면 그 역할 credit이 있는 동일
+published performance를 찾는다. schema와 기존 공개 route 수는 변경하지 않는다.
+
+### 플레이어 검증
+
+- 사용자 조작 전 자동 재생하지 않음
+- 앱 전체에 YouTube iframe 하나만 존재
+- Play 내부 route 이동에서 불필요하게 재마운트되지 않음
+- `/play` 이탈 시 정지·정리
+- 재생 중 iframe이 보이고 최소 200×200px 이상
+- YouTube UI, 광고, branding을 가리지 않음
+- `origin` parameter와 autoplay-blocked event 처리
+- `controls=0`, `fs=0`, `disablekb=1`, `iv_load_policy=3`, `rel=0` exact playerVars와
+  폐기된 `showinfo`·`modestbranding`, 강제 CC `cc_load_policy` 부재 검증
+- unavailable 두 항목 이상에서도 무한 skip 없음
+- repeat/next/previous/shuffle의 결정적 reducer test
+- 우측 PlayerQueuePanel, 전체 Now Playing과 miniplayer가 한 개의 iframe host를
+  공유한다. 데스크톱 player는 queue 위에서 356×200px iframe을 유지하고 하단
+  PlaybackBar가 없다. 1280px 미만에서는 첫 재생에 전체 화면 Now Playing을 연다.
+  640–1279px 카탈로그 복귀는 pause 없이 200×200px visible miniplayer로 전환하고,
+  640px 미만에서만 pause 후 launcher를 표시한다. 전체 화면에서
+  previous/play/next, repeat·shuffle,
+  음소거·volume, queue 선택·삭제·재정렬과 시각 queue 안내 footer 부재를 테스트한다.
+- 같은 performance의 반복 enqueue는 항목을 늘리지 않고, 기존 play는 선택,
+  play-next는 이동하며 구 session duplicate도 복원 시 정리함
+- player는 iframe 뒤에 곡명, 참여자 profile/name과 YouTube·곡 상세 action, 음악/가창 분류,
+  progress, transport 순으로 렌더링한다. `재생 중`·`재생 대기` 시각 문구는 만들지 않고
+  previous/play/next, repeat·shuffle·mute·volume을 같은 row에 둔다. 게시 채널은 별도 compact
+  source attribution이며 참여자 profile을 channel avatar로 재사용하지 않는다. progress range는
+  current time·remaining time을 갱신하고 seek를 IFrame API로 전달한다. segment source의
+  start/end clamp도 unit test로 검증한다.
+- 640px 미만 높이의 데스크톱 rail에서 `플레이큐`를 선택해도 iframe count는 1이고
+  pause·destroy가 호출되지 않는다. 현재 재생 상세는 숨고 queue list·재정렬·삭제가
+  viewport 안의 내부 scroll로 접근 가능해야 한다. 640–719px에서는 전환 없이 compact
+  player와 최소 144px queue가 함께 보여야 한다.
+- 720px 미만 rail에서 참여자 identity와 action은 한 줄로 표시되고 게시 채널 출처만 숨겨지며,
+  YouTube·곡 상세 action은 유지되어야 한다.
+- 640–1279px에서 전체 player를 닫으면 pause 없이 우측 하단 216px miniplayer가
+  표시되고 iframe은 정확히 하나이며 200×200px이어야 한다. full↔mini, queue 항목
+  변경과 다음 곡 전환은 host를 재마운트하거나 mini를 강제로 전체 화면으로 열지 않는다.
+  mini 확장은 자동 resume하지 않고 play/pause action만 재생 상태를 바꾼다.
+- mini 상태에서 폭이 640px 미만으로 줄면 전체 Now Playing이 다시 표시되고, 그 폭에서
+  카탈로그 복귀는 pause·launcher 동작을 유지한다.
+
+### UI 검증
+
+- 375px, 768px, 1440px
+- light/dark
+- 긴 한국어·일본어·영문 제목
+- current member 오시마크와 external neutral chip
+- 비로그인·비관리자에서 config·catalog 요청 0회와 관리자 전용 안내
+- 키보드만으로 검색, filter, 재생과 queue reorder
+- reduced motion, focus return, aria-live
+- banner/thumbnail CLS와 lazy loading
+- 상단 64px와 데스크톱 우측 380px PlayerQueuePanel이 viewport를 침범하지 않고
+  중앙·queue 내부 스크롤을 유지함
+- 1440×600·1440×700에서 참여자 이름, iframe 200px, YouTube·곡 상세 action과 queue가
+  보이고 게시자 identity만 숨겨짐
+- 640×800에서 전체 player → 우측 하단 miniplayer → 전체 player 재확장 동안 iframe이
+  하나이며 카탈로그 복귀 pause와 자동 resume가 발생하지 않음
+- 대표 배너가 pointer·mouse·keyboard로 전환되고 자동 순환하지 않음
+- 최근 곡 table이 desktop center 폭을 넘지 않고 모바일에서는 보조 열을 숨김
+
+### 종료 조건
+
+- 관리자가 내비게이션에서 OTW Play를 열어 곡을 찾고 재생하며 다음 곡으로 이동한다.
+- UI가 YouTube 정책을 우회하거나 숨은 재생에 의존하지 않는다.
+- 640–1279px Now Playing에서 카탈로그로 돌아가면 visible miniplayer로 재생을 유지하고,
+  640px 미만에서만 일시정지한 뒤 player를 다시 열 때 명시적으로 재개한다.
+- session queue 복원은 public performance 재검증 뒤에만 표시되고 자동 재생하지 않는다.
+- 운영 D1의 `public_read_enabled=0`, `navigation_visible=0`과 GATE-01~06은 그대로다.
+
+## 11. 7단계 — 회원 제안과 관리자 승인 E2E
+
+### 결과
+
+로그인 회원의 공식 커버 제안이 비공개 상태로 저장되고 관리자 승인 후만 공개된다.
+
+`/play` parent는 중립 Outlet으로 두고 catalog/player는 관리자 preview shell,
+`/play/submit`과 `/play/submissions`는 JWT member shell로 분리한다. 회원 route는
+public config·catalog·player query를 시작하지 않는다.
+
+DEC-046에 따라 두 shell은 공통 `OtwPlayFrame` header를 사용한다. 전역 sidebar에는
+별도 `곡 제안` 항목을 만들지 않고 `OTW Play`만 둔다. 관리자 catalog의 `발견`·`곡 검색`
+옆과 member shell에는 `곡 제안` dropdown을 표시해 기존 두 member route로 이동한다.
+공통 chrome 추출 과정에서 member shell에 catalog/player provider를 올리지 않는다.
+
+### 주요 touchpoint
+
+- `worker/features/otw-play/application/member-submission-service.ts`
+- `worker/features/otw-play/application/admin-catalog-service.ts`
+- `worker/features/otw-play/infrastructure/d1-member-submission-repository.ts`
+- `worker/features/otw-play/infrastructure/d1-admin-catalog-repository.ts`
+- `worker/features/otw-play/http/member-submission-handler.ts`
+- `worker/features/otw-play/http/admin-catalog-handler.ts`
+- `src/features/otw-play/ui/member/*`
+- `src/features/otw-play/ui/admin/catalog-manager.tsx`
+- `src/routes/play/_member.tsx`
+- `src/routes/play/_catalog.tsx`
+- `src/routes/play/submit.tsx`
+- `src/routes/play/submissions.tsx`
+
+### 구현 순서
+
+1. preflight와 idempotency
+2. D1 일일 limit port와 edge burst 보호
+3. 3단계 제출 wizard
+4. 본인 제안 목록·상세
+5. 관리자 split review UI
+6. YouTube 최신 metadata 검증
+7. CAS + conditional insert + publish/event/revision batch
+8. 승인·거절 authoritative readback
+
+완료된 PR-7.1 frontend 보완은 다음 순서로 수행했다.
+
+1. 공통 Play frame/header와 단일 global navigation entry
+2. thumbnail/canonical identity가 보이는 영상 preflight
+3. 명시적 새 곡/기존 곡 mode와 on-demand 후보 검색
+4. keyboard member autocomplete와 explicit-add snapshot chip
+5. chip 중복·상한, step focus와 오류 위치 복귀
+6. dirty route-leave 확인과 권위 성공 결과/명시적 reset
+7. 빈 내 제안 CTA와 불필요한 detail panel 제거
+8. 참여자별 가창 역할 입력과 member DTO 역할 readback
+9. 관리자 승인용 곡·원곡 가수·참여자·역할 편집
+10. 공개 Discover·목록·상세·Player의 메인 보컬 우선 presentation
+11. 새 곡 제안 장르(분류)의 입력·draft 복원·D1 snapshot·관리자 검수 초기값·승인 song tag 저장
+
+회원 제출은 `settings.otw_play_submission_daily_limit=5`와 KST day window를 D1
+권위로 사용한다. Cloudflare Rate Limiting binding은 사용자 ID별 60초당 3회를
+보조하며 edge 실패가 D1 제한을 우회하지 않는다. 반려 DTO는 상태만 제공하고
+내부 review code·note·reviewer를 포함하지 않는다.
+
+### 보안·무결성 테스트
+
+- 비로그인 제출 401
+- 다른 회원의 proposal ID 조회 404
+- client의 status/submitter/reviewer 입력 무시
+- 회원 payload로 original을 요청해도 관계가 cover로 고정되거나 요청이 거부됨
+- token, note, 검색어가 log에 남지 않음
+- 동일 idempotency retry가 같은 row 반환
+- 새 곡 제안 tags가 idempotency·CAS 수정·관리자 승인 readback에서 보존되고 기존 곡 연결에는 포함되지 않음
+- pending duplicate 409
+- 일일 제한 429, edge limit이 D1 권위를 대체하지 않음
+- 같은 proposal 동시 승인 시 한 요청만 성공
+- CAS 0행일 때 canonical row가 하나도 생성되지 않음
+- 중간 FK/event 오류 시 전체 batch rollback
+- 승인 전 공개 API 누출 0건
+- 승인 후 published item과 proposal link readback
+- 거절 후 공개 0건, event와 회원 상태 보존
+- 역할별 global navigation에 `OTW Play` 한 항목만 존재
+- header dropdown의 keyboard 이동과 두 member route active state
+- member route의 public config·catalog·player 요청 0회
+- duplicate 차단, 후보 선택·해제, member autocomplete, chip 중복·상한
+- 오류 후 step·입력·idempotency 유지와 작성 중 이탈 확인
+- 성공 결과 유지와 사용자가 선택한 뒤에만 빈 form/request ID 생성
+- legacy 역할 누락은 `vocal`로 정규화하고 unknown 역할은 400
+- 동일 idempotency key에서 역할이 달라지면 409 conflict
+- 관리자 편집값이 approval command에 반영되며 proposal snapshot은 변경되지 않음
+- 발견·곡 목록·Player·queue에는 `vocal` 이름만 표시하고 보조 역할 tooltip·칩이 없음
+- 곡 상세에는 메인 보컬·피처링 보컬·코러스·기타 참여 credit이 역할별로 모두 표시됨
+- `participantRole` canonical query·cursor identity와 member·participant·group 동일-credit 필터 의미 검증
+
+### 종료 조건
+
+- 수용 기준 9–12를 실제 UI 흐름으로 재현한다.
+- 관리자 승인 시 제출값과 최종 검수값을 모두 추적할 수 있다.
+- PR-7 당시 미결정이었던 수정·철회 control은 포함하지 않았다. 이후 DEC-054로
+  확정된 command와 UI는 PR-9A에서 별도 제공한다.
+
+### 완료 상태
+
+- 회원 제출·내 제안·관리자 승인·거절과 published catalog readback이 구현되었다.
+- private query cache, idempotent retry, stale preflight, channel ownership과 공개 link
+  판정에 대한 review finding을 모두 보완했다.
+- PR-7.2의 song tag와 pathless catalog layout, YouTube `onReady` player 안정화까지
+  PR #69에 포함되었다.
+- migration 0053–0055가 원격 D1에 적용되었고 public/navigation flag는 `0/0`을
+  유지한다.
+
+## 12. 8단계 — SEO, source health와 운영 준비
+
+### 결과
+
+직접 링크, sitemap, source 점검, 관측과 단계적 공개가 운영 가능하다.
+
+### 전달 원칙
+
+PR-8은 실패와 rollback 경계가 다른 세 PR로 나눈다.
+
+1. PR-8A가 직접 경로와 SEO 공개 경계를 먼저 고정한다.
+2. PR-8B를 PR-8A 뒤에 적용하고, source-health 전이를 직접 계측하는 PR-8C를
+   PR-8B head 위에 stack한다.
+3. 세 PR 모두 코드 merge와 배포만 수행하며 운영 flag는 `0/0`으로 유지한다.
+4. 초기 데이터 승인과 실제 E2E 뒤 별도 운영 단계에서 public read, navigation
+   순서로 활성화한다.
+
+### 12.1 PR-8A — 직접 경로와 SEO
+
+#### 결과
+
+새로고침·공유·crawler 직접 요청에서 `/play`와 published 곡이 올바른 status,
+metadata와 canonical을 반환하며 비공개 데이터가 색인되지 않는다.
+
+#### 주요 touchpoint
+
+- `contracts/site-seo.ts`
+- `worker/features/seo/*`
+- `worker/app/fetch.ts`
+- `worker/features/otw-play/application/ports/public-catalog-reader.ts`
+- `worker/features/otw-play/infrastructure/d1-public-catalog-reader.ts`
+- `worker/app/routes.ts`
+
+#### 주요 작업
+
+1. `/play`와 `/play/songs/{slug}` 직접 요청의 asset/SEO 처리 경계를 고정한다.
+2. published song slug·표시 metadata를 읽는 bounded SEO port를 추가한다.
+3. public read가 꺼져 있으면 Play route를 `noindex,nofollow`, sitemap 제외로 유지한다.
+4. public read가 켜지고 navigation이 숨겨진 canary에서는 catalog route를
+   `noindex,follow`와 sitemap 제외로 유지한다. `navigation_visible=1`에서만 `/play`와
+   published song을 `index,follow` 및 sitemap에 포함한다.
+5. `/play/songs`는 public read가 켜져 있어도 항상 `noindex,follow`이며 sitemap에는
+   포함하지 않는다.
+6. unknown·withdrawn slug는 `404`, member/admin route는 계속 `noindex`로 처리한다.
+7. 기존 feed/profile SEO 실패가 Play query 실패와 서로 불완전 sitemap을 만들지
+   않도록 전체 sitemap 생성을 retryable `503`으로 닫는다.
+
+#### 권장 사항
+
+- 기존 `contracts/site-seo.ts`의 모든 `/play/*` preview placeholder를 그대로 확장하지
+  말고 static route policy와 D1-backed song metadata 조합을 분리한다.
+- sitemap query는 canonical published slug만 bounded read하고 stable sort한다. 기존
+  XML과 동일하게 `lastmod`를 추가하지 않으며 public catalog detail DTO 전체를
+  fan-out하지 않는다.
+- 최초 PR에서는 JSON-LD나 확장 schema보다 status, robots, canonical, sitemap의
+  누출 방지와 직접 경로 복원을 우선한다.
+
+#### 완료 조건
+
+- `/play`, `/play/songs/{publishedSlug}` 직접 요청 `200`과 self-canonical
+- unknown·withdrawn slug `404`, sitemap 미포함
+- flag-off/member/admin route `noindex`, proposal·review 정보 HTML/metadata 누출 0건
+- 기존 `/`, feed, profile sitemap·metadata 회귀 없음
+- browser 내부 이동뿐 아니라 production-like direct request로 검증
+
+### 12.2 PR-8B — scheduled source health
+
+#### 결과
+
+재검사 시각이 지난 YouTube source를 bounded Cron으로 확인하고 확정 장애와
+retryable 외부 장애를 구분하며 운영자가 조치 대상을 확인할 수 있다.
+
+#### 주요 touchpoint
+
+- `worker/features/otw-play/application/*source-health*`
+- `worker/features/otw-play/application/ports/*`
+- `worker/features/otw-play/infrastructure/youtube-metadata-reader.ts`
+- `worker/features/otw-play/infrastructure/d1-*source*`
+- `worker/app/scheduled-workflow-cron.ts`
+- `src/features/otw-play/ui/admin/*`
+
+#### 주요 작업
+
+1. `next_check_at <= now` source를 안정 정렬로 최대 50개 claim하고 30분 lease를 두는
+   repository port를 만든다. 겹친 Cron과 수동 재검사는 source version CAS로 늦은
+   결과를 버린다.
+2. 기존 관리자 수동 재확인과 Cron이 같은 metadata 판정 use case를 사용하게 한다.
+3. deleted/private/embed-disabled/region-blocked/unavailable 전이와 playable 복구를
+   명시적으로 구분한다.
+4. quota·`429`·timeout·upstream `5xx`에서는 기존 availability를 보존하고 backoff된
+   `next_check_at`과 retryable event만 기록한다.
+5. 공개 source 선택이 바뀌는 경우 source, event, catalog/read-model revision을
+   같은 D1 batch로 갱신한다. public-impact predicate도 그 batch 안에서 다시 평가해
+   동시 publish가 끼어들면 source 변경 전체를 stale rollback한다.
+6. 관리자 작업면에 재확인 필요·재생 불가·최근 복구 목록과 수동 재검사를 제공한다.
+7. `music_media_sources(next_check_at, id)`와
+   `music_catalog_events(event_type, created_at DESC, id)` index를 추가하고 기존 NULL
+   `next_check_at`은 `COALESCE(last_checked_at, created_at)`으로 backfill한다.
+
+#### 권장 사항
+
+- 새 table이나 Queue를 기본 선택하지 않는다. 현재 source 시간 필드와 catalog event로
+  요구사항을 충족하지 못한다는 증거가 있을 때만 additive schema를 제안한다.
+- retry interval은 quota 예산과 source 상태별 정책 상수로 정의하고 테스트한다.
+  transient 실패 횟수만으로 영구 unavailable을 만들지 않는다.
+- 한 source 실패가 나머지 source 점검을 중단하지 않게 하되, D1·credential처럼
+  공유 dependency 실패는 명확한 task 실패로 관측한다. source 단위 저장 실패는
+  `failed` count와 안전한 `play.request.failed` telemetry를 남기고 다음 source로
+  진행한다.
+- provider 판정은 `KR` 기준의 명시적 YouTube signal만 사용한다. 반환 item 누락은
+  `unavailable`이며 private/deleted를 추정하지 않는다. 다음 점검은 playable 24시간,
+  private/unavailable 6시간, embed-disabled/region-blocked 24시간, deleted 7일이다.
+- retryable 장애는 timeout·network·`5xx`·invalid response 30분, `429`는 유효한
+  `Retry-After` 또는 1시간, quota는 24시간으로 고정한다. 수동 재검사는 상태 보존과
+  다음 재시각이 저장되면 HTTP 200의 `retry_scheduled` 결과를 반환한다.
+- 관리자 source-health 응답은 최근 복구 7일, 목록별 최대 50개와 총계를 사용하며
+  연결 곡·가창은 총 개수와 안정 정렬된 최대 5개 요약을 반환한다.
+
+#### 완료 조건
+
+- 한 Cron 실행의 YouTube 대상과 D1 source read가 50개 이하
+- 동일 source 반복 실행의 멱등성, cursor/정렬 중복·누락 없음
+- quota·429에서 availability 불변, retry 시각·event readback
+- 삭제 source 이후 곡·가창 metadata 보존과 player fallback/skip
+- 관리자 수동 재검사와 Cron의 상태 판정 결과 일치
+
+### 12.3 PR-8C — observability와 release switch
+
+#### 결과
+
+OTW Play의 읽기·승인·source 상태와 cache/D1 비용을 운영에서 확인하고, 관리자가
+public read와 navigation을 순서·감사·rollback이 보장된 경로로 제어할 수 있다.
+
+#### 주요 touchpoint
+
+- `contracts/api-routes.ts`, `contracts/otw-play.ts`
+- `worker/features/otw-play/http/*`
+- `worker/features/otw-play/application/*`
+- `worker/features/otw-play/infrastructure/*`
+- `worker/app/routes.ts`, `worker/platform/http-helpers.ts`
+- `src/features/otw-play/api/*`, `queries/*`, `ui/admin/*`
+
+#### 주요 작업
+
+1. 설계된 `play.*` structured event와 공통 field를 HTTP/application/repository
+   경계에서 중복 없이 기록한다. 모든 비-scheduled 요청은 정확히 한 datapoint를
+   남기며, domain 전이가 없는 성공은 `recordKind=request`로 표시해 요청 분모에는
+   포함하고 domain event count에서는 제외한다.
+2. Workers Logs에는 개별 진단을, Analytics Engine binding `OTW_PLAY_ANALYTICS`와
+   dataset `otw_play_events`에는 모든 datapoint를 기록한다. 성공 public read custom
+   log만 request ID 기반 결정적 10% sampling하고 mutation, source 전이, release와
+   `4xx/5xx`는 전부 남긴다.
+3. public catalog의 cache hit/miss/bypass, duration과 실제 D1 result metadata의
+   rows read/written을 요청 단위로 합산한다. query string과 사용자 원문은 기록하지
+   않는다.
+4. `GET /api/play/admin/observability`는 비민감 Worker variable
+   `CLOUDFLARE_ACCOUNT_ID`와 조회 secret `OTW_PLAY_ANALYTICS_READ_TOKEN`으로 서버
+   `FORMAT JSON`이 명시된 고정 summary·route·event `SELECT`를 공유 5초 timeout 안에 병렬 실행해
+   24시간 summary·route breakdown·domain event count를 반환한다. 미설정·외부 장애는
+   HTTP 200 partial DTO로 격리한다.
+5. `GET /api/play/admin/release`와 `PATCH /api/play/admin/release`의
+   request/response/error DTO를 계약에 정의하고 `requireAdminUser`, `no-store`, 정확한
+   method manifest를 적용한다.
+6. release PATCH의 conditional audit insert, CAS update와 authoritative readback을
+   하나의 D1 batch로 처리한다. navigation-on/public-off와 no-op은 `400`, stale expected
+   state는 `409`, revision mismatch 공개 활성화는 `422`로 거부한다.
+7. 관리자 UI에서 public read와 navigation을 별도 confirm 단계로 제공하고 성공·409
+   뒤 release/config를 다시 읽는다. observability partial 상태나 전체 catalog 조회
+   실패는 release control을 비활성화하거나 rollback 진입을 막지 않는다.
+
+#### 권장 사항
+
+- flag 변경을 Wrangler/D1 raw command만으로 운영하는 숨은 경로로 남기지 않는다.
+  긴급 rollback도 같은 application command를 사용해야 audit와 불변식이 유지된다.
+- PR-8C merge, migration, 배포는 flag를 자동 변경하지 않는다. switch 실행은 초기
+  데이터와 직접 URL 검증이 완료된 별도 운영 이벤트다.
+- 로그 sampling은 성공 read에만 제한적으로 적용하고 mutation, source 전이,
+  4xx/5xx와 flag 변경 event는 누락하지 않는다.
+- 요청별 metrics를 D1에 쓰거나 Analytics SQL·원격 오류 본문·개별 request log를
+  관리자에게 노출하지 않는다. Analytics 집계는 `_sample_interval`을 반영한다.
+
+#### 완료 조건
+
+- cache hit/miss, rows read, duration과 error event를 배포 환경에서 확인 가능
+- 민감값이 구조화 로그와 관리자 UI에 남지 않음
+- flag `0/0 → 1/0 → 1/1` 및 rollback `1/1 → 0/0`의 audit/readback 통과
+- 동시·stale 변경 한 요청만 성공하고 invalid flag 조합 저장 0건
+- frontend API client, query, UI와 Worker contract 테스트 및 architecture gate 통과
+
+## 13. 운영 데이터 입력
+
+production 카탈로그는 migration fixture나 raw SQL로 넣지 않는다.
+
+1. `public_read_enabled=0`, `navigation_visible=0`
+2. 공식 채널 allowlist를 관리자 UI에서 검수
+3. 그룹별 대표 5–10곡을 draft로 입력
+4. 원곡 가수, 참여자, 공개일, 분류 3축과 대표 source 검토
+5. publish command로 event와 revision을 생성
+6. 공개 API를 내비게이션 숨김 상태에서 실제 readback
+7. 중복, orphan, primary source와 embed 가능성 확인
+8. 제품 책임자가 초기 데이터 범위를 승인
+
+대량 importer가 필요하면 raw table insert 도구가 아니라 application use case를
+호출하는 idempotent 관리자 도구로 만든다. 검증과 event를 우회하지 않아야 한다.
+
+## 14. 단계적 공개
+
+### 배포 순서
+
+PR-9B 이후의 preview version upload와 production 배포 전에 Cloudflare Queue 목록을
+확인한다. 현재 통합 topology의 Queue가 없을 때만 provisioning script로 생성하고
+`queues list` readback에서 여섯 이름을 모두 확인한다. Worker producer·consumer 연결은
+이후 `wrangler versions upload` 또는 `wrangler deploy`가 `wrangler.jsonc` 선언으로
+등록한다.
+
+```powershell
+pnpm exec wrangler queues list
+pnpm queues:provision
+pnpm exec wrangler queues list
+```
+
+1. migration 직전 D1 Time Travel/backup bookmark 기록
+2. additive migration 원격 적용
+3. Worker와 정적 앱 배포
+4. admin auth·catalog input readback
+5. `public_read_enabled=1`, navigation은 숨김
+6. 익명 catalog, 상세, player 직접 URL 검증
+7. 로그인 proposal과 관리자 승인 실제 흐름 검증
+8. 승인 항목의 public readback과 cache revision 확인
+9. `navigation_visible=1`
+10. 24시간과 7일 지표 관찰
+
+### 실제 검증 흐름
+
+- 익명: 발견 → 곡 검색 → member filter → 상세 → 재생 → queue
+- 회원: 로그인 → URL 입력 → 중복 확인 → 제출 → 내 제안
+- 관리자: 검토 → 승인 → event 확인
+- 익명 재조회: 새 revision에서 published item 확인
+- 운영: logs, D1 rows read, cache status, YouTube quota 확인
+
+fixture나 lower-level API만으로 이 검증을 대체하지 않는다.
+
+## 15. rollback
+
+| 상태                     | 조치                               | 데이터 처리                      |
+| ------------------------ | ---------------------------------- | -------------------------------- |
+| UI 문제                  | `navigation_visible=0`             | 카탈로그 보존                    |
+| 공개 API 문제            | `public_read_enabled=0`            | 관리자·제안 데이터 보존          |
+| 잘못된 운영 공개 데이터  | withdraw/unpublish + revision 증가 | 기본 보존, 테스트·오입력의 명시적 관리자 삭제만 예외 |
+| Worker 회귀              | 이전 검증 Worker version 재배포    | additive table 유지              |
+| migration 후 코드 불일치 | feature flag off, 호환 코드 복구   | down migration 자동 실행 금지    |
+| 심각한 DB 손상           | Time Travel 복구 검토              | DB 전체 덮어쓰기이므로 별도 승인 |
+
+일반 rollback에서 migration 파일이나 table을 삭제하지 않는다. Time Travel은
+파괴적 복원이며 정확한 bookmark, 영향 범위와 사용자의 명시적 승인이 필요하다.
+
+## 16. 검증 명령
+
+### schema 변경 PR
+
+```text
+pnpm drizzle:generate
+pnpm d1:reset:local -- --validate-only
+pnpm exec wrangler d1 migrations apply otw-db --local --persist-to <isolated-persist-dir>
+pnpm d1:seed:local -- --force --persist-to=<isolated-persist-dir>
+pnpm d1:doctor -- --persist-to=<isolated-persist-dir>
+pnpm test:worker-integration
+```
+
+`<isolated-persist-dir>`는 이전 migration까지 적용된 local D1의 검증 복사본이다.
+현재 local D1에 보호 데이터가 있으면 reset이나 강제 seed를 실행하지 않는다.
+
+### 관련 기능 PR
+
+```text
+pnpm architecture:check
+pnpm typecheck:test
+pnpm lint
+pnpm test
+pnpm test:worker-integration
+pnpm build
+pnpm sync:agent-cursor:check
+```
+
+### 최종 release gate
+
+```text
+pnpm test:coverage
+pnpm preflight
+```
+
+명령 통과만으로 완료하지 않는다. 해당 PR의 실제 UI/API/DB 흐름과 권위
+readback을 함께 기록한다.
+
+## 17. 요구사항 추적표
+
+| 요구사항 묶음         | 구현 소유             | 핵심 검증                                  |
+| --------------------- | --------------------- | ------------------------------------------ |
+| FR-001–005            | public catalog/search | 곡 grouping, 검색 대상, 최신 항목          |
+| FR-006–011            | catalog query         | 우선순위, ANY/ALL, cursor 정렬             |
+| FR-012, 014–016       | song detail/catalog   | 복수 version, credit, source relation      |
+| FR-017, 020–023       | player/queue          | single iframe, repeat/shuffle, unavailable |
+| FR-024–025            | route/SEO             | song/performance 직접 링크                 |
+| FR-030–036            | member proposal       | auth, staging, 본인 상태, duplicate        |
+| FR-037–042            | proposal lifecycle    | wizard, 수정·철회, stale-write             |
+| FR-043–048            | member songbook       | 곡/가창 집계, member contribution, SEO     |
+| ADM-001–010, 014, 019 | admin catalog         | 공식 채널·영상 검수, draft/publish         |
+| ADM-011–012, 020–021  | event/proposal        | 감사, 미검수 비공개, 거절 이력             |
+| ADM-015–018           | review unit-of-work   | 승인 queue, CAS, 공개 승격                 |
+| ADM-024–030           | ingestion/clip inbox  | playlist bound, Queue, clip 변환 차단       |
+| ADM-031–033           | member contribution   | 근거·pin·정정 승인과 revision              |
+| NFR-001–006           | UI/player             | YouTube 정책, 키보드, chip 접근성          |
+| NFR-007–012           | repository/auth/cache | published-only, metadata 보존, cache 격리  |
+| NFR-013–015           | rate/ownership/admin  | spam, 본인 조회, 관리자 전이               |
+
+후속 FR-013, 018, 019, 026–029는 MVP test를 통과시키기 위한 hidden 구현으로
+만들지 않는다. 현재 schema의 source segment와 relation 확장점만 보존한다.
+
+## 18. 주요 위험과 대응
+
+| 위험                                    | 가능성    | 영향                     | 필수 대응                                           |
+| --------------------------------------- | --------- | ------------------------ | --------------------------------------------------- |
+| 상태를 한 열에 혼합                     | 높음      | 공개 누출·잘못된 승인    | proposal/publication/quality/source 축 분리         |
+| 공개 GET에 bearer 자동 첨부             | 높음      | shared cache bypass      | `apiFetch auth: omit`와 header test                 |
+| 동시 승인                               | 중간      | 중복 catalog·불일치      | CAS, conditional insert, batch rollback integration |
+| YouTube iframe 숨은 재생                | 중간      | 정책 위반·나쁜 모바일 UX | 단일 visible player, 640–1279px miniplayer, 640px 미만 복귀 pause |
+| D1 fan-out·offset                       | 중간      | 높은 rows read·지연      | keyset + bounded detail batch + query plan          |
+| current member 상태 cache               | 중간      | 전 소속 멤버 오표시      | member 상태 변경 시 revision 증가                   |
+| stale cache로 철회 콘텐츠 노출          | 낮음–중간 | 운영·권리 문제           | revision key, 오래된 LKG 자동 제공 금지             |
+| migration과 code 순서 불일치            | 중간      | production 5xx           | additive schema, flag, 순서와 readback              |
+| YouTube quota 장애를 unavailable로 오판 | 중간      | 정상 영상 숨김           | retryable error와 source 상태 분리                  |
+
+## 19. Definition of Done
+
+MVP는 다음 조건이 모두 충족되어야 완료다.
+
+- 대표 관리자가 공식 영상으로 정상 catalog를 생성·게시할 수 있다.
+- 대표 회원이 proposal을 제출하고 본인 상태를 확인할 수 있다.
+- 관리자가 같은 proposal을 검수·승인하고 권위 상태를 readback할 수 있다.
+- 승인 전 proposal은 public catalog의 어떤 경로에도 노출되지 않는다.
+- 승인 후 익명 사용자가 같은 곡을 검색하고 공식 영상을 재생할 수 있다.
+- current member와 external/former chip이 요구대로 표시된다.
+- queue next/previous/repeat/shuffle가 실제 iframe과 연결된다.
+- source 장애가 song metadata와 event를 삭제하지 않는다.
+- migration, architecture, type, lint, unit, integration, coverage와 build gate가 통과한다.
+- production artifact identity, migration 적용, public API와 UI readback이 기록된다.
+- rollback switch와 운영 담당자가 확인되어 있다.
+
+## 20. 변경 관리
+
+아이디어가 바뀌면 다음 순서로 반영한다.
+
+1. 제품 요구사항의 결정, 범위와 수용 기준을 갱신한다.
+2. 시스템 설계의 aggregate, API와 schema 영향을 확인한다.
+3. UI 설계의 route, 화면 상태와 player 영향을 확인한다.
+4. 이 문서의 gate, PR slice, test와 rollout을 조정한다.
+5. 이미 migration이 배포된 경우 destructive rewrite보다 additive migration과
+   호환 기간을 우선한다.
+
+## 21. 완료된 PR-7.2 보완
+
+- `0054_*` additive migration으로 `music_song_tags`와 tag lookup index를 추가했다.
+- admin create/update/catalog-entry, public catalog/detail/performance DTO를 `tags`까지 end-to-end 연결했다.
+- `/play` index를 `_catalog` layout 아래로 이동해 발견↔곡 검색↔상세 이동 중 player provider와 iframe을 유지한다.
+- 공개 UI는 song tag와 performance metadata를 서로 다른 시각 계층으로 렌더링한다.
+
+## 22. 2026-08-20 문서 정리 기록
+
+- PR-7.1·7.2와 리뷰 보완, YouTube playback fix, 원격 migration 0053–0055를
+  완료 상태로 반영했다.
+- PR-8을 PR-8A 직접 경로·SEO, PR-8B source health, PR-8C observability·release
+  switch로 나누고 각 범위, 비범위, touchpoint, 권장 사항과 완료 조건을 정의했다.
+- 초기 운영 데이터 범위는 GATE-02·03 결정 전이며 공개 flag는 `0/0`을 유지한다.
+
+## 23. 2026-08-20 PR-8 closeout
+
+- PR-8A PR #72(`a551758`), PR-8B PR #70(`caf08e0`), PR-8C PR #71
+  (`9b27ee9`)을 순서대로 `master`에 반영했다.
+- migration `0056`의 source-health 인덱스·backfill을 원격 적용했고 pending migration
+  0건과 catalog/read-model revision `2/2`를 readback했다.
+- production deployment `745fa7de-df67-461d-9833-04ee99786f13`, Worker version
+  `b28a20c1-c331-42f0-ade2-d15579d7c86e`, Analytics binding·secret을 확인했다.
+- `/play` `200`·`noindex,nofollow`·`no-store`, sitemap Play 제외, 인증 없는 관리자
+  운영 API `401`·`no-store`, 공개 flag `0/0`을 확인했다.
+- 로컬 `master`를 원격 SHA `9b27ee9e37f796eb5d7674fd708b5623ff650f79`로
+  fast-forward하고 병합된 PR-8A/B/C 로컬 브랜치와 remote-tracking ref를 정리했다.
+- 인증 관리자 운영 화면 스모크는 2026-08-26 Clerk production 전환에서 완료했다.
+  due source의 다음 Cron readback, 초기 catalog 범위 결정·정비,
+  `0/0 → 1/0 → 1/1`과 rollback rehearsal은 차후 지속 확인한다.
+- 후속 기능 우선순위는 2026-08-20 추가 조사에 따라 아래 24절과 제품 요구사항의
+  DEC-052~058로 대체되었다.
+
+## 24. PR-8 이후 조사 기준선과 전달 상태
+
+별도 조사 보고서:
+
+- `otw-play-catalog-bulk-ingestion-and-proposal-lifecycle-research.md`
+- `otw-play-channel-subscription-automation-research.md`
+- `otw-play-detailed-credits-and-member-songbook-research.md`
+
+전달 상태와 다음 순서:
+
+1. 완료 — PR-9A: 회원 `pending_review` proposal 수정·철회 contract, CAS, audit와 UI
+2. 완료 — PR-9B: ingestion job/candidate schema, Queue/DLQ와 playlist 수집
+3. 완료 — PR-9C: 벌크 후보 grid, 행별 sticky 보완·공식 채널 인라인 승인, 영상 아래 가로 변경 예정 항목, 확인된 재생 불가 후보의 job 단위 일괄 제외와 job 전체 ready 후보의 catalog draft 변환
+4. 완료 — P0-B polling foundation: approved clip channel의 6시간 uploads
+   reconciliation, 250개 cap, watermark·gap·generation과 candidate inbox
+5. 완료 — PR-9D1: approved 노래 clip channel WebSub, lease renewal, daily recent-50과
+   `singing_clip` candidate inbox. OTW·멤버 공식 channel은 직접 입력
+6. 과거 P1A~C 계획은 2026-09-08 DEC-079와 29절로 대체한다. 멤버 페이지·SEO와
+   큐레이션을 다음 개발로 두고 제작 참여·대표곡 pin·정정을 낮은 우선순위로 분리한다.
+7. 2026-08-27 문서 기록상 구현·배포 완료 — `singing_clip` candidate의 곡·가창자·segment
+   검수와 비공개 broadcast draft 변환(PR #81). 실제 신규 upload canary는 별도다.
+   방송일·원본 방송·setlist·공개 read model은 NEXT-BROADCAST에서 후속 구체화한다.
+
+P0-C 인증 스모크, source-health, catalog 정비와 단계적 공개 검증은 위 개발과 병행하는
+지속 운영 항목이다. PR-9D1은 PR-9B candidate pipeline보다 먼저 구현하지 않는다.
+playlist candidate는 관리자 검수 뒤 공식 영상 draft로 변환한다. `singing_clip`은 활성
+`approved_kirinuki` 채널과 곡·가창자·segment 검수를 다시 확인한 뒤 `broadcast` +
+`kirinuki` 비공개 draft로만 변환한다. 어떤 자동 수집 결과도 자동 publish하지 않는다.
+두 검수 경로에서 신규 곡을 만들 때 `SongTagPicker`로 음악 라벨을 입력·추가·삭제하고,
+playlist candidate는 기존 곡 검색 결과가 없을 때만 새 곡 입력으로 전환한다. `ready` 저장은
+candidate CAS와 새 원곡 가수·외부 가창자 entity, 새 song·original artist·tag row, catalog
+revision을 하나의 D1 batch에 반영하고 `review_input_json`을 실제 entity·song ID 참조로
+치환한다. 다음 행은 갱신된 admin catalog에서 이를 즉시 검색·재사용한다. 최종 D1 변환은
+기존 song을 사용해 performance draft와 source를 생성한다. 기존 곡 연결은 song 권위의
+`tags`를 읽기 전용으로 표시하며 검수 저장에서 기존 곡을 암묵적으로 수정하지 않는다.
+외부 음악 관계자 상세 credit, contributor page와 release/source credit은 현재 전달
+계획에서 제외한다.
+
+PR-9C 후보 저장은 행을 열 때의 version·review input·status를 baseline으로 보존한다.
+Queue metadata batch로 version만 상승한 경우에는 baseline 동등성과 현재 channel·분류
+정책을 다시 확인하고 최신 version으로 CAS한다. Queue와 단건 metadata refresh는
+`ready|ignored|converted` 및 review input을 보존한다. 실제 검수 baseline이 바뀐 409에서는
+행 draft를 유지한 채 job·items·catalog 권위 query를 다시 불러온다. 기존 catalog·proposal,
+channel/policy gate는 422 validation으로 분리한다. item DTO는 origin 관점 `classification`과
+실제 `candidateClassification`을 함께 제공하며 ready 저장 가능 여부는 후자를 사용한다.
+상태 열은 이 값을 raw code로 나열하지 않는다. candidate `status`는 검수 시작 전·입력 보완
+필요·저장 준비 완료 같은 workflow 단계로, `candidateClassification`은 현재 권위 판단으로,
+origin `classification`은 가져오기 기록으로 구분하고 현재 가능한 다음 조치를 함께 표시한다.
+job `updatedAt`이 변할 때 items도 refetch해 완료 직전 candidate version을 계속 표시하지 않게 한다.
+변경 예정 항목은 sticky form 내부나 별도 table 열이 아니라 desktop table과 mobile card의
+각 영상 아래에 가로 배치하고, 열린 행의 로컬 draft 변경을 저장 전에도 즉시 반영한다.
+`channel_review`는 같은 sticky form에서 공식 역할·소유 주체를 확인해 채널 승인·활성화와
+candidate metadata 재분류를 이어 간다. 후보 수집 뒤 별도 관리 화면에서 채널이 승인된
+경우에도 현재 활성 승인 채널을 권위로 재평가해 오래된 `channel_review` 표시나 저장 조건이
+행별 `ready` 검수를 막지 않아야 한다. 기본 신규 승인 경로는 `otw_official` 또는
+`member_music|member_main`과 archive되지 않은 catalog member identity로 제한한다. 외부 채널은 별도 예외 모드에서
+`project_official`, 활성 non-member 주체와 명시적 외부 승인 확인을 모두 제출해야 하며 Worker가
+현재 catalog entity 상태와 조합을 다시 검증한다. 기본 소유 유형 2개는 sidebar 가용 폭을
+채우는 2열 카드로 배치하고, archive되지 않은 OTW 멤버 목록은 별도 max-height나 중첩
+scroll container 없이 모두 렌더링한다. 숨김·삭제 일괄 제외는
+현재 filter를 재사용하지 않고 job의 `blocked` page를 최대 5,000건까지 별도로 조회한다.
+`private|embed_disabled|deleted|region_blocked|unavailable`만 선택하고 `unknown`은 보존하며,
+100건 단위 bulk ignore API가 job 소속과 version CAS를 확인해 항목별 결과를 반환한다.
+draft 변환은 선택 checkbox를 사용하지 않고 `status=ready` job 전체 page를 최대 5,000건까지
+조회해 100건 단위로 처리한다. 기본 items 조회는 `converted|ignored`를 제외하고, 운영 확인을
+위한 명시적 status filter에서는 해당 상태를 계속 조회할 수 있다.
+
+## 25. PR-9·P0-B closeout과 production gate
+
+- PR #74와 migration 0057–0062, Queue/DLQ consumer, proposal lifecycle, playlist
+  ingestion·review·draft conversion 및 polling channel monitor를 완료 상태로 반영했다.
+- production P0-A 입력은 OTW 공식 `Cover Song` playlist
+  `PLlU0BLctZTmBYMD3Pny-fh2NcQxxqMrSv`의 최근 5개로 고정한다. production Clerk 인증
+  UI와 관리자 권한은 검증을 마쳤다. draft 변환·게시 없이
+  Queue와 D1 job/candidate readback을 확인한다.
+- 자동 수집 대상 키리누키 제작자의 메일 서면 동의는 확보했다. legacy
+  `kirinuki_channels`를 `approved_kirinuki`나 자동화 승인으로 자동 승격하지 않으며,
+  활성 `approved_kirinuki` channel ID 등록 시 서버가 표준 승인·감사 레코드를 생성한다.
+- WebSub callback·lease renewal·daily recent-50·명시적 최근 1~20개 backfill,
+  additive migration `0063`, secret·공개 origin·Worker/UI와 실제 승인 채널의 구독
+  설정을 완료했다. false-active 복구와 Cloudflare `fetch` receiver 결함도 수정했다.
+- PR #81의 `singing_clip` 개별 검수·비공개 draft 변환, PR #82의 외부 identity 정리,
+  PR #83의 신규 곡 라벨, PR #84의 승인 채널 연결 주체 교정을 완료했다.
+- 실제 upload notification을 최대 7일 안에 관측해
+  `hub → callback → Queue → videos.list → singing_clip candidate → reviewed draft`
+  readback이 성공해야 P0-B 운영 canary를 완료한다. challenge·구독 성공만으로 이
+  canary까지 완료했다고 선언하지 않는다.
+- PR #83의 migration `0064` production 적용과
+  `music_cover_proposals.submitted_tags_json` readback을 운영자 확인으로 완료 처리했다.
+
+## 26. 아키텍처 하드닝 전달 플랜
+
+이 절은 기존 player의 pause 없는 full→mini 설명과 prelaunch 관리자 전용 shell을
+대체한다. 구현 중과 코드 배포 뒤에도 운영 D1 flag는 `0/0`으로 유지한다.
+
+1. 공개 shell은 anonymous/member/admin × `0/0`, `1/0`, `1/1` 매트릭스로 검증한다.
+   flag-on 관리자는 preview가 아니라 public cache 경로를 사용한다.
+2. player presentation은 `launcher|full|mini`로 관리한다. 명시적 play intent가 surface를
+   먼저 연 뒤 iframe을 만들며 닫기·route 이탈·host 제거는 pause를 선행한다. session
+   hydration은 queue/current metadata만 복원한다. queue breakpoint는 `xl` 하나다.
+3. admin performance create/update는 `sources[]`와 legacy ingress 정규화를 함께 검증한다.
+   모든 source CRUD, primary·priority, revision/event/projection 원자성을 D1 integration
+   test로 확인한다.
+4. WebSub callback과 Queue는 effective-active 권위, 고정 `PLAY_ADMIN_*` 오류 + `requestId`,
+   delivery health telemetry를 사용한다. 이전 generation 후보는 독립 query로 검증한다.
+5. migration `0065`와 `0066`은 각각 독립 PR로 전달한다. 각 PR에는 schema, 신규 SQL,
+   snapshot/journal, 전체 chain validate-only와 FK/invalid INSERT integration 증거를 포함한다.
+6. 기능 PR은 `origin/master` 기반으로 분리하고 최종 통합 브랜치에서
+   `architecture:check`, `typecheck:test`, lint, Worker/D1/UI tests와 `preflight`를 실행한다.
+
+production 작업은 자동으로 수행하지 않는다. 명시적 승인 뒤 remote migration → 코드 배포 →
+관리자/member read-only smoke → 실제 신규 upload canary → `1/0` → 24시간 관측·rollback
+readback → `1/1` 순으로 진행한다.
+
+## 27. performance 태그 전달
+
+- additive migration `0070_otw-play-performance-tags.sql`은
+  `music_performance_tags`와 tag/performance lookup index를 추가한다.
+- shared admin/public DTO는 performance `tags`와 통합 등록·제안 승인·ingestion의
+  `performanceTags`를 전달한다. HTTP 입력은 최대 10개, 표시명 40자와 정규화 중복 금지를
+  곡 태그와 동일하게 검증한다.
+- D1 writer는 performance 생성·수정과 태그 교체를 event·catalog/read-model revision과
+  같은 batch에서 수행한다. public reader는 대표 목록 hydration, song detail,
+  performance detail에서 해당 performance 태그만 읽는다.
+- 관리자 UI는 통합 등록·가창 수정·제안 승인·playlist·`singing_clip` 검수에 독립 picker를
+  제공한다. 공개 UI는 곡 태그와 커버 영상 라벨을 별도 배지 계층으로 렌더링한다.
+- 검증은 parser unit, admin D1 create/update round-trip, public list/detail round-trip,
+  전체 migration validate/apply/FK doctor를 포함한다. remote migration과 배포는 별도
+  release 승인 전에는 수행하지 않는다.
+
+## 28. 큐레이션 요구사항과 구현 계획
+
+2026-09-10 사용자 승인 계획을 구현했다. 기준 브랜치는 master a4ffedd에서 생성한 `codex/otw-play-curation`이다. 이전 24개 대표 가창 권장안과 후속 개인 저장 경계를 이번 계약으로 대체한다. 원격 migration·운영 공개 flag·배포는 수행하지 않는다.
+
+### 28.1 화면과 선정
+
+- `/play/playlists`: 오리지널·커버, 현재 멤버 순서, 내 목록. 기본 모음은 가창 relation과 명시적 vocal/featured_vocal에 따른 조건형이다. 같은 곡의 여러 가창을 모두 포함하며 코러스·제작·그룹 소속 추정 참여는 제외한다. 최신 공개순·ID로 정렬하고 0곡 멤버도 표시한다.
+- 기본 상세 `/play/playlists/defaults/$playlistKey`: 최대 60개 cursor 페이지 탐색, 단건·전체 추가·개인 사본 생성.
+- 개인 신규 `/play/playlists/new`, 상세 `/play/playlists/$playlistId`, 편집 `/play/playlists/$playlistId/edit`: 기존 shell 내부 로그인 게이트, 좌측 검색/우측 편집, 모바일 전환, 명시적 저장과 서버 재조회. 삭제도 expectedVersion으로 검증한다.
+- 기본 카드 주 동작은 목록 보기다. 카드 하단의 개인 편집 링크는 제거하고 사본 편집은 상세 화면에서 시작한다. 대기열 추가는 상세 화면에서 명시적으로 실행한다. 발견 요약은 같은 카드·조회·일괄 추가를 재사용한다.
+- 편집 중에는 플레이어·영상·대기열 진입을 숨기고 재생을 일시정지한다. 기존 provider와 큐는 유지하며 편집 목록 추가는 재생 큐를 바꾸지 않는다. 신규와 기존 목록 편집에 동일하게 적용한다.
+
+### 28.2 계약과 저장
+
+`contracts/otw-play-playlists.ts` → Worker HTTP → PlaylistService/ports → D1 reader/repository → frontend API/Query를 연결한다. route registry는 정확한 경로와 메서드를 등록한다.
+
+| API | 동작 |
+| --- | --- |
+| GET `/api/play/playlists/defaults` | 정의·실제 이미지·곡/가창 수 |
+| GET `/api/play/performances` | q/member/relation, 최대 60개·revision cursor |
+| POST `/api/play/performances/resolve` | 최대 60 ID의 현재 공개 정보와 소스 선택 |
+| GET/POST `/api/play/me/playlists` | 본인 목록/생성 |
+| GET/PUT/DELETE `/api/play/me/playlists/:id` | 본인 조회/전체 저장/삭제 |
+| GET `/api/play/admin/playlists/defaults` | 관리자 기본 목록 설정 조회 |
+| GET/PUT `/api/play/admin/playlists/defaults/:playlistKey` | 관리자 기본 목록 설정 조회/저장 |
+
+공개 flag와 readmodel revision을 확인하며 관리자 preview는 별도 인증한다. 개인 응답은 no-store, 페이지는 noindex이고 다른 계정의 ID는 찾을 수 없음으로 응답한다. 계정 전환·로그아웃 시 개인 Query와 편집 상태를 제거한다.
+
+`0087_burly_midnight.sql`은 Drizzle 생성 migration이다. `music_playlists`는 소유자·메타데이터·version·생성 요청 ID·원본 기본 목록 ID, `music_playlist_items`는 순서와 가창 참조를 저장한다. 가창은 tombstone 보존을 위해 논리 참조이며 영상 URL은 저장하지 않는다. 소유자/request ID, 목록/performance ID, 목록/position 고유 제약을 둔다.
+
+D1 batch의 header version CAS와 요청별 write_token 조건이 항목 삭제/삽입을 함께 보호한다. 패자는 항목도 변경하지 않으며 실패는 전체 rollback이다. 생성 재시도는 같은 request ID와 payload로 원래 목록을 반환한다. 기존 철회 항목은 유지할 수 있지만 새 비공개 ID 추가는 거부한다.
+
+생성이 확인된 이후 대표이미지 재조회가 실패하면 `503 PLAY_PLAYLIST_CREATE_UNCONFIRMED`를 반환한다. 편집기는 최초 요청 ID와 payload를 보존하여 생성 결과를 다시 확인한 뒤 수정한 초안을 저장한다. 생성 전 입력 검증의 4xx 응답과 구분하며, 일반 조회의 공개 접근·revision 정책은 유지한다.
+
+2026-09-11 대표이미지 관리: `0088_friendly_photon.sql`은 개인 목록의 nullable `representative_performance_id`와 `music_default_playlist_settings`를 추가한다. 개인 목록은 포함된 가창 중 대표곡을 선택하며, 미지정·이용 불가 시 순서상 첫 이용 가능한 썸네일로 대체한다. 철회된 지정 ID는 보존하고 편집 화면에서 교체 필요 상태를 알린다. 수정 요청의 대표곡 필드 생략은 유지, 명시적 null은 해제다. 생성 응답 유실 복구에도 최초 대표곡 payload를 유지한다.
+
+`/admin/otw-play?tab=playlists`에서 기본 목록의 이름·설명·대표곡을 편집한다. 후보는 기존 자동 선정 조건으로 페이지 탐색하며, 조건·순서는 변경하지 않는다. 기본 설정 복원은 초안에 적용한 뒤 저장한다. 설정 버전은 카탈로그 revision과 분리하고, 감사 기록과 CAS 저장을 같은 D1 batch로 처리한다. 이미지 URL은 저장하지 않으며 현재 공개·소스 정책으로 서버에서 일괄 계산한다. 특정 곡의 썸네일을 고정하는 코드는 제거했다. 88개 전체 migration chain 및 로컬 migration, 실제 로그인 저장·재방문·모바일 흐름을 확인했으며 원격 migration과 배포는 수행하지 않았다.
+
+### 28.3 대기열과 복원
+
+전체 추가·사본은 첫 페이지만 사용하지 않는다. 동일 revision의 모든 페이지 또는 60 ID씩 묶음 resolve를 순차 수집하고 진행·취소를 제공한다. 통신 실패·revision 충돌·화면 이탈은 준비 중 작업을 중단하고 큐를 보존한다. 연속 클릭은 순서대로 처리한다.
+
+완료 시 최신 큐를 기준으로 performanceId 중복을 제거하고 track과 queue item을 함께 등록한다. 기존 순서·repeat/shuffle을 보존한다. 전체 추가 완료 후 해당 목록의 첫 재생 가능한 곡을 처음부터 재생하며, 이미 큐에 있는 곡도 선택한다. 실제 추가/중복/재생 불가 수를 안내한다. sessionStorage 복원은 현재 항목 우선, 최대 60 ID 묶음으로 현재 공개/소스 상태를 다시 확인한다.
+
+### 28.4 검증 경계
+
+로컬 실제 로그인 관리자 preview에서 기본 8개 가창 사본 → 순서 변경/삭제 → 개인 7개 목록 저장 → 서버 재조회 → 새로고침 재방문을 확인했다. 현재 로컬 카탈로그는 커버 8개·오리지널 0개이므로 60개 초과와 철회·다른 소유자·경합·rollback은 별도 D1 통합 테스트로 검증한다. 실제 다른 계정 전환과 운영 환경의 공개 접근은 별도 실기 범위다.
+
+전체 migration chain 87개 검증과 로컬 migration을 수행하며 기존 데이터를 보존했다. architecture:check, typecheck:test, lint, build, sync:agent-cursor:check 통과. 병렬 수 2로 실행한 전체 단위 1,679개와 추가 회귀 10개, Worker 통합 298개가 통과했고 통합 coverage 실행은 총 1,987개 통과(Statements 82.32%, Branches 69.46%, Functions 85.63%, Lines 83.84%)다. 최초 기본 병렬 실행의 기존 관리자 테스트 시간 초과와 Worker 임시 bad-port 시작 실패는 재실행에서 해소됐다. 실제 재생 중 상세/편집 왕복에서 iframe widget2와 src가 유지되고 재생 위치 11→20→28초가 이어졌다. 모바일 검색/편집 목록 전환도 확인했다. 추가 Query 회귀 3개에서 연속 클릭 순서·진행 중/대기 작업 취소·계정 전환 및 로그아웃 캐시 제거를 확인했다. 공유·공동 편집·운영자 선곡·좋아요·추천·방송 가창은 이번 범위에서 제외한다.
+
+## 29. 다음 개발 우선순위와 문서 closeout
+
+작성일: 2026-09-08. 기준 코드: `f692d83` 및 이번 문서 변경.
+범위: OTW Play 요구사항 정리·후속 분석·다음 구현 인계. **문서 closeout이며 기능 구현,
+실제 사용자 흐름 검증, 운영 공개, Git PR/병합 closeout이 아니다.**
+
+### 29.1 최신 결정과 적용 순서
+
+- 높은 우선순위: `NEXT-SEO` 멤버 페이지 SEO, `NEXT-CUR` 기본 큐레이션.
+  두 작업의 선후는 별도로 확정되지 않았으며 서로를 선행 조건으로 두지 않는다.
+- 낮은 우선순위: `LATER-CREDIT` 멤버 제작 참여, `LATER-PIN` 대표곡 지정,
+  `LATER-CORRECTION` 참여 정보 정정. 기능 요구는 보존하고 다음 개발에서 제외한다.
+- 후속 구체화: `NEXT-BROADCAST` 방송 가창, `NEXT-LIBRARY` 개인 감상.
+  사용자가 **사용자용 OTW Play 내부 탭**을 명시했다. 관리자 전용 탭으로 대신 구현하지 않는다.
+- ADM-009 중복 가창 병합과 FR-021 재생 패널 원곡 가수 표시 미충족은 독립 backlog다.
+  직전 검토의 '두 건부터 보완' 권장 순서는 사용자가 지정한 이번 높은 우선순위로 대체한다.
+- 과거 P1A → P1B → P1C → P2 순서를 폐기하고 SEO를 제작 참여·정정에서 분리한다.
+  기존 공개·회원·관리자 권한, 단일 player와 세션 큐의 의미는 유지한다.
+
+### 29.2 NEXT-SEO — 개인 프로필·실제 Play 멤버 페이지와 SEO 동시 전달
+
+결과: 실제 published 가창이 있는 멤버의 `/play/members/{memberCode}`에서 곡을
+탐색·상세 확인·재생하고, 같은 권위 자료가 HTML metadata·canonical·robots·sitemap에 반영된다.
+metadata만 만들거나 기존 곡 검색 URL로 우회하는 페이지를 완성된 멤버 페이지로 보지 않는다.
+
+초기 포함 범위:
+
+1. 기존 members와 가창 participant를 이용한 멤버 정보, 부른 곡·오리지널·커버·협업 목록.
+   distinct song 수와 published performance 수를 별도로 집계한다. `만든 곡`·제작 참여·
+   정정·대표곡 pin·새 전면 멤버 index는 필수 범위가 아니다. 최신 공개 목록만으로 페이지가 성립한다.
+2. 사용자 확정 기준은 기본 목록·상단 집계·SEO 모두 `vocal` + `featured_vocal`이다.
+   `chorus`는 명시적 역할 필터에서만 조회하며 기본 count와 SEO에 포함하지 않는다.
+   `other`를 제작 참여처럼 추론하지 않는다. 필터 변경은 상단 기본 집계를 바꾸지 않는다.
+3. 공개 가능한 current member 1~2곡은 직접 URL `200`·`noindex`·sitemap 제외,
+   3곡 이상은 `public_read_enabled=1`, `navigation_visible=1`, catalog/read-model revision
+   일치 조건에서 index·sitemap·멤버 페이지 진입을 허용한다. 후보/draft는 집계에서 제외한다.
+4. 0곡 current member는 기존 상세 노래책 설계의 `200` empty/noindex·navigation 제외를
+   기본값으로 두고 알 수 없는 code는 `404`로 처리한다. 공개 비활성/preview의 기존 접근 규칙이
+   곡 수보다 우선한다. preview 응답과 private 정보는 검색 노출·public cache에 들어가지 않는다.
+5. 멤버 이름·공개 곡 내용에 맞는 title/description·OG·canonical을 실제 HTTP HTML에 반영한다.
+   filter/query canonical 정책, member 상태·공개 철회·곡 수 2↔3 변경 시 metadata/robots/
+   sitemap/cache의 동시 갱신을 설계한다. 페이지별 집계 N+1 없이 sitemap 후보를 조회한다.
+6. 노출 조건을 충족한 멤버는 기존 발견 멤버 rail 등 자연스러운 진입점에서 실제 페이지로
+   연결한다. 1~2곡은 직접 링크로 접근하고 기존 곡 검색 필터 진입은 별도로 유지한다.
+7. 같은 `/play/*` player provider 아래에서 기존 재생·마지막 추가를 재사용하고 페이지 이동이
+   현재 곡·진행 위치·큐를 초기화하지 않도록 한다. 새 데이터/API는 사용되는 화면과 함께 전달한다.
+
+변경 경계:
+
+| 계층 | 착수 대상 |
+| --- | --- |
+| contracts | `contracts/otw-play-members.ts`, `contracts/api-routes.ts`: 실제 필요한 member page/집계 DTO·정확한 route·오류/공개 조건 |
+| Worker catalog | `worker/features/otw-play` application/ports/infrastructure 및 `worker/app/routes.ts`: participant 기반 공개 read와 revision 일관성 |
+| SEO | `worker/features/seo/http/handler.ts`, `application/site-seo-service.ts`, catalog SEO port: member 경로 분류·HTML metadata·sitemap |
+| frontend | `src/routes/play/_catalog`의 얇은 member route, `src/features/otw-play` API/query/UI, 발견의 멤버 진입점 |
+| 데이터 | 기존 관계 재사용. 실제 실행 계획에 따라 필요한 인덱스만 검토하며 contribution/pin/correction 테이블을 만들지 않음 |
+
+완료 검증: 실제 멤버 페이지 진입 → 목록/카운트 일치 → 특정 가창 상세/재생/큐 확인,
+직접 HTTP HTML의 metadata/canonical/robots와 sitemap 대조. 0·1·2·3곡, draft/withdrawn,
+역할·같은 곡 다중 버전, 비활성 공개/preview, member 상태 변경을 검증한다. fixture는
+경계 회귀를 지원하며 실제 UI/HTTP 검증을 대체하지 않는다. 코드 배포와 검색 색인 반영은
+별개이며 검색 엔진 실제 색인 완료를 개발 완료와 동일시하지 않는다.
+
+### 29.3 NEXT-CUR — 기본 템플릿과 대기열 끝 추가
+
+결과: 발견의 멤버 → 큐레이션 → 최근 곡에서 카드를 클릭하면 실제 목록이 기존 큐 끝에
+추가되고 현재 재생은 유지된다. 범위와 검증은 28절 CUR-01~05를 사용한다.
+
+- 구현 기본안: 기존 조건형 3~4개, 최근순 최대 24곡. 이 값은 사용자 확정 수치가 아니라
+  권장안이며 착수 시 실제 catalog 분포·템플릿 겹침·조회 예산을 확인해 기록한다.
+- 큐에는 같은 performance를 중복 추가하지 않고 다른 버전은 별도로 허용한다.
+  한 작업의 전체 조회가 끝나면 최신 큐에 일괄 반영하고 실패·중복·제외 수를 구분한다.
+- NEXT-SEO가 추가한 member page는 기존 player 동작을 재사용할 수 있지만 큐레이션 배치·
+  batch 기능의 선행 조건이 아니다. 두 기능의 공통 파일 변경은 통합 시 함께 검증한다.
+- 저장형 편집 CUR-06~08은 후속 개인 감상 탭과 연결한다. 높은 큐레이션 우선순위를 이유로
+  계정 보관함·운영자 에디터·공유·추천까지 첫 전달로 자동 확장하지 않는다.
+
+### 29.4 사용자용 OTW Play 내부 탭 — 후속 기능 구체화
+
+확정 진입점은 사용자용 OTW Play 내부다. `방송 가창`, `내 감상`은 제안 라벨이며
+최종 탭 이름·URL은 미정이다. 기존 발견·곡 검색과 동일한 Play shell/player/큐를 공유한다.
+실제 기능과 권한/빈 상태가 준비된 뒤 노출하고 동작하지 않는 placeholder 탭을 먼저 만들지 않는다.
+
+| 항목 | 방송 가창 탭 | 개인 감상 탭 |
+| --- | --- | --- |
+| 사용자 가치 | 방송에서 부른 곡과 방송별 setlist를 탐색·구간 재생 | 좋아요·최근 감상·저장한 목록을 다시 찾고 편집·재생 |
+| 1차 구체화 대상 | 곡/방송 단위 탐색, 멤버·방송일 필터, 동일 곡 반복 가창, 원본 방송 출처·공식/방송 버전 연결 | 좋아요/즐겨찾기, 최근 들은 곡, 개인 목록 생성·재열기·이름/곡/순서 변경·삭제·큐 추가 |
+| 기존 기반 | 승인 clip 후보 수집, 개별 검수, 비공개 broadcast draft, source 구간 재생 | 기존 단건 큐 조작·세션 복원, 기본 큐레이션 실행 목록 |
+| 신규 저장/조회 | 방송일·원본·setlist 관계·공개 projection, 승인 소스/대체 원본 정책 | 사용자 소유 목록·항목, 감상 기록·삭제/보관, 계정 또는 기기 저장 계약 |
+| 권한 | 공개된 방송 가창만 사용자에게 제공. 검수·게시·승인 채널은 관리자 소유 | 로그인/익명 정책 확정. 타인의 개인 감상 내역은 관리자 탭으로 자동 노출하지 않음 |
+| 실패/변경 | 가창 철회, 구간/원본 유실, 임베드 불가, 다음 재생·재시도, source 검증 | 로그인 만료·통신 실패·중복 저장·동시 편집 충돌·삭제된 가창 표시와 재추가 |
+| 이후 후보 | 많이 부른 순, 방송별 전체 재생 | 멤버 라디오·랜덤 재생, 공개/공유; 행동 기반 추천은 별도 검토 |
+
+다음 분석에서 확정할 질문:
+
+- 방송: 후보 draft를 어떤 근거로 공개하는가(TBD-004/005), 원본 없는 가창 허용 여부,
+  방송일의 출처/시간대, setlist 순서·구간 검증, 공개 source 우선순위와 원본 대체 재생.
+- 개인 감상: 좋아요/즐겨찾기를 하나로 합칠지, 최근 들은 곡의 인정 기준·중복·보관 기간·
+  삭제, 로그인/기기 저장/계정 동기화, 목록 최대 수·항목 수와 기본 비공개·공유 범위.
+- 공통: 탭 이름·URL·딥링크·back 동작, 탭 전환 시 같은 iframe 유지, API/cache 비용,
+  기존 queue와 저장형 목록의 구분, 개인정보를 public cache/SEO/telemetry로 흘리지 않는 경계.
+
+관리자 `OTW Play`는 기존 검수·카탈로그·공개 상태 관리 역할을 유지한다. 사용자 탭 요청은
+일반 사용자에게 게시 권한을 주거나 관리자가 개인 감상 내용을 열람하게 하라는 요구가 아니다.
+이 단계는 요구 구체화 계획이며 즉시 방송 공개나 개인 행동 수집을 시작하지 않는다.
+
+### 29.5 보존하는 낮은 우선순위와 독립 backlog
+
+| ID/요구 | 현재 상태 | 다음 조치 |
+| --- | --- | --- |
+| LATER-CREDIT / FR-045·ADM-031 | 제작 참여 저장·공식 근거 검증·관리 UI·만든 곡 미구현 | 낮음. 기존 가창 participant와 별개로 추후 구현 |
+| LATER-PIN / FR-047·ADM-032 | 관리자 대표곡 pin·순서 지정 미구현 | 낮음. 초기 member page는 최근 공개 목록 사용 |
+| LATER-CORRECTION / FR-048·ADM-037 | 참여 정보 정정·승인/거절 미구현 | 낮음. 제작 참여 권위가 생긴 뒤 연결 |
+| ADM-009 | 관리자 가창 병합 UI/API/명령 없음 | 독립 보완. source·proposal/candidate 참조·직접 링크·감사·revision의 안전한 이관 설계 필요 |
+| FR-021 | 현재 재생 패널에 원곡 가수 표시 없음, 복원 performance 응답에도 해당 필드 없음 | 독립 보완. track/공개 DTO·복원·표시를 함께 수정 |
+| 운영 canary·공개/rollback | 과거 문서에 잔여 검증으로 기록 | 실제 운영 readback으로 별도 재확인. 기능 미구현으로 계산하지 않음 |
+
+ADM-009·FR-021의 미충족 근거는 `admin-catalog-repository.ts`의 create/update/delete/transition 명령,
+`now-playing-panel.tsx`와 `OtwPlayPublicPerformanceResponseDto`다. 전 기능 런타임 감사나
+운영 상태 재검증 결과로 확대 해석하지 않는다.
+
+### 29.6 착수 체크리스트와 closeout 인계
+
+- [x] 사용자 우선순위 DEC-079 및 사용자용 내부 탭 답변을 요구사항에 기록.
+- [x] 기존 DEC-052/058·P1A~C 전달 순서와 신규 요구의 충돌을 해소.
+- [x] NEXT-SEO와 NEXT-CUR의 실제 결과·초기 범위·파일 경계·완료 기준 정리.
+- [x] 낮은 기능과 후속 탭, 독립 미충족·운영 검증을 분리하고 기존 기록 보존.
+- [x] 관련 문서 5개의 local 문서 링크, 28/29절 앵커, DEC-079 우선순위·사용자 탭 범위,
+  신규 DEC/FR/TBD 정의 중복과 문서 외 변경 유무를 확인. `git diff --check` 통과.
+- [ ] 구현 착수 시 Git 상태/현재 코드와 실제 catalog 분포·flag를 다시 확인.
+- [x] NEXT-SEO: member 역할·count·공개 노출 계약을 DTO/쿼리에 명시하고 D1·HTTP 대표 사례 확인. 공개 실제 재생 검증의 제한은 30절 참조.
+- [ ] NEXT-CUR: 최초 템플릿·곡/페이지/후보 상한을 권장안과 실제 자료로 확정.
+- [ ] 변경 경계에 따라 worker-api-change → 필요 시 db-migration → release-ops 스킬 적용.
+- [ ] 실제 기능 구현·회귀·UI/HTTP/권위 readback 검증 및 별도 기능 closeout.
+
+다음 작업은 29.2 또는 29.3을 시작점으로 삼는다. 브랜치/PR을 만들 경우 저장소 기준에
+따라 변경을 격리하고 현재 문서 변경을 보존한다. 이 문서 closeout은 구현 실행·원격 DB
+변경·공개 flag 전환·배포·Git commit/push/merge를 자동 수행하라는 명령이 아니다.
+
+문서 검증은 링크/앵커·요구 ID·우선순위 일치·diff 공백 오류 확인으로 수행한다. 빌드·
+테스트·UI·운영 검증은 문서만 변경한 이번 closeout에서 실행한 것으로 보고하지 않는다.
+
+Closeout 결과: 2026-09-08 문서 재정리와 다음 개발 준비 완료. 수정 대상은 제품 요구사항,
+구현 가이드, 시스템 설계, UI/UX 설계, 멤버 노래책 조사 문서 5개다. 작업 트리에 문서
+변경을 보존했으며 기능 코드·DB·공개 설정·배포는 변경하지 않았다. commit/push/PR/merge는
+수행하지 않았다. 다음 구현은 NEXT-SEO 또는 NEXT-CUR의 실제 흐름 완성으로 이어간다.
+
+
+## 30. 개인 프로필·Play 멤버 SEO 통합 구현 — 2026-09-08
+
+### 30.1 확정 요구사항과 구현 경계
+
+- `/profile/{code}`: 멤버 소개와 공식 채널. 활성 프로필은 Play 공개 여부와 곡 수에 관계없이
+  `200`, `index,follow`, 사이트맵 포함이다. 미등록·비활성은 `404`, `noindex,nofollow`다.
+- `/play/members/{memberCode}`: 기존 Play shell 안의 가창 탐색 페이지다. 공개곡 0개도
+  `200` 빈 목록이며 0~2개는 `noindex,follow`, 3개 이상은 공개 읽기·내비게이션 flag와
+  catalog/read-model revision 일치 시 `index,follow`, 사이트맵·일반 링크를 허용한다.
+- 프로필과 Play 페이지는 각각 자기 URL을 canonical로 사용한다. 추적·검색·역할·정렬·cursor
+  query는 canonical에서 제외한다. 저장된 code 대소문자와 후행 slash를 정규화한다.
+- 메인 보컬·피처링의 distinct song 수와 distinct published performance 수가 기본 집계다.
+  가창은 `published` + `official_mv|official_video`, 곡은 미보관·미병합, 참여 entity는 미보관,
+  멤버는 활성 조건을 사용한다. 영상 재생 불가는 공개 철회와 구분한다.
+- 오리지널·커버는 각 가창의 relation이다. 한 곡의 서로 다른 가창이 양쪽 목록에 나올 수 있다.
+  협업은 `duet|unit|group|external_collab`이다. 코러스 필터는 기본 집계를 바꾸지 않는다.
+- 제작 참여·대표곡·정정·큐레이션·방송 가창·개인 감상은 이번 구현에서 제외했다.
+
+### 30.2 API·조회·화면
+
+| API | 응답 data | query / 캐시 |
+| --- | --- | --- |
+| `GET /api/play/members` | `members[]`: uid/code/name/oshiMark/unitName/imageUrl/songCount/performanceCount/pageEligible | query 없음, `no-store`, ETag 없음 |
+| `GET /api/play/members/:code/songbook` | `member`, 기존 public song summary `items[]` | q/category/participantRole/sort/limit/cursor만 허용, `no-store`, ETag 없음 |
+
+공통 envelope은 `data`, `nextCursor`, `catalogRevision`, `generatedAt`이다. category는
+`all|original|cover|collaboration`, 역할은 기본 보컬·피처링 또는 명시적
+`vocal|featured_vocal|chorus`, 정렬은 `recent|title`, limit은 기본 24·최대 60이다.
+query의 member override·알 수 없는 필드·중복 필드는 400이다. cursor는 경로 멤버·필터·정렬·
+revision에 귀속되며 변경되면 재사용할 수 없다. UI는 오래된 cursor 오류에서 처음 목록으로
+복구한다. 필터·검색·다음 목록을 URL로 관리하고 브라우저 뒤로가기로 복원한다.
+
+기존 DB 관계·인덱스를 재사용했으며 migration은 없다. 멤버 목록·사이트맵용 집계는 일괄
+SQL 조회이며 멤버 상세 API 반복 호출이 없다. 집계와 목록 조회 후 revision·공개 flag를
+재확인해 혼합 snapshot을 거절한다. 신규 멤버 HTML도 `no-store`다.
+
+발견 rail과 프로필의 `OTW Play에서 노래 듣기` 링크는 응답의 `pageEligible`을 사용한다.
+연결 상태 조회 실패 시 프로필 표시·SEO는 그대로 제공하고 Play 링크를 숨긴다. 프로필
+feature와 Play feature의 순환 의존을 피하기 위해 프로필 route에서 링크 UI를 주입한다.
+Play 페이지는 프로필 링크와 기존 곡 상세·버전·재생·다음 재생·마지막 추가를 제공한다.
+같은 Play shell의 player provider를 재사용하며 프로필 이동은 기존 provider 이탈 정리를 따른다.
+
+### 30.3 SEO와 검증 기록
+
+- 공통 `contracts/site-seo.ts` 생성 함수를 Worker HTML과 클라이언트가 사용한다.
+  프로필은 정렬된 첫 이미지/기존 webp fallback, 정규화된 소개/default 설명, h1을 제공한다.
+  OG·Twitter image는 절대 URL이며 이동 시 중복·이전 멤버 이미지가 남지 않는다.
+- D1·HTTP 회귀: 0/1/2/3곡, 동일 곡 다중 버전, 보컬·피처링·코러스, draft/withdrawn/broadcast/
+  archived 제외, 역할·협업·검색·정렬·cursor, 3→2곡과 revision 변경, 비활성·미등록을 검증했다.
+- SEO HTTP 회귀: 멤버 GET/HEAD·필터 없는 canonical·조건별 sitemap, 프로필의 Play 실패 독립성,
+  code/slash 301·이미지 fallback·public/navigation off를 검증했다.
+- UI/DOM 회귀: 분류·역할·정렬·검색·페이지 이동과 cursor 복구, 프로필↔Play metadata 교체를 확인했다.
+- 실제 로컬 데이터 revision 27은 공개 읽기·내비게이션이 모두 꺼져 있다. flag를 변경하지 않았다.
+  실제 프로필 GET/HEAD 200, 대소문자+slash 301, 미등록 404, Play 멤버 준비 HTML 200/noindex,
+  프로필 사이트맵 유지·Play 멤버 사이트맵 제외를 확인했다. 브라우저의 프로필 h1·소개·대표 이미지·
+  canonical·robots가 HTTP와 일치하고 OG/Twitter image는 각각 한 개임을 확인했다.
+- 기존 로컬 관리자 로그인 세션으로 preview에 진입했다. 공개 flag를 변경하지 않고 나츠키
+  페이지의 실제 공개 곡 1곡·가창 1개와 `QWER - BAD HABIT`을 확인했다. 코러스 필터에서는
+  `팬서비스 (ファンサ)`가 나타나고 상단/SEO count는 1곡으로 유지됐다.
+- 실제 YouTube 재생을 확인했다. 멤버 페이지 → 곡 상세 → 브라우저 뒤로가기에서 진행 시간이
+  0:15 → 0:24 → 0:47로 이어지고 큐가 유지됐다. 코러스 곡을 마지막 추가했을 때 큐가 2곡으로
+  늘고 기존 재생을 유지했다. 프로필 링크를 클릭하면 YouTube iframe이 제거되고 프로필
+  index/metadata가 복구됐다. 검증 중 추가한 큐 항목은 UI에서 모두 정리했다.
+- 모바일 폭 브라우저에서 필터·정렬·뒤로가기를 확인했다. 실제 발견한 필터 교체 시 포커스
+  유실을 수정했다. 같은 멤버의 요청 대기 중에는 header/controls를 유지하고 이전 목록은
+  inert로 표시한다. 다른 멤버·다른 공개/preview audience의 자료는 placeholder로 재사용하지 않는다.
+  수정 후 키보드 Home/End/Enter로 역할·정렬 변경 시 SELECT 포커스와 URL 선택값이 유지됐다.
+  390×844 화면에서 검색 입력을 독립 행으로 배치해 약 314px의 입력 폭을 확보했고 문서 가로
+  폭은 390px로 overflow가 없었다. 검증 후 viewport override를 복원했다.
+- 로컬 D1의 동일 공개 predicate로 직접 읽은 권위 집계는 나츠키 vocal 1곡/1가창,
+  chorus 1곡/1가창이다. 기본 노래책·SEO 1곡과 코러스 필터 결과가 실제 데이터와 일치했다.
+- 관리자 preview의 robots는 `noindex,nofollow`다. 익명 공개 상태의 프로필/발견 → 멤버 링크는
+  로컬 공개 flag가 꺼져 있어 실제로 열어 확인하지 않았다. 3곡 이상 공개 조건의 링크·사이트맵은
+  D1/HTTP·코드 검증으로 확인했으며 승인된 공개 환경의 최종 진입 확인을 운영 항목으로 남긴다.
+- 전체 preflight의 최종 결과는 아래 closeout에 기록한다. 원격 배포·공개 flag 변경은 수행하지 않는다.
+  검색 엔진의 실제 색인 반영은 배포 후 별도 운영 확인이다.
+
+
+### 30.4 구현 closeout과 다음 작업
+
+2026-09-08, `f692d83` 기반 작업 디렉터리에서 개인 프로필·Play 멤버 SEO 코드 구현과
+로컬 관리자 preview 검증을 완료했다. 기존 문서 변경을 보존했다. 커밋·PR·병합·원격 배포나
+공개 flag 변경은 수행하지 않았다. 새 테이블·migration도 없다.
+
+최종 Node.js 24.20.0 `pnpm preflight` PASS:
+
+- architecture check, test/Worker typecheck, lint 통과.
+- 단위·D1 통합을 포함한 267개 파일, 1,941개 테스트 통과.
+- 통합 coverage: statements 81.97%, branches 69.28%, functions 85.65%, lines 83.54%.
+- 애플리케이션/Worker build 및 SEO asset 생성 통과.
+- local D1 doctor 통과: catalog/read-model revision 27 일치, 공개 flag `0/0` 유지.
+- agent/cursor mirror 16개 파일 일치, drift 0. `git diff --check` 통과.
+
+테스트는 확정된 사용자 가창·공개 정책을 검증한다. 실제 필터 포커스 문제는 같은 화면에서
+수정·재검증했고 기존 곡 상세·단일 player 흐름을 우회하는 별도 실행 경로를 만들지 않았다.
+공개 노출은 기존 flag가 권위이며 테스트 통과를 공개 승인으로 해석하지 않는다.
+
+남은 작업:
+
+1. 운영 확인: 승인된 공개 환경에서 3곡 이상 멤버의 프로필/발견 진입 링크, 배포된 HTTP와
+   사이트맵, 검색 엔진 실제 색인 반영을 확인한다. 현재 구현의 공개 전환·배포는 별도 작업이다.
+2. 높음: `NEXT-CUR` 기본 큐레이션 — 발견의 멤버와 최근 곡 사이, 템플릿 선택 시 기존
+   대기열 마지막 일괄 추가와 결과 피드백. 개인 편집·저장은 후속 확장이다.
+3. 후속 구체화: 사용자용 OTW Play 내부의 방송 가창·개인 감상 탭.
+4. 낮음: 멤버 제작 참여·대표곡 지정·참여 정보 정정.
+5. 독립 backlog: 가창 병합, 재생 패널 원곡 가수 표시 및 기존 운영 canary.
+
+> 2026-09-14 확정: 원본·방송일 미확인 허용, 완곡/일부 구분, 승인 YouTube 키리누키, `/play/clips`, 현재 대기열 혼합·개인 저장 후속, noindex·공식 집계 제외. 노래 클립 채널과 방송 클립 채널의 개별 등록·삭제·수집 설정을 분리한다. 구현·검증과 운영 공개 상태는 [상세 기록](../otw-play-singing-clips-requirements-and-plan.md#11-구현검증-기록)을 따른다.
+
+
+### 2026-09-14 가져오기 관리 개선
+
+- 플레이리스트 가져오기 폼을 이력보다 위에 배치하고 펼치기/숨기기를 제공한다. 접어도 URL·범위·사전 확인 결과는 유지된다.
+- 각 이력의 `이력 삭제`에서 확인 후 `DELETE /api/play/admin/imports/:jobId`를 호출한다. 관리자 인증이 필수이며 진행 중이거나 메시지 재시도가 대기 중인 작업은 409로 거절한다.
+- 삭제는 `music_ingestion_events.history_deleted` 감사 이벤트를 사용하는 논리 삭제다. 이력 목록과 이전 가져오기 안내에서 제외하되 검수 후보·곡·출처 연결·중복 방지 기록을 보존한다. 같은 삭제 요청의 재전송은 성공으로 처리한다. 추가 DB 마이그레이션은 없다.
+- 실제 로그인한 관리자 브라우저 조작은 도구 초기화 오류로 미검증이며 운영 배포는 수행하지 않았다.
+
+
+> 2026-09-14 후속 확정: 관리자 작업별 5개 탭과 OTW Play 채널 통합, 노래 클립 플레이리스트 일괄 임시 등록을 적용한다. 이전 채널 탭 분리 안내보다 [관리자 작업 흐름 통합 기록](../otw-play-admin-workflow-integration.md)을 우선한다. 일반 방송 클립 채널의 독립 관리는 유지한다.
+# Gemini 자동 입력 구현·운영 추가 (2026-09-15)
+
+마이그레이션 `0092_perfect_manta.sql`, 전용 Queue와 Worker secret/환경 설정을 함께 준비한다. 기능은 기본 비활성화이며 기존 릴리스의 로컬 D1 검증·preflight·운영 마이그레이션·배포 순서를 따른다. 테스트 통과와 실제 Gemini 분석 품질 검증을 구분한다. 설정·복구·네 경로의 실사용 확인은 [Gemini 검수 자동 입력](../otw-play-ai-review.md)을 따른다.
+
+
+### 사용자 제안 분류·신청 흐름 (2026-09-15)
+
+- `0093_omniscient_sunset_bain.sql`은 proposal 유형·선택 방송 정보 컬럼만 추가한다. 기존 공식 커버 신청과 현재 로컬 데이터를 보존한다.
+- 사용자 영상 확인은 기존 YouTube metadata adapter와 quota ledger를 재사용하고 `OTW_PLAY_SUBMISSION_RATE_LIMITER`로 인증 사용자별 요청을 제한한다. 곡명 검색에는 YouTube 호출이 없다. 사용자 Gemini 호출은 추가하지 않는다.
+- 미확정 이름 입력·IME·대상 변경 후 늦은 응답·페이지 이탈 후 미저장 입력 폐기, 유형별 신청·수정·중복·관리자 승인·게시 조회를 검증한다. 클립 방송 정보는 신청 시 선택 사항이며, 승인 시 완곡 여부·검증된 종료·승인 클리퍼 채널이 필요하다.
+- migration chain 검증은 `pnpm d1:reset:local -- --validate-only`, 증분 적용은 `pnpm drizzle:migrate:local`을 사용한다. `pnpm preflight`와 실제 두 유형의 화면 흐름을 확인한다. 운영 반영은 기존 릴리스 절차를 따른다.
+
+#### 로컬 실사용 확인 (2026-09-15)
+
+- 실제 로그인 화면에서 공식 커버 `lOsLRObBkUE`와 노래 클립 `oYEWUGh-h2o`의 YouTube 제목·채널·길이를 조회하고, 각각 새 곡으로 신청했다. 원곡 가수 입력 중 `다음`을 눌러도 텍스트가 누락되지 않았다.
+- `내 제안 → 관리자 가져오기/검수의 사용자 제안 → 영상·채널 확인 → 승인·게시 → 내 제안의 게시 링크`를 두 유형 모두 확인했다. 공식 커버는 `/play/songs`, 클립은 `/play/clips`로 이동하고 실제 YouTube 재생이 진행됐다.
+- 로컬 D1의 승인 결과를 직접 조회해 공식 커버는 `official_video / cover / official`, 클립은 `broadcast / singing_clip / kirinuki`로 저장된 것을 확인했다. 클립은 구간 종료 검증을 위해 관리자가 `0–15초 / 일부 가창`으로 지정했다. 신청한 방송일 `2026-08-14`와 날짜 근거가 유지됐고, 게시 화면에 `온하루 노래 클립` 채널명이 표시됐다.
+- 390px 모바일 신청 화면에서 유형 카드·입력을 확인했다. 등록된 영상의 중복 안내와 URL 보존, 유형 변경 후 중복 차단을 확인했다. 기존 곡 연결·수정·철회·응답 경합 등 세부 회귀는 UI/API/D1 자동 검사로 보완한다.
+- 실제 확인은 로컬 관리자 미리보기 환경에서 수행했다. 공개 기능 설정과 운영 데이터는 변경하지 않았다. 위 두 승인 레코드는 로컬 검증 결과로 남아 있으며 클립의 15초 범위는 검증용이다. 운영 마이그레이션과 배포는 수행하지 않았다.

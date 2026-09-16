@@ -46,6 +46,9 @@ trigger: always_on
   implementation records are historical, not a dependency to restore.
 
 ## Product and Operational References
+- [Documentation index](../../docs/README.md) and
+  [development/operations status](../../docs/development-status.md) separate
+  current contracts, completed records, and remaining gates.
 - [Play requirements](../../docs/otw-play-product-requirements.md),
   [singing-clip decisions and implementation](../../docs/otw-play-singing-clips-requirements-and-plan.md),
   and [admin workflow](../../docs/otw-play-admin-workflow-integration.md).
@@ -57,7 +60,7 @@ trigger: always_on
   does not prove production flags, collection, or playback were verified.
 - AI review work in the current working tree must be checked for actual commit
   and deployment state before reporting it as released. The separate
-  [VOD AI technical review](../../docs/vod-ai-summary-highlight-technical-review.md)
+  [VOD AI technical review](../../docs/archive/vod-ai-summary-highlight-technical-review.md)
   contains proposals and feasibility limits, not an approved production contract.
 
 ## Key Directories

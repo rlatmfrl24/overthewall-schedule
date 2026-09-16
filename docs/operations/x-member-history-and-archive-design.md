@@ -11,7 +11,7 @@
 
 - 비용 최적화 rollout 전에는 2시간, 활성화 후 정상 상태에서는 30분마다 수집
   가능 여부를 확인한다. 상세 계약은
-  [`x-api-cost-minimization-design.md`](./x-api-cost-minimization-design.md)를 따른다.
+  [`x-api-cost-minimization-design.md`](x-api-cost-minimization-design.md)를 따른다.
 - 신규 소스는 `collection_started_at` 이후 게시물만 수집한다. 비활성화 후 다시 켤
   때도 재활성화 시각을 새 기준점으로 삼아 중지 기간을 소급하지 않는다.
 - 첫 요청은 `start_time`, 이후 요청은 `since_id`를 사용한다. optimizer 경로는
