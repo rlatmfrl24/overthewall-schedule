@@ -4,6 +4,7 @@ vi.mock("@/shared/lib/confirmation", () => ({ useConfirmation: () => confirmatio
 // @vitest-environment jsdom
 import { createElement, useState } from "react";
 import { ConsoleSearchContext, type ConsoleSearch } from "@/shared/lib/admin-console-search";
+import { UnsavedChangesContext } from "@/shared/lib/unsaved-changes";
 import {
   act,
   cleanup,
@@ -32,6 +33,7 @@ const deleteEntityMock = vi.hoisted(() => vi.fn());
 const createChannelMock = vi.hoisted(() => vi.fn());
 const lookupChannelMock = vi.hoisted(() => vi.fn());
 const updateChannelMock = vi.hoisted(() => vi.fn());
+const deleteChannelMock = vi.hoisted(() => vi.fn());
 const updateSongMock = vi.hoisted(() => vi.fn());
 const updatePerformanceMock = vi.hoisted(() => vi.fn());
 const preflightEntryMock = vi.hoisted(() => vi.fn());
@@ -69,6 +71,7 @@ vi.mock("../../api/admin", async (importOriginal) => {
     createOtwPlayChannel: createChannelMock,
     lookupOtwPlayChannel: lookupChannelMock,
     updateOtwPlayChannel: updateChannelMock,
+    deleteOtwPlayChannel: deleteChannelMock,
     updateOtwPlaySong: updateSongMock,
     updateOtwPlayPerformance: updatePerformanceMock,
     preflightOtwPlayCatalogEntry: preflightEntryMock,
@@ -166,6 +169,7 @@ describe("OtwPlayCatalogManager", () => {
     createChannelMock.mockReset();
     lookupChannelMock.mockReset();
     updateChannelMock.mockReset();
+    deleteChannelMock.mockReset();
     createChannelMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
     lookupChannelMock.mockResolvedValue({
       externalChannelId: `UC${"F".repeat(22)}`,
@@ -1124,7 +1128,7 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(screen.getByRole("button", { name: "동의 완료 키리누키 수정" }));
     fireEvent.click(screen.getByLabelText("채널 검수 상태"));
     fireEvent.click(await screen.findByRole("option", { name: "승인됨" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "카탈로그 source에 사용" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "이 채널 영상 사용 허용" }));
     fireEvent.click(screen.getByRole("button", { name: "채널 수정 저장" }));
 
     await waitFor(() => expect(updateChannelMock).toHaveBeenCalledWith({
@@ -2184,6 +2188,95 @@ describe("OtwPlayCatalogManager", () => {
       .toBeTruthy();
   });
 
+  it("ignores a registration return URL without an in-memory draft", async () => {
+    render(createElement(ConsoleSearchContext.Provider, { value: [{ tab: "channels", view: "channel-edit", from: "play-registration", channel: `UC${"Z".repeat(22)}` }, vi.fn()] },
+      createElement<NonNullable<Parameters<typeof OtwPlayCatalogManager>[0]>>(OtwPlayCatalogManager, { activeSection: "channels" })), { wrapper: createQueryWrapper() });
+    await screen.findByLabelText("YouTube channel ID");
+    expect(screen.getByLabelText("YouTube channel ID")).toHaveProperty("value", "");
+    expect(screen.queryByRole("button", { name: "작성 중인 곡으로 돌아가기" })).toBeNull();
+    expect(lookupChannelMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { kind: "official", failure: "none" }, { kind: "broadcast", failure: "none" },
+    { kind: "broadcast", failure: "approval" }, { kind: "broadcast", failure: "duplicate" },
+    { kind: "broadcast", failure: "version" }, { kind: "broadcast", failure: "recheck" },
+  ] as const)("registers and restores $kind with $failure failure handling", async ({ kind, failure }) => {
+    const channel = { id: "new-channel", externalChannelId: `UC${"N".repeat(22)}`, displayName: "신규 채널", provider: "youtube", channelRole: kind === "broadcast" ? "approved_kirinuki" : "project_official", verificationStatus: "pending", active: false, entityIds: [], version: 0 };
+    const preflight = { catalogRevision: 7, video: { videoId: "dQw4w9WgXcQ", title: "영상 제목", durationSeconds: 180, publishedAt: 1, availabilityStatus: "playable", thumbnailUrl: null, channelId: channel.externalChannelId, channelTitle: channel.displayName }, channel: { state: "unknown", catalogChannelId: null, verificationStatus: null, active: false, channelRole: null, memberUid: null }, duplicate: null };
+    preflightEntryMock.mockResolvedValue(preflight);
+    lookupChannelMock.mockResolvedValue({ externalChannelId: channel.externalChannelId, displayName: channel.displayName });
+    createChannelMock.mockImplementationOnce(async () => {
+      fetchCatalogMock.mockResolvedValue({ ...catalog, channels: [channel] });
+      if (failure === "duplicate") throw new Error("Channel already exists");
+      return { data: channel };
+    });
+    if (failure === "approval") updateChannelMock.mockRejectedValueOnce(new Error("Approval failed"));
+    if (failure === "version") updateChannelMock.mockImplementationOnce(async () => {
+      fetchCatalogMock.mockResolvedValue({ ...catalog, channels: [{ ...channel, channelRole: "member_music", version: 2 }] });
+      throw new Error("Version conflict");
+    });
+    updateChannelMock.mockImplementationOnce(async input => {
+      fetchCatalogMock.mockResolvedValue({ ...catalog, channels: [{ ...channel, ...input, version: 1 }] });
+      preflightEntryMock.mockResolvedValue({ ...preflight, channel: { ...preflight.channel, state: "approved", catalogChannelId: channel.id, verificationStatus: "approved", active: true, channelRole: channel.channelRole } });
+      return {};
+    });
+    function RegistrationPage() {
+      const [search, setSearch] = useState<ConsoleSearch>({ tab: "catalog", kind, q: "보존할 검색" });
+      return createElement(ConsoleSearchContext.Provider, { value: [search, patch => setSearch(current => ({ ...current, ...patch }))] }, createElement<NonNullable<Parameters<typeof OtwPlayCatalogManager>[0]>>(OtwPlayCatalogManager, { activeSection: search.tab === "channels" ? "channels" : "catalog" }));
+    }
+    render(createElement(RegistrationPage), { wrapper: createQueryWrapper() });
+    fireEvent.click(await screen.findByRole("button", { name: kind === "broadcast" ? "새 노래 클립 등록" : "새 영상 등록" }));
+    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    fireEvent.click(await screen.findByRole("button", { name: "이 채널 등록하기" }));
+    expect(await screen.findByLabelText("YouTube channel ID")).toHaveProperty("value", channel.externalChannelId);
+    await waitFor(() => expect(screen.getByLabelText("채널 표시명")).toHaveProperty("value", channel.displayName));
+    expect(screen.queryByText("등록된 채널")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "채널 등록" }));
+    await screen.findByRole("button", { name: "채널 수정 저장" });
+    expect(createChannelMock).toHaveBeenCalledWith(expect.objectContaining({ channelRole: channel.channelRole, externalChannelId: channel.externalChannelId }));
+    expect(updateChannelMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("combobox", { name: "채널 검수 상태" }));
+    fireEvent.click(await screen.findByRole("option", { name: "승인됨" }));
+    fireEvent.click(screen.getByLabelText("이 채널 영상 사용 허용"));
+    fireEvent.click(screen.getByRole("button", { name: "채널 수정 저장" }));
+    if (failure === "approval") {
+      await screen.findByText("채널을 저장하지 못했습니다. 입력은 유지되어 있으니 다시 시도하세요.");
+      expect(screen.getByLabelText("이 채널 영상 사용 허용").getAttribute("data-state")).toBe("checked");
+      fireEvent.click(screen.getByRole("button", { name: "채널 수정 저장" }));
+    }
+    if (failure === "version") {
+      await screen.findByText("다른 작업에서 저장된 최신 채널을 불러왔습니다. 승인 상태와 용도를 확인한 뒤 다시 저장하세요.");
+      expect(screen.getByRole("combobox", { name: "채널 역할" }).textContent).toContain("멤버 노래 채널");
+      expect(updateChannelMock).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole("combobox", { name: "채널 역할" }));
+      fireEvent.click(await screen.findByRole("option", { name: "승인 키리누키" }));
+      fireEvent.click(screen.getByRole("combobox", { name: "채널 검수 상태" }));
+      fireEvent.click(await screen.findByRole("option", { name: "승인됨" }));
+      fireEvent.click(screen.getByLabelText("이 채널 영상 사용 허용"));
+      fireEvent.click(screen.getByRole("button", { name: "채널 수정 저장" }));
+    }
+    if (failure === "recheck") {
+      await screen.findByRole("button", { name: "설정 완료 · 곡 등록으로 돌아가기" });
+      preflightEntryMock.mockRejectedValueOnce(new Error("Readback failed"));
+    }
+    fireEvent.click(await screen.findByRole("button", { name: "설정 완료 · 곡 등록으로 돌아가기" }));
+    if (failure === "recheck") {
+      await screen.findByRole("button", { name: "채널 상태 다시 확인" });
+      expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", true);
+      expect(screen.getByLabelText("YouTube URL")).toHaveProperty("value", "https://youtu.be/dQw4w9WgXcQ");
+      fireEvent.click(screen.getByRole("button", { name: "채널 상태 다시 확인" }));
+    }
+    await screen.findByText("채널 확인 완료 · 계속 입력하세요.");
+    expect(screen.getByLabelText("YouTube URL")).toHaveProperty("value", "https://youtu.be/dQw4w9WgXcQ");
+    expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", false);
+    expect(preflightEntryMock).toHaveBeenCalledTimes(failure === "recheck" ? 3 : 2);
+    expect(createChannelMock).toHaveBeenCalledTimes(1);
+    expect(createEntryMock).not.toHaveBeenCalled();
+  });
+
   it("opens the selected channel as a page and returns to the same review draft after saving", async () => {
     const channel = { id: "channel-1", externalChannelId: `UC${"A".repeat(22)}`, displayName: "검수 채널", provider: "youtube", channelRole: "approved_kirinuki", verificationStatus: "approved", active: true, entityIds: [], version: 3 };
     fetchCatalogMock.mockResolvedValue({ ...catalog, channels: [channel] });
@@ -2230,6 +2323,29 @@ describe("OtwPlayCatalogManager", () => {
     expect(source).toHaveProperty("value", "automatic");
     fireEvent.change(source, { target: { value: "playlist" } });
     expect(source).toHaveProperty("value", "playlist");
+  });
+
+  it("deletes a channel directly from its row after confirmation and refreshes the list", async () => {
+    const channel = { id: "delete-channel", provider: "youtube", externalChannelId: `UC${"D".repeat(22)}`, displayName: "삭제 대상", channelRole: "approved_kirinuki", verificationStatus: "pending", active: false, entityIds: [], version: 3 };
+    fetchCatalogMock.mockResolvedValue({ ...catalog, channels: [channel] });
+    deleteChannelMock.mockImplementation(async () => { fetchCatalogMock.mockResolvedValue(catalog); return { data: { id: channel.id }, catalogRevision: 8 }; });
+    renderCatalogManager();
+    fireEvent.click(await screen.findByRole("tab", { name: "채널" }));
+    fireEvent.click(await screen.findByRole("button", { name: "삭제 대상 채널 삭제" }));
+    await waitFor(() => expect(deleteChannelMock).toHaveBeenCalledWith(channel.id, { expectedVersion: 3 }));
+    expect(confirmationMock).toHaveBeenCalledWith(expect.objectContaining({ title: "삭제 대상 채널을 삭제할까요?" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "삭제 대상 채널 삭제" })).toBeNull());
+  });
+
+  it("keeps the channel when row deletion is cancelled", async () => {
+    fetchCatalogMock.mockResolvedValue({ ...catalog, channels: [{ id: "keep-channel", externalChannelId: `UC${"D".repeat(22)}`, displayName: "유지 대상", channelRole: "approved_kirinuki", verificationStatus: "pending", active: false, entityIds: [], version: 0 }] });
+    confirmationMock.mockResolvedValueOnce(false);
+    renderCatalogManager();
+    fireEvent.click(await screen.findByRole("tab", { name: "채널" }));
+    fireEvent.click(await screen.findByRole("button", { name: "유지 대상 채널 삭제" }));
+    await waitFor(() => expect(confirmationMock).toHaveBeenCalled());
+    expect(deleteChannelMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "유지 대상 채널 삭제" })).toBeTruthy();
   });
 
   it("unifies review and channel navigation and separates people from channels", async () => {
@@ -2320,20 +2436,101 @@ describe("OtwPlayCatalogManager", () => {
     );
   });
 
-  it("keeps karaoke broadcasts out of the current catalog command", async () => {
+  it("requires clip channel approval when switching to karaoke without losing the video", async () => {
     await openVideoRegistration();
     await screen.findByText(/멤버 채널 자동 인식/);
     fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /노래방송/ }));
 
     expect(
-      screen.getByText(/다곡·타임스탬프 연결 기능이 준비될 때까지/),
+      screen.getByRole("alert"),
     ).toBeTruthy();
     expect(
       (screen.getByRole("button", { name: /다음/ }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
     expect(createEntryMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /이전/ }));
+    expect(screen.getByLabelText("YouTube URL")).toHaveProperty("value", "https://youtu.be/dQw4w9WgXcQ");
+    expect(screen.getByText("확인된 영상")).toBeTruthy();
+  });
+
+  it("registers karaoke from the main catalog and continues with the next song segment", async () => {
+    const dirtyStates = new Map<string, boolean>();
+    const confirmDiscard = vi.fn();
+    preflightEntryMock.mockResolvedValue({ catalogRevision: 7,
+      video: { videoId: "dQw4w9WgXcQ", title: "방송 노래 모음", durationSeconds: 180, publishedAt: 1, availabilityStatus: "playable", thumbnailUrl: null, channelId: `UC${"K".repeat(22)}`, channelTitle: "승인 클립 채널" },
+      channel: { state: "approved", catalogChannelId: "clip-channel", verificationStatus: "approved", active: true, channelRole: "approved_kirinuki", memberUid: null }, duplicate: null });
+    render(createElement(UnsavedChangesContext.Provider, { value: {
+      register: (id, dirty) => { dirtyStates.set(id, dirty); }, confirm: confirmDiscard,
+    } }, createElement(OtwPlayCatalogManager)), { wrapper: createQueryWrapper() });
+    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
+    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "다음" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("checkbox", { name: "구간 선택" }));
+    fireEvent.change(screen.getByLabelText("시작 위치(초)"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText("종료 위치(초)"), { target: { value: "90" } });
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "다음" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    fireEvent.click(screen.getByRole("button", { name: /노래방송/ }));
+    expect(screen.queryByText(/지원하지 않습니다/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("기존 곡 검색"), { target: { value: "방송 첫 곡" } });
+    fireEvent.click(screen.getByRole("option", { name: /새 곡 입력/ }));
+    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), { target: { value: "원곡 가수" } });
+    fireEvent.click(screen.getByRole("button", { name: "외부 인물로 추가" }));
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    fireEvent.change(screen.getByLabelText("가창 참여자 검색"), { target: { value: "현재 멤버" } });
+    fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
+    fireEvent.change(screen.getByLabelText("방송일 (선택)"), { target: { value: "2026-09-15" } });
+    fireEvent.keyDown(screen.getByLabelText("가창 범위"), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "일부 가창" }));
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    expect(screen.getByText("방송 첫 곡")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "게시" })).toBeNull();
+    createEntryMock.mockRejectedValueOnce(new Error("저장 재시도"));
+    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "저장 재시도");
+    expect(screen.getByText("방송 첫 곡")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
+    await screen.findByText("노래방송 가창 구간을 임시 저장했습니다.");
+    expect([...dirtyStates.values()].some(Boolean)).toBe(false);
+    expect(screen.getByLabelText("카탈로그 영상 종류")).toHaveProperty("value", "official");
+    expect(createEntryMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      registrationMode: "standard", relationType: "singing_clip", releaseType: "broadcast", publicationTarget: "draft",
+      startSeconds: 10, endSeconds: 90, channel: { kind: "existing", channelId: "clip-channel" },
+      song: expect.objectContaining({ kind: "create", title: "방송 첫 곡", isOtwOriginal: false }),
+      broadcast: { performedOn: "2026-09-15", dateEvidence: null, originalUrl: null, extent: "partial" },
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "같은 영상의 다음 곡 추가" }));
+    expect([...dirtyStates.values()].some(Boolean)).toBe(true);
+    expect(screen.getByLabelText("시작 위치(초)")).toHaveProperty("value", "90");
+    expect(screen.getByLabelText("종료 위치(초)")).toHaveProperty("value", "180");
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "다음" })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    expect(screen.getByRole("button", { name: /노래방송/ }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.change(screen.getByLabelText("기존 곡 검색"), { target: { value: "방송 다음 곡" } });
+    fireEvent.click(screen.getByRole("option", { name: /새 곡 입력/ }));
+    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), { target: { value: "다음 원곡 가수" } });
+    fireEvent.click(screen.getByRole("button", { name: "외부 인물로 추가" }));
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    expect(screen.getByLabelText("방송일 (선택)")).toHaveProperty("value", "2026-09-15");
+    expect(screen.getByLabelText("가창 범위").textContent).toBe("확인 필요 — 게시 전 선택");
+    expect(screen.getByLabelText("현재 멤버 역할")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
+    await screen.findByText("노래방송 가창 구간을 임시 저장했습니다.");
+    expect(createEntryMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      registrationMode: "standard", relationType: "singing_clip", releaseType: "broadcast", startSeconds: 90, endSeconds: 180,
+      song: expect.objectContaining({ title: "방송 다음 곡" }),
+      broadcast: expect.objectContaining({ extent: null }),
+    }));
+    expect(screen.getByRole("button", { name: "같은 영상의 다음 곡 추가" })).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: "완료" }));
+    await waitFor(() => expect(screen.getByLabelText("카탈로그 영상 종류")).toHaveProperty("value", "broadcast"));
+    expect(confirmDiscard).not.toHaveBeenCalled();
   });
 
   it("requires an explicit owner before saving an unknown channel", async () => {

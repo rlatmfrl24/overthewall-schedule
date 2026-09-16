@@ -924,6 +924,7 @@ export interface OtwPlayMemberSubmissionDto {
     title: string;
     publicLinkAvailable: boolean;
   } | null;
+  approvedPerformanceDeleted?: boolean;
 }
 
 export interface OtwPlayMemberSubmissionPageDto {
@@ -1240,6 +1241,7 @@ export interface OtwPlayAdminProposalDto {
   reviewResultCode: string | null;
   reviewNote: string | null;
   approvedPerformanceId: string | null;
+  approvedPerformanceDeleted?: boolean;
   createdAt: number;
   participants: Array<{
     creditOrder: number;

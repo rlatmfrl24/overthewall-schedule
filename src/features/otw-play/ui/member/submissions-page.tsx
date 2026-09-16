@@ -222,7 +222,7 @@ export function OtwPlaySubmissionsPage() {
                 </Button>
               </div>
             ) : null}
-            {selectedDetail.approvedSong ? (
+            {selectedDetail.approvedPerformanceDeleted ? <p className="rounded-lg bg-muted p-3 text-sm">승인 이력은 보존되어 있으며, 연결된 카탈로그 가창은 삭제되었습니다.</p> : selectedDetail.approvedSong ? (
               selectedDetail.approvedSong.publicLinkAvailable ? (
                 <Link
                   to={selectedDetail.approvedSong.releaseType === "broadcast" ? "/play/clips/$songSlug" : "/play/songs/$songSlug"}

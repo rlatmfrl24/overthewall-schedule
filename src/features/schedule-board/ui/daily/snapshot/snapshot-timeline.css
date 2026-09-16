@@ -1,0 +1,89 @@
+/* Export-only palette: the public schedule and grid keep their own theme. */
+.snapshot-timetable {
+  --snapshot-canvas: #f6dfcc;
+  --snapshot-panel: #fffcf5;
+  --snapshot-ink: #302e2b;
+  --snapshot-muted: #70675e;
+  --snapshot-line: #ebdfd0;
+  --snapshot-coral: #f0ad8f;
+  --snapshot-coral-ink: #663626;
+  --snapshot-sage: #e5ebd9;
+  --snapshot-sage-ink: #48583a;
+  background: var(--snapshot-canvas);
+  color: var(--snapshot-ink);
+}
+
+.dark .snapshot-timetable {
+  --snapshot-canvas: #211e1c;
+  --snapshot-panel: #302b27;
+  --snapshot-ink: #fcf4e9;
+  --snapshot-muted: #c4b8aa;
+  --snapshot-line: #4b4139;
+  --snapshot-coral: #e9a082;
+  --snapshot-coral-ink: #48291f;
+  --snapshot-sage: #414b37;
+  --snapshot-sage-ink: #dce8cc;
+}
+
+.snapshot-timetable .snapshot-heading,
+.snapshot-timetable .snapshot-panel {
+  border: 1px solid var(--snapshot-line);
+  border-radius: 24px;
+  background: var(--snapshot-panel);
+}
+
+.snapshot-timetable .snapshot-heading {
+  border-left: 6px solid var(--snapshot-coral);
+}
+
+.snapshot-timetable .snapshot-logo {
+  box-sizing: content-box;
+  padding: 9px 11px;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.snapshot-timetable .snapshot-date {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--snapshot-coral);
+  color: var(--snapshot-coral-ink);
+}
+
+.snapshot-timetable .snapshot-updated,
+.snapshot-timetable .snapshot-footer,
+.snapshot-timetable .snapshot-table-heading {
+  color: var(--snapshot-muted);
+}
+
+.snapshot-timetable .snapshot-table-heading {
+  border-bottom: 1px solid var(--snapshot-line);
+}
+
+.snapshot-timetable .snapshot-rows > * + * {
+  border-top: 1px solid var(--snapshot-line);
+}
+
+.snapshot-timetable .snapshot-time {
+  padding: 9px 7px;
+  border-radius: 13px;
+  background: var(--snapshot-coral);
+  color: var(--snapshot-coral-ink);
+}
+
+.snapshot-timetable .snapshot-unit {
+  background: var(--snapshot-sage);
+  color: var(--snapshot-sage-ink);
+}
+
+.snapshot-timetable .snapshot-group-heading {
+  border-bottom: 1px solid var(--snapshot-line);
+}
+
+.snapshot-timetable .snapshot-unscheduled {
+  background: var(--snapshot-sage);
+}
+
+.snapshot-timetable .snapshot-unscheduled :is(h2, p, span, svg) {
+  color: var(--snapshot-sage-ink);
+}

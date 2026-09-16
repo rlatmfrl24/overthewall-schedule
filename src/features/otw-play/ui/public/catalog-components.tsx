@@ -1,8 +1,7 @@
 import { catalogResultDestination, type CatalogResultSong } from "../../model/catalog-result-song";
-import { BroadcastInformation } from "./broadcast-information";
-import { ClipProvenance } from "./clip-provenance";
+import { ClipperChip, ClipProvenance } from "./clip-provenance";
 import { Link } from "@tanstack/react-router";
-import { ArrowRight, CalendarDays, Check, Disc3, ListPlus, Play, StepForward } from "lucide-react";
+import { ArrowRight, CalendarDays, Check, Disc3, ExternalLink, ListPlus, Play, StepForward } from "lucide-react";
 import type {
   OtwPlayPublicParticipantDto,
   OtwPlayPublicPerformanceDetailDto,
@@ -129,7 +128,7 @@ export function OtwPlayPerformanceBadges({
 }: {
   performance: Pick<
     OtwPlayPublicPerformanceSummaryDto,
-    "relation" | "releaseType" | "participation" | "releasedAt"
+    "relation" | "releaseType" | "participation" | "releasedAt" | "broadcast"
   >;
   singleLine?: boolean;
 }) {
@@ -145,32 +144,43 @@ export function OtwPlayPerformanceBadges({
       )}
       aria-label="가창 및 공개 정보"
     >
-      <Badge
+      {performance.releaseType === "broadcast" && (
+        <Badge variant="outline" className="h-7 gap-1.5 border-primary/40 bg-primary/15 px-2.5 text-xs font-semibold tabular-nums text-primary">
+          <CalendarDays className="size-3.5" aria-hidden="true" />
+          {performance.broadcast?.performedOn ? <>가창일 <time dateTime={performance.broadcast.performedOn}>{performance.broadcast.performedOn}</time></> : "가창일 미확인"}
+        </Badge>
+      )}
+      {performance.relation !== "singing_clip" && <Badge
         variant="outline"
         className="h-6 border-primary/25 bg-primary/5 px-2 text-[11px] font-medium text-primary"
       >
         {performance.releaseType === "broadcast" && performance.relation === "cover" ? "커버 가창" : relationLabel[performance.relation]}
-      </Badge>
-      <Badge
+      </Badge>}
+      {performance.releaseType !== "broadcast" && <Badge
         variant="secondary"
         className="h-6 px-2 text-[11px] font-medium"
       >
         {releaseTypeLabel[performance.releaseType]}
-      </Badge>
+      </Badge>}
       <Badge
         variant="outline"
         className="h-6 px-2 text-[11px] font-medium text-muted-foreground"
       >
         {participationLabel[performance.participation]}
       </Badge>
-      <Badge
+      {performance.releaseType === "broadcast" && (
+        <Badge variant="outline" className="h-6 px-2 text-[11px] font-medium text-muted-foreground">
+          {performance.broadcast?.extent === "full" ? "완곡" : performance.broadcast?.extent === "partial" ? "일부 가창" : "가창 범위 미확인"}
+        </Badge>
+      )}
+      {performance.releaseType !== "broadcast" && <Badge
         variant="outline"
         className="h-6 gap-1 px-2 text-[11px] font-medium tabular-nums text-muted-foreground"
         aria-label={releasedAt ? `게시일 ${releasedAt}` : "게시일 미상"}
       >
         <CalendarDays className="size-3" aria-hidden="true" />
         {releasedAt ?? "게시일 미상"}
-      </Badge>
+      </Badge>}
     </div>
   );
 }
@@ -401,6 +411,7 @@ export function OtwPlaySongRow({
         ) : (
           <div className={cn("flex items-center justify-center text-xs text-muted-foreground", hero ? "h-full" : "aspect-video")}>썸네일 없음</div>
         )}
+        <ClipperChip performance={performance} />
       </div>
       <div
         className={cn(
@@ -448,12 +459,16 @@ export function OtwPlaySongRow({
             ) : null}
           </div>
         ) : null}
-        {performance.releaseType === "broadcast" && <>
-          <ClipProvenance performance={performance} />
-          <BroadcastInformation broadcast={performance.broadcast} showDate={false} />
-        </>}
+        {hero && performance.releaseType === "broadcast" && <ClipProvenance performance={performance} />}
         <div className={cn("play-song-actions flex flex-wrap items-center gap-2", !hero && "mt-auto pt-2.5")}>
           <OtwPlayPerformanceActions song={song} performance={performance} compact={!hero} />
+          {performance.releaseType === "broadcast" && performance.broadcast?.originalUrl && (
+            <Button asChild variant="outline" size={hero ? "default" : "sm"}>
+              <a href={performance.broadcast.originalUrl} target="_blank" rel="noopener noreferrer">
+                원본 방송 보기 <ExternalLink aria-hidden="true" />
+              </a>
+            </Button>
+          )}
           <Button asChild variant="outline" size={hero ? "default" : "sm"}>
             <Link {...catalogResultDestination(song)}>
               곡 상세 <ArrowRight />

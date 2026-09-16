@@ -766,7 +766,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       proposal.submitted_tags_json, proposal.submitted_note, proposal.status, proposal.version,
       proposal.submission_kind, proposal.submitted_broadcast_json,
       proposal.reviewed_by_user_id, proposal.reviewed_at, proposal.review_result_code,
-      proposal.review_note, proposal.approved_performance_id, proposal.created_at
+      proposal.review_note, proposal.approved_performance_id, proposal.created_at,
+      proposal.approved_performance_snapshot_json
       FROM music_cover_proposals AS proposal ${where}
       ORDER BY proposal.created_at ASC, proposal.id ASC`);
     const [proposalResult, participantResult, artistResult] =
@@ -800,6 +801,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       review_result_code: string | null;
       review_note: string | null;
       approved_performance_id: string | null;
+      approved_performance_snapshot_json: string | null;
       created_at: number;
     };
     type ProposalParticipantRow = {
@@ -838,6 +840,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       reviewResultCode: row.review_result_code,
       reviewNote: row.review_note,
       approvedPerformanceId: row.approved_performance_id,
+      approvedPerformanceDeleted: row.approved_performance_snapshot_json != null,
       createdAt: Number(row.created_at),
       participants: (participantMap.get(row.id) ?? []).map((item) => ({
         creditOrder: Number(item.credit_order),
@@ -1526,27 +1529,14 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         `SELECT
            EXISTS (
              SELECT 1 FROM music_songs WHERE merged_into_song_id = ?
-           ) AS has_merge_child,
-           EXISTS (
-             SELECT 1
-             FROM music_cover_proposals AS proposal
-             JOIN music_performances AS performance
-               ON performance.id = proposal.approved_performance_id
-             WHERE performance.song_id = ?
-           ) AS has_approved_proposal`,
+           ) AS has_merge_child`,
       )
-      .bind(id, id)
-      .first<{ has_merge_child: number; has_approved_proposal: number }>();
+      .bind(id)
+      .first<{ has_merge_child: number }>();
     if (protectedReference?.has_merge_child) {
       throw new AdminCatalogRepositoryError(
         "validation_failed",
         "A song used as a merge target cannot be deleted",
-      );
-    }
-    if (protectedReference?.has_approved_proposal) {
-      throw new AdminCatalogRepositoryError(
-        "validation_failed",
-        "A song linked to an approved proposal cannot be deleted",
       );
     }
 
@@ -1562,6 +1552,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       .all<{ source_id: string }>();
     const statements: D1PreparedStatement[] = [
       ...decrementGramStatsStatements(this.database, id),
+      ...this.archiveApprovedProposals("song_id", id, actor, eventId, now),
       this.database
         .prepare(
           `DELETE FROM music_performances
@@ -3245,6 +3236,46 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     return this.readPerformance(id);
   }
 
+  private archiveApprovedProposals(
+    scope: "id" | "song_id",
+    id: string,
+    actor: AdminCatalogActor,
+    eventId: string,
+    now: number,
+  ): D1PreparedStatement[] {
+    return [
+      this.database.prepare(`UPDATE music_cover_proposals AS proposal
+        SET approved_performance_snapshot_json = (
+          SELECT json_object(
+            'performanceId', performance.id, 'songId', song.id, 'songTitle', song.title,
+            'relationType', performance.relation_type, 'releaseType', performance.release_type,
+            'publicationStatus', performance.publication_status,
+            'broadcast', json(coalesce(performance.broadcast_metadata, 'null')),
+            'sources', json((SELECT json_group_array(json_object(
+              'sourceId', link.source_id, 'videoId', source.external_id,
+              'startSeconds', link.start_seconds, 'endSeconds', link.end_seconds))
+              FROM music_performance_sources AS link
+              JOIN music_media_sources AS source ON source.id = link.source_id
+              WHERE link.performance_id = performance.id)),
+            'deletedAt', CAST(? AS INTEGER), 'deletedBy', ?, 'deletionEventId', ?)
+          FROM music_performances AS performance
+          JOIN music_songs AS song ON song.id = performance.song_id
+          WHERE performance.id = proposal.approved_performance_id
+        ), approved_performance_id = NULL, version = version + 1, updated_at = ?
+        WHERE status = 'approved' AND approved_performance_id IN (
+          SELECT id FROM music_performances
+          WHERE ${scope} = ? AND publication_status IN ('draft', 'withdrawn')
+        )`).bind(now, actor.userId, eventId, now, id),
+      this.database.prepare(`INSERT INTO music_catalog_events
+        (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
+        SELECT ? || ':' || id, 'proposal', id, 'proposal.catalog_entry_deleted', 'admin', ?,
+          approved_performance_snapshot_json, ?
+        FROM music_cover_proposals
+        WHERE json_extract(approved_performance_snapshot_json, '$.deletionEventId') = ?`)
+        .bind(eventId, actor.userId, now, eventId),
+    ];
+  }
+
   async deletePerformance(
     id: string,
     expectedVersion: number,
@@ -3284,19 +3315,6 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         "Only draft or withdrawn performances can be deleted",
       );
     }
-    const approvedProposal = await this.database
-      .prepare(
-        `SELECT id FROM music_cover_proposals
-         WHERE approved_performance_id = ? LIMIT 1`,
-      )
-      .bind(id)
-      .first<{ id: string }>();
-    if (approvedProposal) {
-      throw new AdminCatalogRepositoryError(
-        "validation_failed",
-        "A performance linked to an approved proposal cannot be deleted",
-      );
-    }
     const sourceRows = await this.database
       .prepare(
         `SELECT source_id FROM music_performance_sources
@@ -3305,6 +3323,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       .bind(id)
       .all<{ source_id: string }>();
     const statements: D1PreparedStatement[] = [
+      ...this.archiveApprovedProposals("id", id, actor, eventId, now),
       this.database
         .prepare(
           `DELETE FROM music_performances

@@ -47,6 +47,7 @@ const OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES = [
   "0090_demonic_sugar_man.sql",
   "0091_tranquil_luke_cage.sql",
   "0093_omniscient_sunset_bain.sql",
+  "0094_reflective_spirit.sql",
 ] as const;
 const OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES = [
   ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.slice(0, 4),
@@ -98,7 +99,7 @@ export default defineConfig({
         ({ name }) =>
           !OTW_PLAY_HARDENING_MIGRATION_NAMES.includes(
             name as (typeof OTW_PLAY_HARDENING_MIGRATION_NAMES)[number],
-          ) && name !== OTW_PLAY_PERFORMANCE_TAGS_MIGRATION_NAME && name !== "0091_tranquil_luke_cage.sql",
+          ) && name !== OTW_PLAY_PERFORMANCE_TAGS_MIGRATION_NAME && name !== "0091_tranquil_luke_cage.sql" && name !== "0094_reflective_spirit.sql",
       );
       const otwPlayHardeningMigrations =
         OTW_PLAY_HARDENING_MIGRATION_NAMES.flatMap((name) => {

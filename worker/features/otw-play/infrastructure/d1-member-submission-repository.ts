@@ -37,6 +37,7 @@ type ProposalRow = {
   approved_song_archived_at: number | null;
   approved_song_merged_into_song_id: string | null;
   approved_performance_id: string | null;
+  approved_performance_snapshot_json: string | null;
   approved_performance_publication_status: string | null;
   approved_performance_release_type: "official_mv" | "official_video" | "broadcast" | null;
   approved_performance_has_public_source: number;
@@ -98,6 +99,7 @@ const proposalSelect = `SELECT proposal.id, proposal.idempotency_key,
   song.archived_at AS approved_song_archived_at,
   song.merged_into_song_id AS approved_song_merged_into_song_id,
   approved_performance.id AS approved_performance_id,
+  proposal.approved_performance_snapshot_json,
   approved_performance.publication_status AS approved_performance_publication_status,
   approved_performance.release_type AS approved_performance_release_type,
   EXISTS (
@@ -304,6 +306,7 @@ export class D1MemberSubmissionRepository
       version: Number(row.version),
       editable: row.status === "pending_review",
       withdrawable: row.status === "pending_review",
+      approvedPerformanceDeleted: row.approved_performance_snapshot_json != null,
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
       participants: (participants.get(row.id) ?? []).map((item) => ({

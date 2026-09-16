@@ -46,7 +46,7 @@ export function ReviewPublicationPreview({ videoId, title, originalArtists, song
         <div className="flex flex-col justify-center gap-4">
           <div><h4 className="play-detail-title text-2xl sm:text-3xl">{title.trim() || "곡명 미입력"}</h4><p className="mt-2 text-sm text-muted-foreground">원곡 가수 {originalArtists.join(", ") || "정보 없음"}</p></div>
           <div className="flex flex-wrap gap-1.5">{(primary.length ? primary : participants.slice(0, 1)).map(person => <Badge key={person.key} variant="outline">{person.label}</Badge>)}</div>
-          <div className="flex flex-wrap gap-2"><OtwPlaySongTags tags={songTags} /><OtwPlayPerformanceBadges performance={{ relation, releaseType, participation, releasedAt: publishedAt === null ? null : new Date(publishedAt).toISOString() }} /></div>
+          <div className="flex flex-wrap gap-2"><OtwPlaySongTags tags={songTags} /><OtwPlayPerformanceBadges performance={{ relation, releaseType, participation, broadcast: safeBroadcast, releasedAt: publishedAt === null ? null : new Date(publishedAt).toISOString() }} /></div>
         </div>
       </section>
       <article className="play-detail-version space-y-3 border bg-card p-4">

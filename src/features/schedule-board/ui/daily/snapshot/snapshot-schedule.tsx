@@ -9,6 +9,7 @@ import { SnapshotTimeline } from "./snapshot-timeline";
 import { ScheduleUpdatedAt } from "../../components/schedule-updated-at";
 import { useSnapshotFonts } from "./use-snapshot-fonts";
 import { SnapshotFontContext, SNAPSHOT_FONT_FAMILY, SYSTEM_FONT_FAMILY } from "./snapshot-fonts";
+import "./snapshot-timeline.css";
 
 interface SnapshotScheduleProps {
   date: string;
@@ -96,7 +97,7 @@ export const SnapshotSchedule = ({
         style={{ fontFamily: fontMode === "web" ? SNAPSHOT_FONT_FAMILY : SYSTEM_FONT_FAMILY }}
         className={cn(
           "inline-block bg-background text-foreground",
-          mode === "timeline" ? "bg-zinc-50 p-3 dark:bg-zinc-950" : "p-5",
+          mode === "timeline" ? "snapshot-timetable p-3" : "p-5",
         )}
       >
         <div
@@ -117,7 +118,7 @@ export const SnapshotSchedule = ({
           {mode === "timeline" ? (
             <>
               <SnapshotTimeline members={members} schedules={schedules} />
-              <footer className="flex items-center justify-between gap-3 px-1 pt-1 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400">
+              <footer className="snapshot-footer flex items-center justify-between gap-3 px-1 pt-1 text-[11px] leading-relaxed">
                 <span>한국시간(KST) 기준 · 일정은 변경될 수 있습니다</span>
                 <span className="shrink-0 font-semibold">otw-schedule.info</span>
               </footer>
@@ -156,9 +157,9 @@ function SnapshotHeader({
 }) {
   if (mode === "timeline") {
     return (
-      <header className="rounded-2xl border border-zinc-200 border-t-4 border-t-teal-600 bg-white px-5 py-4 dark:border-zinc-800 dark:border-t-teal-400 dark:bg-zinc-900">
+      <header className="snapshot-heading px-5 py-5">
         <div className="flex items-center justify-between gap-4">
-          <h1 className="text-[22px] font-bold leading-tight tracking-tight text-zinc-950 dark:text-zinc-50">
+          <h1 className="text-[22px] font-bold leading-tight tracking-tight">
             오늘의 편성표
           </h1>
           <img
@@ -166,11 +167,11 @@ function SnapshotHeader({
             width={76}
             height={25}
             alt="오버더월"
-            className="h-auto w-[76px] shrink-0"
+            className="snapshot-logo h-auto w-[76px] shrink-0"
           />
         </div>
         <p
-          className="mt-3 text-[20px] font-bold leading-snug tracking-tight text-teal-800 dark:text-teal-200"
+          className="snapshot-date mt-4 text-[20px] font-bold leading-snug tracking-tight"
           aria-label={`편성표 날짜 ${dateLabel}`}
         >
           <time dateTime={dateValue}>{dateLabel}</time>
@@ -178,7 +179,7 @@ function SnapshotHeader({
         <ScheduleUpdatedAt
           updatedAt={updatedAt}
           label="최종 편집"
-          className="mt-2 justify-start text-[11px] text-zinc-600 dark:text-zinc-400"
+          className="snapshot-updated mt-3 justify-start text-[11px]"
         />
       </header>
     );

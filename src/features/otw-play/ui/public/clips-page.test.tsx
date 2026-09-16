@@ -26,7 +26,7 @@ describe("노래 클립 탐색", () => {
     for (const view of ["그리드", "표 리스트", "카드"]) {
       fireEvent.click(screen.getByRole("button", { name: view }));
       expect(screen.getAllByRole("link").some(link => link.getAttribute("href") === "/play/clips/song?performance=clip-180")).toBe(true);
-      const provenance = view === "표 리스트" ? screen.getAllByRole("row").slice(1) : screen.getAllByLabelText("클립 출처 및 방송일");
+      const provenance = view === "표 리스트" ? screen.getAllByRole("row").slice(1) : screen.getAllByRole("article");
       if (view === "표 리스트") {
         expect(screen.getByRole("columnheader", { name: "클리퍼" })).toBeTruthy();
         expect(screen.getByRole("columnheader", { name: "방송일" })).toBeTruthy();
@@ -46,8 +46,8 @@ describe("노래 클립 탐색", () => {
     mocks.browse.mockReturnValue({ data: { pages: [{ data: { items: [{ song, performance }] } }] } });
     render(<OtwPlayClipsPage />);
     expect(mocks.browse).toHaveBeenCalledWith({ scope: "broadcast" });
-    expect(screen.getByText("방송일 미확인")).toBeTruthy();
-    expect(screen.getAllByText("미확인")).toHaveLength(1);
+    expect(screen.getByText("가창일 미확인")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "원본 방송 보기" })).toBeNull();
     expect(screen.getByText("일부 가창")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "재생" }));
     expect(mocks.play).toHaveBeenCalledWith({ song: expect.objectContaining(song), performance, source: performance.selectedSource });
@@ -75,9 +75,9 @@ describe("노래 클립 탐색", () => {
     render(<OtwPlayClipsPage />);
     for (const view of ["카드", "표 리스트", "그리드"]) {
       fireEvent.click(screen.getByRole("button", { name: view }));
-      const provenance = within(view === "표 리스트" ? screen.getAllByRole("row")[1] : screen.getByLabelText("클립 출처 및 방송일"));
+      const provenance = within(view === "표 리스트" ? screen.getAllByRole("row")[1] : screen.getByRole("article"));
       expect(provenance.getByText("클리퍼 미확인")).toBeTruthy();
-      expect(provenance.getByText("방송일 미확인")).toBeTruthy();
+      expect(provenance.getByText(view === "카드" ? "가창일 미확인" : "방송일 미확인")).toBeTruthy();
       expect(provenance.queryByText("2026-09-15")).toBeNull();
     }
   });
