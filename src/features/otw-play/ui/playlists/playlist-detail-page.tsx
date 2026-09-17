@@ -26,7 +26,7 @@ export function OtwPlayDefaultPlaylistPage({ playlistKey }: { playlistKey: strin
     {defaults.isError && <Button onClick={() => void defaults.refetch()}>다시 시도</Button>}<PlaylistBackButton /></div>;
   return <div className="playlist-page playlist-detail"><PlaylistBackButton /><header className="playlist-heading playlist-detail-heading"><div className="playlist-detail-artwork" data-playlist-hero={`/play/playlists/defaults/${encodeURIComponent(playlist.id)}`} data-hero-kind="detail"><img width={208} height={208} src={playlist.imageUrl || "/images/otw-play/glass-note.png"} alt="" onError={event => { if (!event.currentTarget.src.endsWith("/images/otw-play/glass-note.png")) event.currentTarget.src = "/images/otw-play/glass-note.png"; }} /></div><div className="playlist-detail-copy"><h1 data-playlist-hero-title>{playlist.title}</h1><p className="playlist-detail-description">{playlist.description}</p>
     <p className="playlist-detail-meta">기본 플레이리스트 · {playlist.songCount}곡 · 가창 {playlist.performanceCount}개 · 최신순</p></div><div className="playlist-detail-actions flex flex-wrap gap-2">
-      <Button disabled={actions.pending.includes(playlist.id)} onClick={() => actions.add(playlist.id, playlist.query, true, playlist.performanceCount)}>전체 대기열에 추가</Button>
+      <Button disabled={actions.pending.includes(playlist.id)} onClick={() => actions.add(playlist.id, playlist.query, true)}>전체 대기열에 추가</Button>
       <Button variant="outline" asChild><Link to="/play/playlists/new" search={{ from: playlist.id }}>내 목록으로 편집</Link></Button></div></header>
     <PlaylistFeedback actions={actions} playlistTitle={playlist.title} />
     {listing.isPending ? <PlaylistTracksSkeleton /> : listing.isError ? <Button onClick={() => void listing.refetch()}>가창 목록 다시 불러오기</Button> :

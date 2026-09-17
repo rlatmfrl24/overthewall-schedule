@@ -286,7 +286,7 @@ describe("OTW Play discover layout", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("keeps the dwell fill and four-second advance in sync through pause, resume and unmount", () => {
+  it("resumes dwell and never pauses cancelled effects on selection, disable or unmount", () => {
     vi.useFakeTimers();
     const animations: { pause: ReturnType<typeof vi.fn>; play: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn>; currentTime: number }[] = [];
     const animate = vi.fn(() => {
@@ -296,7 +296,7 @@ describe("OTW Play discover layout", () => {
     });
     const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate");
     Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
-    const view = render(<OtwPlayHomePage />);
+    const view = render(<AnimationProvider><OtwPlayHomePage /></AnimationProvider>);
     try {
       const banner = screen.getByRole("region", { name: "추천 배너" });
       expect(animate).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ duration: 4000, easing: "linear" }));
@@ -323,11 +323,21 @@ describe("OTW Play discover layout", () => {
       act(() => vi.advanceTimersByTime(1));
       expect(screen.getByRole("button", { name: "2번째 추천곡 보기" }).getAttribute("aria-current")).toBe("true");
       expect(animations[0].cancel).toHaveBeenCalledOnce();
-      view.unmount();
+      expect(animations[0].pause).toHaveBeenCalledTimes(2);
+      localStorage.setItem("otw-animations-enabled", "false");
+      fireEvent(window, new StorageEvent("storage", { key: "otw-animations-enabled" }));
       expect(animations[1].cancel).toHaveBeenCalledOnce();
-      expect(vi.getTimerCount()).toBe(0);
+      expect(animations[1].pause).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(12000));
+      expect(screen.getByRole("button", { name: "2번째 추천곡 보기" }).getAttribute("aria-current")).toBe("true");
+      localStorage.removeItem("otw-animations-enabled");
+      fireEvent(window, new StorageEvent("storage", { key: "otw-animations-enabled" }));
+      view.unmount();
+      expect(animations[2].cancel).toHaveBeenCalledOnce();
+      expect(animations[2].pause).not.toHaveBeenCalled();
     } finally {
       view.unmount();
+      localStorage.removeItem("otw-animations-enabled");
       if (original) Object.defineProperty(HTMLElement.prototype, "animate", original);
       else Reflect.deleteProperty(HTMLElement.prototype, "animate");
     }

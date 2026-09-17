@@ -59,7 +59,8 @@ export function useFeaturedCarousel(count: number) {
     return () => {
       window.clearTimeout(timer);
       remainingTime.current = Math.max(0, remainingTime.current - (performance.now() - startedAt));
-      animation?.pause();
+      // Selection/settings cleanup may already have cancelled this effect.
+      if (animation && progressAnimation.current === animation) animation.pause();
     };
   }, [count, selection, rotating, motionEnabled]);
 

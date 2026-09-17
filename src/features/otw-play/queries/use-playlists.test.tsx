@@ -19,18 +19,17 @@ describe("playlist asynchronous actions", () => {
     act(() => result.current.add("a", ["a"], true));
     await waitFor(() => expect(mocks.append).toHaveBeenCalledWith([], 0, true));
   });
-  it("tracks resolved items and clears progress after cancellation", async () => {
+  it("clears pending state and prevents appending after cancellation", async () => {
     let finish!: (value: typeof empty) => void;
     mocks.collect.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
     const { result } = renderHook(usePlaylistActions);
-    act(() => result.current.add("cover", { relation: "cover" }, true, 120));
+    act(() => result.current.add("cover", { relation: "cover" }, true));
     await waitFor(() => expect(mocks.collect).toHaveBeenCalledOnce());
-    expect(result.current.progress).toEqual({ completed: 0, total: 120 });
-    act(() => mocks.collect.mock.calls[0][2](60));
-    expect(result.current.progress).toEqual({ completed: 60, total: 120 });
+    expect(result.current.pending).toEqual(["cover"]);
+    const signal = mocks.collect.mock.calls[0][1].signal as AbortSignal;
     act(() => result.current.cancel());
-    act(() => mocks.collect.mock.calls[0][2](120));
-    expect(result.current.progress).toBeNull();
+    expect(signal.aborted).toBe(true);
+    expect(result.current.pending).toEqual([]);
     await act(async () => finish(empty));
     expect(mocks.append).not.toHaveBeenCalled();
   });
