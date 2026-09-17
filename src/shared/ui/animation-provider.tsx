@@ -1,8 +1,19 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { MotionConfig } from "motion/react";
 
 const STORAGE_KEY = "otw-animations-enabled";
-const AnimationContext = createContext({ enabled: true, setEnabled: (_enabled: boolean) => { void _enabled; } });
+const AnimationContext = createContext({ enabled: true, preferenceEnabled: true, setEnabled: (_enabled: boolean) => { void _enabled; } });
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
+function subscribeToReducedMotion(onChange: () => void) {
+  const media = window.matchMedia?.(REDUCED_MOTION_QUERY);
+  media?.addEventListener("change", onChange);
+  return () => media?.removeEventListener("change", onChange);
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia?.(REDUCED_MOTION_QUERY).matches ?? false;
+}
 
 function readPreference() {
   try {
@@ -13,7 +24,9 @@ function readPreference() {
 }
 
 export function AnimationProvider({ children }: { children: ReactNode }) {
-  const [enabled, updateEnabled] = useState(readPreference);
+  const [preferenceEnabled, updateEnabled] = useState(readPreference);
+  const reducedMotion = useSyncExternalStore(subscribeToReducedMotion, prefersReducedMotion, () => false);
+  const enabled = preferenceEnabled && !reducedMotion;
   useLayoutEffect(() => {
     document.documentElement.dataset.animations = enabled ? "enabled" : "disabled";
   }, [enabled]);
@@ -33,8 +46,8 @@ export function AnimationProvider({ children }: { children: ReactNode }) {
     }
   };
   return (
-    <AnimationContext.Provider value={{ enabled, setEnabled }}>
-      <MotionConfig reducedMotion={enabled ? "never" : "always"} transition={enabled ? undefined : { duration: 0 }}>
+    <AnimationContext.Provider value={{ enabled, preferenceEnabled, setEnabled }}>
+      <MotionConfig reducedMotion={enabled ? "user" : "always"} transition={enabled ? undefined : { duration: 0 }}>
         {children}
       </MotionConfig>
     </AnimationContext.Provider>

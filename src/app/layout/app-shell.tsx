@@ -334,7 +334,7 @@ function PublicUserMenu({
   side?: "top" | "bottom";
 }) {
   const { user } = useUser();
-  const { enabled, setEnabled } = useAnimations();
+  const { preferenceEnabled, setEnabled } = useAnimations();
   const displayName = user?.username || user?.fullName || user?.firstName || (user ? "회원" : "게스트");
 
   return (
@@ -382,7 +382,7 @@ function PublicUserMenu({
           <ModeToggle />
           <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-1 text-sm">
             애니메이션 활성화
-            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="애니메이션 활성화" />
+            <Switch checked={preferenceEnabled} onCheckedChange={setEnabled} aria-label="애니메이션 활성화" />
           </label>
         </div>
         <div className="border-t p-1.5">

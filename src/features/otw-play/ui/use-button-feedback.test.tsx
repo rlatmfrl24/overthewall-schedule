@@ -19,7 +19,7 @@ function Example({ onClick = () => undefined, disabled = false, localFeedback = 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal("PointerEvent", MouseEvent);
-  vi.stubGlobal("matchMedia", () => ({ matches: false }));
+  vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
   Object.defineProperty(SVGElement.prototype, "animate", { configurable: true, value: vi.fn() });
 });
 afterEach(() => {
@@ -64,12 +64,11 @@ it("leaves locally controlled player feedback alone for pointer and keyboard inp
   expect(animate).not.toHaveBeenCalled();
 });
 
-it("respects disabled controls and the user switch while ignoring OS motion preferences", () => {
+it("respects disabled controls and the user switch", () => {
   const view = render(<Example disabled />);
   fireEvent.pointerDown(screen.getByRole("button"), { button: 0 });
   expect(animate).not.toHaveBeenCalled();
   view.rerender(<Example />);
-  vi.stubGlobal("matchMedia", () => ({ matches: true }));
   fireEvent.pointerDown(screen.getByRole("button"), { button: 0 });
   expect(animate).toHaveBeenCalledTimes(1);
   view.unmount();
@@ -86,4 +85,16 @@ it("respects disabled controls and the user switch while ignoring OS motion pref
   fireEvent.pointerDown(screen.getByRole("button", { name: "재생" }), { button: 0 });
   expect(animate).toHaveBeenCalledTimes(1);
   localStorage.removeItem("otw-animations-enabled");
+});
+
+it("suppresses button animation under OS reduced motion without consuming the action", () => {
+  vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+  const onClick = vi.fn();
+  render(<AnimationProvider><Example onClick={onClick} /></AnimationProvider>);
+  const button = screen.getByRole("button", { name: "재생" });
+  fireEvent.pointerDown(button, { button: 0 });
+  fireEvent.keyDown(button, { key: "Enter" });
+  fireEvent.click(button);
+  expect(animate).not.toHaveBeenCalled();
+  expect(onClick).toHaveBeenCalledOnce();
 });

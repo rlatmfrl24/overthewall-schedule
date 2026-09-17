@@ -3,8 +3,21 @@
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
-@custom-variant motion-reduce (&:where([data-animations="disabled"], [data-animations="disabled"] *));
-@custom-variant motion-safe (&:where(:root:not([data-animations="disabled"]), :root:not([data-animations="disabled"]) *));
+@custom-variant motion-reduce {
+  @media (prefers-reduced-motion: reduce) {
+    @slot;
+  }
+  &:where([data-animations="disabled"], [data-animations="disabled"] *) {
+    @slot;
+  }
+}
+@custom-variant motion-safe {
+  @media (prefers-reduced-motion: no-preference) {
+    &:where(:root:not([data-animations="disabled"]), :root:not([data-animations="disabled"]) *) {
+      @slot;
+    }
+  }
+}
 
 /* Include portalled controls and pseudo-elements in the user motion preference. */
 html[data-animations="disabled"],
