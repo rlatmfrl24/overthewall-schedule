@@ -77,7 +77,7 @@ export function usePlaylistActions() {
           ? [{ ...item, source: item.performance.selectedSource }] : []);
         setMessage(append.current(tracks, result.unavailableIds.length + result.items.length - tracks.length, playFirst));
       } catch (error) {
-        if (!controller.signal.aborted) setMessage(error instanceof Error ? `추가하지 못했습니다. ${error.message}` : "다시 시도해 주세요.");
+        if (!controller.signal.aborted) setMessage(error instanceof Error ? `목록에 담지 못했어요. ${error.message}` : "목록에 담지 못했어요. 잠시 후 다시 시도해 주세요.");
       } finally {
         if (running.current.get(id) === controller) {
           running.current.delete(id); setPending([...running.current.keys()]);
@@ -87,6 +87,6 @@ export function usePlaylistActions() {
     };
     tail.current = tail.current.then(execute, execute);
   };
-  const cancel = () => { for (const controller of running.current.values()) controller.abort(); running.current.clear(); setPending([]); setProgress(null); setMessage("추가를 취소했습니다."); };
+  const cancel = () => { for (const controller of running.current.values()) controller.abort(); running.current.clear(); setPending([]); setProgress(null); setMessage("추가를 취소했어요. 원할 때 다시 담아 주세요."); };
   return { add, cancel, pending, message, progress };
 }

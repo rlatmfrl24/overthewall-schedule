@@ -26,8 +26,8 @@ export function PlaylistDetailSkeleton() {
   return <div className="space-y-4">
     <div role="status" aria-label="플레이리스트 정보 불러오는 중">
       <div aria-hidden="true" className="playlist-heading playlist-detail-heading">
-        <Skeleton className="h-16 w-24 shrink-0 motion-reduce:animate-none" />
-        <div className="playlist-detail-copy min-w-0 space-y-3"><Skeleton className="h-3 w-24 motion-reduce:animate-none" /><Skeleton className="h-8 w-3/4 max-w-80 motion-reduce:animate-none" /><Skeleton className="h-4 w-1/2 motion-reduce:animate-none" /></div>
+        <Skeleton className="playlist-detail-artwork motion-reduce:animate-none" />
+        <div className="playlist-detail-copy min-w-0 space-y-3"><Skeleton className="h-9 w-3/4 max-w-80 motion-reduce:animate-none" /><Skeleton className="h-4 w-1/2 motion-reduce:animate-none" /><Skeleton className="h-3 w-3/4 motion-reduce:animate-none" /></div>
         <div className="playlist-detail-actions flex flex-wrap gap-2"><Skeleton className="h-9 w-32 motion-reduce:animate-none" /><Skeleton className="h-9 w-24 motion-reduce:animate-none" /></div>
       </div>
     </div>

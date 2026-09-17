@@ -167,6 +167,10 @@ html[data-animations="disabled"] *::after {
 .otw-play-admin [data-slot="card-header"].border-b { padding-bottom: 8px; }
 .otw-play-admin [data-slot="card-header"] + [data-slot="card-content"] { padding-top: 0; }
 .otw-play-admin [data-slot="card-content"].p-0 { padding: 0; }
+.otw-play-review-page { padding-bottom: var(--review-footer-height, 100px); }
+.otw-play-review-page :is(input, textarea, button, [tabindex]) { scroll-margin-bottom: calc(var(--review-footer-height, 100px) + 20px); }
+.otw-play-review-footer { position: fixed; inset-inline: 0; bottom: 0; z-index: 20; padding-inline: var(--admin-content-padding); padding-bottom: env(safe-area-inset-bottom); background: var(--background); }
+@media (min-width: 768px) { .otw-play-review-footer { left: 216px; } }
 @media (max-width: 767px) {
   .admin-console button, .admin-console summary { min-height: 44px; }
   .admin-console td, .admin-console th { padding: 8px 6px; }

@@ -144,6 +144,7 @@ function Consumer() {
       <button type="button" onClick={() => player.enqueue(track)}>enqueue</button>
       <button type="button" onClick={() => player.enqueueBatch([track], 0, true)}>add playlist</button>
       <button type="button" onClick={() => player.enqueueBatch([], 0, true)}>add empty playlist</button>
+      <button type="button" onClick={() => player.enqueueBatch([track, track], 2)}>add mixed playlist</button>
       <button type="button" onClick={() => player.playNext(track)}>play next</button>
       <button
         type="button"
@@ -370,7 +371,9 @@ describe("OtwPlayPlayerProvider", () => {
     render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
     fireEvent.click(screen.getByRole("button", { name: "add empty playlist" }));
     expect(mocks.createPlayer).not.toHaveBeenCalled();
+    expect(screen.getByTestId("announcement").textContent).toBe("지금 담을 수 있는 가창이 없어요.");
     fireEvent.click(screen.getByRole("button", { name: "add playlist" }));
+    expect(screen.getByTestId("announcement").textContent).toBe("가창 1개를 재생 목록에 담았어요.");
     await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledWith({ videoId: track.source.externalId, startSeconds: 0 }));
     fireEvent.click(screen.getByRole("button", { name: "pause" }));
     mocks.controller.play.mockClear();
@@ -378,6 +381,17 @@ describe("OtwPlayPlayerProvider", () => {
     expect(mocks.controller.seekTo).toHaveBeenCalledWith(0);
     expect(mocks.controller.play).toHaveBeenCalledOnce();
     expect(screen.getByTestId("queue-size").textContent).toBe("1");
+    expect(screen.getByTestId("announcement").textContent).toBe("가창 1개는 이미 재생 목록에 있어요.");
+  });
+
+  it("reports added, duplicate and unavailable performances without counting them as songs added", () => {
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "add mixed playlist" }));
+    expect(screen.getByTestId("queue-size").textContent).toBe("1");
+    expect(screen.getByTestId("announcement").textContent).toBe(
+      "가창 1개를 재생 목록에 담았어요. 이미 담긴 1개는 그대로 두었어요. 재생할 수 없는 2개는 제외했어요.",
+    );
+    expect(mocks.createPlayer).not.toHaveBeenCalled();
   });
 
   it("resumes the paused current song from a catalog play action without reloading or duplicating it", async () => {

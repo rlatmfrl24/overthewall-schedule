@@ -138,6 +138,28 @@ describe("D1IngestionRepository", () => {
     await expect(repository.listReviewItems({ status: "ready", cursor: first.nextCursor! })).rejects.toMatchObject({ code: "validation_failed" });
   });
 
+  it("puts every ready candidate after unfinished reviews across page boundaries", async () => {
+    await db.batch(Array.from({ length: 103 }, (_, index) => db.prepare(`INSERT INTO music_ingestion_candidates
+      (id, provider, external_video_id, candidate_kind, status, classification, availability_status, first_discovered_at, last_discovered_at, retention_expires_at, version, created_at, updated_at)
+      VALUES (?, 'youtube', ?, 'official_video', ?, 'pending_metadata', 'unknown', ?, ?, ?, 0, ?, ?)`)
+      .bind(`rank-${index}`, String(index).padStart(11, "R"), index < 52 ? "needs_input" : "ready", NOW + index, NOW + index, NOW + 100000, NOW + index, NOW + index)));
+    const repository = new D1IngestionRepository(db);
+    const first = await repository.listReviewItems({ status: "pending" });
+    const second = await repository.listReviewItems({ status: "pending", cursor: first.nextCursor! });
+    const third = await repository.listReviewItems({ status: "pending", cursor: second.nextCursor! });
+    const items = [...first.items, ...second.items, ...third.items];
+    expect(items.map(item => item.id)).toEqual([
+      ...Array.from({ length: 52 }, (_, index) => `rank-${51 - index}`),
+      ...Array.from({ length: 51 }, (_, index) => `rank-${102 - index}`),
+    ]);
+    expect(third.nextCursor).toBeNull();
+    const ready = await repository.listReviewItems({ status: "ready" });
+    const readyNext = await repository.listReviewItems({ status: "ready", cursor: ready.nextCursor! });
+    expect([...ready.items, ...readyNext.items].map(item => item.id)).toEqual(items.slice(52).map(item => item.id));
+    const cursor = JSON.parse(atob(first.nextCursor!));
+    await expect(repository.listReviewItems({ status: "pending", cursor: btoa(JSON.stringify({ ...cursor, ready: 2 })) })).rejects.toMatchObject({ code: "validation_failed" });
+  });
+
   it("imports singing playlists using each upload channel, reuses songs, and exposes a deduplicated review inbox", async () => {
     const repository = new D1IngestionRepository(db);
     const created = await repository.createJob({ jobId: "clip-playlist", actorUserId: "admin-1", input: { ...input, candidateKind: "singing_clip" }, preflight, now: NOW });

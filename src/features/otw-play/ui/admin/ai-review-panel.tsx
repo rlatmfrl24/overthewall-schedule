@@ -98,6 +98,7 @@ export function AiReviewPanel({
   onSeek,
   compact = false,
   session,
+  segmentEnabled = false,
 }: {
   target: AiReviewTarget;
   videoId: string;
@@ -109,6 +110,7 @@ export function AiReviewPanel({
   onSeek?: (seconds: number) => void;
   compact?: boolean;
   session?: ReturnType<typeof useAiReviewSession>;
+  segmentEnabled?: boolean;
 }) {
   const client = useQueryClient();
   const localSession = useAiReviewSession(videoId);
@@ -172,6 +174,7 @@ export function AiReviewPanel({
   const apply = useCallback(
     (s: AiReviewSuggestion, field?: AiReviewField | "all") => {
       const copy = structuredClone(s);
+      if (!segmentEnabled) delete copy.values.segment;
       const classification = copy.values.classification;
       if (
         classification &&
@@ -192,7 +195,7 @@ export function AiReviewPanel({
         copy.values.song.existingSongId = songChoice;
       form.receive(copy, field);
     },
-    [form, candidateKind, songChoice],
+    [form, candidateKind, songChoice, segmentEnabled],
   );
   useEffect(() => {
     if (
@@ -238,6 +241,7 @@ export function AiReviewPanel({
   const suggestion = selected !== null ? result?.songs[selected] : null;
   const pending = launching || Boolean(data && isAiReviewPending(data.status));
   const unavailable = (field: AiReviewField) =>
+    (field === "segment" && !segmentEnabled) ||
     (candidateKind !== "singing_clip" &&
       ["broadcastDate", "originalUrl", "extent"].includes(field)) ||
     (field === "classification" &&
@@ -308,7 +312,7 @@ export function AiReviewPanel({
       )}
       <details className="text-xs text-muted-foreground">
         <summary className="cursor-pointer rounded focus-visible:outline focus-visible:outline-2">자동 입력·적용 안내</summary>
-        <p className="mt-1 leading-relaxed">새 분석은 미편집 항목만 자동 입력합니다. 기존 검수값·직접 수정한 값은 보호하며, 이전 결과는 자동 적용하지 않습니다. 일괄 적용은 기존 값을 바꾸며 되돌릴 수 있습니다. 저장은 별도로 진행하세요.</p>
+        <p className="mt-1 leading-relaxed">새 분석은 미편집 항목만 자동 입력합니다. 기존 검수값·직접 수정한 값은 보호하며, 이전 결과는 자동 적용하지 않습니다. 가창 구간은 ‘구간 선택’을 켠 경우에만 반영합니다. ‘지정 구간만 분석’은 분석 범위만 제한합니다. 일괄 적용은 기존 값을 바꾸며 되돌릴 수 있습니다. 저장은 별도로 진행하세요.</p>
       </details>
       {(error || recent.error || job.error) && (
         <p role="alert">{error ?? (recent.error ?? job.error)?.message}</p>
@@ -433,7 +437,9 @@ export function AiReviewPanel({
             <details key={field} className="min-w-0 rounded border bg-background p-2">
               <summary className="cursor-pointer rounded text-xs leading-relaxed focus-visible:outline focus-visible:outline-2">
                 <span className="font-medium">{labels[field]}</span>
-                {unavailable(field)
+                {field === "segment" && !segmentEnabled
+                  ? " · 구간 선택 후 적용할 수 있어요"
+                  : unavailable(field)
                   ? " · 현재 영상 종류에서는 적용 제외"
                   : form.applied.includes(field)
                     ? " · AI 제안 적용됨"

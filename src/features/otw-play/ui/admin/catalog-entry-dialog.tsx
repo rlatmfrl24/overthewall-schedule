@@ -506,7 +506,7 @@ export function CatalogEntryDialog({
       case "classification": {const v=value as AiReviewFields["classification"];if(!clip && v.releaseType!=="broadcast" && v.relationType!=="singing_clip"){setVideoKind(v.relationType);setReleaseType(v.releaseType);}break;}
       case "participationType":setParticipationType(value as OtwPlayParticipationType);break;
       case "performanceTags":setPerformanceTags(value as string[]);break;
-      case "segment":{const v=value as AiReviewFields["segment"];setStartSeconds(String(v.startSeconds));setEndSeconds(String(v.endSeconds));setSegmentEnabled(true);break;}
+      case "segment":{const v=value as AiReviewFields["segment"];setStartSeconds(String(v.startSeconds));setEndSeconds(String(v.endSeconds));break;}
       case "broadcastDate":setBroadcast(old=>({...old,...value as AiReviewFields["broadcastDate"]}));break;
       case "originalUrl":setBroadcast(old=>({...old,originalUrl:value as string}));break;
       case "extent":setBroadcast(old=>({...old,extent:value as "full"|"partial"}));break;
@@ -820,7 +820,7 @@ export function CatalogEntryDialog({
               <div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant={channelReady ? "outline" : "default"} disabled={saving || checking || channelRecheck === "checking" || aiSession.launching} onClick={() => onManageChannel({ externalChannelId: preflight.video.channelId, displayName: preflight.video.channelTitle, kind: clip ? "singing_clip" : "official_video", role: clip ? "approved_kirinuki" : channelRole })}>{preflight.channel.state === "unknown" ? "이 채널 등록하기" : preflight.channel.state === "pending" ? "승인 검토" : preflight.channel.state === "inactive" ? "영상 사용 설정" : preflight.channel.state === "revoked" ? "철회 상태 확인" : !channelReady ? "채널 용도 확인" : "채널 설정"}</Button>
               {channelRecheck === "failed" && <Button type="button" size="sm" variant="outline" onClick={() => void recheckChannel()}>채널 상태 다시 확인</Button>}</div>
             </div>}
-            {preflight && <AiReviewPanel compact session={aiSession} key={`${preflight.video.videoId}:${clip}`} target={{youtubeUrl,candidateKind:clip?"singing_clip":"official_video"}} videoId={preflight.video.videoId} candidateKind={clip?"singing_clip":"official_video"} durationSeconds={preflight.video.durationSeconds} initialRange={segmentEnabled && Number(endSeconds)>Number(startSeconds)?{startSeconds:Number(startSeconds),endSeconds:Number(endSeconds)}:null} form={ai} disabled={saving || checking || !open || channelUnverified} />}
+            {preflight && <AiReviewPanel compact segmentEnabled={segmentEnabled} session={aiSession} key={`${preflight.video.videoId}:${clip}`} target={{youtubeUrl,candidateKind:clip?"singing_clip":"official_video"}} videoId={preflight.video.videoId} candidateKind={clip?"singing_clip":"official_video"} durationSeconds={preflight.video.durationSeconds} initialRange={segmentEnabled && Number(endSeconds)>Number(startSeconds)?{startSeconds:Number(startSeconds),endSeconds:Number(endSeconds)}:null} form={ai} disabled={saving || checking || !open || channelUnverified} />}
             {step === 0 && (
               <>
                 <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
@@ -835,8 +835,9 @@ export function CatalogEntryDialog({
                         checked={segmentEnabled}
                         disabled={checking || channelRecheck === "checking"}
                         onCheckedChange={(checked) => {
-                          ai.touch("segment"); setSegmentEnabled(checked === true);
+                          setSegmentEnabled(checked === true);
                           if (checked !== true) {
+                            ai.touch("segment");
                             setStartSeconds("0");
                             setEndSeconds("");
                           }

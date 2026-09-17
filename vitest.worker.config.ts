@@ -216,6 +216,8 @@ export default defineConfig({
           compatibilityFlags: ["nodejs_compat"],
           d1Databases: ["otw_db"],
           bindings: {
+            MEMBER_POSTS_CAFE_MIGRATIONS: migrations.filter(({ name }) => /^(0024_|0036_|0039_)/.test(name))
+              .map(migration => ({ ...migration, queries: migration.queries.filter(query => !/^\s*CREATE INDEX `idx_x_/.test(query)) })),
             OTW_PLAY_PLAYLIST_MIGRATIONS: migrations.filter(({ name }) => ["0038_misty_speed_demon.sql", "0087_burly_midnight.sql", "0088_friendly_photon.sql"].includes(name)),
             SETTINGS_MIGRATIONS: migrations.filter(({ name }) =>
               /^(0011_|0038_|0086_)/.test(name)

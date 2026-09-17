@@ -28,14 +28,13 @@ export function PlaylistFeedback({ actions, playlistTitle }: {
       {busy ? <>
         <LoaderCircle aria-hidden="true" className="playlist-add-spinner size-5 shrink-0 motion-safe:animate-spin" />
         <div className="min-w-0">
-          <p className="break-keep text-sm font-semibold">플레이어에 플레이리스트를 추가하고 있어요</p>
+          <p className="break-keep text-sm font-semibold">재생 목록에 담고 있어요</p>
           <p className="playlist-add-title" title={playlistTitle}>{playlistTitle}</p>
         </div>
       </> : <>
         <Info aria-hidden="true" className="size-5 shrink-0" />
         <div className="min-w-0">
-          <p className="break-keep text-sm font-semibold">플레이리스트 추가 결과</p>
-          <p className="playlist-add-title">{actions.message}</p>
+          <p className="playlist-add-message">{actions.message}</p>
         </div>
       </>}
     </div>
@@ -48,11 +47,11 @@ export function DefaultPlaylistCard({ playlist }: { playlist: PlayDefaultPlaylis
   return <article className={`playlist-card ${playlist.query.relation ? "playlist-card-featured" : ""}`}>
     <Link className="playlist-card-main" to="/play/playlists/defaults/$playlistKey"
       params={{ playlistKey: playlist.id }} aria-label={`${playlist.title} 목록 보기`}>
-      <div className="playlist-art"><img src={playlist.imageUrl || "/images/otw-play/glass-note.png"} alt="" loading="lazy"
+      <div className="playlist-art" data-playlist-hero={`/play/playlists/defaults/${encodeURIComponent(playlist.id)}`} data-hero-kind="card"><img src={playlist.imageUrl || "/images/otw-play/glass-note.png"} alt="" loading="lazy"
         onError={event => { if (!event.currentTarget.src.endsWith("/images/otw-play/glass-note.png")) event.currentTarget.src = "/images/otw-play/glass-note.png"; }} /></div>
       <div className="playlist-card-copy">
         <span className="playlist-card-kicker">{member ? "멤버 가창곡" : "OTW PLAY COLLECTION"}</span>
-        <div className="playlist-card-title"><h3>{title}</h3><p>{playlist.description}</p></div>
+        <div className="playlist-card-title"><h3 data-playlist-hero-title>{title}</h3><p>{playlist.description}</p></div>
         <div className="playlist-card-footer"><span>{playlist.songCount}곡</span>
           <strong><span className="sr-only">목록 보기</span><ArrowUpRight aria-hidden="true" className="size-5" /></strong></div>
       </div>

@@ -5,6 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { useOtwPlayPlayer } from "../../player/play-player-context";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
 import { presentOtwPlayParticipants } from "../public/participant-presentation";
+import { usePlayerTransition } from "./use-player-transition";
 import "./apple-music-player.css";
 
 type Player = ReturnType<typeof useOtwPlayPlayer>;
@@ -51,13 +52,14 @@ export function AppleMusicPlayer({ player, editing, desktop, open, sectionRef, o
   const hasQueue = player.queue.items.length > 0;
   const nextRepeat = player.queue.repeat === "off" ? "all" : player.queue.repeat === "all" ? "one" : "off";
   const visible = desktop || open;
+  const launcherRef = usePlayerTransition(sectionRef, { open, desktop, editing, hasQueue, trackId: track?.performance.id ?? null });
   return <>
     <aside aria-label="OTW Play 재생 및 플레이큐" aria-hidden={editing || !hasQueue || undefined} inert={editing || !hasQueue}
       data-button-feedback="local" data-has-queue={hasQueue} data-presentation={desktop ? "rail" : open ? "full" : "launcher"}
       className="am-player-rail" style={editing ? { display: "none" } : undefined}>
-      <section hidden={!visible} data-player-presentation={open ? "full" : "launcher"} ref={sectionRef} className="am-player" aria-label="OTW Play 재생 플레이어" role={!desktop && open ? "dialog" : "region"}
+      <section hidden={!visible} aria-hidden={!visible || undefined} inert={!visible} data-player-presentation={open ? "full" : "launcher"} ref={sectionRef} className="am-player" aria-label="OTW Play 재생 플레이어" role={!desktop && open ? "dialog" : "region"}
         aria-modal={!desktop && open ? true : undefined} tabIndex={!desktop && open ? -1 : undefined} onKeyDown={onKeyDown}>
-        <header className="am-mobile-header">
+        <header className="am-mobile-header" data-player-enter>
           <IconButton icon="down" aria-label="카탈로그로 돌아가기" onClick={onClose} />
           <span>현재 재생</span><span aria-hidden="true" />
         </header>
@@ -66,12 +68,12 @@ export function AppleMusicPlayer({ player, editing, desktop, open, sectionRef, o
           <div className="am-now-playing" data-testid="otw-play-player-details">
             <div className="am-track-heading">
               <div className="am-track-copy">
-                <h2 data-testid="otw-play-track-title" title={track.song.title}>{track.song.title}</h2>
-                <p data-testid="otw-play-participants" title={names(track)}>{names(track)}</p>
+                <h2 data-player-hero="title" data-testid="otw-play-track-title" title={track.song.title}>{track.song.title}</h2>
+                <p data-player-hero="participants" data-testid="otw-play-participants" title={names(track)}>{names(track)}</p>
               </div>
-              <PlaybackWaveform status={player.status} />
+              <span data-player-enter><PlaybackWaveform status={player.status} /></span>
             </div>
-            <div className="am-timeline" data-testid="otw-play-playback-progress">
+            <div className="am-timeline" data-player-enter data-testid="otw-play-playback-progress">
               <span aria-label="진행 시간">{time(player.playbackPositionSeconds)}</span>
               <input type="range" aria-label="재생 위치" min={0} max={Math.max(1, player.playbackDurationSeconds)} step={1}
                 value={Math.min(player.playbackDurationSeconds, player.playbackPositionSeconds)} disabled={player.playbackDurationSeconds <= 0}
@@ -80,7 +82,7 @@ export function AppleMusicPlayer({ player, editing, desktop, open, sectionRef, o
                 onChange={event => player.seek(Number(event.currentTarget.value))} />
               <span aria-label="남은 시간">-{time(player.playbackDurationSeconds - player.playbackPositionSeconds)}</span>
             </div>
-            <div className="am-transport" role="group" aria-label="재생 컨트롤" data-testid="otw-play-transport-controls">
+            <div className="am-transport" data-player-enter role="group" aria-label="재생 컨트롤" data-testid="otw-play-transport-controls">
               <IconButton icon="shuffle" aria-label={player.queue.shuffled ? "랜덤 재생 끄기" : "랜덤 재생 켜기"} aria-pressed={player.queue.shuffled} disabled={player.queue.items.length < 2} onClick={player.shuffle} />
               <IconButton icon="previous" className="am-skip" aria-label="이전 항목" onClick={player.previous} />
               <PlaybackButton player={player} />
@@ -89,23 +91,23 @@ export function AppleMusicPlayer({ player, editing, desktop, open, sectionRef, o
                 aria-pressed={player.queue.repeat !== "off"} onClick={() => player.setRepeat(nextRepeat)} />
               <VolumeControl player={player} />
             </div>
-            {(player.status === "blocked" || player.status === "error") && <div className="am-error" role="alert">
+            {(player.status === "blocked" || player.status === "error") && <div className="am-error" data-player-enter role="alert">
               <p>{player.status === "blocked" ? "브라우저가 자동 재생을 차단했습니다." : "현재 소스를 재생하지 못했습니다."}</p>
               <button type="button" onClick={player.retryPlayback}>다시 시도</button>
             </div>}
           </div>
-        </> : <div className="am-loading">
+        </> : <div className="am-loading" data-player-enter>
           <MusicIcon name="queue" />
           <p>{player.currentItem ? player.retryableItemIds.has(player.currentItem.id) ? "가창 정보를 불러오지 못했습니다" : "가창 정보를 불러오는 중입니다" : "재생할 곡을 선택하세요"}</p>
           {player.currentItem && player.retryableItemIds.has(player.currentItem.id) && <button type="button" onClick={() => player.retry(player.currentItem!.id)}>다시 시도</button>}
         </div>}
-        <div className="am-queue-container">
+        <div className="am-queue-container" data-player-enter>
           <Queue player={player} desktop={desktop} />
         </div>
       </section>
-      {!desktop && !open && hasQueue && <div className="am-launcher" role="region" aria-label="소형 플레이어">
+      {!desktop && hasQueue && <div ref={launcherRef} className="am-launcher" data-open={open} aria-hidden={open || undefined} inert={open} role="region" aria-label="소형 플레이어">
         <button className="am-launcher-open" type="button" aria-label="Now Playing 화면 열기" onClick={onLaunch}>
-          <strong>{track?.song.title ?? "플레이큐"}</strong><small>{track ? names(track) : `${player.queue.items.length}곡`}</small>
+          <strong data-player-hero="title">{track?.song.title ?? "플레이큐"}</strong><small data-player-hero="participants">{track ? names(track) : `${player.queue.items.length}곡`}</small>
         </button>
         {track && <><PlaybackWaveform status={player.status} /><PlaybackButton player={player} compact onResume={onCompactResume} /></>}
       </div>}
@@ -211,6 +213,13 @@ function QueueItem({ player, item, index }: { player: Player; item: Player["queu
 }
 
 function VideoHost({ player }: { player: Player }) {
+  const track = player.currentTrack;
+  const sourceKey = `${player.currentItem?.id}:${track?.source.sourceId}`;
+  const [playedSource, setPlayedSource] = useState<string | null>(null);
+  useEffect(() => {
+    if (player.status === "playing") setPlayedSource(sourceKey);
+  }, [player.status, sourceKey]);
+  const showThumbnail = player.status === "idle" || (player.status !== "playing" && playedSource !== sourceKey);
   const ref = useRef<HTMLDivElement>(null);
   const setHost = player.setHostElement;
   useEffect(() => {
@@ -222,5 +231,9 @@ function VideoHost({ player }: { player: Player }) {
     setHost(host);
     return () => { setHost(null); container.replaceChildren(); };
   }, [setHost]);
-  return <div className="am-video" aria-label="YouTube 영상 플레이어"><div ref={ref} /></div>;
+  return <div className="am-video" data-player-enter aria-label="YouTube 영상 플레이어">
+    <div ref={ref} />
+    {showThumbnail && track && <OtwPlayThumbnail source={track.source} alt={`${track.song.title} 영상 썸네일`}
+      className="am-video-poster" loading="eager" width={640} height={360} />}
+  </div>;
 }

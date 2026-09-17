@@ -5,18 +5,22 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AnimationProvider, useAnimations } from "@/shared/ui/animation-provider";
 import { useButtonFeedback } from "./use-button-feedback";
 
+const { animate, cancel } = vi.hoisted(() => {
+  const cancel = vi.fn();
+  return { cancel, animate: vi.fn(() => ({ revert: cancel })) };
+});
+vi.mock("animejs/waapi", () => ({ waapi: { animate } }));
+
 function Example({ onClick = () => undefined, disabled = false, localFeedback = false }) {
   const feedback = useButtonFeedback();
   return <div {...feedback}><section data-button-feedback={localFeedback ? "local" : undefined}><button disabled={disabled} onClick={onClick}><svg aria-hidden="true"><path d="M0 0L1 1" /></svg>재생</button></section></div>;
 }
 
-const cancel = vi.fn();
-const animate = vi.fn(() => ({ finished: new Promise(() => undefined), cancel }));
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal("PointerEvent", MouseEvent);
   vi.stubGlobal("matchMedia", () => ({ matches: false }));
-  Object.defineProperty(SVGElement.prototype, "animate", { configurable: true, value: animate });
+  Object.defineProperty(SVGElement.prototype, "animate", { configurable: true, value: vi.fn() });
 });
 afterEach(() => {
   cleanup();
@@ -31,7 +35,7 @@ it("animates the SVG without consuming the button action and cancels on unmount"
   const button = screen.getByRole("button", { name: "재생" });
   fireEvent.pointerDown(button, { clientX: 45, clientY: 40, button: 0 });
   expect(animate).toHaveBeenCalledTimes(1);
-  expect(animate.mock.contexts[0]).toBe(button.querySelector("svg"));
+  expect(animate).toHaveBeenCalledWith(button.querySelector("svg"), expect.any(Object));
   fireEvent.click(button);
   expect(onClick).toHaveBeenCalledTimes(1);
   view.unmount();

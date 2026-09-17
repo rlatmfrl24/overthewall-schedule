@@ -19,6 +19,7 @@ import { fetchActiveMembers } from "@/features/members";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import { Checkbox } from "@/shared/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -109,6 +110,17 @@ export function SingingClipReviewDialog({
   const { toast } = useToast();
   const id = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const pageRef = useRef<HTMLElement>(null);
+  const footerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (presentation !== "page" || !active || !pageRef.current || !footerRef.current || typeof ResizeObserver === "undefined") return;
+    const page = pageRef.current, footer = footerRef.current;
+    const reserveFooterSpace = () => page.style.setProperty("--review-footer-height", `${footer.getBoundingClientRect().height}px`);
+    reserveFooterSpace();
+    const observer = new ResizeObserver(reserveFooterSpace);
+    observer.observe(footer);
+    return () => observer.disconnect();
+  }, [presentation, active]);
   useEffect(() => { if (presentation === "page" && active) headingRef.current?.focus(); }, [presentation, active]);
   const membersQuery = useQuery({
     queryKey: queryKeys.members.active(),
@@ -128,6 +140,7 @@ export function SingingClipReviewDialog({
     useState<OtwPlayParticipationType>("solo");
   const [startSeconds, setStartSeconds] = useState("0");
   const [endSeconds, setEndSeconds] = useState("");
+  const [segmentEnabled, setSegmentEnabled] = useState(false);
   const [internalNote, setInternalNote] = useState("");
   const [releaseType, setReleaseType] = useState<"official_video" | "official_mv">("official_video");
   const [previewSeconds, setPreviewSeconds] = useState(0);
@@ -150,7 +163,7 @@ export function SingingClipReviewDialog({
   const ai = useAiReviewForm(candidate?.candidateId ?? "", {
     song: [songId, songTitle, originalArtists, songTags], participants,
     classification: [relationType, releaseType], participationType, performanceTags,
-    segment: [startSeconds, endSeconds], broadcastDate: [broadcast.performedOn, broadcast.dateEvidence], originalUrl: broadcast.originalUrl, extent: broadcast.extent,
+    segment: [startSeconds, endSeconds, segmentEnabled], broadcastDate: [broadcast.performedOn, broadcast.dateEvidence], originalUrl: broadcast.originalUrl, extent: broadcast.extent,
   }, (field, value) => {
     setDirty(true);
     switch(field) {
@@ -217,6 +230,7 @@ export function SingingClipReviewDialog({
     setReleaseType(input?.releaseType === "official_mv" ? "official_mv" : "official_video");
     setParticipationType(input?.participationType ?? "solo");
     setStartSeconds(String(input?.startSeconds ?? 0));
+    setSegmentEnabled(Boolean(input?.startSeconds || input?.endSeconds !== null && input?.endSeconds !== undefined));
     setEndSeconds(
       input?.endSeconds === null || input?.endSeconds === undefined
         ? ""
@@ -418,7 +432,7 @@ export function SingingClipReviewDialog({
             {candidate.catalogChannelId === null && <p role="status" className="text-sm text-destructive">업로드 채널 승인이 필요합니다. 채널 설정을 확인한 뒤 검수를 저장하세요.</p>}
             {candidate.availabilityStatus !== "playable" && <p role="status" className="text-sm text-destructive">현재 재생 가능 여부를 확인해야 저장할 수 있습니다.</p>}
             {onManageChannel && <Button variant="outline" disabled={saving} onClick={onManageChannel}>채널 승인·수집 설정</Button>}
-            <AiReviewPanel key={`${candidate.candidateId}:${candidateKind}`} target={{candidateId:candidate.candidateId}} videoId={candidate.videoId} candidateKind={candidateKind} durationSeconds={durationSeconds} initialRange={parsedEnd!==null?{startSeconds:parsedStart,endSeconds:parsedEnd}:null} form={ai} disabled={saving || !active || ["converted","ignored"].includes(candidate.status)} onSeek={presentation==="page"?setPreviewSeconds:undefined} />
+            <AiReviewPanel segmentEnabled={segmentEnabled} key={`${candidate.candidateId}:${candidateKind}`} target={{candidateId:candidate.candidateId}} videoId={candidate.videoId} candidateKind={candidateKind} durationSeconds={durationSeconds} initialRange={parsedEnd!==null?{startSeconds:parsedStart,endSeconds:parsedEnd}:null} form={ai} disabled={saving || !active || ["converted","ignored"].includes(candidate.status)} onSeek={presentation==="page"?setPreviewSeconds:undefined} />
             </aside>
             <fieldset disabled={saving} className="min-w-0 space-y-6">
             <section className="grid gap-3 sm:grid-cols-2">
@@ -545,14 +559,18 @@ export function SingingClipReviewDialog({
 
             <section className="grid gap-3 border-t pt-4 sm:grid-cols-2">
               <h3 className="text-base font-semibold sm:col-span-2">{candidateKind === "singing_clip" ? "3. 방송 출처·가창 구간" : "3. 영상 재생 구간"}</h3>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label className="flex items-center gap-2"><Checkbox checked={segmentEnabled} onCheckedChange={checked => { setSegmentEnabled(checked === true); if (!checked) { ai.touch("segment"); setStartSeconds("0"); setEndSeconds(""); } setDirty(true); }} />구간 선택</Label>
+                <p className="text-xs text-muted-foreground">전체 영상은 선택하지 않아도 돼요. 선택한 경우에만 AI의 시작·종료 위치를 반영합니다.</p>
+              </div>
             {candidateKind === "singing_clip" && <div className="sm:col-span-2"><BroadcastFields flat value={broadcast} onChange={value => { if (value.performedOn !== broadcast.performedOn || value.dateEvidence !== broadcast.dateEvidence) ai.touch("broadcastDate"); if(value.originalUrl !== broadcast.originalUrl) ai.touch("originalUrl"); if(value.extent !== broadcast.extent) ai.touch("extent"); setBroadcast(value); setDirty(true); }} /></div>}
               <div className="space-y-1.5">
                 <Label htmlFor={`${id}-clip-start-seconds`}>시작 위치(초)</Label>
-                <Input id={`${id}-clip-start-seconds`} type="number" min={0} value={startSeconds} onChange={(event) => { ai.touch("segment"); setStartSeconds(event.target.value); }} />
+                <Input id={`${id}-clip-start-seconds`} type="number" min={0} value={startSeconds} onChange={(event) => { ai.touch("segment"); setSegmentEnabled(true); setStartSeconds(event.target.value); }} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={`${id}-clip-end-seconds`}>종료 위치(초)</Label>
-                <Input id={`${id}-clip-end-seconds`} type="number" min={0} value={endSeconds} onChange={(event) => { ai.touch("segment"); setEndSeconds(event.target.value); }} placeholder="전체 영상이면 비워두기" />
+                <Input id={`${id}-clip-end-seconds`} type="number" min={0} value={endSeconds} onChange={(event) => { ai.touch("segment"); setSegmentEnabled(true); setEndSeconds(event.target.value); }} placeholder="전체 영상이면 비워두기" />
               </div>
             </section>
             <section className="space-y-3 border-t pt-4">
@@ -581,7 +599,8 @@ export function SingingClipReviewDialog({
         {presentation === "page" && candidate && !saving && (!songValid || participants.length === 0 || !segmentValid) && <p role="status" className="text-sm text-muted-foreground">
           저장 전 확인: {[!songValid ? "곡명·원곡 가수 또는 기존 곡 선택" : null, participants.length === 0 ? "가창 참여자 선택" : null, !segmentValid ? "영상 길이 안의 시작·종료 위치" : null].filter(Boolean).join(" · ")}
         </p>}
-        <Footer className="sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-2 border-t bg-background py-3">
+        <div ref={footerRef} className={presentation === "page" ? "otw-play-review-footer" : "sticky bottom-0 z-10"}>
+        <Footer className="flex flex-wrap items-center justify-end gap-2 border-t bg-background py-3">
           {presentation === "page" && <p className="mr-auto text-xs text-muted-foreground">{dirty ? "작성 중인 내용은 목록으로 돌아가도 유지됩니다." : "공개는 카탈로그에서 별도로 진행합니다."}</p>}
           <Button variant="outline" disabled={saving} onClick={async () => { if (presentation === "page" || await canDiscard()) onOpenChange(false); }}>{presentation === "page" ? "목록으로" : "취소"}</Button>
           <Button disabled={!canSave} onClick={() => void save()}>
@@ -589,9 +608,10 @@ export function SingingClipReviewDialog({
             {reviewOnly ? "검수 저장 · 등록 준비 완료" : "검수 완료 후 임시 등록"}
           </Button>
         </Footer>
+        </div>
     </>
   );
-  if (presentation === "page") return <section aria-label={`${candidateKind === "singing_clip" ? "노래 클립" : "공식 영상"} 검수 화면`} className="space-y-5">{content}</section>;
+  if (presentation === "page") return <section ref={pageRef} aria-label={`${candidateKind === "singing_clip" ? "노래 클립" : "공식 영상"} 검수 화면`} className="otw-play-review-page space-y-5">{content}</section>;
   return <Dialog open={candidate !== null} onOpenChange={async (next) => { if (next || (!saving && await canDiscard())) onOpenChange(next); }}>
     <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">{content}</DialogContent>
   </Dialog>;

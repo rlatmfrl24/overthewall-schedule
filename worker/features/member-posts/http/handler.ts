@@ -2,6 +2,7 @@ import { authenticateRequest, requireAdminUser } from "../../../platform/auth";
 import { badRequest, json, methodNotAllowed } from "../../../platform/http-helpers";
 import type { Env } from "../../../platform/types";
 import type { GetMemberPosts } from "../application/get-member-posts";
+import type { MemberPostsPageRequest } from "@contracts/member-posts";
 
 const parseBoundedInt = (
   value: string | null,
@@ -61,6 +62,31 @@ export const createMemberPostsHandler =
       return badRequest("size must be an integer between 5 and 20");
     }
 
+    let page: MemberPostsPageRequest | undefined;
+    if (url.searchParams.get("page") === "1") {
+      page = {};
+      const member = url.searchParams.get("memberUid");
+      if (member !== null) {
+        const uid = parseBoundedInt(member, 0, 1, Number.MAX_SAFE_INTEGER);
+        if (!uid) return badRequest("memberUid must be a positive integer");
+        page.memberUid = uid;
+      }
+      const cursor = url.searchParams.get("cursor");
+      if (cursor !== null) {
+        try {
+          if (cursor.length > 512) throw new Error("Invalid cursor");
+          const value = JSON.parse(cursor);
+          if (!value || typeof value.createdAt !== "string" ||
+            !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value.createdAt) ||
+            !Number.isFinite(Date.parse(value.createdAt)) || typeof value.id !== "string" ||
+            !/^(x|cafe):[\w:-]{1,200}$/.test(value.id)) throw new Error("Invalid cursor");
+          page.cursor = { createdAt: value.createdAt, id: value.id };
+        } catch { return badRequest("Invalid member posts cursor"); }
+      }
+    } else if (url.searchParams.has("cursor") || url.searchParams.has("memberUid")) {
+      return badRequest("cursor and memberUid require page=1");
+    }
+
     const adminView = url.searchParams.get("admin") === "1";
     const compact =
       url.searchParams.get("compact") === "1" ||
@@ -91,6 +117,7 @@ export const createMemberPostsHandler =
       maxResults,
       size,
       configs,
+      ...(page ? { page } : {}),
     });
     return json(result.body, 200, {
       headers: { "Cache-Control": result.cacheControl },

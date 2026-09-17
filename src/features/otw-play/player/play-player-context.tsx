@@ -817,7 +817,16 @@ export function OtwPlayPlayerProvider({
         }
       }
     }
-    const summary = `${additions.length}개 가창 추가 · 중복 ${incoming.length - additions.length}개 · 재생 불가 ${unavailableCount}개 제외`;
+    const duplicateCount = incoming.length - additions.length;
+    const summary = [
+      additions.length > 0
+        ? `가창 ${additions.length}개를 재생 목록에 담았어요.`
+        : duplicateCount > 0
+          ? `가창 ${duplicateCount}개는 이미 재생 목록에 있어요.`
+          : "지금 담을 수 있는 가창이 없어요.",
+      additions.length > 0 && duplicateCount > 0 ? `이미 담긴 ${duplicateCount}개는 그대로 두었어요.` : "",
+      unavailableCount > 0 ? `재생할 수 없는 ${unavailableCount}개는 제외했어요.` : "",
+    ].filter(Boolean).join(" ");
     setAnnouncement(summary);
     return summary;
   }, [dispatch, playbackDisabled, requestPlayback]);

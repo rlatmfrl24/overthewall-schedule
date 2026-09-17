@@ -20,6 +20,7 @@ vi.mock("@tanstack/react-router", () => ({
     ({ children, to, ...props }, ref) => <a ref={ref} href={to} {...props}>{children}</a>,
   ),
   useNavigate: () => mocks.navigate,
+  useRouter: () => ({ subscribe: () => () => {} }),
   useRouterState: ({ select }: { select: (state: { location: { pathname: string } }) => unknown }) => select({ location: { pathname: mocks.pathname } }),
 }));
 vi.mock("@clerk/clerk-react", () => ({
@@ -69,6 +70,11 @@ function ChildCatalogRequest() {
 describe("OtwPlayShell config gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
     mocks.pathname = "/play/songs";
     mocks.providerModes.length = 0;
     mocks.playerModes.length = 0;
@@ -206,6 +212,43 @@ describe("OtwPlayShell config gate", () => {
       fireEvent.submit(screen.getByRole("search", { name: "OTW Play 빠른 검색" }));
       expect(mocks.navigate).toHaveBeenCalledWith({ to: "/play/songs", search: { q: "바움" } });
     } finally { vi.useRealTimers(); }
+  });
+
+  it("clears a search without navigation and returns focus to the input", () => {
+    render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+    const input = screen.getByRole("textbox", { name: "곡, 원곡 가수, 참여자 검색" });
+    fireEvent.change(input, { target: { value: "바움" } });
+    fireEvent.click(screen.getByRole("button", { name: "검색어 초기화" }));
+    expect((input as HTMLInputElement).value).toBe("");
+    expect(document.activeElement).toBe(input);
+    expect(screen.queryByRole("button", { name: "검색어 초기화" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "전체 검색 결과 보기" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "곡 검색 실행" })).toBeNull();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("opens compact search in place and dismisses with Escape or an outside press", () => {
+    render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+    const trigger = screen.getByRole("button", { name: "곡 검색 열기" });
+    const input = screen.getByRole("textbox", { name: "곡, 원곡 가수, 참여자 검색" });
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
+    fireEvent.click(trigger);
+    fireEvent.pointerDown(document.body);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("names icon navigation and explains it on keyboard focus", async () => {
+    render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+    const link = screen.getByRole("link", { name: "플레이리스트" });
+    act(() => link.focus());
+    expect((await screen.findByRole("tooltip")).textContent).toBe("플레이리스트");
+    expect(link.getAttribute("href")).toBe("/play/playlists");
   });
 
   it("navigates search actions with arrows and returns focus with Escape", () => {

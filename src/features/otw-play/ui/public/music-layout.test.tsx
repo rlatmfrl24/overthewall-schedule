@@ -250,11 +250,11 @@ describe("OTW Play discover layout", () => {
     expect(screen.getAllByRole("link", { name: "두 번째 노래 곡 상세" }).length).toBeGreaterThan(0);
   });
 
-  it("rotates after seven seconds and resumes only after hover and focus leave", () => {
+  it("rotates after four seconds and resumes only after hover and focus leave", () => {
     vi.useFakeTimers();
     render(<OtwPlayHomePage />);
     const banner = screen.getByRole("region", { name: "추천 배너" });
-    act(() => vi.advanceTimersByTime(6999));
+    act(() => vi.advanceTimersByTime(3999));
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
     act(() => vi.advanceTimersByTime(1));
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
@@ -262,13 +262,13 @@ describe("OTW Play discover layout", () => {
     act(() => vi.advanceTimersByTime(12000));
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
     fireEvent.mouseLeave(banner);
-    act(() => vi.advanceTimersByTime(7000));
+    act(() => vi.advanceTimersByTime(4000));
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
     fireEvent.focus(screen.getByRole("button", { name: "다음 추천곡" }));
     act(() => vi.advanceTimersByTime(12000));
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
     fireEvent.blur(screen.getByRole("button", { name: "다음 추천곡" }), { relatedTarget: document.body });
-    act(() => vi.advanceTimersByTime(7000));
+    act(() => vi.advanceTimersByTime(4000));
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /추천곡 자동 전환/ })).toBeNull();
   });
@@ -284,6 +284,98 @@ describe("OTW Play discover layout", () => {
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
     view.unmount();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps the dwell fill and four-second advance in sync through pause, resume and unmount", () => {
+    vi.useFakeTimers();
+    const animations: { pause: ReturnType<typeof vi.fn>; play: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn>; currentTime: number }[] = [];
+    const animate = vi.fn(() => {
+      const animation = { pause: vi.fn(), play: vi.fn(), cancel: vi.fn(), currentTime: 0 };
+      animations.push(animation);
+      return animation;
+    });
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate");
+    Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
+    const view = render(<OtwPlayHomePage />);
+    try {
+      const banner = screen.getByRole("region", { name: "추천 배너" });
+      expect(animate).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ duration: 4000, easing: "linear" }));
+      act(() => vi.advanceTimersByTime(3000));
+      fireEvent.mouseEnter(banner);
+      expect(animations[0].pause).toHaveBeenCalledOnce();
+      act(() => vi.advanceTimersByTime(10000));
+      expect(screen.getByRole("button", { name: "1번째 추천곡 보기" }).getAttribute("aria-current")).toBe("true");
+      fireEvent.mouseLeave(banner);
+      expect(animations[0].cancel).not.toHaveBeenCalled();
+      expect(animations[0].play).toHaveBeenCalledOnce();
+      expect(animations[0].currentTime).toBe(3000);
+      act(() => vi.advanceTimersByTime(500));
+      fireEvent.mouseEnter(banner);
+      fireEvent.focus(screen.getByRole("button", { name: "다음 추천곡" }));
+      fireEvent.mouseLeave(banner);
+      act(() => vi.advanceTimersByTime(10000));
+      expect(animations[0].play).toHaveBeenCalledOnce();
+      fireEvent.blur(screen.getByRole("button", { name: "다음 추천곡" }), { relatedTarget: document.body });
+      expect(animations[0].currentTime).toBe(3500);
+      expect(animate).toHaveBeenCalledOnce();
+      act(() => vi.advanceTimersByTime(499));
+      expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("button", { name: "2번째 추천곡 보기" }).getAttribute("aria-current")).toBe("true");
+      expect(animations[0].cancel).toHaveBeenCalledOnce();
+      view.unmount();
+      expect(animations[1].cancel).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      view.unmount();
+      if (original) Object.defineProperty(HTMLElement.prototype, "animate", original);
+      else Reflect.deleteProperty(HTMLElement.prototype, "animate");
+    }
+  });
+
+  it("restarts dwell on selection but preserves remaining time while the tab is hidden", () => {
+    vi.useFakeTimers();
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    try {
+      render(<OtwPlayHomePage />);
+      act(() => vi.advanceTimersByTime(3000));
+      fireEvent.click(screen.getByRole("button", { name: "1번째 추천곡 보기" }));
+      act(() => vi.advanceTimersByTime(3999));
+      expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+      hidden.mockReturnValue(true);
+      fireEvent(document, new Event("visibilitychange"));
+      act(() => vi.advanceTimersByTime(20000));
+      expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+      hidden.mockReturnValue(false);
+      fireEvent(document, new Event("visibilitychange"));
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
+    } finally { hidden.mockRestore(); }
+  });
+
+  it("keeps indicators manually operable with the OS reduced-motion preference", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    render(<OtwPlayHomePage />);
+    act(() => vi.advanceTimersByTime(14000));
+    expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "2번째 추천곡 보기" }));
+    expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
+  });
+
+  it("starts dwell when the banner becomes reachable after facets finish loading", () => {
+    vi.useFakeTimers();
+    const loadedFacets = mocks.useFacets();
+    mocks.useFacets.mockReturnValue({ ...loadedFacets, isPending: true });
+    const view = render(<OtwPlayHomePage />);
+    act(() => vi.advanceTimersByTime(10000));
+    mocks.useFacets.mockReturnValue(loadedFacets);
+    view.rerender(<OtwPlayHomePage />);
+    expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+    act(() => vi.advanceTimersByTime(3999));
+    expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
   });
 
   it("loads the next latest-song page without extending the featured carousel", () => {

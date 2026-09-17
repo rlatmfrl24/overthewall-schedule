@@ -1,11 +1,13 @@
 import type { OtwPlaySubmissionKind } from "@contracts/otw-play";
 import { SectionNavigation } from "@/shared/ui/section-navigation";
 import { Link } from "@tanstack/react-router";
-import { ChevronDown, Compass, ListMusic, ListPlus, ListTodo, Music2, Clapperboard } from "lucide-react";
+import { ChevronDown, Clapperboard, Compass, ListMusic, ListPlus, ListTodo, Music2 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import type { ReactNode } from "react";
 import "./play-glass.css";
 import { useMobilePlayScreen } from "./use-mobile-play-screen";
 import { useButtonFeedback } from "./use-button-feedback";
+import { usePlayTabIndicator } from "./use-play-tab-indicator";
 import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
@@ -73,6 +75,7 @@ function OtwPlayHeader({
   submissionKind?: OtwPlaySubmissionKind;
 }) {
   const mobile = useMobilePlayScreen();
+  const indicatorRef = usePlayTabIndicator(showCatalogTabs);
   return (
     <header className="play-header z-20 shrink-0 border-b">
       <div className="play-header-layout">
@@ -87,9 +90,12 @@ function OtwPlayHeader({
         </Link>
           {showCatalogTabs ? (
             <SectionNavigation label="OTW Play 탐색" className="play-tabs">
+              <span ref={indicatorRef} className="play-tab-indicator" aria-hidden="true" hidden />
               {catalogTabs.filter(tab => showClips || tab.to !== "/play/clips").map((tab) => (
+                <Tooltip key={tab.to} delayDuration={250}>
+                <TooltipTrigger asChild>
                 <Link
-                  key={`${tab.label}:${JSON.stringify(tab.search)}`}
+                  aria-label={tab.label}
                   to={tab.to}
                   search={tab.search}
                   activeOptions={{ exact: tab.to !== "/play/playlists", includeSearch: false }}
@@ -101,11 +107,14 @@ function OtwPlayHeader({
                     className:
                       "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                   }}
-                  className="inline-flex h-9 shrink-0 items-center rounded-full px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="inline-flex shrink-0 items-center text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <tab.icon className="play-tab-icon" aria-hidden="true" />
                   <span>{tab.label}</span>
                 </Link>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={8} className="z-[80]">{tab.label}</TooltipContent>
+                </Tooltip>
               ))}
             </SectionNavigation>
           ) : null}

@@ -188,6 +188,7 @@ describe("AI suggestions through actual admin forms", () => {
     const props = { open: true, clip: true, onOpenChange: vi.fn(), onManageChannel: vi.fn(), refreshCatalog: vi.fn(async () => {}), catalog, preselectedSongId: null, onSaved: async () => {} };
     const view = render(createElement(CatalogEntryDialog, props), { wrapper: createQueryWrapper() });
     fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/BBBBBBBBBBB" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "구간 선택" }));
     fireEvent.click(screen.getByRole("button", { name: /영상 확인/ }));
     fireEvent.click(await screen.findByRole("button", { name: "AI 제안 일괄 적용" }));
     expect(screen.getByLabelText("시작 위치(초)")).toHaveProperty("value", "12");
@@ -197,11 +198,11 @@ describe("AI suggestions through actual admin forms", () => {
     await screen.findByText("채널 확인 완료 · 계속 입력하세요.");
     expect(screen.getByLabelText("시작 위치(초)")).toHaveProperty("value", "12");
     fireEvent.click(screen.getByRole("button", { name: "AI 입력 되돌리기" }));
-    expect(screen.getByRole("checkbox", { name: "구간 선택" }).getAttribute("data-state")).toBe("unchecked");
+    expect(screen.getByRole("checkbox", { name: "구간 선택" }).getAttribute("data-state")).toBe("checked");
     view.rerender(createElement(CatalogEntryDialog, { ...props, suspended: true }));
     view.rerender(createElement(CatalogEntryDialog, props));
     await screen.findByText("채널 확인 완료 · 계속 입력하세요.");
-    expect(screen.getByRole("checkbox", { name: "구간 선택" }).getAttribute("data-state")).toBe("unchecked");
+    expect(screen.getByRole("checkbox", { name: "구간 선택" }).getAttribute("data-state")).toBe("checked");
     expect(mocks.start).not.toHaveBeenCalled();
     expect(mocks.create).not.toHaveBeenCalled();
   });
@@ -284,9 +285,9 @@ describe("AI suggestions through actual admin forms", () => {
       expect(mocks.create).not.toHaveBeenCalled();
     },
   );
-  it.each([false, true])(
-    "fills and saves the %s candidate form without approving or publishing",
-    async (clip) => {
+  it.each([{ clip: false, segment: false }, { clip: true, segment: false }, { clip: false, segment: true }, { clip: true, segment: true }])(
+    "fills and saves candidate clip=$clip with segment opt-in=$segment without publishing",
+    async ({ clip, segment }) => {
       const data = result(clip);
       mocks.start.mockResolvedValue({ data });
       mocks.get.mockResolvedValue({ data });
@@ -302,11 +303,15 @@ describe("AI suggestions through actual admin forms", () => {
         }),
         { wrapper: createQueryWrapper() },
       );
+      if (segment) fireEvent.click(screen.getByRole("checkbox", { name: "구간 선택" }));
       fireEvent.click(screen.getByRole("button", { name: "AI로 자동 채우기" }));
       await waitFor(() =>
         expect((screen.getByLabelText("곡명") as HTMLInputElement).value).toBe(
           "정리된 곡명",
         ),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "AI 제안 일괄 적용" }),
       );
       fireEvent.click(
         screen.getByRole("button", { name: "검수 저장 · 등록 준비 완료" }),
@@ -317,8 +322,8 @@ describe("AI suggestions through actual admin forms", () => {
         song: { kind: "create", title: "정리된 곡명" },
         releaseType: clip ? "broadcast" : "official_mv",
         participants: [{ subject: { kind: "member", memberUid: 7 }, participantRole: "featured_vocal" }],
-        startSeconds: 12,
-        endSeconds: 140,
+        startSeconds: segment ? 12 : 0,
+        endSeconds: segment ? 140 : null,
       });
       if (clip)
         expect(input.broadcast).toMatchObject({
@@ -328,9 +333,9 @@ describe("AI suggestions through actual admin forms", () => {
       expect(mocks.create).not.toHaveBeenCalled();
     },
   );
-  it.each([false, true])(
-    "preserves AI song and participant role in %s URL registration",
-    async (clip) => {
+  it.each([{ clip: false, segment: false }, { clip: true, segment: false }, { clip: false, segment: true }, { clip: true, segment: true }])(
+    "preserves AI song and role in URL registration clip=$clip with segment opt-in=$segment",
+    async ({ clip, segment }) => {
       const data = result(clip);
       mocks.start.mockResolvedValue({ data });
       mocks.get.mockResolvedValue({ data });
@@ -366,6 +371,7 @@ describe("AI suggestions through actual admin forms", () => {
       fireEvent.change(screen.getByLabelText("YouTube URL"), {
         target: { value: "https://www.youtube.com/watch?v=BBBBBBBBBBB" },
       });
+      if (segment) fireEvent.click(screen.getByRole("checkbox", { name: "구간 선택" }));
       fireEvent.click(screen.getByRole("button", { name: /영상 확인/ }));
       await screen.findByRole("button", { name: "AI로 자동 채우기" });
       fireEvent.click(screen.getByRole("button", { name: "AI로 자동 채우기" }));
@@ -391,8 +397,8 @@ describe("AI suggestions through actual admin forms", () => {
         participants: [{ subject: { kind: "member", memberUid: 7 }, participantRole: "featured_vocal" }],
         publicationTarget: "draft",
         releaseType: clip ? "broadcast" : "official_mv",
-        startSeconds: 12,
-        endSeconds: 140,
+        startSeconds: segment ? 12 : 0,
+        endSeconds: segment ? 140 : 180,
       });
     },
   );

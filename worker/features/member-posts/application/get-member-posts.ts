@@ -1,4 +1,5 @@
 import type { XPostDto } from "@contracts/x-posts";
+import type { MemberPostsPageRequest } from "@contracts/member-posts";
 import type {
   MemberPostsConfigs,
   MemberPostsPort,
@@ -162,6 +163,7 @@ export class GetMemberPosts {
     maxResults: number;
     size: number;
     configs: MemberPostsConfigs;
+    page?: MemberPostsPageRequest;
   }) {
     const {
       includeX,
@@ -202,7 +204,7 @@ export class GetMemberPosts {
     const handleToMemberUid = new Map(
       handlePairs.map((item) => [item.handle.toLowerCase(), item.memberUid]),
     );
-    const handles = Array.from(new Set(handlePairs.map((item) => item.handle)));
+    const handles = Array.from(new Set(handlePairs.filter(item => input.page?.memberUid === undefined || item.memberUid === input.page.memberUid).map((item) => item.handle)));
     const mapPost = (post: XPostDto) => ({
       ...post,
       memberUid: handleToMemberUid.get(post.username.toLowerCase()),
@@ -217,9 +219,10 @@ export class GetMemberPosts {
         if (handles.length === 0) return emptyX(xPolicy);
         try {
           const content = await this.port.fetchXPosts(handles, {
-            maxResults,
+            maxResults: input.page ? 11 : maxResults,
             richXLinkPreviewEnabled: configs.x.richLinkPreviewEnabled,
             adminView,
+            ...(input.page ? { page: input.page } : {}),
           });
           return {
             updatedAt: new Date().toISOString(),
@@ -255,7 +258,7 @@ export class GetMemberPosts {
         }
         if (cafeSources.length === 0) return emptyNaverCafe(cafePolicy);
         try {
-          const content = await this.port.readNaverCafePosts(cafeSources, size);
+          const content = await this.port.readNaverCafePosts(cafeSources, input.page ? 11 : size, input.page);
           return {
             updatedAt: new Date().toISOString(),
             ...content,
@@ -286,8 +289,16 @@ export class GetMemberPosts {
       })),
     ].sort(
       (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        input.page
+          ? (a.createdAt === b.createdAt ? (a.id < b.id ? 1 : a.id > b.id ? -1 : 0) : a.createdAt < b.createdAt ? 1 : -1)
+          : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
+
+    const pagePosts = input.page ? posts.slice(0, 10) : posts;
+    const last = pagePosts.at(-1);
+    const pageFailed = (xPolicy.accessible && x.error) || (cafePolicy.accessible && naverCafe.error);
+    const nextCursor = input.page && !pageFailed && posts.length > 10 && last
+      ? JSON.stringify({ createdAt: last.createdAt, id: last.id }) : null;
 
     let feedUpdatedAt: string | null = null;
     try {
@@ -299,7 +310,8 @@ export class GetMemberPosts {
       body: {
         updatedAt: new Date().toISOString(),
         feedUpdatedAt,
-        posts,
+        posts: pagePosts,
+        ...(input.page ? { nextCursor } : {}),
         x: compact
           ? {
               ...x,

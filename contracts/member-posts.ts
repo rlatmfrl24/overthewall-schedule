@@ -25,6 +25,17 @@ export type UnifiedMemberPostDto =
       post: NaverCafePostDto;
     };
 
+/** Stable position in the merged, descending stored feed. */
+export interface MemberPostsCursorDto {
+  createdAt: string;
+  id: string;
+}
+
+export interface MemberPostsPageRequest {
+  cursor?: MemberPostsCursorDto;
+  memberUid?: number;
+}
+
 export type MemberPostSourcePolicyStatus =
   | "visible"
   | "members_only"
@@ -47,6 +58,7 @@ export interface MemberPostSourcePolicyDto {
 }
 
 export interface MemberPostsAggregateResponseDto {
+  nextCursor?: string | null;
   updatedAt: string;
   /** Latest persisted refresh of the returned feed data, not response generation. */
   feedUpdatedAt?: string | null;

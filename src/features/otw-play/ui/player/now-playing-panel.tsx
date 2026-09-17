@@ -31,7 +31,7 @@ export function OtwPlayPlayerQueuePanel({ editing = false }: { editing?: boolean
   const hasQueue = player.queue.items.length > 0;
   const currentItemId = player.currentItem?.id ?? null;
   const previousPlaybackIntentVersionRef = useRef(0);
-  const compactResumeRef = useRef(false);
+  const keepCompactRef = useRef(false);
   const playerSectionRef = useRef<HTMLElement | null>(null);
   const focusReturnRef = useRef<HTMLElement | null>(null);
   const [mobilePresentation, setMobilePresentation] =
@@ -42,11 +42,11 @@ export function OtwPlayPlayerQueuePanel({ editing = false }: { editing?: boolean
   useEffect(() => {
     if (currentItemId === null) {
       setMobilePresentation("launcher");
+      keepCompactRef.current = false;
     } else if (
       player.playbackIntentVersion > previousPlaybackIntentVersionRef.current
     ) {
-      if (!compactResumeRef.current) setMobilePresentation("full");
-      compactResumeRef.current = false;
+      if (!keepCompactRef.current) setMobilePresentation("full");
     }
     previousPlaybackIntentVersionRef.current = player.playbackIntentVersion;
   }, [currentItemId, player.playbackIntentVersion]);
@@ -74,6 +74,7 @@ export function OtwPlayPlayerQueuePanel({ editing = false }: { editing?: boolean
   }, [isDesktopPlayerViewport, mobilePlayerOpen]);
 
   const closeMobilePlayer = () => {
+    keepCompactRef.current = true;
     setMobilePresentation("launcher");
   };
 
@@ -113,5 +114,5 @@ export function OtwPlayPlayerQueuePanel({ editing = false }: { editing?: boolean
 
   return <AppleMusicPlayer player={player} editing={editing} desktop={isDesktopPlayerViewport} open={mobilePlayerOpen}
     sectionRef={playerSectionRef} onKeyDown={handleDialogKeyDown} onClose={closeMobilePlayer} onLaunch={openMobilePlayer}
-    onCompactResume={() => { compactResumeRef.current = player.playbackIntentVersion > 0; player.resume(); }} />;
+    onCompactResume={player.resume} />;
 }

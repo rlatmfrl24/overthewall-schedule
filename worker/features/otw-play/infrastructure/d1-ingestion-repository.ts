@@ -515,11 +515,11 @@ export class D1IngestionRepository implements IngestionRepository {
 
   async listReviewItems(filters: import("@contracts/otw-play").OtwPlayReviewFilters): Promise<import("@contracts/otw-play").OtwPlayReviewPageDto> {
     const identity = JSON.stringify([filters.candidateKind ?? null, filters.source ?? null, filters.status ?? "pending", filters.jobId ?? null]);
-    let position: { at: number; id: string } | null = null;
+    let position: { at: number; id: string; ready: number } | null = null;
     if (filters.cursor) {
       try {
         const decoded = JSON.parse(atob(filters.cursor));
-        if (decoded.identity !== identity || !Number.isSafeInteger(decoded.at) || decoded.at < 0 || typeof decoded.id !== "string" || decoded.id.length > 250) throw new Error();
+        if (decoded.identity !== identity || !Number.isSafeInteger(decoded.at) || decoded.at < 0 || typeof decoded.id !== "string" || decoded.id.length > 250 || ![0, 1].includes(decoded.ready)) throw new Error();
         position = decoded;
       } catch { throw new IngestionRepositoryError("validation_failed", "Invalid review cursor"); }
     }
@@ -539,7 +539,7 @@ export class D1IngestionRepository implements IngestionRepository {
       WHERE (${filters.source === "user" ? "1" : "0"} = 1) OR NOT (p.status = 'pending_review' AND p.segment_start_seconds = 0 AND EXISTS (
         SELECT 1 FROM music_ingestion_candidates c WHERE c.external_video_id = p.youtube_video_id
           AND c.status NOT IN ('converted', 'ignored')))
-    ) SELECT review.*,
+    ) SELECT review.*, CASE WHEN status = 'ready' THEN 1 ELSE 0 END AS ready_rank,
       CASE WHEN review.kind = 'candidate' THEN (SELECT json_object(
         'external_video_id', candidate.external_video_id, 'channel_id', candidate.channel_id, 'channel_title', candidate.channel_title,
         'thumbnail_url', candidate.thumbnail_url, 'duration_seconds', candidate.duration_seconds,
@@ -554,11 +554,12 @@ export class D1IngestionRepository implements IngestionRepository {
       AND (? IS NULL OR (kind = 'candidate' AND EXISTS (SELECT 1 FROM music_ingestion_candidate_origins history_origin WHERE history_origin.candidate_id = review.id AND history_origin.job_id = ?)))
       AND (? IS NULL OR (? = 'playlist' AND playlist = 1) OR (? = 'automatic' AND automatic = 1) OR (? = 'user' AND user = 1))
       AND ((? = 'pending' AND status NOT IN ('converted','ignored','approved','rejected','withdrawn')) OR (? = 'ready' AND status = 'ready') OR (? = 'completed' AND status IN ('converted','ignored','approved','rejected','withdrawn')))
-      AND (? IS NULL OR created_at < ? OR (created_at = ? AND sort_id < ?))
-      ORDER BY created_at DESC, sort_id DESC LIMIT 51`)
+      AND (? IS NULL OR (CASE WHEN status = 'ready' THEN 1 ELSE 0 END) > ?
+        OR ((CASE WHEN status = 'ready' THEN 1 ELSE 0 END) = ? AND (created_at < ? OR (created_at = ? AND sort_id < ?))))
+      ORDER BY ready_rank ASC, created_at DESC, sort_id DESC LIMIT 51`)
       .bind(filters.candidateKind ?? null, filters.candidateKind ?? null, filters.jobId ?? null, filters.jobId ?? null, filters.source ?? null, filters.source ?? null, filters.source ?? null, filters.source ?? null,
-        filters.status ?? "pending", filters.status ?? "pending", filters.status ?? "pending", position?.at ?? null, position?.at ?? null, position?.at ?? null, position?.id ?? null)
-      .all<{ candidate_data: string | null; sort_id: string; id: string; kind: "candidate" | "proposal"; candidate_kind: "official_video" | "singing_clip"; title: string | null; status: string; version: number; created_at: number; playlist: number; automatic: number; user: number; pending_proposal_id: string | null }>());
+        filters.status ?? "pending", filters.status ?? "pending", filters.status ?? "pending", position?.ready ?? null, position?.ready ?? null, position?.ready ?? null, position?.at ?? null, position?.at ?? null, position?.id ?? null)
+      .all<{ candidate_data: string | null; ready_rank: number; sort_id: string; id: string; kind: "candidate" | "proposal"; candidate_kind: "official_video" | "singing_clip"; title: string | null; status: string; version: number; created_at: number; playlist: number; automatic: number; user: number; pending_proposal_id: string | null }>());
     const items: import("@contracts/otw-play").OtwPlayReviewItemDto[] = [];
     for (const row of rows.slice(0, 50)) {
       let candidate: import("@contracts/otw-play").OtwPlayChannelMonitorCandidateDto | null = null;
@@ -578,7 +579,7 @@ export class D1IngestionRepository implements IngestionRepository {
         sources: [...(row.playlist ? ["playlist" as const] : []), ...(row.automatic ? ["automatic" as const] : []), ...(row.user ? ["user" as const] : [])] });
     }
     const last = rows.slice(0, 50).at(-1);
-    return { items, nextCursor: rows.length > 50 && last ? btoa(JSON.stringify({ identity, at: last.created_at, id: last.sort_id })) : null };
+    return { items, nextCursor: rows.length > 50 && last ? btoa(JSON.stringify({ identity, ready: last.ready_rank, at: last.created_at, id: last.sort_id })) : null };
   }
 
   async listJobs(limit: number) {
