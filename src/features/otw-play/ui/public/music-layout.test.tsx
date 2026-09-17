@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
+import { AnimationProvider } from "@/shared/ui/animation-provider";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OtwPlayPublicSongSummaryDto } from "@contracts/otw-play";
 
@@ -272,10 +273,11 @@ describe("OTW Play discover layout", () => {
     expect(screen.queryByRole("button", { name: /추천곡 자동 전환/ })).toBeNull();
   });
 
-  it("keeps reduced-motion rotation manual and clears the timer on unmount", () => {
+  it("keeps rotation manual when the user disables animations and clears the timer on unmount", () => {
     vi.useFakeTimers();
-    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-    const view = render(<OtwPlayHomePage />);
+    localStorage.setItem("otw-animations-enabled", "false");
+    const view = render(<AnimationProvider><OtwPlayHomePage /></AnimationProvider>);
+    localStorage.removeItem("otw-animations-enabled");
     act(() => vi.advanceTimersByTime(12000));
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "다음 추천곡" }));

@@ -15,6 +15,19 @@ const item = (id: string, performanceId = id): OtwPlayQueueItem => ({
 });
 
 describe("OTW Play queue", () => {
+  it("reorders by identity while preserving the playing source, mode and saved order", () => {
+    const state = { items: [item("a"), item("b"), item("c")], currentIndex: 1, repeat: "one" as const, shuffled: true };
+    const next = reduceOtwPlayQueue(state, { type: "reorder", itemIds: ["c", "a", "b"] });
+    expect(next.items.map(row => row.id)).toEqual(["c", "a", "b"]);
+    expect(next.items[next.currentIndex!]).toBe(state.items[1]);
+    expect(next.repeat).toBe("one");
+    expect(next.shuffled).toBe(true);
+    expect(restoreOtwPlayQueue(serializeOtwPlayQueue(next))).toEqual(next);
+    for (const itemIds of [["a", "a", "b"], ["a", "b"], ["a", "b", "unknown"]]) {
+      expect(reduceOtwPlayQueue(state, { type: "reorder", itemIds })).toBe(state);
+    }
+    expect(reduceOtwPlayQueue({ ...state, currentIndex: null }, { type: "reorder", itemIds: ["c", "a", "b"] }).currentIndex).toBeNull();
+  });
   it("appends a batch without starting playback or changing existing queue state", () => {
     const idle = reduceOtwPlayQueue(createEmptyOtwPlayQueue(), { type: "enqueue_batch", items: [item("a"), item("a-copy", "a")] });
     expect(idle.currentIndex).toBeNull();
@@ -90,18 +103,22 @@ describe("OTW Play queue", () => {
     expect(state.currentIndex).toBe(2);
   });
 
-  it("keeps the current slot fixed during deterministic Fisher-Yates shuffle", () => {
-    const initial = {
-      ...createEmptyOtwPlayQueue(),
-      items: [item("a"), item("b"), item("c"), item("d")],
-      currentIndex: 1,
-    };
-    const state = reduceOtwPlayQueue(initial, {
-      type: "shuffle",
-      randomValues: [0, 0],
-    });
-    expect(state.items[1]?.id).toBe("b");
-    expect(state.items.map(({ id }) => id)).toEqual(["c", "b", "d", "a"]);
+  it("toggles random playback without changing visible order or current item", () => {
+    const initial = { ...createEmptyOtwPlayQueue(), items: [item("a"), item("b"), item("c"), item("d")], currentIndex: 1 };
+    const state = reduceOtwPlayQueue(initial, { type: "shuffle" });
+    expect(state.items).toBe(initial.items);
+    expect(state.currentIndex).toBe(1);
+    expect(state.shuffled).toBe(true);
+    expect(reduceOtwPlayQueue(state, { type: "shuffle" })).toEqual(initial);
+    expect(findNextPlayableQueueIndex(state, 1, () => true, { random: 0 })).toBe(0);
+    expect(findNextPlayableQueueIndex(state, 1, () => true, { random: .99 })).toBe(3);
+    const playedIds = new Set(["a", "b", "d"]);
+    expect(findNextPlayableQueueIndex(state, 1, () => true, { random: .99, playedIds })).toBe(2);
+    playedIds.add("c");
+    expect(findNextPlayableQueueIndex(state, 1, () => true, { playedIds })).toBeNull();
+    expect(findNextPlayableQueueIndex({ ...state, repeat: "all" }, 1, () => true, { random: 0, playedIds })).toBe(0);
+    expect(findNextPlayableQueueIndex({ ...state, repeat: "one" }, 1, () => true, { ended: true })).toBe(1);
+    expect(findNextPlayableQueueIndex(state, 1, row => row.id === "c", { random: 0 })).toBe(2);
   });
 
   it("bounds unavailable skips to one queue traversal", () => {

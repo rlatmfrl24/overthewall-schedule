@@ -32,6 +32,6 @@
 .react-bits-stepper button:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
 .react-bits-stepper .next-button svg,
 .react-bits-stepper .back-button svg { width: 1rem; height: 1rem; }
-@media (prefers-reduced-motion: reduce) {
+html[data-animations="disabled"] {
   .react-bits-stepper button { transition: none; }
 }

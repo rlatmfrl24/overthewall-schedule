@@ -1,3 +1,4 @@
+import { useAnimations } from "@/shared/ui/animation-provider";
 import { useRef, useState, useEffect, useMemo } from "react";
 import type { MemberDto } from "@contracts/members";
 import type { YouTubeVideo } from "../model/types";
@@ -139,6 +140,7 @@ export const YouTubePlaylist = ({
   kirinukiChannels: providedKirinukiChannels,
   layout = "carousel",
 }: YouTubePlaylistProps) => {
+  const { enabled } = useAnimations();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -210,7 +212,7 @@ export const YouTubePlaylist = ({
     const scrollAmount = variant === "short" ? 300 : 600;
     el.scrollBy({
       left: direction === "left" ? -scrollAmount : scrollAmount,
-      behavior: "smooth",
+      behavior: enabled ? "smooth" : "instant",
     });
   };
 

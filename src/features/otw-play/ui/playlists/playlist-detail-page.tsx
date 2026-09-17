@@ -28,7 +28,7 @@ export function OtwPlayDefaultPlaylistPage({ playlistKey }: { playlistKey: strin
     <p>{playlist.songCount}곡 · 가창 {playlist.performanceCount}개 · 최신순</p></div><div className="playlist-detail-actions flex flex-wrap gap-2">
       <Button disabled={actions.pending.includes(playlist.id)} onClick={() => actions.add(playlist.id, playlist.query, true, playlist.performanceCount)}>전체 대기열에 추가</Button>
       <Button variant="outline" asChild><Link to="/play/playlists/new" search={{ from: playlist.id }}>내 목록으로 편집</Link></Button></div></header>
-    <PlaylistFeedback actions={actions} />
+    <PlaylistFeedback actions={actions} playlistTitle={playlist.title} />
     {listing.isPending ? <PlaylistTracksSkeleton /> : listing.isError ? <Button onClick={() => void listing.refetch()}>가창 목록 다시 불러오기</Button> :
       <div>{listing.data.pages.flatMap(page => page.data.items).map(item => <PerformanceRow key={item.performance.id} item={item} />)}
         {!listing.data.pages[0].data.items.length && <p className="playlist-empty">아직 공개된 가창이 없습니다.</p>}</div>}
@@ -61,7 +61,7 @@ function PersonalPlaylist({ playlistId }: { playlistId: string }) {
     <div className="playlist-detail-actions flex flex-wrap gap-2"><Button disabled={actions.pending.includes(playlist.id)} onClick={() => actions.add(playlist.id, playlist.performanceIds, true)}>대기열에 추가</Button>
       <Button asChild variant="outline"><Link to="/play/playlists/$playlistId/edit" params={{ playlistId }}>편집</Link></Button>
       <Button variant="ghost" disabled={deleting} onClick={() => void remove()}>삭제</Button></div></header>
-    {error && <p role="alert">{error}</p>}<PlaylistFeedback actions={actions} />
+    {error && <p role="alert">{error}</p>}<PlaylistFeedback actions={actions} playlistTitle={playlist.title} />
     {resolved.isPending ? <PlaylistTracksSkeleton /> : resolved.isError ? <Button onClick={() => void resolved.refetch()}>가창 다시 불러오기</Button> :
       <div>{playlist.performanceIds.map((id, index) => { const item = byId.get(id); return item ? <PerformanceRow key={id} item={item} /> : <p key={id} className="playlist-track">{index + 1}. 이용할 수 없는 항목</p>; })}</div>}
     {!playlist.itemCount && <p className="playlist-empty">편집 화면에서 노래를 추가해 보세요.</p>}

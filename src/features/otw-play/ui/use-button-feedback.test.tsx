@@ -2,11 +2,12 @@
 import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { AnimationProvider, useAnimations } from "@/shared/ui/animation-provider";
 import { useButtonFeedback } from "./use-button-feedback";
 
-function Example({ onClick = () => undefined, disabled = false }) {
+function Example({ onClick = () => undefined, disabled = false, localFeedback = false }) {
   const feedback = useButtonFeedback();
-  return <div {...feedback}><button disabled={disabled} onClick={onClick}><svg aria-hidden="true"><path d="M0 0L1 1" /></svg>재생</button></div>;
+  return <div {...feedback}><section data-button-feedback={localFeedback ? "local" : undefined}><button disabled={disabled} onClick={onClick}><svg aria-hidden="true"><path d="M0 0L1 1" /></svg>재생</button></section></div>;
 }
 
 const cancel = vi.fn();
@@ -45,12 +46,40 @@ it("animates keyboard activation and ignores held-key repeat", () => {
   expect(animate).toHaveBeenCalledTimes(1);
 });
 
-it("respects disabled controls and reduced motion", () => {
+it("leaves locally controlled player feedback alone for pointer and keyboard input", () => {
+  const onClick = vi.fn();
+  const { container } = render(<Example localFeedback onClick={onClick} />);
+  const button = screen.getByRole("button");
+  fireEvent.pointerOver(button);
+  fireEvent.pointerDown(button, { button: 0 });
+  expect(container.firstElementChild?.getAttribute("data-play-input")).toBe("pointer");
+  fireEvent.keyDown(button, { key: "Enter" });
+  expect(container.firstElementChild?.getAttribute("data-play-input")).toBe("keyboard");
+  fireEvent.click(button);
+  expect(onClick).toHaveBeenCalledOnce();
+  expect(animate).not.toHaveBeenCalled();
+});
+
+it("respects disabled controls and the user switch while ignoring OS motion preferences", () => {
   const view = render(<Example disabled />);
   fireEvent.pointerDown(screen.getByRole("button"), { button: 0 });
   expect(animate).not.toHaveBeenCalled();
   view.rerender(<Example />);
   vi.stubGlobal("matchMedia", () => ({ matches: true }));
   fireEvent.pointerDown(screen.getByRole("button"), { button: 0 });
-  expect(animate).not.toHaveBeenCalled();
+  expect(animate).toHaveBeenCalledTimes(1);
+  view.unmount();
+  animate.mockClear();
+  function Controls() {
+    const { setEnabled } = useAnimations();
+    return <><button onClick={() => setEnabled(false)}>효과 끄기</button><Example /></>;
+  }
+  render(<AnimationProvider><Controls /></AnimationProvider>);
+  fireEvent.pointerDown(screen.getByRole("button", { name: "재생" }), { button: 0 });
+  expect(animate).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "효과 끄기" }));
+  expect(cancel).toHaveBeenCalled();
+  fireEvent.pointerDown(screen.getByRole("button", { name: "재생" }), { button: 0 });
+  expect(animate).toHaveBeenCalledTimes(1);
+  localStorage.removeItem("otw-animations-enabled");
 });

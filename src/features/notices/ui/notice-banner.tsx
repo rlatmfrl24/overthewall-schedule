@@ -1,3 +1,4 @@
+import { useAnimations } from "@/shared/ui/animation-provider";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Notice } from "../model/types";
@@ -50,6 +51,7 @@ const sortNoticesByLatest = (notices: Notice[]) =>
 export function NoticeBanner({
   notices: providedNotices,
 }: { notices?: Notice[] } = {}) {
+  const { enabled } = useAnimations();
   const [currentIndex, setCurrentIndex] = useState(0);
   const navigate = useNavigate();
   const noticesQuery = useQuery<Notice[]>({
@@ -150,7 +152,7 @@ export function NoticeBanner({
                   initial={{ y: 14, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
                   exit={{ y: -14, opacity: 0 }}
-                  transition={{ duration: 0.25, ease: "easeInOut" }}
+                  transition={{ duration: enabled ? 0.25 : 0, ease: "easeInOut" }}
                   className="absolute inset-0 flex min-w-0 items-center gap-2"
                   aria-live="polite"
                 >

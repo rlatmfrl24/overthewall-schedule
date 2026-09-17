@@ -73,6 +73,7 @@ type PlayPlayerContextValue = {
   clearQueue: () => void;
   retry: (itemId: string) => void;
   retryPlayback: () => void;
+  reorder: (itemIds: string[]) => void;
   move: (itemId: string, direction: -1 | 1) => void;
   previous: () => void;
   next: (ended?: boolean) => void;
@@ -363,20 +364,35 @@ export function OtwPlayPlayerProvider({
     return () => observer.disconnect();
   }, [hostElement]);
 
+  const randomPlayedIds = useRef(new Set<string>());
+  useEffect(() => {
+    if (!queue.shuffled) randomPlayedIds.current.clear();
+    else if (currentItem) randomPlayedIds.current.add(currentItem.id);
+  }, [currentItem, queue.shuffled]);
+
   const selectPlayable = useCallback(
     (direction: -1 | 1, ended = false, announceMissing = true) => {
       const index = findNextPlayableQueueIndex(
         queue,
         direction,
         ({ id }) => tracks.has(id) && !unavailableItemIds.has(id),
-        { ended },
+        { ended, playedIds: randomPlayedIds.current },
       );
       if (index === null) {
+        if (queue.shuffled && direction === 1 && announceMissing) {
+          playbackRequestedRef.current = false;
+          playerRef.current?.pause();
+        }
         if (announceMissing) {
           setStatus("idle");
           setAnnouncement("재생 가능한 다음 항목이 없습니다.");
         }
         return;
+      }
+      if (queue.shuffled && direction === 1) {
+        const selectedId = queue.items[index]!.id;
+        if (randomPlayedIds.current.has(selectedId) && queue.repeat === "all") randomPlayedIds.current.clear();
+        randomPlayedIds.current.add(selectedId);
       }
       if (index === queue.currentIndex) {
         if (currentTrack && playerRef.current) {
@@ -593,7 +609,7 @@ export function OtwPlayPlayerProvider({
   }, [hostElement]);
 
   useEffect(() => {
-    if (playbackDisabled || playerReadyVersion === 0 || !playerRef.current || !currentItem || !currentTrack) return;
+    if (!playbackRequestedRef.current || playbackDisabled || playerReadyVersion === 0 || !playerRef.current || !currentItem || !currentTrack) return;
     const key = `${currentItem.id}:${currentTrack.source.sourceId}`;
     if (loadedKeyRef.current === key) return;
     loadedKeyRef.current = key;
@@ -678,16 +694,23 @@ export function OtwPlayPlayerProvider({
     setStatus("idle");
   }, [currentItem]);
 
-  useEffect(
-    () => () => {
+  // The controller owns the mounted host. A replaced host (including Fast
+  // Refresh) must never retain a fulfilled promise or a detached iframe.
+  useEffect(() => {
+    if (!hostElement) return;
+    return () => {
       playerSessionRef.current += 1;
       playerRef.current?.pause();
       playerRef.current?.stop();
       playerRef.current?.destroy();
       playerRef.current = null;
-    },
-    [],
-  );
+      playerPromiseRef.current = null;
+      playerReadyRef.current = false;
+      loadedKeyRef.current = null;
+      pendingClipKeyRef.current = null;
+      setPlayerReadyVersion(0);
+    };
+  }, [hostElement]);
 
   const register = useCallback((track: OtwPlayTrack, action: OtwPlayQueueAction) => {
     const item = "item" in action ? action.item : null;
@@ -882,6 +905,10 @@ export function OtwPlayPlayerProvider({
         setPlayerReadyVersion((version) => version + 1);
       }
     },
+    reorder(itemIds) {
+      dispatch({ type: "reorder", itemIds });
+      setAnnouncement("재생목록 순서를 변경했습니다.");
+    },
     move(itemId, direction) {
       dispatch({ type: "move", itemId, direction });
     },
@@ -895,11 +922,10 @@ export function OtwPlayPlayerProvider({
       dispatch({ type: "set_repeat", repeat });
     },
     shuffle() {
-      dispatch({
-        type: "shuffle",
-        randomValues: Array.from({ length: Math.max(0, queue.items.length - 2) }, Math.random),
-      });
-      setAnnouncement("현재 항목을 제외한 대기열 순서를 섞었습니다.");
+      randomPlayedIds.current.clear();
+      if (currentItem) randomPlayedIds.current.add(currentItem.id);
+      dispatch({ type: "shuffle" });
+      setAnnouncement(queue.shuffled ? "랜덤 재생을 껐습니다." : "목록 순서를 유지하고 랜덤으로 재생합니다.");
     },
     closeQueue() {
       setPanelExpanded(false);

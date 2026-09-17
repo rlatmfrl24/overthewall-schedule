@@ -1,3 +1,4 @@
+import { useAnimations } from "@/shared/ui/animation-provider";
 import { ApiError } from "@/shared/api/client";
 import { Link } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "motion/react";
@@ -123,6 +124,7 @@ const ProfileSignatureImage = ({
   memberName: string;
   className?: string;
 }) => {
+  const { enabled } = useAnimations();
   const signatureSrc = useMemo(
     () => getProfileSignatureImageSrc(memberCode),
     [memberCode],
@@ -169,7 +171,7 @@ const ProfileSignatureImage = ({
       )}
       initial={{ opacity: 0, y: 18, rotate: -2.5, scale: 0.94, filter: "blur(6px)" }}
       animate={{ opacity: 1, y: 0, rotate: 0, scale: 1, filter: "blur(0px)" }}
-      transition={{ duration: 0.58, ease: [0.22, 1, 0.36, 1] }}
+      transition={enabled ? { duration: 0.58, ease: [0.22, 1, 0.36, 1] } : { duration: 0, delay: 0 }}
       style={{ willChange: "opacity, transform, filter" }}
     >
       <motion.img
@@ -184,10 +186,10 @@ const ProfileSignatureImage = ({
           clipPath: "inset(0 0% 0 0)",
           opacity: [0, 0.68, 0],
         }}
-        transition={{
+        transition={enabled ? {
           clipPath: { duration: 1.05, ease: [0.16, 1, 0.3, 1], delay: 0.12 },
           opacity: { duration: 1.35, times: [0, 0.48, 1], delay: 0.12 },
-        }}
+        } : { duration: 0, delay: 0 }}
       />
       <motion.span
         aria-hidden="true"
@@ -197,7 +199,7 @@ const ProfileSignatureImage = ({
           opacity: [0, 0.36, 0],
           scaleX: [0.22, 1.05, 1.18],
         }}
-        transition={{ duration: 1.25, times: [0, 0.46, 1], ease: "easeOut", delay: 0.25 }}
+        transition={enabled ? { duration: 1.25, times: [0, 0.46, 1], ease: "easeOut", delay: 0.25 } : { duration: 0, delay: 0 }}
       />
       <motion.img
         src={signatureSrc}
@@ -215,7 +217,7 @@ const ProfileSignatureImage = ({
           opacity: 0.9,
           filter: "drop-shadow(0 8px 20px rgba(0,0,0,0.62)) brightness(1)",
         }}
-        transition={{ duration: 1.12, ease: [0.16, 1, 0.3, 1], delay: 0.12 }}
+        transition={enabled ? { duration: 1.12, ease: [0.16, 1, 0.3, 1], delay: 0.12 } : { duration: 0, delay: 0 }}
         style={{ willChange: "clip-path, opacity, filter" }}
       />
     </motion.span>
@@ -231,6 +233,7 @@ const isInteractiveSwipeTarget = (target: EventTarget | null) =>
   );
 
 const LoadingAnimation = () => {
+  const { enabled } = useAnimations();
   return (
     <div className="grid h-dvh w-full flex-1 place-items-center bg-zinc-950">
       <div className="flex gap-2">
@@ -241,15 +244,15 @@ const LoadingAnimation = () => {
               className="size-3 rounded-full"
               style={{ backgroundColor: color }}
               animate={{
-                y: ["0%", "-50%", "0%"],
-                opacity: [0.45, 1, 0.45],
+                y: enabled ? ["0%", "-50%", "0%"] : "0%",
+                opacity: enabled ? [0.45, 1, 0.45] : 1,
               }}
-              transition={{
+              transition={enabled ? {
                 duration: 0.8,
                 repeat: Infinity,
                 ease: "easeInOut",
                 delay: index * 0.2,
-              }}
+              } : { duration: 0, delay: 0 }}
             />
           ),
         )}
@@ -430,6 +433,7 @@ export function MemberProfilePage({ code, renderPlayLink }: {
   code: string;
   renderPlayLink?: (memberUid: number) => ReactNode;
 }) {
+  const { enabled } = useAnimations();
   const [activeBackgroundLoadKey, setActiveBackgroundLoadKey] = useState<
     string | null
   >(null);
@@ -902,7 +906,7 @@ export function MemberProfilePage({ code, renderPlayLink }: {
               initial={{ opacity: 0, scale: 1.025, filter: "blur(10px)" }}
               animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
               exit={{ opacity: 0, scale: 1.015, filter: "blur(8px)" }}
-              transition={{ duration: 1.05, ease: [0.22, 1, 0.36, 1] }}
+              transition={enabled ? { duration: 1.05, ease: [0.22, 1, 0.36, 1] } : { duration: 0, delay: 0 }}
               style={{ willChange: "opacity, transform, filter" }}
               onError={() => {
                 if (!activeProfileBackground) {
@@ -969,7 +973,7 @@ export function MemberProfilePage({ code, renderPlayLink }: {
             className="w-full max-w-[680px] pb-1 lg:-mb-8 lg:max-w-[780px] lg:pb-10 [@media_(max-height:679px)]:mb-0 [@media_(max-height:679px)]:pb-0"
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, ease: "easeOut" }}
+            transition={enabled ? { duration: 0.45, ease: "easeOut" } : { duration: 0, delay: 0 }}
           >
             {unitLogo && (
               <div className="mb-5 flex max-w-full items-center lg:mb-6">
@@ -1066,7 +1070,7 @@ export function MemberProfilePage({ code, renderPlayLink }: {
             className="mt-3 flex w-full flex-col gap-3 sm:mt-6 lg:absolute lg:bottom-10 lg:right-8 lg:mt-0 lg:w-[316px] lg:justify-end [@media_(max-height:679px)]:static [@media_(max-height:679px)]:mt-4 [@media_(max-height:679px)]:w-full [@media_(max-height:679px)]:justify-start"
             initial={{ opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.45, ease: "easeOut", delay: 0.08 }}
+            transition={enabled ? { duration: 0.45, ease: "easeOut", delay: 0.08 } : { duration: 0, delay: 0 }}
             aria-label="멤버 링크"
           >
             {primaryLinks.length > 0 && (

@@ -1,6 +1,9 @@
 import { useEffect, useRef, type KeyboardEvent, type PointerEvent } from "react";
 
+import { useAnimations } from "@/shared/ui/animation-provider";
+
 export function useButtonFeedback() {
+  const { enabled } = useAnimations();
   const animations = useRef(new Set<Animation>());
   const iconAnimations = useRef(new WeakMap<SVGSVGElement, Animation>());
   useEffect(() => {
@@ -9,14 +12,15 @@ export function useButtonFeedback() {
       active.forEach((animation) => animation.cancel());
       active.clear();
     };
-  }, []);
+  }, [enabled]);
 
   const animateIcon = (target: EventTarget, root: HTMLElement) => {
     if (!(target instanceof Element)) return;
     const button = target.closest<HTMLElement>("button, a[data-slot=button], .play-tabs a");
     if (!button || !root.contains(button) || button.matches(":disabled, [aria-disabled=true]")) return;
+    if (button.closest('[data-button-feedback="local"]')) return;
     const icon = button.querySelector<SVGSVGElement>("svg");
-    if (!icon || typeof icon.animate !== "function" || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    if (!icon || typeof icon.animate !== "function" || !enabled) return;
     const movement = icon.matches(".lucide-arrow-right, .lucide-skip-forward, .lucide-step-forward")
       ? "translateX(3px)"
       : icon.matches(".lucide-arrow-left, .lucide-skip-back")
@@ -40,6 +44,7 @@ export function useButtonFeedback() {
 
   return {
     onPointerDownCapture: (event: PointerEvent<HTMLDivElement>) => {
+      event.currentTarget.dataset.playInput = "pointer";
       if (event.button === 0) animateIcon(event.target, event.currentTarget);
     },
     onPointerOverCapture: (event: PointerEvent<HTMLDivElement>) => {
@@ -49,6 +54,7 @@ export function useButtonFeedback() {
       animateIcon(event.target, event.currentTarget);
     },
     onKeyDownCapture: (event: KeyboardEvent<HTMLDivElement>) => {
+      event.currentTarget.dataset.playInput = "keyboard";
       if (event.repeat || (event.key !== "Enter" && event.key !== " ")) return;
       if (event.key === " " && event.target instanceof Element && event.target.closest("a")) return;
       animateIcon(event.target, event.currentTarget);

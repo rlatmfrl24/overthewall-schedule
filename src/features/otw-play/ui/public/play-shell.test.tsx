@@ -94,7 +94,19 @@ describe("OtwPlayShell config gate", () => {
       refetch: vi.fn(),
     }));
   });
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+  it.each([true, false])("hides mobile proposal entry points for admin=%s", (isAdmin) => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    mocks.useAdminStatus.mockReturnValue({ data: { authenticated: true, isAdmin }, isPending: false, isError: false });
+    render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+    expect(screen.queryByRole("button", { name: "곡 제안 메뉴" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "곡 제안하기" })).toBeNull();
+    if (isAdmin) {
+      expect(screen.queryByRole("link", { name: "곡 검색" })).toBeNull();
+      expect(screen.getByRole("link", { name: "플레이리스트" }).getAttribute("href")).toBe("/play/playlists");
+    }
+  });
 
   it("reads anonymous config before waiting for administrator preview auth", () => {
     mocks.useUser.mockReturnValue({
@@ -152,8 +164,8 @@ describe("OtwPlayShell config gate", () => {
     expect(mocks.useConfig).toHaveBeenCalledWith({ adminPreview: true });
     expect(mocks.providerModes).toEqual([true]);
     expect(mocks.playerModes).toEqual([true]);
-    expect(screen.getByRole("link", { name: "발견" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "곡 검색" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Discover" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "곡 검색" })).toBeNull();
     expect(screen.getByRole("button", { name: "곡 제안 메뉴" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "홈" })).toBeNull();
     expect(screen.queryByRole("link", { name: "전체 곡" })).toBeNull();

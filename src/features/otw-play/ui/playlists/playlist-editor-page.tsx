@@ -1,5 +1,6 @@
+import { useAnimations } from "@/shared/ui/animation-provider";
 import { PlaylistDetailSkeleton, PlaylistTracksSkeleton } from "./playlist-skeletons";
-import { motion, Reorder, useDragControls, useReducedMotion } from "motion/react";
+import { motion, Reorder, useDragControls } from "motion/react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -165,7 +166,8 @@ function PlaylistReorderItem({ id, index, disabled, onDraggingChange, children }
   children: (handle: ReactNode) => ReactNode;
 }) {
   const controls = useDragControls();
-  const reducedMotion = useReducedMotion();
+  const { enabled } = useAnimations();
+  const reducedMotion = !enabled;
   return <Reorder.Item value={id} className="playlist-edit-item" dragListener={false} dragControls={controls}
     dragMomentum={false} transition={reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 450, damping: 35 }}
     whileDrag={{ backgroundColor: "var(--card)", boxShadow: "0 4px 16px rgb(0 0 0 / 14%)" }}

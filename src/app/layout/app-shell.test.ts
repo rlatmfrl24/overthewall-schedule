@@ -68,16 +68,36 @@ vi.mock("./app-navigation", () => ({
   usePublicNavigationSections: () => [],
 }));
 
+import { AnimationProvider } from "@/shared/ui/animation-provider";
 import { PublicAppShell } from "./app-shell";
 
 describe("PublicAppShell", () => {
   beforeEach(() => {
     clerkState.status = "signed-in";
+    localStorage.clear();
   });
 
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("persists the profile animation switch across remounts", () => {
+    const app = () => React.createElement(AnimationProvider, null, React.createElement(PublicAppShell, null, "content"));
+    const first = render(app());
+    fireEvent.click(screen.getAllByRole("button", { name: /사용자 메뉴$/ })[0]);
+    const toggle = screen.getByRole("switch", { name: "애니메이션 활성화" });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(toggle);
+    expect(document.documentElement.dataset.animations).toBe("disabled");
+    expect(localStorage.getItem("otw-animations-enabled")).toBe("false");
+    first.unmount();
+    render(app());
+    fireEvent.click(screen.getAllByRole("button", { name: /사용자 메뉴$/ })[0]);
+    expect(screen.getByRole("switch", { name: "애니메이션 활성화" }).getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(screen.getByRole("switch", { name: "애니메이션 활성화" }));
+    expect(document.documentElement.dataset.animations).toBe("enabled");
+    expect(localStorage.getItem("otw-animations-enabled")).toBe("true");
   });
 
   it("groups account and theme controls behind one footer button", () => {

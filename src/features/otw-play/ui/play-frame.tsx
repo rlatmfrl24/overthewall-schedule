@@ -1,9 +1,10 @@
 import type { OtwPlaySubmissionKind } from "@contracts/otw-play";
 import { SectionNavigation } from "@/shared/ui/section-navigation";
 import { Link } from "@tanstack/react-router";
-import { ChevronDown, ListPlus, ListTodo, Music2 } from "lucide-react";
+import { ChevronDown, Compass, ListMusic, ListPlus, ListTodo, Music2, Clapperboard } from "lucide-react";
 import type { ReactNode } from "react";
 import "./play-glass.css";
+import { useMobilePlayScreen } from "./use-mobile-play-screen";
 import { useButtonFeedback } from "./use-button-feedback";
 import { Button } from "@/shared/ui/button";
 import {
@@ -14,10 +15,9 @@ import {
 } from "@/shared/ui/dropdown-menu";
 
 const catalogTabs = [
-  { label: "발견", to: "/play" as const, search: undefined },
-  { label: "노래 클립", to: "/play/clips" as const, search: undefined },
-  { label: "곡 검색", to: "/play/songs" as const, search: {} },
-  { label: "플레이리스트", to: "/play/playlists" as const, search: undefined },
+  { label: "Discover", icon: Compass, to: "/play" as const, search: undefined },
+  { label: "노래 클립", icon: Clapperboard, to: "/play/clips" as const, search: undefined },
+  { label: "플레이리스트", icon: ListMusic, to: "/play/playlists" as const, search: undefined },
 ];
 
 export function OtwPlayFrame({
@@ -72,22 +72,21 @@ function OtwPlayHeader({
   submissionActive: boolean;
   submissionKind?: OtwPlaySubmissionKind;
 }) {
+  const mobile = useMobilePlayScreen();
   return (
-    <header className="play-header z-20 h-16 shrink-0 border-b">
-      <div className="grid h-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 sm:px-5 lg:gap-5 lg:px-6">
+    <header className="play-header z-20 shrink-0 border-b">
+      <div className="play-header-layout">
+        <div className="play-header-navigation">
         <Link
           to="/play"
           aria-label="OTW Play 홈"
           className="play-wordmark flex shrink-0 items-center gap-2 font-bold"
         >
           <Music2 className="size-5" />
-          <span className="hidden sm:inline">OTW Play</span>
+          <span>OTW Play</span>
         </Link>
-        {search ?? <span aria-hidden="true" />}
-        <div className="flex items-center justify-end gap-2">
-          {status}
           {showCatalogTabs ? (
-            <SectionNavigation label="OTW Play 탐색" className="play-tabs flex min-w-0 gap-1 overflow-x-auto">
+            <SectionNavigation label="OTW Play 탐색" className="play-tabs">
               {catalogTabs.filter(tab => showClips || tab.to !== "/play/clips").map((tab) => (
                 <Link
                   key={`${tab.label}:${JSON.stringify(tab.search)}`}
@@ -104,12 +103,17 @@ function OtwPlayHeader({
                   }}
                   className="inline-flex h-9 shrink-0 items-center rounded-full px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  {tab.label}
+                  <tab.icon className="play-tab-icon" aria-hidden="true" />
+                  <span>{tab.label}</span>
                 </Link>
               ))}
             </SectionNavigation>
           ) : null}
-          <SubmissionMenu active={submissionActive} kind={submissionKind} />
+        </div>
+        <div className="play-header-actions">
+          {status}
+          <div className="play-header-search-slot">{search}</div>
+          {!mobile && <SubmissionMenu active={submissionActive} kind={submissionKind} />}
         </div>
       </div>
     </header>

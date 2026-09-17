@@ -4,14 +4,18 @@ export type SnapshotFontMode = "loading" | "web" | "system";
 export const SnapshotFontContext = createContext<SnapshotFontMode>("loading");
 export const SYSTEM_FONT_FAMILY = "system-ui, sans-serif";
 export const SNAPSHOT_FONT_FAMILY =
-  '"OTW Snapshot Inter", "OTW Snapshot Pretendard", system-ui, sans-serif';
+  '"OTW Snapshot Poppins", "OTW Snapshot Pretendard", system-ui, sans-serif';
 export const SNAPSHOT_FONT_TIMEOUT = 3_000;
 export const SNAPSHOT_SYSTEM_FONT_EVENT = "otw:snapshot-system-fonts";
 export const SNAPSHOT_FONT_READ_EVENT = "otw:snapshot-read-fonts";
 
 const fonts = [
-  { family: "OTW Snapshot Inter", url: "/fonts/inter-4.1/InterVariable.woff2" },
-  { family: "OTW Snapshot Pretendard", url: "/fonts/pretendard-1.3.9/PretendardVariable.woff2" },
+  ...[100, 200, 300, 400, 500, 600, 700, 800, 900].map(weight => ({
+    family: "OTW Snapshot Poppins",
+    url: `/fonts/poppins-5.3.0/poppins-latin-${weight}-normal.woff2`,
+    weight: String(weight),
+  })),
+  { family: "OTW Snapshot Pretendard", url: "/fonts/pretendard-1.3.9/PretendardVariable.woff2", weight: "100 900" },
 ] as const;
 
 export interface SnapshotFonts {
@@ -47,14 +51,14 @@ export async function prepareSnapshotFonts(signal: AbortSignal): Promise<Snapsho
     if (signal.aborted) onAbort();
   });
   const load = async (): Promise<SnapshotFonts> => {
-    const prepared = await Promise.all(fonts.map(async ({ family, url }) => {
+    const prepared = await Promise.all(fonts.map(async ({ family, url, weight }) => {
       const response = await fetch(url, { signal: controller.signal });
       if (!response.ok) throw new Error(`snapshot-font-http-${response.status}`);
       const bytes = await response.arrayBuffer();
-      const face = await new FontFace(family, bytes, { weight: "100 900", style: "normal" }).load();
+      const face = await new FontFace(family, bytes, { weight, style: "normal" }).load();
       return {
         face,
-        css: `@font-face{font-family:"${family}";src:url("${toDataUrl(bytes)}") format("woff2");font-style:normal;font-weight:100 900;}`,
+        css: `@font-face{font-family:"${family}";src:url("${toDataUrl(bytes)}") format("woff2");font-style:normal;font-weight:${weight};}`,
       };
     }));
     return { mode: "web", faces: prepared.map(({ face }) => face), css: prepared.map(({ css }) => css).join("\n") };

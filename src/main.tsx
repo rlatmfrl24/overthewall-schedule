@@ -1,3 +1,4 @@
+import { AnimationProvider } from "./shared/ui/animation-provider";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
@@ -38,11 +39,13 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
-        <ToastProvider>
-          <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
-            <RouterProvider router={router} />
-          </ClerkProvider>
-        </ToastProvider>
+        <AnimationProvider>
+          <ToastProvider>
+            <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
+              <RouterProvider router={router} />
+            </ClerkProvider>
+          </ToastProvider>
+        </AnimationProvider>
       </ThemeProvider>
     </QueryClientProvider>
   </StrictMode>

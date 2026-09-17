@@ -1,7 +1,8 @@
 // Adapted from https://reactbits.dev/r/ElasticSlider-JS-CSS.json.
 // A native range preserves keyboard and assistive technology interaction.
 import { animate, motion, useMotionValue, useTransform } from 'motion/react';
-import React, { useRef, useState } from 'react';
+import { useAnimations } from '../animation-provider';
+import React, { useEffect, useRef, useState } from 'react';
 import { RiVolumeDownFill, RiVolumeUpFill } from 'react-icons/ri';
 import './ElasticSlider.css';
 
@@ -29,6 +30,7 @@ export default function ElasticSlider({
   'aria-valuetext': ariaValueText,
   'aria-orientation': ariaOrientation = 'horizontal',
 }) {
+  const { enabled } = useAnimations();
   const [localValue, setLocalValue] = useState(defaultValue);
   const [keyboardFocus, setKeyboardFocus] = useState(false);
   const sliderRef = useRef(null);
@@ -37,6 +39,9 @@ export default function ElasticSlider({
   const overflow = useMotionValue(0);
   const scale = useMotionValue(1);
   const origin = useMotionValue('center');
+  useEffect(() => {
+    if (!enabled) { scale.jump(1); overflow.jump(0); }
+  }, [enabled, scale, overflow]);
   const [region, setRegion] = useState('middle');
   const upper = Math.max(startingValue, maxValue);
   const clamp = number => Math.min(upper, Math.max(startingValue, number));
@@ -64,7 +69,8 @@ export default function ElasticSlider({
   };
   const expand = active => {
     const target = active && !unavailable ? ACTIVE_SCALE : 1;
-    animate(scale, target);
+    if (enabled) animate(scale, target);
+    else scale.jump(1);
   };
   const move = event => {
     if (unavailable || activePointer.current !== event.pointerId) return;
@@ -78,7 +84,7 @@ export default function ElasticSlider({
     // Interrupt any old rebound while directly manipulating the track.
     // Scale the elastic travel with the track, keeping it inside the reserved gutter.
     const travel = Math.min(MAX_OVERFLOW, bounds.width * 0.1);
-    overflow.jump(decay(distance, travel));
+    overflow.jump(enabled ? decay(distance, travel) : 0);
   };
   const finish = event => {
     if (activePointer.current !== event.pointerId) return;
@@ -86,7 +92,8 @@ export default function ElasticSlider({
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    animate(overflow, 0, { type: 'spring', bounce: 0.5 });
+    if (enabled) animate(overflow, 0, { type: 'spring', bounce: 0.5 });
+    else overflow.jump(0);
     if (event.pointerType !== 'mouse') expand(false);
   };
 
@@ -96,7 +103,7 @@ export default function ElasticSlider({
         style={{ scale, opacity }}
         onHoverStart={() => expand(true)} onHoverEnd={() => expand(false)}>
         {leftIcon != null && <motion.span className="elastic-slider-icon"
-          animate={{ scale: region === 'left' ? [1, 1.4, 1] : 1, transition: { duration: 0.25 } }}
+          animate={{ scale: enabled && region === 'left' ? [1, 1.4, 1] : 1, transition: { duration: enabled ? 0.25 : 0 } }}
           style={{ x: leftX }}>
           {onLeftIconClick ? <button type="button" className="elastic-slider-icon-button"
             aria-label={leftIconLabel} aria-pressed={leftIconPressed} disabled={disabled}
@@ -133,7 +140,7 @@ export default function ElasticSlider({
           {showValue && <output htmlFor={id} className="elastic-slider-value" aria-hidden="true">{Math.round(value)}</output>}
         </div>
         {rightIcon != null && <motion.span className="elastic-slider-icon" aria-hidden="true"
-          animate={{ scale: region === 'right' ? [1, 1.4, 1] : 1, transition: { duration: 0.25 } }}
+          animate={{ scale: enabled && region === 'right' ? [1, 1.4, 1] : 1, transition: { duration: enabled ? 0.25 : 0 } }}
           style={{ x: rightX }}>{rightIcon}</motion.span>}
       </motion.div>
     </div>

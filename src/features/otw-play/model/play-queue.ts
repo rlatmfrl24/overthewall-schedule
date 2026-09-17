@@ -23,11 +23,12 @@ export type OtwPlayQueueAction =
   | { type: "enqueue_batch"; items: OtwPlayQueueItem[] }
   | { type: "play_next"; item: OtwPlayQueueItem }
   | { type: "remove"; itemId: string }
+  | { type: "reorder"; itemIds: string[] }
   | { type: "move"; itemId: string; direction: -1 | 1 }
   | { type: "replace_source"; itemId: string; sourceId: string }
   | { type: "select"; index: number }
   | { type: "set_repeat"; repeat: OtwPlayQueueRepeatMode }
-  | { type: "shuffle"; randomValues: readonly number[] }
+  | { type: "shuffle" }
   | { type: "clear" };
 
 export const createEmptyOtwPlayQueue = (): OtwPlayQueueState => ({
@@ -75,6 +76,13 @@ export const reduceOtwPlayQueue = (
   state: OtwPlayQueueState,
   action: OtwPlayQueueAction,
 ): OtwPlayQueueState => {
+  if (action.type === "reorder") {
+    const byId = new Map(state.items.map(item => [item.id, item]));
+    if (action.itemIds.length !== state.items.length || new Set(action.itemIds).size !== state.items.length || action.itemIds.some(id => !byId.has(id))) return state;
+    const currentId = state.currentIndex === null ? null : state.items[state.currentIndex]?.id;
+    const items = action.itemIds.map(id => byId.get(id)!);
+    return { ...state, items, currentIndex: currentId ? items.findIndex(item => item.id === currentId) : null };
+  }
   if (action.type === "enqueue_batch") {
     const seen = new Set(state.items.map(item => item.performanceId));
     const added = action.items.filter(item => {
@@ -201,24 +209,7 @@ export const reduceOtwPlayQueue = (
   if (action.type === "set_repeat") {
     return { ...state, repeat: action.repeat };
   }
-  if (action.type === "shuffle") {
-    if (state.items.length < 2 || state.currentIndex === null) {
-      return { ...state, shuffled: true };
-    }
-    const items = [...state.items];
-    const movableIndexes = items
-      .map((_, index) => index)
-      .filter((index) => index !== state.currentIndex);
-    for (let index = movableIndexes.length - 1; index > 0; index -= 1) {
-      const random = action.randomValues[movableIndexes.length - 1 - index] ?? 0;
-      const target = Math.min(index, Math.floor(Math.max(0, random) * (index + 1)));
-      const leftIndex = movableIndexes[index];
-      const rightIndex = movableIndexes[target];
-      if (leftIndex === undefined || rightIndex === undefined) continue;
-      [items[leftIndex], items[rightIndex]] = [items[rightIndex]!, items[leftIndex]!];
-    }
-    return { ...state, items, shuffled: true };
-  }
+  if (action.type === "shuffle") return { ...state, shuffled: !state.shuffled };
   return createEmptyOtwPlayQueue();
 };
 
@@ -226,7 +217,7 @@ export const findNextPlayableQueueIndex = (
   state: OtwPlayQueueState,
   direction: -1 | 1,
   isPlayable: (item: OtwPlayQueueItem) => boolean,
-  options: { ended?: boolean } = {},
+  options: { ended?: boolean; random?: number; playedIds?: ReadonlySet<string> } = {},
 ) => {
   if (state.currentIndex === null || state.items.length === 0) return null;
   if (
@@ -236,6 +227,15 @@ export const findNextPlayableQueueIndex = (
     isPlayable(state.items[state.currentIndex]!)
   ) {
     return state.currentIndex;
+  }
+
+  if (state.shuffled && direction === 1) {
+    const playable = state.items.map((item, index) => ({ item, index })).filter(({ item, index }) => index !== state.currentIndex && isPlayable(item));
+    let candidates = playable.filter(({ item }) => !options.playedIds?.has(item.id));
+    if (!candidates.length && state.repeat === "all") candidates = playable;
+    if (!candidates.length) return state.repeat === "all" && isPlayable(state.items[state.currentIndex]!) ? state.currentIndex : null;
+    const random = Math.min(.999999, Math.max(0, options.random ?? Math.random()));
+    return candidates[Math.floor(random * candidates.length)]!.index;
   }
 
   let index = state.currentIndex;

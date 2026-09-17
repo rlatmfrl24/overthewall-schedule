@@ -24,10 +24,12 @@ import {
   useOtwPlayCatalog,
 } from "../../queries/use-public-catalog";
 import { OtwPlayPlayerProvider } from "../../player/play-player-context";
+import { useMobilePlayScreen } from "../use-mobile-play-screen";
 import { OtwPlayFrame } from "../play-frame";
 import { OtwPlayPlayerQueuePanel } from "../player/now-playing-panel";
 
 export function OtwPlayShell({ children }: { children: ReactNode }) {
+  const mobile = useMobilePlayScreen();
   const pathname = useRouterState({ select: state => state.location.pathname });
   const { isLoaded, isSignedIn, user } = useUser();
   const publicConfig = useOtwPlayConfig();
@@ -63,7 +65,7 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
     return (
       <OtwPlayAccessCard
         title="로그인하고 OTW Play를 만나보세요"
-        description="OTW 회원이라면 노래를 듣고 플레이리스트와 곡 제안을 이용할 수 있어요."
+        description={mobile ? "OTW 회원이라면 노래를 듣고 플레이리스트를 이용할 수 있어요." : "OTW 회원이라면 노래를 듣고 플레이리스트와 곡 제안을 이용할 수 있어요."}
       >
         <SignInButton>
           <Button className="w-full rounded-full">로그인</Button>
@@ -117,11 +119,11 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
   return (
     <OtwPlayAccessCard
       title="OTW Play 공개 준비 중입니다"
-      description="곡 제안과 내 제안은 공개 전에도 계속 이용할 수 있습니다."
+      description={mobile ? "공개 후 이곳에서 노래와 플레이리스트를 만나보세요." : "곡 제안과 내 제안은 공개 전에도 계속 이용할 수 있습니다."}
     >
-      <Button asChild className="w-full rounded-full">
+      {!mobile && <Button asChild className="w-full rounded-full">
         <Link to="/play/submit" search={{ edit: undefined, submissionKind: pathname.startsWith("/play/songs") ? "official_cover" : undefined }}>곡 제안하기</Link>
-      </Button>
+      </Button>}
     </OtwPlayAccessCard>
   );
 }

@@ -17,6 +17,8 @@ import {
   type NavSection,
   usePublicNavigationSections,
 } from "./app-navigation";
+import { useAnimations } from "@/shared/ui/animation-provider";
+import { Switch } from "@/shared/ui/switch";
 import { ModeToggle } from "@/app/layout/mode-toggle";
 import { Button } from "@/shared/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
@@ -332,6 +334,7 @@ function PublicUserMenu({
   side?: "top" | "bottom";
 }) {
   const { user } = useUser();
+  const { enabled, setEnabled } = useAnimations();
   const displayName = user?.username || user?.fullName || user?.firstName || (user ? "회원" : "게스트");
 
   return (
@@ -377,6 +380,10 @@ function PublicUserMenu({
         <div className="space-y-2 border-t px-3 py-3">
           <div className="px-1 text-xs font-medium text-muted-foreground">화면 테마</div>
           <ModeToggle />
+          <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-1 text-sm">
+            애니메이션 활성화
+            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="애니메이션 활성화" />
+          </label>
         </div>
         <div className="border-t p-1.5">
           <AuthControls />
