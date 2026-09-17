@@ -207,6 +207,10 @@ const makeMemberPostsState = ({
     error: null,
     hasLoaded: true,
     reload,
+    hasNextPage: false,
+    loadingMore: false,
+    loadMoreError: false,
+    loadMore: vi.fn().mockResolvedValue(undefined),
     x: makeXState(xPosts, reload, xPolicy),
     naverCafe: makeCafeState(cafePosts, reload, cafePolicy),
   };
@@ -216,6 +220,28 @@ const replyPost: XPostViewModel = { ...xPost, reply: { postId: "10", conversatio
 const mount = (props = { loadX: true, loadCafe: true }) => renderWithQueryClient(createElement(MemberPostsOverview, { ...props, footer: createElement("footer", null, "팬 운영 안내") }));
 
 describe("MemberPostsOverview", () => {
+  it("loads once at the scroll boundary and stops automatic retries after failure", () => {
+    let intersect!: IntersectionObserverCallback;
+    const observe = vi.fn(), disconnect = vi.fn();
+    vi.stubGlobal("IntersectionObserver", class {
+      constructor(callback: IntersectionObserverCallback) { intersect = callback; }
+      observe = observe;
+      disconnect = disconnect;
+    });
+    const state = { ...makeMemberPostsState(), hasNextPage: true };
+    useMemberPostsMock.mockReturnValue(state);
+    const { rerender } = mount();
+    const hit = [{ isIntersecting: true }] as IntersectionObserverEntry[];
+    intersect(hit, {} as IntersectionObserver);
+    intersect(hit, {} as IntersectionObserver);
+    expect(state.loadMore).toHaveBeenCalledOnce();
+    useMemberPostsMock.mockReturnValue({ ...state, loadMoreError: true });
+    rerender(createElement(MemberPostsOverview, { loadX: true, loadCafe: true }));
+    expect(disconnect).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect(state.loadMore).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+  });
   beforeEach(() => {
     vi.stubGlobal("localStorage", { getItem: vi.fn(() => "false"), setItem: vi.fn() });
     useMemberPostsMock.mockReturnValue(makeMemberPostsState());
@@ -291,7 +317,8 @@ describe("MemberPostsOverview", () => {
     fireEvent.click(screen.getByRole("button", { name: "전체 멤버" }));
     expect(screen.getAllByRole("article")).toHaveLength(2);
     expect(state.reload).not.toHaveBeenCalled();
-    expect(useMemberPostsMock.mock.calls.every(([args]) => JSON.stringify(args) === JSON.stringify({ includeX: true, includeNaverCafe: true, maxResults: 10, size: 10 }))).toBe(true);
+    expect(useMemberPostsMock).toHaveBeenCalledWith({ includeX: true, includeNaverCafe: true, paginated: true, memberUid: 2 });
+    expect(useMemberPostsMock).toHaveBeenLastCalledWith({ includeX: true, includeNaverCafe: true, paginated: true, memberUid: undefined });
   });
 
   it("출처 지연·오류 상세를 표시하지 않고 기존 글을 유지한다", () => {
@@ -301,7 +328,8 @@ describe("MemberPostsOverview", () => {
     expect(screen.queryByText(/출처 업데이트 지연|조회 실패 상세 사유|이전 글 표시/)).toBeNull();
     expect(container.querySelector("details")).toBeNull();
     expect(screen.getAllByRole("article")).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect(state.reload).toHaveBeenCalledOnce();
   });
 
   it("피드 갱신 시각이 없으면 요청 시각으로 대체하지 않는다", () => {

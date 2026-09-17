@@ -19,6 +19,10 @@ export async function fetchMemberPostsAggregate(
     force?: boolean;
     admin?: boolean;
     compact?: boolean;
+    paginated?: boolean;
+    cursor?: string;
+    memberUid?: number;
+    signal?: AbortSignal;
   } = {},
 ) {
   const sources = [
@@ -40,11 +44,17 @@ export async function fetchMemberPostsAggregate(
   if (options.admin) {
     params.set("admin", "1");
   }
+  if (options.paginated) {
+    params.set("page", "1");
+    if (options.cursor) params.set("cursor", options.cursor);
+    if (options.memberUid !== undefined) params.set("memberUid", String(options.memberUid));
+  }
 
   return apiFetch<MemberPostsAggregateResponse>(
     withRouteSearch(apiRoutes.memberPosts.read.build(), params),
     {
       cache: options.force ? "no-store" : "default",
+      signal: options.signal,
     },
   );
 }

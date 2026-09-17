@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { motion } from "motion/react";
 import { OtwPlayPlaylistDiscovery } from "../playlists/playlists-page";
 import { ArrowLeft, ArrowRight, LoaderCircle } from "lucide-react";
 import {
@@ -35,7 +36,7 @@ export function OtwPlayHomePage() {
   const latest = useOtwPlayCatalog({ limit: 24 });
   const facets = useOtwPlayFacets();
   const featuredSongs = latest.data?.pages[0]?.data.items.slice(0, 8) ?? [];
-  const carousel = useFeaturedCarousel(featuredSongs.length);
+  const carousel = useFeaturedCarousel(!latest.isPending && !facets.isPending && !facets.isError ? featuredSongs.length : 0);
   const {
     fetchNextPage,
     hasNextPage,
@@ -143,7 +144,7 @@ export function OtwPlayHomePage() {
   const handleHeroKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
-    moveFeatured(event.key === "ArrowLeft" ? -1 : 1);
+    moveFeatured(event.key === "ArrowLeft" ? -1 : 1, false);
   };
 
   return (
@@ -161,6 +162,7 @@ export function OtwPlayHomePage() {
           aria-label="추천 배너"
           tabIndex={0}
           className="play-spotlight relative w-full touch-pan-y outline-none"
+          data-carousel-motion={carousel.motionEnabled}
           onMouseEnter={() => carousel.setHovered(true)}
           onMouseLeave={() => carousel.setHovered(false)}
           onFocusCapture={() => carousel.setFocused(true)}
@@ -204,26 +206,30 @@ export function OtwPlayHomePage() {
                 <OtwPlayPerformanceActions song={featured} performance={featured.representativePerformance} compact />
               {featuredSongs.length > 1 ? (
                 <div className="play-carousel-controls">
-                  <div className="play-carousel-dots" aria-label={(activeIndex + 1) + " / " + featuredSongs.length}>
-                    {featuredSongs.map((song, index) => (
-                      <button
-                        type="button"
-                        key={song.id}
-                        aria-label={(index + 1) + "번째 추천곡 보기"}
-                        aria-current={index === activeIndex ? "true" : undefined}
-                        onClick={() => carousel.select(index)}
-                        className="play-carousel-dot"
-                      />
-                    ))}
-                  </div>
-                  <div className="play-carousel-arrows">
-                  <Button type="button" variant="ghost" size="icon-sm" aria-label="이전 추천곡" onClick={() => moveFeatured(-1)}>
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label="이전 추천곡" onClick={event => moveFeatured(-1, event.detail !== 0)}>
                     <ArrowLeft />
                   </Button>
-                  <Button type="button" variant="ghost" size="icon-sm" aria-label="다음 추천곡" onClick={() => moveFeatured(1)}>
+                  <div className="play-carousel-dots" data-auto-enabled={carousel.autoEnabled} data-rotating={carousel.rotating} aria-label={(activeIndex + 1) + " / " + featuredSongs.length}>
+                    {featuredSongs.map((song, index) => (
+                      <motion.button
+                        type="button"
+                        key={song.id}
+                        layout={carousel.motionEnabled ? "position" : false}
+                        transition={{ layout: { duration: 0.24, ease: [0.77, 0, 0.175, 1] } }}
+                        aria-label={(index + 1) + "번째 추천곡 보기"}
+                        aria-current={index === activeIndex ? "true" : undefined}
+                        onClick={event => carousel.select(index, event.detail !== 0)}
+                        className="play-carousel-dot"
+                      >
+                        <span className="play-carousel-track" aria-hidden="true">
+                          <span ref={index === activeIndex ? carousel.progressRef : undefined} className="play-carousel-progress" />
+                        </span>
+                      </motion.button>
+                    ))}
+                  </div>
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label="다음 추천곡" onClick={event => moveFeatured(1, event.detail !== 0)}>
                     <ArrowRight />
                   </Button>
-                  </div>
                 </div>
               ) : null}
               </div>

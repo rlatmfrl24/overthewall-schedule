@@ -3,6 +3,31 @@
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
+@custom-variant motion-reduce {
+  @media (prefers-reduced-motion: reduce) {
+    @slot;
+  }
+  &:where([data-animations="disabled"], [data-animations="disabled"] *) {
+    @slot;
+  }
+}
+@custom-variant motion-safe {
+  @media (prefers-reduced-motion: no-preference) {
+    &:where(:root:not([data-animations="disabled"]), :root:not([data-animations="disabled"]) *) {
+      @slot;
+    }
+  }
+}
+
+/* Include portalled controls and pseudo-elements in the user motion preference. */
+html[data-animations="disabled"],
+html[data-animations="disabled"] *,
+html[data-animations="disabled"] *::before,
+html[data-animations="disabled"] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
 
 :root {
   --radius: 0.625rem;
@@ -43,7 +68,7 @@
 }
 
 @theme inline {
-  --font-sans: "Inter", "Pretendard Variable", system-ui, sans-serif;
+  --font-sans: "Poppins", "Pretendard Variable", system-ui, sans-serif;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -155,11 +180,15 @@
 .otw-play-admin [data-slot="card-header"].border-b { padding-bottom: 8px; }
 .otw-play-admin [data-slot="card-header"] + [data-slot="card-content"] { padding-top: 0; }
 .otw-play-admin [data-slot="card-content"].p-0 { padding: 0; }
+.otw-play-review-page { padding-bottom: var(--review-footer-height, 100px); }
+.otw-play-review-page :is(input, textarea, button, [tabindex]) { scroll-margin-bottom: calc(var(--review-footer-height, 100px) + 20px); }
+.otw-play-review-footer { position: fixed; inset-inline: 0; bottom: 0; z-index: 20; padding-inline: var(--admin-content-padding); padding-bottom: env(safe-area-inset-bottom); background: var(--background); }
+@media (min-width: 768px) { .otw-play-review-footer { left: 216px; } }
 @media (max-width: 767px) {
   .admin-console button, .admin-console summary { min-height: 44px; }
   .admin-console td, .admin-console th { padding: 8px 6px; }
 }
-@media (prefers-reduced-motion: reduce) { .admin-console * { animation: none !important; transition: none !important; } }
+html[data-animations="disabled"] { .admin-console * { animation: none !important; transition: none !important; } }
 
 @media (max-width: 767px) {
   .admin-console .console-history-table thead { display: none; }
@@ -173,6 +202,6 @@
 @media (max-width: 767px) {
   :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]).admin-console :is(button,input,select,[role="combobox"]) { min-height: 44px; }
 }
-@media (prefers-reduced-motion: reduce) {
+html[data-animations="disabled"] {
   [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"], [data-slot="select-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"] { animation: none !important; transition: none !important; }
 }

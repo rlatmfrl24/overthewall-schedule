@@ -1,12 +1,14 @@
 # Channel upload polling
 
+> 2026-09-17 사용자 결정: **자동 수집 기능 확인 필요**. 현재 수집 제어·예약 전달·후보 저장의 실제 연결을 확인할 작업으로 유지한다. 운영 pause 해제나 강제 수집은 이번 상태 변경에 포함하지 않는다.
+
 Status: implemented, 2026-09-09. Final release evidence is recorded in the owning pull request.
 
 ## Decision
 
 Replace WebSub with the existing YouTube uploads-playlist polling flow. The current service monitors a small number of explicitly approved singing-clip channels and stores uploads for administrator review. It does not require immediate push delivery. Maintaining callback authentication, subscription leases, Hub retries and delivery recovery adds more operational work than this scope needs.
 
-The production subscription was already expired at Google on 2026-09-06 05:14:08 UTC. A real unsubscribe retry returned HTTP 503 after 20.409 seconds; waiting longer or switching to synchronous verification did not resolve it. The internal `unsubscribing` record is historical evidence, not an active operational dependency. See [diagnosis](websub-hub-diagnosis-2026-09-09.md).
+The production subscription was already expired at Google on 2026-09-06 05:14:08 UTC. A real unsubscribe retry returned HTTP 503 after 20.409 seconds; waiting longer or switching to synchronous verification did not resolve it. The internal `unsubscribing` record is historical evidence, not an active operational dependency. See [diagnosis](../archive/websub-hub-diagnosis-2026-09-09.md).
 
 ## Current contract
 
@@ -23,7 +25,7 @@ Sources: [playlistItems.list](https://developers.google.com/youtube/v3/docs/play
 
 ## Retirement boundaries
 
-Physical resource removal follows the [evidence-based drain and rollback procedure](retired-implementation-cleanup.md#websub-리소스-후속-제거). The original 49-hour wait from producer retirement was reassessed at the user's request: the last completed delivery predates both retention windows, recent Queue/DLQ traffic is absent, and both queues must remain empty in two realtime observations at least 15 minutes apart. Deployed consumer detachment is still required before deletion. If that evidence is incomplete, use the original retention wait. Hub unsubscribe acknowledgement is not a prerequisite.
+Physical resource removal follows the [evidence-based drain and rollback procedure](../archive/retired-implementation-cleanup-before-2026-09-17.md#websub-리소스-후속-제거). The original 49-hour wait from producer retirement was reassessed at the user's request: the last completed delivery predates both retention windows, recent Queue/DLQ traffic is absent, and both queues must remain empty in two realtime observations at least 15 minutes apart. Deployed consumer detachment is still required before deletion. If that evidence is incomplete, use the original retention wait. Hub unsubscribe acknowledgement is not a prerequisite.
 
 - Remove the Hub client, subscription service, WebSub repository, crypto/feed parser, producer binding and subscription controls.
 - Stop both `websub_maintenance` and the redundant daily `recent_reconcile`. Old job types remain readable in execution history, labeled retired; new manual runs and retries return authenticated HTTP 410. Previously dispatched items skip without Hub or YouTube calls.
@@ -34,8 +36,8 @@ Physical resource removal follows the [evidence-based drain and rollback procedu
 
 ## Validation and rollout
 
-Use the normal `/admin/otw-play?tab=play-monitor` and `/admin/operations` entry points. Confirm polling controls, pause state, last success/error readback and retired job labels. Preserve the public Play flags and global automation pause.
+Use Admin → OTW Play → Channels for polling controls and `/admin/operations` for run status. The legacy `/admin/otw-play?tab=play-monitor` entry redirects into the integrated console; see the [admin workflow](../otw-play-admin-workflow-integration.md). Confirm polling controls, pause state, last success/error readback and retired job labels. Preserve the public Play flags and global automation pause.
 
-Regression coverage includes real D1 migration/readback, deletion with archived subscriptions, authority and pause races, resumption with an old continuation, metadata failure, missing watermark, authenticated retirement endpoints, shared-queue routing, retries and malformed-message acknowledgement. The release gate includes coverage, Worker integration, build, local D1 doctor and agent-rule synchronization.
+Regression coverage includes real D1 migration/readback, deletion with archived subscriptions, authority and pause races, resumption with an old continuation, metadata failure, missing watermark, authenticated retirement endpoints, shared-queue routing, retries and malformed-message acknowledgement. The release gate is `pnpm preflight`: architecture, test typecheck, lint, unit/Worker tests once without coverage instrumentation, build, local D1 doctor and agent-rule synchronization. Coverage is an optional diagnostic without a percentage gate.
 
 Production release identity, authoritative readback and remaining observation limits belong in the owning pull request's verification comments. A new-upload production canary remains deferred while global automation is deliberately paused; neither tests nor a successful HTTP response prove that future ingestion has occurred.

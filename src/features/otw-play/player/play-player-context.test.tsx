@@ -123,6 +123,7 @@ class VisibleIntersectionObserver {
 }
 
 function Consumer() {
+  const [hostVersion, setHostVersion] = React.useState(0);
   const player = useOtwPlayPlayer();
   const setPlaybackSurfaceActive = player.setPlaybackSurfaceActive;
   React.useEffect(() => {
@@ -131,7 +132,8 @@ function Consumer() {
   }, [setPlaybackSurfaceActive]);
   return (
     <div>
-      <div ref={player.setHostElement} data-testid="host" />
+      <div key={hostVersion} ref={player.setHostElement} data-testid="host" />
+      <button type="button" onClick={() => setHostVersion(version => version + 1)}>replace host</button>
       <button type="button" onClick={() => player.play(track)}>play</button>
       <button type="button" onClick={() => player.play(clipTrack)}>play clip</button>
       <button type="button" onClick={() => player.play(detailTrack)}>play detail</button>
@@ -142,6 +144,7 @@ function Consumer() {
       <button type="button" onClick={() => player.enqueue(track)}>enqueue</button>
       <button type="button" onClick={() => player.enqueueBatch([track], 0, true)}>add playlist</button>
       <button type="button" onClick={() => player.enqueueBatch([], 0, true)}>add empty playlist</button>
+      <button type="button" onClick={() => player.enqueueBatch([track, track], 2)}>add mixed playlist</button>
       <button type="button" onClick={() => player.playNext(track)}>play next</button>
       <button
         type="button"
@@ -319,6 +322,33 @@ describe("OtwPlayPlayerProvider", () => {
     expect(mocks.controller.load).not.toHaveBeenCalled();
   });
 
+  it("recreates a controller for a replaced video host and resumes playback", async () => {
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledTimes(1));
+    const oldHost = screen.getByTestId("host");
+    fireEvent.click(screen.getByRole("button", { name: "replace host" }));
+    expect(screen.getByTestId("host")).not.toBe(oldHost);
+    await waitFor(() => expect(mocks.createPlayer).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledTimes(2));
+    expect(mocks.controller.destroy).toHaveBeenCalledOnce();
+    expect(mocks.createPlayer.mock.calls[1]?.[0]).toBe(screen.getByTestId("host"));
+    fireEvent.click(screen.getByRole("button", { name: "resume" }));
+    expect(mocks.controller.play).toHaveBeenCalled();
+  });
+
+  it("does not autoplay a paused track when its host is replaced", async () => {
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "pause" }));
+    fireEvent.click(screen.getByRole("button", { name: "replace host" }));
+    await waitFor(() => expect(mocks.createPlayer).toHaveBeenCalledTimes(2));
+    expect(mocks.controller.load).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "resume" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledTimes(2));
+  });
+
   it("creates and loads one player only after a visible user gesture, then destroys it on leave", async () => {
     const view = render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
     expect(mocks.createPlayer).not.toHaveBeenCalled();
@@ -341,7 +371,9 @@ describe("OtwPlayPlayerProvider", () => {
     render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
     fireEvent.click(screen.getByRole("button", { name: "add empty playlist" }));
     expect(mocks.createPlayer).not.toHaveBeenCalled();
+    expect(screen.getByTestId("announcement").textContent).toBe("지금 담을 수 있는 가창이 없어요.");
     fireEvent.click(screen.getByRole("button", { name: "add playlist" }));
+    expect(screen.getByTestId("announcement").textContent).toBe("가창 1개를 재생 목록에 담았어요.");
     await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledWith({ videoId: track.source.externalId, startSeconds: 0 }));
     fireEvent.click(screen.getByRole("button", { name: "pause" }));
     mocks.controller.play.mockClear();
@@ -349,6 +381,17 @@ describe("OtwPlayPlayerProvider", () => {
     expect(mocks.controller.seekTo).toHaveBeenCalledWith(0);
     expect(mocks.controller.play).toHaveBeenCalledOnce();
     expect(screen.getByTestId("queue-size").textContent).toBe("1");
+    expect(screen.getByTestId("announcement").textContent).toBe("가창 1개는 이미 재생 목록에 있어요.");
+  });
+
+  it("reports added, duplicate and unavailable performances without counting them as songs added", () => {
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "add mixed playlist" }));
+    expect(screen.getByTestId("queue-size").textContent).toBe("1");
+    expect(screen.getByTestId("announcement").textContent).toBe(
+      "가창 1개를 재생 목록에 담았어요. 이미 담긴 1개는 그대로 두었어요. 재생할 수 없는 2개는 제외했어요.",
+    );
+    expect(mocks.createPlayer).not.toHaveBeenCalled();
   });
 
   it("resumes the paused current song from a catalog play action without reloading or duplicating it", async () => {

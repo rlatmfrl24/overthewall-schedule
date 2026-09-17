@@ -1,5 +1,5 @@
-import { useCallback } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRoutes, withRouteSearch } from "@contracts/api-routes";
 import {
   fetchMemberPostsAggregate,
@@ -63,6 +63,8 @@ export function useMemberPosts(
     maxResults?: number;
     size?: number;
     admin?: boolean;
+    paginated?: boolean;
+    memberUid?: number;
   } = {},
 ) {
   const queryClient = useQueryClient();
@@ -72,6 +74,8 @@ export function useMemberPosts(
     maxResults = 10,
     size = 10,
     admin = false,
+    paginated = false,
+    memberUid,
   } = options;
   const enabled = includeX || includeNaverCafe;
   const queryKey = queryKeys.memberPosts.aggregate(
@@ -81,6 +85,7 @@ export function useMemberPosts(
     size,
     admin,
   );
+  const pageQueryKey = [...queryKey, "pages", memberUid ?? null];
   const fetchPosts = useCallback(
     (force: boolean) =>
       fetchMemberPostsAggregate({
@@ -90,20 +95,44 @@ export function useMemberPosts(
         size,
         force,
         admin,
+        ...(paginated ? { paginated, memberUid } : {}),
       }),
-    [admin, includeNaverCafe, includeX, maxResults, size],
+    [admin, includeNaverCafe, includeX, maxResults, size, paginated, memberUid],
   );
 
-  const query = useQuery({
+  const singleQuery = useQuery({
     queryKey,
     queryFn: () => fetchPosts(false),
-    enabled,
+    enabled: enabled && !paginated,
     staleTime: MEMBER_POSTS_QUERY_STALE_TIME_MS,
   });
+  const pageQuery = useInfiniteQuery({
+    queryKey: pageQueryKey,
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam, signal }) => {
+      const response = await fetchMemberPostsAggregate({ includeX, includeNaverCafe, admin, paginated: true, memberUid, cursor: pageParam, signal });
+      const errors = [response.x, response.naverCafe].filter(source => source.policy.accessible && source.error);
+      // Keep the last successful cursor on partial source failure, so retry cannot skip posts.
+      if (pageParam && errors.length) throw new Error(errors.map(source => source.error).join(" "));
+      return response;
+    },
+    getNextPageParam: page => page.nextCursor ?? undefined,
+    enabled: enabled && paginated,
+    staleTime: MEMBER_POSTS_QUERY_STALE_TIME_MS,
+    retry: false,
+  });
+  const pageData = useMemo(() => {
+    const pages = pageQuery.data?.pages;
+    if (!pages?.length) return undefined;
+    return { ...pages[pages.length - 1], feedUpdatedAt: pages[0].feedUpdatedAt,
+      posts: [...new Map(pages.flatMap(page => page.posts).map(post => [post.id, post])).values()] };
+  }, [pageQuery.data]);
+  const query = paginated ? { ...pageQuery, data: pageData } : singleQuery;
   const reloadMutation = useMutation({
     mutationFn: () => fetchPosts(true),
     onSuccess: (response) => {
-      queryClient.setQueryData(queryKey, response);
+      if (paginated) queryClient.setQueryData(pageQueryKey, { pages: [response], pageParams: [undefined] });
+      else queryClient.setQueryData(queryKey, response);
     },
   });
 
@@ -138,6 +167,10 @@ export function useMemberPosts(
     error,
     hasLoaded: enabled ? query.isFetched : true,
     reload,
+    hasNextPage: paginated && pageQuery.hasNextPage,
+    loadingMore: paginated && pageQuery.isFetchingNextPage,
+    loadMoreError: paginated && pageQuery.isFetchNextPageError,
+    loadMore: pageQuery.fetchNextPage,
     x: {
       posts: data.x.posts,
       updatedAt: data.x.updatedAt || null,

@@ -23,7 +23,7 @@
 .playlist-saved-card h3 { font-size: clamp(1.75rem, 8cqi, 2.5rem); }
 @media (hover: hover) { .playlist-card-main:hover .playlist-art img { transform: scale(1.045); } }
 @media (hover: hover) { .playlist-card-main:hover .playlist-art img[src*="i.ytimg.com"] { transform: scale(1.405); } }
-@media (prefers-reduced-motion: reduce) { .playlist-art img { transition: none; } }
+html[data-animations="disabled"] { .playlist-art img { transition: none; } }
 .playlist-empty { padding: 32px 16px; display: grid; gap: 16px; text-align: center; color: var(--muted-foreground); }
 .playlist-track { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .playlist-track > img { width: 80px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; }
@@ -102,15 +102,40 @@
 .playlist-track-compact > svg { width: 24px; height: 24px; margin: 4px 16px; }
 .playlist-track-compact > [data-slot=button] { flex-shrink: 0; }
 
-/* Anchor detail copy to the artwork instead of distributing three flex items. */
-.playlist-detail-heading { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; align-items: center; }
+/* Keep artwork, information and actions together at every content width. */
+.playlist-detail-heading { display: grid; grid-template-columns: 208px minmax(0, 1fr); column-gap: 28px; row-gap: 20px; align-items: end; padding-block: 12px 24px; }
+.playlist-detail-artwork { grid-row: 1 / 3; width: 208px; aspect-ratio: 1; overflow: hidden; border-radius: 12px; align-self: center; background: var(--muted); }
+.playlist-detail-artwork img { width: 100%; height: 100%; object-fit: cover; }
+.playlist-detail-artwork img[src*="i.ytimg.com"] { transform: scale(1.36); }
 .playlist-detail-copy { min-width: 0; text-align: left; overflow-wrap: anywhere; }
-.playlist-detail-actions { grid-column: 1 / -1; justify-content: flex-start; }
-@container (min-width: 720px) {
-  .playlist-detail-heading { grid-template-columns: 96px minmax(0, 1fr) auto; }
-  .playlist-detail-actions { grid-column: auto; justify-content: flex-end; }
+.playlist-detail-copy h1 { font-size: clamp(1.5rem, 4cqi, 2.25rem); line-height: 1.15; text-wrap: balance; }
+.playlist-detail-copy .playlist-detail-description { margin-top: 12px; line-height: 1.6; text-wrap: pretty; }
+.playlist-detail-copy .playlist-detail-meta { margin-top: 8px; font-size: 12px; line-height: 1.6; }
+.playlist-detail-actions { grid-column: 2; align-self: start; justify-content: flex-start; min-width: 0; }
+.otw-play-glass .playlist-detail-heading .playlist-detail-actions [data-slot=button] { height: auto; min-height: 44px; padding: 10px 16px; white-space: normal; }
+@container (max-width: 639px) {
+  .playlist-detail-heading { grid-template-columns: 160px minmax(0, 1fr); column-gap: 20px; }
+  .playlist-detail-artwork { width: 160px; }
+}
+@container (max-width: 479px) {
+  .playlist-detail-heading { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 20px; padding-block: 8px 20px; }
+  .playlist-detail-artwork { grid-row: auto; width: min(192px, 100%); }
+  .playlist-detail-copy { width: 100%; text-align: center; }
+  .playlist-detail-copy > [data-slot=skeleton] { margin-inline: auto; }
+  .playlist-detail-actions { grid-column: 1; justify-content: center; }
 }
 
-@keyframes playlist-add-progress { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
-.playlist-add-indeterminate { animation: playlist-add-progress 1.2s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .playlist-add-indeterminate { animation: none; width: 100%; opacity: .6; } }
+.playlist-add-feedback { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--muted); color: var(--foreground); }
+.playlist-add-status { display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; }
+.playlist-add-spinner { color: var(--foreground); }
+.playlist-add-title { margin-top: 4px; color: var(--muted-foreground); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.playlist-add-message { font-size: 14px; line-height: 1.6; word-break: keep-all; overflow-wrap: anywhere; }
+
+
+/* A pointer-transparent image layer joins collection and detail artwork across routes. */
+.playlist-hero-layer { position: fixed; z-index: 45; overflow: hidden; pointer-events: none; }
+.playlist-hero-flight { position: absolute; overflow: hidden; pointer-events: none; }
+.playlist-hero-flight > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.playlist-hero-flight > div { position: absolute; inset: 0; background: #000; }
+
+.playlist-hero-title { position: absolute; margin: 0; padding: 0; transform-origin: top left; pointer-events: none; }

@@ -1,4 +1,5 @@
 import type { XPostDto, XPostsByHandleDto } from "@contracts/x-posts";
+import type { MemberPostsPageRequest } from "@contracts/member-posts";
 
 export type Visibility = "public" | "members" | "private";
 
@@ -58,11 +59,13 @@ export interface MemberPostsPort {
       maxResults: number;
       richXLinkPreviewEnabled: boolean;
       adminView: boolean;
+      page?: MemberPostsPageRequest;
     },
   ): Promise<XPostsContent>;
   isXApiError(error: unknown): boolean;
   readNaverCafePosts(
     sources: NaverCafeSourceRecord[],
     size: number,
+    page?: MemberPostsPageRequest,
   ): Promise<NaverCafePostsContent>;
 }

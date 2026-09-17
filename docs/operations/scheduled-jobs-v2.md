@@ -1,6 +1,6 @@
 # Scheduled jobs v2 운영 전환
 
-2026-09-08 비용 최적화와 공개 전 Play 중지·재개 절차는 [무료 운영 우선 백엔드 최적화](./backend-cost-optimization.md)를 따른다. 아래 과거 Closeout은 당시 관측값이며 현재 운영 상태를 대신하지 않는다.
+2026-09-08 비용 최적화와 공개 전 Play 중지·재개 절차는 [무료 운영 우선 백엔드 최적화](backend-cost-optimization.md)를 따른다. 아래 과거 Closeout은 당시 관측값이며 현재 운영 상태를 대신하지 않는다.
 
 정기 작업 v2는 D1 run/item/outbox를 권위 상태로 사용하고, 하나의 범용 Workflow는 전달받은 job type의 조정만 수행하며 Queue item 하나가 실제 Worker invocation 하나를 소유한다. Workers Free에서는 scheduled Workflow가 지원되지 않으므로 분 목록을 가진 Cron Trigger 하나가 범용 Workflow instance를 시작한다.
 
@@ -40,7 +40,7 @@ YouTube API 응답 캐시는 HTTP Worker의 수요 기반 SWR을 유지한다.
 - source health는 공개 catalog revision CAS 비용을 포함해 2 source/item으로 시작한다. 설계 상한 5보다 보수적인 값이며 due source 수만큼 item을 만들어 처리량은 유지한다.
 - 업로드 감시는 승인된 활성 채널의 uploads playlist를 시간당 조회한다. 매시 23분에 due 여부를 확인하며 Play 자동화 중지 상태에서는 생성하지 않는다. WebSub와 일일 recent 대조는 종료되었다.
 - Free 계정의 Cron Trigger 한 개(`3,13,23,33,53 * * * *`)가 시각별 job type을 하나의 `ScheduledOperationsWorkflow`에 전달한다. ingestion recovery와 auto-update는 3분, Naver Cafe는 13분, channel reconcile·일반 YouTube feed와 X는 23분, source health는 33분, 두 번째 X probe는 53분에 분산한다. 일일 retention은 18:03 UTC 실행에 합류한다.
-- 논리 lane은 D1 관측·admission·lease 기준으로 유지하되 물리 Queue는 control, critical, background로 통합한다. critical은 recovery·YouTube source correctness를, background는 X·Naver·auto-update·retention을 concurrency 1로 직렬화한다. ingestion은 concurrency 1을 유지한다. WebSub Queue는 과거 메시지 drain만 수행하고 관측 조건 충족 후 제거한다.
+- 논리 lane은 D1 관측·admission·lease 기준으로 유지하되 물리 Queue는 control, critical, background로 통합한다. critical은 recovery·YouTube source correctness를, background는 X·Naver·auto-update·retention을 concurrency 1로 직렬화한다. ingestion은 concurrency 1을 유지한다. AI 검수는 별도 Queue를 사용한다. WebSub Queue와 drain consumer는 제거되었고 과거 DB 이력은 보존한다.
 - X Workflow idempotency bucket은 30분, auto-update Workflow는 1시간마다 eligibility를 점검한다. X optimizer 비활성 기본값은 기존 2시간을 유지하며, 활성화 후 `0.5` 설정에서는 30분을 사용한다. X 비용·D1·Queue 70% 또는 공급자 backoff에서는 설정을 바꾸지 않고 실효 주기만 1시간으로 완화한다.
 - auto-update는 2 channel scan → member/date match → finalizer 순으로 실행한다. 시간별 idempotency bucket을 사용해 1시간 설정도 누락하지 않는다.
 - X API 비용과 모든 YouTube quota는 외부 호출 전에 `scheduled_usage_daily`에서 원자 예약한다. YouTube 일일 quota day는 공급자 기준인 `America/Los_Angeles` 자정에 전환하고 상태 화면도 같은 원장을 읽는다. 각 item dispatch도 Queue operations·예상 D1 rows read·rows written을 한 문장에서 함께 예약해 하나라도 일일 목표를 넘으면 전체 예약을 거부한다. Queue retry도 추가 operations 예산을 예약하지 못하면 재시도하지 않고 throttled로 종료한다.

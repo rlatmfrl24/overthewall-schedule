@@ -2,8 +2,7 @@ import type { PlayPerformanceQuery } from "@contracts/otw-play-playlists";
 import type { OtwPlayPublicPerformanceResponseDto } from "@contracts/otw-play";
 import { fetchPlaylistPerformances, resolvePlaylistPerformances, type PlaylistRequestOptions } from "../api/playlists";
 
-export async function collectPlaylist(query: PlayPerformanceQuery | string[], request: PlaylistRequestOptions,
-  progress?: (count: number) => void) {
+export async function collectPlaylist(query: PlayPerformanceQuery | string[], request: PlaylistRequestOptions) {
   const items: OtwPlayPublicPerformanceResponseDto[] = [];
   const unavailableIds: string[] = [];
   let revision: number | undefined;
@@ -24,7 +23,6 @@ export async function collectPlaylist(query: PlayPerformanceQuery | string[], re
     cursor = response.nextCursor ?? undefined;
     if (cursor && cursors.has(cursor)) throw new Error("목록의 다음 페이지를 확인하지 못했습니다.");
     if (cursor) cursors.add(cursor);
-    progress?.(items.length + unavailableIds.length);
   } while (Array.isArray(query) ? offset < query.length : cursor);
   if (Array.isArray(query)) {
     const order = new Map(query.map((id, index) => [id, index]));

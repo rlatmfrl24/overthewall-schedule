@@ -101,7 +101,7 @@ export const SnapshotSchedule = ({
         data-snapshot-ready={isReady ? "true" : "false"}
         data-snapshot-font-mode={fontMode}
         data-snapshot-design={effectiveDesign}
-        style={{ padding: geometry.padding, fontFamily: fontMode === "web" ? (mode === "timeline" ? '"OTW Snapshot Pretendard", sans-serif' : SNAPSHOT_FONT_FAMILY) : SYSTEM_FONT_FAMILY }}
+        style={{ padding: geometry.padding, fontFamily: fontMode === "web" ? SNAPSHOT_FONT_FAMILY : SYSTEM_FONT_FAMILY }}
         className={cn(
           "inline-block bg-background text-foreground",
           mode === "timeline" ? (legacy ? "snapshot-legacy" : "snapshot-timetable") : "p-5",

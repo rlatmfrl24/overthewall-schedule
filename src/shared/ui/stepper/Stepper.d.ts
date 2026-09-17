@@ -5,7 +5,7 @@ export interface StepperProps extends Omit<HTMLAttributes<HTMLDivElement>, 'chil
   initialStep?: number;
   /** One based. The caller commits navigation after validation and keeps the final step visible until saved. */
   currentStep?: number;
-  /** Follow the OS, always reduce motion, or explicitly play the original React Bits motion. */
+  /** Optional local reduction; the site animation switch takes precedence over every mode. */
   reducedMotion?: 'user' | 'always' | 'never';
   onStepChange?: (step: number) => void;
   onFinalStepCompleted?: () => void;

@@ -163,6 +163,19 @@ const mockNaverCafePosts = (createdAt = "2026-05-28T01:00:00Z") => {
 };
 
 describe("member-posts aggregate worker route", () => {
+  it.each(["not-json", JSON.stringify({ createdAt: "bad", id: "x:1" }), JSON.stringify({ createdAt: "2026-09-17T00:00:00Z", id: "bad" })])("rejects invalid pagination cursors: %s", async cursor => {
+    const response = await handleMemberPosts(new Request(`https://example.com/api/member-posts?page=1&cursor=${encodeURIComponent(cursor)}`), makeEnv());
+    expect(response.status).toBe(400);
+    expect(fetchXPostsForHandlesMock).not.toHaveBeenCalled();
+  });
+  it("keeps member authorization on older-page requests", async () => {
+    getSettingMock.mockImplementation(async (_db: unknown, key: string) => key === "x_posts_visibility" ? "members" : "true");
+    const cursor = encodeURIComponent(JSON.stringify({ createdAt: "2026-09-17T00:00:00Z", id: "x:1" }));
+    mockXPosts();
+    await handleMemberPosts(new Request(`https://example.com/api/member-posts?sources=x&page=1&cursor=${cursor}&memberUid=1`), makeEnv());
+    expect(authenticateRequestMock).toHaveBeenCalledOnce();
+    expect(fetchXPostsForHandlesMock).toHaveBeenCalledWith(["otw_member"], expect.objectContaining({ refresh: false, forceRefresh: false, storedPage: { memberUid: 1, cursor: { createdAt: "2026-09-17T00:00:00Z", id: "x:1" } } }));
+  });
   beforeEach(() => {
     feedTimestampMock.mockReset().mockResolvedValue({ updated_at: null });
     timestampBindingsMock.mockClear();

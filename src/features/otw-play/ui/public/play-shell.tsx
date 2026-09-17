@@ -7,10 +7,12 @@ import {
   LoaderCircle,
   Search,
   ShieldAlert,
+  X,
 } from "lucide-react";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useAdminStatus } from "@/features/auth";
 import { Button } from "@/shared/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import {
   Card,
   CardContent,
@@ -24,10 +26,13 @@ import {
   useOtwPlayCatalog,
 } from "../../queries/use-public-catalog";
 import { OtwPlayPlayerProvider } from "../../player/play-player-context";
+import { useMobilePlayScreen } from "../use-mobile-play-screen";
 import { OtwPlayFrame } from "../play-frame";
 import { OtwPlayPlayerQueuePanel } from "../player/now-playing-panel";
+import { usePlaylistHeroTransition } from "../playlists/use-playlist-hero-transition";
 
 export function OtwPlayShell({ children }: { children: ReactNode }) {
+  const mobile = useMobilePlayScreen();
   const pathname = useRouterState({ select: state => state.location.pathname });
   const { isLoaded, isSignedIn, user } = useUser();
   const publicConfig = useOtwPlayConfig();
@@ -63,7 +68,7 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
     return (
       <OtwPlayAccessCard
         title="로그인하고 OTW Play를 만나보세요"
-        description="OTW 회원이라면 노래를 듣고 플레이리스트와 곡 제안을 이용할 수 있어요."
+        description={mobile ? "OTW 회원이라면 노래를 듣고 플레이리스트를 이용할 수 있어요." : "OTW 회원이라면 노래를 듣고 플레이리스트와 곡 제안을 이용할 수 있어요."}
       >
         <SignInButton>
           <Button className="w-full rounded-full">로그인</Button>
@@ -117,11 +122,11 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
   return (
     <OtwPlayAccessCard
       title="OTW Play 공개 준비 중입니다"
-      description="곡 제안과 내 제안은 공개 전에도 계속 이용할 수 있습니다."
+      description={mobile ? "공개 후 이곳에서 노래와 플레이리스트를 만나보세요." : "곡 제안과 내 제안은 공개 전에도 계속 이용할 수 있습니다."}
     >
-      <Button asChild className="w-full rounded-full">
+      {!mobile && <Button asChild className="w-full rounded-full">
         <Link to="/play/submit" search={{ edit: undefined, submissionKind: pathname.startsWith("/play/songs") ? "official_cover" : undefined }}>곡 제안하기</Link>
-      </Button>
+      </Button>}
     </OtwPlayAccessCard>
   );
 }
@@ -201,6 +206,7 @@ function OtwPlayExperience({
 }) {
   const pathname = useRouterState({ select: state => state.location.pathname });
   const editing = pathname === "/play/playlists/new" || /^\/play\/playlists\/[^/]+\/edit$/.test(pathname);
+  const contentRef = usePlaylistHeroTransition();
   return (
     <OtwPlayPlayerProvider adminPreview={adminPreview} playbackDisabled={editing}>
       <OtwPlayFrame
@@ -218,6 +224,7 @@ function OtwPlayExperience({
       >
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <main
+            ref={contentRef}
             data-testid="otw-play-content-scroll"
             className={`play-content min-w-0 flex-1 overscroll-contain ${editing ? "overflow-hidden" : "overflow-y-auto"}`}
           >
@@ -232,6 +239,10 @@ function OtwPlayExperience({
 
 function PlayHeaderSearch() {
   const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
   const [focused, setFocused] = useState(false);
   const [composing, setComposing] = useState(false);
@@ -246,16 +257,50 @@ function PlayHeaderSearch() {
   const loading = trimmed !== search || results.isPending || results.isPlaceholderData;
   const songs = results.data?.pages[0]?.data.items ?? [];
 
+  useEffect(() => {
+    if (!expanded) return;
+    inputRef.current?.focus();
+    const dismiss = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setExpanded(false);
+        setFocused(false);
+      }
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [expanded]);
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (composing) return;
     setFocused(false);
+    setExpanded(false);
     const q = query.trim();
     void navigate({ to: "/play/songs", search: q ? { q } : {} });
   };
 
   return (
+    <div ref={rootRef} className="play-quick-search" data-expanded={expanded}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setExpanded(false);
+          setFocused(false);
+        }
+      }}
+    >
+      <Tooltip delayDuration={250}>
+      <TooltipTrigger asChild>
+      <Button ref={triggerRef} type="button" variant="ghost" size="icon"
+        className="play-search-trigger" aria-label="곡 검색 열기"
+        aria-expanded={expanded} aria-controls="otw-play-header-search-form"
+        onClick={() => setExpanded(value => !value)}>
+        <Search aria-hidden="true" />
+      </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={8} className="z-[80]">곡 검색</TooltipContent>
+      </Tooltip>
     <form
+      id="otw-play-header-search-form"
       role="search"
       aria-label="OTW Play 빠른 검색"
       onSubmit={submit}
@@ -268,6 +313,10 @@ function PlayHeaderSearch() {
           event.stopPropagation();
           input?.focus();
           setFocused(false);
+          if (expanded) {
+            setExpanded(false);
+            triggerRef.current?.focus();
+          }
           return;
         }
         if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -283,13 +332,14 @@ function PlayHeaderSearch() {
           targets[next].scrollIntoView({ block: "nearest" });
         }
       }}
-      className="play-header-search relative mx-auto hidden h-10 w-full max-w-xl items-center gap-2 rounded-lg border bg-muted/40 px-3 md:flex"
+      className="play-header-search relative flex h-10 w-full items-center gap-2 rounded-lg border bg-muted/40 px-3"
     >
       <Search className="size-4 shrink-0 text-muted-foreground" />
       <label htmlFor="otw-play-header-search" className="sr-only">
         곡, 원곡 가수, 참여자 검색
       </label>
       <Input
+        ref={inputRef}
         id="otw-play-header-search"
         value={query}
         autoComplete="off"
@@ -302,14 +352,20 @@ function PlayHeaderSearch() {
         placeholder="곡, 원곡 가수, 참여자 검색"
         className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm shadow-none outline-none focus-visible:ring-0 placeholder:text-muted-foreground"
       />
-      <Button type="submit" variant="ghost" size="icon-sm" aria-label="곡 검색 실행">
-        <Search />
-      </Button>
+      {query && <Button type="button" variant="ghost" size="icon-sm" aria-label="검색어 초기화"
+        onClick={() => {
+          setQuery("");
+          setSearch("");
+          setFocused(true);
+          inputRef.current?.focus();
+        }}>
+        <X aria-hidden="true" />
+      </Button>}
       {open && <div id="otw-play-quick-results" className="absolute inset-x-0 top-full z-50 mt-2 max-h-[min(60dvh,420px)] overflow-y-auto overscroll-contain rounded-xl border bg-popover p-2 text-popover-foreground shadow-lg">
         {loading ? <div role="status" aria-label="노래 검색 중" className="space-y-2 p-2">{[0, 1, 2].map(key => <div key={key} className="h-10 animate-pulse rounded bg-muted motion-reduce:animate-none" />)}</div>
           : results.isError ? <div role="alert" className="p-2 text-sm">검색 결과를 불러오지 못했습니다.<Button type="button" size="sm" variant="ghost" onClick={() => void results.refetch()}>다시 시도</Button></div>
           : songs.length ? <ul aria-label="빠른 곡 검색 결과">{songs.map(song => <li key={song.id}>
-            <Link to="/play/songs/$songSlug" params={{ songSlug: song.slug }} search={{ performance: undefined }} data-quick-search-target onClick={() => setFocused(false)} className="block rounded-lg px-3 py-2 hover:bg-accent focus-visible:bg-accent focus-visible:outline-none">
+            <Link to="/play/songs/$songSlug" params={{ songSlug: song.slug }} search={{ performance: undefined }} data-quick-search-target onClick={() => { setFocused(false); setExpanded(false); }} className="block rounded-lg px-3 py-2 hover:bg-accent focus-visible:bg-accent focus-visible:outline-none">
               <span className="block truncate text-sm font-medium">{song.title}</span>
               <span className="block truncate text-xs text-muted-foreground">{song.originalArtists.map(artist => artist.displayName).join(" · ")}</span>
             </Link>
@@ -317,5 +373,6 @@ function PlayHeaderSearch() {
         <button type="submit" data-quick-search-target className="mt-1 block w-full rounded px-3 py-2 text-left text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">전체 검색 결과 보기</button>
       </div>}
     </form>
+    </div>
   );
 }

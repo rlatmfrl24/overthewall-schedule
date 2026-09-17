@@ -1,10 +1,11 @@
 import React, { useState, Children, useRef, useLayoutEffect } from 'react';
-import { motion, AnimatePresence, MotionConfig, useIsPresent, useReducedMotion } from 'motion/react';
+import { motion, AnimatePresence, MotionConfig, useIsPresent } from 'motion/react';
 
 // React Bits Stepper-JS-CSS, installed from https://reactbits.dev/r/Stepper-JS-CSS.json.
 // Extended for controlled, validated forms and content that resizes after loading.
 
 import './Stepper.css';
+import { useAnimations } from '../animation-provider';
 
 export default function Stepper({
   children,
@@ -32,8 +33,8 @@ export default function Stepper({
 }) {
   const [internalStep, setCurrentStep] = useState(initialStep);
   const currentStep = controlledStep ?? internalStep;
-  const prefersReducedMotion = useReducedMotion();
-  const shouldReduceMotion = reducedMotion === 'always' || (reducedMotion === 'user' && prefersReducedMotion);
+  const { enabled } = useAnimations();
+  const shouldReduceMotion = !enabled || reducedMotion === 'always';
   const [navigation, setNavigation] = useState({ step: currentStep, direction: 0 });
   let direction = navigation.direction;
   // Derive direction from committed steps, including async validation and summary edits.
@@ -73,7 +74,7 @@ export default function Stepper({
   };
 
   return (
-    <MotionConfig reducedMotion={reducedMotion}>
+    <MotionConfig reducedMotion={shouldReduceMotion ? 'always' : 'never'}>
     <div className={`react-bits-stepper ${className}`} data-reduced-motion={Boolean(shouldReduceMotion)} {...rest}>
       <div
         className={`step-circle-container ${stepCircleContainerClassName}`}
@@ -220,6 +221,7 @@ export function Step({ children }) {
 }
 
 function StepIndicator({ step, currentStep, onClickStep, disableStepIndicators, label }) {
+  const { enabled } = useAnimations();
   const status = currentStep === step ? 'active' : currentStep < step ? 'inactive' : 'complete';
 
   const handleClick = () => {
@@ -234,7 +236,7 @@ function StepIndicator({ step, currentStep, onClickStep, disableStepIndicators, 
           active: { scale: 1.08 },
           complete: { scale: 1 }
         }}
-        transition={{ duration: 0.3 }}
+        transition={{ duration: enabled ? 0.3 : 0 }}
         className="step-indicator-inner"
       >
         {status === 'complete' ? (
@@ -251,6 +253,7 @@ function StepIndicator({ step, currentStep, onClickStep, disableStepIndicators, 
 }
 
 function StepConnector({ isComplete }) {
+  const { enabled } = useAnimations();
   const lineVariants = {
     incomplete: { width: 0 },
     complete: { width: '100%' }
@@ -263,19 +266,20 @@ function StepConnector({ isComplete }) {
         variants={lineVariants}
         initial={false}
         animate={isComplete ? 'complete' : 'incomplete'}
-        transition={{ duration: 0.4 }}
+        transition={{ duration: enabled ? 0.4 : 0 }}
       />
     </div>
   );
 }
 
 function CheckIcon(props) {
+  const { enabled } = useAnimations();
   return (
     <svg {...props} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
       <motion.path
         initial={{ pathLength: 0 }}
         animate={{ pathLength: 1 }}
-        transition={{ delay: 0.1, type: 'tween', ease: 'easeOut', duration: 0.3 }}
+        transition={{ delay: enabled ? 0.1 : 0, type: 'tween', ease: 'easeOut', duration: enabled ? 0.3 : 0 }}
         strokeLinecap="round"
         strokeLinejoin="round"
         d="M5 13l4 4L19 7"

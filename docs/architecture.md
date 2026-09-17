@@ -605,8 +605,8 @@ flowchart TB
   runtime["overthewall-schedule Worker<br/>fetch · scheduled · queue"]
   workflows["ScheduledOperationsWorkflow<br/>job type payload"]
   state[("D1 scheduled_job_runs<br/>items · outbox · usage")]
-  queues["6 physical Queues<br/>control · critical · background<br/>ingestion · websub · dead-letter"]
-  executor["protocol-aware queue router<br/>scheduled · ingestion · retired WebSub drain"]
+  queues["6 physical Queues<br/>control · critical · background<br/>ingestion · AI review · dead-letter"]
+  executor["protocol-aware queue router<br/>scheduled · ingestion · AI review"]
   admin["관리자 Operations UI"]
   command["POST /api/operations/runs<br/>202 + run polling"]
   youtube["YouTube Demand-SWR<br/>정기 schedule 0건"]
@@ -627,7 +627,8 @@ flowchart TB
 Workflow instance를 시작하고, Workflow가 D1 run/item/outbox를 계획한다. 논리 lane은
 D1 admission·lease·관측 기준으로 유지하지만 물리 Queue는 control, critical,
 background로 통합한다. ingestion은 독립 Queue를 유지하고 dead-letter는 공용 라우터를 사용한다.
-WebSub Queue는 신규 생산자 없이 과거 메시지 drain만 수행하며 49시간 관측 조건 충족 후 제거한다.
+AI 검수는 별도 Queue를 사용한다. WebSub Queue와 drain consumer는 제거되었으며
+과거 DB 이력만 보존한다. [종료 구현 유지 계약](operations/retired-implementation-cleanup.md)을 따른다.
 모든 Queue invocation은 같은 Worker의 queue entry point를 사용한다.
 X·Naver Cafe·auto-update·retention 등 일반 관리자 command는 `202` run과 상태
 조회 계약을 공유한다. `youtube-critical` lane은 OTW Play ingestion·
@@ -774,8 +775,9 @@ flowchart LR
 
 주요 연계 규칙은 다음과 같다.
 
-- 공개 shell은 익명 config를 먼저 읽고 `0/0`, `1/0`, `1/1` 매트릭스를 적용한다.
-  member submission은 public flag와 분리하고 admin preview는 flag-off에서만 사용한다.
+- Play shell은 회원 인증·관리자 여부와 회원 열람 flag를 확인한다. config는 익명 조회가
+  가능하지만 catalog는 인증과 no-store를 적용한다. member submission은 flag와 분리하고
+  admin preview는 서버 관리자 권한을 요구한다. 노래 클립 읽기는 관리자 preview에 한정한다.
 - performance write는 `sources[]`를 권위로 삼고 source relation, revision, event와 projection을
   하나의 D1 batch에서 갱신한다. legacy 단일 `source` 호환은 Worker ingress에만 둔다.
 - player의 presentation과 playback을 분리한다. visible host가 없으면 iframe load/play를
@@ -783,8 +785,9 @@ flowchart LR
 - 채널 polling은 승인·monitor 활성 상태·전역 중지·generation·lease를 검사한다. 종료된
   WebSub callback은 HTTP 410만 반환한다. current/previous generation candidate query는
   별도 port method와 query key를 사용한다.
-- `0065`는 WebSub 권위와 30일 source metadata retention을, `0066`은 D1 FK·CHECK drift를
-  보정한다. 두 migration, Worker 배포와 공개 flag 변경은 서로 독립된 운영 승인 대상이다.
+- `0065`·`0066` 등 기존 migration은 적용 이력이다. 종료 WebSub을 재구성하는 지침으로
+  사용하거나 과거 SQL을 수정하지 않는다. 새 schema 변경은 additive migration으로 검증하며
+  Worker 배포·회원 열람 flag 변경과 데이터 migration의 영향을 구분한다.
 
 ### Live schedule fill guarantees
 

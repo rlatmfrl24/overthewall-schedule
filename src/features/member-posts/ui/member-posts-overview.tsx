@@ -1,4 +1,4 @@
-import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, MessageSquareText } from "lucide-react";
 import { useScheduleData } from "@/features/schedule-board";
 import { getMembersWithXHandles, XPostCard } from "@/features/x-posts";
@@ -16,9 +16,10 @@ export function MemberPostsOverview({ loadX, loadCafe, footer }: {
   const [memberUid, setMemberUid] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
+  const moreRef = useRef<HTMLDivElement>(null);
   const resetScroll = useRef(false);
   const { members, loading: membersLoading, hasLoaded: membersLoaded } = useScheduleData();
-  const state = useMemberPosts({ includeX: loadX, includeNaverCafe: loadCafe, maxResults: 10, size: 10 });
+  const state = useMemberPosts({ includeX: loadX, includeNaverCafe: loadCafe, paginated: true, memberUid: memberUid ?? undefined });
   const xAllowed = loadX && state.x.policy.accessible;
   const cafeAllowed = loadCafe && state.naverCafe.policy.accessible;
   const memberMap = useMemo(() => new Map(members.map(member => [member.uid, member])), [members]);
@@ -50,6 +51,18 @@ export function MemberPostsOverview({ loadX, loadCafe, footer }: {
   const retry = () => { void state.reload().catch(() => undefined); };
   const loading = !membersLoaded || membersLoading || (!state.hasLoaded && !state.posts.length);
   const blocked = !loading && !state.error && !xAllowed && !cafeAllowed;
+  const { loading: fetching, error, loadMoreError, hasNextPage, loadMore } = state;
+  useEffect(() => {
+    if (loading || fetching || error || loadMoreError || !hasNextPage || !moreRef.current || !scrollRef.current || typeof IntersectionObserver === "undefined") return;
+    let requested = false;
+    const observer = new IntersectionObserver(entries => {
+      if (requested || !entries.some(entry => entry.isIntersecting)) return;
+      requested = true;
+      void loadMore({ cancelRefetch: false });
+    }, { root: scrollRef.current, rootMargin: "240px" });
+    observer.observe(moreRef.current);
+    return () => observer.disconnect();
+  }, [loading, fetching, error, loadMoreError, hasNextPage, loadMore, filtered.length]);
   const toolbar = <div data-testid="feed-toolbar" role="group" aria-label="게시글 필터" className="min-w-0 space-y-3 lg:sticky lg:top-3 lg:max-h-[calc(100dvh-6rem)] lg:self-start lg:overflow-y-auto">
     <div role="group" aria-label="멤버" className="min-w-0">
       <FeedMemberList members={filterMembers} selected={memberUid} onSelect={selectMember} />
@@ -80,6 +93,14 @@ export function MemberPostsOverview({ loadX, loadCafe, footer }: {
                 : <NaverCafePostCard key={item.id} appearance="card" post={item.post} member={member} compactTime={time} />;
             })}</div>
           </section>)}
+        {!loading && !blocked && filtered.length > 0 && <div ref={moreRef} className="flex flex-col items-center gap-3 px-4 py-6 text-sm text-muted-foreground">
+          {state.loadMoreError ? <p role="status">이전 게시글을 불러오지 못했습니다. 표시된 게시글은 유지됩니다.</p>
+            : state.error ? <p role="status">일부 게시글을 불러오지 못했습니다. 다시 시도해 주세요.</p>
+            : state.loadingMore ? <p role="status">이전 게시글을 불러오고 있어요…</p>
+            : !state.hasNextPage ? <p role="status">모든 게시글을 확인했습니다.</p> : null}
+          {state.error && !state.loadMoreError ? <Button variant="outline" onClick={retry}>다시 시도</Button>
+            : state.hasNextPage && <Button variant="outline" disabled={state.loading} onClick={() => void state.loadMore({ cancelRefetch: false })}>{state.loadMoreError ? "다시 시도" : "이전 게시글 더 보기"}</Button>}
+        </div>}
       </div>
     </div>
   </ContentPageShell>;

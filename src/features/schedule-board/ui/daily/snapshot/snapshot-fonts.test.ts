@@ -13,13 +13,17 @@ function installFonts(load: () => Promise<unknown> = () => Promise.resolve()) {
 }
 
 describe("snapshot font preparation", () => {
-  it("validates both full font files and embeds the exact fetched bytes", async () => {
+  it("embeds every Poppins weight and Pretendard using the exact fetched bytes", async () => {
     installFonts();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => new Uint8Array([119, 79, 70, 50]).buffer }));
     const result = await prepareSnapshotFonts(new AbortController().signal);
     expect(result.mode).toBe("web");
-    expect(result.faces.map(face => face.family)).toEqual(["OTW Snapshot Inter", "OTW Snapshot Pretendard"]);
-    expect(result.css.match(/data:font\/woff2;base64,d09GMg==/g)).toHaveLength(2);
+    expect(result.faces.map(face => face.family)).toEqual([...Array(9).fill("OTW Snapshot Poppins"), "OTW Snapshot Pretendard"]);
+    expect(result.css.match(/data:font\/woff2;base64,d09GMg==/g)).toHaveLength(10);
+    for (const weight of [100, 200, 300, 400, 500, 600, 700, 800, 900]) {
+      expect(result.css).toContain(`font-weight:${weight};`);
+      expect(fetch).toHaveBeenCalledWith(`/fonts/poppins-5.3.0/poppins-latin-${weight}-normal.woff2`, expect.anything());
+    }
     expect(result.css).not.toContain("https:");
   });
 

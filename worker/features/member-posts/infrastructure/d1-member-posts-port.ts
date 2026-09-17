@@ -1,4 +1,5 @@
 import { asc, sql } from "drizzle-orm";
+import type { MemberPostsPageRequest } from "@contracts/member-posts";
 import { members, naverCafeSources } from "@db/schema";
 import { getDb } from "../../../platform/db";
 import { getSetting } from "../../../platform/http-helpers";
@@ -25,6 +26,7 @@ export type XFeedService = {
       forceRefresh: boolean;
       usageSource: string;
       forceRefreshPath: string | null;
+      storedPage?: MemberPostsPageRequest;
     },
   ): Promise<XPostsContent>;
   isApiError(error: unknown): boolean;
@@ -32,7 +34,7 @@ export type XFeedService = {
 
 export type NaverCafeReader = (
   sources: NaverCafeSourceRecord[],
-  options: { cacheDb: D1Database; size: number },
+  options: { cacheDb: D1Database; size: number; page?: MemberPostsPageRequest },
 ) => Promise<NaverCafePostsContent>;
 
 const normalizeVisibility = (
@@ -108,6 +110,7 @@ export class D1MemberPostsPort implements MemberPostsPort {
       maxResults: number;
       richXLinkPreviewEnabled: boolean;
       adminView: boolean;
+      page?: MemberPostsPageRequest;
     },
   ) {
     return this.xFeed.fetchPosts(handles, {
@@ -119,6 +122,7 @@ export class D1MemberPostsPort implements MemberPostsPort {
       forceRefresh: false,
       usageSource: options.adminView ? "member-posts:admin" : "member-posts",
       forceRefreshPath: null,
+      ...(options.page ? { storedPage: options.page } : {}),
     });
   }
 
@@ -143,10 +147,11 @@ export class D1MemberPostsPort implements MemberPostsPort {
     return timestamps.length ? new Date(Math.max(...timestamps)).toISOString() : null;
   }
 
-  readNaverCafePosts(sources: NaverCafeSourceRecord[], size: number) {
+  readNaverCafePosts(sources: NaverCafeSourceRecord[], size: number, page?: MemberPostsPageRequest) {
     return this.readNaverCafe(sources, {
       cacheDb: this.env.otw_db,
       size,
+      ...(page ? { page } : {}),
     });
   }
 }

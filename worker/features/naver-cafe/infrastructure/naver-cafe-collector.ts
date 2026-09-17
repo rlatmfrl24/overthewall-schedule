@@ -752,6 +752,7 @@ const readStoredPostsForSources = async (
   cacheDb: D1Database | undefined,
   sources: NaverCafeSourceInput[],
   size: number,
+  page?: import("@contracts/member-posts").MemberPostsPageRequest,
 ) => {
   if (!cacheDb) return [];
   const sourceIds = sources
@@ -769,10 +770,12 @@ const readStoredPostsForSources = async (
          FROM naver_cafe_posts
          WHERE source_id IN (${sourceIds.map(() => "?").join(", ")})
            AND hidden_at IS NULL
+           ${page?.memberUid !== undefined ? "AND member_uid = ?" : ""}
+           ${page?.cursor ? "AND created_at <= ? AND (created_at < ? OR ('cafe:' || id) < ?)" : ""}
          ORDER BY created_at DESC, id DESC
          LIMIT ?`,
       )
-      .bind(...sourceIds, size)
+      .bind(...sourceIds, ...(page?.memberUid !== undefined ? [page.memberUid] : []), ...(page?.cursor ? [page.cursor.createdAt, page.cursor.createdAt, page.cursor.id] : []), size)
       .all<NaverCafePostRow>(),
   );
 
@@ -814,12 +817,13 @@ export const readStoredNaverCafePostsForSources = async (
   options: {
     cacheDb?: D1Database;
     size?: number;
+    page?: import("@contracts/member-posts").MemberPostsPageRequest;
   } = {},
 ): Promise<NaverCafePostsResult> => {
   const size = clampMaxResults(options.size);
   const sourceIds = sources.map((source) => source.id);
   const latestChecks = await readLatestSourceChecks(options.cacheDb, sourceIds);
-  const posts = await readStoredPostsForSources(options.cacheDb, sources, size);
+  const posts = await readStoredPostsForSources(options.cacheDb, sources, size, options.page);
   const sourceIdByBoard = new Map(
     sources.map((source) => [`${source.cafe_id}:${source.menu_id}`, source.id]),
   );

@@ -122,6 +122,7 @@ export const buildXPostsApplication = (env: Env) => {
 };
 
 export type XPostFeedServiceOptions = {
+  storedPage?: import("@contracts/member-posts").MemberPostsPageRequest;
   bearerToken?: string;
   cacheDb: D1Database;
   maxResults: number;
@@ -148,6 +149,7 @@ export const xPostFeedService: XPostFeedService = {
   extractHandle: (value) => extractXHandleFromUrl(value),
   fetchPosts: (handles, options) =>
     fetchXPostsForHandles(handles, {
+      ...(options.storedPage ? { storedPage: options.storedPage } : {}),
       bearerToken: options.bearerToken,
       cacheDb: options.cacheDb,
       maxResults: options.maxResults,

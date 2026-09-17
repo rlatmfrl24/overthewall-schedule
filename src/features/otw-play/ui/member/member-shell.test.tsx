@@ -18,7 +18,18 @@ import { OtwPlayMemberShell } from "./member-shell";
 
 describe("OtwPlayMemberShell", () => {
   beforeEach(() => vi.clearAllMocks());
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+  it("does not mount proposal UI on mobile, including direct member routes", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    useUserMock.mockReturnValue({ isLoaded: true, isSignedIn: true });
+    const childMounted = vi.fn();
+    const Child = () => { childMounted(); return <form>proposal form</form>; };
+    render(<OtwPlayMemberShell><Child /></OtwPlayMemberShell>);
+    expect(childMounted).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "곡 제안 메뉴" })).toBeNull();
+    expect(screen.getByRole("link", { name: "OTW Play로 돌아가기" }).getAttribute("href")).toBe("/play");
+  });
 
   it("shows a login call to action without mounting member requests", () => {
     const childMounted = vi.fn();
@@ -43,7 +54,7 @@ describe("OtwPlayMemberShell", () => {
     expect(screen.getByRole("link", { name: "OTW Play" }).getAttribute("href")).toBe("/play");
     expect(screen.getByRole("button", { name: "곡 제안 메뉴" })).toBeTruthy();
     expect(screen.queryByRole("search")).toBeNull();
-    expect(screen.queryByText("발견")).toBeNull();
+    expect(screen.queryByText("Discover")).toBeNull();
     expect(screen.queryByText("곡 검색")).toBeNull();
   });
 });

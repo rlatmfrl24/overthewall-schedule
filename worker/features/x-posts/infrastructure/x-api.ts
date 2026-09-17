@@ -204,6 +204,7 @@ type XHandlePostsResult = {
 };
 
 type FetchXPostsForHandlesOptions = {
+  storedPage?: import("@contracts/member-posts").MemberPostsPageRequest;
   bearerToken?: string | null;
   maxResults?: number;
   cacheDb?: XCacheDb;
@@ -1279,6 +1280,7 @@ const readStoredPostsForHandles = async (
   maxResults: number,
   richXLinkPreviewEnabled: boolean,
   cacheDb: XCacheDb,
+  page?: import("@contracts/member-posts").MemberPostsPageRequest,
 ) => {
   const entries = new Map<string, StoredXPostsEntry | null>();
   // Keep each batch bounded, with indexed per-handle limits followed by ID
@@ -1305,10 +1307,11 @@ const readStoredPostsForHandles = async (
            WHERE post.id IN (
              SELECT candidate.id FROM x_posts AS candidate
              WHERE candidate.handle = requested.handle AND candidate.hidden_at IS NULL
+             ${page?.cursor ? "AND candidate.created_at <= ? AND (candidate.created_at < ? OR ('x:' || candidate.id) < ?)" : ""}
              ORDER BY candidate.created_at DESC, candidate.id DESC LIMIT ?
            )
            ORDER BY post.handle, post.created_at DESC, post.id DESC`,
-        ).bind(JSON.stringify(chunk), maxResults).all<XStoredPostRow>(),
+        ).bind(JSON.stringify(chunk), ...(page?.cursor ? [page.cursor.createdAt, page.cursor.createdAt, page.cursor.id] : []), maxResults).all<XStoredPostRow>(),
       ]);
       const sources = new Map(getD1Results<XPostSourceRow>(sourceRows).map((row) => [row.handle, row]));
       const posts = new Map<string, XStoredPostRow[]>();
@@ -1323,6 +1326,7 @@ const readStoredPostsForHandles = async (
         ));
       }
     } catch (error) {
+      if (page) throw error;
       console.warn("Failed to read stored X posts", error);
     }
   }
@@ -2850,7 +2854,7 @@ export const fetchXPostsForHandles = async (
   if (!refresh && cacheDb) {
     // D1 remains authoritative across isolates for redaction/reference updates.
     const entries = await readStoredPostsForHandles(
-      normalizedHandles, maxResults, richXLinkPreviewEnabled, cacheDb,
+      normalizedHandles, maxResults, richXLinkPreviewEnabled, cacheDb, options.storedPage,
     );
     return buildResult(normalizedHandles.map((handle) => {
       const stored = entries.get(handle);

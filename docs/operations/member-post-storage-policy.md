@@ -1,9 +1,9 @@
 # 멤버 게시물 저장·운영 이력 정책
 
 X의 상세 계약은
-[`x-member-history-and-archive-design.md`](./x-member-history-and-archive-design.md)를
+[`x-member-history-and-archive-design.md`](x-member-history-and-archive-design.md)를
 권위 문서로 사용한다. API 비용·30분 수집 계약은
-[`x-api-cost-minimization-design.md`](./x-api-cost-minimization-design.md)를 따른다.
+[`x-api-cost-minimization-design.md`](x-api-cost-minimization-design.md)를 따른다.
 
 ## 수집 범위
 
