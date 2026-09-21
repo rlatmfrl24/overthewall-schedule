@@ -32,7 +32,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   const confirm = useConfirmation();
   const client = useQueryClient();
   const { toast } = useToast();
-  const query = useInfiniteQuery({ enabled: source !== "playlist" || Boolean(jobId), queryKey: ["otw-play-review-inbox", filters], queryFn: ({ pageParam }) => fetchOtwPlayReviewItems({ ...filters, cursor: pageParam ?? undefined }), initialPageParam: null as string | null, getNextPageParam: page => page.nextCursor, refetchInterval: 30000 });
+  const query = useInfiniteQuery({ enabled: active && (source !== "playlist" || Boolean(jobId)), queryKey: ["otw-play-review-inbox", filters], queryFn: ({ pageParam }) => fetchOtwPlayReviewItems({ ...filters, cursor: pageParam ?? undefined }), initialPageParam: null as string | null, getNextPageParam: page => page.nextCursor, refetchInterval: 30000 });
   const rows = query.data?.pages.flatMap(page => page.items) ?? [];
   const conflicts = useQuery({
     queryKey: ["otw-play-review-kind-conflicts", jobId, selectedJob?.candidateKind],
@@ -61,6 +61,20 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   const editingScope = `${source}:${jobId ?? ""}:${editingId ?? ""}`;
   const editing = rows.find(row => row.kind === "candidate" && row.id === editingId) ?? (editingId && visitedScopes[editingScope] ? visited[editingId] : undefined);
   const { hasNextPage, isFetching, isError, fetchNextPage } = query;
+  const [loadMoreTarget, setLoadMoreTarget] = useState<HTMLDivElement | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!active || editingId || search.proposal || busy || !loadMoreTarget || !hasNextPage || isFetching || isError || typeof IntersectionObserver === "undefined") return;
+    let requested = false;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting || requested) return;
+      requested = true;
+      observer.unobserve(loadMoreTarget);
+      void fetchNextPage({ cancelRefetch: false });
+    }, { rootMargin: "320px 0px" });
+    observer.observe(loadMoreTarget);
+    return () => { requested = true; observer.disconnect(); };
+  }, [active, editingId, search.proposal, busy, loadMoreTarget, hasNextPage, isFetching, isError, fetchNextPage]);
   const returnFocus = useRef<HTMLButtonElement | null>(null);
   const previousEditingId = useRef(editingId);
   useEffect(() => {
@@ -79,7 +93,6 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   }, [editingId]);
   const closeReview = () => update({ view: "inbox", selected: undefined }, false);
   const reviewEntries = editing && !visited[editing.id] ? { ...visited, [editing.id]: editing } : visited;
-  const [busy, setBusy] = useState(false);
   const [resultState, setResultState] = useState<Record<string, Record<string, string>>>({});
   const results = resultState[scope] ?? {};
   const setResults = (next: (current: Record<string, string>) => Record<string, string>) => setResultState(current => ({ ...current, [scope]: next(current[scope] ?? {}) }));
@@ -156,7 +169,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
     </div>
     <div className="flex flex-wrap items-center gap-2"><Button disabled={busy || !Object.keys(selected).length} onClick={() => void convert()}>선택 {Object.keys(selected).length}개 일괄 임시 등록</Button><Button variant="outline" onClick={() => onOpenCatalog()}>카탈로그 확인</Button></div>
     <p className="text-xs text-muted-foreground">검수를 저장한 후보만 임시 등록합니다. 공개는 카탈로그에서 별도로 실행합니다.</p>
-    {query.isError && <p role="alert">검수 목록을 불러오지 못했습니다. 새로고침으로 다시 시도해 주세요.</p>}
+    {query.isError && !query.isFetchNextPageError && <p role="alert">검수 목록을 불러오지 못했습니다. <Button variant="link" onClick={() => void query.refetch()}>다시 시도</Button></p>}
     {query.isLoading && <p role="status">검수 목록을 불러오는 중입니다.</p>}
     {!query.isLoading && !query.isError && !rows.length && <p className="rounded-lg border border-dashed p-6 text-center text-sm">해당 조건의 검수 항목이 없습니다.</p>}
     {rows.map(row => <article key={`${row.kind}:${row.id}`} className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
@@ -168,7 +181,9 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
       {results[row.id] && <p className="w-full text-sm" role="status">{results[row.id]}</p>}
     </article>)}
     {Object.entries(results).filter(([id]) => !rows.some(row => row.id === id)).map(([id, result]) => <p key={id} role="status" className="text-sm">{result}</p>)}
-    {query.hasNextPage && <Button variant="outline" disabled={busy || query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>더 보기</Button>}
+    <div ref={setLoadMoreTarget} className="flex min-h-10 items-center justify-center gap-2">
+      {query.isFetchingNextPage ? <p role="status" className="text-sm text-muted-foreground">다음 검수 항목을 불러오는 중입니다.</p> : query.isFetchNextPageError ? <><p role="alert" className="text-sm">다음 검수 항목을 불러오지 못했습니다.</p><Button variant="outline" disabled={busy || isFetching} onClick={() => void fetchNextPage({ cancelRefetch: false })}>다음 항목 다시 시도</Button></> : query.hasNextPage ? <Button variant="outline" disabled={busy || isFetching} onClick={() => void fetchNextPage({ cancelRefetch: false })}>더 보기</Button> : rows.length > 0 && <p className="text-sm text-muted-foreground">모든 검수 항목을 불러왔습니다.</p>}
+    </div>
     {!catalog && <p role="status">카탈로그 정보를 불러오지 못해 목록 조회만 가능합니다. 입력·등록은 정보가 복구되면 사용할 수 있습니다.</p>}
     </section>
     {editingId && editing && selectedJob && source === "playlist" && editing.candidateKind !== selectedJob.candidateKind && <p role="alert" className="text-sm">이 영상은 이전 가져오기의 분류를 유지하고 있습니다. 목록으로 돌아가 가져오기 종류로 정정한 뒤 검수하세요.</p>}

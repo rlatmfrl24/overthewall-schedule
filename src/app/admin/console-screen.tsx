@@ -21,7 +21,7 @@ const tabs: Record<ConsoleArea, readonly (readonly [string, string])[]> = {
   review: [["schedule", "일정 승인"], ["rejections", "거부 제외"]],
   collection: [["x", "X"], ["naver-cafe", "네이버 카페"], ["schedule", "일정 수집"], ["youtube", "YouTube 피드·캐시"], ["kirinuki", "방송 클립 채널"]],
   content: [["notices", "공지"], ["ddays", "D-Day"], ["snapshot", "스냅샷"]],
-  "otw-play": [["catalog", "카탈로그"], ["import", "가져오기/검수"], ["channels", "채널"], ["playlists", "기본 플레이리스트"], ["operations", "운영"]],
+  "otw-play": [["catalog", "카탈로그"], ["import", "가져오기/검수"], ["requests", "사용자 곡 요청"], ["channels", "채널"], ["playlists", "기본 플레이리스트"], ["operations", "운영"]],
   resources: [["usage", "사용량·한도"], ["media", "이미지 정리"]],
   history: [["runs", "작업 실행"], ["schedule", "일정 변경"], ["audit", "관리자 감사"]],
 };
@@ -47,7 +47,7 @@ export function ConsoleScreen({ area }: { area: ConsoleArea }) {
     const date = search.date && /^\d{4}-\d{2}-\d{2}$/.test(search.date) && isValid(parseISO(search.date)) && format(parseISO(search.date), "yyyy-MM-dd") === search.date ? search.date : format(new Date(), "yyyy-MM-dd");
     content = tab === "notices" ? <NoticeManager /> : tab === "ddays" ? <DDayManager /> : <SnapshotPreviewManager date={date} mode={search.mode ?? "grid"} theme={search.theme ?? "light"} design={search.design ?? "poster"} onDesignChange={(design) => update({ design })} onDateChange={(date) => update({ date })} onModeChange={(mode) => update({ mode })} onThemeChange={(theme) => update({ theme })} />;
   } else if (area === "otw-play") {
-    content = tab === "playlists" ? <OtwPlayDefaultPlaylistManager /> : <OtwPlayCatalogManager activeSection={tab as "clips" | "clip-channels" | "catalog" | "automatic-review" | "review" | "import" | "channels" | "source-health" | "operations"} onSectionChange={select} />;
+    content = tab === "playlists" ? <OtwPlayDefaultPlaylistManager /> : <OtwPlayCatalogManager activeSection={tab as "clips" | "clip-channels" | "catalog" | "automatic-review" | "review" | "import" | "requests" | "channels" | "source-health" | "operations"} onSectionChange={select} />;
   } else if (area === "history") {
     content = tab === "runs" ? <OperationsDashboard view="history" /> : <AutoUpdateLogsManager view={tab === "audit" ? "audit" : "schedule"} />;
   } else {
