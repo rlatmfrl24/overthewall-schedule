@@ -1,3 +1,4 @@
+import { projectionStatements } from "./d1-catalog-projection";
 import { IngestionService } from "../application/ingestion-service";
 import { AdminCatalogService } from "../application/admin-catalog-service";
 import { applyD1Migrations, env } from "cloudflare:test";
@@ -14,6 +15,7 @@ import { D1IngestionRepository } from "./d1-ingestion-repository";
 
 type TestEnv = Env & {
   OTW_PLAY_INGESTION_MIGRATIONS: D1Migration[];
+  OTW_PLAY_SEARCH_INTEGRITY_SQL: string;
 };
 
 const testEnv = env as TestEnv;
@@ -75,6 +77,9 @@ beforeEach(async () => {
     db.prepare("DELETE FROM music_media_sources WHERE id LIKE 'ingestion-%'"),
     db.prepare("DELETE FROM music_channels WHERE id LIKE 'ingestion-%'"),
     db.prepare("DELETE FROM music_entities WHERE id = 'entity-1'"),
+    // Raw fixture deletes cascade postings, but aggregate stats have no FK.
+    db.prepare("DELETE FROM music_search_gram_stats"),
+    db.prepare("INSERT INTO music_search_gram_stats SELECT gram_size, normalized_gram, count(*) FROM music_search_grams GROUP BY gram_size, normalized_gram"),
   ]);
   await db.batch([
     db.prepare(
@@ -298,7 +303,7 @@ describe("D1IngestionRepository", () => {
           isOtwOriginal: false,
           originalReleaseDate: null,
           originalReleasePrecision: "unknown",
-          aliases: [],
+          aliases: [{ alias: "준비 곡", locale: "ko", aliasKind: null }],
           originalArtists: [{ subject: artist, creditOrder: 0, isPrimary: true }],
           tags: ["Pop"],
         },
@@ -349,6 +354,21 @@ describe("D1IngestionRepository", () => {
             AND entity_id = 'ingestion-ready-artist') AS artist_links`,
     ).first<{ songs: number; entities: number; artist_links: number }>();
     expect(catalogRows).toEqual({ songs: 1, entities: 2, artist_links: 1 });
+    const searchStatus = () => db.prepare(testEnv.OTW_PLAY_SEARCH_INTEGRITY_SQL).first();
+    expect(await searchStatus()).toMatchObject({ missing_term_count: 0, unexpected_term_count: 0, missing_posting_count: 0, unexpected_posting_count: 0, value_drift_count: 0 });
+    const terms = await db.prepare("SELECT term_kind, normalized_term FROM music_search_terms WHERE song_id = 'ingestion-ready-song' ORDER BY term_kind").all();
+    expect(terms.results).toEqual([
+      { term_kind: "original_artist", normalized_term: "ready original artist" },
+      { term_kind: "title", normalized_term: "ready song" },
+      { term_kind: "title_alias", normalized_term: "준비 곡" },
+    ]);
+    // Projection updates must roll back if a later statement in the write batch fails.
+    const before = await db.prepare("SELECT * FROM music_search_gram_stats ORDER BY gram_size, normalized_gram").all();
+    await expect(db.batch([
+      ...projectionStatements(db, "ingestion-ready-song"),
+      db.prepare("INSERT INTO music_catalog_meta (id, revision, public_read_enabled, navigation_visible, updated_at) VALUES (2, 0, 0, 0, 0)"),
+    ])).rejects.toThrow();
+    expect((await db.prepare("SELECT * FROM music_search_gram_stats ORDER BY gram_size, normalized_gram").all()).results).toEqual(before.results);
     const catalog = await new D1AdminCatalogRepository(db).readCatalog();
     expect(catalog.songs).toContainEqual(expect.objectContaining({
       id: "ingestion-ready-song",
@@ -378,6 +398,8 @@ describe("D1IngestionRepository", () => {
         }],
       },
     });
+    expect(await searchStatus()).toMatchObject({ missing_term_count: 0, missing_posting_count: 0, value_drift_count: 0 });
+    expect((await db.prepare("SELECT * FROM music_search_gram_stats ORDER BY gram_size, normalized_gram").all()).results).toEqual(before.results);
   });
 
   it("stores an idempotent job and authoritative first outbox message", async () => {

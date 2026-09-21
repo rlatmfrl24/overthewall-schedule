@@ -375,6 +375,8 @@ describe("d1 doctor schema coverage", () => {
   it("accepts empty or populated gram stats and reports posting drift", async () => {
     const { getMusicSearchGramStatsStatus } = await loadDoctorCore();
     const emptyStatusRow = {
+      missing_term_count: 0,
+      unexpected_term_count: 0,
       expected_posting_count: 0,
       posting_count: 0,
       distinct_gram_count: 0,
@@ -387,6 +389,8 @@ describe("d1 doctor schema coverage", () => {
     };
 
     expect(getMusicSearchGramStatsStatus([emptyStatusRow]).ok).toBe(true);
+    expect(getMusicSearchGramStatsStatus([{ ...emptyStatusRow, missing_term_count: 1 }]).ok).toBe(false);
+    expect(getMusicSearchGramStatsStatus([{ ...emptyStatusRow, unexpected_term_count: 1 }]).ok).toBe(false);
     expect(
       getMusicSearchGramStatsStatus([
         {
@@ -400,7 +404,7 @@ describe("d1 doctor schema coverage", () => {
     ).toEqual({
       ok: true,
       message:
-        "expected_postings=27000, postings=27000, distinct_grams=9500, stats=9500, missing_postings=0, unexpected_postings=0, missing_stats=0, unexpected_stats=0, value_drift=0",
+        "missing_terms=0, unexpected_terms=0, expected_postings=27000, postings=27000, distinct_grams=9500, stats=9500, missing_postings=0, unexpected_postings=0, missing_stats=0, unexpected_stats=0, value_drift=0",
     });
     expect(
       getMusicSearchGramStatsStatus([

@@ -1,3 +1,4 @@
+import { projectionStatements } from "./d1-catalog-projection";
 import type {
   OtwPlayAdminCatalogSubjectInput,
   OtwPlayIngestionCandidateItemDto,
@@ -1677,6 +1678,7 @@ export class D1IngestionRepository implements IngestionRepository {
           command.now,
         ),
       );
+      statements.push(...projectionStatements(this.database, songId));
       song = { kind: "existing", songId };
       createdSong = true;
     }
