@@ -381,6 +381,8 @@ export const getMusicSearchGramStatsStatus = (rows) => {
   const status = readCountStatus(
     rows,
     [
+      "missing_term_count",
+      "unexpected_term_count",
       "expected_posting_count",
       "posting_count",
       "distinct_gram_count",
@@ -396,6 +398,8 @@ export const getMusicSearchGramStatsStatus = (rows) => {
   if (!status.ok) return status;
 
   const {
+    missing_term_count: missingTermCount,
+    unexpected_term_count: unexpectedTermCount,
     expected_posting_count: expectedPostingCount,
     posting_count: postingCount,
     distinct_gram_count: distinctGramCount,
@@ -407,6 +411,8 @@ export const getMusicSearchGramStatsStatus = (rows) => {
     value_drift_count: valueDriftCount,
   } = status.values;
   const isComplete =
+    missingTermCount === 0 &&
+    unexpectedTermCount === 0 &&
     expectedPostingCount === postingCount &&
     distinctGramCount === statCount &&
     missingPostingCount === 0 &&
@@ -417,7 +423,7 @@ export const getMusicSearchGramStatsStatus = (rows) => {
 
   return {
     ok: isComplete,
-    message: `expected_postings=${expectedPostingCount}, postings=${postingCount}, distinct_grams=${distinctGramCount}, stats=${statCount}, missing_postings=${missingPostingCount}, unexpected_postings=${unexpectedPostingCount}, missing_stats=${missingStatCount}, unexpected_stats=${unexpectedStatCount}, value_drift=${valueDriftCount}`,
+    message: `missing_terms=${missingTermCount}, unexpected_terms=${unexpectedTermCount}, expected_postings=${expectedPostingCount}, postings=${postingCount}, distinct_grams=${distinctGramCount}, stats=${statCount}, missing_postings=${missingPostingCount}, unexpected_postings=${unexpectedPostingCount}, missing_stats=${missingStatCount}, unexpected_stats=${unexpectedStatCount}, value_drift=${valueDriftCount}`,
   };
 };
 
