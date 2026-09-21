@@ -1,4 +1,5 @@
 import type {
+  OtwPlaySubmissionArtistDto,
   OtwPlayCreateSubmissionRequest,
   OtwPlayMemberSubmissionDto,
   OtwPlayMemberSubmissionStatus,
@@ -45,6 +46,7 @@ type ProposalRow = {
 };
 
 type ChildRow = {
+  resolved_entity_id: string | null;
   proposal_id: string;
   credit_order: number;
   submitted_name_snapshot: string;
@@ -208,6 +210,30 @@ export class D1MemberSubmissionRepository
     };
   }
 
+  async searchArtists(query: string): Promise<OtwPlaySubmissionArtistDto[]> {
+    const normalized = normalizeOtwPlaySearchText(query);
+    const rows = await this.database.prepare(`
+      SELECT entity.id AS entityId, entity.display_name AS displayName,
+        entity.member_uid AS memberUid, entity.entity_kind AS entityKind,
+        (entity.normalized_name = ? OR EXISTS (
+          SELECT 1 FROM music_entity_aliases alias
+          WHERE alias.entity_id = entity.id AND alias.normalized_alias = ?
+        )) AS isExactMatch
+      FROM music_entities AS entity
+      LEFT JOIN members AS member ON member.uid = entity.member_uid
+      WHERE entity.archived_at IS NULL
+        AND (entity.member_uid IS NULL OR (member.uid IS NOT NULL AND coalesce(member.is_deprecated, 0) = 0))
+        AND (instr(entity.normalized_name, ?) > 0 OR EXISTS (
+          SELECT 1 FROM music_entity_aliases alias
+          WHERE alias.entity_id = entity.id AND instr(alias.normalized_alias, ?) > 0
+        ))
+      ORDER BY isExactMatch DESC, entity.normalized_name, entity.id
+      LIMIT 20
+    `).bind(normalized, normalized, normalized, normalized)
+      .all<Omit<OtwPlaySubmissionArtistDto, "isExactMatch"> & { isExactMatch: number }>();
+    return resultsOf(rows).map(row => ({ ...row, isExactMatch: Boolean(row.isExactMatch) }));
+  }
+
   private async resolveSubjects(
     subjects: OtwPlaySubmissionSubjectInput[],
   ): Promise<ResolvedSubject[]> {
@@ -248,12 +274,21 @@ export class D1MemberSubmissionRepository
       }
     }
 
+    const entityIds = [...new Set(subjects.flatMap(subject => subject.kind === "external" && subject.entityId ? [subject.entityId] : []))];
+    const entities = entityIds.length ? resultsOf(await this.database.prepare(
+      `SELECT id, display_name FROM music_entities
+       WHERE id IN (${placeholders(entityIds.length)}) AND archived_at IS NULL AND member_uid IS NULL`,
+    ).bind(...entityIds).all<{ id: string; display_name: string }>()) : [];
+    if (entities.length !== entityIds.length) {
+      throw new MemberSubmissionRepositoryError("invalid_request", "선택한 가수 정보를 사용할 수 없습니다. 다시 검색해 주세요.");
+    }
     return subjects.map((subject) => {
       if (subject.kind === "external") {
+        const entity = entities.find(item => item.id === subject.entityId);
         return {
-          resolvedEntityId: null,
+          resolvedEntityId: entity?.id ?? null,
           submittedMemberUid: null,
-          displayName: normalizeSnapshot(subject.displayName),
+          displayName: entity ? normalizeSnapshot(entity.display_name) : normalizeSnapshot(subject.displayName),
         };
       }
       const member = memberMap.get(subject.memberUid)!;
@@ -271,7 +306,7 @@ export class D1MemberSubmissionRepository
     const [participantResult, artistResult] = await this.database.batch([
       this.database
         .prepare(
-          `SELECT proposal_id, credit_order, submitted_name_snapshot, submitted_member_uid,
+          `SELECT proposal_id, credit_order, submitted_name_snapshot, submitted_member_uid, resolved_entity_id,
              participant_role
            FROM music_cover_proposal_participants
            WHERE proposal_id IN (${placeholders(ids.length)})
@@ -280,7 +315,7 @@ export class D1MemberSubmissionRepository
         .bind(...ids),
       this.database
         .prepare(
-          `SELECT proposal_id, credit_order, submitted_name_snapshot, submitted_member_uid
+          `SELECT proposal_id, credit_order, submitted_name_snapshot, submitted_member_uid, resolved_entity_id
            FROM music_cover_proposal_original_artists
            WHERE proposal_id IN (${placeholders(ids.length)})
            ORDER BY proposal_id, credit_order`,
@@ -310,6 +345,7 @@ export class D1MemberSubmissionRepository
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
       participants: (participants.get(row.id) ?? []).map((item) => ({
+        ...(item.resolved_entity_id ? { entityId: item.resolved_entity_id } : {}),
         creditOrder: Number(item.credit_order),
         memberUid:
           item.submitted_member_uid === null
@@ -319,6 +355,7 @@ export class D1MemberSubmissionRepository
         participantRole: item.participant_role ?? "vocal",
       })),
       originalArtists: (artists.get(row.id) ?? []).map((item) => ({
+        ...(item.resolved_entity_id ? { entityId: item.resolved_entity_id } : {}),
         creditOrder: Number(item.credit_order),
         memberUid:
           item.submitted_member_uid === null
@@ -368,28 +405,30 @@ export class D1MemberSubmissionRepository
   ) {
     const [participantResult, artistResult] = await this.database.batch([
       this.database.prepare(
-        `SELECT submitted_member_uid, submitted_name_snapshot, participant_role
+        `SELECT resolved_entity_id, submitted_member_uid, submitted_name_snapshot, participant_role
          FROM music_cover_proposal_participants
          WHERE proposal_id = ? ORDER BY credit_order`,
       ).bind(existing.id),
       this.database.prepare(
-        `SELECT submitted_member_uid, submitted_name_snapshot
+        `SELECT resolved_entity_id, submitted_member_uid, submitted_name_snapshot
          FROM music_cover_proposal_original_artists
          WHERE proposal_id = ? ORDER BY credit_order`,
       ).bind(existing.id),
     ]);
     const storedParticipants = resultsOf(participantResult as D1Result<{
+      resolved_entity_id: string | null;
       submitted_member_uid: number | null;
       submitted_name_snapshot: string;
       participant_role: OtwPlayParticipantRole;
     }>);
     const storedArtists = resultsOf(artistResult as D1Result<{
+      resolved_entity_id: string | null;
       submitted_member_uid: number | null;
       submitted_name_snapshot: string;
     }>);
     const subjectKey = (subject: ResolvedSubject) =>
       subject.submittedMemberUid === null
-        ? `external:${normalizeSnapshot(subject.displayName)}`
+        ? subject.resolvedEntityId ? `entity:${subject.resolvedEntityId}` : `external:${normalizeSnapshot(subject.displayName)}`
         : `member:${subject.submittedMemberUid}`;
     return (
       existing.youtubeUrl === canonicalUrl &&
@@ -401,7 +440,7 @@ export class D1MemberSubmissionRepository
       (existing.note ?? null) === (input.note?.trim() || null) &&
       JSON.stringify(storedParticipants.map((item) => [
         item.submitted_member_uid === null
-          ? `external:${normalizeSnapshot(item.submitted_name_snapshot)}`
+          ? item.resolved_entity_id ? `entity:${item.resolved_entity_id}` : `external:${normalizeSnapshot(item.submitted_name_snapshot)}`
           : `member:${Number(item.submitted_member_uid)}`,
         item.participant_role,
       ])) ===
@@ -410,7 +449,7 @@ export class D1MemberSubmissionRepository
         ) &&
       JSON.stringify(storedArtists.map((item) =>
         item.submitted_member_uid === null
-          ? `external:${normalizeSnapshot(item.submitted_name_snapshot)}`
+          ? item.resolved_entity_id ? `entity:${item.resolved_entity_id}` : `external:${normalizeSnapshot(item.submitted_name_snapshot)}`
           : `member:${Number(item.submitted_member_uid)}`,
       )) === JSON.stringify(artists.map(subjectKey))
     );

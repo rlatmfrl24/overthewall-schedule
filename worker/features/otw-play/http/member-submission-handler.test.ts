@@ -64,6 +64,20 @@ describe("member submission handler", () => {
     });
   });
 
+  it("validates artist search parameters and forwards authenticated searches", async () => {
+    const searchArtists = vi.fn(async () => [{ entityId: "artist", displayName: "아이유", memberUid: null, entityKind: "person" }]);
+    const handler = createMemberSubmissionHandler(() => ({ searchArtists }) as unknown as MemberSubmissionService);
+    const response = await handler(new Request("https://example.com/api/play/submissions/artists?q=IU"), {} as Env);
+    expect(response.status).toBe(200);
+    expect(searchArtists).toHaveBeenCalledWith("IU");
+    for (const query of ["", "?q=", "?q=IU&q=other", "?q=IU&extra=1"]) {
+      expect((await handler(new Request(`https://example.com/api/play/submissions/artists${query}`), {} as Env)).status).toBe(400);
+    }
+    authenticateRequestMock.mockResolvedValue({ ok: false, response: new Response(null, { status: 401 }) });
+    expect((await handler(new Request("https://example.com/api/play/submissions/artists?q=IU"), {} as Env)).status).toBe(401);
+    expect(searchArtists).toHaveBeenCalledTimes(1);
+  });
+
   it("returns 429 before D1 when the edge limit is exhausted", async () => {
     const create = vi.fn();
     const findReplay = vi.fn(async () => null);

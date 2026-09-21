@@ -311,7 +311,9 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
               error instanceof ApiError &&
               error.fields?.entity === "referenced"
             ? "곡·가창·승인 채널·제안 또는 저장된 후보 검수에 연결된 외부 주체는 삭제할 수 없습니다. 연결을 먼저 교정하거나 보관 처리해 주세요."
-            : `${label.startsWith("source:") ? "source 재검사" : label} 작업에 실패했습니다.`;
+            : label === "제안 승인" && error instanceof ApiError
+              ? `제안 승인에 실패했습니다. ${error.message}${error.code ? ` (${error.code})` : ""}${error.requestId ? ` · 요청 ID: ${error.requestId}` : ""}`
+              : `${label.startsWith("source:") ? "source 재검사" : label} 작업에 실패했습니다.`;
       toast({
         variant: "error",
         description,

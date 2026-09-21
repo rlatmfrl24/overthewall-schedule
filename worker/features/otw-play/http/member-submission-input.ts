@@ -50,10 +50,11 @@ const parseSubject = (value: unknown): OtwPlaySubmissionSubjectInput | null => {
   }
   if (
     value.kind === "external" &&
-    hasExactKeys(value, ["kind", "displayName"])
+    hasExactKeys(value, ["kind", "displayName", "entityId"])
   ) {
     const displayName = text(value.displayName, 300);
-    return displayName ? { kind: "external", displayName } : null;
+    const entityId = value.entityId === undefined ? undefined : text(value.entityId, 128);
+    return displayName && entityId !== null ? { kind: "external", displayName, ...(entityId ? { entityId } : {}) } : null;
   }
   return null;
 };
@@ -99,11 +100,12 @@ const parseParticipant = (
   }
   if (
     value.kind === "external" &&
-    hasExactKeys(value, ["kind", "displayName", "participantRole"])
+    hasExactKeys(value, ["kind", "displayName", "participantRole", "entityId"])
   ) {
     const displayName = text(value.displayName, 300);
-    return displayName
-      ? { kind: "external", displayName, participantRole }
+    const entityId = value.entityId === undefined ? undefined : text(value.entityId, 128);
+    return displayName && entityId !== null
+      ? { kind: "external", displayName, participantRole, ...(entityId ? { entityId } : {}) }
       : null;
   }
   return null;

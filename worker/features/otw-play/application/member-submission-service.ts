@@ -10,6 +10,7 @@ import {
   encodeMemberSubmissionCursor,
 } from "../domain/member-submission-cursor";
 import { extractYouTubeVideoId } from "../domain/youtube-video-id";
+import { normalizeOtwPlaySearchText } from "../domain/search-normalization";
 import type { OtwPlayYouTubeMetadataReader } from "./ports/youtube-metadata";
 import type { MemberSubmissionRepository } from "./ports/member-submission-repository";
 
@@ -54,6 +55,13 @@ export class MemberSubmissionService {
     this.createId = createId;
     this.clock = clock;
     this.youtube = youtube;
+  }
+
+  searchArtists(query: string) {
+    if (!normalizeOtwPlaySearchText(query)) {
+      throw new MemberSubmissionServiceError("invalid_request", "가수 이름을 입력해 주세요.");
+    }
+    return this.repository.searchArtists(query);
   }
 
   async preflight(userId: string, input: OtwPlaySubmissionPreflightRequest) {

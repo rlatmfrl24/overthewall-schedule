@@ -21,6 +21,7 @@ import {
   type ReactNode,
 } from "react";
 import type {
+  OtwPlaySubmissionArtistDto,
   OtwPlaySubmissionKind,
   OtwPlayCreateSubmissionResponse,
   OtwPlayMemberSubmissionDto,
@@ -49,6 +50,7 @@ import {
   createOtwPlaySubmission,
   preflightOtwPlaySubmission,
   updateOtwPlaySubmission,
+  searchOtwPlaySubmissionArtists,
 } from "../../api/submissions";
 import { useMyOtwPlaySubmission } from "../../queries/use-member-submissions";
 import { BroadcastMetadataFields } from "../broadcast-metadata-fields";
@@ -86,6 +88,8 @@ function ChipInput({
   required = false,
   draft,
   onDraftChange: setDraft,
+  onSelect,
+  externalOnly = false,
 }: {
   id: string;
   label: string;
@@ -96,10 +100,33 @@ function ChipInput({
   required?: boolean;
   draft: string;
   onDraftChange: (value: string) => void;
+  onSelect: (artist: OtwPlaySubmissionArtistDto) => void;
+  externalOnly?: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
-  const commit = () => {
-    const value = normalizedText(draft);
+  const [searchTerm, setSearchTerm] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchTerm(normalizedText(draft)), 200);
+    return () => clearTimeout(timer);
+  }, [draft]);
+  const search = useQuery({
+    queryKey: [...queryKeys.otwPlay.all, "member", "artists", searchTerm],
+    queryFn: () => searchOtwPlaySubmissionArtists(searchTerm),
+    enabled: Boolean(searchTerm),
+    staleTime: 30_000,
+    retry: false,
+  });
+  const currentSearch = searchTerm === normalizedText(draft) && Boolean(searchTerm);
+  const results = search.data ?? [];
+  const exactMatches = results.filter(artist => artist.isExactMatch);
+  const ready = currentSearch && search.isSuccess && !search.isFetching;
+  const commit = (artist?: OtwPlaySubmissionArtistDto) => {
+    if (!ready || (!artist && exactMatches.length > 0)) return;
+    if (externalOnly && artist?.memberUid != null) {
+      setError("OTW 멤버는 위의 참여 멤버 목록에서 선택해 주세요.");
+      return;
+    }
+    const value = artist?.displayName ?? normalizedText(draft);
     if (!value) return setError("추가할 이름을 입력해 주세요.");
     if (values.some((item) => comparableText(item) === comparableText(value))) {
       return setError("이미 추가한 이름입니다.");
@@ -108,6 +135,7 @@ function ChipInput({
       return setError(`최대 ${maxValues}명까지 추가할 수 있습니다.`);
     }
     onChange([...values, value]);
+    if (artist) onSelect(artist);
     setDraft("");
     setError(null);
   };
@@ -115,7 +143,7 @@ function ChipInput({
     if (event.nativeEvent.isComposing) return;
     if (event.key === "Enter" || event.key === ",") {
       event.preventDefault();
-      commit();
+      commit(exactMatches.length === 1 ? exactMatches[0] : undefined);
     }
   };
   return (
@@ -149,12 +177,17 @@ function ChipInput({
           aria-invalid={Boolean(error)}
           disabled={values.length >= maxValues}
         />
-        <Button type="button" variant="outline" onClick={commit} disabled={values.length >= maxValues}>
-          <Plus /> 추가
-        </Button>
       </div>
+      {normalizedText(draft) ? <div className="space-y-2 rounded-lg border p-3" aria-label={`${label} 검색 결과`}>
+        {!currentSearch || search.isPending || search.isFetching ? <p role="status" className="text-sm text-muted-foreground">기존 가수를 검색하고 있습니다.</p>
+          : search.isError ? <div role="alert" className="text-sm"><p>가수 검색에 실패했습니다. 다시 검색해 주세요.</p><Button type="button" variant="outline" onClick={() => void search.refetch()}>다시 검색</Button></div>
+          : <>
+            {results.length ? <ul className="max-h-56 overflow-y-auto">{results.map(artist => <li key={artist.entityId}><Button type="button" variant="ghost" className="h-auto w-full justify-between whitespace-normal text-left" disabled={values.length >= maxValues} onClick={() => commit(artist)}><span>{artist.displayName}</span><span className="ml-2 text-xs text-muted-foreground">{artist.memberUid !== null ? "OTW 멤버" : artist.entityKind === "group" ? "그룹" : "기존 가수"}</span></Button></li>)}</ul> : <p className="text-sm text-muted-foreground">등록된 가수가 없습니다.</p>}
+            {!exactMatches.length ? <><p className="text-sm text-muted-foreground">찾는 가수가 없으면 새 가수로 추가해 주세요.</p><Button type="button" variant="outline" onClick={() => commit()} disabled={!ready || values.length >= maxValues}><Plus /> “{normalizedText(draft)}” 새 가수로 추가</Button></> : null}
+          </>}
+      </div> : null}
       <p id={`${id}-help`} className="text-xs text-muted-foreground">
-        Enter·추가 버튼 또는 다음 단계로 이동할 때 입력한 이름을 반영합니다.
+        기존 가수를 먼저 검색해 선택해 주세요. 이름·별칭이 일치하는 가수가 없으면 새 가수로 추가할 수 있습니다.
       </p>
       {error ? <p id={`${id}-error`} role="alert" className="text-sm text-destructive">{error}</p> : null}
     </div>
@@ -283,6 +316,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
   const [suggestedSongId, setSuggestedSongId] = useState<string | null>(null);
   const [songTags, setSongTags] = useState<string[]>([]);
   const [originalArtists, setOriginalArtists] = useState<string[]>([]);
+  const [artistEntityIds, setArtistEntityIds] = useState<Record<string, string>>({});
   const [memberUids, setMemberUids] = useState<number[]>([]);
   const [externalParticipants, setExternalParticipants] = useState<string[]>([]);
   const [memberRoles, setMemberRoles] = useState<Record<number, OtwPlayParticipantRole>>({});
@@ -352,6 +386,8 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
     const submission = editDetail.data;
     if (!editId || !submission || initializedEditId.current === editId) return;
     initializedEditId.current = editId;
+    setArtistEntityIds(Object.fromEntries([...submission.originalArtists, ...submission.participants]
+      .flatMap(artist => artist.memberUid === null && artist.entityId ? [[artist.displayName, artist.entityId]] : [])));
     setOriginalArtistMemberUids(Object.fromEntries(
       submission.originalArtists.flatMap((artist) =>
         artist.memberUid === null ? [] : [[artist.displayName, artist.memberUid]],
@@ -399,10 +435,12 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
       tags: submission.tags,
       originalArtists: submission.originalArtists.map((artist) => ({
         memberUid: artist.memberUid,
+        entityId: artist.memberUid === null ? artist.entityId : undefined,
         displayName: artist.displayName,
       })),
       participants: [...memberParticipants, ...external].map((participant) => ({
         memberUid: participant.memberUid,
+        entityId: participant.memberUid === null ? participant.entityId : undefined,
         displayName: participant.displayName,
         participantRole: participant.participantRole,
       })),
@@ -425,9 +463,10 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
     ...externalParticipants.map((displayName) => ({
       kind: "external" as const,
       displayName,
+      ...(artistEntityIds[displayName] ? { entityId: artistEntityIds[displayName] } : {}),
       participantRole: externalRoles[displayName] ?? "vocal",
     })),
-  ], [externalParticipants, externalRoles, memberRoles, memberUids]);
+  ], [externalParticipants, externalRoles, memberRoles, memberUids, artistEntityIds]);
   const currentEditSnapshot = useMemo(
     () => JSON.stringify({
       submissionKind, broadcast,
@@ -437,10 +476,12 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
       tags: songMode === "new" ? songTags : [],
       originalArtists: originalArtists.map((displayName) => ({
         memberUid: originalArtistMemberUids[displayName] ?? null,
+        entityId: originalArtistMemberUids[displayName] ? undefined : artistEntityIds[displayName],
         displayName,
       })),
       participants: participants.map((participant) => ({
         memberUid: participant.kind === "member" ? participant.memberUid : null,
+        entityId: participant.kind === "external" ? participant.entityId : undefined,
         displayName:
           participant.kind === "member"
             ? (members.data ?? []).find((member) => member.uid === participant.memberUid)?.name ?? ""
@@ -449,7 +490,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
       })),
       note: note || null,
     }),
-    [submissionKind, broadcast, members.data, note, originalArtistMemberUids, originalArtists, participants, songMode, songTags, suggestedSongId, title, youtubeUrl],
+    [submissionKind, broadcast, members.data, note, artistEntityIds, originalArtistMemberUids, originalArtists, participants, songMode, songTags, suggestedSongId, title, youtubeUrl],
   );
   const dirty = !success && (editId
     ? editBaseline !== null && (currentEditSnapshot !== editBaseline || Boolean(originalArtistDraft || externalParticipantDraft))
@@ -553,9 +594,8 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
   const canReview = title.trim().length > 0 && originalArtists.length > 0 && originalArtists.length <= ORIGINAL_ARTIST_LIMIT && participantCount > 0 && participantCount <= PARTICIPANT_LIMIT && (songMode === "new" || suggestedSongId !== null);
   const continueToSingers = () => {
     if (!preflight?.video) { setMessage("영상 정보를 다시 확인해 주세요. 곡 입력은 유지됩니다."); setStep(0); return; }
-    const merge = (values: string[], draft: string) => { const value = normalizedText(draft); return value && !values.some(item => comparableText(item) === comparableText(value)) ? [...values, value] : values; };
-    const artists = merge(originalArtists, originalArtistDraft);
-    setOriginalArtists(artists); setOriginalArtistDraft("");
+    if (originalArtistDraft.trim()) { setMessage("검색 결과에서 원곡 가수를 선택하거나 새 가수로 추가해 주세요."); return; }
+    const artists = originalArtists;
     if (!title.trim() || !songSelected || !artists.length || artists.length > ORIGINAL_ARTIST_LIMIT) {
       setMessage("곡명과 원곡 가수를 알려 주세요. 기존 곡을 선택해도 좋아요.");
       document.getElementById(!title.trim() || !songSelected ? "submission-title" : "submission-original-artists")?.focus(); return;
@@ -563,9 +603,8 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
     setMessage(null); setStep(2);
   };
   const reviewSubmission = () => {
-    const name = normalizedText(externalParticipantDraft);
-    const external = name && !externalParticipants.some(item => comparableText(item) === comparableText(name)) ? [...externalParticipants, name] : externalParticipants;
-    setExternalParticipants(external); setExternalParticipantDraft("");
+    if (externalParticipantDraft.trim()) { setMessage("검색 결과에서 외부 참여자를 선택하거나 새 가수로 추가해 주세요."); return; }
+    const external = externalParticipants;
     if (!memberUids.length || memberUids.length + external.length > PARTICIPANT_LIMIT) {
       setMessage(`노래한 OTW 멤버를 골라 주세요. 참여자는 ${PARTICIPANT_LIMIT}명까지 추가할 수 있어요.`);
       document.getElementById("submission-members")?.focus(); return;
@@ -576,6 +615,8 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
     setMessage(null); setStep(3);
   };
   const resetForm = () => {
+    setArtistEntityIds({});
+    setOriginalArtistMemberUids({});
     preflightRequestId.current += 1;
     setSubmissionKind(initialKind ?? null); setBroadcast(emptySubmissionBroadcast()); setOriginalArtistDraft(""); setExternalParticipantDraft("");
     setStep(0); setClientRequestId(newClientRequestId()); setYoutubeUrl(""); setTitle("");
@@ -597,7 +638,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
   };
   const submitProposal = () => {
     if (submissionDisabled) return;
-    submitMutation.mutate({ clientRequestId, submissionKind: submissionKind ?? "official_cover", broadcast: submissionKind === "singing_clip" ? broadcast : null, youtubeUrl, title, suggestedSongId, tags: songMode === "new" ? songTags : [], originalArtists: originalArtists.map((displayName) => originalArtistMemberUids[displayName] ? { kind: "member", memberUid: originalArtistMemberUids[displayName] } : { kind: "external", displayName }), participants, note: note || null });
+    submitMutation.mutate({ clientRequestId, submissionKind: submissionKind ?? "official_cover", broadcast: submissionKind === "singing_clip" ? broadcast : null, youtubeUrl, title, suggestedSongId, tags: songMode === "new" ? songTags : [], originalArtists: originalArtists.map((displayName) => originalArtistMemberUids[displayName] ? { kind: "member", memberUid: originalArtistMemberUids[displayName] } : { kind: "external", displayName, ...(artistEntityIds[displayName] ? { entityId: artistEntityIds[displayName] } : {}) }), participants, note: note || null });
   };
   const finalButtonText = submitMutation.isPending ? (editId ? "저장 중" : "제출 중") : (editId ? "수정 저장" : "검수 요청하기");
 
@@ -745,6 +786,10 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
                   draft={originalArtistDraft}
                   onDraftChange={setOriginalArtistDraft}
                   label="원곡 가수"
+                  onSelect={artist => {
+                    if (artist.memberUid !== null) setOriginalArtistMemberUids(current => ({ ...current, [artist.displayName]: artist.memberUid! }));
+                    else setArtistEntityIds(current => ({ ...current, [artist.displayName]: artist.entityId }));
+                  }}
                   values={originalArtists}
                   onChange={(values) => {
                     setOriginalArtists(values);
@@ -772,7 +817,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
               <div className="space-y-4">
                 <div className="flex items-start justify-between gap-3 text-sm"><span className="text-muted-foreground">함께 부른 멤버도 빠짐없이 골라 주세요.</span><span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs font-medium tabular-nums">{participantCount}/{PARTICIPANT_LIMIT}</span></div>
                 <MemberSelector members={members.data ?? []} selectedUids={memberUids} onChange={setMemberUids} maxReached={participantCount >= PARTICIPANT_LIMIT} />
-                <details className="pt-1"><summary className="cursor-pointer text-sm font-medium">외부 참여자·세부 역할 (선택)</summary><div className="mt-4 space-y-4"><ChipInput draft={externalParticipantDraft} onDraftChange={setExternalParticipantDraft} id="submission-external-participants" label="외부 참여자" values={externalParticipants} onChange={setExternalParticipants} placeholder="외부 인물 또는 그룹명" maxValues={Math.max(PARTICIPANT_LIMIT - memberUids.length, 0)} />
+                <details className="pt-1"><summary className="cursor-pointer text-sm font-medium">외부 참여자·세부 역할 (선택)</summary><div className="mt-4 space-y-4"><ChipInput externalOnly onSelect={artist => setArtistEntityIds(current => ({ ...current, [artist.displayName]: artist.entityId }))} draft={externalParticipantDraft} onDraftChange={setExternalParticipantDraft} id="submission-external-participants" label="외부 참여자" values={externalParticipants} onChange={setExternalParticipants} placeholder="외부 인물 또는 그룹명" maxValues={Math.max(PARTICIPANT_LIMIT - memberUids.length, 0)} />
                 <ParticipantRoleEditor items={participantRoleItems} onRoleChange={changeParticipantRole} /></div></details>
                 {participantCount === 0 ? <p className="text-sm text-muted-foreground">멤버를 고르면 다음으로 넘어갈 수 있어요.</p> : null}
               </div>

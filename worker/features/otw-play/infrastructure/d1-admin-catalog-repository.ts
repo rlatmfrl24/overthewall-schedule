@@ -1873,6 +1873,29 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         continue;
       }
 
+      const normalizedName = normalizeOtwPlaySearchText(subject.displayName);
+      const existingExternal = catalog.entities.find((item) =>
+        item.memberUid === null && item.entityKind === subject.entityKind &&
+        item.normalizedName === normalizedName,
+      );
+      if (existingExternal) {
+        if (existingExternal.archivedAt !== null) {
+          throw new AdminCatalogRepositoryError(
+            "validation_failed", "The existing external identity is archived",
+          );
+        }
+        resolved.set(key, { id: existingExternal.id, displayName: existingExternal.displayName });
+        continue;
+      }
+      const existingSubject = allSubjects.find((item) =>
+        item.kind === "new_external" && item.entityKind === subject.entityKind &&
+        normalizeOtwPlaySearchText(item.displayName) === normalizedName &&
+        resolved.has(subjectKey(item)!),
+      );
+      if (existingSubject) {
+        resolved.set(key, resolved.get(subjectKey(existingSubject)!)!);
+        continue;
+      }
       const entityId = ids.entityIds[key];
       if (!entityId) throw new Error("Missing generated external entity id");
       statements.push(

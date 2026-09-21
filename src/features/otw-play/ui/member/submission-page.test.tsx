@@ -7,6 +7,7 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  searchArtists: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
   preflight: vi.fn(),
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   editDetail: vi.fn(),
 }));
 vi.mock("../../api/submissions", () => ({
+  searchOtwPlaySubmissionArtists: mocks.searchArtists,
   createOtwPlaySubmission: mocks.create,
   preflightOtwPlaySubmission: mocks.preflight,
   updateOtwPlaySubmission: mocks.update,
@@ -99,7 +101,7 @@ const completeDetails = async () => {
   fireEvent.change(screen.getByLabelText("곡명 *"), { target: { value: "테스트 커버" } });
   const artistInput = screen.getByLabelText("원곡 가수 *");
   fireEvent.change(artistInput, { target: { value: "원곡 가수" } });
-  fireEvent.keyDown(artistInput, { key: "Enter" });
+  fireEvent.click(await screen.findByRole("button", { name: /새 가수로 추가/ }));
   fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
   fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
   await waitFor(() => expect(screen.getByRole("button", { name: new RegExp(member.name) }).getAttribute("aria-pressed")).toBe("true"));
@@ -108,6 +110,53 @@ const completeDetails = async () => {
 };
 
 describe("OtwPlaySubmissionPage", () => {
+  it("searches first and submits the selected existing artist ID", async () => {
+    mocks.searchArtists.mockResolvedValue([{ entityId: "iu", displayName: "아이유", memberUid: null, entityKind: "person", isExactMatch: true }]);
+    renderPage();
+    await verifyVideo(); await startNewSong();
+    fireEvent.change(screen.getByLabelText("원곡 가수 *"), { target: { value: "IU" } });
+    expect(screen.queryByRole("button", { name: /새 가수로 추가/ })).toBeNull();
+    await screen.findByRole("button", { name: /아이유/ });
+    expect(screen.queryByRole("button", { name: /새 가수로 추가/ })).toBeNull();
+    fireEvent.keyDown(screen.getByLabelText("원곡 가수 *"), { key: "Enter" });
+    expect(mocks.searchArtists).toHaveBeenCalledWith("IU");
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
+    fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "검수 요청하기" }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      originalArtists: [{ kind: "external", displayName: "아이유", entityId: "iu" }],
+    })));
+  });
+
+  it("allows a new artist when the existing results only partially match", async () => {
+    mocks.searchArtists.mockResolvedValue([{ entityId: "artist-ab", displayName: "가수 AB", memberUid: null, entityKind: "person", isExactMatch: false }]);
+    renderPage(); await verifyVideo(); await startNewSong();
+    fireEvent.change(screen.getByLabelText("원곡 가수 *"), { target: { value: "가수 A" } });
+    await screen.findByRole("button", { name: /가수 AB/ });
+    fireEvent.click(screen.getByRole("button", { name: /“가수 A” 새 가수로 추가/ }));
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
+    fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "검수 요청하기" }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      originalArtists: [{ kind: "external", displayName: "가수 A" }],
+    })));
+  });
+
+  it("does not offer new artists on search failure or use a stale search result", async () => {
+    mocks.searchArtists.mockRejectedValue(new Error("offline"));
+    renderPage(); await verifyVideo(); await startNewSong();
+    fireEvent.change(screen.getByLabelText("원곡 가수 *"), { target: { value: "IU" } });
+    await screen.findByText("가수 검색에 실패했습니다. 다시 검색해 주세요.");
+    expect(screen.queryByRole("button", { name: /새 가수로 추가/ })).toBeNull();
+    mocks.searchArtists.mockResolvedValue([]);
+    fireEvent.click(screen.getByRole("button", { name: "다시 검색" }));
+    await screen.findByRole("button", { name: /새 가수로 추가/ });
+    fireEvent.change(screen.getByLabelText("원곡 가수 *"), { target: { value: "다른 가수" } });
+    expect(screen.queryByRole("button", { name: /새 가수로 추가/ })).toBeNull();
+  });
+
   beforeEach(() => {
     // jsdom has no layout engine; content resizing is also verified in the browser.
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} });
@@ -117,6 +166,7 @@ describe("OtwPlaySubmissionPage", () => {
       configurable: true,
       value: vi.fn(),
     });
+    mocks.searchArtists.mockReset().mockResolvedValue([]);
     mocks.members.mockResolvedValue([member]);
     mocks.preflight.mockResolvedValue(preflight);
     mocks.create.mockRejectedValue(new Error("network failed"));
@@ -153,10 +203,12 @@ describe("OtwPlaySubmissionPage", () => {
     expect(screen.queryByLabelText("OTW 참여 멤버 *")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "J-POP" }));
     fireEvent.change(screen.getByLabelText("원곡 가수 *"), { target: { value: "원곡 가수" } });
+    fireEvent.click(await screen.findByRole("button", { name: /새 가수로 추가/ }));
     fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
     expect(screen.getByRole("heading", { name: "누가 불렀나요?" })).toBeTruthy();
     await waitFor(() => expect(screen.queryByLabelText("장르(분류)")).toBeNull());
     fireEvent.change(screen.getByLabelText("외부 참여자"), { target: { value: "게스트" } });
+    fireEvent.click(await screen.findByRole("button", { name: /새 가수로 추가/ }));
     expect(screen.queryByPlaceholderText("멤버 이름·코드·유닛 검색")).toBeNull();
     expect(screen.queryByText("테스트 커버")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
@@ -359,12 +411,13 @@ describe("OtwPlaySubmissionPage", () => {
     fireEvent.change(artistInput, { target: { value: "가수 A" } });
     fireEvent.blur(artistInput);
     expect(screen.queryByText("가수 A")).toBeNull();
-    fireEvent.keyDown(artistInput, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("button", { name: /새 가수로 추가/ }));
     expect(screen.getByText("가수 A")).toBeTruthy();
 
     fireEvent.change(artistInput, { target: { value: "  가수 A  " } });
-    fireEvent.keyDown(artistInput, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("button", { name: /새 가수로 추가/ }));
     expect(screen.getByRole("alert", { name: "" }).textContent).toContain("이미 추가한 이름");
+    fireEvent.change(artistInput, { target: { value: "" } });
 
     fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
     expect(await screen.findByRole("button", { name: /멤버 한명/ })).toBeTruthy();
@@ -379,7 +432,7 @@ describe("OtwPlaySubmissionPage", () => {
     await startNewSong();
     const artistInput = screen.getByLabelText("원곡 가수 *");
     fireEvent.change(artistInput, { target: { value: "원곡 가수" } });
-    fireEvent.keyDown(artistInput, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("button", { name: /새 가수로 추가/ }));
     fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
     fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
 
@@ -456,13 +509,16 @@ describe("OtwPlaySubmissionPage", () => {
     fireEvent.change(screen.getByLabelText("YouTube 영상 URL"), { target: { value: "draft" } });
     expect(mocks.registerDirty.mock.calls.at(-1)?.[1]).toBe(true);
   });
-  it("submits an edited clip with optional broadcast metadata and commits pending names on Next", async () => {
+  it("requires explicit artist selection before continuing, including after IME composition", async () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: /노래 클립.*방송에서/ }));
     await verifyVideo(); await startNewSong();
     fireEvent.change(screen.getByLabelText("원곡 가수 *"), { target: { value: "원곡 가수" } });
     fireEvent.keyDown(screen.getByLabelText("원곡 가수 *"), { key: "Enter", isComposing: true });
     expect(screen.queryByLabelText("원곡 가수 선택 목록")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    expect(screen.getByRole("alert").textContent).toContain("검색 결과에서 원곡 가수를 선택");
+    fireEvent.click(await screen.findByRole("button", { name: /새 가수로 추가/ }));
     fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
     fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
     fireEvent.change(screen.getByLabelText("방송일 (선택)"), { target: { value: "2026-09-01" } });

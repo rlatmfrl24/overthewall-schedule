@@ -115,6 +115,14 @@ export const createMemberSubmissionHandler = (
   const service = resolveService(env);
 
   try {
+    if (request.method === "GET" && url.pathname === "/api/play/submissions/artists") {
+      const query = url.searchParams.get("q")?.trim() ?? "";
+      if (!query || [...query].length > 300 || url.searchParams.getAll("q").length !== 1 ||
+        [...url.searchParams.keys()].some(key => key !== "q")) {
+        return errorResponse(requestId, 400, "PLAY_SUBMISSION_INVALID_REQUEST", "가수 검색어를 1~300자로 입력해 주세요.");
+      }
+      return responseJson({ data: await service.searchArtists(query) });
+    }
     if (
       request.method === "POST" &&
       url.pathname === "/api/play/submissions/preflight"
