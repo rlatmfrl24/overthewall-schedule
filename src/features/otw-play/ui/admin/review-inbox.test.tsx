@@ -1,7 +1,7 @@
 import { createAdminCatalogFixture, createReviewItemFixture } from "../../test/catalog-fixtures";
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
 import type { OtwPlayAdminCatalogDto, OtwPlayReviewItemDto } from "@contracts/otw-play";
@@ -167,4 +167,71 @@ it("keeps overlapping proposals reachable without offering duplicate draft conve
   expect(onProposal).toHaveBeenCalledWith("proposal-1");
   expect(screen.getByRole("checkbox", { name: "clip-with-proposal 선택" })).toHaveProperty("disabled", true);
   expect(within(screen.getByRole("article")).getByText("노래 클립")).toBeTruthy();
+});
+
+
+const observeReviewBottom = () => {
+  const callbacks: Array<() => void> = [];
+  vi.stubGlobal("IntersectionObserver", class {
+    constructor(callback: IntersectionObserverCallback) {
+      callbacks.push(() => callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver));
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  });
+  return callbacks;
+};
+afterEach(() => vi.unstubAllGlobals());
+
+it("loads the next cursor at the list bottom only once and retains earlier rows", async () => {
+  const callbacks = observeReviewBottom();
+  let resolveNext!: (value: unknown) => void;
+  fetchReview.mockImplementation(({ cursor, candidateKind }) => candidateKind ? Promise.resolve({ items: [], nextCursor: null }) : cursor
+    ? new Promise(resolve => { resolveNext = resolve; })
+    : Promise.resolve({ items: [row("first")], nextCursor: "next" }));
+  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  await screen.findByText("first");
+  await waitFor(() => expect(callbacks.length).toBeGreaterThan(0));
+  const enter = callbacks.at(-1)!;
+  act(() => { enter(); enter(); });
+  await waitFor(() => expect(fetchReview.mock.calls.filter(([filters]) => filters.cursor === "next")).toHaveLength(1));
+  await act(async () => resolveNext({ items: [row("second")], nextCursor: null }));
+  expect(await screen.findByText("second")).toBeTruthy();
+  expect(screen.getByText("first")).toBeTruthy();
+  expect(screen.getByText("모든 검수 항목을 불러왔습니다.")).toBeTruthy();
+});
+
+it("stops automatic retries after a next-page failure and retries the same cursor explicitly", async () => {
+  const callbacks = observeReviewBottom();
+  let failed = false;
+  fetchReview.mockImplementation(async ({ cursor, candidateKind }) => {
+    if (candidateKind) return { items: [], nextCursor: null };
+    if (!cursor) return { items: [row("first")], nextCursor: "next" };
+    if (!failed) { failed = true; throw new Error("offline"); }
+    return { items: [row("second")], nextCursor: null };
+  });
+  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  await screen.findByText("first");
+  await waitFor(() => expect(callbacks.length).toBeGreaterThan(0));
+  act(() => callbacks.at(-1)!());
+  const retry = await screen.findByRole("button", { name: "다음 항목 다시 시도" });
+  expect(screen.getByText("first")).toBeTruthy();
+  act(() => callbacks.forEach(callback => callback()));
+  expect(fetchReview.mock.calls.filter(([filters]) => filters.cursor === "next")).toHaveLength(1);
+  fireEvent.click(retry);
+  expect(await screen.findByText("second")).toBeTruthy();
+  expect(fetchReview.mock.calls.filter(([filters]) => filters.cursor === "next")).toHaveLength(2);
+});
+
+it("disconnects automatic pagination when the review inbox becomes inactive", async () => {
+  const callbacks = observeReviewBottom();
+  fetchReview.mockImplementation(async ({ candidateKind }) => ({ items: candidateKind ? [] : [row("first")], nextCursor: candidateKind ? null : "next" }));
+  const props = { catalog, onProposal: vi.fn(), onManageChannel: vi.fn(), onOpenCatalog: vi.fn() };
+  const view = render(<ReviewInbox {...props} />, { wrapper: createQueryWrapper() });
+  await screen.findByText("first");
+  await waitFor(() => expect(callbacks.length).toBeGreaterThan(0));
+  view.rerender(<ReviewInbox {...props} active={false} />);
+  act(() => callbacks.forEach(callback => callback()));
+  expect(fetchReview.mock.calls.some(([filters]) => filters.cursor)).toBe(false);
 });

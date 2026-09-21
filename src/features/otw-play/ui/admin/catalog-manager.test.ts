@@ -509,6 +509,22 @@ describe("OtwPlayCatalogManager", () => {
     expect(screen.getByRole("button", { name: /회원 이용 canary 시작/ })).toBeTruthy();
   });
 
+  it("exposes user song requests directly and opens the existing proposal review", async () => {
+    renderCatalogManager();
+    fireEvent.click(await screen.findByRole("tab", { name: "사용자 곡 요청" }));
+    expect(await screen.findByRole("button", { name: "검수할 공식 커버" })).toBeTruthy();
+    expect(screen.queryByLabelText("검수 출처")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "검수할 공식 커버" }));
+    expect(await screen.findByTitle("검수할 공식 커버 검수 영상")).toBeTruthy();
+    expect(fetchProposalsMock).toHaveBeenCalledWith("pending_review");
+  });
+
+  it("shows pending requests when opened by the admin console section", async () => {
+    render(createElement<NonNullable<Parameters<typeof OtwPlayCatalogManager>[0]>>(OtwPlayCatalogManager, { activeSection: "requests" }), { wrapper: createQueryWrapper() });
+    expect(await screen.findByRole("button", { name: "검수할 공식 커버" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "사용자 곡 요청" })).toBeTruthy();
+  });
+
   it("renders a proposal query failure instead of an empty review queue and retries", async () => {
     fetchProposalsMock
       .mockRejectedValueOnce(new Error("proposal unavailable"))

@@ -94,6 +94,7 @@ import { IngestionSection } from "./ingestion-section";
 export type Section =
   | "catalog"
   | "import"
+  | "requests"
   | "clips"
   | "clip-channels"
   | "channels"
@@ -104,6 +105,7 @@ export type Section =
 
 const SECTIONS: Array<{ value: Section; label: string }> = [
   { value: "catalog", label: "카탈로그" }, { value: "import", label: "가져오기/검수" },
+  { value: "requests", label: "사용자 곡 요청" },
   { value: "channels", label: "채널" }, { value: "operations", label: "운영" },
 ];
 
@@ -364,7 +366,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
   };
 
   const catalogSection =
-    section === "catalog" || section === "import" || section === "channels";
+    section === "catalog" || section === "import" || section === "requests" || section === "channels";
   const readModelReady = catalog
     ? catalog.revision === catalog.readModelRevision
     : false;
@@ -374,7 +376,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
     <div className="otw-play-admin min-w-0 space-y-3">
       <AdminSectionHeader
         title={activeSection ? SECTIONS.find((item) => item.value === section)?.label ?? "OTW Play" : "OTW Play 카탈로그"}
-        description={section === "import" ? "가져온 영상의 검토 대상을 선택하고, 근거를 확인해 카탈로그에 임시 저장합니다." : section === "channels" ? "채널 수집 감시, 승인 상태와 연결된 인물·그룹을 함께 관리합니다." : section === "operations" ? "공개 설정, 영상 재생 상태와 서비스 지표를 함께 확인합니다." : "곡과 가창을 검색하고 등록·공개 상태를 관리합니다."}
+        description={section === "requests" ? "사용자가 신청한 곡을 확인하고 영상·가창 정보를 검수해 승인하거나 거절합니다." : section === "import" ? "가져온 영상의 검토 대상을 선택하고, 근거를 확인해 카탈로그에 임시 저장합니다." : section === "channels" ? "채널 수집 감시, 승인 상태와 연결된 인물·그룹을 함께 관리합니다." : section === "operations" ? "공개 설정, 영상 재생 상태와 서비스 지표를 함께 확인합니다." : "곡과 가창을 검색하고 등록·공개 상태를 관리합니다."}
         metadata={catalogSection ? <><QueryReadback className="m-0" updatedAt={catalogQuery.dataUpdatedAt} fetching={catalogQuery.isFetching} error={catalogQuery.isError && Boolean(catalog)} />{catalog && section === "catalog" ? <span>곡 {catalog.songs.length} · 가창 {catalog.performances.length}</span> : null}</> : undefined}
         actions={
           <div className="flex flex-wrap gap-2">
@@ -447,6 +449,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
         <div hidden={importView !== "jobs" || section !== "import"}><IngestionSection active={section === "import" && importView === "jobs"} /></div>
         {catalog && reviewSearch.proposal && <ProposalSection catalog={catalog} proposals={proposalsQuery.data ?? []} loading={proposalsQuery.isLoading} fetching={proposalsQuery.isFetching} error={proposalsQuery.error} refetch={proposalsQuery.refetch} saving={effectiveSaving} run={run} />}
       </div>}
+      {section === "requests" && catalog && <ProposalSection catalog={catalog} proposals={proposalsQuery.data ?? []} loading={proposalsQuery.isLoading} fetching={proposalsQuery.isFetching} error={proposalsQuery.error} refetch={proposalsQuery.refetch} saving={effectiveSaving} run={run} />}
       {section === "channels" && catalog && <div className="space-y-3">
         {registrationChannelOpen && <Button disabled={effectiveSaving !== null} variant={registrationChannelReady ? "default" : "outline"} onClick={returnToRegistration}>{registrationChannelReady ? "설정 완료 · 곡 등록으로 돌아가기" : "작성 중인 곡으로 돌아가기"}</Button>}
         {reviewSearch.from === "play-review" && <Button variant="outline" disabled={effectiveSaving !== null} onClick={returnToReview}>작성 중인 검수로 돌아가기</Button>}
