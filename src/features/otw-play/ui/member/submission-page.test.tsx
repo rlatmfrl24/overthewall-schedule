@@ -111,12 +111,14 @@ const completeDetails = async () => {
 
 describe("OtwPlaySubmissionPage", () => {
   it("searches first and submits the selected existing artist ID", async () => {
-    mocks.searchArtists.mockResolvedValue([{ entityId: "iu", displayName: "아이유", memberUid: null, entityKind: "person" }]);
+    mocks.searchArtists.mockResolvedValue([{ entityId: "iu", displayName: "아이유", memberUid: null, entityKind: "person", isExactMatch: true }]);
     renderPage();
     await verifyVideo(); await startNewSong();
     fireEvent.change(screen.getByLabelText("원곡 가수 *"), { target: { value: "IU" } });
     expect(screen.queryByRole("button", { name: /새 가수로 추가/ })).toBeNull();
-    fireEvent.click(await screen.findByRole("button", { name: /아이유/ }));
+    await screen.findByRole("button", { name: /아이유/ });
+    expect(screen.queryByRole("button", { name: /새 가수로 추가/ })).toBeNull();
+    fireEvent.keyDown(screen.getByLabelText("원곡 가수 *"), { key: "Enter" });
     expect(mocks.searchArtists).toHaveBeenCalledWith("IU");
     fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
     fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
@@ -124,6 +126,21 @@ describe("OtwPlaySubmissionPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "검수 요청하기" }));
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
       originalArtists: [{ kind: "external", displayName: "아이유", entityId: "iu" }],
+    })));
+  });
+
+  it("allows a new artist when the existing results only partially match", async () => {
+    mocks.searchArtists.mockResolvedValue([{ entityId: "artist-ab", displayName: "가수 AB", memberUid: null, entityKind: "person", isExactMatch: false }]);
+    renderPage(); await verifyVideo(); await startNewSong();
+    fireEvent.change(screen.getByLabelText("원곡 가수 *"), { target: { value: "가수 A" } });
+    await screen.findByRole("button", { name: /가수 AB/ });
+    fireEvent.click(screen.getByRole("button", { name: /“가수 A” 새 가수로 추가/ }));
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
+    fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "검수 요청하기" }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      originalArtists: [{ kind: "external", displayName: "가수 A" }],
     })));
   });
 

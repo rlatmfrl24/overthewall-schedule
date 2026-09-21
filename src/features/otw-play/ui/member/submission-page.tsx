@@ -118,9 +118,10 @@ function ChipInput({
   });
   const currentSearch = searchTerm === normalizedText(draft) && Boolean(searchTerm);
   const results = search.data ?? [];
+  const exactMatches = results.filter(artist => artist.isExactMatch);
   const ready = currentSearch && search.isSuccess && !search.isFetching;
   const commit = (artist?: OtwPlaySubmissionArtistDto) => {
-    if (!ready || (!artist && results.length > 0)) return;
+    if (!ready || (!artist && exactMatches.length > 0)) return;
     if (externalOnly && artist?.memberUid != null) {
       setError("OTW 멤버는 위의 참여 멤버 목록에서 선택해 주세요.");
       return;
@@ -142,8 +143,7 @@ function ChipInput({
     if (event.nativeEvent.isComposing) return;
     if (event.key === "Enter" || event.key === ",") {
       event.preventDefault();
-      const exact = results.filter(artist => comparableText(artist.displayName) === comparableText(draft));
-      commit(exact.length === 1 ? exact[0] : undefined);
+      commit(exactMatches.length === 1 ? exactMatches[0] : undefined);
     }
   };
   return (
@@ -181,11 +181,13 @@ function ChipInput({
       {normalizedText(draft) ? <div className="space-y-2 rounded-lg border p-3" aria-label={`${label} 검색 결과`}>
         {!currentSearch || search.isPending || search.isFetching ? <p role="status" className="text-sm text-muted-foreground">기존 가수를 검색하고 있습니다.</p>
           : search.isError ? <div role="alert" className="text-sm"><p>가수 검색에 실패했습니다. 다시 검색해 주세요.</p><Button type="button" variant="outline" onClick={() => void search.refetch()}>다시 검색</Button></div>
-          : results.length ? <ul className="max-h-56 overflow-y-auto">{results.map(artist => <li key={artist.entityId}><Button type="button" variant="ghost" className="h-auto w-full justify-between whitespace-normal text-left" disabled={values.length >= maxValues} onClick={() => commit(artist)}><span>{artist.displayName}</span><span className="ml-2 text-xs text-muted-foreground">{artist.memberUid !== null ? "OTW 멤버" : artist.entityKind === "group" ? "그룹" : "기존 가수"}</span></Button></li>)}</ul>
-          : <><p className="text-sm text-muted-foreground">등록된 가수가 없습니다.</p><Button type="button" variant="outline" onClick={() => commit()} disabled={!ready || values.length >= maxValues}><Plus /> “{normalizedText(draft)}” 새 가수로 추가</Button></>}
+          : <>
+            {results.length ? <ul className="max-h-56 overflow-y-auto">{results.map(artist => <li key={artist.entityId}><Button type="button" variant="ghost" className="h-auto w-full justify-between whitespace-normal text-left" disabled={values.length >= maxValues} onClick={() => commit(artist)}><span>{artist.displayName}</span><span className="ml-2 text-xs text-muted-foreground">{artist.memberUid !== null ? "OTW 멤버" : artist.entityKind === "group" ? "그룹" : "기존 가수"}</span></Button></li>)}</ul> : <p className="text-sm text-muted-foreground">등록된 가수가 없습니다.</p>}
+            {!exactMatches.length ? <><p className="text-sm text-muted-foreground">찾는 가수가 없으면 새 가수로 추가해 주세요.</p><Button type="button" variant="outline" onClick={() => commit()} disabled={!ready || values.length >= maxValues}><Plus /> “{normalizedText(draft)}” 새 가수로 추가</Button></> : null}
+          </>}
       </div> : null}
       <p id={`${id}-help`} className="text-xs text-muted-foreground">
-        기존 가수를 먼저 검색해 선택해 주세요. 검색 결과가 없으면 새 가수로 추가할 수 있습니다.
+        기존 가수를 먼저 검색해 선택해 주세요. 이름·별칭이 일치하는 가수가 없으면 새 가수로 추가할 수 있습니다.
       </p>
       {error ? <p id={`${id}-error`} role="alert" className="text-sm text-destructive">{error}</p> : null}
     </div>

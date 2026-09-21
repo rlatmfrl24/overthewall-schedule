@@ -214,7 +214,11 @@ export class D1MemberSubmissionRepository
     const normalized = normalizeOtwPlaySearchText(query);
     const rows = await this.database.prepare(`
       SELECT entity.id AS entityId, entity.display_name AS displayName,
-        entity.member_uid AS memberUid, entity.entity_kind AS entityKind
+        entity.member_uid AS memberUid, entity.entity_kind AS entityKind,
+        (entity.normalized_name = ? OR EXISTS (
+          SELECT 1 FROM music_entity_aliases alias
+          WHERE alias.entity_id = entity.id AND alias.normalized_alias = ?
+        )) AS isExactMatch
       FROM music_entities AS entity
       LEFT JOIN members AS member ON member.uid = entity.member_uid
       WHERE entity.archived_at IS NULL
@@ -223,10 +227,11 @@ export class D1MemberSubmissionRepository
           SELECT 1 FROM music_entity_aliases alias
           WHERE alias.entity_id = entity.id AND instr(alias.normalized_alias, ?) > 0
         ))
-      ORDER BY (entity.normalized_name = ?) DESC, entity.normalized_name, entity.id
+      ORDER BY isExactMatch DESC, entity.normalized_name, entity.id
       LIMIT 20
-    `).bind(normalized, normalized, normalized).all<OtwPlaySubmissionArtistDto>();
-    return resultsOf(rows);
+    `).bind(normalized, normalized, normalized, normalized)
+      .all<Omit<OtwPlaySubmissionArtistDto, "isExactMatch"> & { isExactMatch: number }>();
+    return resultsOf(rows).map(row => ({ ...row, isExactMatch: Boolean(row.isExactMatch) }));
   }
 
   private async resolveSubjects(

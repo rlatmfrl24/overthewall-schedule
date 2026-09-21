@@ -832,6 +832,7 @@ export interface OtwPlaySubmissionArtistDto {
   displayName: string;
   memberUid: number | null;
   entityKind: string;
+  isExactMatch: boolean;
 }
 
 export type OtwPlaySubmissionParticipantInput =
