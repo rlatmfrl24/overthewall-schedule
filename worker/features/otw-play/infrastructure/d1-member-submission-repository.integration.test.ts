@@ -79,6 +79,27 @@ beforeEach(async () => {
 });
 
 describe("D1MemberSubmissionRepository", () => {
+  it("searches existing artists and preserves selected IDs through submission, replay and edit", async () => {
+    const repository = new D1MemberSubmissionRepository(db);
+    await db.prepare(`INSERT INTO music_entities
+      (id, entity_kind, display_name, normalized_name, slug, created_at, updated_at)
+      VALUES ('submission-candidate-artist', 'person', '아이유', '아이유', 'submission-candidate-artist', 0, 0)`).run();
+    await db.prepare(`INSERT INTO music_entity_aliases (entity_id, alias, normalized_alias, locale, alias_kind)
+      VALUES ('submission-candidate-artist', 'IU', 'iu', 'en', 'stage_name')`).run();
+    expect(await repository.searchArtists("IU")).toEqual([expect.objectContaining({ entityId: "submission-candidate-artist", displayName: "아이유" })]);
+    const originalArtists = [{ kind: "external" as const, displayName: "임의 이름", entityId: "submission-candidate-artist" }];
+    const result = await create(repository, "member-a", "1", { originalArtists });
+    expect(result.data.originalArtists).toEqual([expect.objectContaining({ entityId: "submission-candidate-artist", displayName: "아이유" })]);
+    expect((await create(repository, "member-a", "1", { originalArtists })).idempotentReplay).toBe(true);
+    const updated = await repository.update({ userId: "member-a", proposalId: result.data.id, eventId: "artist-edit", now: NOW + 2,
+      videoId: result.data.youtubeVideoId, canonicalUrl: result.data.youtubeUrl,
+      input: { ...input("1"), expectedVersion: result.data.version, originalArtists, title: "수정된 곡" } });
+    expect(updated.originalArtists[0]?.entityId).toBe("submission-candidate-artist");
+    await db.prepare("UPDATE music_entities SET archived_at = 1 WHERE id = 'submission-candidate-artist'").run();
+    expect(await repository.searchArtists("IU")).toEqual([]);
+    await expect(create(repository, "member-a", "2", { originalArtists })).rejects.toMatchObject({ code: "invalid_request" });
+  });
+
   it("stores the proposal and children atomically and replays the same idempotency key", async () => {
     const repository = new D1MemberSubmissionRepository(db);
     const first = await create(repository, "member-a", "1");

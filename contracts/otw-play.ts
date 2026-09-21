@@ -825,7 +825,14 @@ export interface OtwPlaySubmissionErrorResponse {
 
 export type OtwPlaySubmissionSubjectInput =
   | { kind: "member"; memberUid: number }
-  | { kind: "external"; displayName: string };
+  | { kind: "external"; displayName: string; entityId?: string };
+
+export interface OtwPlaySubmissionArtistDto {
+  entityId: string;
+  displayName: string;
+  memberUid: number | null;
+  entityKind: string;
+}
 
 export type OtwPlaySubmissionParticipantInput =
   | {
@@ -836,6 +843,7 @@ export type OtwPlaySubmissionParticipantInput =
   | {
       kind: "external";
       displayName: string;
+      entityId?: string;
       participantRole?: OtwPlayParticipantRole;
     };
 
@@ -906,11 +914,13 @@ export interface OtwPlayMemberSubmissionDto {
   createdAt: number;
   updatedAt: number;
   originalArtists: Array<{
+    entityId?: string;
     creditOrder: number;
     memberUid: number | null;
     displayName: string;
   }>;
   participants: Array<{
+    entityId?: string;
     creditOrder: number;
     memberUid: number | null;
     displayName: string;

@@ -181,6 +181,7 @@ const expectedPolicies = [
     "/api/play/me/playlists",
     "/api/play/me/playlists/:id",
     "/api/play/submissions/mine",
+    "/api/play/submissions/artists",
     "/api/play/submissions/:id",
   ] },
   { method: "POST", auth: "member-policy", successStatus: 201,

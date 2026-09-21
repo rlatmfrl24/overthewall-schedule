@@ -17,6 +17,17 @@ const valid = () => ({
 });
 
 describe("member submission input", () => {
+  it("preserves selected artist IDs for create and edit and rejects malformed IDs", () => {
+    const artists = [{ kind: "external", displayName: "아이유", entityId: "artist-iu" }];
+    const request = { ...valid(), originalArtists: artists, participants: [...valid().participants, { ...artists[0], participantRole: "vocal" }] };
+    expect(parseCreateSubmission(request)).toMatchObject({ ok: true, value: { originalArtists: artists, participants: [expect.anything(), expect.objectContaining({ entityId: "artist-iu" })] } });
+    const edit = Object.fromEntries(Object.entries(request).filter(([key]) => key !== "clientRequestId"));
+    expect(parseUpdateSubmission({ ...edit, expectedVersion: 1 })).toMatchObject({ ok: true, value: { originalArtists: artists } });
+    for (const entityId of ["", null, 12, "x".repeat(129)]) {
+      expect(parseCreateSubmission({ ...valid(), originalArtists: [{ ...artists[0], entityId }] }).ok).toBe(false);
+    }
+  });
+
   it("accepts only the member submission snapshot contract", () => {
     const legacy = parseCreateSubmission(valid());
     expect(legacy.ok && legacy.value.participants[0]?.participantRole).toBe("vocal");

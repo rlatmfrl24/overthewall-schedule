@@ -1,5 +1,6 @@
 import { apiRoutes, withRouteSearch } from "@contracts/api-routes";
 import type {
+  OtwPlaySubmissionArtistDto,
   OtwPlayCreateSubmissionRequest,
   OtwPlayCreateSubmissionResponse,
   OtwPlayMemberSubmissionDto,
@@ -15,6 +16,11 @@ const memberRequest = <T>(
   path: string,
   init: RequestInit & { json?: unknown } = {},
 ) => apiFetch<T>(path, { ...init, auth: "required" });
+
+export const searchOtwPlaySubmissionArtists = (query: string) =>
+  memberRequest<{ data: OtwPlaySubmissionArtistDto[] }>(
+    withRouteSearch(apiRoutes.otwPlay.submissions.artists.build(), new URLSearchParams({ q: query })),
+  ).then(response => response.data);
 
 export const preflightOtwPlaySubmission = (
   json: OtwPlaySubmissionPreflightRequest,

@@ -1,4 +1,5 @@
 import type {
+  OtwPlaySubmissionArtistDto,
   OtwPlayCreateSubmissionRequest,
   OtwPlayMemberSubmissionDto,
   OtwPlaySubmissionPreflightDto,
@@ -55,6 +56,7 @@ export interface WithdrawMemberSubmissionCommand {
 }
 
 export interface MemberSubmissionRepository {
+  searchArtists(query: string): Promise<OtwPlaySubmissionArtistDto[]>;
   preflight(
     userId: string,
     videoId: string,

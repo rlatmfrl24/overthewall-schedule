@@ -4,6 +4,7 @@ import type { MemberSubmissionRepository } from "./ports/member-submission-repos
 
 const repository = () =>
   ({
+    searchArtists: vi.fn(async () => []),
     preflight: vi.fn(async () => ({ duplicate: null, songCandidates: [] })),
     create: vi.fn(),
     findReplay: vi.fn(async () => null),

@@ -669,6 +669,13 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleOtwPlayMemberSubmissions,
   },
   {
+    id: "otw-play.submission.artists",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.submissions.artists.pattern,
+    methods: methods(get({ auth: "member-policy", cache: "no-store", successStatus: 200 })),
+    handler: handleOtwPlayMemberSubmissions,
+  },
+  {
     id: "otw-play.submission.create",
     owner: "otw-play",
     path: apiRoutes.otwPlay.submissions.create.pattern,

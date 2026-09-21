@@ -658,6 +658,27 @@ describe("OtwPlayCatalogManager", () => {
     confirm.mockRestore();
   });
 
+  it("preserves the proposal and reports the server reason and request ID when approval fails", async () => {
+    approveProposalMock.mockRejectedValueOnce(new ApiError(
+      "영상의 채널이 승인된 활성 채널인지 확인해 주세요.", 422,
+      { code: "PLAY_ADMIN_VALIDATION_FAILED", requestId: "approval-request-1" },
+    ));
+    renderCatalogManager();
+    fireEvent.click(await screen.findByRole("tab", { name: "가져오기/검수" }));
+    fireEvent.change(await screen.findByLabelText("검수 출처"), { target: { value: "user" } });
+    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
+    await screen.findByText(/영상·채널 확인 완료/);
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "확인 후 승인·게시" }));
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
+      variant: "error",
+      description: "제안 승인에 실패했습니다. 영상의 채널이 승인된 활성 채널인지 확인해 주세요. (PLAY_ADMIN_VALIDATION_FAILED) · 요청 ID: approval-request-1",
+    })));
+    expect(screen.getByLabelText("곡명")).toHaveProperty("value", proposal.submittedTitle);
+    expect(screen.getByRole("button", { name: "확인 후 승인·게시" })).toHaveProperty("disabled", false);
+  });
+
   it("shows verification failures and blocks approval during a fresh verification", async () => {
     renderCatalogManager();
     fireEvent.click(await screen.findByRole("tab", { name: "가져오기/검수" }));

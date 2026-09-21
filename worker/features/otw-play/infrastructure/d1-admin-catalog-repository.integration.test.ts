@@ -2400,13 +2400,20 @@ describe("D1AdminCatalogRepository", () => {
     });
   });
 
-  it.each(["official_video", "broadcast"] as const)("approves a %s proposal atomically with catalog and projection", async (releaseType) => {
+  it.each([
+    ["official_video", false], ["broadcast", false],
+    ["official_video", true], ["broadcast", true],
+  ] as const)("approves a %s proposal atomically with catalog and projection (reuse artist: %s)", async (releaseType, reuseArtist) => {
+    await applyD1Migrations(db, [
+      ...testEnv.OTW_PLAY_INGESTION_MIGRATIONS,
+      ...testEnv.OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATIONS,
+    ]);
     const repository = new D1AdminCatalogRepository(db);
     const singer = await createEntity(repository, "Proposal Singer");
     const artist = await createEntity(
       repository,
       "Proposal Artist",
-      "organization",
+      "person",
     );
     const pendingChannel = await repository.createChannel(
       {
@@ -2502,7 +2509,9 @@ describe("D1AdminCatalogRepository", () => {
             tags: ["J-POP"],
             originalArtists: [
               {
-                subject: { kind: "entity", entityId: artist.data.id },
+                subject: reuseArtist
+                  ? { kind: "new_external", clientKey: "proposal-artist", displayName: "  PROPOSAL Artist  ", entityKind: "person" }
+                  : { kind: "entity", entityId: artist.data.id },
                 creditOrder: 0,
                 isPrimary: true,
               },
@@ -2538,8 +2547,8 @@ describe("D1AdminCatalogRepository", () => {
       now: NOW + 2,
       ids: {
         lockToken: id("lock"),
-        entityIds: {},
-        entityEventIds: {},
+        entityIds: { "external:proposal-artist": id("entity") },
+        entityEventIds: { "external:proposal-artist": id("event") },
         channelId: id("channel"),
         channelEventId: id("event"),
         songId: id("song"),
@@ -2572,6 +2581,9 @@ describe("D1AdminCatalogRepository", () => {
     expect(catalog.revision).toBe(catalog.readModelRevision);
     expect(catalog.revision).toBe(revisionBeforeApproval + 1);
     expect(catalog.songs.map((song) => song.title)).toContain("Proposal Song");
+    expect(catalog.entities).toHaveLength(2);
+    expect(catalog.songs.find((song) => song.title === "Proposal Song")?.originalArtists)
+      .toEqual([expect.objectContaining({ entityId: artist.data.id })]);
     expect(catalog.songs.find((song) => song.title === "Proposal Song")?.tags)
       .toEqual(["J-POP"]);
     expect(

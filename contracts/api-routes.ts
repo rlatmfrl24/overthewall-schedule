@@ -125,6 +125,7 @@ export const apiRoutes = {
         `/api/play/webhooks/youtube/${encodeURIComponent(token)}` as const,
     ),
     submissions: {
+      artists: staticRoute("/api/play/submissions/artists"),
       preflight: staticRoute("/api/play/submissions/preflight"),
       create: staticRoute("/api/play/submissions"),
       mine: staticRoute("/api/play/submissions/mine"),
