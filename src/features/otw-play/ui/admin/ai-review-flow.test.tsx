@@ -364,6 +364,7 @@ describe("AI suggestions through actual admin forms", () => {
     "fills and saves candidate clip=$clip with segment opt-in=$segment without publishing",
     async ({ clip, segment }) => {
       const data = result(clip);
+      data.result!.songs[0].values.song!.tags = ["Jazz"];
       mocks.start.mockResolvedValue({ data });
       mocks.get.mockResolvedValue({ data });
       render(
@@ -394,7 +395,7 @@ describe("AI suggestions through actual admin forms", () => {
       await waitFor(() => expect(mocks.save).toHaveBeenCalled());
       const input = mocks.save.mock.calls[0][1].input;
       expect(input).toMatchObject({
-        song: { kind: "create", title: "정리된 곡명" },
+        song: { kind: "create", title: "정리된 곡명", tags: ["Jazz"] },
         releaseType: clip ? "broadcast" : "official_mv",
         participants: [{ subject: { kind: "member", memberUid: 7 }, participantRole: "featured_vocal" }],
         startSeconds: segment ? 12 : 0,

@@ -18,6 +18,21 @@ const input: AiReviewInput = {
   members: [],
 };
 describe("Gemini actual video request adapter", () => {
+  it.each([{ tags: ["Jazz"] }, { tags: ["K-POP"] }, { tags: [] }])("preserves grounded genre suggestions $tags through the provider response", async ({ tags }) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+      status: "completed", outputs: [{ type: "text", text: JSON.stringify({
+        videoAnalyzed: true, warnings: [], songs: [{
+          values: { song: { title: "Song", alternateTitles: [], originalArtists: [{ name: "Artist", sourceNames: [], entityKind: "person" }], tags } },
+          evidence: { song: [{ source: "video", text: "Original artist credit and composition arrangement", timecode: "02:00" }] }, warnings: [],
+        }],
+      }) }],
+    }));
+    const response = await new GeminiReviewAnalyzer("secret", "model", fetcher).analyze(input);
+    expect(response.result.songs[0].values.song?.tags).toEqual(tags);
+    const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+    expect(body.input[1].text).toContain("propose exactly ONE other established genre/scene tag");
+    expect(body.response_format.schema.properties.songs.items.properties.values.properties.song.properties.tags.items).not.toHaveProperty("enum");
+  });
   it("does not retry depleted prepaid credits or echo the provider message", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ error: { message: "Your prepayment credits are depleted. secret-provider-detail" } }, { status: 429 }));
     await expect(new GeminiReviewAnalyzer("secret", "model", fetcher).analyze(input)).rejects.toMatchObject({ code: "provider_credit_exhausted", retryable: false, message: expect.not.stringContaining("secret-provider-detail") });
