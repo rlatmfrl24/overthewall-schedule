@@ -1,4 +1,4 @@
 interface:
   display_name: "브랜치 정리 및 최신화"
-  short_description: "병합된 작업 브랜치를 정리하고 master를 안전하게 최신화"
-  default_prompt: "$branch-maintenance를 사용해 병합 상태를 확인하고 기본 브랜치를 안전하게 최신화해 주세요."
+  short_description: "전체 워크트리의 잔여 작업을 확인하고 병합된 로컬·원격 브랜치를 안전하게 정리"
+  default_prompt: "$branch-maintenance로 전체 워크트리를 조사하고 작업별 PR 준비, 병합된 로컬·원격 브랜치 정리와 기본 브랜치 최신화를 수행해 주세요. 실제 병합은 별도 요청을 따르세요."

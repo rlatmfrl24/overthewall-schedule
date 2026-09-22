@@ -57,9 +57,14 @@ See [Testing](docs/testing.md) for focused commands, isolation rules, and covera
 pnpm dev
 # While editing: run the relevant test files
 pnpm test:unit path/to/changed.test.ts
-# Final verification (includes all tests and build)
+# Final PR merge preparation after review fixes, or an explicit release
 pnpm preflight
 ```
+
+Ordinary task completion uses checks for changed behavior and affected consumers.
+A final reply, review, or commit does not trigger the full suite. Reuse equivalent
+passing results and rerun only checks invalidated by subsequent fixes. Preflight
+belongs at the end of PR preparation, not at every development step.
 
 The local development server listens on `http://localhost:5173` by default.
 Vite, `pnpm dev:restart`, and `pnpm d1:doctor -- --api` share this default.

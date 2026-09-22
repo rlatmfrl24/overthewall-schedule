@@ -13,7 +13,7 @@
 ## Skills
 
 ### Available skills
-- `branch-maintenance`: Safely clean merged local task branches and fast-forward the default branch. Path: `.agent/skills/branch-maintenance/SKILL.md`
+- `branch-maintenance`: Inspect all worktrees, prepare remaining tasks separately, clean proven merged local/remote branches, and synchronize the default branch. Path: `.agent/skills/branch-maintenance/SKILL.md`
 - `code-review-otw`: Review OTW code changes for correctness, security, performance, accessibility, and regression risks. Path: `.agent/skills/code-review/SKILL.md`
 - `db-migration`: Execute safe Drizzle and D1 migration workflows. Path: `.agent/skills/db-migration/SKILL.md`
 - `worker-api-change`: Implement `/api` contract changes across worker routes and frontend API clients. Path: `.agent/skills/worker-api-change/SKILL.md`
@@ -34,6 +34,7 @@
 3. Keep canonical updates in `.agent`; generate `.cursor` and `.agents/skills` with the sync script. Its check validates content, managed inventory, and local Markdown references.
 
 ## Canonical Rules
+- Ordinary task completion uses change-scoped verification. Final PR merge preparation owns preflight after review fixes settle; a reply, review, or commit is not a full-suite trigger. Follow `.agent/rules/project-standards.md#verification-gates`.
 - `.agent/rules/antigravity.md`
 - `.agent/rules/project-context.md`
 - `.agent/rules/project-standards.md`

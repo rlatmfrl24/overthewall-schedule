@@ -34,6 +34,9 @@ remote mutations, or merging by itself; use existing session authorization.
    behavior verification is requested, use the intended UI/runtime and authoritative
    readback; unit tests or direct lower-level writes cannot replace that flow.
    For static-only review, propose the remaining runtime checks explicitly.
+   A review or final response does not trigger full tests or preflight. Reuse
+   equivalent verification evidence and rerun only checks affected by review fixes.
+   Final PR merge preparation owns preflight after the review fixes settle.
 
 ## Reporting
 

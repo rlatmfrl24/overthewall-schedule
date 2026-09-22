@@ -93,7 +93,7 @@ trigger: always_on
 - `pnpm test`: run Vitest suites.
 - `pnpm test:worker-integration`: run isolated D1 Worker integration tests.
 - `pnpm test:coverage`: optional combined coverage report; no percentage gate.
-- `pnpm preflight`: final quality gates, including all tests once without coverage instrumentation.
+- `pnpm preflight`: final PR merge-preparation or explicit release gate, including all tests once without coverage instrumentation; not an ordinary task-completion command.
 - `pnpm build`: type-check and build.
 - `pnpm cf-typegen`: regenerate worker type bindings.
 - `pnpm drizzle:generate`: generate schema migration SQL.

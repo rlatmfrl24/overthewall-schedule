@@ -44,9 +44,10 @@ Do not recreate `src/components`, `src/hooks`, `src/lib/api`, `src/db`,
 
 ## Required Verification
 
-Run `pnpm architecture:check` after structural changes. Use focused tests while
-editing and `pnpm preflight` for final broad verification; it runs typecheck,
-lint, all unit/D1 tests, build, D1 doctor, and mirror checks once. Do not repeat
-its tests for the same unchanged revision. Coverage is an optional diagnostic,
-not a release gate. Keep real D1 concurrency and rollback coverage in the
-Worker integration project included by `pnpm test`.
+Run `pnpm architecture:check` after structural changes. Ordinary task completion
+uses tests for changed behavior and affected consumers, following the
+[verification gates](../../.agent/rules/project-standards.md#verification-gates). Final replies,
+reviews, and commits are not full-suite triggers. Reserve `pnpm preflight` for
+final PR merge preparation after review fixes settle, or an explicit release;
+reuse equivalent passing evidence. Coverage is an optional diagnostic. Preserve
+real D1 concurrency and rollback tests and run those affected by the change.

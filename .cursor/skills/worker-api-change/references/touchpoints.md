@@ -34,5 +34,7 @@
 2. Update client module and related types.
 3. Update UI/query consumers and invalidation; verify normal entry, persisted readback, and observable results. For queued work verify terminal outcomes separately from request acceptance.
 4. Add or update tests.
-5. Run `pnpm architecture:check`, `pnpm typecheck:test`, `pnpm lint`,
-   `pnpm test`, and `pnpm build` when needed.
+5. Run architecture/type checks, lint for changed code, and the affected handler,
+   consumer, authorization, and persistence tests. Build when routing/types/build
+   behavior changed. Explain any full-suite expansion; ordinary API task completion
+   does not trigger `pnpm test` or preflight. Final PR merge preparation owns preflight.

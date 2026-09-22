@@ -2,7 +2,9 @@
 
 ## Local release gate
 
-Use `pnpm preflight`. The authoritative sequence is
+Use `pnpm preflight` after PR review fixes settle for final merge preparation,
+or for an explicitly requested release. Reuse prior evidence only for equivalent
+code, configuration, environment, and scope. The authoritative sequence is
 [scripts/preflight.mjs](../../../../scripts/preflight.mjs):
 
 1. `pnpm architecture:check`
@@ -13,7 +15,10 @@ Use `pnpm preflight`. The authoritative sequence is
 6. `pnpm d1:doctor` (local D1)
 7. `pnpm sync:agent-cursor:check`
 
-Coverage is an optional diagnostic, not a percentage release gate.
+Coverage is an optional diagnostic, not a percentage release gate. After a
+failure, rerun failed and invalidated steps; execute any later steps that the
+fail-fast runner never reached. Retain unaffected passing evidence and label the
+result as composed verification rather than claiming the full command passed.
 Do not repeat the same tests unless a new change, failure, or unresolved concern
 justifies it. For agent-only maintenance that is not a release, validate the
 changed scripts, references, and generated files instead of invoking app-wide

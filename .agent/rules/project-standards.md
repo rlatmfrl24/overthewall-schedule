@@ -76,11 +76,17 @@ alwaysApply: true
 - Treat empty experimental directories as removable unless a tracked file or current document references them.
 
 ## Verification Gates
+- Separate ordinary task completion from PR merge readiness. Implementation, review, a final reply, or a commit does not by itself require the full suite or preflight.
+- Select checks from the task's committed diff against its base plus staged, unstaged, and relevant untracked changes. Include affected consumers and contract boundaries, not just tests beside changed files.
+- For documentation/skill-only work, check references, metadata, relevant helper scripts, and agent synchronization; do not run application tests.
 - Run `pnpm architecture:check` after moving modules or changing imports.
 - Run `pnpm typecheck:test` when test fixtures or shared contracts change.
-- Run `pnpm lint` after meaningful code changes.
-- Run focused tests while editing and `pnpm preflight` for final verification.
-- `pnpm test` runs all unit and Worker integration tests once. Do not repeat it after a passing preflight for unchanged code.
+- Lint changed code and expand to repository-wide lint when configuration or shared impact requires it.
+- Run focused unit tests and affected consumer tests for ordinary changes. Include real Worker/D1 integration tests for changed persistence, authorization, concurrency, or migration contracts; a `worker/` path alone does not require the entire integration suite.
+- Explain broader checks for dependency, test configuration, global infrastructure, or uncertain cross-feature impact. Test selection returning zero tests for production changes is not verification success.
+- Run `pnpm preflight` once on the final code after PR review fixes settle, as part of PR merge preparation (for example, `$pr-ready`), or for an explicitly requested release. Do not run it at every implementation/review/commit/PR transition.
+- Record commands, scope, code/configuration identity, environment, and results. Reuse passing evidence only while its inputs remain equivalent; subsequent fixes invalidate affected checks, not automatically every check. After a preflight failure, rerun failed/invalidated steps and retain unaffected evidence. Report this as composed verification, not a successful full-command rerun.
+- `pnpm test` runs all unit and Worker integration tests once. Never repeat it solely to reconfirm a passing preflight or an unchanged revision.
 - Use `pnpm test:coverage` only for a coverage investigation or when validating test/coverage configuration changes. Percentages are diagnostic, not release gates.
 - Keep contract, authorization, persistence, concurrency, cost, and user-flow regressions. Consolidate duplicate fixtures/assertions; do not add tests for decorative classes or trivial forwarding already covered at the owning boundary.
 - Run `pnpm build` when changes impact routing, types, build configuration, or release paths.

@@ -40,7 +40,11 @@ test("generates portable entries and an idempotent mirror", async (t) => {
   const root = await fixture(t);
   const check = await syncAgentFiles({ root, check: true });
   assert.deepEqual(check.errors, []);
-  assert.equal(check.expected, 26);
+  assert.equal(check.expected, 27);
+  assert.equal(
+    await fs.readFile(path.join(root, ".cursor/skills/branch-maintenance/references/procedure.md"), "utf8"),
+    await fs.readFile(path.join(root, ".agent/skills/branch-maintenance/references/procedure.md"), "utf8"),
+  );
   assert.equal((await syncAgentFiles({ root })).written, 0);
   const entry = await fs.readFile(path.join(root, ".agents/skills/code-review-otw/SKILL.md"), "utf8");
   assert.ok(entry.includes("../../../.agent/skills/code-review/SKILL.md"));

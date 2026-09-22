@@ -19,9 +19,11 @@ actions; preserve the user's existing authorization for each.
    before preflight. Plan authorized remote promotion before schema-dependent
    deployment, preserving compatibility with the currently deployed version.
 3. If canonical agent files changed, run `pnpm sync:agent-cursor`.
-   Run `pnpm preflight` for a release. Its test step already executes unit
-   and Worker integration tests once. Coverage is an optional diagnostic;
-   do not repeat tests for the same revision without a reason.
+   Use `pnpm preflight` for a release, reusing final PR-preparation evidence when
+   code, configuration, environment, and scope remain equivalent. Its test step
+   already executes unit and Worker integration tests once. Rerun only failed or
+   invalidated steps; distinguish composed evidence from a full-command pass.
+   Ordinary task completion is not a release gate. Coverage is optional.
 4. For an authorized merge, verify the reviewed PR HEAD, required checks, and
    relevant diff before merging. For authorized manual deployment, use
    `pnpm deploy`. A readiness-only request ends with evidence and remaining steps.

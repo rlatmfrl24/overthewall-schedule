@@ -14,9 +14,28 @@ Node 버전은 `.node-version`, pnpm 버전은 `package.json#packageManager`를 
 | `pnpm typecheck:test` | 프런트 테스트·Worker·Vite/Vitest 설정 타입 검사 |
 | `pnpm preflight` | architecture, test typecheck, lint, 전체 test, build, D1 doctor, mirror check |
 
-`preflight`는 커버리지 계측 없이 전체 테스트를 한 번 실행한다. 같은 변경에서 이미
-`preflight`가 통과했다면 단순 확인 목적으로 전체 `test`를 다시 실행하지 않는다.
-실행 구성 자체를 바꿀 때는 `test`와 `test:coverage` 양쪽 진입점을 확인한다.
+`preflight`는 PR 리뷰 수정이 정리된 최종 코드의 **병합 준비**, 또는 명시적으로
+요청된 릴리스에서 실행한다. 일반 구현·수정·검토 요청의 완료, 최종 답변, 커밋,
+PR 생성이라는 단계 전환만으로 전체 테스트나 preflight를 실행하지 않는다.
+전체 coverage는 요청받거나 coverage 자체를 조사·변경할 때만 실행한다.
+
+## 변경 범위에 따른 검증
+
+- 기준 브랜치와의 커밋 차이 및 staged·unstaged·관련 untracked 변경을 함께 확인한다.
+- 문서·스킬 변경은 링크·메타데이터·관련 보조 도구·동기화만 검사한다.
+- 일반 코드는 변경된 동작과 영향을 받는 소비자 테스트를 실행한다. API·권한·DB
+  변경은 해당 계약·권한·영속성 검증을 포함한다. Worker 경로라는 이유만으로
+  D1 통합 테스트 전체를 실행하지 않는다.
+- 의존성·테스트 설정·전역 기반 변경이나 영향 범위가 불명확한 변경은 근거를
+  설명하고 검증 범위를 확대한다. 코드 변경에서 테스트가 0개 선택됐다고 성공은 아니다.
+- 파일 지정 실행이나 `pnpm exec vitest related --run --config vitest.config.ts <source-files>`를
+  사용할 수 있다. 정적 import로 드러나지 않는 동적 로딩·SQL·설정 의존성과
+  영향받는 Worker 통합 테스트는 직접 추가한다.
+- 명령·검증 범위·코드/설정 식별자·환경·결과를 기록한다. 같은 입력에서 통과한
+  검증은 재사용하고 후속 수정이 무효화한 검사만 다시 수행한다.
+- preflight는 전체 테스트를 커버리지 계측 없이 한 번 실행한다. 실패하면 실패하거나
+  무효화된 검사와 fail-fast로 아직 실행되지 않은 후속 검사를 수행한다. 이 경우
+  전체 명령 재통과가 아닌 **구성 검사별 증거를 합친 검증**이라고 보고한다.
 
 대상 파일만 확인할 때:
 
