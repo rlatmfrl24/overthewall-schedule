@@ -14,6 +14,10 @@ coverage
 *.local
 .tmp/
 
+# Regenerable analysis and design drafts (keep selected evidence in docs/archive)
+/graphify-out/
+/output/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

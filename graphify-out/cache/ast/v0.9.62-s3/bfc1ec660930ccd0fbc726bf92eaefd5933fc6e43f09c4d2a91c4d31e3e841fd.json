@@ -1,1 +1,0 @@
-{"nodes": [{"id": "$graphify-root$_drizzle_0041_dear_malice_sql", "label": "0041_dear_malice.sql", "file_type": "code", "source_file": "drizzle/0041_dear_malice.sql", "source_location": null}, {"id": "notices", "label": "`notices`", "file_type": "code", "source_file": "", "source_location": "", "origin_file": "$graphify-root$/drizzle/0041_dear_malice.sql"}], "edges": []}

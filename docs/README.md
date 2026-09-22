@@ -46,7 +46,7 @@
 
 [아카이브](archive/README.md)는 과거 계획·조사·검증과 정리 전 원문을 제공한다.
 [이번 closeout](archive/documentation-closeout-2026-09-17.md)은 수정·검사·인계를 기록한다.
-루트 [design-qa.md](../design-qa.md)는 날짜가 있는 UI 증거이며 현행 계약은 `Design.md`다.
+[포스터 디자인 QA](archive/snapshot-poster-design-qa-2026-09.md)는 날짜가 있는 UI 증거이며 현행 계약은 `Design.md`다.
 
 - 계약은 소유 문서, 진행 상태는 개발 상태표, 당시 증거는 날짜가 있는 기록에 둔다.
 - 미구현 요구사항을 아카이브 이동만으로 삭제·완료 처리하지 않는다.

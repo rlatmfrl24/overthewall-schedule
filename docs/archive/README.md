@@ -3,6 +3,19 @@
 현재 계약은 [문서 인덱스](../README.md), 완료/미완료는 [개발 상태](../development-status.md)를 따른다.
 이동은 요구사항 삭제, 제안의 구현 승인 또는 운영 검증 완료를 뜻하지 않는다.
 
+## 2026-09-22 정리 기록
+
+- [브랜치 통합·검증·운영 스키마 확인](branch-consolidation-2026-09-22.md)
+- [AI 요청 분석·모델 비교](ai-review-optimization-2026-09-22.md)
+- [포스터 디자인 QA](snapshot-poster-design-qa-2026-09.md)
+- [SUL-27 검증 자료 정리](sul-27-validation-closeout.md)
+- [9/17 Graphify 분석 기록](graphify-2026-09-17/README.md)
+- [선택된 Play 로고 시안](otw-play-logo-2026-09-09/README.md)
+- [8/31 YouTube 운영 조정·분석 자료](youtube-cadence-adjustment-2026-08-31.md)
+
+생성 그래프·캐시와 미채택 로고 시안은 Git `cec6d273`에서 복원할 수 있다.
+운영 계약·DB migration·이미지 원본은 이번 정리 대상이 아니다.
+
 ## 2026-09-17 통합 전 원문
 
 - [Play 요구사항과 ID](otw-play-product-requirements-before-2026-09-17.md)

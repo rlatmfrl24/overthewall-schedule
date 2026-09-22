@@ -1,6 +1,6 @@
 # 개발·운영 상태와 인계
 
-기준일: 2026-09-17. 소스 기준: `58cb3f7e26146614b0af06dc4cc61ab086a35702`.
+기준일: 2026-09-22. 소스 기준: `cec6d273402c18e0fe1b66d8c982cbaf64db273f`.
 분산된 계획의 **현재 상태와 남은 작업**을 통합한다. 계약은 [PRODUCT](../PRODUCT.md)와
 [Play 요구사항](otw-play-product-requirements.md), 화면은 [Design](../Design.md), 구조는
 [architecture](architecture.md)를 따른다. `구현 반영`은 현재 소스에 존재한다는 뜻이며
@@ -8,9 +8,19 @@
 
 ## 구현 반영 범위
 
+9월 17일 이후 PR #143–147과 SUL-26·SUL-28 통합을 반영했다. [브랜치 통합 기록](archive/branch-consolidation-2026-09-22.md)의 운영 마이그레이션 readback은 당시 증거이며 이번 문서 정리에서 다시 실행하지 않았다.
+
+| 후속 반영 | 근거 / 검증 경계 |
+| --- | --- |
+| 공개 페이지 AEO·테마별 초기 로딩, 회원 전용 Play 정책 유지 | [AEO 계약](aeo.md). 검색 노출·AI 답변 채택 효과는 별도 관찰 |
+| Play 탐색·재생 UX, Ready 검색 projection, 회원 곡 요청·가수 재사용 | PR #143–146 및 현행 Play 구현. 모든 역할별 운영 흐름 완료를 뜻하지 않음 |
+| AI 완료 알림·비프음, 기존 곡 자동완성, 요청 재사용 최적화 | [AI 검수](otw-play-ai-review.md), [9/22 분석](archive/ai-review-optimization-2026-09-22.md). 소수 영상 비교와 전체 품질 인증을 구분 |
+| VOD 저장 조회수 24시간 갱신·회당 최대 100개·할당량 유지 | [YouTube 운영](youtube-optimization.md), SUL-26 |
+| 휴방 추정 승인·기존 일정 비교·추가 방송 간격·조회 실패 처리 | SUL-28, migration 0096. 로컬 검토 UI와 통합 테스트 확인; 실제 운영 수집·휴방 승인 흐름은 미검증 |
+
 | 영역 | 현재 범위 | 근거 / 한계 |
 | --- | --- | --- |
-| 편성표·이미지 출력 | 일간/주간 편성, live 연계, 스냅샷·포스터·기존 편성 출력 | PR #141/#142가 기준 HEAD에 포함. [디자인](../Design.md), [스냅샷 QA](archive/sul-10-snapshot-design-qa.md), [포스터 QA](../design-qa.md) |
+| 편성표·이미지 출력 | 일간/주간 편성, live 연계, 스냅샷·포스터·기존 편성 출력 | PR #141/#142가 기준 HEAD에 포함. [디자인](../Design.md), [스냅샷 QA](archive/sul-10-snapshot-design-qa.md), [포스터 QA](archive/snapshot-poster-design-qa-2026-09.md) |
 | 사이트 콘텐츠 | 공지·이벤트, YouTube/CHZZK VOD·클립, X/Naver 피드, 프로필, Mul.Live multiview | [개요](../README.md), [구조](architecture.md). Chrome extension은 범위 아님 |
 | Play 접근 | 회원 catalog/player/playlist, 관리자 preview·clip 탐색, 별도 회원 제안 | [Play shell](../src/features/otw-play/ui/public/play-shell.tsx), [HTTP](../worker/features/otw-play/http/public-catalog-handler.ts) |
 | 멤버 탐색·SEO | 멤버 필터 검색, 구 멤버 URL redirect, Play 검색 noindex, 프로필 SEO 유지 | [제품 정책](../PRODUCT.md). 독립 노래책·곡 수 gate 대체 |
@@ -50,7 +60,7 @@
 | OPS-PLAY-UPLOAD | 기능 확인 필요(사용자 지정). 수집 제어·예약 전달·후보 저장의 기존 증거와 미검증 구간을 확인; 운영 재개는 별도 결정 | 예약 전달 → candidate → 관리자 검수/draft readback; 중지 기간 자동 소급 금지 |
 | OPS-PLAY-RELEASE | 실제 재생·역할별 접근·source-health 전체 시나리오는 각 release에서 확인 | 대상 Worker/flags와 실제 흐름 증거. 과거 flags 1/1만으로 통과 아님 |
 | OPS-ACCOUNT | runtime 통합 검증됨, 전용 계정 provisioning/cutover 대기 | [계정 이전](cloudflare-production-account-migration.md)의 별도 승인·대상 리소스·데이터·실사용 readback |
-| AI-QUALITY | 테스트 예정(사용자 지정). 아직 테스트 완료로 처리하지 않음 | [AI 문서](otw-play-ai-review.md)의 원본 입력·출력·관리자 적용·실패/예산 확인 |
+| AI-QUALITY | 9/22 공개 영상 3건 모델 비교 완료. 메들리·듀엣·장시간 및 전체 정확도 평가는 미완료 | [AI 문서](otw-play-ai-review.md)의 원본 입력·출력·관리자 적용·실패/예산 확인 |
 | LATER-PIN | FR-047·ADM-032 대표곡 pin | 최대 5곡·순서·fallback과 재조회 |
 | LATER-CORRECTION | FR-048·ADM-037 참여 정보 정정 | 본인 제출·근거·승인 전 비반영·승인/거절 |
 | BACKLOG-MERGE | ADM-009 가창 병합 | 실제 관리자 병합과 참조/중복/이력 무결성 |

@@ -448,7 +448,7 @@ body 전체에 관리자/Play 클래스를 붙여 다른 화면을 오염시키�
   모바일 주요 버튼은 최소 44px 높이로 유지한다. 회원 폼의 입력·제출·검수 흐름은 동일하다.
 - 재질과 모션 참고: [Apple Materials](https://developer.apple.com/design/human-interface-guidelines/materials),
   [MDN prefers-reduced-motion](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/At-rules/@media/prefers-reduced-motion).
-  검토 결과와 전후 화면은 저장소 루트 `design-qa.md`에서 확인한다.
+  검토 결과와 전후 화면은 `docs/archive/snapshot-poster-design-qa-2026-09.md`에서 확인한다.
 
 ### 프로필과 스냅샷
 
