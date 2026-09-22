@@ -78,6 +78,8 @@ import { ScheduleRejectionsPanel } from "./schedule-rejections-panel";
 import { AutoUpdateRunHistory } from "./auto-update-run-history";
 import { REJECTION_REASON_OPTIONS } from "../../model/rejection-reasons";
 import { summarizePendingRejectionBatch } from "./pending-rejection-batch";
+import { PendingHolidayCard } from "./pending-holiday-card";
+import { PendingExistingSchedules } from "./pending-existing-schedules";
 
 const INTERVAL_OPTIONS = AUTO_UPDATE_INTERVAL_HOURS.map((value) => ({
   value,
@@ -107,11 +109,8 @@ const MATCH_CONFIDENCE_LABELS: Record<string, string> = {
 };
 
 const PENDING_SORT_OPTIONS = [
-  { value: "date_asc", label: "방송일 빠른순" },
-  { value: "date_desc", label: "방송일 늦은순" },
-  { value: "created_desc", label: "수집일 최신순" },
-  { value: "created_asc", label: "수집일 오래된순" },
-  { value: "member_asc", label: "멤버명 오름차순" },
+  { value: "date_asc", label: "대상 날짜 빠른순" },
+  { value: "date_desc", label: "대상 날짜 늦은순" },
 ] as const;
 
 const PENDING_ACTION_FILTER_OPTIONS = [
@@ -179,14 +178,15 @@ const isV2Pending = (pending: PendingSchedule) =>
   pending.candidate_kind != null;
 
 const getCandidateKindLabel = (pending: PendingSchedule) => {
-  if (pending.candidate_kind === "missing_schedule") return "새 일정";
+  if (pending.candidate_kind === "holiday_suggestion") return "휴방 추정";
+  if (pending.candidate_kind === "missing_schedule") return "새 일정 추가";
   if (pending.candidate_kind === "ambiguous") return "매칭 불확실";
   if ((pending.missing_fields?.length ?? 0) === 1) {
     return pending.missing_fields?.[0] === "time"
       ? "빈 시간 보완"
       : "빈 제목 보완";
   }
-  if (pending.candidate_kind === "fill_missing_fields") return "빈 필드 보완";
+  if (pending.candidate_kind === "fill_missing_fields") return "기존 일정 보완";
   return pending.action_type === "create" ? "신규" : "수정";
 };
 
@@ -214,7 +214,7 @@ const getPendingApprovalDefaults = (
   return {
     applyMode: isV2 ? getV2ApplyMode(pending) : "all",
     targetMode:
-      pending.candidate_kind === "missing_schedule"
+      pending.candidate_kind === "missing_schedule" || pending.candidate_kind === "holiday_suggestion"
         ? "create"
         : targetScheduleId || isV2
           ? "update"
@@ -267,6 +267,9 @@ const getPendingScheduleSummaryById = (
 
 const formatScheduleDateTime = (date: string, time: string | null | undefined) =>
   `${date} ${time?.trim() || "--:--"}`;
+
+const formatTargetDate = (date: string) =>
+  `${date} (${new Date(`${date}T12:00:00+09:00`).toLocaleDateString("ko-KR", { weekday: "short", timeZone: "Asia/Seoul" })}) · 한국 시간`;
 
 const normalizeDiffValue = (value: string | null | undefined) =>
   value?.trim() || "-";
@@ -526,7 +529,8 @@ export function AutoUpdateSettingsManager({
     onActiveTabChange?.(tab);
   };
   const [search, updateSearch] = useConsoleSearch();
-  const pendingSort = PENDING_SORT_OPTIONS.find((item) => item.value === search.sort)?.value ?? "created_asc";
+  const pendingSort = PENDING_SORT_OPTIONS.find((item) => item.value === search.sort)?.value ?? "date_asc";
+  const [holidayApproval, setHolidayApproval] = useState<PendingSchedule | null>(null);
   const setPendingSort = (sort: PendingSortKey) => updateSearch({sort});
   const pendingActionFilter: PendingActionFilter = search.state === "create" || search.state === "update" ? search.state : "all";
   const setPendingActionFilter = (state: PendingActionFilter) => updateSearch({state});
@@ -624,22 +628,12 @@ export function AutoUpdateSettingsManager({
 
   const sortedPendingList = useMemo(() => {
     const list = [...filteredPendingList];
-    if (pendingSort === "member_asc") {
-      return list.sort((a, b) => a.member_name.localeCompare(b.member_name));
-    }
-
-    if (pendingSort === "created_desc" || pendingSort === "created_asc") {
-      return list.sort((a, b) => {
-        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
-        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
-        return pendingSort === "created_desc" ? bTime - aTime : aTime - bTime;
-      });
-    }
-
     return list.sort((a, b) => {
-      const aTime = getPendingBroadcastSortValue(a);
-      const bTime = getPendingBroadcastSortValue(b);
-      return pendingSort === "date_desc" ? bTime - aTime : aTime - bTime;
+      const dateOrder = a.date.localeCompare(b.date);
+      return (pendingSort === "date_desc" ? -dateOrder : dateOrder) ||
+        a.member_name.localeCompare(b.member_name, "ko") ||
+        a.member_uid - b.member_uid ||
+        getPendingBroadcastSortValue(a) - getPendingBroadcastSortValue(b);
     });
   }, [filteredPendingList, pendingSort]);
 
@@ -863,6 +857,7 @@ export function AutoUpdateSettingsManager({
   };
 
   const batchPendingList = sortedPendingList;
+  const batchHolidays = batchPendingList.filter(item => item.candidate_kind === "holiday_suggestion");
 
   const pendingBatchSummary = useMemo(() => {
     return batchPendingList.reduce(
@@ -921,11 +916,13 @@ export function AutoUpdateSettingsManager({
         return next;
       });
       setPendingBatchAction(null);
+      const failures = result.results.filter(item => !item.success)
+        .map(item => item.message || item.error).filter(Boolean).slice(0, 3).join(" · ");
       toast({
         variant: result.failedCount > 0 ? "info" : "success",
         description:
           action === "approve"
-            ? `일괄 승인 완료: 성공 ${result.successCount}건, 실패 ${result.failedCount}건`
+            ? `일괄 승인 완료: 성공 ${result.successCount}건, 실패 ${result.failedCount}건${failures ? ` · ${failures}` : ""}`
             : `일괄 거부 완료: 성공 ${result.successCount}건, 실패 ${result.failedCount}건`,
       });
     } catch (error) {
@@ -964,7 +961,7 @@ export function AutoUpdateSettingsManager({
       console.error("Failed to approve pending schedule:", error);
       toast({
         variant: "error",
-        description: "대기 스케줄 승인에 실패했습니다.",
+        description: error instanceof Error ? error.message : "대기 스케줄 승인에 실패했습니다.",
       });
     } finally {
       setProcessingPendingId(null);
@@ -1048,8 +1045,10 @@ export function AutoUpdateSettingsManager({
 
   const formatPendingDate = (timestamp: string | null): string => {
     if (!timestamp) return "-";
-    const date = new Date(timestamp);
+    const date = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(timestamp) ? timestamp : `${timestamp.replace(" ", "T")}Z`);
     return date.toLocaleString("ko-KR", {
+      year: "numeric",
+      timeZone: "Asia/Seoul",
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
@@ -1482,6 +1481,13 @@ export function AutoUpdateSettingsManager({
               ) : (
                 <div className="space-y-4">
                   {sortedPendingList.map((pending) => {
+                    if (pending.candidate_kind === "holiday_suggestion") return (
+                      <PendingHolidayCard key={pending.id} pending={pending} dateLabel={formatTargetDate(pending.date)}
+                        createdLabel={formatPendingDate(pending.created_at)}
+                        busy={processingPendingId === pending.id || isBatchProcessing}
+                        onApprove={() => setHolidayApproval(pending)}
+                        onReject={() => openPendingRejectDialog([pending.id])} />
+                    );
                     const options = getPendingApprovalOptions(pending);
                     const isV2 = isV2Pending(pending);
                     const isRowProcessing = processingPendingId === pending.id;
@@ -1552,6 +1558,7 @@ export function AutoUpdateSettingsManager({
                         key={pending.id}
                         className="rounded-lg border bg-background p-4 shadow-sm"
                       >
+                        <h3 className="mb-3 font-semibold">{formatTargetDate(pending.date)}</h3>
                         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                           <div className="flex min-w-0 flex-wrap items-center gap-2">
                             <Badge
@@ -1578,7 +1585,7 @@ export function AutoUpdateSettingsManager({
                             ) : null}
                             <span className="font-semibold">{pending.member_name}</span>
                             <span className="text-sm text-muted-foreground">
-                              수집 {formatPendingDate(pending.created_at)}
+                              추천 생성 {formatPendingDate(pending.created_at)}
                             </span>
                             {isProcessed ? (
                               <Badge
@@ -1632,6 +1639,7 @@ export function AutoUpdateSettingsManager({
 
                         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
                           <div className="space-y-3">
+                            <PendingExistingSchedules pending={pending} selectedScheduleId={selectedExistingSchedule?.id ?? null} />
                             {!isProcessed && reviewRisk.warnings.length > 0 ? (
                               <div
                                 className={cn(
@@ -1703,71 +1711,6 @@ export function AutoUpdateSettingsManager({
                                 )}
                               </div>
                               <div className="min-w-0 space-y-1">
-                                {pending.same_day_schedules.length > 0 ? (
-                                  <div className="space-y-1">
-                                    <div>
-                                      동일 날짜 기존 스케줄{" "}
-                                      {pending.same_day_schedule_count}건
-                                    </div>
-                                    {pending.same_day_schedules.map((schedule) => {
-                                      const isSelectedTarget =
-                                        selectedExistingSchedule?.id === schedule.id;
-                                      const rankIndex =
-                                        (pending.ranked_schedules ?? []).findIndex(
-                                          (ranked) => ranked.id === schedule.id,
-                                        );
-                                      const ranked =
-                                        rankIndex >= 0
-                                          ? pending.ranked_schedules?.[rankIndex]
-                                          : null;
-                                      return (
-                                        <div
-                                          key={schedule.id}
-                                          className={cn(
-                                            "flex min-w-0 items-center gap-1.5 rounded px-1.5 py-0.5",
-                                            isSelectedTarget
-                                              ? "bg-primary/10 text-foreground"
-                                              : "bg-background/50",
-                                          )}
-                                        >
-                                          <span className="truncate">
-                                            #{schedule.id}{" "}
-                                            {schedule.start_time || "--:--"}{" "}
-                                            {schedule.title || "제목 없음"} ·{" "}
-                                            {schedule.status}
-                                          </span>
-                                          <Badge
-                                            variant="outline"
-                                            className={cn(
-                                              "shrink-0 text-[10px]",
-                                              isSelectedTarget
-                                                ? "border-primary/40 text-primary"
-                                                : "border-amber-300 text-amber-700",
-                                            )}
-                                          >
-                                            {isSelectedTarget
-                                              ? "수정 대상"
-                                              : ranked
-                                                ? `후보 ${rankIndex + 1}`
-                                                : isV2
-                                                  ? "동일 날짜"
-                                                  : "중복 후보"}
-                                          </Badge>
-                                          {ranked ? (
-                                            <span className="shrink-0 text-[10px] text-muted-foreground">
-                                              {MATCH_REASON_LABELS[ranked.reason]}
-                                              {ranked.time_difference_minutes !== null
-                                                ? ` ${ranked.time_difference_minutes}분`
-                                                : ` ${(ranked.title_similarity * 100).toFixed(0)}%`}
-                                            </span>
-                                          ) : null}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                ) : (
-                                  <div>동일 날짜 기존 스케줄 0건</div>
-                                )}
                                 <div>
                                   세션:{" "}
                                   {pending.session_started_at
@@ -2030,6 +1973,15 @@ export function AutoUpdateSettingsManager({
       )}
 
       <ConfirmActionDialog
+        open={holidayApproval !== null}
+        onOpenChange={(open) => { if (!open) setHolidayApproval(null); }}
+        title="휴방 추정 승인"
+        description={holidayApproval ? `${formatTargetDate(holidayApproval.date)} · ${holidayApproval.member_name} 휴방 1건을 등록합니다. 방송 기록이 없는지 확인하셨나요?` : ""}
+        confirmLabel="휴방 1건 승인"
+        isProcessing={processingPendingId !== null}
+        onConfirm={() => { if (holidayApproval) void handleApprovePending(holidayApproval).then(() => setHolidayApproval(null)); }}
+      />
+      <ConfirmActionDialog
         open={pendingBatchAction !== null}
         onOpenChange={(open) => {
           if (!open && !isBatchProcessing) {
@@ -2047,6 +1999,9 @@ export function AutoUpdateSettingsManager({
               현재 목록의 처리 전 항목 {pendingBatchSummary.total}건을 모두{" "}
               {pendingBatchAction === "approve" ? "승인" : "거부"}합니다.
             </p>
+            {batchHolidays.length > 0 && <p className="font-medium">
+              휴방 추정 {batchHolidays.length}건 · 대상: {[...new Set(batchHolidays.map(item => formatTargetDate(item.date)))].join(", ")}
+            </p>}
             <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
               <div className="rounded-md border bg-background px-2 py-1.5">
                 신규 {pendingBatchSummary.createCount}건

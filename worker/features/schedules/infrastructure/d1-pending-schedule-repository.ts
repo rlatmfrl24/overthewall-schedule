@@ -11,7 +11,9 @@ import {
   type PendingScheduleRow,
 } from "../domain/pending-schedule";
 import type { ScheduleActor } from "../domain/schedule";
+import { holidayEligibleSql } from "./holiday-suggestions";
 import {
+  AUTO_UPDATE_ADDITIONAL_SCHEDULE_MINUTES,
   AUTO_UPDATE_TIME_WINDOW_MINUTES,
   getTitleSimilarity,
 } from "../domain/auto-update-matcher";
@@ -136,6 +138,9 @@ export class D1PendingScheduleRepository
     options: PendingApprovalOptions | null,
     actor: ScheduleActor,
   ): Promise<PendingActionOutcome> {
+    if (item.candidate_kind === "holiday_suggestion") {
+      return this.approveHoliday(item, actor);
+    }
     if (
       item.candidate_kind === "ambiguous" &&
       !options?.targetScheduleId
@@ -199,6 +204,7 @@ export class D1PendingScheduleRepository
     target: EmptyTargetRow,
     actor: ScheduleActor,
   ): Promise<PendingActionOutcome> {
+    if (item.candidate_kind === "holiday_suggestion") return staleOutcome();
     if (item.candidate_kind) {
       const options: PendingApprovalOptions = {
         applyMode: "all",
@@ -272,6 +278,21 @@ export class D1PendingScheduleRepository
   ): Promise<PendingActionOutcome> {
     const reasonCode = options?.reasonCode ?? null;
     const reasonNote = options?.reasonNote?.trim() || null;
+    if (item.candidate_kind === "holiday_suggestion") {
+      const results = await this.db.batch([
+        this.db.prepare(`UPDATE schedule_day_assessments SET decision = 'rejected',
+          decided_at = ?, decided_by = ?, rejection_reason = ?
+          WHERE member_uid = ? AND date = ? AND EXISTS (
+            SELECT 1 FROM pending_schedules WHERE id = ? AND candidate_kind = 'holiday_suggestion')`)
+          .bind(Date.now(), actor.actorId, reasonNote ?? reasonCode, item.member_uid, item.date, item.id),
+        this.db.prepare(`INSERT INTO update_logs (${LOG_COLUMNS})
+          SELECT NULL, member_uid, member_name, ?, ?, ?, date, 'reject', title,
+            previous_status, NULL, ?, ? FROM pending_schedules WHERE id = ? AND changes() = 1`)
+          .bind(...actorBindings(actor), reasonCode, reasonNote, item.id),
+        this.db.prepare("DELETE FROM pending_schedules WHERE id = ? AND changes() = 1").bind(item.id),
+      ]);
+      return results[2].meta.changes === 1 ? { success: true, action: "reject" } : staleOutcome();
+    }
     const results = await this.db.batch([
       this.db
         .prepare(
@@ -476,6 +497,31 @@ export class D1PendingScheduleRepository
     return { success: true, action: "reset_processed", resetAt };
   }
 
+  private async approveHoliday(item: PendingScheduleRow, actor: ScheduleActor): Promise<PendingActionOutcome> {
+    const results = await this.db.batch([
+      this.db.prepare(`INSERT INTO schedules (member_uid, date, status)
+        SELECT pending.member_uid, pending.date, '휴방'
+        FROM pending_schedules pending JOIN schedule_day_assessments assessment
+          ON assessment.member_uid = pending.member_uid AND assessment.date = pending.date
+        WHERE pending.id = ? AND pending.candidate_kind = 'holiday_suggestion'
+          AND ${holidayEligibleSql}`).bind(item.id),
+      this.db.prepare(`INSERT INTO update_logs (${LOG_COLUMNS})
+        SELECT last_insert_rowid(), member_uid, member_name, ?, ?, ?, date,
+          'approve', title, previous_status, NULL, 'no_broadcast_observed', NULL
+        FROM pending_schedules WHERE id = ? AND changes() = 1`)
+        .bind(...actorBindings(actor), item.id),
+      this.db.prepare(`UPDATE schedule_day_assessments SET decision = 'approved', decided_at = ?, decided_by = ?
+        WHERE member_uid = ? AND date = ? AND changes() = 1`)
+        .bind(Date.now(), actor.actorId, item.member_uid, item.date),
+      this.db.prepare("DELETE FROM pending_schedules WHERE id = ? AND changes() = 1").bind(item.id),
+    ]);
+    if (results[0].meta.changes !== 1) return {
+      success: false, error: "stale",
+      message: "일정이나 방송 근거가 변경된 오래된 휴방 요청입니다. 목록을 새로고침해 주세요.",
+    };
+    return { success: true, action: "create", scheduleId: Number(results[0].meta.last_row_id) };
+  }
+
   private async createFromPending(
     item: PendingScheduleRow,
     startTime: string | null,
@@ -508,6 +554,17 @@ export class D1PendingScheduleRepository
              CASE WHEN candidate_kind IS NOT NULL THEN '방송' ELSE status END
            FROM pending_schedules AS pending
            WHERE pending.id = ?
+             AND (pending.candidate_kind IS NULL OR pending.candidate_kind <> 'missing_schedule'
+               OR NOT EXISTS (
+                 SELECT 1 FROM schedules existing
+                 WHERE existing.member_uid = pending.member_uid AND existing.date = pending.date
+                   AND (existing.status = '휴방'
+                     OR COALESCE(existing.start_time, '') NOT GLOB '[0-2][0-9]:[0-5][0-9]'
+                     OR CAST(SUBSTR(existing.start_time, 1, 2) AS INTEGER) > 23
+                     OR ABS(CAST(SUBSTR(existing.start_time, 1, 2) AS INTEGER) * 60
+                       + CAST(SUBSTR(existing.start_time, 4, 2) AS INTEGER) - ?) < ?
+                   )
+               ))
              AND (
                ? IS NULL
                OR NOT EXISTS (
@@ -533,6 +590,8 @@ export class D1PendingScheduleRepository
           startTime,
           title,
           item.id,
+          timeToMinutes(item.start_time),
+          AUTO_UPDATE_ADDITIONAL_SCHEDULE_MINUTES,
           minutes,
           minutes,
           conflictWindow,
@@ -619,19 +678,7 @@ export class D1PendingScheduleRepository
     }
 
     if (item.candidate_kind && target.status === "게릴라") {
-      const createOptions: PendingApprovalOptions = {
-        applyMode: "all",
-        targetMode: "create",
-        timeMode: "nearest_half_hour",
-        targetScheduleId: null,
-      };
-      const createValues = getPendingApprovalValues(item, createOptions);
-      return this.createFromPending(
-        item,
-        createValues.startTime,
-        createValues.title,
-        actor,
-      );
+      return staleOutcome();
     }
 
     const assignments: string[] = [];

@@ -1,4 +1,5 @@
 export const AUTO_UPDATE_RESUME_GAP_MS = 60 * 60 * 1000;
+export const AUTO_UPDATE_ADDITIONAL_SCHEDULE_MINUTES = 240;
 export const AUTO_UPDATE_TIME_WINDOW_MINUTES = 60;
 export const AUTO_UPDATE_SHORT_SESSION_SECONDS = 10 * 60;
 export const AUTO_UPDATE_TITLE_DICE_THRESHOLD = 0.6;
@@ -15,7 +16,8 @@ export type AutoUpdateMatchReason =
   | "missing_schedule"
   | "ambiguous"
   | "holiday_suppressed"
-  | "short_suppressed";
+  | "short_suppressed"
+  | "same_day_suppressed";
 
 export type AutoUpdateMatchConfidence = "high" | "medium" | "low";
 export type AutoUpdateMissingField = "time" | "title";
@@ -84,7 +86,7 @@ export type AutoUpdateSessionDecision =
   | {
       kind: "suppressed";
       session: BroadcastSession;
-      reason: "holiday_suppressed" | "short_suppressed";
+      reason: "holiday_suppressed" | "short_suppressed" | "same_day_suppressed";
     };
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -546,6 +548,15 @@ export const matchBroadcastSessions = (
             },
           ],
         });
+        continue;
+      }
+
+      // Unknown times cannot establish that this is a separate broadcast.
+      if (daySchedules.some(schedule => {
+        const difference = getTimeDifferenceMinutes(session, schedule);
+        return difference === null || difference < AUTO_UPDATE_ADDITIONAL_SCHEDULE_MINUTES;
+      })) {
+        decisions.push({ kind: "suppressed", session, reason: "same_day_suppressed" });
         continue;
       }
 

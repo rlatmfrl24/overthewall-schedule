@@ -45,6 +45,7 @@ export const clearChzzkRouteCachesForTests = () => {
 };
 
 export type ChzzkVideoCatalog = {
+  fetchLiveStatus?: typeof fetchChzzkLiveStatusWithDebug;
   fetchVideos(
     channelId: string,
     page: number,
@@ -58,6 +59,7 @@ export type ChzzkVideoCatalog = {
 };
 
 export const chzzkVideoCatalog: ChzzkVideoCatalog = {
+  fetchLiveStatus: (channelId) => fetchChzzkLiveStatusWithDebug(channelId),
   fetchVideos: (channelId, page, size) =>
     fetchChzzkVideos(channelId, page, size),
   fetchVideosBatch: (requests, cacheDb, options) =>

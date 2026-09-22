@@ -1,3 +1,4 @@
+import { holidayTargetDate, recordHolidayAssessments, reconcileHolidaySuggestions, type ScanCoverage } from "./holiday-suggestions";
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { type DbInstance } from "../../../platform/db";
 import {
@@ -427,11 +428,13 @@ export const scanRecentChzzkVideosForChannels = async (
   cacheDb?: Pick<D1Database, "prepare">,
   fetchVideosBatch: ChzzkVideoCatalog["fetchVideosBatch"] =
     chzzkVideoCatalog.fetchVideosBatch,
+  coverage = new Map<string, ScanCoverage>(),
 ) => {
   const collectedByChannel = new Map<string, ChzzkVideo[]>();
   let activeChannelIds = Array.from(new Set(channelIds));
   for (const channelId of activeChannelIds) {
     collectedByChannel.set(channelId, []);
+    coverage.set(channelId, "incomplete");
   }
 
   for (
@@ -439,6 +442,7 @@ export const scanRecentChzzkVideosForChannels = async (
     page < CHZZK_SCAN_MAX_PAGES && activeChannelIds.length > 0;
     page += 1
   ) {
+    for (const id of activeChannelIds) coverage.set(id, "failed");
     const items = await fetchVideosBatch(
       activeChannelIds.map((channelId) => ({
         channelId,
@@ -447,19 +451,29 @@ export const scanRecentChzzkVideosForChannels = async (
         cacheable: true,
       })),
       cacheDb,
-      { forceRefresh: true },
-    );
+      { forceRefresh: true, requireFresh: true },
+    ).catch(() => []);
     const nextChannelIds: string[] = [];
+    for (const id of activeChannelIds) coverage.set(id, "failed");
 
     for (const item of items) {
-      const pageItems = item.content?.data ?? [];
+      if (!item.content || !Array.isArray(item.content.data)) continue;
+      const pageItems = item.content.data;
+      coverage.set(item.channelId, pageItems.length < CHZZK_SCAN_PAGE_SIZE ? "complete" : "incomplete");
       if (pageItems.length === 0) continue;
 
       const collected = collectedByChannel.get(item.channelId) ?? [];
       let reachedOutOfRange = false;
+      let invalidTiming = false;
       for (const video of pageItems) {
+        if (!Number.isFinite(video.publishDateAt) || !Number.isFinite(video.duration) || video.duration < 0) {
+          coverage.set(item.channelId, "incomplete");
+          invalidTiming = true;
+          break;
+        }
         const { videoDate } = resolveVideoTiming(video);
-        if (videoDate < startDate) {
+        // A replay published after midnight may have started the preceding day.
+        if (video.publishDateAt < Date.parse(`${startDate}T00:00:00+09:00`)) {
           reachedOutOfRange = true;
           break;
         }
@@ -468,8 +482,9 @@ export const scanRecentChzzkVideosForChannels = async (
         }
       }
       collectedByChannel.set(item.channelId, collected);
+      if (reachedOutOfRange) coverage.set(item.channelId, "complete");
 
-      if (!reachedOutOfRange && pageItems.length === CHZZK_SCAN_PAGE_SIZE) {
+      if (!invalidTiming && !reachedOutOfRange && pageItems.length === CHZZK_SCAN_PAGE_SIZE) {
         nextChannelIds.push(item.channelId);
       }
     }
@@ -487,10 +502,11 @@ export const scanAndPersistRecentChzzkObservations = async (
   cacheDb?: Pick<D1Database, "prepare">,
   videoCatalog: ChzzkVideoCatalog = chzzkVideoCatalog,
 ) => {
-  const today = getKSTDateString();
-  const daysBack = Math.max(0, Math.floor(rangeDays) - 1);
+  const scanStartedAt = Date.now();
+  const today = getKSTDateString(new Date(scanStartedAt));
+  const daysBack = Math.max(holidayTargetDate(scanStartedAt) ? 1 : 0, Math.floor(rangeDays) - 1);
   const startDate = getKSTDateString(
-    new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000),
+    new Date(scanStartedAt - daysBack * 24 * 60 * 60 * 1000),
   );
   const requested = new Set(requestedChannelIds.map((id) => id.toLowerCase()));
   const activeMembers = await db
@@ -510,13 +526,15 @@ export const scanAndPersistRecentChzzkObservations = async (
       : [];
   });
   const channelIds = Array.from(new Set(targets.map((target) => target.channelId)));
-  if (channelIds.length === 0) return { channels: 0, observations: 0 };
+  if (channelIds.length === 0) return { channels: 0, observations: 0, channelResults: [] };
+  const coverage = new Map<string, ScanCoverage>();
   const videosByChannel = await scanRecentChzzkVideosForChannels(
     channelIds,
     startDate,
     today,
     cacheDb,
     videoCatalog.fetchVideosBatch,
+    coverage,
   );
   const observations = targets.flatMap(({ member, channelId }) =>
     (videosByChannel.get(channelId) ?? []).map((video) =>
@@ -524,7 +542,14 @@ export const scanAndPersistRecentChzzkObservations = async (
     )
   );
   await persistObservations(db, observations);
-  return { channels: channelIds.length, observations: observations.length };
+  await recordHolidayAssessments(db.$client, targets.map(target => target.member), coverage, videoCatalog.fetchLiveStatus, scanStartedAt);
+  return {
+    channels: channelIds.length,
+    observations: observations.length,
+    channelResults: channelIds.map(channelId => ({
+      channelId, status: coverage.get(channelId) ?? ("incomplete" as ScanCoverage),
+    })),
+  };
 };
 
 export const readAutoUpdateMatchTargets = async (
@@ -532,7 +557,7 @@ export const readAutoUpdateMatchTargets = async (
   rangeDays: number,
 ): Promise<AutoUpdateMatchTarget[]> => {
   const today = getKSTDateString();
-  const daysBack = Math.max(0, Math.floor(rangeDays) - 1);
+  const daysBack = Math.max(holidayTargetDate() ? 1 : 0, Math.floor(rangeDays) - 1);
   const startDate = getKSTDateString(
     new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000),
   );
@@ -541,7 +566,7 @@ export const readAutoUpdateMatchTargets = async (
   const rangeEndMs = Date.parse(`${today}T23:59:59.999+09:00`);
   const [activeMembers, rows] = await Promise.all([
     db
-      .select({ uid: members.uid })
+      .select({ uid: members.uid, url_chzzk: members.url_chzzk })
       .from(members)
       .where(
         sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} != 1`,
@@ -567,6 +592,11 @@ export const readAutoUpdateMatchTargets = async (
     if (date < startDate || date > today) continue;
     const target = { memberUid: row.memberUid, date };
     targets.set(`${target.memberUid}:${target.date}`, target);
+  }
+  const holidayDate = holidayTargetDate();
+  if (holidayDate) for (const member of activeMembers) {
+    if (!extractChzzkChannelId(member.url_chzzk)) continue;
+    targets.set(`${member.uid}:${holidayDate}`, { memberUid: member.uid, date: holidayDate });
   }
   return Array.from(targets.values()).sort((left, right) =>
     left.date.localeCompare(right.date) || left.memberUid - right.memberUid
@@ -597,10 +627,11 @@ export const autoUpdateSchedules = async (
   obsoletePending: number;
   details: AutoUpdateDetail[];
 }> => {
-  const today = getKSTDateString();
-  const daysBack = Math.max(0, Math.floor(rangeDays) - 1);
+  const scanStartedAt = Date.now();
+  const today = getKSTDateString(new Date(scanStartedAt));
+  const daysBack = Math.max(holidayTargetDate(scanStartedAt) ? 1 : 0, Math.floor(rangeDays) - 1);
   const startDate = getKSTDateString(
-    new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000),
+    new Date(scanStartedAt - daysBack * 24 * 60 * 60 * 1000),
   );
 
   // 1. 모든 활성 멤버 조회 (is_deprecated가 아닌 것)
@@ -669,12 +700,14 @@ export const autoUpdateSchedules = async (
   );
   let checkedObservationCount = 0;
   if (!options.skipScan) {
+    const coverage = new Map<string, ScanCoverage>();
     const videosByChannel = await scanRecentChzzkVideosForChannels(
       channelIds,
       startDate,
       today,
       options.cacheDb,
       options.videoCatalog?.fetchVideosBatch,
+      coverage,
     );
     const fetchedObservations = allMembers.flatMap((member) => {
       const channelId = extractChzzkChannelId(member.url_chzzk)?.toLowerCase();
@@ -685,6 +718,10 @@ export const autoUpdateSchedules = async (
     });
     checkedObservationCount = fetchedObservations.length;
     await persistObservations(db, fetchedObservations);
+    await recordHolidayAssessments(db.$client, allMembers, coverage, (options.videoCatalog ?? chzzkVideoCatalog).fetchLiveStatus, scanStartedAt);
+    if ([...coverage.values()].some(status => status !== "complete")) {
+      throw new Error("자동 일정 수집 조회가 실패했거나 확인 범위를 완료하지 못했습니다.");
+    }
   }
 
   const rangeStartMs =
@@ -939,8 +976,14 @@ export const autoUpdateSchedules = async (
     allDetails.push(candidate.detail);
   }
 
+  const holidays = await reconcileHolidaySuggestions(db.$client, options.matchTarget);
+  allDetails.push(...holidays.createdItems.map(item => ({
+    memberUid: item.member_uid, memberName: item.member_name, scheduleDate: item.date,
+    scheduleId: null, action: "auto_collected", title: "휴방 추정", previousStatus: null,
+    candidateKind: "holiday_suggestion" as const, matchReason: "no_broadcast_observed",
+  })));
   return {
-    updated: insertedPendingCount,
+    updated: insertedPendingCount + holidays.created,
     checked: checkedObservationCount,
     segmentCount: sessionsInRange.reduce(
       (total, session) => total + session.segmentCount,
@@ -966,7 +1009,7 @@ export const autoUpdateSchedules = async (
     ambiguous: candidateDecisions.filter(
       (decision) => decision.candidateKind === "ambiguous",
     ).length,
-    obsoletePending: obsoletePendingCount,
+    obsoletePending: obsoletePendingCount + holidays.withdrawn,
     details: allDetails,
   };
 };

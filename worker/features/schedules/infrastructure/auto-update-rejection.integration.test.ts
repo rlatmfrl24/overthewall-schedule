@@ -9,10 +9,14 @@ import {
   scanAndPersistRecentChzzkObservations,
 } from "./auto-update";
 import { D1PendingScheduleRepository } from "./d1-pending-schedule-repository";
+import { queryPendingScheduleReview } from "./d1-pending-schedule-query";
+import { holidayTargetDate } from "./holiday-suggestions";
+import { PendingScheduleService } from "../application/pending-schedule-service";
 
 const CHANNEL_ID = "a".repeat(32);
 
 const TEST_SCHEMA = [
+  "DROP TABLE IF EXISTS schedule_day_assessments",
   "DROP TABLE IF EXISTS schedule_broadcast_observations",
   "DROP TABLE IF EXISTS schedule_candidate_rejections",
   "DROP TABLE IF EXISTS update_logs",
@@ -160,6 +164,7 @@ const makeVideo = (
 });
 
 const makeVideoCatalog = (getVideos: () => Video[]): ChzzkVideoCatalog => ({
+  fetchLiveStatus: vi.fn().mockResolvedValue({ content: { status: "CLOSE" }, debug: { error: null, staleCacheUsed: false } }),
   fetchVideos: vi.fn(),
   fetchVideosBatch: vi.fn(async (
     requests: Parameters<ChzzkVideoCatalog["fetchVideosBatch"]>[0],
@@ -195,6 +200,10 @@ describe("auto update rejection workflow", () => {
     await env.otw_db.batch(
       TEST_SCHEMA.map((statement) => env.otw_db.prepare(statement)),
     );
+    await env.otw_db.batch(
+      (env as unknown as { SCHEDULE_DAY_MIGRATION_SQL: string }).SCHEDULE_DAY_MIGRATION_SQL
+        .split("--> statement-breakpoint").map(sql => env.otw_db.prepare(sql)),
+    );
     await env.otw_db
       .prepare(
         `INSERT INTO members (uid, name, url_chzzk, is_deprecated)
@@ -206,6 +215,148 @@ describe("auto update rejection workflow", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  const holidayCatalog = () => ({
+    ...makeVideoCatalog(() => []),
+    fetchLiveStatus: vi.fn().mockResolvedValue({ content: { status: "CLOSE" }, debug: { error: null, staleCacheUsed: false } }),
+  });
+  const holidayActor = { actorId: "admin", actorName: "관리자", actorIp: null };
+  const collectHoliday = async (catalog: ChzzkVideoCatalog = holidayCatalog()) => {
+    const db = getDb({ YOUTUBE_API_KEY: "", otw_db: env.otw_db });
+    await scanAndPersistRecentChzzkObservations(db, 1, [CHANNEL_ID], undefined, catalog);
+    const targets = await readAutoUpdateMatchTargets(db, 1);
+    for (const matchTarget of targets) await autoUpdateSchedules(db, 1, { skipScan: true, matchTarget });
+    return queryPendingScheduleReview(env.otw_db);
+  };
+
+  it("09시 이전에는 휴방을 추정하지 않고 이후 VOD 없는 멤버도 전날 승인 대기로 한 번만 생성한다", async () => {
+    vi.setSystemTime(new Date("2026-07-29T08:59:59+09:00"));
+    expect(holidayTargetDate()).toBeNull();
+    expect(await collectHoliday()).toHaveLength(0);
+    vi.setSystemTime(new Date("2026-07-29T09:00:00+09:00"));
+    const [pending] = await collectHoliday();
+    expect(pending).toMatchObject({ date: "2026-07-28", candidate_kind: "holiday_suggestion", vod_id: null, start_time: null, status: "휴방",
+      can_apply_to_empty_target: false, holiday_evidence: { scan_status: "complete", broadcast_seen: false } });
+    await Promise.all([collectHoliday(), collectHoliday()]);
+    expect(await countRows("pending_schedules")).toBe(1);
+    expect(await countRows("schedules")).toBe(0);
+    expect(await countRows("schedule_day_assessments")).toBe(1);
+    expect(await countRows("update_logs")).toBe(1);
+  });
+
+  it("휴방 승인 시 휴방 일정 하나를 저장하고 재승인하지 않는다", async () => {
+    const [pending] = await collectHoliday();
+    const repo = new D1PendingScheduleRepository(env.otw_db);
+    const item = (await repo.findById(pending.id))!;
+    expect(await repo.approve(item, null, holidayActor)).toMatchObject({ success: true, action: "create" });
+    expect(await repo.approve(item, null, holidayActor)).toMatchObject({ success: false, error: "stale" });
+    expect(await env.otw_db.prepare("SELECT date, status, start_time, title FROM schedules").first())
+      .toEqual({ date: "2026-07-28", status: "휴방", start_time: null, title: null });
+    expect(await env.otw_db.prepare("SELECT decision FROM schedule_day_assessments").first()).toEqual({ decision: "approved" });
+    expect(await collectHoliday()).toHaveLength(0);
+  });
+
+  it("거절한 멤버·날짜는 재수집해도 재추천하지 않는다", async () => {
+    const [pending] = await collectHoliday();
+    const repo = new D1PendingScheduleRepository(env.otw_db);
+    expect(await repo.reject((await repo.findById(pending.id))!, holidayActor, { reasonCode: "not_needed", reasonNote: null })).toMatchObject({ success: true });
+    expect(await collectHoliday()).toHaveLength(0);
+    expect(await env.otw_db.prepare("SELECT decision FROM schedule_day_assessments").first()).toEqual({ decision: "rejected" });
+  });
+
+  it.each(["schedule", "broadcast"] as const)("승인 직전 새 %s 근거가 생기면 stale로 거절하고 다음 판정에서 철회한다", async source => {
+    const [pending] = await collectHoliday();
+    const repo = new D1PendingScheduleRepository(env.otw_db);
+    if (source === "schedule") await env.otw_db.prepare("INSERT INTO schedules(member_uid,date,status) VALUES(1,'2026-07-28','미정')").run();
+    else await env.otw_db.prepare(`INSERT INTO schedule_broadcast_observations
+      (vod_id,member_uid,channel_id,title,started_at,ended_at,duration_seconds,first_seen_at,last_seen_at)
+      VALUES('late',1,?,'뒤늦은 방송',?,?,3600,0,0)`)
+      .bind(CHANNEL_ID, Date.parse("2026-07-28T22:00:00+09:00"), Date.parse("2026-07-29T02:00:00+09:00")).run();
+    expect(await repo.approve((await repo.findById(pending.id))!, null, holidayActor)).toMatchObject({ success: false, error: "stale" });
+    expect((await collectHoliday()).filter(item => item.candidate_kind === "holiday_suggestion")).toHaveLength(0);
+    expect(await env.otw_db.prepare("SELECT COUNT(*) AS total FROM update_logs WHERE action='candidate_obsolete'").first()).toEqual({ total: 1 });
+  });
+
+  it("휴방 승인 감사 로그 실패는 일정과 판정 상태 변경을 함께 롤백한다", async () => {
+    const [pending] = await collectHoliday();
+    await env.otw_db.prepare("CREATE TRIGGER fail_holiday_log BEFORE INSERT ON update_logs WHEN NEW.action='approve' BEGIN SELECT RAISE(ABORT,'log failure'); END").run();
+    const repo = new D1PendingScheduleRepository(env.otw_db);
+    await expect(repo.approve((await repo.findById(pending.id))!, null, holidayActor)).rejects.toThrow();
+    expect(await countRows("schedules")).toBe(0);
+    expect(await countRows("pending_schedules")).toBe(1);
+    expect(await env.otw_db.prepare("SELECT decision FROM schedule_day_assessments").first()).toEqual({ decision: "pending" });
+  });
+
+  it("일괄 승인에서 실패한 휴방만 롤백하고 개별 실패 결과를 반환한다", async () => {
+    await env.otw_db.prepare("INSERT INTO members(uid,name,url_chzzk,is_deprecated) VALUES(2,'두번째',?,0)")
+      .bind(`https://chzzk.naver.com/${CHANNEL_ID}`).run();
+    const pending = await collectHoliday();
+    expect(pending).toHaveLength(2);
+    await env.otw_db.prepare("CREATE TRIGGER fail_one_holiday BEFORE INSERT ON update_logs WHEN NEW.action='approve' AND NEW.member_uid=2 BEGIN SELECT RAISE(ABORT,'failed second'); END").run();
+    const service = new PendingScheduleService(new D1PendingScheduleRepository(env.otw_db), { insert: vi.fn() });
+    const result = await service.runBatch({ ids: pending.map(item => item.id), action: "approve", options: null, actor: holidayActor });
+    expect(result).toMatchObject({ success: false, successCount: 1, failedCount: 1 });
+    expect(await env.otw_db.prepare("SELECT member_uid,status FROM schedules").all()).toMatchObject({ results: [{ member_uid: 1, status: "휴방" }] });
+    expect(await env.otw_db.prepare("SELECT member_uid FROM pending_schedules").all()).toMatchObject({ results: [{ member_uid: 2 }] });
+  });
+
+  it.each(["failed", "incomplete", "live", "inactive"] as const)("조회 상태 %s에서는 휴방을 추천하지 않는다", async state => {
+    const catalog = holidayCatalog();
+    if (state === "failed") catalog.fetchVideosBatch = vi.fn().mockResolvedValue([{ channelId: CHANNEL_ID, content: null }]);
+    if (state === "incomplete") catalog.fetchVideosBatch = vi.fn().mockResolvedValue([{ channelId: CHANNEL_ID, content: { data: Array.from({ length: 5 }, (_, i) => makeVideo(`many-${i}`, "방송")) } }]);
+    if (state === "live") catalog.fetchLiveStatus.mockResolvedValue({ content: { status: "OPEN", openDate: "2026-07-28 23:00:00" }, debug: { error: null, staleCacheUsed: false } });
+    if (state === "inactive") await env.otw_db.prepare("UPDATE members SET is_deprecated=1").run();
+    expect((await collectHoliday(catalog)).filter(item => item.candidate_kind === "holiday_suggestion")).toHaveLength(0);
+  });
+
+  it("진행 중 방송 조회 실패 후 다음 정상 수집에서 다시 판단한다", async () => {
+    const catalog = holidayCatalog();
+    catalog.fetchLiveStatus.mockRejectedValue(new Error("offline"));
+    expect(await collectHoliday(catalog)).toHaveLength(0);
+    expect(await collectHoliday()).toHaveLength(1);
+  });
+
+  it.each(["vod", "live", "incomplete", "empty"] as const)("수집 결과에 %s 조회 상태를 전달하고 판정 기록에도 보존한다", async source => {
+    const catalog = holidayCatalog();
+    if (source === "vod") catalog.fetchVideosBatch = vi.fn().mockRejectedValue(new Error("offline"));
+    if (source === "live") catalog.fetchLiveStatus.mockRejectedValue(new Error("offline"));
+    if (source === "incomplete") catalog.fetchVideosBatch = vi.fn().mockResolvedValue([{
+      channelId: CHANNEL_ID, content: { data: Array.from({ length: 5 }, (_, i) => makeVideo(`many-${i}`, "방송")) },
+    }]);
+    const db = getDb({ YOUTUBE_API_KEY: "", otw_db: env.otw_db });
+    const result = await scanAndPersistRecentChzzkObservations(db, 1, [CHANNEL_ID], undefined, catalog);
+    const status = source === "empty" ? "complete" : source === "incomplete" ? "incomplete" : "failed";
+    expect(result.channelResults).toEqual([{ channelId: CHANNEL_ID, status }]);
+    expect(await env.otw_db.prepare("SELECT scan_status FROM schedule_day_assessments").first()).toEqual({ scan_status: status });
+  });
+
+  it("직접 수집 경로도 조회 실패를 정상 실행 이력으로 넘기지 않는다", async () => {
+    const catalog = holidayCatalog();
+    catalog.fetchVideosBatch = vi.fn().mockRejectedValue(new Error("offline"));
+    const db = getDb({ YOUTUBE_API_KEY: "", otw_db: env.otw_db });
+    await expect(autoUpdateSchedules(db, 1, { videoCatalog: catalog })).rejects.toThrow("수집 조회가 실패");
+    expect(await countRows("pending_schedules")).toBe(0);
+  });
+
+  it("09시 전에 시작한 하루 범위 조회가 09시 후 끝나도 전날 정상 조회로 간주하지 않는다", async () => {
+    vi.setSystemTime(new Date("2026-07-29T08:59:59+09:00"));
+    const catalog = holidayCatalog();
+    catalog.fetchVideosBatch = vi.fn().mockImplementation(async () => {
+      vi.setSystemTime(new Date("2026-07-29T09:00:01+09:00"));
+      return [{ channelId: CHANNEL_ID, content: { data: [] } }];
+    });
+    expect(await collectHoliday(catalog)).toHaveLength(0);
+    expect(await countRows("schedule_day_assessments")).toBe(0);
+    expect(await collectHoliday()).toHaveLength(1);
+  });
+
+  it("하루 수집 범위도 전날 자정을 넘어온 VOD 구간을 확인한다", async () => {
+    const catalog = holidayCatalog();
+    const video = { ...makeVideo("overnight", "자정 방송", Date.parse("2026-07-28T02:00:00+09:00")), duration: 3 * 3600 };
+    catalog.fetchVideosBatch = makeVideoCatalog(() => [video]).fetchVideosBatch;
+    expect(await collectHoliday(catalog)).toHaveLength(0);
+    expect(await env.otw_db.prepare("SELECT broadcast_seen FROM schedule_day_assessments").first()).toEqual({ broadcast_seen: 1 });
   });
 
   it("동일 VOD는 제목과 시간이 바뀌어도 억제하고 다른 VOD는 독립 처리한다", async () => {
@@ -245,7 +396,7 @@ describe("auto update rejection workflow", () => {
     const third = await autoUpdateSchedules(db, 1, { videoCatalog });
 
     expect(first).toMatchObject({
-      updated: 0,
+      updated: 1,
       rejectedSuppressed: 1,
       duplicatePending: 0,
     });
@@ -259,7 +410,7 @@ describe("auto update rejection workflow", () => {
       rejectedSuppressed: 1,
       duplicatePending: 0,
     });
-    expect(await countRows("pending_schedules")).toBe(1);
+    expect(await countRows("pending_schedules")).toBe(2);
   });
 
   it("재검토 허용 후 다음 수집에서 정확히 한 번 후보를 생성한다", async () => {
@@ -306,7 +457,7 @@ describe("auto update rejection workflow", () => {
       rejectedSuppressed: 0,
       duplicatePending: 1,
     });
-    expect(await countRows("pending_schedules")).toBe(1);
+    expect(await countRows("pending_schedules")).toBe(2);
   });
 
   it("동일 VOD 관측 upsert와 반복 수집은 멱등성을 유지한다", async () => {
@@ -321,8 +472,9 @@ describe("auto update rejection workflow", () => {
     const first = await autoUpdateSchedules(db, 1, { videoCatalog });
     const second = await autoUpdateSchedules(db, 1, { videoCatalog });
 
+    // 정상 조회에서는 오늘 방송 후보와 별도로 전날 휴방 추정이 생성된다.
     expect(first).toMatchObject({
-      updated: 1,
+      updated: 2,
       segmentCount: 1,
       sessionCount: 1,
     });
@@ -333,8 +485,22 @@ describe("auto update rejection workflow", () => {
       sessionCount: 1,
     });
     expect(await countRows("schedule_broadcast_observations")).toBe(1);
-    expect(await countRows("pending_schedules")).toBe(1);
-    expect(await countRows("update_logs")).toBe(1);
+    expect(await countRows("pending_schedules")).toBe(2);
+    expect(await countRows("update_logs")).toBe(2);
+  });
+
+  it("대기 후보 생성 후 239분 거리의 일정이 생기면 승인하지 않고 재판정에서 감사 기록과 함께 철회한다", async () => {
+    const videoCatalog = makeVideoCatalog(() => [{ ...makeVideo("threshold-late", "새로운 방송", Date.parse("2026-07-29T22:00:00+09:00")), duration: 3600 }]);
+    const db = getDb({ YOUTUBE_API_KEY: "", otw_db: env.otw_db });
+    await autoUpdateSchedules(db, 1, { videoCatalog });
+    const repo = new D1PendingScheduleRepository(env.otw_db);
+    const pending = (await repo.findById(1))!;
+    await env.otw_db.prepare("INSERT INTO schedules(member_uid,date,start_time,title,status) VALUES(1,'2026-07-29','17:01','기존 약속','방송')").run();
+    expect(await repo.approve(pending, null, holidayActor)).toMatchObject({ success: false, error: "stale" });
+    const result = await autoUpdateSchedules(db, 1, { videoCatalog });
+    expect(result.obsoletePending).toBe(1);
+    expect((await queryPendingScheduleReview(env.otw_db)).map(item => item.candidate_kind)).toEqual(["holiday_suggestion"]);
+    expect(await env.otw_db.prepare("SELECT COUNT(*) AS total FROM update_logs WHERE action='candidate_obsolete'").first()).toEqual({ total: 1 });
   });
 
   it("D1 bind 한도를 넘는 14개 관측도 chunk로 나눠 모두 저장한다", async () => {
@@ -449,7 +615,7 @@ describe("auto update rejection workflow", () => {
       ),
     ]);
 
-    expect(await countRows("pending_schedules")).toBe(0);
+    expect((await queryPendingScheduleReview(env.otw_db)).map(item => item.candidate_kind)).toEqual(["holiday_suggestion"]);
     expect(await countRows("schedule_candidate_rejections")).toBe(1);
   });
 });

@@ -12,10 +12,12 @@ export type PendingRejectionReasonCode =
   | "duplicate"
   | "other";
 export type PendingCandidateKind =
+  | "holiday_suggestion"
   | "missing_schedule"
   | "fill_missing_fields"
   | "ambiguous";
 export type PendingMatchReason =
+  | "no_broadcast_observed"
   | "time_window"
   | "title_similarity"
   | "single_gap_fallback"
@@ -105,6 +107,13 @@ export interface PendingScheduleDto {
   vod_thumbnail_url: string | null;
   processed_reset_at: string | null;
   created_at: string | null;
+  holiday_evidence?: {
+    checked_at: number;
+    range_start: number;
+    range_end: number;
+    scan_status: "complete" | "failed" | "incomplete";
+    broadcast_seen: boolean;
+  } | null;
   has_same_day_schedule: boolean;
   same_day_schedule_count: number;
   same_day_schedules: PendingScheduleSummaryDto[];

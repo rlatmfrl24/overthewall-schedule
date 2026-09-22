@@ -13,6 +13,7 @@ import {
   scanRecentChzzkVideos,
   scanRecentChzzkVideosForChannels,
 } from "./auto-update";
+import type { ScanCoverage } from "./holiday-suggestions";
 
 type VideoOverrides = {
   videoId?: string;
@@ -49,6 +50,24 @@ describe("scanRecentChzzkVideos", () => {
   beforeEach(() => {
     fetchChzzkVideosMock.mockReset();
     fetchChzzkVideosBatchMock.mockReset();
+  });
+
+  it("후속 페이지 예외를 실패로 보존하고 이미 완료한 다른 채널과 구분한다", async () => {
+    const channelA = "a".repeat(32);
+    const channelB = "b".repeat(32);
+    fetchChzzkVideosBatchMock.mockResolvedValueOnce([
+      { channelId: channelA, content: { data: Array.from({ length: 5 }, (_, i) => makeVideo("2026-03-16", { videoId: `a-${i}` })) } },
+      { channelId: channelB, content: { data: [] } },
+    ]).mockRejectedValueOnce(new Error("upstream unavailable"));
+    const coverage = new Map<string, ScanCoverage>();
+    const collected = await scanRecentChzzkVideosForChannels(
+      [channelA, channelB], "2026-03-15", "2026-03-16", undefined,
+      fetchChzzkVideosBatchMock, coverage,
+    );
+    expect(coverage.get(channelA)).toBe("failed");
+    expect(coverage.get(channelB)).toBe("complete");
+    expect(collected.get(channelA)).toHaveLength(5);
+    expect(collected.get(channelB)).toEqual([]);
   });
 
   it("채널을 페이지 wave로 조회하고 모든 수집 호출에서 fresh cache를 우회한다", async () => {
@@ -94,13 +113,13 @@ describe("scanRecentChzzkVideos", () => {
         { channelId: channelB, page: 0, size: 5, cacheable: true },
       ],
       cacheDb,
-      { forceRefresh: true },
+      { forceRefresh: true, requireFresh: true },
     );
     expect(fetchChzzkVideosBatchMock).toHaveBeenNthCalledWith(
       2,
       [{ channelId: channelA, page: 1, size: 5, cacheable: true }],
       cacheDb,
-      { forceRefresh: true },
+      { forceRefresh: true, requireFresh: true },
     );
   });
 

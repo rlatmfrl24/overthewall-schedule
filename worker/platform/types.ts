@@ -472,6 +472,7 @@ export type AutoUpdateDetail = {
   previousStatus: string | null;
   vodId?: string | null;
   candidateKind?:
+    | "holiday_suggestion"
     | "missing_schedule"
     | "fill_missing_fields"
     | "ambiguous";

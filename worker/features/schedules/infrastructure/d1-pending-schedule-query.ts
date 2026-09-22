@@ -120,6 +120,7 @@ const parseNumberArray = (value: string | null) => {
 };
 
 const parseCandidateKind = (value: string | null): PendingCandidateKind | null =>
+  value === "holiday_suggestion" ||
   value === "missing_schedule" ||
   value === "fill_missing_fields" ||
   value === "ambiguous"
@@ -127,6 +128,7 @@ const parseCandidateKind = (value: string | null): PendingCandidateKind | null =
     : null;
 
 const parseMatchReason = (value: string | null): PendingMatchReason | null =>
+  value === "no_broadcast_observed" ||
   value === "time_window" ||
   value === "title_similarity" ||
   value === "single_gap_fallback" ||
@@ -205,6 +207,17 @@ const selectPendingSchedules = async (db: D1Database) => (
 export const queryPendingScheduleReview = async (db: D1Database) => {
   const pendingList = await selectPendingSchedules(db);
   if (pendingList.length === 0) return [];
+  const evidenceRows = pendingList.some(item => item.candidate_kind === "holiday_suggestion")
+    ? (await db.prepare(`SELECT assessment.member_uid, assessment.date, assessment.checked_at,
+        assessment.range_start, assessment.range_end, assessment.scan_status, assessment.broadcast_seen
+      FROM schedule_day_assessments assessment WHERE EXISTS (SELECT 1 FROM pending_schedules pending
+        WHERE pending.member_uid = assessment.member_uid AND pending.date = assessment.date
+          AND pending.candidate_kind = 'holiday_suggestion')`).all<{
+            member_uid: number; date: string; checked_at: number; range_start: number; range_end: number;
+            scan_status: "complete" | "failed" | "incomplete"; broadcast_seen: number;
+          }>()).results : [];
+  const evidenceByDay = new Map(evidenceRows.map(({ member_uid, date, ...evidence }) =>
+    [getScheduleKey(member_uid, date), { ...evidence, broadcast_seen: evidence.broadcast_seen === 1 }]));
 
   const memberUids = [...new Set(pendingList.map((item) => item.member_uid))];
   const dates = [...new Set(pendingList.map((item) => item.date))];
@@ -280,6 +293,7 @@ export const queryPendingScheduleReview = async (db: D1Database) => {
         : schedulesWithExisting.find(isEmptyScheduleTarget)) ?? null;
     return {
       ...item,
+      holiday_evidence: evidenceByDay.get(key) ?? null,
       vod_started_at: normalizeMetadataText(
         item.vod_started_at,
         "vod_started_at",
@@ -324,11 +338,12 @@ export const queryPendingScheduleReview = async (db: D1Database) => {
         .map((schedule) => toRankedSchedule(item, schedule)),
       source_vod_ids: parseStringArray(item.source_vod_ids),
       vod_segment_count:
+        item.candidate_kind === "holiday_suggestion" ? 0 :
         Number.isSafeInteger(item.vod_segment_count) &&
         item.vod_segment_count > 0
           ? item.vod_segment_count
           : 1,
-      can_apply_to_empty_target: emptyTarget !== null,
+      can_apply_to_empty_target: item.candidate_kind !== "holiday_suggestion" && emptyTarget !== null,
       is_processed: false,
       processed_decision: null,
       processed_at: null,
