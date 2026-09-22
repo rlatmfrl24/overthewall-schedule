@@ -104,6 +104,7 @@ export const DailySchedule = ({
     return new URLSearchParams(window.location.search).get("liveDebug") === "1";
   }, []);
   const currentDateString = format(currentDate, "yyyy-MM-dd");
+  useSiteContentDate(currentDateString);
   const {
     board,
     members,
@@ -841,3 +842,4 @@ export const DailySchedule = ({
     </div>
   );
 };
+import { useSiteContentDate } from "@/features/site-content";

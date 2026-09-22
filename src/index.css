@@ -205,3 +205,14 @@ html[data-animations="disabled"] { .admin-console * { animation: none !important
 html[data-animations="disabled"] {
   [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"], [data-slot="select-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"] { animation: none !important; transition: none !important; }
 }
+
+/* Readable server fallback before the existing React UI takes over (also works without JS). */
+.site-content-summary { flex: none; max-height: 12rem; overflow: auto; padding: .75rem 1rem; border-bottom: 1px solid var(--border); background: var(--background); color: var(--foreground); font-size: .875rem; line-height: 1.6; }
+.site-content-summary h2 { font-weight: 700; }
+.site-content-summary > p, .site-content-summary time { color: var(--muted-foreground); font-size: .75rem; }
+.site-content-summary summary { cursor: pointer; font-weight: 600; padding-block: .25rem; }
+.site-content-summary ul { padding-left: 1.25rem; list-style: disc; }
+.site-content-summary li { padding-block: .25rem; overflow-wrap: anywhere; }
+.site-content-summary a, .site-content-summary button { text-decoration: underline; text-underline-offset: 3px; }
+.site-content-summary a:focus-visible, .site-content-summary summary:focus-visible, .site-content-summary button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.site-content-summary img { object-fit: cover; border-radius: .5rem; }

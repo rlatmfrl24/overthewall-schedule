@@ -783,7 +783,9 @@ export function CatalogEntryDialog({
   return (
     <>
       <Dialog open={open && !suspended} onOpenChange={(next) => { if (!saving && !suspended) void close(next); }}>
-        <DialogContent className="flex h-[100dvh] max-h-[100dvh] max-w-none flex-col overflow-y-auto rounded-none [&>*]:shrink-0 sm:h-auto sm:max-h-[92vh] sm:max-w-5xl sm:rounded-xl">
+        <DialogContent onEscapeKeyDown={(event) => {
+          if (event.target instanceof HTMLElement && event.target.matches('[role="combobox"][aria-expanded="true"]')) event.preventDefault();
+        }} className="flex h-[100dvh] max-h-[100dvh] max-w-none flex-col overflow-y-auto rounded-none [&>*]:shrink-0 sm:h-auto sm:max-h-[92vh] sm:max-w-5xl sm:rounded-xl">
           <DialogHeader>
             <DialogTitle>{clip ? "노래 클립 직접 등록" : "새 YouTube 영상 등록"}</DialogTitle>
             <DialogDescription>{clip ? "승인된 노래 클립 채널의 영상을 곡·가창자에 연결하고 임시 저장합니다. 검토 후 노래 클립 목록에서 게시하세요." : "영상을 확인하고 유형·참여자·공식 채널만 선택하면 내부 곡과 가창이 함께 등록됩니다."}</DialogDescription>

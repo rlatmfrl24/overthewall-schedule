@@ -7,6 +7,9 @@ export const DEFAULT_LOCAL_DEV_PORT = 5173;
 const SPA_DEV_ROUTE =
   /^\/(?:weekly|notice|rights|vods(?:\/.*)?|play(?:\/.*)?|multiview|feed|snapshot|cafe|profile\/[^/]+|admin(?:\/.*)?)\/?$/;
 
+// These documents are rendered by the Worker and must keep their original URL.
+const WORKER_DOCUMENT_ROUTE = /^\/(?:weekly|notice|rights|vods|feed|play(?:\/.*)?|profile\/[^/]+)\/?$/;
+
 const MIN_LOCAL_DEV_PORT = 1024;
 const MAX_LOCAL_DEV_PORT = 65535;
 
@@ -53,7 +56,8 @@ export const rewriteLocalSpaRequest = (request) => {
   if (
     request.method !== "GET" ||
     !request.headers.accept?.includes("text/html") ||
-    !SPA_DEV_ROUTE.test(url.pathname)
+    !SPA_DEV_ROUTE.test(url.pathname) ||
+    WORKER_DOCUMENT_ROUTE.test(url.pathname)
   ) {
     return false;
   }

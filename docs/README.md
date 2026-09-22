@@ -12,6 +12,7 @@
 | [남은 작업 중요도 보고서](archive/remaining-work-priority-report-2026-09-17.md) | 9/17 기준 쉬운 설명·중요도·완료 조건·권장 순서 |
 | [Design](../Design.md) · [폰트 정책](font-consistency-review.md) | 현재 디자인·접근성·타이포그래피 |
 | [아키텍처](architecture.md) | capability·의존성·실제 연결 경로 |
+| [공개 페이지 AEO](aeo.md) | 서버 HTML 요약·공개 정책·Play 공개 대응·검증 |
 | [테스트](testing.md) · [D1 workflow](drizzle-workflow.md) | 검사·격리·migration |
 | [Agent 설정](../AGENTS.md) | `.agent` 권위와 생성 mirror |
 

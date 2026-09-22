@@ -17,6 +17,45 @@ const input = {
 };
 const evidence = { source: "video", text: "노래 가창", seconds: 120 };
 describe("AI grounded suggestions", () => {
+  it.each(["아이묭", "Aimyon", "아이묭(Aimyon)"])("prefers the complete title and resolves bilingual artist %s amid duplicate catalog entries", (artist) => {
+    const title = "사랑을 전하고 싶다든가 (愛を伝えたいだとか)";
+    const raw: AiReviewResult = { videoAnalyzed: true, warnings: [], songs: [{ values: { song: {
+      title, originalArtists: [artist, "Aimyon"].map(name => ({ name, entityKind: "person", subject: null })),
+      tags: [], existingSongId: null, candidates: [],
+    } }, evidence: {}, warnings: [] }] };
+    const catalog = {
+      entities: [{ id: "aimyon", displayName: "아이묭(Aimyon)", entityKind: "person", archivedAt: null }],
+      songs: ["사랑을 전하고 싶다던가 (愛を伝えたいだとか)", title].map((title, index) => ({
+        id: `song-${index}`, title, aliases: [], tags: ["J-POP"], archivedAt: null,
+        originalArtists: [{ entityId: "aimyon", displayName: "아이묭(Aimyon)" }],
+      })),
+    } as unknown as OtwPlayAdminCatalogDto;
+    const resolved = resolveAiReviewCatalog(raw, catalog);
+    expect(resolved.songs[0].values.song).toMatchObject({ existingSongId: "song-1", title, tags: ["J-POP"], originalArtists: [{ subject: { kind: "entity", entityId: "aimyon" } }] });
+    expect(resolved.songs[0].values.song?.originalArtists).toHaveLength(1);
+    expect(resolved.songs[0].values.song?.candidates).toHaveLength(2);
+    expect(resolved.songs[0].warnings.join()).toContain("카탈로그 중복");
+    expect(resolveAiReviewCatalog(resolved, catalog).songs[0].warnings).toHaveLength(1);
+    resolved.songs[0].warnings.push("영상에서 원곡 정보를 확인해 주세요.");
+    const cleaned = resolveAiReviewCatalog(resolved, { ...catalog, songs: catalog.songs.slice(1) });
+    expect(cleaned.songs[0].values.song?.existingSongId).toBe("song-1");
+    expect(cleaned.songs[0].warnings).toEqual(["영상에서 원곡 정보를 확인해 주세요."]);
+    raw.songs[0].values.song!.title = "愛を伝えたいだとか";
+    expect(resolveAiReviewCatalog(raw, catalog).songs[0].values.song?.existingSongId).toBeNull();
+    raw.songs[0].values.song!.title = title;
+    catalog.songs[0].title = title;
+    expect(resolveAiReviewCatalog(raw, catalog).songs[0].values.song?.existingSongId).toBeNull();
+  });
+  it("does not resolve an ambiguous bilingual artist or merge distinct people", () => {
+    const raw: AiReviewResult = { videoAnalyzed: true, warnings: [], songs: [{ values: { participants: [
+      { name: "Singer", entityKind: "person", subject: null, role: "vocal" },
+      { name: "Other", entityKind: "person", subject: null, role: "vocal" },
+    ] }, evidence: {}, warnings: [] }] };
+    const catalog = { songs: [], entities: ["가수(Singer)", "다른 가수(Singer)", "Other"].map((displayName, index) => ({ id: `artist-${index}`, displayName, entityKind: "person", archivedAt: null })) } as unknown as OtwPlayAdminCatalogDto;
+    expect(resolveAiReviewCatalog(raw, catalog).songs[0].values.participants).toMatchObject([
+      { name: "Singer", subject: null }, { name: "Other", subject: { kind: "entity", entityId: "artist-2" } },
+    ]);
+  });
   it.each([
     ["うたたね", ["선잠", "Utatane"], "선잠 (うたたね)"],
     ["선잠 (うたたね, Utatane)", [], "선잠 (うたたね)"],

@@ -1,3 +1,4 @@
+import { seedSiteContent } from "@/features/site-content";
 import { AnimationProvider } from "./shared/ui/animation-provider";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -12,8 +13,9 @@ import { ThemeProvider } from "./app/providers/theme-provider";
 import { ToastProvider } from "./shared/ui/toast";
 import { queryClient } from "./shared/query/query-client";
 import { RootNotFound } from "./app/errors/root-not-found";
+import { AppStartup } from "./app/providers/app-startup";
 
-const router = createRouter({ routeTree, defaultNotFoundComponent: RootNotFound });
+const router = createRouter({ routeTree, defaultNotFoundComponent: RootNotFound, InnerWrap: AppStartup });
 
 // Register the router instance for type safety
 declare module "@tanstack/react-router" {
@@ -34,6 +36,8 @@ if (!PUBLISHABLE_KEY.startsWith(expectedClerkKeyPrefix)) {
     `Invalid Clerk environment: ${import.meta.env.DEV ? "local development" : "production"} requires a ${expectedClerkKeyPrefix.slice(0, -1)} publishable key.`,
   );
 }
+
+seedSiteContent(queryClient);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

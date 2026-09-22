@@ -63,7 +63,7 @@ export const AI_REVIEW_SCHEMA = object({
       ),
       evidence: object(
         Object.fromEntries(
-          AI_REVIEW_FIELDS.map((key) => [
+          AI_REVIEW_FIELDS.filter(key => key !== "segment" && key !== "extent").map((key) => [
             key,
             array(
               object({

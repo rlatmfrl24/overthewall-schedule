@@ -4,6 +4,59 @@
     <meta charset="UTF-8" />
     <link rel="icon" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style id="app-loading-style">
+      #app-loading { display: none; }
+      html.app-booting { background: #fff; overflow: hidden; }
+      html.app-booting.dark { background: #0a0a0a; }
+      .app-booting #root, .app-booting #site-content-fallback { visibility: hidden; }
+      .app-booting #app-loading, #app-loading[data-failed] {
+        position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center;
+        margin: 0; background: var(--background, #fff); color: var(--muted-foreground, #737373);
+        font: 400 14px/1.5 system-ui, sans-serif;
+      }
+      .dark #app-loading { background: var(--background, #0a0a0a); color: var(--muted-foreground, #a3a3a3); }
+    </style>
+    <script id="app-startup">
+      (() => {
+        const html = document.documentElement;
+        let theme = "light";
+        try {
+          const saved = localStorage.getItem("vite-ui-theme");
+          if (saved === "dark" || (saved === "system" && matchMedia("(prefers-color-scheme: dark)").matches)) theme = "dark";
+        } catch { /* Storage may be unavailable; use the app's default light theme. */ }
+        html.classList.add(theme, "app-booting");
+        const timeout = setTimeout(fail, 15000);
+        function clearLoading() {
+          clearTimeout(timeout);
+          html.classList.remove("app-booting");
+          window.removeEventListener("error", onError, true);
+        }
+        function fail() {
+          clearLoading();
+          const fallback = document.getElementById("site-content-fallback");
+          const root = document.getElementById("root");
+          const loading = document.getElementById("app-loading");
+          if (fallback) {
+            if (root) root.hidden = true;
+            loading?.remove();
+          } else if (loading) {
+            loading.textContent = "페이지를 불러오지 못했습니다. 새로고침해 주세요.";
+            loading.setAttribute("data-failed", "");
+          }
+        }
+        function onError(event) {
+          if (event instanceof ErrorEvent || event.target instanceof HTMLScriptElement) fail();
+        }
+        window.addEventListener("error", onError, true);
+        window.addEventListener("otw:app-ready", () => {
+          clearLoading();
+          const root = document.getElementById("root");
+          if (root) root.hidden = false;
+          document.getElementById("site-content-fallback")?.remove();
+          document.getElementById("app-loading")?.remove();
+        }, { once: true });
+      })();
+    </script>
     <title>오버더월 오늘 방송 스케쥴</title>
     <meta data-site-seo="description" name="description" content="오버더월 멤버들의 오늘 방송 일정, 방송 상태와 공지사항을 한눈에 확인하세요." />
     <meta data-site-seo="robots" name="robots" content="index,follow" />
@@ -15,6 +68,7 @@
     <meta data-site-seo="twitter:card" name="twitter:card" content="summary" />
   </head>
   <body>
+    <p id="app-loading" role="status" aria-live="polite" data-nosnippet>불러오는 중…</p>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

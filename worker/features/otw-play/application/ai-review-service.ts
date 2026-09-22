@@ -15,7 +15,8 @@ import {
 import type { OtwPlayYouTubeMetadataReader } from "./ports/youtube-metadata";
 import { extractYouTubeVideoId } from "../domain/youtube-video-id";
 import { resolveAiReviewCatalog } from "../domain/ai-review-result";
-import { AI_REVIEW_PROMPT_VERSION } from "../domain/ai-review-policy";
+import { AI_REVIEW_PROMPT_VERSION, isAiReviewPromptSupported } from "../domain/ai-review-policy";
+import { buildAiReviewData } from "./ai-review-input";
 
 export class AiReviewService {
   private readonly repository: AiReviewRepository;
@@ -104,7 +105,7 @@ export class AiReviewService {
     void _hash;
     void _target;
     void _lease;
-    if (r.input?.promptVersion !== AI_REVIEW_PROMPT_VERSION)
+    if (!isAiReviewPromptSupported(r.input?.promptVersion))
       return { ...dto, result: null, status: "failed", errorCode: "analysis_outdated", errorMessage: "분석 기준이 개선되었습니다. 재분석을 실행하세요.", retryable: false };
     if (dto.expiresAt <= this.clock())
       return {
@@ -188,7 +189,7 @@ export class AiReviewService {
       promptVersion: AI_REVIEW_PROMPT_VERSION,
     };
     const inputHash = await this.hash(
-      JSON.stringify([t.targetKey, input, this.config.model, AI_REVIEW_PROMPT_VERSION]),
+      JSON.stringify([t.targetKey, buildAiReviewData(input), this.config.model, AI_REVIEW_PROMPT_VERSION]),
     );
     const r: AiReviewRecord = {
       id: this.id(),
@@ -241,7 +242,7 @@ export class AiReviewService {
     if (!r?.input) return;
     let output: Awaited<ReturnType<AiReviewAnalyzer["analyze"]>>;
     try {
-      if (r.input.promptVersion !== AI_REVIEW_PROMPT_VERSION)
+      if (!isAiReviewPromptSupported(r.input.promptVersion))
         throw new AiReviewError("analysis_outdated", "분석 기준이 개선되었습니다. 재분석을 실행하세요.", 409);
       output = await this.analyzer.analyze(r.input, r.model);
       try {

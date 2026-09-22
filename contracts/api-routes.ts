@@ -30,6 +30,7 @@ const encodeAssetKey = (key: string) =>
     .join("/");
 
 export const apiRoutes = {
+  siteContent: { read: staticRoute("/api/site-content") },
   auth: {
     adminStatus: staticRoute("/api/auth/admin-status"),
   },

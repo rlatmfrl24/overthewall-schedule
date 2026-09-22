@@ -14,7 +14,7 @@ import { parseBroadcastMetadata } from "./broadcast-metadata";
 import { normalizeOtwPlaySongTags } from "@contracts/otw-play-tags";
 import type { AiReviewMember } from "./ai-review-policy";
 import { extractYouTubeVideoId } from "./youtube-video-id";
-import { aiSongTitleKeys, aiSongTitlesMatch, aiVideoTimecodeSeconds, formatAiSongTitle } from "./ai-review-normalization";
+import { aiExactTitleKey, aiSongTitleKeys, aiSongTitlesMatch, aiVideoTimecodeSeconds, formatAiSongTitle } from "./ai-review-normalization";
 
 const record = (v: unknown): v is Record<string, unknown> =>
   Boolean(v && typeof v === "object" && !Array.isArray(v));
@@ -266,9 +266,10 @@ export function resolveAiReviewCatalog(
   const entities = catalog.entities.filter((e) => e.archivedAt === null);
   const members = catalog.members ?? [];
   const resolve = (p: AiReviewPerson): AiReviewPerson => {
-    const names = new Set([p.name, ...(p.sourceNames ?? [])].map(norm));
+    const names = new Set([p.name, ...(p.sourceNames ?? [])].flatMap(name => [...aiSongTitleKeys(name)]));
+    const matchesName = (name: string) => aiSongTitlesMatch(names, aiSongTitleKeys(name));
     const matchedMembers = p.entityKind === "person" ? members.filter((m) =>
-      [m.name, ...m.aliases].some((name) => names.has(norm(name))),
+      [m.name, ...m.aliases].some(matchesName),
     ) : [];
     if (matchedMembers.length > 0) return {
       ...p,
@@ -277,7 +278,7 @@ export function resolveAiReviewCatalog(
     };
     const matches = entities.filter((e) =>
       e.entityKind === p.entityKind && [e.displayName, ...(catalog.entityAliases?.[e.id] ?? [])].some(
-        (name) => names.has(norm(name)),
+        matchesName,
       ),
     );
     return {
@@ -296,6 +297,8 @@ export function resolveAiReviewCatalog(
     };
   };
   for (const s of resolved.songs) {
+    // Catalog warnings are derived on every read, unlike the model's evidence warnings.
+    s.warnings = s.warnings.filter(warning => !/^같은 원곡 가수와 제목·별칭이 겹치는 기존 곡이 \d+개 있습니다\. 카탈로그 중복 여부를 확인해 주세요\.$/u.test(warning));
     if (s.values.participants)
       s.values.participants = s.values.participants.map((p) => ({
         ...resolve(p),
@@ -307,7 +310,10 @@ export function resolveAiReviewCatalog(
       ) === index);
     const song = s.values.song;
     if (!song) continue;
-    song.originalArtists = song.originalArtists.map(resolve);
+    song.originalArtists = song.originalArtists.map(resolve).filter((artist, index, all) =>
+      all.findIndex(other => artist.subject && other.subject
+        ? JSON.stringify(artist.subject) === JSON.stringify(other.subject)
+        : norm(artist.name) === norm(other.name)) === index);
     const titleKeys = new Set([song.title, ...(song.alternateTitles ?? [])].flatMap((title) => [...aiSongTitleKeys(title, song.originalArtists.map((p) => p.name))]));
     const matches = catalog.songs.filter(
       (c) =>
@@ -330,9 +336,18 @@ export function resolveAiReviewCatalog(
           ),
         ),
     );
-    song.existingSongId = exact.length === 1 ? exact[0].id : null;
-    if (exact.length === 1) song.title = exact[0].title;
-    song.tags = exact.length === 1 ? [...exact[0].tags] : normalizeOtwPlaySongTags(song.tags);
+    // Prefer the complete supplied title over a shared alternate-language fragment.
+    // Multiple equally strong identities still require a human choice.
+    const fullTitleMatches = exact.filter(c => aiExactTitleKey(c.title) === aiExactTitleKey(song.title));
+    const best = fullTitleMatches.length ? fullTitleMatches : exact;
+    const selected = best.length === 1 ? best[0] : null;
+    song.existingSongId = selected?.id ?? null;
+    if (exact.length > 1) {
+      const warning = `같은 원곡 가수와 제목·별칭이 겹치는 기존 곡이 ${exact.length}개 있습니다. 카탈로그 중복 여부를 확인해 주세요.`;
+      s.warnings.push(warning);
+    }
+    if (selected) song.title = selected.title;
+    song.tags = selected ? [...selected.tags] : normalizeOtwPlaySongTags(song.tags);
     song.candidates = matches.map((c) => ({
       id: c.id,
       title: `${c.title} · ${c.originalArtists.map((a) => a.displayName).join(", ")}`,

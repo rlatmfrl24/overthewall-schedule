@@ -1,56 +1,10 @@
 import type { Env } from "../platform/types";
 import { workerRouteRegistry } from "./routes";
-import { normalizeAdminSettings } from "@contracts/configuration";
-import { D1MemberReader } from "../features/members";
-import {
-  createSiteSeoHandler,
-  SiteSeoService,
-  type SiteSeoReader,
-} from "../features/seo";
-import { DrizzleSettingsRepository } from "../features/configuration";
-import { D1PublicCatalogReader } from "../features/otw-play";
-import { getDb } from "../platform/db";
+import { createSiteSeoHandler, rewriteSiteContent, siteContentUnavailable } from "../features/seo";
+import { isSiteContentPath } from "@contracts/site-public-content";
+import { createSiteSeoDependencies } from "./site-seo";
 
-const createSiteSeoService = (env: Env) => {
-  const db = getDb(env);
-  const members = new D1MemberReader(db, env.ASSET_BUCKET);
-  const settings = new DrizzleSettingsRepository(db);
-  const play = new D1PublicCatalogReader(env.otw_db);
-  const reader: SiteSeoReader = {
-    async readFeedState() {
-      const stored = await settings.read([
-        "x_posts_visibility",
-        "naver_cafe_posts_enabled",
-        "naver_cafe_posts_visibility",
-      ]);
-      const normalized = normalizeAdminSettings(stored).settings;
-      return {
-        xVisibility: normalized.x_posts_visibility,
-        cafeEnabled: normalized.naver_cafe_posts_enabled === "true",
-        cafeVisibility: normalized.naver_cafe_posts_visibility,
-      };
-    },
-    async listActiveProfileCodes() {
-      return (await members.listActive()).map(({ code }) => code);
-    },
-    findActiveProfileByCode(code) {
-      return members.findProfileByCode(code);
-    },
-    async readPlayState() {
-      return { ...await play.readSeoState(), requiresMembership: true };
-    },
-    readPlayMemberSummaries() { return play.readMemberSummaries(); },
-    listPublishedPlaySongSlugs() {
-      return play.listPublishedSeoSongSlugs();
-    },
-    findPublishedPlaySongBySlug(slug) {
-      return play.readPublishedSongSeoBySlug(slug);
-    },
-  };
-  return new SiteSeoService(reader);
-};
-
-const handleSiteSeo = createSiteSeoHandler(createSiteSeoService);
+const handleSiteSeo = createSiteSeoHandler(env => createSiteSeoDependencies(env).seo);
 
 type SerializedError = {
   name: string;
@@ -123,6 +77,22 @@ export const handleWorkerFetch = async (
 
   try {
     const seoResponse = await handleSiteSeo(request, env);
+    const contentPath = url.pathname.replace(/\/+$/, "") || "/";
+    if (isSiteContentPath(contentPath) && (!seoResponse || seoResponse.status === 200)) {
+      if (!["GET", "HEAD"].includes(request.method)) return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
+      if (url.pathname !== contentPath) return Response.redirect(new URL(contentPath + url.search, url).toString(), 301);
+      try {
+        const content = await createSiteSeoDependencies(env).content.read(contentPath);
+        if (content) {
+          const assetRequest = new Request(request.url, { method: "GET" });
+          const source = request.method === "HEAD" && seoResponse ? await handleSiteSeo(assetRequest, env) : seoResponse;
+          const asset = source ?? await env.ASSETS!.fetch(new Request(new URL("/", request.url), { method: "GET" }));
+          if (asset.status !== 200) return asset;
+          const response = rewriteSiteContent(asset, content);
+          return request.method === "HEAD" ? new Response(null, response) : response;
+        }
+      } catch (error) { console.error("[site-content] HTML failed", error); const response = siteContentUnavailable(); return request.method === "HEAD" ? new Response(null, response) : response; }
+    }
     if (seoResponse) return seoResponse;
     const routedResponse = await workerRouteRegistry.dispatch(request, env, ctx);
     if (routedResponse) return routedResponse;

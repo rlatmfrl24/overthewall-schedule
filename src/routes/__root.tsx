@@ -1,3 +1,4 @@
+import { SiteContentMetadata, SiteContentProvider } from "@/features/site-content";
 import { createRootRoute, Outlet, useLocation } from "@tanstack/react-router";
 import { getAppChromeMode, PublicAppShell } from "@/app/layout";
 import { Footer } from "@/app/layout/footer";
@@ -49,7 +50,14 @@ const RootComponent = () => {
 
   return (
     <UiScopeContext value={chromeMode === "admin" ? "admin" : isPlayRoute ? "play" : "public"}>
-      <InteractionProvider><SiteSeoProvider pathname={location.pathname}>{content}</SiteSeoProvider></InteractionProvider>
+      <InteractionProvider>
+        <SiteSeoProvider pathname={location.pathname}>
+          <SiteContentProvider key={location.pathname}>
+            <SiteContentMetadata path={location.pathname} />
+            {content}
+          </SiteContentProvider>
+        </SiteSeoProvider>
+      </InteractionProvider>
     </UiScopeContext>
   );
 };

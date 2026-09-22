@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OTW_PLAY_ADMIN_PREVIEW_HEADER } from "@contracts/otw-play";
+import * as playAccess from "@contracts/otw-play-access";
 import type { Env } from "../../../platform/types";
 import type {
   PublicCatalogCache,
@@ -103,6 +104,13 @@ const request = (path: string, init?: RequestInit) =>
   new Request(`https://example.com${path}`, init);
 
 describe("OTW Play public catalog HTTP handler", () => {
+  it("allows anonymous catalog reads only after an explicit product policy change", async () => {
+    vi.spyOn(playAccess, "requiresOtwPlayMembership").mockReturnValue(false);
+    authMocks.authenticateRequest.mockClear();
+    const response = await makeHandler(makeReader()).handler(request("/api/play/catalog"), env);
+    expect(response.status).toBe(200);
+    expect(authMocks.authenticateRequest).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     authMocks.authenticateRequest.mockResolvedValue({ ok: true, user: { id: "member" } });
     authMocks.requireAdminUser.mockReset();

@@ -17,3 +17,4 @@ export {
 export type {
   MemberPostsHandlerDependencies,
 } from "./http/handler";
+export { readSiteContentFeed } from "./infrastructure/site-content-feed";
