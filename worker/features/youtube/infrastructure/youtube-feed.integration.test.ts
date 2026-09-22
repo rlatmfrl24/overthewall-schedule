@@ -318,3 +318,89 @@ describe("dedicated YouTube VOD channels", () => {
     expect((await requestVods(`?memberUids=2&cursor=${encodeURIComponent(encodeVodCursor(now(), "id", [1]))}`)).status).toBe(400);
   });
 });
+
+
+describe("daily YouTube metadata refresh", () => {
+  const readyEnv = { ...testEnv, YOUTUBE_API_KEY: "test" };
+  const seedMetadata = async (count: number, fetchedAt: number) => {
+    await seedSource();
+    await linkVod();
+    await importLegacyOfficialShorts(testEnv, now());
+    await database.batch(Array.from({ length: count }, (_, index) => database.prepare(
+      `INSERT INTO youtube_feed_videos
+       (video_id, source_id, title, channel_title, published_at, fetched_at, view_count, is_short)
+       VALUES (?, 1, 'VOD', 'Member', 1, ?, 7, 0)`,
+    ).bind(`stale-${String(index).padStart(3, "0")}`, fetchedAt)));
+  };
+
+  it("refreshes at the 24-hour boundary and serves the persisted count through the read-only VOD route", async () => {
+    const timestamp = now();
+    vi.spyOn(Date, "now").mockReturnValue(timestamp);
+    await seedMetadata(1, timestamp - 86_400_000 + 1);
+    expect(await hasScheduledYouTubeFeedWork(readyEnv, timestamp)).toBe(false);
+    await database.prepare("UPDATE youtube_feed_videos SET fetched_at = fetched_at - 1").run();
+    expect(await hasScheduledYouTubeFeedWork(readyEnv, timestamp)).toBe(true);
+    const upstream = fakeYouTube(0, "PT1H");
+    expect(await runScheduledYouTubeFeedCollection(readyEnv)).toMatchObject({ metadataRefreshed: 1, quotaBlocked: false });
+    expect(await database.prepare("SELECT view_count, fetched_at FROM youtube_feed_videos").first())
+      .toEqual({ view_count: 123, fetched_at: timestamp });
+    upstream.mockClear();
+    const observed = observe();
+    const response = await requestVods("", observed.db);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ items: [{ videoId: "stale-000", viewCount: 123 }] });
+    expect(upstream).not.toHaveBeenCalled();
+    expect(observed.statements.every((sql) => /^\s*SELECT\b/i.test(sql))).toBe(true);
+    expect(await hasScheduledYouTubeFeedWork(readyEnv, timestamp)).toBe(false);
+  });
+
+  it("bounds each run to two requests of 50 IDs and continues with the oldest remaining video", async () => {
+    await seedMetadata(101, now() - 86_400_000);
+    const upstream = fakeYouTube(0, "PT1H");
+    expect(await runScheduledYouTubeFeedCollection(readyEnv)).toMatchObject({ metadataRefreshed: 100 });
+    expect(upstream).toHaveBeenCalledTimes(2);
+    for (const [input] of upstream.mock.calls) {
+      expect(new URL(String(input)).searchParams.get("id")?.split(",")).toHaveLength(50);
+    }
+    expect((await database.prepare("SELECT COUNT(*) AS total FROM youtube_feed_videos WHERE view_count = 123").first())?.total).toBe(100);
+    upstream.mockClear();
+    expect(await runScheduledYouTubeFeedCollection(readyEnv)).toMatchObject({ metadataRefreshed: 1 });
+    expect(upstream).toHaveBeenCalledTimes(1);
+    expect(new URL(String(upstream.mock.calls[0][0])).searchParams.get("id")).toBe("stale-100");
+  });
+
+  it("preserves completed refresh counts when the second batch reaches the existing low-priority quota cap", async () => {
+    await seedMetadata(51, now() - 86_400_000);
+    const quota = await database.prepare("SELECT value FROM settings WHERE key = 'youtube_api_daily_quota_units'").first<{ value: string }>();
+    const { getYouTubeQuotaWindow } = await import("./youtube-quota");
+    await database.prepare(
+      `INSERT INTO scheduled_usage_daily (day, lane, resource, used, reserved, limit_value, updated_at)
+       VALUES (?, 'youtube-all', 'youtube_quota_units', ?, 0, ?, ?)`,
+    ).bind(getYouTubeQuotaWindow().day, Math.floor(Number(quota!.value) * 0.7) - 1, Number(quota!.value), now()).run();
+    const upstream = fakeYouTube(0, "PT1H");
+    expect(await runScheduledYouTubeFeedCollection(readyEnv)).toMatchObject({ status: "partial", metadataRefreshed: 50, quotaBlocked: true });
+    expect(upstream).toHaveBeenCalledTimes(1);
+    expect((await database.prepare("SELECT view_count FROM youtube_feed_videos WHERE video_id = 'stale-050'").first())?.view_count).toBe(7);
+  });
+
+  it("does not spend metadata quota on a deactivated source", async () => {
+    await seedMetadata(1, now() - 86_400_000);
+    await database.prepare("UPDATE members SET is_deprecated = 1 WHERE uid = 1").run();
+    await database.prepare("UPDATE member_links SET enabled = 0").run();
+    const upstream = fakeYouTube(0);
+    expect(await runScheduledYouTubeFeedCollection(readyEnv)).toMatchObject({ metadataRefreshed: 0 });
+    expect(upstream).not.toHaveBeenCalled();
+    expect(await database.prepare("SELECT video_id FROM youtube_feed_videos").first()).toBeNull();
+  });
+
+  it("retains stored views and refresh eligibility when YouTube fails", async () => {
+    const fetchedAt = now() - 86_400_000;
+    await seedMetadata(1, fetchedAt);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("upstream failure", { status: 500 }));
+    await expect(runScheduledYouTubeFeedCollection(readyEnv)).rejects.toThrow();
+    expect(await database.prepare("SELECT view_count, fetched_at, available FROM youtube_feed_videos").first())
+      .toEqual({ view_count: 7, fetched_at: fetchedAt, available: 1 });
+    expect(await hasScheduledYouTubeFeedWork(readyEnv, now())).toBe(true);
+  });
+
+});

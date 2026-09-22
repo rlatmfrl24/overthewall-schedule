@@ -15,7 +15,8 @@ import {
   YouTubeQuotaAdmissionError,
 } from "./youtube-quota";
 
-const METADATA_REFRESH_AGE_MS = 25 * 24 * 60 * 60_000;
+const METADATA_REFRESH_AGE_MS = 24 * 60 * 60_000;
+const MAX_METADATA_REFRESH_BATCHES = 2;
 const MAX_INCREMENTAL_PAGES_PER_RUN = 3;
 const SHORTS_SCAN_PAGES_PER_REQUEST = 2;
 const SHORTS_SCAN_PAGES_IN_BACKGROUND = 2;
@@ -774,50 +775,59 @@ const scanOfficialBackfill = async (
 const refreshStaleMetadata = async (env: Env, timestamp: number) => {
   const rows = await env.otw_db
     .prepare(
-      `SELECT video_id, source_id FROM youtube_feed_videos
-       WHERE available = 1 AND fetched_at <= ?
-       ORDER BY fetched_at LIMIT 50`,
+      `SELECT video.video_id, video.source_id FROM youtube_feed_videos video
+       JOIN youtube_feed_sources source ON source.id = video.source_id
+       WHERE video.available = 1 AND source.enabled = 1 AND video.fetched_at <= ?
+       ORDER BY video.fetched_at, video.video_id LIMIT ?`,
     )
-    .bind(timestamp - METADATA_REFRESH_AGE_MS)
+    .bind(timestamp - METADATA_REFRESH_AGE_MS, PAGE_SIZE * MAX_METADATA_REFRESH_BATCHES)
     .all<{ video_id: string; source_id: number }>();
-  const candidates = rows.results ?? [];
-  if (candidates.length === 0) return { refreshed: 0, unavailable: 0 };
-  const details = await fetchVideoDetails(
-    env,
-    candidates.map((row) => row.video_id),
-    "scheduled",
-  );
-  const sourceByVideo = new Map(
-    candidates.map((row) => [row.video_id, row.source_id]),
-  );
-  const returnedIds = new Set(
-    details.flatMap((item) => (item.id ? [item.id] : [])),
-  );
-  const detailsBySource = new Map<number, VideoDetail[]>();
-  for (const detail of details) {
-    if (!detail.id) continue;
-    const sourceId = sourceByVideo.get(detail.id);
-    if (!sourceId) continue;
-    const group = detailsBySource.get(sourceId) ?? [];
-    group.push(detail);
-    detailsBySource.set(sourceId, group);
+  const pending = rows.results ?? [];
+  const result = { refreshed: 0, unavailable: 0, quotaBlocked: false };
+  for (let offset = 0; offset < pending.length; offset += PAGE_SIZE) {
+    const candidates = pending.slice(offset, offset + PAGE_SIZE);
+    let details: VideoDetail[];
+    try {
+      details = await fetchVideoDetails(env, candidates.map((row) => row.video_id), "scheduled");
+    } catch (error) {
+      if (!(error instanceof YouTubeQuotaAdmissionError)) throw error;
+      result.quotaBlocked = true;
+      break;
+    }
+    const sourceByVideo = new Map(
+      candidates.map((row) => [row.video_id, row.source_id]),
+    );
+    const returnedIds = new Set(
+      details.flatMap((item) => (item.id ? [item.id] : [])),
+    );
+    const detailsBySource = new Map<number, VideoDetail[]>();
+    for (const detail of details) {
+      if (!detail.id) continue;
+      const sourceId = sourceByVideo.get(detail.id);
+      if (!sourceId) continue;
+      const group = detailsBySource.get(sourceId) ?? [];
+      group.push(detail);
+      detailsBySource.set(sourceId, group);
+    }
+    for (const [sourceId, sourceDetails] of detailsBySource) {
+      await persistVideoDetails(env, sourceId, sourceDetails, timestamp);
+    }
+    const unavailable = candidates.filter(
+      (row) => !returnedIds.has(row.video_id),
+    );
+    for (const row of unavailable) {
+      await env.otw_db
+        .prepare(
+          `UPDATE youtube_feed_videos SET available = 0, fetched_at = ?
+           WHERE video_id = ?`,
+        )
+        .bind(timestamp, row.video_id)
+        .run();
+    }
+    result.refreshed += returnedIds.size;
+    result.unavailable += unavailable.length;
   }
-  for (const [sourceId, sourceDetails] of detailsBySource) {
-    await persistVideoDetails(env, sourceId, sourceDetails, timestamp);
-  }
-  const unavailable = candidates.filter(
-    (row) => !returnedIds.has(row.video_id),
-  );
-  for (const row of unavailable) {
-    await env.otw_db
-      .prepare(
-        `UPDATE youtube_feed_videos SET available = 0, fetched_at = ?
-         WHERE video_id = ?`,
-      )
-      .bind(timestamp, row.video_id)
-      .run();
-  }
-  return { refreshed: returnedIds.size, unavailable: unavailable.length };
+  return result;
 };
 
 export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) => {
@@ -843,7 +853,11 @@ export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) =
                  AND (backfill_retry_after IS NULL OR backfill_retry_after <= ?))
            )
          )
-         OR EXISTS (SELECT 1 FROM youtube_feed_videos WHERE available = 1 AND fetched_at <= ?)
+         OR EXISTS (
+           SELECT 1 FROM youtube_feed_videos video
+           JOIN youtube_feed_sources source ON source.id = video.source_id
+           WHERE video.available = 1 AND source.enabled = 1 AND video.fetched_at <= ?
+         )
          OR EXISTS (
            SELECT 1 FROM (${OFFICIAL_CHANNEL_TARGETS_SQL}) target
            LEFT JOIN youtube_feed_sources source
@@ -899,14 +913,7 @@ export const runScheduledYouTubeFeedCollection = async (env: Env) => {
   const timestamp = Date.now();
   await syncSourceRegistry(env, timestamp);
   const legacyImported = await importLegacyOfficialShorts(env, timestamp);
-  let metadata = { refreshed: 0, unavailable: 0 };
-  let metadataQuotaBlocked = false;
-  try {
-    metadata = await refreshStaleMetadata(env, timestamp);
-  } catch (error) {
-    if (!(error instanceof YouTubeQuotaAdmissionError)) throw error;
-    metadataQuotaBlocked = true;
-  }
+  const metadata = await refreshStaleMetadata(env, timestamp);
   const rows = await env.otw_db
     .prepare(
       `SELECT id, source_kind, youtube_channel_id, uploads_playlist_id,
@@ -930,7 +937,7 @@ export const runScheduledYouTubeFeedCollection = async (env: Env) => {
   let failed = 0;
   let shortsStored = 0;
   let exhaustedSources = 0;
-  let quotaBlocked = metadataQuotaBlocked;
+  let quotaBlocked = metadata.quotaBlocked;
   for (const source of rows.results ?? []) {
     try {
       const result = await collectSource(env, source, timestamp);

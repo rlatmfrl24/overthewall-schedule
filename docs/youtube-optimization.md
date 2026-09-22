@@ -5,6 +5,27 @@ YouTube Data API v3의 쿼터 제한(기본 10,000 units/일)을 고려한 최�
 현재 Worker TTL의 단일 기준은 `worker/platform/cache-policy.ts`이며,
 브라우저 query TTL은 `src/shared/query/query-client.ts`를 따릅니다.
 
+## Persisted feed metadata refresh
+
+VOD and Shorts views are read from `youtube_feed_videos`. The hourly
+`youtube_feed_collection` job refreshes available videos from enabled sources
+once their last successful metadata fetch is at least 24 hours old. Oldest
+records go first, with at most two sequential `videos.list` requests of 50 IDs
+per run (100 videos/hour, up to 2,400/day).
+
+Each request uses the existing low-priority quota admission. The configured daily
+budget and scheduled D1 write guard still apply; quota blocks, job failures, and
+backlogs can delay refresh beyond 24 hours. A quota block after the first batch
+preserves its completed refresh count and reports a partial run. Failed requests
+leave stored views and refresh timestamps unchanged. Videos missing from a
+successful YouTube response are marked unavailable.
+
+At the observed 1,938 active videos, a full refresh needs about 39 metadata
+requests. Each request costs one unit according to the
+[YouTube videos.list reference](https://developers.google.com/youtube/v3/docs/videos/list).
+Upload discovery shares the same quota budget. Public VOD reads do not trigger
+YouTube requests or database writes; reloading a page reads persisted counts.
+
 ## Worker API 최적화 (`worker/features/youtube/infrastructure`)
 
 ### 1. uploads 플레이리스트 ID 캐싱
