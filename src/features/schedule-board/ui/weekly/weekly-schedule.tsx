@@ -1,3 +1,5 @@
+import { format } from "date-fns";
+import { useSiteContentDate } from "@/features/site-content";
 import { ScheduleDialog } from "@/features/schedules";
 import { WeeklyGridSkeleton } from "./components/weekly-grid-skeleton";
 import {
@@ -43,6 +45,8 @@ export const WeeklySchedule = () => {
     openEditDialog,
     weekDays,
   } = useWeeklySchedule();
+
+  useSiteContentDate(format(currentDate, "yyyy-MM-dd"));
 
   return (
     <div className="flex flex-col flex-1 w-full overflow-hidden bg-background">

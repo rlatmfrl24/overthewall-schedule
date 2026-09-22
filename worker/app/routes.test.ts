@@ -5,6 +5,8 @@ import { workerRouteManifest, workerRouteRegistry } from "./routes";
 const env = {} as Env;
 // Independent security/cache contracts, grouped to avoid a second route registry.
 const expectedPolicies = [
+  { method: "GET", auth: "public", successStatus: 200,
+    cache: "route-policy", paths: ["/api/site-content"] },
   { method: "GET", auth: "optional", successStatus: 200,
     cache: "no-store", paths: [
     "/api/auth/admin-status",
@@ -300,6 +302,7 @@ describe("OTW Worker route manifest", () => {
       "otw-play",
       "schedule-board",
       "schedules",
+      "seo",
       "x-posts",
       "youtube",
     ]);

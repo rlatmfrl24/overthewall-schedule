@@ -10,11 +10,10 @@ import type { SiteSeoService } from "../application/site-seo-service";
 
 const XML_HEADERS = {
   "Content-Type": "application/xml; charset=utf-8",
-  "Cache-Control": "public, max-age=60, s-maxage=300",
+  "Cache-Control": "no-store",
 } as const;
 
 const REDIRECT_CACHE = "public, max-age=3600";
-const PLAY_INDEX_CACHE = "public, max-age=60, s-maxage=60";
 
 const escapeXml = (value: string): string =>
   value
@@ -36,7 +35,7 @@ const escapeHtml = (value: string): string =>
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
 
-const rewriteHtml = (
+export const rewriteHtml = (
   response: Response,
   metadata: SiteSeoMetadata,
   status = 200,
@@ -217,12 +216,8 @@ const rewritePlayHtml = (
   status = 200,
 ): Response => {
   const response = rewriteHtml(asset, metadata, status);
-  if (status === 200 && metadata.robots === "index,follow" && !metadata.path.startsWith("/play/members/")) {
-    response.headers.set("Cache-Control", PLAY_INDEX_CACHE);
-  } else {
-    response.headers.set("Cache-Control", "no-store");
-    response.headers.set("X-Robots-Tag", metadata.robots);
-  }
+  response.headers.set("Cache-Control", "no-store");
+  response.headers.set("X-Robots-Tag", metadata.robots);
   return response;
 };
 

@@ -1,3 +1,5 @@
+import { createSiteContentHandler } from "../features/seo";
+import { createSiteSeoDependencies } from "./site-seo";
 import { apiRoutes } from "@contracts/api-routes";
 import { createAiReviewHandler } from "../features/otw-play";
 import { createOtwPlayAiReviewService } from "./ai-review";
@@ -372,6 +374,9 @@ const head = (
 ): WorkerRouteMethodContract => ({ method: "HEAD", ...contract });
 
 const routeDefinitions: readonly WorkerRouteDefinition[] = [
+  { id: "seo.site-content", owner: "seo", path: apiRoutes.siteContent.read.pattern,
+    methods: methods(get({ auth: "public", cache: "route-policy", successStatus: 200 })),
+    handler: createSiteContentHandler(env => createSiteSeoDependencies(env).content) },
   {
     id: "auth.admin-status",
     owner: "auth",

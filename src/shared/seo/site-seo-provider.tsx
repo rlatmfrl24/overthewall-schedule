@@ -18,11 +18,19 @@ export const SiteSeoProvider = ({
   children: ReactNode;
 }) => {
   const base = useMemo(() => resolveSiteSeo(pathname), [pathname]);
-  const [override, setOverride] = useState<SiteSeoMetadata | null>(null);
-  const active = override?.path.toLowerCase() === base.path.toLowerCase() ? override : base;
+  const [overrides, setOverrides] = useState<Map<string, { metadata: SiteSeoMetadata; priority: number }>>(() => new Map());
+  const active = [...overrides.values()]
+    .filter(({ metadata }) => metadata.path.toLowerCase() === base.path.toLowerCase())
+    .sort((a, b) => b.priority - a.priority)[0]?.metadata ?? base;
   useEffect(() => applySiteSeo(active), [active]);
-  const update = useCallback((metadata: SiteSeoMetadata | null) => {
-    setOverride(metadata);
+  const update = useCallback((owner: string, metadata: SiteSeoMetadata | null, priority: number) => {
+    setOverrides(previous => {
+      if (!metadata && !previous.has(owner)) return previous;
+      const next = new Map(previous);
+      if (metadata) next.set(owner, { metadata, priority });
+      else next.delete(owner);
+      return next;
+    });
   }, []);
   return (
     <SeoOverrideContext.Provider value={update}>

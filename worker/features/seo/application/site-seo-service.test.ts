@@ -8,7 +8,8 @@ const member = (code: string): MemberProfileDto =>
 
 const createReader = (
   overrides: Partial<SiteSeoReader> = {},
-): SiteSeoReader => ({
+): SiteSeoReader => {
+  const reader: SiteSeoReader = {
   readFeedState: async () => ({
     xVisibility: "private",
     cafeEnabled: false,
@@ -27,7 +28,12 @@ const createReader = (
   listPublishedPlaySongSlugs: async () => [],
   findPublishedPlaySongBySlug: async () => null,
   ...overrides,
-});
+  };
+  // These fixtures explicitly exercise the future anonymous catalog policy.
+  const readPlayState = reader.readPlayState;
+  reader.readPlayState = async () => ({ requiresMembership: false, ...await readPlayState() });
+  return reader;
+};
 
 describe("SiteSeoService", () => {
   it("keeps member-only catalog data out of anonymous SEO even with navigation enabled", async () => {

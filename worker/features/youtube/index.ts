@@ -32,3 +32,4 @@ export {
   runManualYouTubeCacheRefresh
 } from "./infrastructure/youtube-warmup";
 export type { YouTubeWarmupTarget } from "./infrastructure/youtube-warmup";
+export { readSiteContentYouTube } from "./infrastructure/site-content-videos";

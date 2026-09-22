@@ -42,30 +42,30 @@ describe("local development server config", () => {
     ).toEqual({ path: "C:/tmp/otw-play-pr6" });
   });
 
-  it("rewrites nested SPA requests for both Vite and the Worker proxy", () => {
+  it("rewrites non-Worker SPA requests for both Vite and the Worker proxy", () => {
     const request = {
       method: "GET",
-      url: "/play/songs/example?performance=performance-1",
-      originalUrl: "/play/songs/example?performance=performance-1",
+      url: "/admin/notices?notice=1",
+      originalUrl: "/admin/notices?notice=1",
       headers: { accept: "text/html,application/xhtml+xml" },
     };
 
     expect(rewriteLocalSpaRequest(request)).toBe(true);
-    expect(request.url).toBe("/?performance=performance-1");
-    expect(request.originalUrl).toBe("/?performance=performance-1");
+    expect(request.url).toBe("/?notice=1");
+    expect(request.originalUrl).toBe("/?notice=1");
   });
 
-  it("rewrites the rights page for direct local navigation and refresh", () => {
+  it.each(["/weekly", "/weekly/", "/notice", "/rights", "/vods", "/feed", "/profile/member", "/play", "/play/songs/example?performance=1"])("preserves Worker document %s on direct navigation", path => {
     const request = {
       method: "GET",
-      url: "/rights",
-      originalUrl: "/rights",
+      url: path,
+      originalUrl: path,
       headers: { accept: "text/html,application/xhtml+xml" },
     };
 
-    expect(rewriteLocalSpaRequest(request)).toBe(true);
-    expect(request.url).toBe("/");
-    expect(request.originalUrl).toBe("/");
+    expect(rewriteLocalSpaRequest(request)).toBe(false);
+    expect(request.url).toBe(path);
+    expect(request.originalUrl).toBe(path);
   });
 
   it("does not rewrite API or non-navigation requests", () => {

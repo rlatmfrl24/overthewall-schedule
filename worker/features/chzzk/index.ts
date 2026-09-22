@@ -22,3 +22,4 @@ export {
   type ChzzkExternalApplicationPorts,
   type ChzzkVideoCatalog,
 } from "./infrastructure/chzzk-adapters";
+export { readSiteContentChzzk } from "./infrastructure/site-content-videos";

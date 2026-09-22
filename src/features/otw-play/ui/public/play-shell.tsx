@@ -1,3 +1,4 @@
+import { requiresOtwPlayMembership } from "@contracts/otw-play-access";
 import { QueryState } from "@/shared/ui/query-state";
 import { Input } from "@/shared/ui/input";
 import { SignInButton, useUser } from "@clerk/clerk-react";
@@ -52,6 +53,11 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
 
   if (publicConfig.isError || !publicConfig.data) {
     return <OtwPlayConfigError onRetry={() => void publicConfig.refetch()} />;
+  }
+
+  if (!requiresOtwPlayMembership() && publicConfig.data.data.publicReadEnabled &&
+      (pathname === "/play" || pathname === "/play/songs" || /^\/play\/songs\/[^/]+$/.test(pathname))) {
+    return <OtwPlayCatalogRequestProvider><OtwPlayExperience>{children}</OtwPlayExperience></OtwPlayCatalogRequestProvider>;
   }
 
   if (!isLoaded) {

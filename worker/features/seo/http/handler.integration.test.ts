@@ -19,7 +19,8 @@ const profile = {
 
 const createReader = (
   overrides: Partial<SiteSeoReader> = {},
-): SiteSeoReader => ({
+): SiteSeoReader => {
+  const reader: SiteSeoReader = {
   readFeedState: async () => ({
     xVisibility: "private",
     cafeEnabled: false,
@@ -38,7 +39,12 @@ const createReader = (
   listPublishedPlaySongSlugs: async () => [],
   findPublishedPlaySongBySlug: async () => null,
   ...overrides,
-});
+  };
+  // These fixtures explicitly exercise the future anonymous catalog policy.
+  const readPlayState = reader.readPlayState;
+  reader.readPlayState = async () => ({ requiresMembership: false, ...await readPlayState() });
+  return reader;
+};
 
 const testAssets = {
   fetch: async () =>
@@ -200,9 +206,7 @@ describe("SEO HTML worker", () => {
         expect(html).toContain(`content="${expectedRobots}"`);
         expect(html).not.toContain("performance=ignored");
         expect(response?.headers.get("Cache-Control")).toBe(
-          indexable && path !== "/play/songs"
-            ? "public, max-age=60, s-maxage=60"
-            : "no-store",
+          "no-store",
         );
       }
 
@@ -217,7 +221,7 @@ describe("SEO HTML worker", () => {
       expect(xml?.includes("/play/songs/visible-song</loc>")).toBe(indexable);
       expect(xml).not.toContain("<lastmod>");
       expect(sitemap?.headers.get("Cache-Control")).toBe(
-        "public, max-age=60, s-maxage=300",
+        "no-store",
       );
     },
   );

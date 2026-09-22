@@ -39,7 +39,7 @@ const validatePlayState = (state: PlaySeoState): PlaySeoState => {
 };
 
 const playRobots = (state: PlaySeoState): SiteRobots =>
-  (state.requiresMembership || !state.publicReadEnabled)
+  (state.requiresMembership !== false || !state.publicReadEnabled)
     ? "noindex,nofollow"
     : state.navigationVisible
       ? "index,follow"
@@ -74,7 +74,7 @@ export class SiteSeoService {
   async readPlaySongs(): Promise<SiteSeoMetadata> {
     const state = await this.readPlayState();
     return buildPlaySongsSiteSeo(
-      !state.requiresMembership && state.publicReadEnabled ? "noindex,follow" : "noindex,nofollow",
+      state.requiresMembership === false && state.publicReadEnabled ? "noindex,follow" : "noindex,nofollow",
     );
   }
 
@@ -82,7 +82,7 @@ export class SiteSeoService {
     slug: string,
   ): Promise<SiteSeoMetadata | null> {
     const state = await this.readPlayState();
-    if (state.requiresMembership || !state.publicReadEnabled) {
+    if (state.requiresMembership !== false || !state.publicReadEnabled) {
       return buildPlaySongPlaceholderSeo(
         `/play/songs/${encodeURIComponent(slug)}`,
       );
@@ -94,7 +94,7 @@ export class SiteSeoService {
   private async assertPlaySnapshot(state: PlaySeoState) {
     const current = await this.readPlayState();
     if (current.revision !== state.revision || current.publicReadEnabled !== state.publicReadEnabled ||
-        current.navigationVisible !== state.navigationVisible) throw new Error("OTW Play SEO snapshot changed");
+        current.navigationVisible !== state.navigationVisible || current.requiresMembership !== state.requiresMembership) throw new Error("OTW Play SEO snapshot changed");
   }
 
   async buildSitemapUrls(): Promise<string[]> {
@@ -106,7 +106,7 @@ export class SiteSeoService {
     const urls = new Set(STATIC_SITEMAP_URLS);
     if (feed.isPublic) urls.add(feed.metadata.canonical);
     for (const code of codes) urls.add(toSiteUrl(`/profile/${code}`));
-    if (!playState.requiresMembership && playState.navigationVisible) {
+    if (playState.requiresMembership === false && playState.navigationVisible) {
       const slugs = [
         ...new Set(await this.reader.listPublishedPlaySongSlugs()),
       ];
