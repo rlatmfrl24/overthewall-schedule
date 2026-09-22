@@ -5,6 +5,9 @@ import { readSiteContentFeed } from "../../member-posts";
 import { readSiteContentYouTube } from "../../youtube";
 import { readSiteContentChzzk } from "../../chzzk";
 import type { Env } from "../../../platform/types";
+import { createSiteSeoDependencies } from "../../../app/site-seo";
+import { createSiteContentHandler } from "../http/site-content-handler";
+import { handleWorkerFetch } from "../../../app/fetch";
 
 const testEnv = env as unknown as Env & { X_REFERENCE_MIGRATIONS: D1Migration[]; MEMBER_POSTS_CAFE_MIGRATIONS: D1Migration[]; YOUTUBE_FEED_MIGRATIONS: D1Migration[] };
 const db = testEnv.otw_db;
@@ -20,6 +23,36 @@ beforeAll(async () => {
   await db.prepare("INSERT INTO members(uid,code,name,url_twitter,url_chzzk,youtube_channel_id) VALUES(901,'summary','Summary','https://x.com/summary','https://chzzk.naver.com/channel1','channel1')").run();
 });
 afterEach(() => vi.restoreAllMocks());
+
+it("returns 503/no-store for total video failure and 200 for empty or partial sources", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  for (const mode of ["empty", "partial", "failed"] as const) {
+    const sourceDb = new Proxy(db, { get(target, key) {
+      if (key === "prepare") return (sql: string) => {
+        if (mode === "failed" || (mode === "partial" && sql.includes("youtube_feed_videos"))) throw new Error("Source unavailable");
+        return target.prepare(sql);
+      };
+      const value = Reflect.get(target, key, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    } });
+    const runtime = { ...testEnv, otw_db: sourceDb, ASSETS: { fetch: async () => new Response('<html><head></head><body><div id="root"></div></body></html>') } } as unknown as Env;
+    const response = await createSiteContentHandler(env => createSiteSeoDependencies(env).content)(new Request("https://otw.test/api/site-content?path=/vods"), runtime);
+    expect(response.status).toBe(mode === "failed" ? 503 : 200);
+    if (mode === "failed") {
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      for (const method of ["GET", "HEAD"]) {
+        const html = await handleWorkerFetch(new Request("https://otw.test/vods", { method }), runtime);
+        expect(html.status).toBe(503);
+        expect(html.headers.get("Cache-Control")).toBe("no-store");
+        if (method === "HEAD") expect(await html.text()).toBe("");
+      }
+    } else {
+      const content = await response.json<{ sections: Array<{ status: string }> }>();
+      expect(content.sections.filter(s => s.status === "empty")).toHaveLength(mode === "empty" ? 5 : 2);
+      expect(content.sections.filter(s => s.status === "unavailable")).toHaveLength(mode === "empty" ? 0 : 3);
+    }
+  }
+});
 
 it("rejects total feed failure but preserves a successful source on partial failure", async () => {
   const failingDb = (failAll: boolean) => new Proxy(db, { get(target, key) {
@@ -65,7 +98,7 @@ it("reads public stored sources using SELECT only, without external requests", a
   expect(videos[2].status).not.toBe("available");
   const chzzk = await readSiteContentChzzk(measured);
   expect(chzzk[0].items[0].title).toBe("Stored VOD");
-  expect(chzzk[1].status).toBe("unavailable");
+  expect(chzzk[1].status).toBe("empty");
   expect(network).not.toHaveBeenCalled();
   expect(statements.length).toBeGreaterThan(0);
   expect(statements.every(sql => /^\s*SELECT\b/i.test(sql))).toBe(true);

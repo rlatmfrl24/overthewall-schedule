@@ -25,7 +25,7 @@ export async function readSiteContentChzzk(db: D1Database): Promise<SiteContentS
         }
       }
       const unique = [...new Map(items.map(item => [item.url, item])).values()].sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? "")).slice(0, 5);
-      return { id: `chzzk-${type}`, title: `${title} · 전체 멤버`, status: !rows.length ? "unavailable" : stale ? "stale" : unique.length ? "available" : "empty",
+      return { id: `chzzk-${type}`, title: `${title} · 전체 멤버`, status: !rows.length ? "empty" : stale ? "stale" : unique.length ? "available" : "empty",
         updatedAt: rows.length ? new Date(Math.min(...rows.map(r => r.fetched_at))).toISOString() : null, items: unique } satisfies SiteContentSection;
     } catch (error) {
       console.error("[site-content] stored CHZZK read failed", type, error);

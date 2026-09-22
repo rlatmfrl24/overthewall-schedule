@@ -1,4 +1,5 @@
 const key = (value: string) => value.normalize("NFKC").toLowerCase().replace(/[\p{P}\p{Z}\s]/gu, "");
+export const aiExactTitleKey = key;
 const scripts = (value: string) => [
   /\p{Script=Hangul}/u, /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u, /\p{Script=Latin}/u,
 ].map((pattern, index) => pattern.test(value) ? index : -1).filter((index) => index !== -1);

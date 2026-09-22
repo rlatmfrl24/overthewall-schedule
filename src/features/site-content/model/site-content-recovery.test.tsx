@@ -2,7 +2,7 @@
 import React from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { buildProfileSiteSeo, resolveSiteSeo } from "@contracts/site-seo";
 import { siteContentQueryKey, type SitePublicContent } from "@contracts/site-public-content";
 import { SiteContentMetadata } from "./site-content-metadata";
@@ -22,7 +22,25 @@ afterEach(() => {
   cleanup();
   clients.splice(0).forEach(client => client.clear());
   vi.useRealTimers();
+  focusManager.setFocused(undefined);
   vi.clearAllMocks();
+});
+
+it("refetches an aged server response on focus after its absolute expiration", async () => {
+  vi.useFakeTimers();
+  const client = createClient();
+  vi.mocked(fetchSiteContent).mockResolvedValueOnce({
+    ...data("/"), generatedAt: new Date(Date.now() - 290_000).toISOString(),
+    expiresAt: new Date(Date.now() + 10_000).toISOString(),
+  }).mockImplementation(async () => ({ ...data("/"), generatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 300_000).toISOString() }));
+  render(<QueryClientProvider client={client}><SiteContentMetadata path="/" /></QueryClientProvider>);
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(fetchSiteContent).toHaveBeenCalledTimes(1);
+  act(() => focusManager.setFocused(false));
+  await act(async () => { await vi.advanceTimersByTimeAsync(11_000); });
+  expect(fetchSiteContent).toHaveBeenCalledTimes(1);
+  await act(async () => { focusManager.setFocused(true); await vi.advanceTimersByTimeAsync(1); });
+  expect(fetchSiteContent).toHaveBeenCalledTimes(2);
 });
 
 it("waits a minute after expired content fails, then resumes fresh polling after recovery", async () => {

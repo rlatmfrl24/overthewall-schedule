@@ -12,7 +12,7 @@ export function SiteContentMetadata({ path }: { path: string }) {
   const enabled = isSiteContentPath(path);
   const query = useQuery({
     queryKey: siteContentQueryKey(path, date), queryFn: () => fetchSiteContent(path, date), enabled,
-    staleTime: path === "/feed" || path.startsWith("/play") ? 0 : query => Math.max(0, Date.parse(query.state.data?.expiresAt ?? "") - Date.parse(query.state.data?.generatedAt ?? "")) || 0,
+    staleTime: path === "/feed" || path.startsWith("/play") ? 0 : query => Math.max(0, Date.parse(query.state.data?.expiresAt ?? "") - query.state.dataUpdatedAt) || 0,
     refetchOnWindowFocus: true,
     refetchInterval: query => query.state.status === "error" ? 60_000 : query.state.data ? Math.max(1000, Math.min(300_000, Date.parse(query.state.data.expiresAt) - Date.now())) : false,
     retry: false,

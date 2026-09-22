@@ -15,7 +15,7 @@ export async function readSiteContentYouTube(db: D1Database): Promise<SiteConten
         ORDER BY v.published_at DESC, v.video_id LIMIT 5`).all<{ video_id: string; title: string; channel_title: string; published_at: number; fetched_at: number }>()).results;
       const oldest = rows.length ? Math.min(...rows.map(r => r.fetched_at)) : null;
       return { id: c.id, title: `${c.title} · 전체 멤버`, updatedAt: oldest ? new Date(oldest).toISOString() : null,
-        status: rows.length ? (oldest && Date.now() - oldest < 6 * 3_600_000 ? "available" : "stale") : "unavailable",
+        status: rows.length ? (oldest && Date.now() - oldest < 6 * 3_600_000 ? "available" : "stale") : "empty",
         items: rows.map(r => ({ title: r.title, text: r.channel_title, url: `https://www.youtube.com/watch?v=${encodeURIComponent(r.video_id)}`, publishedAt: new Date(r.published_at).toISOString() })),
       } satisfies SiteContentSection;
     } catch (error) {

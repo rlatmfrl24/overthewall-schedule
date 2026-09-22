@@ -12,6 +12,7 @@ export function useAiReviewSession(key: string) {
   const generation = useRef(0);
   const autoJob = useRef<string | null>(null);
   const appliedJob = useRef<string | null>(null);
+  const notificationJob = useRef<string | null>(null);
   const initialized = useRef(false);
   const previousScope = useRef<string | null>(null);
   const [sessionKey, setSessionKey] = useState(key);
@@ -22,10 +23,11 @@ export function useAiReviewSession(key: string) {
     previousScope.current = null;
     autoJob.current = null;
     appliedJob.current = null;
+    notificationJob.current = null;
     setRangeEnabled(false); setStart("0"); setEnd(""); setJobId(null);
     setLaunching(false); setError(null); setSelected(null); setSongChoice("");
   }
   return { rangeEnabled, setRangeEnabled, start, setStart, end, setEnd, jobId, setJobId,
     launching, setLaunching, error, setError, selected, setSelected, songChoice, setSongChoice,
-    generation, autoJob, appliedJob, initialized, previousScope };
+    generation, autoJob, appliedJob, notificationJob, initialized, previousScope };
 }

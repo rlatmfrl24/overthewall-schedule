@@ -62,6 +62,9 @@ export class SiteContentService {
       if (JSON.stringify(state) !== JSON.stringify(await this.seoReader.readFeedState())) throw new Error("Feed visibility changed");
     } else if (path === "/vods") {
       sections = await this.reader.readVideos();
+      if (sections.length && sections.every(s => s.status === "unavailable")) {
+        throw new Error("All stored video sources are unavailable");
+      }
     } else if (path === "/rights") {
       sections = [section("rights", "비공식 팬 서비스 및 권리 안내", [
         { title: "OTW Schedule은 비공식 팬 운영 서비스입니다.", text: "오버더월·소속사·외부 플랫폼의 공식 서비스가 아닙니다." },

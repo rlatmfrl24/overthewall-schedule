@@ -84,6 +84,35 @@ const reviewFixture = () => {
 };
 
 describe("SingingClipReviewDialog", () => {
+  it.each(["연결할 노래", "Alternate", "원곡 가수"])("searches existing songs by %s and saves the selected identity", async (query) => {
+    const { candidate, catalog } = reviewFixture();
+    const searchableCatalog = { ...Object(catalog), songs: [
+      { id: "song-1", title: "Existing Song", archivedAt: null },
+      { id: "song-2", title: "연결할 노래", aliases: [{ alias: "Alternate" }], originalArtists: [{ entityId: "artist", displayName: "원곡 가수" }], archivedAt: null },
+      { id: "archived", title: "연결할 노래", aliases: [{ alias: "Alternate" }], originalArtists: [{ entityId: "artist", displayName: "원곡 가수" }], archivedAt: 100 },
+    ] };
+    updateCandidateMock.mockImplementation(async (_id, command) => ({ version: 4, status: "ready", reviewInput: command.input }));
+    render(createElement(SingingClipReviewDialog, { candidate, catalog: searchableCatalog, reviewOnly: true, onOpenChange: vi.fn(), onConverted: vi.fn(), onReviewStateChanged: async () => {} }), { wrapper: createQueryWrapper() });
+    fireEvent.change(screen.getByRole("combobox", { name: "기존 곡 검색" }), { target: { value: query } });
+    const results = screen.getByRole("listbox", { name: "기존 곡 검색 결과" });
+    expect(within(results).getAllByRole("option")).toHaveLength(1);
+    const search = screen.getByRole("combobox", { name: "기존 곡 검색" });
+    if (query === "Alternate") {
+      fireEvent.keyDown(search, { key: "Escape" });
+      expect(screen.queryByRole("listbox", { name: "기존 곡 검색 결과" })).toBeNull();
+      fireEvent.keyDown(search, { key: "ArrowDown" });
+      expect(search.getAttribute("aria-activedescendant")).toBeTruthy();
+      fireEvent.keyDown(search, { key: "Enter" });
+    } else {
+      fireEvent.click(within(results).getByRole("option", { name: /연결할 노래/ }));
+    }
+    expect(screen.queryByRole("listbox", { name: "기존 곡 검색 결과" })).toBeNull();
+    expect((search as HTMLInputElement).value).toBe("연결할 노래");
+    expect(screen.getByRole("combobox", { name: "연결할 곡" }).textContent).toContain("연결할 노래");
+    fireEvent.click(screen.getByRole("button", { name: "검수 저장 · 등록 준비 완료" }));
+    await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(candidate.candidateId, expect.objectContaining({ input: expect.objectContaining({ song: { kind: "existing", songId: "song-2" } }) })));
+    expect(convertCandidateMock).not.toHaveBeenCalled();
+  });
   it.each(["singing_clip", "official_video"] as const)("previews %s from the current draft without saving or publishing", async (candidateKind) => {
     const { candidate, catalog } = reviewFixture();
     const props = { candidate, catalog, candidateKind, reviewOnly: true, onOpenChange: vi.fn(), onConverted: vi.fn(), onReviewStateChanged: vi.fn(async () => {}) };

@@ -70,6 +70,11 @@ describe("Gemini actual video request adapter", () => {
     const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
     expect(body.model).toBe("stored-model");
     expect(body.store).toBe(false);
+    expect(body.generation_config.thinking_level).toBe("low");
+    expect(body.input[0].processing).toMatchObject({ type: "static", fps: 1 });
+    const evidenceProperties = body.response_format.schema.properties.songs.items.properties.evidence.properties;
+    expect(evidenceProperties).not.toHaveProperty("segment");
+    expect(evidenceProperties).not.toHaveProperty("extent");
     expect(body.tools).toBeUndefined();
     const data = JSON.parse(body.input[1].text.split("UNTRUSTED_DATA=")[1]);
     expect(data.description).toBe(input.video.description);

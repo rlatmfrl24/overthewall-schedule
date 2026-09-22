@@ -2,6 +2,7 @@ import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
 import { ReviewPublicationPreview } from "./review-publication-preview";
 import { AI_REVIEW_FIELDS, type AiReviewFields } from "@contracts/otw-play-ai-review";
 import { AiReviewPanel } from "./ai-review-panel";
+import { SongConnectionPicker } from "./song-connection-picker";
 import { aiPersonSelection, useAiReviewForm } from "./ai-review-form";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { preservesPlayReview } from "./review-navigation";
@@ -131,6 +132,7 @@ export function SingingClipReviewDialog({
   const [broadcast, setBroadcast] = useState(EMPTY_BROADCAST);
   const [songId, setSongId] = useState("__new");
   const [songTitle, setSongTitle] = useState("");
+  const [songSearch, setSongSearch] = useState("");
   const [songTags, setSongTags] = useState<string[]>([]);
   const [performanceTags, setPerformanceTags] = useState<string[]>([]);
   const [originalArtists, setOriginalArtists] = useState<SelectedSubject[]>([]);
@@ -208,6 +210,7 @@ export function SingingClipReviewDialog({
       reviewInput: input,
     });
     setSongId(input?.song.kind === "existing" ? input.song.songId : "__new");
+    setSongSearch("");
     setSongTitle(
       input?.song.kind === "create" ? input.song.title : candidate.title ?? "",
     );
@@ -437,17 +440,24 @@ export function SingingClipReviewDialog({
             <fieldset disabled={saving} className="min-w-0 space-y-6">
             <section className="grid gap-3 sm:grid-cols-2">
               <h3 className="text-base font-semibold sm:col-span-2">1. 곡 연결·원곡 정보</h3>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>연결할 곡</Label>
-                <Select value={songId} onValueChange={(value) => { ai.touch("song"); setSongId(value); }}>
-                  <SelectTrigger aria-label="연결할 곡"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__new">새 곡 만들기</SelectItem>
-                    {catalog.songs.filter((song) => song.archivedAt === null).map((song) => (
-                      <SelectItem key={song.id} value={song.id}>{song.title}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div role="group" aria-label="곡 연결" className="min-w-0 space-y-3 rounded-lg border bg-muted/10 p-3 sm:col-span-2">
+                <div className="space-y-1.5">
+                  <Label>연결할 곡</Label>
+                  <Select value={songId} onValueChange={(value) => { ai.touch("song"); setSongId(value); }}>
+                    <SelectTrigger className="w-full" aria-label="연결할 곡"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__new">새 곡 만들기</SelectItem>
+                      {catalog.songs.filter((song) => song.archivedAt === null).map((song) => (
+                        <SelectItem key={song.id} value={song.id}>{song.title}{song.originalArtists?.length ? ` · ${song.originalArtists.map(artist => artist.displayName).join(", ")}` : ""}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <SongConnectionPicker
+                  inputKey={`${id}-review`} catalog={catalog} selectedSongId={songId}
+                  query={songSearch} onQueryChange={setSongSearch}
+                  onSelectExisting={(value) => { ai.touch("song"); setSongId(value); setDirty(true); }}
+                />
               </div>
               {songId === "__new" ? (
                 <>
@@ -613,6 +623,8 @@ export function SingingClipReviewDialog({
   );
   if (presentation === "page") return <section ref={pageRef} aria-label={`${candidateKind === "singing_clip" ? "노래 클립" : "공식 영상"} 검수 화면`} className="otw-play-review-page space-y-5">{content}</section>;
   return <Dialog open={candidate !== null} onOpenChange={async (next) => { if (next || (!saving && await canDiscard())) onOpenChange(next); }}>
-    <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">{content}</DialogContent>
+    <DialogContent onEscapeKeyDown={(event) => {
+      if (event.target instanceof HTMLElement && event.target.matches('[role="combobox"][aria-expanded="true"]')) event.preventDefault();
+    }} className="max-h-[90vh] max-w-4xl overflow-y-auto">{content}</DialogContent>
   </Dialog>;
 }

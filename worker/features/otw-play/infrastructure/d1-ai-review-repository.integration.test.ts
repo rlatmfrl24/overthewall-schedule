@@ -64,6 +64,32 @@ beforeEach(async () => {
   await db.prepare("DELETE FROM music_ai_reviews").run();
 });
 describe("AI review durable execution", () => {
+  it("reuses completed analysis across presentation changes but rechecks privacy and evidence", async () => {
+    const repo = new D1AiReviewRepository(db);
+    const video = { ...record("source").input!.video, privacyStatus: "public", tags: ["J-POP", "Live"] };
+    const readVideo = vi.fn().mockResolvedValue(video);
+    const analyze = vi.fn().mockResolvedValue({ result: { videoAnalyzed: true, songs: [], warnings: [] }, usage: { inputTokens: 10, outputTokens: 1 } });
+    const service = new AiReviewService(repo, { readVideo, readChannel: vi.fn() }, { analyze },
+      { candidate: vi.fn(), catalog: vi.fn().mockResolvedValue({ entities: [], songs: [], members: [] }) },
+      { send: vi.fn() }, { enabled: true, model: "model", dailyLimit: 100 }, async s => s,
+      () => crypto.randomUUID(), () => now);
+    const request = { target: { youtubeUrl: "https://www.youtube.com/watch?v=BBBBBBBBBBB", candidateKind: "official_video" as const }, range: null, idempotencyKey: "first" };
+    const first = await service.start(request, "admin");
+    await service.process(first.id);
+    readVideo.mockResolvedValue({ ...video, thumbnailUrl: "https://example.com/new.jpg", tags: ["Live", "J-POP", "Live"] });
+    const reused = await service.start({ ...request, idempotencyKey: "second" }, "admin");
+    expect(reused).toMatchObject({ id: first.id, status: "succeeded" });
+    expect(analyze).toHaveBeenCalledTimes(1);
+    readVideo.mockResolvedValue({ ...video, privacyStatus: "private" });
+    await expect(service.start({ ...request, idempotencyKey: "private" }, "admin")).rejects.toMatchObject({ code: "video_unavailable" });
+    readVideo.mockResolvedValue({ ...video, description: "Changed original artist credit" });
+    const changed = await service.start({ ...request, idempotencyKey: "changed" }, "admin");
+    expect(changed.id).not.toBe(first.id);
+    expect(changed.status).toBe("queued");
+    readVideo.mockResolvedValue(video);
+    const forced = await service.start({ ...request, force: true, idempotencyKey: "forced" }, "admin");
+    expect(forced.id).not.toBe(first.id);
+  });
   it("persists the catalog check after analysis and refreshes matches without another model call", async () => {
     const repo = new D1AiReviewRepository(db);
     const result: AiReviewResult = { videoAnalyzed: true, warnings: [], songs: [{ values: { song: { title: "うたたね", alternateTitles: ["선잠"], originalArtists: [{ name: "Leina", entityKind: "person", subject: null }], tags: [], existingSongId: null, candidates: [] } }, evidence: {}, warnings: [] }] };

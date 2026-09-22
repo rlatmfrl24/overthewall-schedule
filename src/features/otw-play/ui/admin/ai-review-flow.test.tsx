@@ -6,9 +6,11 @@ import {
   fireEvent,
   waitFor,
   cleanup,
+  act,
 } from "@testing-library/react";
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
-import { createQueryWrapper } from "@/test/query-client";
+import { createQueryWrapper, createTestQueryClient } from "@/test/query-client";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { SingingClipReviewDialog } from "./singing-clip-review-dialog";
 import { CatalogEntryDialog } from "./catalog-entry-dialog";
 import type {
@@ -23,7 +25,11 @@ const mocks = vi.hoisted(() => ({
   save: vi.fn(),
   preflight: vi.fn(),
   create: vi.fn(),
+  toast: vi.fn(),
+  prepareSound: vi.fn(),
+  playSound: vi.fn(),
 }));
+vi.mock("./use-ai-review-sound", () => ({ useAiReviewSound: () => ({ prepare: mocks.prepareSound, play: mocks.playSound }) }));
 vi.mock("../../api/ai-review", () => ({
   startAiReview: mocks.start,
   getAiReview: mocks.get,
@@ -36,7 +42,7 @@ vi.mock("../../api/admin", () => ({
   createOtwPlayCatalogEntry: mocks.create,
 }));
 vi.mock("@/features/members", () => ({ fetchActiveMembers: async () => [] }));
-vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
+vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
 const catalog = {
   revision: 1,
   readModelRevision: 1,
@@ -150,6 +156,74 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe("AI suggestions through actual admin forms", () => {
+  it("keeps a searched song selection when an in-flight AI result arrives", async () => {
+    const client = createTestQueryClient();
+    const queued = { ...result(true), status: "queued" as const, result: null };
+    mocks.start.mockResolvedValue({ data: queued });
+    mocks.get.mockResolvedValue({ data: queued });
+    const searchCatalog = { ...catalog, songs: [{ id: "manual-song", title: "선택한 기존 곡", archivedAt: null, aliases: [], originalArtists: [], tags: [] }] } as unknown as OtwPlayAdminCatalogDto;
+    render(createElement(QueryClientProvider, { client }, createElement(SingingClipReviewDialog, { candidate, catalog: searchCatalog, reviewOnly: true, onOpenChange: vi.fn(), onConverted: vi.fn(), onReviewStateChanged: async () => {} })));
+    fireEvent.click(screen.getByRole("button", { name: "AI로 자동 채우기" }));
+    await waitFor(() => expect(mocks.get).toHaveBeenCalled());
+    fireEvent.change(screen.getByRole("combobox", { name: "기존 곡 검색" }), { target: { value: "선택한" } });
+    fireEvent.click(screen.getByRole("option", { name: /선택한 기존 곡/ }));
+    mocks.get.mockResolvedValue({ data: result(true) });
+    await act(async () => { await client.invalidateQueries({ queryKey: ["otw-play-ai-review", queued.id] }); });
+    await screen.findByText("분석 완료");
+    expect(screen.getByRole("combobox", { name: "연결할 곡" }).textContent).toContain("선택한 기존 곡");
+    fireEvent.click(screen.getByRole("button", { name: "검수 저장 · 등록 준비 완료" }));
+    await waitFor(() => expect(mocks.save).toHaveBeenCalled());
+    expect(mocks.save.mock.calls[0][1].input.song).toEqual({ kind: "existing", songId: "manual-song" });
+    client.clear();
+  });
+  it.each([
+    ["succeeded", "success", "AI 분석 완료"],
+    ["partial", "info", "AI 일부 분석 완료"],
+    ["failed", "error", "AI 분석 실패"],
+  ] as const)("notifies once when a requested clip analysis finishes as %s", async (status, variant, title) => {
+    const client = createTestQueryClient();
+    const queued = { ...result(true), status: "queued" as const, result: null };
+    mocks.start.mockResolvedValue({ data: queued });
+    mocks.get.mockResolvedValue({ data: queued });
+    render(createElement(QueryClientProvider, { client }, createElement(SingingClipReviewDialog, {
+      candidate, candidateKind: "singing_clip", catalog, reviewOnly: true,
+      onOpenChange: vi.fn(), onConverted: vi.fn(), onReviewStateChanged: async () => {},
+    })));
+    await waitFor(() => expect(mocks.latest).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "AI로 자동 채우기" }));
+    await waitFor(() => expect(mocks.get).toHaveBeenCalled());
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.prepareSound).toHaveBeenCalledTimes(1);
+    expect(mocks.playSound).not.toHaveBeenCalled();
+    mocks.get.mockResolvedValue({ data: { ...queued, status: "retry_wait" } });
+    await act(async () => { await client.invalidateQueries({ queryKey: ["otw-play-ai-review", queued.id] }); });
+    expect(mocks.toast).not.toHaveBeenCalled();
+    mocks.get.mockResolvedValue({ data: { ...result(true), status, result: status === "failed" ? null : result(true).result } });
+    await act(async () => { await client.invalidateQueries({ queryKey: ["otw-play-ai-review", queued.id] }); });
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title, variant })));
+    await act(async () => { await client.invalidateQueries({ queryKey: ["otw-play-ai-review", queued.id] }); });
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.playSound).toHaveBeenCalledTimes(1);
+    client.clear();
+  });
+
+  it("notifies when a new request returns a completed cached result immediately", async () => {
+    const cached = { data: result(true) };
+    mocks.latest.mockResolvedValue(cached);
+    mocks.start.mockResolvedValue(cached);
+    mocks.get.mockResolvedValue(cached);
+    render(createElement(SingingClipReviewDialog, {
+      candidate, candidateKind: "singing_clip", catalog, reviewOnly: true,
+      onOpenChange: vi.fn(), onConverted: vi.fn(), onReviewStateChanged: async () => {},
+    }), { wrapper: createQueryWrapper() });
+    await screen.findByRole("button", { name: "AI 제안 일괄 적용" });
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.playSound).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "AI로 자동 채우기" }));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "AI 분석 완료" })));
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.playSound).toHaveBeenCalledTimes(1);
+  });
   it.each([false, true])("starts a fresh registration after abandoning a suspended job (clip=%s)", async (clip) => {
     const props = { open: true, clip, onOpenChange: vi.fn(), refreshCatalog: vi.fn(async () => {}), catalog, preselectedSongId: null, onSaved: async () => {} };
     const view = render(createElement(CatalogEntryDialog, props), { wrapper: createQueryWrapper() });
@@ -264,6 +338,7 @@ describe("AI suggestions through actual admin forms", () => {
         { wrapper: createQueryWrapper() },
       );
       await screen.findByRole("button", { name: "AI 제안 일괄 적용" });
+      expect(mocks.toast).not.toHaveBeenCalled();
       expect((screen.getByLabelText("곡명") as HTMLInputElement).value).toBe(
         candidate.title,
       );

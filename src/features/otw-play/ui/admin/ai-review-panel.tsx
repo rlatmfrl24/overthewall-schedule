@@ -1,4 +1,5 @@
 import { useAiReviewSession } from "./use-ai-review-session";
+import { useAiReviewSound } from "./use-ai-review-sound";
 import { useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -18,6 +19,7 @@ import {
 import type { AiReviewForm } from "./ai-review-form";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { useToast } from "@/shared/ui/toast";
 
 const labels: Record<AiReviewField, string> = {
   song: "곡·원곡 가수",
@@ -113,10 +115,12 @@ export function AiReviewPanel({
   segmentEnabled?: boolean;
 }) {
   const client = useQueryClient();
+  const { toast } = useToast();
+  const { prepare: prepareSound, play: playSound } = useAiReviewSound();
   const localSession = useAiReviewSession(videoId);
   const { rangeEnabled, setRangeEnabled, start, setStart, end, setEnd, jobId, setJobId,
     launching, setLaunching, error, setError, selected, setSelected, songChoice, setSongChoice,
-    generation, autoJob, appliedJob, initialized, previousScope } = session ?? localSession;
+    generation, autoJob, appliedJob, notificationJob, initialized, previousScope } = session ?? localSession;
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
@@ -145,7 +149,8 @@ export function AiReviewPanel({
     setError(null);
     autoJob.current = null;
     appliedJob.current = null;
-  }, [scope, previousScope, generation, autoJob, appliedJob, setJobId, setSelected, setSongChoice, setError]);
+    notificationJob.current = null;
+  }, [scope, previousScope, generation, autoJob, appliedJob, notificationJob, setJobId, setSelected, setSongChoice, setError]);
   useEffect(
     () => () => {
       if (!session) generation.current++;
@@ -170,6 +175,26 @@ export function AiReviewPanel({
         : false,
   });
   const data = job.data?.data ?? (jobId ? null : recent.data?.data);
+  useEffect(() => {
+    if (disabled || !data) return;
+    if (isAiReviewPending(data.status)) {
+      notificationJob.current = data.id;
+      return;
+    }
+    if (notificationJob.current !== data.id) return;
+    notificationJob.current = null;
+    playSound();
+    toast({
+      variant: data.status === "failed" ? "error" : data.status === "partial" ? "info" : "success",
+      title: data.status === "failed" ? "AI 분석 실패" : data.status === "partial" ? "AI 일부 분석 완료" : "AI 분석 완료",
+      description: data.status === "failed"
+        ? "분석을 완료하지 못했습니다. 오류 내용을 확인하고 다시 요청해 주세요."
+        : data.status === "partial"
+          ? "일부 항목의 분석이 완료되었습니다. AI 제안과 확인이 필요한 항목을 검토해 주세요."
+          : "AI 제안이 준비되었습니다. 검수 내용을 확인해 주세요.",
+      durationMs: 6000,
+    });
+  }, [data, disabled, launching, notificationJob, toast, playSound]);
   const result = data?.result;
   const apply = useCallback(
     (s: AiReviewSuggestion, field?: AiReviewField | "all") => {
@@ -213,6 +238,7 @@ export function AiReviewPanel({
     }
   }, [data, result, apply, disabled, launching, appliedJob, autoJob, setSelected]);
   const launch = async (force: boolean) => {
+    prepareSound();
     const ticket = ++generation.current;
     setLaunching(true);
     setError(null);
@@ -226,6 +252,7 @@ export function AiReviewPanel({
       });
       if (ticket !== generation.current) return;
       autoJob.current = r.data.id;
+      notificationJob.current = r.data.id;
       appliedJob.current = null;
       client.setQueryData(["otw-play-ai-review", r.data.id], r);
       setJobId(r.data.id);
