@@ -349,12 +349,33 @@ export class ScheduledJobExecutor {
           if (channelIds.length === 0 || channelIds.length > 2) {
             throw new Error("invalid_auto_update_scan_shard");
           }
-          return succeeded(await scanAndPersistRecentChzzkObservations(
+          const result = await scanAndPersistRecentChzzkObservations(
             getDb(this.env),
             rangeDays,
             channelIds,
             this.env.otw_db,
-          ));
+          );
+          const completed = result.channelResults.filter(channel => channel.status === "complete").length;
+          const failed = result.channelResults.filter(channel => channel.status === "failed").length;
+          const incomplete = result.channelResults.filter(channel => channel.status === "incomplete").length;
+          // The queue retries exceptions up to three attempts. Successful channel
+          // observations are already persisted and safe to upsert on the retry.
+          if (failed > 0 && item.attempts < 3) {
+            const error = new Error(`자동 일정 수집 조회 실패: ${failed}개 채널. 재시도가 필요합니다.`);
+            error.name = "schedule_scan_failed";
+            throw error;
+          }
+          const unresolved = failed + incomplete;
+          const errorCode = failed > 0 ? "schedule_scan_failed"
+            : incomplete > 0 ? "schedule_scan_incomplete" : null;
+          return {
+            status: unresolved === 0 ? "succeeded"
+                : completed > 0 ? "partial" : "failed",
+            result: { ...result, attempted: result.channels, succeeded: completed, failed: unresolved, queryFailed: failed, incomplete },
+            attempted: result.channels, succeeded: completed, failed: unresolved,
+            errorCode,
+            error: errorCode ? `자동 일정 수집: 완료 ${completed}개, 조회 실패 ${failed}개, 범위 확인 미완료 ${incomplete}개 채널` : null,
+          };
         }
         if (item.phase === "match") {
           const memberUid = Number(continuation.memberUid);

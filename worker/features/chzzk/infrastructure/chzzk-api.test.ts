@@ -191,6 +191,13 @@ describe("CHZZK worker service D1 cache", () => {
     expect(state.writeCount).toBe(1);
   });
 
+  it("휴방 판정의 requireFresh 조회는 origin 실패를 빈 캐시 응답으로 숨기지 않는다", async () => {
+    const state = makeCacheDb([makeCacheRow(cacheKey, "vods", makeVideoContent("cached", { data: [] }), { fresh: true })]);
+    fetchMock.mockResolvedValue(new Response("blocked", { status: 500 }));
+    const [result] = await fetchChzzkVideosBatch([{ channelId, page: 0, size: 10, cacheable: true }], state.db, { forceRefresh: true, requireFresh: true });
+    expect(result?.content).toBeNull();
+  });
+
   it.each([400, 500, 429])(
     "origin HTTP %s 오류에서는 stale D1 값과 기존 TTL을 보존한다",
     async (status) => {

@@ -217,6 +217,7 @@ export default defineConfig({
           compatibilityFlags: ["nodejs_compat"],
           d1Databases: ["otw_db"],
           bindings: {
+            SCHEDULE_DAY_MIGRATION_SQL: readFileSync(path.resolve(__dirname, "drizzle/0096_unknown_hex.sql"), "utf8"),
             OTW_PLAY_SEARCH_INTEGRITY_SQL: readFileSync(path.resolve(__dirname, "scripts/otw-play-search-integrity.sql"), "utf8"),
             OTW_PLAY_SEARCH_BACKFILL_MIGRATIONS: migrations.filter(({ name }) => name === "0095_otw-play-ready-search-backfill.sql"),
             MEMBER_POSTS_CAFE_MIGRATIONS: migrations.filter(({ name }) => /^(0024_|0036_|0039_)/.test(name))

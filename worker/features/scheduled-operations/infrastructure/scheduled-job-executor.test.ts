@@ -3,6 +3,7 @@ import type { XReferenceHydrationResultDto } from "@contracts/x-posts";
 import type { Env } from "../../../platform/types";
 import type { ScheduledJobItemRecord } from "../../../platform/scheduled-jobs";
 import { AiReviewService, IngestionService } from "../../otw-play";
+import * as schedules from "../../schedules";
 import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
 import {
   ScheduledJobExecutor,
@@ -30,6 +31,51 @@ const result = (
 
 describe("scheduled job executor outcomes", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  const executeScheduleScan = async (statuses: ("complete" | "failed" | "incomplete")[], attempts = 3) => {
+    const channelResults = statuses.map((status, index) => ({ channelId: String(index), status }));
+    vi.spyOn(schedules, "scanAndPersistRecentChzzkObservations")
+      .mockResolvedValue({ channels: statuses.length, observations: 0, channelResults });
+    const statement = { bind: vi.fn(), first: vi.fn(async () => ({ value: "1" })) };
+    statement.bind.mockReturnValue(statement);
+    const env = { otw_db: { prepare: vi.fn(() => statement) } } as unknown as Env;
+    const repository = { readRun: vi.fn(async () => ({ job_type: "schedule_auto_update", source: "scheduled" })) };
+    return new ScheduledJobExecutor(env, repository as never).execute({
+      run_id: "run", phase: "scan", attempts,
+      continuation_json: JSON.stringify({ channelIds: ["a".repeat(32)] }),
+    } as ScheduledJobItemRecord);
+  };
+
+  it("정상 빈 조회는 성공하고 전체 조회 실패는 실패로 기록한다", async () => {
+    // 계획 이후 멤버가 비활성화되어도 후속 판정/완료 단계는 진행해야 한다.
+    expect(await executeScheduleScan([])).toMatchObject({
+      status: "succeeded", attempted: 0, succeeded: 0, failed: 0,
+    });
+    expect(await executeScheduleScan(["complete"])).toMatchObject({
+      status: "succeeded", attempted: 1, succeeded: 1, failed: 0, errorCode: null,
+    });
+    expect(await executeScheduleScan(["failed"])).toMatchObject({
+      status: "failed", attempted: 1, succeeded: 0, failed: 1, errorCode: "schedule_scan_failed",
+    });
+  });
+
+  it.each([1, 2])("조회 실패의 %i번째 시도는 큐 재시도 경로로 전달한다", async attempts => {
+    await expect(executeScheduleScan(["complete", "failed"], attempts))
+      .rejects.toMatchObject({ name: "schedule_scan_failed" });
+  });
+
+  it("재시도 소진 후 일부 실패와 페이지 확인 미완료를 성공으로 숨기지 않는다", async () => {
+    expect(await executeScheduleScan(["complete", "failed"])).toMatchObject({
+      status: "partial", result: { attempted: 2, succeeded: 1, failed: 1, queryFailed: 1 },
+    });
+    expect(await executeScheduleScan(["complete", "incomplete"], 1)).toMatchObject({
+      status: "partial", failed: 1, errorCode: "schedule_scan_incomplete",
+      result: { incomplete: 1 },
+    });
+    expect(await executeScheduleScan(["incomplete"], 1)).toMatchObject({
+      status: "failed", succeeded: 0, failed: 1, errorCode: "schedule_scan_incomplete",
+    });
+  });
 
   it("rechecks paused automation when an already dispatched source-health item arrives", async () => {
     const statement = { bind: vi.fn(), first: vi.fn(async () => ({ value: "true" })) };

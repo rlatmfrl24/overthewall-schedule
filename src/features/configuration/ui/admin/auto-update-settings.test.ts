@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
@@ -190,6 +191,41 @@ describe("AutoUpdateSettingsManager", () => {
     vi.clearAllMocks();
   });
 
+  const holidayPending = (overrides = {}) => makePendingSchedule({
+    candidate_kind: "holiday_suggestion", status: "휴방", title: "휴방 추정",
+    start_time: null, vod_id: null, vod_started_at: null, source_vod_ids: [],
+    session_started_at: null, session_ended_at: null, vod_segment_count: 0,
+    same_day_schedules: [], same_day_schedule_count: 0, has_same_day_schedule: false,
+    holiday_evidence: { checked_at: Date.parse("2026-07-10T09:00:00+09:00"), range_start: Date.parse("2026-07-09T00:00:00+09:00"), range_end: Date.parse("2026-07-10T00:00:00+09:00"), scan_status: "complete", broadcast_seen: false },
+    ...overrides,
+  });
+
+  it("휴방 추정은 날짜와 근거를 표시하고 방송 옵션 없이 확인 후 승인한다", async () => {
+    fetchPendingSchedulesMock.mockResolvedValue([holidayPending()]);
+    render(createElement(AutoUpdateSettingsManager), { wrapper: createQueryWrapper() });
+    const card = await screen.findByRole("article", { name: "테스트 멤버 휴방 추정" });
+    expect(within(card).getByText("2026-07-09 (목) · 한국 시간")).toBeTruthy();
+    expect(within(card).getByText(/기록이 남지 않은 방송/)).toBeTruthy();
+    expect(within(card).queryByText("반영 범위")).toBeNull();
+    expect(within(card).queryByText(/30분 단위/)).toBeNull();
+    fireEvent.click(within(card).getByRole("button", { name: "휴방 승인" }));
+    expect(approvePendingScheduleMock).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("alertdialog");
+    expect(within(dialog).getByText(/2026-07-09.*휴방 1건을 등록/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "휴방 1건 승인" }));
+    await waitFor(() => expect(approvePendingScheduleMock).toHaveBeenCalledWith(101, expect.objectContaining({ targetMode: "create" })));
+  });
+
+  it("일괄 승인 확인에도 휴방 날짜와 건수를 표시하고 오래된 요청은 개별 승인할 수 없다", async () => {
+    fetchPendingSchedulesMock.mockResolvedValue([holidayPending({ holiday_evidence: null })]);
+    render(createElement(AutoUpdateSettingsManager), { wrapper: createQueryWrapper() });
+    const card = await screen.findByRole("article", { name: "테스트 멤버 휴방 추정" });
+    expect(within(card).getByRole("status").textContent).toContain("오래된 요청");
+    expect((within(card).getByRole("button", { name: "휴방 승인" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "전체 승인" }));
+    expect(within(screen.getByRole("alertdialog")).getByText(/휴방 추정 1건 · 대상: 2026-07-09/)).toBeTruthy();
+  });
+
   it("압축된 자동 업데이트 KPI 바에 후보와 실행 정보를 표시한다", async () => {
     fetchPendingSchedulesMock.mockResolvedValue([
       makePendingSchedule({ id: 101, action_type: "create" }),
@@ -277,7 +313,7 @@ describe("AutoUpdateSettingsManager", () => {
     await waitFor(() => expect(screen.getByText("중복 가능")).toBeTruthy());
     expect(screen.getByText("변경 3개")).toBeTruthy();
     expect(screen.getByText("검토 필요")).toBeTruthy();
-    expect(screen.getByText("중복 후보")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "테스트 멤버 2026-07-09 기존 일정 비교" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "전체 승인" }));
 
@@ -338,6 +374,44 @@ describe("AutoUpdateSettingsManager", () => {
         targetScheduleId: null,
       }),
     );
+  });
+
+  it("같은 날짜의 전체 일정과 시간 차이를 표시하고 실제 수정 대상을 강조한다", async () => {
+    const fullTitle = "기존 방송의 긴 제목도 생략하지 않고 검토할 수 있도록 전체 내용을 표시합니다";
+    fetchPendingSchedulesMock.mockResolvedValue([makePendingSchedule({
+      same_day_schedules: [
+        { id: 202, start_time: "13:00", title: "오후 방송", status: "방송" },
+        { id: 201, start_time: "12:00", title: fullTitle, status: "방송" },
+      ],
+    })]);
+    render(createElement(AutoUpdateSettingsManager), { wrapper: createQueryWrapper() });
+
+    const comparison = await screen.findByRole("region", { name: "테스트 멤버 2026-07-09 기존 일정 비교" });
+    expect(within(comparison).getByText("테스트 멤버 · 2026-07-09 (목) · 한국 시간")).toBeTruthy();
+    const rows = within(comparison).getAllByRole("listitem");
+    expect(within(rows[0]).getByText(fullTitle)).toBeTruthy();
+    expect(within(rows[0]).getByText("추천 시작보다 20분 전 (20분 차이)")).toBeTruthy();
+    expect(within(rows[1]).getByText("추천 시작보다 40분 후 (40분 차이)")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "기존 수정" }));
+    expect(within(comparison).getByText("현재 수정 대상")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "새로 추가" }));
+    expect(within(comparison).queryByText("현재 수정 대상")).toBeNull();
+  });
+
+  it("시간 미정과 휴방을 임의의 시작 시각으로 비교하지 않는다", async () => {
+    fetchPendingSchedulesMock.mockResolvedValue([makePendingSchedule({
+      same_day_schedules: [
+        { id: 201, start_time: null, title: null, status: "미정" },
+        { id: 202, start_time: null, title: "쉬어갑니다", status: "휴방" },
+      ],
+    })]);
+    render(createElement(AutoUpdateSettingsManager), { wrapper: createQueryWrapper() });
+    const comparison = await screen.findByRole("region", { name: "테스트 멤버 2026-07-09 기존 일정 비교" });
+    expect(within(comparison).getByText("시간 미정")).toBeTruthy();
+    expect(within(comparison).getByText("보완할 정보: 시간 미입력 · 제목 미입력")).toBeTruthy();
+    expect(within(comparison).getByText("종일")).toBeTruthy();
+    expect(within(comparison).queryByText(/분 차이/)).toBeNull();
+    expect(within(comparison).queryByText("추천 시각과 가장 가까움")).toBeNull();
   });
 
   it("거부 확인에서 영구 제외 영향과 필수 사유를 안내한다", async () => {

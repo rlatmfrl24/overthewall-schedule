@@ -45,6 +45,19 @@ const schedule = (
 });
 
 describe("buildBroadcastSessions", () => {
+  it.each([
+    ["18:59", "suppressed"], ["19:00", "candidate"],
+  ])("기존 일정에서 %s의 새 방송은 240분 경계로 판정한다", (time, kind) => {
+    const sessions = buildBroadcastSessions([observation("boundary", `2026-07-28T${time}:00+09:00`, "2026-07-28T23:00:00+09:00", { title: "완전히 다른 내용" })]);
+    expect(matchBroadcastSessions(sessions, [schedule(1, "15:00", "기존")])[0]).toMatchObject({ kind });
+  });
+
+  it("여러 일정 중 가장 가까운 일정과 시간 미정을 고려하고 다른 멤버와 날짜는 제외한다", () => {
+    const sessions = buildBroadcastSessions([observation("distance", "2026-07-28T19:00:00+09:00", "2026-07-28T22:00:00+09:00", { title: "새로운 내용" })]);
+    expect(matchBroadcastSessions(sessions, [schedule(1, "10:00", "기존"), schedule(2, "16:00", "이전")])[0].kind).toBe("suppressed");
+    expect(matchBroadcastSessions(sessions, [schedule(1, null, "다른 약속")])[0].kind).toBe("suppressed");
+    expect(matchBroadcastSessions(sessions, [schedule(1, "19:00", "기존", { memberUid: 2 }), schedule(2, "19:00", "이전", { date: "2026-07-27" })])[0].kind).toBe("candidate");
+  });
   it("46초와 35분 뒤 재개한 VOD를 같은 방송 세션으로 합친다", () => {
     const sessions = buildBroadcastSessions([
       observation(
@@ -366,7 +379,7 @@ describe("matchBroadcastSessions", () => {
     });
   });
 
-  it("게릴라 일정은 자동 매칭 대상으로 사용하지 않고 신규 후보로 유지한다", () => {
+  it("게릴라 일정도 같은 날 4시간 이내의 신규 후보를 억제한다", () => {
     const [session] = buildBroadcastSessions([
       observation(
         "chzzk:guerrilla",
@@ -381,10 +394,8 @@ describe("matchBroadcastSessions", () => {
     ]);
 
     expect(decision).toMatchObject({
-      kind: "candidate",
-      candidateKind: "missing_schedule",
-      scheduleId: null,
-      reason: "missing_schedule",
+      kind: "suppressed",
+      reason: "same_day_suppressed",
     });
   });
 

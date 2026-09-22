@@ -1,4 +1,5 @@
 export const REQUIRED_D1_COLUMNS = {
+  schedule_day_assessments: ["member_uid", "date", "channel_id", "checked_at", "range_start", "range_end", "scan_status", "broadcast_seen", "decision", "decided_at", "decided_by", "rejection_reason"],
   music_playlists: ["id", "owner_user_id", "title", "description", "version", "representative_performance_id", "origin_default_id", "create_request_id", "create_payload", "write_token", "created_at", "updated_at"],
   music_playlist_items: ["playlist_id", "performance_id", "position"],
   music_default_playlist_settings: ["playlist_key", "title", "description", "representative_performance_id", "version", "updated_by", "updated_at", "write_token"],

@@ -81,6 +81,7 @@ export type ChzzkClipFetchRequest = {
 
 export type ChzzkFetchOptions = {
   forceRefresh?: boolean;
+  requireFresh?: boolean;
 };
 
 const now = () => Date.now();
@@ -369,6 +370,7 @@ type FetchCachedBatchParams<T> = {
   freshTtlMs: number;
   staleTtlMs: number;
   forceRefresh: boolean;
+  requireFresh?: boolean;
   isContent: (value: unknown) => value is T;
   fetchOrigin: (request: CachedBatchRequest) => Promise<OriginResult<T>>;
 };
@@ -381,6 +383,7 @@ const fetchCachedBatch = async <T>({
   freshTtlMs,
   staleTtlMs,
   forceRefresh,
+  requireFresh = false,
   isContent,
   fetchOrigin,
 }: FetchCachedBatchParams<T>) => {
@@ -486,7 +489,7 @@ const fetchCachedBatch = async <T>({
         };
       }
 
-      const fallback = candidates.get(request.cacheKey);
+      const fallback = requireFresh ? undefined : candidates.get(request.cacheKey);
       resolved.set(request.cacheKey, fallback?.content ?? null);
       if (fallback) {
         console.warn("Using stale CHZZK API cache after origin failure", {
@@ -587,6 +590,7 @@ export const fetchChzzkVideosBatch = async (
     requests: normalized,
     cacheDb,
     cacheType: "vods",
+    requireFresh: options.requireFresh,
     cache: CHZZK_VIDEOS_CACHE,
     freshTtlMs: WORKER_CACHE_POLICY.chzzk.vods.freshTtlMs,
     staleTtlMs: WORKER_CACHE_POLICY.chzzk.vods.staleTtlMs,

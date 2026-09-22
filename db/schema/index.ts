@@ -1125,6 +1125,22 @@ export type AutoUpdateRun = typeof autoUpdateRuns.$inferSelect;
 export type NewAutoUpdateRun = typeof autoUpdateRuns.$inferInsert;
 
 // 승인 대기 스케줄 테이블
+// Evidence and operator decisions for one member's Korean calendar day.
+export const scheduleDayAssessments = sqliteTable("schedule_day_assessments", {
+  member_uid: integer().notNull().references(() => members.uid),
+  date: text().notNull(),
+  channel_id: text().notNull(),
+  checked_at: integer().notNull(),
+  range_start: integer().notNull(),
+  range_end: integer().notNull(),
+  scan_status: text({ enum: ["complete", "failed", "incomplete"] }).notNull(),
+  broadcast_seen: integer().notNull().default(0),
+  decision: text({ enum: ["none", "pending", "approved", "rejected"] }).notNull().default("none"),
+  decided_at: integer(),
+  decided_by: text(),
+  rejection_reason: text(),
+}, table => [primaryKey({ columns: [table.member_uid, table.date] })]);
+
 export const pendingSchedules = sqliteTable(
   "pending_schedules",
   {
@@ -1156,6 +1172,8 @@ export const pendingSchedules = sqliteTable(
     created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
+    uniqueIndex("uidx_pending_holiday_member_date").on(table.member_uid, table.date)
+      .where(sql`${table.candidate_kind} = 'holiday_suggestion'`),
     index("idx_pending_schedules_vod_id").on(table.vod_id),
     index("idx_pending_schedules_member_date_time").on(
       table.member_uid,

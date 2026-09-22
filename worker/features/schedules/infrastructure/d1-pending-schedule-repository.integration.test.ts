@@ -777,7 +777,7 @@ describe("D1 pending schedule transaction", () => {
     ).not.toBeNull();
   });
 
-  it("게릴라에 매칭된 기존 V2 후보도 게릴라를 유지하고 30분 단위 신규 방송으로 승인한다", async () => {
+  it("보완 대상이 게릴라로 바뀌면 새 일정으로 전환하지 않고 오래된 요청을 알린다", async () => {
     await env.otw_db
       .prepare(
         `INSERT INTO schedules (
@@ -805,8 +805,8 @@ describe("D1 pending schedule transaction", () => {
     await expect(
       repository.approve(item!, updateOptions(33), actor),
     ).resolves.toMatchObject({
-      success: true,
-      action: "create",
+      success: false,
+      error: "stale",
     });
     const schedules = await env.otw_db
       .prepare(
@@ -828,18 +828,12 @@ describe("D1 pending schedule transaction", () => {
         title: "게릴라",
         status: "게릴라",
       },
-      {
-        id: expect.any(Number),
-        start_time: "20:30",
-        title: "실제 방송",
-        status: "방송",
-      },
     ]);
     expect(
       await env.otw_db
         .prepare("SELECT id FROM pending_schedules WHERE id = 1")
         .first(),
-    ).toBeNull();
+    ).toEqual({ id: 1 });
   });
 
   it("새 일정 V2 승인 전에 대응하는 빈 일정이 생기면 후보를 만료 처리한다", async () => {
