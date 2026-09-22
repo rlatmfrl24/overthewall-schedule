@@ -47,9 +47,21 @@ subsequent branch deletion with ancestry proof. No open PR owned these branches.
   Existing operator decisions were not changed to exercise the UI.
 - Environment files and local Wrangler state from both worktrees were backed up
   outside the repository before removal, with all 45 file hashes verified.
-- Production D1 still had migration 0096 pending at review time. Production
-  migration and deployment are separate from this branch consolidation; the
-  deployment script rejects unapplied migrations. A real production collection
-  and holiday approval flow remains a post-promotion verification step.
+- Production D1 had migration 0096 pending at review time. Pushing the validated
+  master automatically deployed Worker version
+  `f38d9b6b-6c93-43e2-a22e-787d02575e74` at 100%. Because that runtime requires the
+  new table, migration 0096 was then promoted as the required compatibility step.
+  Remote readback confirmed the table, unique index and migration record, with
+  no migrations pending. No second manual Worker deployment was started.
+- The automatic Cloudflare build deployed despite the pending migration; the
+  guard in `scripts/deploy-workers.mjs` therefore did not protect this automatic
+  route. Future schema-dependent merges must promote compatible migrations
+  before pushing master or route automatic deployment through that guard.
+  A real production collection and holiday approval flow remains unverified.
+- Remote SUL-22/docs branches and local SUL-26/SUL-28/integration branches were
+  deleted after ancestry checks. Only master and the main registered worktree
+  remain. Windows long paths left files in the old SUL-26 directory and a
+  node_modules directory in SUL-28; automatic approval review blocked recursive
+  cleanup of those residual directories without supplying a more specific reason.
 - The pre-existing `codex/x-api` stash contains separate historical work and is
   preserved; it is not a local or remote branch.
