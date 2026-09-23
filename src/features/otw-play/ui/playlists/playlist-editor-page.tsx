@@ -12,6 +12,7 @@ import { useSiteSeo } from "@/shared/seo/use-site-seo";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { SelectField } from "@/shared/ui/select-field";
 import { ApiError } from "@/shared/api/client";
 import { createMyPlaylist, fetchMyPlaylist, saveMyPlaylist } from "../../api/playlists";
 import { collectPlaylist } from "../../use-cases/resolve-playlist";
@@ -128,8 +129,8 @@ function PlaylistEditor({ initial, saved, tracks }: { initial: PlayPlaylistWrite
     <div className="playlist-editor-columns" aria-busy={busy}>
       <section className="playlist-editor-search" aria-label="카탈로그에서 찾기" tabIndex={0} data-active={tab === "search"}><h2 className="text-lg font-semibold">카탈로그에서 찾기</h2>
         <form onSubmit={event => { event.preventDefault(); setSearch(q.trim()); }} className="flex gap-2"><Input aria-label="플레이리스트 곡 검색" value={q} maxLength={80} onChange={event => setQ(event.target.value)} placeholder="곡명 · 원곡 가수 · 참여자" /><Button type="submit">검색</Button></form>
-        <div className="flex flex-wrap gap-2"><label>멤버 <select value={member} onChange={event => setMember(event.target.value)}><option value="">전체 멤버</option>{members.data?.data.members.map(item => <option key={item.uid} value={item.uid}>{item.name}</option>)}</select></label>
-          <label>분류 <select value={relation} onChange={event => setRelation(event.target.value as typeof relation)}><option value="">전체</option><option value="original">오리지널</option><option value="cover">커버</option></select></label></div>
+        <div className="flex flex-wrap gap-2"><label>멤버 <SelectField aria-label="플레이리스트 멤버 필터" value={member} onValueChange={setMember} options={[{ value: "", label: "전체 멤버" }, ...(members.data?.data.members.map(item => ({ value: String(item.uid), label: item.name })) ?? [])]} /></label>
+          <label>분류 <SelectField aria-label="플레이리스트 분류 필터" value={relation} onValueChange={value => setRelation(value as typeof relation)} options={[{ value: "", label: "전체" }, { value: "original", label: "오리지널" }, { value: "cover", label: "커버" }]} /></label></div>
         {listing.isPending ? <PlaylistTracksSkeleton compact /> : listing.isError ? <Button onClick={() => void listing.refetch()}>검색 다시 시도</Button> : <div className="playlist-editor-results">{listing.data.pages.flatMap(page => page.data.items).map(item =>
           <PerformanceRow key={item.performance.id} item={item} compact><Button size="sm" variant="outline" disabled={busy || draft.performanceIds.length >= PLAY_PLAYLIST_MAX_ITEMS || draft.performanceIds.includes(item.performance.id)} onClick={() => add(item)}>{draft.performanceIds.includes(item.performance.id) ? "추가됨" : "추가"}</Button></PerformanceRow>)}</div>}
         {listing.isSuccess && !listing.data.pages[0].data.items.length && <p className="playlist-empty">검색 결과가 없습니다.</p>}

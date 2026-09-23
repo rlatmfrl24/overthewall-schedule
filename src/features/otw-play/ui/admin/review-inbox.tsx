@@ -9,6 +9,7 @@ import { useToast } from "@/shared/ui/toast";
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Badge } from "@/shared/ui/badge";
+import { SelectField } from "@/shared/ui/select-field";
 import { useOtwPlayImportJobs } from "../../queries/use-admin-catalog";
 import { SingingClipReviewDialog } from "./singing-clip-review-dialog";
 
@@ -34,6 +35,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   const { toast } = useToast();
   const query = useInfiniteQuery({ enabled: active && (source !== "playlist" || Boolean(jobId)), queryKey: ["otw-play-review-inbox", filters], queryFn: ({ pageParam }) => fetchOtwPlayReviewItems({ ...filters, cursor: pageParam ?? undefined }), initialPageParam: null as string | null, getNextPageParam: page => page.nextCursor, refetchInterval: 30000 });
   const rows = query.data?.pages.flatMap(page => page.items) ?? [];
+  const selectableRows = rows.filter(row => row.kind === "candidate" && row.status === "ready" && !row.pendingProposalId);
   const conflicts = useQuery({
     queryKey: ["otw-play-review-kind-conflicts", jobId, selectedJob?.candidateKind],
     enabled: active && source === "playlist" && Boolean(selectedJob),
@@ -54,6 +56,12 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   const [selectionState, setSelectionState] = useState<Record<string, Record<string, number>>>({});
   const selected = selectionState[scope] ?? {};
   const setSelected = (next: Record<string, number> | ((current: Record<string, number>) => Record<string, number>)) => setSelectionState(current => ({ ...current, [scope]: typeof next === "function" ? next(current[scope] ?? {}) : next }));
+  const allSelectableRowsSelected = selectableRows.length > 0
+    && Object.keys(selected).length === selectableRows.length
+    && selectableRows.every(row => selected[row.id] === row.version);
+  const toggleAllSelectableRows = () => setSelected(allSelectableRowsSelected
+    ? {}
+    : Object.fromEntries(selectableRows.map(row => [row.id, row.version])));
   const editingId = search.view === "review" ? search.selected : undefined;
   // Keep visited forms mounted so list navigation and failed saves retain local input.
   const [visited, setVisited] = useState<Record<string, OtwPlayReviewItemDto>>({});
@@ -76,6 +84,8 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
     return () => { requested = true; observer.disconnect(); };
   }, [active, editingId, search.proposal, busy, loadMoreTarget, hasNextPage, isFetching, isError, fetchNextPage]);
   const returnFocus = useRef<HTMLButtonElement | null>(null);
+  const list = useRef<HTMLElement | null>(null);
+  const scrollToListStart = useRef(false);
   const previousEditingId = useRef(editingId);
   useEffect(() => {
     if (editing && !visited[editing.id]) setVisited(current => ({ ...current, [editing.id]: editing }));
@@ -87,7 +97,12 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   useEffect(() => {
     if (!editingId && previousEditingId.current) {
       returnFocus.current?.focus({ preventScroll: true });
-      returnFocus.current?.scrollIntoView?.({ block: "nearest" });
+      if (scrollToListStart.current) {
+        list.current?.scrollIntoView?.({ block: "start" });
+        scrollToListStart.current = false;
+      } else {
+        returnFocus.current?.scrollIntoView?.({ block: "nearest" });
+      }
     }
     previousEditingId.current = editingId;
   }, [editingId]);
@@ -143,14 +158,21 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
     } finally { setBusy(false); }
   };
   return <div className="space-y-3">
-    <section aria-label="통합 검수 목록" hidden={Boolean(editingId)} className="space-y-3">
+    <section ref={list} aria-label="통합 검수 목록" hidden={Boolean(editingId)} className="space-y-3">
     {source === "playlist" && <div className="space-y-2">
       <label className="flex flex-wrap items-center gap-2 text-sm font-medium">가져오기 이력
-        <select aria-label="검수 가져오기 이력" disabled={busy || jobsQuery.isLoading} className="min-w-0 max-w-full rounded-md border bg-background p-2" value={jobId ?? ""} onChange={event => update({ category: event.target.value, kind: "all", selected: undefined }, false)}>
-          {!jobId && <option value="">이력을 선택하세요</option>}
-          {jobId && !selectedJob && <option value={jobId}>선택한 이력 · {jobId}</option>}
-          {jobsQuery.data?.map(job => <option key={job.id} value={job.id}>{job.playlistTitle ?? job.playlistId} · {new Date(job.createdAt).toLocaleString("ko-KR")} · {job.candidateKind === "singing_clip" ? "노래 클립" : "공식 곡"}</option>)}
-        </select>
+        <SelectField
+          aria-label="검수 가져오기 이력"
+          disabled={busy || jobsQuery.isLoading}
+          className="min-w-0 max-w-full"
+          value={jobId ?? ""}
+          onValueChange={value => update({ category: value || undefined, kind: "all", selected: undefined }, false)}
+          options={[
+            ...(!jobId ? [{ value: "", label: "이력을 선택하세요" }] : []),
+            ...(jobId && !selectedJob ? [{ value: jobId, label: `선택한 이력 · ${jobId}` }] : []),
+            ...(jobsQuery.data ?? []).map(job => ({ value: job.id, label: `${job.playlistTitle ?? job.playlistId} · ${new Date(job.createdAt).toLocaleString("ko-KR")} · ${job.candidateKind === "singing_clip" ? "노래 클립" : "공식 곡"}` })),
+          ]}
+        />
       </label>
       {jobsQuery.isError && <p role="alert">가져오기 이력을 불러오지 못했습니다. <Button size="sm" variant="link" onClick={() => void jobsQuery.refetch()}>이력 다시 불러오기</Button></p>}
       {!jobsQuery.isLoading && !jobsQuery.isError && !jobId && <p className="text-sm text-muted-foreground">가져오기 이력이 없습니다. 새 가져오기를 시작하거나 다른 출처를 선택하세요.</p>}
@@ -162,12 +184,12 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
     </div>}
     {source === "playlist" && conflicts.isError && <p role="alert">기존 후보의 종류 충돌을 확인하지 못했습니다. 새로고침해 주세요.</p>}
     <div className="flex flex-wrap gap-3">
-      <label className="text-sm">영상 종류 <select aria-label="검수 영상 종류" className="rounded-md border bg-background p-2" value={search.kind ?? "all"} onChange={e => { setSelected({}); update({ kind: e.target.value as "all" | "official" | "broadcast", selected: undefined }); }}><option value="all">전체</option><option value="official">공식 곡</option><option value="broadcast">노래 클립</option></select></label>
-      <label className="text-sm">출처 <select aria-label="검수 출처" className="rounded-md border bg-background p-2" value={source} disabled={busy} onChange={e => { setSelected({}); update({ source: e.target.value, selected: undefined }); }}>{Object.entries(sourceLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-      <label className="text-sm">처리 상태 <select aria-label="검수 처리 상태" className="rounded-md border bg-background p-2" value={filters.status} onChange={e => { setSelected({}); update({ state: e.target.value }); }}><option value="pending">검수 대기</option><option value="ready">등록 준비 완료</option><option value="completed">처리 완료</option></select></label>
+      <label className="text-sm">영상 종류 <SelectField aria-label="검수 영상 종류" value={search.kind ?? "all"} onValueChange={value => { setSelected({}); update({ kind: value as "all" | "official" | "broadcast", selected: undefined }); }} options={[{ value: "all", label: "전체" }, { value: "official", label: "공식 곡" }, { value: "broadcast", label: "노래 클립" }]} /></label>
+      <label className="text-sm">출처 <SelectField aria-label="검수 출처" value={source} disabled={busy} onValueChange={value => { setSelected({}); update({ source: value, selected: undefined }); }} options={Object.entries(sourceLabels).map(([value, label]) => ({ value, label }))} /></label>
+      <label className="text-sm">처리 상태 <SelectField aria-label="검수 처리 상태" value={filters.status ?? "pending"} onValueChange={value => { setSelected({}); update({ state: value }); }} options={[{ value: "pending", label: "검수 대기" }, { value: "ready", label: "등록 준비 완료" }, { value: "completed", label: "처리 완료" }]} /></label>
       <Button variant="outline" onClick={() => void refresh()}>새로고침</Button>
     </div>
-    <div className="flex flex-wrap items-center gap-2"><Button disabled={busy || !Object.keys(selected).length} onClick={() => void convert()}>선택 {Object.keys(selected).length}개 일괄 임시 등록</Button><Button variant="outline" onClick={() => onOpenCatalog()}>카탈로그 확인</Button></div>
+    <div className="flex flex-wrap items-center gap-2"><Button variant="outline" disabled={busy || selectableRows.length === 0} onClick={toggleAllSelectableRows}>{allSelectableRowsSelected ? `일괄 선택 해제 (${selectableRows.length}개)` : `등록 가능 ${selectableRows.length}개 일괄 선택`}</Button><Button disabled={busy || !Object.keys(selected).length} onClick={() => void convert()}>선택 {Object.keys(selected).length}개 일괄 임시 등록</Button><Button variant="outline" onClick={() => onOpenCatalog()}>카탈로그 확인</Button></div>
     <p className="text-xs text-muted-foreground">검수를 저장한 후보만 임시 등록합니다. 공개는 카탈로그에서 별도로 실행합니다.</p>
     {query.isError && !query.isFetchNextPageError && <p role="alert">검수 목록을 불러오지 못했습니다. <Button variant="link" onClick={() => void query.refetch()}>다시 시도</Button></p>}
     {query.isLoading && <p role="status">검수 목록을 불러오는 중입니다.</p>}
@@ -196,7 +218,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
       const latest = rows.find(row => row.kind === "candidate" && row.id === entry.id) ?? entry;
       return <div key={`${entry.id}:${latest.candidateKind}`} hidden={editing?.id !== entry.id}>
         <SingingClipReviewDialog presentation="page" active={active && editing?.id === entry.id} candidate={latest.candidate} candidateKind={latest.candidateKind} reviewOnly catalog={catalog}
-          onOpenChange={open => { if (!open) closeReview(); }} onConverted={refresh} onReviewStateChanged={refresh}
+          onOpenChange={open => { if (!open) closeReview(); }} onConverted={refresh} onReviewSaved={() => { scrollToListStart.current = true; }} onReviewStateChanged={refresh}
           onManageChannel={latest.channelId ? () => onManageChannel(latest.channelId!, latest.candidateKind) : undefined} />
       </div>;
     })}

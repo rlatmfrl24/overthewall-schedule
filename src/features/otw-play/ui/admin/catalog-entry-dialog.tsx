@@ -40,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
+import { SelectField } from "@/shared/ui/select-field";
 import { Textarea } from "@/shared/ui/textarea";
 import { useToast } from "@/shared/ui/toast";
 import {
@@ -1025,7 +1026,7 @@ export function CatalogEntryDialog({
             {step === 2 && (
               <>
                 <SubjectPicker label="가창 참여자" members={members} entities={catalog.entities} draftSubjects={draftExternalSubjects} selected={participants} onChange={(value) => { ai.touch("participants"); setParticipants(value.map(p=>({...p,participantRole:participants.find(old=>old.key===p.key)?.participantRole ?? "vocal"}))); }} />
-                {participants.map((participant,index)=><label key={participant.key} className="flex items-center gap-2 text-sm">{participant.label} 역할<select aria-label={`${participant.label} 역할`} className="rounded border bg-background p-2" value={participant.participantRole ?? "vocal"} onChange={e=>{ai.touch("participants");setParticipants(old=>old.map((p,i)=>i===index?{...p,participantRole:e.target.value as OtwPlayParticipantRole}:p));}}><option value="vocal">메인 보컬</option><option value="featured_vocal">피처링 보컬</option><option value="chorus">코러스</option><option value="other">기타</option></select></label>)}
+                {participants.map((participant,index)=><label key={participant.key} className="flex items-center gap-2 text-sm">{participant.label} 역할<SelectField aria-label={`${participant.label} 역할`} value={participant.participantRole ?? "vocal"} onValueChange={value=>{ai.touch("participants");setParticipants(old=>old.map((p,i)=>i===index?{...p,participantRole:value as OtwPlayParticipantRole}:p));}} options={[{ value: "vocal", label: "메인 보컬" }, { value: "featured_vocal", label: "피처링 보컬" }, { value: "chorus", label: "코러스" }, { value: "other", label: "기타" }]} /></label>)}
                 {needsChannelOwnerChoice && (
                   <div className="rounded-lg border p-3">
                     <SubjectPicker

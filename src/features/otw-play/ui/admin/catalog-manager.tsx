@@ -45,6 +45,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
+import { SelectField } from "@/shared/ui/select-field";
 import {
   Table,
   TableBody,
@@ -442,7 +443,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
       {catalog && section === "catalog" && <div className="flex flex-wrap gap-2">
         <Button variant={reviewSearch.view !== "entities" ? "secondary" : "outline"} onClick={() => updateReviewSearch({ view: undefined })}>곡·가창</Button>
         <Button variant={reviewSearch.view === "entities" ? "secondary" : "outline"} onClick={() => updateReviewSearch({ view: "entities" })}>인물·그룹</Button>
-        {reviewSearch.view !== "entities" && <select aria-label="카탈로그 영상 종류" className="rounded-md border bg-background p-2 text-sm" value={catalogScope} onChange={event => updateReviewSearch({ kind: event.target.value as "official" | "broadcast" | "all", selected: undefined })}><option value="official">공식 곡</option><option value="broadcast">노래 클립</option><option value="all">전체</option></select>}
+        {reviewSearch.view !== "entities" && <SelectField aria-label="카탈로그 영상 종류" value={catalogScope} onValueChange={value => updateReviewSearch({ kind: value as "official" | "broadcast" | "all", selected: undefined })} options={[{ value: "official", label: "공식 곡" }, { value: "broadcast", label: "노래 클립" }, { value: "all", label: "전체" }]} />}
       </div>}
       {catalog && section === "catalog" && reviewSearch.view === "entities" && <EntitySection items={catalog.entities.filter(entity => entity.memberUid === null)} referencedEntityIds={new Set([...catalog.songs.flatMap(song => song.originalArtists.map(artist => artist.entityId)), ...catalog.performances.flatMap(performance => performance.participants.map(participant => participant.entityId)), ...catalog.channels.flatMap(channel => channel.entityIds)])} saving={effectiveSaving} run={run} />}
       {(importVisited || section === "import") && <div hidden={section !== "import"} className="space-y-3">
@@ -1836,9 +1837,9 @@ function ChannelSection({
         {monitorsQuery.isError && <p role="alert" className="text-sm">수집 상태를 불러오지 못했습니다. 채널 정보는 유지되며 수집 상태 필터는 잠시 사용할 수 없습니다.</p>}
         {!focusedEditor && <>
         <div className="flex flex-wrap gap-2">
-          <select aria-label="채널 용도 필터" className="rounded border bg-background p-2" value={roleFilter} onChange={event => setRoleFilter(event.target.value)}><option value="all">모든 용도</option><option value="official">공식 채널</option><option value="clips">노래 클립 채널</option></select>
-          <select aria-label="채널 승인 필터" className="rounded border bg-background p-2" value={approvalFilter} onChange={event => setApprovalFilter(event.target.value)}><option value="all">모든 승인 상태</option><option value="pending">검수 대기</option><option value="approved">승인됨</option><option value="revoked">철회됨</option></select>
-          <select disabled={monitorsQuery.isError || monitorsQuery.isLoading} aria-label="채널 수집 필터" className="rounded border bg-background p-2" value={collectionFilter} onChange={event => setCollectionFilter(event.target.value)}><option value="all">모든 수집 상태</option><option value="active">수집 중</option><option value="paused">수집 중지</option><option value="none">수집 미설정</option></select>
+          <SelectField aria-label="채널 용도 필터" value={roleFilter} onValueChange={setRoleFilter} options={[{ value: "all", label: "모든 용도" }, { value: "official", label: "공식 채널" }, { value: "clips", label: "노래 클립 채널" }]} />
+          <SelectField aria-label="채널 승인 필터" value={approvalFilter} onValueChange={setApprovalFilter} options={[{ value: "all", label: "모든 승인 상태" }, { value: "pending", label: "검수 대기" }, { value: "approved", label: "승인됨" }, { value: "revoked", label: "철회됨" }]} />
+          <SelectField disabled={monitorsQuery.isError || monitorsQuery.isLoading} aria-label="채널 수집 필터" value={collectionFilter} onValueChange={setCollectionFilter} options={[{ value: "all", label: "모든 수집 상태" }, { value: "active", label: "수집 중" }, { value: "paused", label: "수집 중지" }, { value: "none", label: "수집 미설정" }]} />
         </div>
         <div className="flex flex-wrap items-center gap-2"><Input aria-label="Play 승인 채널 검색" placeholder="채널명·연결 주체 검색" className="max-w-sm" value={search.q ?? ""} onChange={(event) => updateSearch({q: event.target.value})}/><a href="#play-channel-editor" className="text-sm underline">채널 등록·수정 ↓</a></div>
         <div className="space-y-2">

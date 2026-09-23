@@ -11,6 +11,7 @@ const fetchReview = vi.hoisted(() => vi.fn());
 const convert = vi.hoisted(() => vi.fn());
 const updateCandidate = vi.hoisted(() => vi.fn());
 const jobs = vi.hoisted(() => vi.fn());
+const scrollIntoView = vi.hoisted(() => vi.fn());
 vi.mock("../../queries/use-admin-catalog", () => ({ useOtwPlayImportJobs: jobs }));
 vi.mock("../../api/admin", () => ({ fetchOtwPlayReviewItems: fetchReview, convertOtwPlayImportCandidate: convert, updateOtwPlayImportCandidate: updateCandidate }));
 vi.mock("@/features/members", () => ({ fetchActiveMembers: vi.fn(async () => []) }));
@@ -18,8 +19,13 @@ vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 vi.mock("@/shared/lib/confirmation", () => ({ useConfirmation: () => vi.fn(async () => true) }));
 const row = (id: string, status = "ready"): OtwPlayReviewItemDto => createReviewItemFixture({ id, kind: "candidate", candidateKind: "singing_clip", sources: ["playlist", "automatic"], title: id, version: 4, status, createdAt: 1 });
 const catalog = createAdminCatalogFixture({ revision: 1, readModelRevision: 1 });
+const selectOption = async (label: string, option: string | RegExp) => {
+  fireEvent.click(screen.getByRole("combobox", { name: label }));
+  fireEvent.click(await screen.findByRole("option", { name: option }));
+};
 beforeEach(() => {
   vi.clearAllMocks();
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
   jobs.mockReturnValue({ data: [{ id: "job-a", playlistTitle: "첫 번째 가져오기", createdAt: 1, candidateKind: "singing_clip" }, { id: "job-b", playlistTitle: "두 번째 가져오기", createdAt: 2, candidateKind: "official_video" }], isLoading: false });
   fetchReview.mockResolvedValue({ items: [row("clip-a"), row("clip-b"), row("clip-c", "needs_input")], nextCursor: null });
 });
@@ -27,14 +33,23 @@ afterEach(cleanup);
 it("only converts selected ready candidates and retains failed selections for retry", async () => {
   convert.mockResolvedValueOnce({ outcome: "created", performanceId: "p-a" }).mockResolvedValueOnce({ outcome: "stale", errorCode: "stale_write" });
   render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
-  fireEvent.click(await screen.findByRole("checkbox", { name: "clip-a 선택" }));
-  fireEvent.click(screen.getByRole("checkbox", { name: "clip-b 선택" }));
+  fireEvent.click(await screen.findByRole("button", { name: "등록 가능 2개 일괄 선택" }));
+  expect(screen.getByRole("checkbox", { name: "clip-a 선택" }).getAttribute("data-state")).toBe("checked");
+  expect(screen.getByRole("checkbox", { name: "clip-b 선택" }).getAttribute("data-state")).toBe("checked");
   expect(screen.getByRole("checkbox", { name: "clip-c 선택" })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("button", { name: "선택 2개 일괄 임시 등록" }));
   await waitFor(() => expect(convert).toHaveBeenCalledTimes(2));
   expect(convert).toHaveBeenCalledWith("clip-a", { expectedVersion: 4 });
   expect(await screen.findByText("등록 실패: stale_write")).toBeTruthy();
   expect(screen.getByRole("button", { name: "선택 1개 일괄 임시 등록" })).toBeTruthy();
+});
+it("toggles every loaded eligible candidate without selecting blocked rows", async () => {
+  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  fireEvent.click(await screen.findByRole("button", { name: "등록 가능 2개 일괄 선택" }));
+  expect(screen.getByRole("button", { name: "선택 2개 일괄 임시 등록" })).toHaveProperty("disabled", false);
+  fireEvent.click(screen.getByRole("button", { name: "일괄 선택 해제 (2개)" }));
+  expect(screen.getByRole("button", { name: "선택 0개 일괄 임시 등록" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("checkbox", { name: "clip-c 선택" }).getAttribute("data-state")).toBe("unchecked");
 });
 it("keeps review discovery available when catalog editing cannot load", async () => {
   render(<ReviewInbox catalog={null} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
@@ -47,12 +62,12 @@ it("scopes playlist rows and bulk selections to the chosen import history", asyn
   render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
   fireEvent.click(await screen.findByRole("checkbox", { name: "clip-a 선택" }));
   expect(fetchReview).toHaveBeenCalledWith(expect.objectContaining({ source: "playlist", jobId: "job-a" }));
-  fireEvent.change(screen.getByLabelText("검수 가져오기 이력"), { target: { value: "job-b" } });
+  await selectOption("검수 가져오기 이력", /두 번째 가져오기/);
   await screen.findByText("clip-b");
   expect(screen.queryByText("clip-a")).toBeNull();
   expect(screen.getByRole("button", { name: "선택 0개 일괄 임시 등록" })).toHaveProperty("disabled", true);
   expect(fetchReview).toHaveBeenCalledWith(expect.objectContaining({ jobId: "job-b", cursor: undefined }));
-  fireEvent.change(screen.getByLabelText("검수 출처"), { target: { value: "automatic" } });
+  await selectOption("검수 출처", "자동 수집");
   await waitFor(() => expect(fetchReview).toHaveBeenCalledWith(expect.objectContaining({ source: "automatic", jobId: undefined })));
 });
 
@@ -89,7 +104,7 @@ it("opens a full review page and preserves per-candidate input and filters when 
   const manageChannel = vi.fn();
   render(<ReviewInbox catalog={reviewCatalog} onProposal={vi.fn()} onManageChannel={manageChannel} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
   await screen.findByText("clip-a");
-  fireEvent.change(screen.getByLabelText("검수 출처"), { target: { value: "playlist" } });
+  expect(screen.getByLabelText("검수 출처").textContent).toBe("플레이리스트");
   const openFirst = (await screen.findAllByRole("button", { name: "검수 열기" }))[0];
   fireEvent.click(openFirst);
   let page = screen.getByRole("region", { name: "공식 영상 검수 화면" });
@@ -101,7 +116,8 @@ it("opens a full review page and preserves per-candidate input and filters when 
   expect(manageChannel).toHaveBeenCalledWith("UCapproved", "official_video");
   fireEvent.click(within(page).getByRole("button", { name: "검수 목록으로" }));
   expect(openFirst).toBe(document.activeElement);
-  expect(screen.getByLabelText("검수 출처")).toHaveProperty("value", "playlist");
+  expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
+  expect(screen.getByLabelText("검수 출처").textContent).toBe("플레이리스트");
   fireEvent.click(screen.getAllByRole("button", { name: "검수 열기" })[1]);
   page = screen.getByRole("region", { name: "공식 영상 검수 화면" });
   expect(within(page).getByLabelText("시작 위치(초)")).toHaveProperty("value", "0");
@@ -123,6 +139,7 @@ it("retains failed review input, then saves to ready and returns to the same lis
   expect(screen.getByLabelText("시작 위치(초)")).toHaveProperty("value", "25");
   fireEvent.click(screen.getByRole("button", { name: "검수 저장 · 등록 준비 완료" }));
   await screen.findByRole("region", { name: "통합 검수 목록" });
+  expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "start" });
   expect(updateCandidate).toHaveBeenLastCalledWith("clip-a", expect.objectContaining({ expectedVersion: 4, input: expect.objectContaining({ startSeconds: 25, releaseType: "official_video" }) }));
   expect(convert).not.toHaveBeenCalled();
 });

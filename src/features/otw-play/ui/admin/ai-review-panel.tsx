@@ -19,6 +19,7 @@ import {
 import type { AiReviewForm } from "./ai-review-form";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { SelectField } from "@/shared/ui/select-field";
 import { useToast } from "@/shared/ui/toast";
 
 const labels: Record<AiReviewField, string> = {
@@ -358,28 +359,26 @@ export function AiReviewPanel({
       {result && result.songs.length > 1 && (
         <label>
           적용할 곡·구간
-          <select
+          <SelectField
             aria-label="AI 분석 곡 선택"
-            value={selected ?? ""}
-            onChange={(e) => {
+            className="w-full"
+            value={selected === null ? "" : String(selected)}
+            onValueChange={(value) => {
               setSelected(
-                e.target.value === "" ? null : Number(e.target.value),
+                value === "" ? null : Number(value),
               );
               setSongChoice("");
             }}
-            className="block w-full rounded border bg-background p-2"
-          >
-            <option value="">곡을 선택하세요</option>
-            {result.songs.map((s, i) => (
-              <option key={i} value={i}>
-                {s.values.song?.title ?? `곡 ${i + 1}`} ·{" "}
-                {s.values.participants?.map((p) => p.name).join(", ")} ·{" "}
-                {s.values.segment
+            options={[
+              { value: "", label: "곡을 선택하세요" },
+              ...result.songs.map((s, i) => ({
+                value: String(i),
+                label: `${s.values.song?.title ?? `곡 ${i + 1}`} · ${s.values.participants?.map((p) => p.name).join(", ")} · ${s.values.segment
                   ? `${s.values.segment.startSeconds}–${s.values.segment.endSeconds}초`
-                  : "구간 미확인"}
-              </option>
-            ))}
-          </select>
+                  : "구간 미확인"}`,
+              })),
+            ]}
+          />
         </label>
       )}
       {suggestion && (
@@ -440,19 +439,16 @@ export function AiReviewPanel({
             !suggestion.values.song.existingSongId && (
               <label>
                 기존 곡 연결
-                <select
+                <SelectField
                   aria-label="AI 기존 곡 선택"
+                  className="w-full"
                   value={songChoice}
-                  onChange={(e) => setSongChoice(e.target.value)}
-                  className="block w-full rounded border bg-background p-2"
-                >
-                  <option value="">동명곡·원곡 가수를 확인하세요</option>
-                  {suggestion.values.song.candidates.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.title}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={setSongChoice}
+                  options={[
+                    { value: "", label: "동명곡·원곡 가수를 확인하세요" },
+                    ...suggestion.values.song.candidates.map((candidate) => ({ value: candidate.id, label: candidate.title })),
+                  ]}
+                />
               </label>
             )}
           <details open={compact ? undefined : true} className="rounded-md border">

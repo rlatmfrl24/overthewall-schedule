@@ -38,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
+import { SelectField } from "@/shared/ui/select-field";
 import { Textarea } from "@/shared/ui/textarea";
 import { useToast } from "@/shared/ui/toast";
 import { ArrowLeft, ExternalLink, Loader2 } from "lucide-react";
@@ -95,6 +96,7 @@ export function SingingClipReviewDialog({
   catalog,
   onOpenChange,
   onConverted,
+  onReviewSaved,
   onReviewStateChanged,
 }: {
   candidate: OtwPlayChannelMonitorCandidateDto | null;
@@ -106,6 +108,7 @@ export function SingingClipReviewDialog({
   catalog: OtwPlayAdminCatalogDto;
   onOpenChange: (open: boolean) => void;
   onConverted: (performanceId: string | null) => Promise<void>;
+  onReviewSaved?: () => void;
   onReviewStateChanged: () => Promise<void>;
 }) {
   const { toast } = useToast();
@@ -338,7 +341,7 @@ export function SingingClipReviewDialog({
           participantRole: participant.participantRole,
         })));
       }
-      if (reviewOnly) { setDirty(false); setSaveMessage("검수 저장 완료"); await onReviewStateChanged(); onOpenChange(false); return; }
+      if (reviewOnly) { setDirty(false); setSaveMessage("검수 저장 완료"); await onReviewStateChanged(); onReviewSaved?.(); onOpenChange(false); return; }
       const converted = await convertOtwPlayImportCandidate(candidate.candidateId, {
         expectedVersion: reviewed.version,
       });
@@ -517,7 +520,7 @@ export function SingingClipReviewDialog({
                   </SelectContent>
                 </Select>}
               </div>
-              {candidateKind === "official_video" && <label>공개 형태<select aria-label="공개 형태" className="block rounded border bg-background p-2" value={releaseType} onChange={e=>{ai.touch("classification");setReleaseType(e.target.value as typeof releaseType);}}><option value="official_video">공식 영상</option><option value="official_mv">공식 MV</option></select></label>}
+              {candidateKind === "official_video" && <label>공개 형태<SelectField aria-label="공개 형태" value={releaseType} onValueChange={value=>{ai.touch("classification");setReleaseType(value as typeof releaseType);}} options={[{ value: "official_video", label: "공식 영상" }, { value: "official_mv", label: "공식 MV" }]} /></label>}
             </section>
 
             <section className="space-y-3 border-t pt-4">
