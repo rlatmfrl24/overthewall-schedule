@@ -95,6 +95,7 @@ export interface IngestionRepository {
     command: CreateIngestionJobCommand,
   ): Promise<{ job: OtwPlayIngestionJobDto; message: OtwPlayIngestionQueueMessage }>;
   changeCandidateKind(command: { candidateId: string; expectedVersion: number; candidateKind: "official_video" | "singing_clip"; actorUserId: string; eventId: string; now: number }): Promise<IngestionReviewCandidate>;
+  getJobContext(jobId: string): Promise<Pick<OtwPlayIngestionJobDto, "playlistId" | "rangeStartPosition" | "rangeEndExclusive" | "requestedItemCount">>;
   getJob(jobId: string): Promise<OtwPlayIngestionJobDto>;
   deleteJobHistory(jobId: string, actorUserId: string, now: number): Promise<void>;
   listJobs(limit: number): Promise<OtwPlayIngestionJobDto[]>;
@@ -126,7 +127,7 @@ export interface IngestionRepository {
     errorCode: string,
     now: number,
   ): Promise<void>;
-  listPendingMessages(now: number, limit: number): Promise<OtwPlayIngestionQueueMessage[]>;
+  listPendingMessages(now: number, limit: number, jobId?: string): Promise<OtwPlayIngestionQueueMessage[]>;
   clearExpiredApiData(now: number, limit: number): Promise<number>;
   readReviewCandidate(jobId: string | null, candidateId: string): Promise<IngestionReviewCandidate>;
   saveCandidateReview(

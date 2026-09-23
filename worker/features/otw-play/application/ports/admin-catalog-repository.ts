@@ -1,5 +1,6 @@
 import type {
   OtwPlayAdminCatalogDto,
+  OtwPlayAdminCatalogSubjectInput,
   OtwPlayAdminCatalogEntryPreflightDto,
   OtwPlayAdminCatalogEntryResultDto,
   OtwPlayAdminApproveProposalRequest,
@@ -157,7 +158,7 @@ export interface AdminUpdateSongCommand {
 }
 
 export interface AdminCatalogRepository {
-  readCatalog(): Promise<OtwPlayAdminCatalogDto>;
+  readCatalog(scope?: AdminCatalogScope): Promise<OtwPlayAdminCatalogDto>;
   preflightCatalogEntry(
     video: VerifiedYouTubeVideo,
     startSeconds: number,
@@ -262,3 +263,9 @@ export interface AdminCatalogGlobalAudit {
     detail?: Record<string, unknown>;
   }): Promise<void>;
 }
+
+export type AdminCatalogScope = {
+  entityIds?: string[]; subjects?: OtwPlayAdminCatalogSubjectInput[];
+  songIds?: string[]; channelIds?: string[]; externalChannelIds?: string[];
+  performanceIds?: string[]; references?: boolean; memberEntities?: boolean;
+};

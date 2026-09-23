@@ -1,0 +1,104 @@
+{
+  "baselineCommit": "4e8daa61492a6ea42e82da3d7ca7885038314e1d",
+  "environment": "Local workerd D1; identical index migration 0097 in both runs; synthetic external observations; reads from writes included; seeds/EXPLAIN excluded",
+  "optimized": [
+    {
+      "size": 50,
+      "reviews": 50,
+      "importCost": {
+        "sqlCount": 28,
+        "rowsRead": 1803,
+        "rowsWritten": 927
+      },
+      "total": {
+        "sqlCount": 4579,
+        "rowsRead": 52123,
+        "rowsWritten": 23879
+      },
+      "singleReadyRowsRead": 218,
+      "singleSongUpdateRowsRead": 661
+    },
+    {
+      "size": 500,
+      "reviews": 500,
+      "importCost": {
+        "sqlCount": 217,
+        "rowsRead": 18188,
+        "rowsWritten": 9189
+      },
+      "total": {
+        "sqlCount": 45727,
+        "rowsRead": 583049,
+        "rowsWritten": 256763
+      },
+      "singleReadyRowsRead": 256,
+      "singleSongUpdateRowsRead": 704
+    },
+    {
+      "size": 5000,
+      "reviews": 1,
+      "importCost": {
+        "sqlCount": 2107,
+        "rowsRead": 182022,
+        "rowsWritten": 91809
+      },
+      "total": {
+        "sqlCount": 2199,
+        "rowsRead": 208283,
+        "rowsWritten": 92283
+      },
+      "singleReadyRowsRead": 264,
+      "singleSongUpdateRowsRead": 704
+    }
+  ],
+  "baseline": [
+    {
+      "size": 50,
+      "reviews": 50,
+      "importCost": {
+        "sqlCount": 28,
+        "rowsRead": 2523,
+        "rowsWritten": 927
+      },
+      "total": {
+        "sqlCount": 5479,
+        "rowsRead": 127015,
+        "rowsWritten": 35534
+      },
+      "singleReadyRowsRead": 207,
+      "singleSongUpdateRowsRead": 1794
+    },
+    {
+      "size": 500,
+      "reviews": 500,
+      "importCost": {
+        "sqlCount": 217,
+        "rowsRead": 115178,
+        "rowsWritten": 9189
+      },
+      "total": {
+        "sqlCount": 54727,
+        "rowsRead": 6927563,
+        "rowsWritten": 384305
+      },
+      "singleReadyRowsRead": 578,
+      "singleSongUpdateRowsRead": 13375
+    },
+    {
+      "size": 5000,
+      "reviews": 1,
+      "importCost": {
+        "sqlCount": 2107,
+        "rowsRead": 10151712,
+        "rowsWritten": 91809
+      },
+      "total": {
+        "sqlCount": 2217,
+        "rowsRead": 10221095,
+        "rowsWritten": 92525
+      },
+      "singleReadyRowsRead": 2106,
+      "singleSongUpdateRowsRead": 13397
+    }
+  ]
+}

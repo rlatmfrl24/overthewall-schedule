@@ -1,0 +1,3031 @@
+[
+  {
+    "sql": "SELECT id, status, updated_at FROM music_ingestion_jobs\n       WHERE source_kind = 'playlist_import' AND source_external_id = ? AND candidate_kind = ?\n       AND NOT EXISTS (SELECT 1 FROM music_ingestion_events AS deleted WHERE deleted.job_id = music_ingestion_jobs.id AND deleted.event_type = 'history_deleted')\n       ORDER BY updated_at DESC, id DESC LIMIT 1",
+    "plan": [
+      {
+        "id": 5,
+        "parent": 0,
+        "notused": 61,
+        "detail": "SEARCH music_ingestion_jobs USING INDEX idx_music_ingestion_jobs_source_updated_id (source_kind=? AND source_external_id=?)"
+      },
+      {
+        "id": 16,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 1"
+      },
+      {
+        "id": 21,
+        "parent": 16,
+        "notused": 62,
+        "detail": "SEARCH deleted USING INDEX idx_music_ingestion_events_job_created_id (job_id=?)"
+      },
+      {
+        "id": 52,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+      }
+    ]
+  },
+  {
+    "sql": "WITH selected_jobs AS MATERIALIZED (\n  SELECT job.* FROM music_ingestion_jobs job WHERE job.actor_user_id = ? AND job.idempotency_key = ?\n), classified AS MATERIALIZED (\n  SELECT origin.job_id, origin.is_playlist_duplicate, candidate.metadata_checked_at,\n    (CASE\n  WHEN origin.is_playlist_duplicate = 1 THEN 'playlist_duplicate'\n  WHEN candidate.first_discovered_at < job.created_at THEN 'existing_candidate'\n  ELSE CASE\n  WHEN candidate.classification = 'existing_proposal' AND NOT EXISTS (\n    SELECT 1 FROM music_cover_proposals p WHERE p.youtube_video_id = candidate.external_video_id\n      AND p.segment_start_seconds = 0 AND p.status = 'pending_review'\n  ) THEN CASE\n    WHEN EXISTS (SELECT 1 FROM music_media_sources s WHERE s.provider = 'youtube' AND s.external_id = candidate.external_video_id) THEN 'existing_catalog'\n    WHEN candidate.availability_status <> 'playable' THEN 'unavailable'\n    WHEN candidate.made_for_kids = 1 OR EXISTS (SELECT 1 FROM music_channels channel\n      WHERE channel.provider = 'youtube' AND channel.external_channel_id = candidate.channel_id\n        AND (channel.verification_status = 'revoked' OR channel.active = 0)) THEN 'policy_blocked'\n    WHEN EXISTS (\n  SELECT 1 FROM music_channels AS channel\n  WHERE channel.provider = 'youtube'\n    AND channel.external_channel_id = candidate.channel_id\n    AND channel.verification_status = 'approved' AND channel.active = 1\n    AND (\n  (candidate.candidate_kind = 'official_video'\n    AND channel.channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'))\n  OR (candidate.candidate_kind = 'singing_clip'\n    AND channel.channel_role = 'approved_kirinuki')\n)\n) THEN 'eligible'\n    ELSE 'channel_review'\n  END\n  WHEN candidate.classification = 'channel_review'\n    AND EXISTS (\n  SELECT 1 FROM music_channels AS channel\n  WHERE channel.provider = 'youtube'\n    AND channel.external_channel_id = candidate.channel_id\n    AND channel.verification_status = 'approved' AND channel.active = 1\n    AND (\n  (candidate.candidate_kind = 'official_video'\n    AND channel.channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'))\n  OR (candidate.candidate_kind = 'singing_clip'\n    AND channel.channel_role = 'approved_kirinuki')\n)\n)\n    THEN 'eligible'\n  ELSE candidate.classification\nEND\nEND) AS classification\n  FROM selected_jobs job JOIN music_ingestion_candidate_origins origin ON origin.job_id = job.id\n  JOIN music_ingestion_candidates candidate ON candidate.id = origin.candidate_id\n), origin_counts AS (\n  SELECT job_id, COUNT(*) AS discovered_count,\n    SUM(is_playlist_duplicate = 0 AND metadata_checked_at IS NOT NULL) AS metadata_checked_count,\n    SUM(classification = 'eligible') AS eligible_count,\n    SUM(classification = 'existing_catalog') AS existing_catalog_count,\n    SUM(classification = 'existing_proposal') AS existing_proposal_count,\n    SUM(classification = 'existing_candidate') AS existing_candidate_count,\n    SUM(classification = 'channel_review') AS channel_review_count,\n    SUM(classification = 'unavailable') AS unavailable_count,\n    SUM(classification = 'policy_blocked') AS policy_blocked_count,\n    SUM(classification = 'scope_review') AS scope_review_count,\n    SUM(classification = 'playlist_duplicate') AS playlist_duplicate_count\n  FROM classified GROUP BY job_id\n), message_counts AS (\n  SELECT message.job_id, SUM(message.status = 'pending' AND message.next_retry_at IS NOT NULL) AS retry_pending_count,\n    SUM(message.status = 'failed') AS permanent_error_count\n  FROM selected_jobs job JOIN music_ingestion_messages message ON message.job_id = job.id\n  GROUP BY message.job_id\n) SELECT job.*,\n  COALESCE(origin_counts.discovered_count, 0) AS discovered_count,\n  COALESCE(origin_counts.metadata_checked_count, 0) AS metadata_checked_count,\n  COALESCE(origin_counts.eligible_count, 0) AS eligible_count,\n  COALESCE(origin_counts.existing_catalog_count, 0) AS existing_catalog_count,\n  COALESCE(origin_counts.existing_proposal_count, 0) AS existing_proposal_count,\n  COALESCE(origin_counts.existing_candidate_count, 0) AS existing_candidate_count,\n  COALESCE(origin_counts.channel_review_count, 0) AS channel_review_count,\n  COALESCE(origin_counts.unavailable_count, 0) AS unavailable_count,\n  COALESCE(origin_counts.policy_blocked_count, 0) AS policy_blocked_count,\n  COALESCE(origin_counts.scope_review_count, 0) AS scope_review_count,\n  COALESCE(origin_counts.playlist_duplicate_count, 0) AS playlist_duplicate_count,\n  COALESCE(message_counts.retry_pending_count, 0) AS retry_pending_count,\n  COALESCE(message_counts.permanent_error_count, 0) AS permanent_error_count\nFROM selected_jobs job LEFT JOIN origin_counts ON origin_counts.job_id = job.id\nLEFT JOIN message_counts ON message_counts.job_id = job.id\nORDER BY job.created_at DESC, job.id DESC",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE selected_jobs"
+      },
+      {
+        "id": 7,
+        "parent": 3,
+        "notused": 39,
+        "detail": "SEARCH job USING INDEX uidx_music_ingestion_jobs_actor_idempotency (actor_user_id=? AND idempotency_key=?)"
+      },
+      {
+        "id": 43,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE origin_counts"
+      },
+      {
+        "id": 46,
+        "parent": 43,
+        "notused": 0,
+        "detail": "MATERIALIZE classified"
+      },
+      {
+        "id": 53,
+        "parent": 46,
+        "notused": 216,
+        "detail": "SCAN origin"
+      },
+      {
+        "id": 55,
+        "parent": 46,
+        "notused": 46,
+        "detail": "SEARCH candidate USING INDEX sqlite_autoindex_music_ingestion_candidates_1 (id=?)"
+      },
+      {
+        "id": 69,
+        "parent": 46,
+        "notused": 53,
+        "detail": "SEARCH job USING AUTOMATIC COVERING INDEX (id=?)"
+      },
+      {
+        "id": 88,
+        "parent": 46,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 2"
+      },
+      {
+        "id": 92,
+        "parent": 88,
+        "notused": 43,
+        "detail": "SEARCH p USING COVERING INDEX uidx_music_cover_proposals_pending_video_segment (youtube_video_id=? AND segment_start_seconds=?)"
+      },
+      {
+        "id": 102,
+        "parent": 46,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 3"
+      },
+      {
+        "id": 106,
+        "parent": 102,
+        "notused": 39,
+        "detail": "SEARCH s USING COVERING INDEX uidx_music_media_sources_provider_external (provider=? AND external_id=?)"
+      },
+      {
+        "id": 124,
+        "parent": 46,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 4"
+      },
+      {
+        "id": 129,
+        "parent": 124,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 147,
+        "parent": 46,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 5"
+      },
+      {
+        "id": 152,
+        "parent": 147,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 204,
+        "parent": 46,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 6"
+      },
+      {
+        "id": 209,
+        "parent": 204,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 270,
+        "parent": 43,
+        "notused": 259,
+        "detail": "SCAN classified"
+      },
+      {
+        "id": 272,
+        "parent": 43,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR GROUP BY"
+      },
+      {
+        "id": 389,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE message_counts"
+      },
+      {
+        "id": 399,
+        "parent": 389,
+        "notused": 214,
+        "detail": "SCAN message USING INDEX uidx_music_ingestion_messages_job_kind_payload"
+      },
+      {
+        "id": 410,
+        "parent": 389,
+        "notused": 53,
+        "detail": "SEARCH job USING AUTOMATIC COVERING INDEX (id=?)"
+      },
+      {
+        "id": 463,
+        "parent": 0,
+        "notused": 17,
+        "detail": "SCAN job"
+      },
+      {
+        "id": 467,
+        "parent": 0,
+        "notused": 82,
+        "detail": "SCAN origin_counts LEFT-JOIN"
+      },
+      {
+        "id": 486,
+        "parent": 0,
+        "notused": 47,
+        "detail": "SEARCH message_counts USING AUTOMATIC COVERING INDEX (job_id=?) LEFT-JOIN"
+      },
+      {
+        "id": 564,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR ORDER BY"
+      }
+    ]
+  },
+  {
+    "sql": "INSERT INTO music_ingestion_jobs (\n            id, source_kind, candidate_kind, source_external_id, source_url, source_title,\n            owner_channel_id, owner_channel_title, source_metadata_checked_at, import_mode,\n            range_start_position, requested_item_count, status,\n            actor_user_id, idempotency_key,\n            created_at, updated_at\n          ) VALUES (?, 'playlist_import', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)",
+    "plan": []
+  },
+  {
+    "sql": "INSERT INTO music_ingestion_messages (\n            idempotency_key, job_id, message_kind, payload_key, status,\n            created_at, updated_at\n          ) VALUES (?, ?, 'playlist_page', 'first', 'pending', ?, ?)",
+    "plan": []
+  },
+  {
+    "sql": "INSERT INTO music_ingestion_events (\n            id, job_id, event_type, actor_user_id, detail_json, created_at\n          ) VALUES (?, ?, 'job.created', ?, ?, ?)",
+    "plan": []
+  },
+  {
+    "sql": "WITH selected_jobs AS MATERIALIZED (\n  SELECT job.* FROM music_ingestion_jobs job WHERE job.id = ?\n), classified AS MATERIALIZED (\n  SELECT origin.job_id, origin.is_playlist_duplicate, candidate.metadata_checked_at,\n    (CASE\n  WHEN origin.is_playlist_duplicate = 1 THEN 'playlist_duplicate'\n  WHEN candidate.first_discovered_at < job.created_at THEN 'existing_candidate'\n  ELSE CASE\n  WHEN candidate.classification = 'existing_proposal' AND NOT EXISTS (\n    SELECT 1 FROM music_cover_proposals p WHERE p.youtube_video_id = candidate.external_video_id\n      AND p.segment_start_seconds = 0 AND p.status = 'pending_review'\n  ) THEN CASE\n    WHEN EXISTS (SELECT 1 FROM music_media_sources s WHERE s.provider = 'youtube' AND s.external_id = candidate.external_video_id) THEN 'existing_catalog'\n    WHEN candidate.availability_status <> 'playable' THEN 'unavailable'\n    WHEN candidate.made_for_kids = 1 OR EXISTS (SELECT 1 FROM music_channels channel\n      WHERE channel.provider = 'youtube' AND channel.external_channel_id = candidate.channel_id\n        AND (channel.verification_status = 'revoked' OR channel.active = 0)) THEN 'policy_blocked'\n    WHEN EXISTS (\n  SELECT 1 FROM music_channels AS channel\n  WHERE channel.provider = 'youtube'\n    AND channel.external_channel_id = candidate.channel_id\n    AND channel.verification_status = 'approved' AND channel.active = 1\n    AND (\n  (candidate.candidate_kind = 'official_video'\n    AND channel.channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'))\n  OR (candidate.candidate_kind = 'singing_clip'\n    AND channel.channel_role = 'approved_kirinuki')\n)\n) THEN 'eligible'\n    ELSE 'channel_review'\n  END\n  WHEN candidate.classification = 'channel_review'\n    AND EXISTS (\n  SELECT 1 FROM music_channels AS channel\n  WHERE channel.provider = 'youtube'\n    AND channel.external_channel_id = candidate.channel_id\n    AND channel.verification_status = 'approved' AND channel.active = 1\n    AND (\n  (candidate.candidate_kind = 'official_video'\n    AND channel.channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'))\n  OR (candidate.candidate_kind = 'singing_clip'\n    AND channel.channel_role = 'approved_kirinuki')\n)\n)\n    THEN 'eligible'\n  ELSE candidate.classification\nEND\nEND) AS classification\n  FROM selected_jobs job JOIN music_ingestion_candidate_origins origin ON origin.job_id = job.id\n  JOIN music_ingestion_candidates candidate ON candidate.id = origin.candidate_id\n), origin_counts AS (\n  SELECT job_id, COUNT(*) AS discovered_count,\n    SUM(is_playlist_duplicate = 0 AND metadata_checked_at IS NOT NULL) AS metadata_checked_count,\n    SUM(classification = 'eligible') AS eligible_count,\n    SUM(classification = 'existing_catalog') AS existing_catalog_count,\n    SUM(classification = 'existing_proposal') AS existing_proposal_count,\n    SUM(classification = 'existing_candidate') AS existing_candidate_count,\n    SUM(classification = 'channel_review') AS channel_review_count,\n    SUM(classification = 'unavailable') AS unavailable_count,\n    SUM(classification = 'policy_blocked') AS policy_blocked_count,\n    SUM(classification = 'scope_review') AS scope_review_count,\n    SUM(classification = 'playlist_duplicate') AS playlist_duplicate_count\n  FROM classified GROUP BY job_id\n), message_counts AS (\n  SELECT message.job_id, SUM(message.status = 'pending' AND message.next_retry_at IS NOT NULL) AS retry_pending_count,\n    SUM(message.status = 'failed') AS permanent_error_count\n  FROM selected_jobs job JOIN music_ingestion_messages message ON message.job_id = job.id\n  GROUP BY message.job_id\n) SELECT job.*,\n  COALESCE(origin_counts.discovered_count, 0) AS discovered_count,\n  COALESCE(origin_counts.metadata_checked_count, 0) AS metadata_checked_count,\n  COALESCE(origin_counts.eligible_count, 0) AS eligible_count,\n  COALESCE(origin_counts.existing_catalog_count, 0) AS existing_catalog_count,\n  COALESCE(origin_counts.existing_proposal_count, 0) AS existing_proposal_count,\n  COALESCE(origin_counts.existing_candidate_count, 0) AS existing_candidate_count,\n  COALESCE(origin_counts.channel_review_count, 0) AS channel_review_count,\n  COALESCE(origin_counts.unavailable_count, 0) AS unavailable_count,\n  COALESCE(origin_counts.policy_blocked_count, 0) AS policy_blocked_count,\n  COALESCE(origin_counts.scope_review_count, 0) AS scope_review_count,\n  COALESCE(origin_counts.playlist_duplicate_count, 0) AS playlist_duplicate_count,\n  COALESCE(message_counts.retry_pending_count, 0) AS retry_pending_count,\n  COALESCE(message_counts.permanent_error_count, 0) AS permanent_error_count\nFROM selected_jobs job LEFT JOIN origin_counts ON origin_counts.job_id = job.id\nLEFT JOIN message_counts ON message_counts.job_id = job.id\nORDER BY job.created_at DESC, job.id DESC",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE selected_jobs"
+      },
+      {
+        "id": 7,
+        "parent": 3,
+        "notused": 39,
+        "detail": "SEARCH job USING INDEX sqlite_autoindex_music_ingestion_jobs_1 (id=?)"
+      },
+      {
+        "id": 41,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE origin_counts"
+      },
+      {
+        "id": 44,
+        "parent": 41,
+        "notused": 0,
+        "detail": "MATERIALIZE classified"
+      },
+      {
+        "id": 51,
+        "parent": 44,
+        "notused": 216,
+        "detail": "SCAN origin"
+      },
+      {
+        "id": 53,
+        "parent": 44,
+        "notused": 46,
+        "detail": "SEARCH candidate USING INDEX sqlite_autoindex_music_ingestion_candidates_1 (id=?)"
+      },
+      {
+        "id": 67,
+        "parent": 44,
+        "notused": 53,
+        "detail": "SEARCH job USING AUTOMATIC COVERING INDEX (id=?)"
+      },
+      {
+        "id": 86,
+        "parent": 44,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 2"
+      },
+      {
+        "id": 90,
+        "parent": 86,
+        "notused": 43,
+        "detail": "SEARCH p USING COVERING INDEX uidx_music_cover_proposals_pending_video_segment (youtube_video_id=? AND segment_start_seconds=?)"
+      },
+      {
+        "id": 100,
+        "parent": 44,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 3"
+      },
+      {
+        "id": 104,
+        "parent": 100,
+        "notused": 39,
+        "detail": "SEARCH s USING COVERING INDEX uidx_music_media_sources_provider_external (provider=? AND external_id=?)"
+      },
+      {
+        "id": 122,
+        "parent": 44,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 4"
+      },
+      {
+        "id": 127,
+        "parent": 122,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 145,
+        "parent": 44,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 5"
+      },
+      {
+        "id": 150,
+        "parent": 145,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 202,
+        "parent": 44,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 6"
+      },
+      {
+        "id": 207,
+        "parent": 202,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 268,
+        "parent": 41,
+        "notused": 259,
+        "detail": "SCAN classified"
+      },
+      {
+        "id": 270,
+        "parent": 41,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR GROUP BY"
+      },
+      {
+        "id": 387,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE message_counts"
+      },
+      {
+        "id": 397,
+        "parent": 387,
+        "notused": 214,
+        "detail": "SCAN message USING INDEX uidx_music_ingestion_messages_job_kind_payload"
+      },
+      {
+        "id": 408,
+        "parent": 387,
+        "notused": 53,
+        "detail": "SEARCH job USING AUTOMATIC COVERING INDEX (id=?)"
+      },
+      {
+        "id": 461,
+        "parent": 0,
+        "notused": 17,
+        "detail": "SCAN job"
+      },
+      {
+        "id": 465,
+        "parent": 0,
+        "notused": 82,
+        "detail": "SCAN origin_counts LEFT-JOIN"
+      },
+      {
+        "id": 484,
+        "parent": 0,
+        "notused": 47,
+        "detail": "SEARCH message_counts USING AUTOMATIC COVERING INDEX (job_id=?) LEFT-JOIN"
+      },
+      {
+        "id": 562,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR ORDER BY"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT job_id, idempotency_key, message_kind, page_token,\n        video_ids_json, status, attempts\n       FROM music_ingestion_messages WHERE idempotency_key = ?",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_messages USING INDEX sqlite_autoindex_music_ingestion_messages_1 (idempotency_key=?)"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT source_external_id, range_start_position,\n      requested_item_count FROM music_ingestion_jobs WHERE id = ?",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_jobs USING INDEX sqlite_autoindex_music_ingestion_jobs_1 (id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "INSERT OR IGNORE INTO music_ingestion_messages (\n            idempotency_key, job_id, message_kind, payload_key,\n            video_ids_json, status, created_at, updated_at\n          ) VALUES (?, ?, 'video_batch', ?, ?, 'pending', ?, ?)",
+    "plan": []
+  },
+  {
+    "sql": "INSERT OR IGNORE INTO music_ingestion_messages (\n            idempotency_key, job_id, message_kind, payload_key,\n            page_token, status, created_at, updated_at\n          ) VALUES (?, ?, 'playlist_page', ?, ?, 'pending', ?, ?)",
+    "plan": []
+  },
+  {
+    "sql": "WITH context(now, expires_at, message_key) AS (VALUES (?, ?, ?)),\n          incoming(id, external_video_id) AS (VALUES (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?))\n         INSERT INTO music_ingestion_candidates (\n           id, provider, external_video_id, candidate_kind, status,\n           classification, availability_status, first_discovered_at,\n           last_discovered_at, retention_expires_at, version, created_at, updated_at\n         )\n         SELECT incoming.id, 'youtube', incoming.external_video_id,\n           (SELECT candidate_kind FROM music_ingestion_jobs WHERE id = (SELECT job_id FROM music_ingestion_messages WHERE idempotency_key = context.message_key)), 'discovered', 'pending_metadata', 'unknown',\n           context.now, context.now, context.expires_at, 0, context.now, context.now\n         FROM incoming CROSS JOIN context\n         WHERE EXISTS (\n           SELECT 1 FROM music_ingestion_messages\n           WHERE idempotency_key = context.message_key AND status = 'pending'\n         )\n         ON CONFLICT(provider, external_video_id) DO UPDATE SET\n           last_discovered_at = excluded.last_discovered_at,\n           retention_expires_at = MAX(\n             music_ingestion_candidates.retention_expires_at,\n             excluded.retention_expires_at\n           ),\n           updated_at = excluded.updated_at",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CO-ROUTINE incoming"
+      },
+      {
+        "id": 4,
+        "parent": 3,
+        "notused": 0,
+        "detail": "SCAN 48 CONSTANT ROWS"
+      },
+      {
+        "id": 152,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE context"
+      },
+      {
+        "id": 154,
+        "parent": 152,
+        "notused": 0,
+        "detail": "SCAN CONSTANT ROW"
+      },
+      {
+        "id": 162,
+        "parent": 0,
+        "notused": 64,
+        "detail": "SCAN incoming"
+      },
+      {
+        "id": 167,
+        "parent": 0,
+        "notused": 16,
+        "detail": "SCAN context"
+      },
+      {
+        "id": 170,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 52"
+      },
+      {
+        "id": 175,
+        "parent": 170,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_messages USING INDEX sqlite_autoindex_music_ingestion_messages_1 (idempotency_key=?)"
+      },
+      {
+        "id": 192,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 51"
+      },
+      {
+        "id": 197,
+        "parent": 192,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_jobs USING INDEX sqlite_autoindex_music_ingestion_jobs_1 (id=?)"
+      },
+      {
+        "id": 199,
+        "parent": 192,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 50"
+      },
+      {
+        "id": 204,
+        "parent": 199,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_messages USING INDEX sqlite_autoindex_music_ingestion_messages_1 (idempotency_key=?)"
+      },
+      {
+        "id": 679,
+        "parent": 0,
+        "notused": 54,
+        "detail": "SEARCH music_channel_upload_candidate_origins USING COVERING INDEX idx_music_channel_upload_origins_candidate (candidate_id=?)"
+      },
+      {
+        "id": 687,
+        "parent": 0,
+        "notused": 55,
+        "detail": "SEARCH music_ingestion_events USING COVERING INDEX idx_music_ingestion_events_candidate_created_id (candidate_id=?)"
+      },
+      {
+        "id": 695,
+        "parent": 0,
+        "notused": 55,
+        "detail": "SEARCH music_ingestion_candidate_origins USING COVERING INDEX idx_music_ingestion_origins_candidate_discovered_id (candidate_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "WITH context(now, expires_at, message_key) AS (VALUES (?, ?, ?)),\n          incoming(id, external_video_id) AS (VALUES (?, ?), (?, ?))\n         INSERT INTO music_ingestion_candidates (\n           id, provider, external_video_id, candidate_kind, status,\n           classification, availability_status, first_discovered_at,\n           last_discovered_at, retention_expires_at, version, created_at, updated_at\n         )\n         SELECT incoming.id, 'youtube', incoming.external_video_id,\n           (SELECT candidate_kind FROM music_ingestion_jobs WHERE id = (SELECT job_id FROM music_ingestion_messages WHERE idempotency_key = context.message_key)), 'discovered', 'pending_metadata', 'unknown',\n           context.now, context.now, context.expires_at, 0, context.now, context.now\n         FROM incoming CROSS JOIN context\n         WHERE EXISTS (\n           SELECT 1 FROM music_ingestion_messages\n           WHERE idempotency_key = context.message_key AND status = 'pending'\n         )\n         ON CONFLICT(provider, external_video_id) DO UPDATE SET\n           last_discovered_at = excluded.last_discovered_at,\n           retention_expires_at = MAX(\n             music_ingestion_candidates.retention_expires_at,\n             excluded.retention_expires_at\n           ),\n           updated_at = excluded.updated_at",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CO-ROUTINE incoming"
+      },
+      {
+        "id": 4,
+        "parent": 3,
+        "notused": 0,
+        "detail": "SCAN 2 CONSTANT ROWS"
+      },
+      {
+        "id": 14,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE context"
+      },
+      {
+        "id": 16,
+        "parent": 14,
+        "notused": 0,
+        "detail": "SCAN CONSTANT ROW"
+      },
+      {
+        "id": 24,
+        "parent": 0,
+        "notused": 18,
+        "detail": "SCAN incoming"
+      },
+      {
+        "id": 29,
+        "parent": 0,
+        "notused": 16,
+        "detail": "SCAN context"
+      },
+      {
+        "id": 32,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 6"
+      },
+      {
+        "id": 37,
+        "parent": 32,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_messages USING INDEX sqlite_autoindex_music_ingestion_messages_1 (idempotency_key=?)"
+      },
+      {
+        "id": 54,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 5"
+      },
+      {
+        "id": 59,
+        "parent": 54,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_jobs USING INDEX sqlite_autoindex_music_ingestion_jobs_1 (id=?)"
+      },
+      {
+        "id": 61,
+        "parent": 54,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 4"
+      },
+      {
+        "id": 66,
+        "parent": 61,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_messages USING INDEX sqlite_autoindex_music_ingestion_messages_1 (idempotency_key=?)"
+      },
+      {
+        "id": 541,
+        "parent": 0,
+        "notused": 54,
+        "detail": "SEARCH music_channel_upload_candidate_origins USING COVERING INDEX idx_music_channel_upload_origins_candidate (candidate_id=?)"
+      },
+      {
+        "id": 549,
+        "parent": 0,
+        "notused": 55,
+        "detail": "SEARCH music_ingestion_events USING COVERING INDEX idx_music_ingestion_events_candidate_created_id (candidate_id=?)"
+      },
+      {
+        "id": 557,
+        "parent": 0,
+        "notused": 55,
+        "detail": "SEARCH music_ingestion_candidate_origins USING COVERING INDEX idx_music_ingestion_origins_candidate_discovered_id (candidate_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "WITH context(job_id, playlist_id, discovered_at, message_key) AS\n            (VALUES (?, ?, ?, ?)),\n          incoming(\n            origin_id, candidate_id, playlist_item_id, playlist_position, video_id\n          ) AS (VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?))\n         INSERT OR IGNORE INTO music_ingestion_candidate_origins (\n           id, candidate_id, job_id, origin_kind, playlist_id,\n           playlist_item_id, playlist_position, is_playlist_duplicate,\n           discovered_at\n         )\n         SELECT incoming.origin_id, incoming.candidate_id, context.job_id,\n           'playlist_import', context.playlist_id, incoming.playlist_item_id,\n           incoming.playlist_position,\n           EXISTS (\n             SELECT 1 FROM music_ingestion_candidate_origins AS prior_origin\n             JOIN music_ingestion_candidates AS prior_candidate\n               ON prior_candidate.id = prior_origin.candidate_id\n             WHERE prior_origin.job_id = context.job_id\n               AND prior_candidate.provider = 'youtube'\n               AND prior_candidate.external_video_id = incoming.video_id\n           ) OR EXISTS (\n             SELECT 1 FROM incoming AS prior_incoming\n             WHERE prior_incoming.video_id = incoming.video_id\n               AND (\n                 prior_incoming.playlist_position < incoming.playlist_position\n                 OR (\n                   prior_incoming.playlist_position = incoming.playlist_position\n                   AND prior_incoming.origin_id < incoming.origin_id\n                 )\n               )\n           ), context.discovered_at\n         FROM incoming CROSS JOIN context\n         WHERE EXISTS (\n           SELECT 1 FROM music_ingestion_messages\n           WHERE idempotency_key = context.message_key AND status = 'pending'\n         )",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE incoming"
+      },
+      {
+        "id": 6,
+        "parent": 4,
+        "notused": 0,
+        "detail": "SCAN 19 CONSTANT ROWS"
+      },
+      {
+        "id": 162,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE context"
+      },
+      {
+        "id": 164,
+        "parent": 162,
+        "notused": 0,
+        "detail": "SCAN CONSTANT ROW"
+      },
+      {
+        "id": 175,
+        "parent": 0,
+        "notused": 35,
+        "detail": "SCAN incoming"
+      },
+      {
+        "id": 179,
+        "parent": 0,
+        "notused": 16,
+        "detail": "SCAN context"
+      },
+      {
+        "id": 182,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 23"
+      },
+      {
+        "id": 187,
+        "parent": 182,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_messages USING INDEX sqlite_autoindex_music_ingestion_messages_1 (idempotency_key=?)"
+      },
+      {
+        "id": 208,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 21"
+      },
+      {
+        "id": 214,
+        "parent": 208,
+        "notused": 46,
+        "detail": "SEARCH prior_candidate USING INDEX uidx_music_ingestion_candidates_provider_video (provider=? AND external_video_id=?)"
+      },
+      {
+        "id": 222,
+        "parent": 208,
+        "notused": 54,
+        "detail": "SEARCH prior_origin USING COVERING INDEX idx_music_ingestion_origins_job_candidate (job_id=? AND candidate_id=?)"
+      },
+      {
+        "id": 234,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 22"
+      },
+      {
+        "id": 241,
+        "parent": 234,
+        "notused": 0,
+        "detail": "BLOOM FILTER ON prior_incoming (video_id=?)"
+      },
+      {
+        "id": 252,
+        "parent": 234,
+        "notused": 53,
+        "detail": "SEARCH prior_incoming USING AUTOMATIC COVERING INDEX (video_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "WITH context(job_id, playlist_id, discovered_at, message_key) AS\n            (VALUES (?, ?, ?, ?)),\n          incoming(\n            origin_id, candidate_id, playlist_item_id, playlist_position, video_id\n          ) AS (VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?))\n         INSERT OR IGNORE INTO music_ingestion_candidate_origins (\n           id, candidate_id, job_id, origin_kind, playlist_id,\n           playlist_item_id, playlist_position, is_playlist_duplicate,\n           discovered_at\n         )\n         SELECT incoming.origin_id, incoming.candidate_id, context.job_id,\n           'playlist_import', context.playlist_id, incoming.playlist_item_id,\n           incoming.playlist_position,\n           EXISTS (\n             SELECT 1 FROM music_ingestion_candidate_origins AS prior_origin\n             JOIN music_ingestion_candidates AS prior_candidate\n               ON prior_candidate.id = prior_origin.candidate_id\n             WHERE prior_origin.job_id = context.job_id\n               AND prior_candidate.provider = 'youtube'\n               AND prior_candidate.external_video_id = incoming.video_id\n           ) OR EXISTS (\n             SELECT 1 FROM incoming AS prior_incoming\n             WHERE prior_incoming.video_id = incoming.video_id\n               AND (\n                 prior_incoming.playlist_position < incoming.playlist_position\n                 OR (\n                   prior_incoming.playlist_position = incoming.playlist_position\n                   AND prior_incoming.origin_id < incoming.origin_id\n                 )\n               )\n           ), context.discovered_at\n         FROM incoming CROSS JOIN context\n         WHERE EXISTS (\n           SELECT 1 FROM music_ingestion_messages\n           WHERE idempotency_key = context.message_key AND status = 'pending'\n         )",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE incoming"
+      },
+      {
+        "id": 6,
+        "parent": 4,
+        "notused": 0,
+        "detail": "SCAN 12 CONSTANT ROWS"
+      },
+      {
+        "id": 106,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE context"
+      },
+      {
+        "id": 108,
+        "parent": 106,
+        "notused": 0,
+        "detail": "SCAN CONSTANT ROW"
+      },
+      {
+        "id": 119,
+        "parent": 0,
+        "notused": 28,
+        "detail": "SCAN incoming"
+      },
+      {
+        "id": 123,
+        "parent": 0,
+        "notused": 16,
+        "detail": "SCAN context"
+      },
+      {
+        "id": 126,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 16"
+      },
+      {
+        "id": 131,
+        "parent": 126,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_messages USING INDEX sqlite_autoindex_music_ingestion_messages_1 (idempotency_key=?)"
+      },
+      {
+        "id": 152,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 14"
+      },
+      {
+        "id": 158,
+        "parent": 152,
+        "notused": 46,
+        "detail": "SEARCH prior_candidate USING INDEX uidx_music_ingestion_candidates_provider_video (provider=? AND external_video_id=?)"
+      },
+      {
+        "id": 166,
+        "parent": 152,
+        "notused": 54,
+        "detail": "SEARCH prior_origin USING COVERING INDEX idx_music_ingestion_origins_job_candidate (job_id=? AND candidate_id=?)"
+      },
+      {
+        "id": 178,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 15"
+      },
+      {
+        "id": 185,
+        "parent": 178,
+        "notused": 0,
+        "detail": "BLOOM FILTER ON prior_incoming (video_id=?)"
+      },
+      {
+        "id": 196,
+        "parent": 178,
+        "notused": 53,
+        "detail": "SEARCH prior_incoming USING AUTOMATIC COVERING INDEX (video_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "UPDATE music_ingestion_messages\n         SET status = 'completed', completed_at = ?, next_retry_at = NULL,\n           last_error_code = NULL, updated_at = ?\n         WHERE idempotency_key = ? AND status = 'pending'",
+    "plan": [
+      {
+        "id": 5,
+        "parent": 0,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_messages USING INDEX sqlite_autoindex_music_ingestion_messages_1 (idempotency_key=?)"
+      }
+    ]
+  },
+  {
+    "sql": "UPDATE music_ingestion_jobs\n         SET status = CASE WHEN EXISTS (\n              SELECT 1 FROM music_ingestion_messages\n              WHERE job_id = ? AND status = 'pending'\n            ) THEN 'collecting'\n            WHEN EXISTS (\n              SELECT 1 FROM music_ingestion_messages\n              WHERE job_id = ? AND status = 'failed'\n            ) THEN 'partial'\n            ELSE 'completed' END,\n           started_at = COALESCE(started_at, ?),\n           completed_at = CASE WHEN EXISTS (\n             SELECT 1 FROM music_ingestion_messages\n             WHERE job_id = ? AND status = 'pending'\n           ) THEN NULL ELSE ? END,\n           last_error_code = CASE WHEN EXISTS (\n             SELECT 1 FROM music_ingestion_messages\n             WHERE job_id = ? AND status = 'failed'\n           ) THEN last_error_code ELSE NULL END,\n           next_retry_at = NULL, updated_at = ?\n         WHERE id = ?",
+    "plan": [
+      {
+        "id": 5,
+        "parent": 0,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_jobs USING INDEX sqlite_autoindex_music_ingestion_jobs_1 (id=?)"
+      },
+      {
+        "id": 29,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCALAR SUBQUERY 1"
+      },
+      {
+        "id": 34,
+        "parent": 29,
+        "notused": 62,
+        "detail": "SEARCH music_ingestion_messages USING INDEX idx_music_ingestion_messages_status_retry_key (status=?)"
+      },
+      {
+        "id": 50,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCALAR SUBQUERY 2"
+      },
+      {
+        "id": 55,
+        "parent": 50,
+        "notused": 62,
+        "detail": "SEARCH music_ingestion_messages USING INDEX idx_music_ingestion_messages_status_retry_key (status=?)"
+      },
+      {
+        "id": 74,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCALAR SUBQUERY 4"
+      },
+      {
+        "id": 79,
+        "parent": 74,
+        "notused": 62,
+        "detail": "SEARCH music_ingestion_messages USING INDEX idx_music_ingestion_messages_status_retry_key (status=?)"
+      },
+      {
+        "id": 101,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCALAR SUBQUERY 3"
+      },
+      {
+        "id": 106,
+        "parent": 101,
+        "notused": 62,
+        "detail": "SEARCH music_ingestion_messages USING INDEX idx_music_ingestion_messages_status_retry_key (status=?)"
+      }
+    ]
+  },
+  {
+    "sql": "WITH context(now, blocked_expires_at, active_expires_at, message_key) AS\n            (VALUES (?, ?, ?, ?)),\n          observation(\n            video_id, title, channel_id, channel_title, thumbnail_url,\n            duration_seconds, provider_published_at, availability_status,\n            made_for_kids, scope_review\n          ) AS (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?))\n         UPDATE music_ingestion_candidates AS candidate\n         SET title = observation.title,\n           channel_id = observation.channel_id,\n           channel_title = observation.channel_title,\n           thumbnail_url = observation.thumbnail_url,\n           duration_seconds = observation.duration_seconds,\n           provider_published_at = observation.provider_published_at,\n           availability_status = observation.availability_status,\n           made_for_kids = observation.made_for_kids,\n           metadata_checked_at = context.now,\n           next_retry_at = NULL,\n           classification = CASE\n             WHEN EXISTS (\n               SELECT 1 FROM music_media_sources\n               WHERE provider = 'youtube' AND external_id = observation.video_id\n             ) THEN 'existing_catalog'\n             WHEN EXISTS (\n               SELECT 1 FROM music_cover_proposals\n               WHERE youtube_video_id = observation.video_id AND segment_start_seconds = 0\n                 AND status = 'pending_review'\n             ) THEN 'existing_proposal'\n             WHEN observation.availability_status <> 'playable' THEN 'unavailable'\n             WHEN observation.made_for_kids = 1 THEN 'policy_blocked'\n             WHEN EXISTS (\n               SELECT 1 FROM music_channels\n               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                 AND (verification_status = 'revoked' OR active = 0)\n             ) THEN 'policy_blocked'\n             WHEN candidate.review_input_json IS NOT NULL AND EXISTS (\n               SELECT 1 FROM music_channels\n               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                 AND verification_status = 'approved' AND active = 1\n                 AND ((candidate.candidate_kind = 'official_video' AND channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official')) OR (candidate.candidate_kind = 'singing_clip' AND channel_role = 'approved_kirinuki'))\n             ) THEN 'eligible'\n             WHEN observation.scope_review = 1 AND EXISTS (\n               SELECT 1 FROM music_channels\n               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                 AND verification_status = 'approved' AND active = 1\n                 AND ((candidate.candidate_kind = 'official_video' AND channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official')) OR (candidate.candidate_kind = 'singing_clip' AND channel_role = 'approved_kirinuki'))\n             ) THEN 'scope_review'\n             WHEN EXISTS (\n               SELECT 1 FROM music_channels\n               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                 AND verification_status = 'approved' AND active = 1\n                 AND ((candidate.candidate_kind = 'official_video' AND channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official')) OR (candidate.candidate_kind = 'singing_clip' AND channel_role = 'approved_kirinuki'))\n             ) THEN 'eligible'\n             ELSE 'channel_review'\n           END,\n           status = CASE\n             WHEN candidate.status = 'converted' THEN 'converted'\n             WHEN candidate.status = 'ignored' THEN 'ignored'\n             WHEN observation.availability_status <> 'playable'\n               OR observation.made_for_kids = 1 OR EXISTS (\n                 SELECT 1 FROM music_channels\n                 WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                   AND (verification_status = 'revoked' OR active = 0)\n               ) THEN 'blocked'\n             WHEN EXISTS (\n               SELECT 1 FROM music_media_sources\n               WHERE provider = 'youtube' AND external_id = observation.video_id\n             ) OR EXISTS (\n               SELECT 1 FROM music_cover_proposals\n               WHERE youtube_video_id = observation.video_id AND segment_start_seconds = 0\n                 AND status = 'pending_review'\n             ) THEN 'discovered'\n             WHEN candidate.review_input_json IS NOT NULL AND EXISTS (\n               SELECT 1 FROM music_channels\n               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                 AND verification_status = 'approved' AND active = 1\n                 AND ((candidate.candidate_kind = 'official_video' AND channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official')) OR (candidate.candidate_kind = 'singing_clip' AND channel_role = 'approved_kirinuki'))\n             ) THEN 'ready'\n             WHEN observation.scope_review = 1 THEN 'discovered'\n             WHEN EXISTS (\n               SELECT 1 FROM music_channels\n               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                 AND verification_status = 'approved' AND active = 1\n                 AND ((candidate.candidate_kind = 'official_video' AND channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official')) OR (candidate.candidate_kind = 'singing_clip' AND channel_role = 'approved_kirinuki'))\n             ) THEN 'needs_input'\n             ELSE 'discovered'\n           END,\n           exclusion_reason = CASE\n             WHEN observation.availability_status <> 'playable'\n               THEN observation.availability_status\n             WHEN observation.made_for_kids = 1 THEN 'made_for_kids_review'\n             WHEN EXISTS (\n               SELECT 1 FROM music_channels\n               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                 AND (verification_status = 'revoked' OR active = 0)\n             ) THEN 'channel_policy_blocked'\n             WHEN observation.scope_review = 1 AND candidate.review_input_json IS NULL\n               THEN 'release_scope_review'\n             ELSE NULL\n           END,\n           retention_expires_at = CASE\n             WHEN candidate.status = 'ignored' THEN context.blocked_expires_at\n             WHEN observation.availability_status <> 'playable'\n               OR observation.made_for_kids = 1 OR EXISTS (\n                 SELECT 1 FROM music_channels\n                 WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                   AND (verification_status = 'revoked' OR active = 0)\n               ) THEN context.blocked_expires_at\n             ELSE context.active_expires_at\n           END,\n           version = version + 1,\n           updated_at = context.now\n         FROM observation CROSS JOIN context\n         WHERE candidate.provider = 'youtube'\n           AND candidate.external_video_id = observation.video_id\n           AND EXISTS (\n             SELECT 1 FROM music_ingestion_messages\n             WHERE idempotency_key = context.message_key AND status = 'pending'\n           )",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE observation"
+      },
+      {
+        "id": 6,
+        "parent": 4,
+        "notused": 0,
+        "detail": "SCAN 9 CONSTANT ROWS"
+      },
+      {
+        "id": 127,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE context"
+      },
+      {
+        "id": 129,
+        "parent": 127,
+        "notused": 0,
+        "detail": "SCAN CONSTANT ROW"
+      },
+      {
+        "id": 142,
+        "parent": 0,
+        "notused": 25,
+        "detail": "SCAN observation"
+      },
+      {
+        "id": 144,
+        "parent": 0,
+        "notused": 46,
+        "detail": "SEARCH candidate USING INDEX uidx_music_ingestion_candidates_provider_video (provider=? AND external_video_id=?)"
+      },
+      {
+        "id": 154,
+        "parent": 0,
+        "notused": 16,
+        "detail": "SCAN context"
+      },
+      {
+        "id": 157,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 24"
+      },
+      {
+        "id": 162,
+        "parent": 157,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_messages USING INDEX sqlite_autoindex_music_ingestion_messages_1 (idempotency_key=?)"
+      },
+      {
+        "id": 187,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 11"
+      },
+      {
+        "id": 191,
+        "parent": 187,
+        "notused": 39,
+        "detail": "SEARCH music_media_sources USING COVERING INDEX uidx_music_media_sources_provider_external (provider=? AND external_id=?)"
+      },
+      {
+        "id": 205,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 12"
+      },
+      {
+        "id": 209,
+        "parent": 205,
+        "notused": 43,
+        "detail": "SEARCH music_cover_proposals USING COVERING INDEX uidx_music_cover_proposals_pending_video_segment (youtube_video_id=? AND segment_start_seconds=?)"
+      },
+      {
+        "id": 231,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 13"
+      },
+      {
+        "id": 236,
+        "parent": 231,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 257,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 14"
+      },
+      {
+        "id": 262,
+        "parent": 257,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 313,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 15"
+      },
+      {
+        "id": 318,
+        "parent": 313,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 367,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 16"
+      },
+      {
+        "id": 372,
+        "parent": 367,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 434,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 17"
+      },
+      {
+        "id": 439,
+        "parent": 434,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 458,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 18"
+      },
+      {
+        "id": 462,
+        "parent": 458,
+        "notused": 39,
+        "detail": "SEARCH music_media_sources USING COVERING INDEX uidx_music_media_sources_provider_external (provider=? AND external_id=?)"
+      },
+      {
+        "id": 474,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 19"
+      },
+      {
+        "id": 478,
+        "parent": 474,
+        "notused": 43,
+        "detail": "SEARCH music_cover_proposals USING COVERING INDEX uidx_music_cover_proposals_pending_video_segment (youtube_video_id=? AND segment_start_seconds=?)"
+      },
+      {
+        "id": 494,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 20"
+      },
+      {
+        "id": 499,
+        "parent": 494,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 552,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 21"
+      },
+      {
+        "id": 557,
+        "parent": 552,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 615,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 22"
+      },
+      {
+        "id": 620,
+        "parent": 615,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 654,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 23"
+      },
+      {
+        "id": 659,
+        "parent": 654,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "WITH context(now, blocked_expires_at, active_expires_at, message_key) AS\n            (VALUES (?, ?, ?, ?)),\n          observation(\n            video_id, title, channel_id, channel_title, thumbnail_url,\n            duration_seconds, provider_published_at, availability_status,\n            made_for_kids, scope_review\n          ) AS (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?))\n         UPDATE music_ingestion_candidates AS candidate\n         SET title = observation.title,\n           channel_id = observation.channel_id,\n           channel_title = observation.channel_title,\n           thumbnail_url = observation.thumbnail_url,\n           duration_seconds = observation.duration_seconds,\n           provider_published_at = observation.provider_published_at,\n           availability_status = observation.availability_status,\n           made_for_kids = observation.made_for_kids,\n           metadata_checked_at = context.now,\n           next_retry_at = NULL,\n           classification = CASE\n             WHEN EXISTS (\n               SELECT 1 FROM music_media_sources\n               WHERE provider = 'youtube' AND external_id = observation.video_id\n             ) THEN 'existing_catalog'\n             WHEN EXISTS (\n               SELECT 1 FROM music_cover_proposals\n               WHERE youtube_video_id = observation.video_id AND segment_start_seconds = 0\n                 AND status = 'pending_review'\n             ) THEN 'existing_proposal'\n             WHEN observation.availability_status <> 'playable' THEN 'unavailable'\n             WHEN observation.made_for_kids = 1 THEN 'policy_blocked'\n             WHEN EXISTS (\n               SELECT 1 FROM music_channels\n               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                 AND (verification_status = 'revoked' OR active = 0)\n             ) THEN 'policy_blocked'\n             WHEN candidate.review_input_json IS NOT NULL AND EXISTS (\n               SELECT 1 FROM music_channels\n               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                 AND verification_status = 'approved' AND active = 1\n                 AND ((candidate.candidate_kind = 'official_video' AND channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official')) OR (candidate.candidate_kind = 'singing_clip' AND channel_role = 'approved_kirinuki'))\n             ) THEN 'eligible'\n             WHEN observation.scope_review = 1 AND EXISTS (\n               SELECT 1 FROM music_channels\n               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                 AND verification_status = 'approved' AND active = 1\n                 AND ((candidate.candidate_kind = 'official_video' AND channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official')) OR (candidate.candidate_kind = 'singing_clip' AND channel_role = 'approved_kirinuki'))\n             ) THEN 'scope_review'\n             WHEN EXISTS (\n               SELECT 1 FROM music_channels\n               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                 AND verification_status = 'approved' AND active = 1\n                 AND ((candidate.candidate_kind = 'official_video' AND channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official')) OR (candidate.candidate_kind = 'singing_clip' AND channel_role = 'approved_kirinuki'))\n             ) THEN 'eligible'\n             ELSE 'channel_review'\n           END,\n           status = CASE\n             WHEN candidate.status = 'converted' THEN 'converted'\n             WHEN candidate.status = 'ignored' THEN 'ignored'\n             WHEN observation.availability_status <> 'playable'\n               OR observation.made_for_kids = 1 OR EXISTS (\n                 SELECT 1 FROM music_channels\n                 WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                   AND (verification_status = 'revoked' OR active = 0)\n               ) THEN 'blocked'\n             WHEN EXISTS (\n               SELECT 1 FROM music_media_sources\n               WHERE provider = 'youtube' AND external_id = observation.video_id\n             ) OR EXISTS (\n               SELECT 1 FROM music_cover_proposals\n               WHERE youtube_video_id = observation.video_id AND segment_start_seconds = 0\n                 AND status = 'pending_review'\n             ) THEN 'discovered'\n             WHEN candidate.review_input_json IS NOT NULL AND EXISTS (\n               SELECT 1 FROM music_channels\n               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                 AND verification_status = 'approved' AND active = 1\n                 AND ((candidate.candidate_kind = 'official_video' AND channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official')) OR (candidate.candidate_kind = 'singing_clip' AND channel_role = 'approved_kirinuki'))\n             ) THEN 'ready'\n             WHEN observation.scope_review = 1 THEN 'discovered'\n             WHEN EXISTS (\n               SELECT 1 FROM music_channels\n               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                 AND verification_status = 'approved' AND active = 1\n                 AND ((candidate.candidate_kind = 'official_video' AND channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official')) OR (candidate.candidate_kind = 'singing_clip' AND channel_role = 'approved_kirinuki'))\n             ) THEN 'needs_input'\n             ELSE 'discovered'\n           END,\n           exclusion_reason = CASE\n             WHEN observation.availability_status <> 'playable'\n               THEN observation.availability_status\n             WHEN observation.made_for_kids = 1 THEN 'made_for_kids_review'\n             WHEN EXISTS (\n               SELECT 1 FROM music_channels\n               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                 AND (verification_status = 'revoked' OR active = 0)\n             ) THEN 'channel_policy_blocked'\n             WHEN observation.scope_review = 1 AND candidate.review_input_json IS NULL\n               THEN 'release_scope_review'\n             ELSE NULL\n           END,\n           retention_expires_at = CASE\n             WHEN candidate.status = 'ignored' THEN context.blocked_expires_at\n             WHEN observation.availability_status <> 'playable'\n               OR observation.made_for_kids = 1 OR EXISTS (\n                 SELECT 1 FROM music_channels\n                 WHERE provider = 'youtube' AND external_channel_id = observation.channel_id\n                   AND (verification_status = 'revoked' OR active = 0)\n               ) THEN context.blocked_expires_at\n             ELSE context.active_expires_at\n           END,\n           version = version + 1,\n           updated_at = context.now\n         FROM observation CROSS JOIN context\n         WHERE candidate.provider = 'youtube'\n           AND candidate.external_video_id = observation.video_id\n           AND EXISTS (\n             SELECT 1 FROM music_ingestion_messages\n             WHERE idempotency_key = context.message_key AND status = 'pending'\n           )",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE observation"
+      },
+      {
+        "id": 6,
+        "parent": 4,
+        "notused": 0,
+        "detail": "SCAN 5 CONSTANT ROWS"
+      },
+      {
+        "id": 75,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE context"
+      },
+      {
+        "id": 77,
+        "parent": 75,
+        "notused": 0,
+        "detail": "SCAN CONSTANT ROW"
+      },
+      {
+        "id": 90,
+        "parent": 0,
+        "notused": 21,
+        "detail": "SCAN observation"
+      },
+      {
+        "id": 92,
+        "parent": 0,
+        "notused": 46,
+        "detail": "SEARCH candidate USING INDEX uidx_music_ingestion_candidates_provider_video (provider=? AND external_video_id=?)"
+      },
+      {
+        "id": 102,
+        "parent": 0,
+        "notused": 16,
+        "detail": "SCAN context"
+      },
+      {
+        "id": 105,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 20"
+      },
+      {
+        "id": 110,
+        "parent": 105,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_messages USING INDEX sqlite_autoindex_music_ingestion_messages_1 (idempotency_key=?)"
+      },
+      {
+        "id": 135,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 7"
+      },
+      {
+        "id": 139,
+        "parent": 135,
+        "notused": 39,
+        "detail": "SEARCH music_media_sources USING COVERING INDEX uidx_music_media_sources_provider_external (provider=? AND external_id=?)"
+      },
+      {
+        "id": 153,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 8"
+      },
+      {
+        "id": 157,
+        "parent": 153,
+        "notused": 43,
+        "detail": "SEARCH music_cover_proposals USING COVERING INDEX uidx_music_cover_proposals_pending_video_segment (youtube_video_id=? AND segment_start_seconds=?)"
+      },
+      {
+        "id": 179,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 9"
+      },
+      {
+        "id": 184,
+        "parent": 179,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 205,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 10"
+      },
+      {
+        "id": 210,
+        "parent": 205,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 261,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 11"
+      },
+      {
+        "id": 266,
+        "parent": 261,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 315,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 12"
+      },
+      {
+        "id": 320,
+        "parent": 315,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 382,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 13"
+      },
+      {
+        "id": 387,
+        "parent": 382,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 406,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 14"
+      },
+      {
+        "id": 410,
+        "parent": 406,
+        "notused": 39,
+        "detail": "SEARCH music_media_sources USING COVERING INDEX uidx_music_media_sources_provider_external (provider=? AND external_id=?)"
+      },
+      {
+        "id": 422,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 15"
+      },
+      {
+        "id": 426,
+        "parent": 422,
+        "notused": 43,
+        "detail": "SEARCH music_cover_proposals USING COVERING INDEX uidx_music_cover_proposals_pending_video_segment (youtube_video_id=? AND segment_start_seconds=?)"
+      },
+      {
+        "id": 442,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 16"
+      },
+      {
+        "id": 447,
+        "parent": 442,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 500,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 17"
+      },
+      {
+        "id": 505,
+        "parent": 500,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 563,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 18"
+      },
+      {
+        "id": 568,
+        "parent": 563,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 602,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 19"
+      },
+      {
+        "id": 607,
+        "parent": 602,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "UPDATE music_ingestion_jobs\n         SET status = CASE\n           WHEN EXISTS (\n             SELECT 1 FROM music_ingestion_messages\n             WHERE job_id = ? AND status = 'pending'\n           ) THEN 'collecting'\n           WHEN EXISTS (\n             SELECT 1 FROM music_ingestion_messages\n             WHERE job_id = ? AND status = 'failed'\n           ) THEN 'partial'\n           ELSE 'completed' END,\n           completed_at = CASE WHEN EXISTS (\n             SELECT 1 FROM music_ingestion_messages\n             WHERE job_id = ? AND status = 'pending'\n           ) THEN NULL ELSE ? END,\n           last_error_code = CASE WHEN EXISTS (\n             SELECT 1 FROM music_ingestion_messages\n             WHERE job_id = ? AND status = 'failed'\n           ) THEN last_error_code ELSE NULL END,\n           next_retry_at = NULL, updated_at = ?\n         WHERE id = ?",
+    "plan": [
+      {
+        "id": 5,
+        "parent": 0,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_jobs USING INDEX sqlite_autoindex_music_ingestion_jobs_1 (id=?)"
+      },
+      {
+        "id": 29,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCALAR SUBQUERY 1"
+      },
+      {
+        "id": 34,
+        "parent": 29,
+        "notused": 62,
+        "detail": "SEARCH music_ingestion_messages USING INDEX idx_music_ingestion_messages_status_retry_key (status=?)"
+      },
+      {
+        "id": 50,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCALAR SUBQUERY 2"
+      },
+      {
+        "id": 55,
+        "parent": 50,
+        "notused": 62,
+        "detail": "SEARCH music_ingestion_messages USING INDEX idx_music_ingestion_messages_status_retry_key (status=?)"
+      },
+      {
+        "id": 74,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCALAR SUBQUERY 4"
+      },
+      {
+        "id": 79,
+        "parent": 74,
+        "notused": 62,
+        "detail": "SEARCH music_ingestion_messages USING INDEX idx_music_ingestion_messages_status_retry_key (status=?)"
+      },
+      {
+        "id": 99,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCALAR SUBQUERY 3"
+      },
+      {
+        "id": 104,
+        "parent": 99,
+        "notused": 62,
+        "detail": "SEARCH music_ingestion_messages USING INDEX idx_music_ingestion_messages_status_retry_key (status=?)"
+      }
+    ]
+  },
+  {
+    "sql": "WITH review_candidates(sort_id, id, kind, candidate_kind, title, status, version, created_at) AS (SELECT 'c:' || c.id AS sort_id, c.id, 'candidate' AS kind, c.candidate_kind, c.title, c.status, c.version, c.first_discovered_at AS created_at\n        FROM music_ingestion_candidates c WHERE c.status NOT IN ('converted','ignored','approved','rejected','withdrawn') AND c.id IN (SELECT candidate_id FROM music_ingestion_candidate_origins WHERE job_id = ?)), review AS MATERIALIZED (\n      SELECT *, CASE WHEN status = 'ready' THEN 1 ELSE 0 END AS ready_rank FROM review_candidates\n      WHERE (? IS NULL OR (CASE WHEN status = 'ready' THEN 1 ELSE 0 END) > ?\n        OR ((CASE WHEN status = 'ready' THEN 1 ELSE 0 END) = ? AND (created_at < ? OR (created_at = ? AND sort_id < ?))))\n      ORDER BY ready_rank ASC, created_at DESC, sort_id DESC LIMIT 51\n    ) SELECT review.*, (EXISTS (SELECT 1 FROM music_ingestion_candidate_origins o WHERE o.candidate_id = c.id)) AS playlist, (EXISTS (SELECT 1 FROM music_channel_upload_candidate_origins o WHERE o.candidate_id = c.id)) AS automatic,\n      CASE WHEN review.kind = 'proposal' THEN 1 ELSE ((SELECT p.id FROM music_cover_proposals p WHERE p.youtube_video_id = c.external_video_id\n      AND p.status = 'pending_review' AND p.segment_start_seconds = 0\n      AND c.status NOT IN ('converted', 'ignored') LIMIT 1) IS NOT NULL) END AS user,\n      (SELECT p.id FROM music_cover_proposals p WHERE p.youtube_video_id = c.external_video_id\n      AND p.status = 'pending_review' AND p.segment_start_seconds = 0\n      AND c.status NOT IN ('converted', 'ignored') LIMIT 1) AS pending_proposal_id,\n      CASE WHEN review.kind = 'candidate' THEN (SELECT json_object(\n        'external_video_id', candidate.external_video_id, 'channel_id', candidate.channel_id, 'channel_title', candidate.channel_title,\n        'thumbnail_url', candidate.thumbnail_url, 'duration_seconds', candidate.duration_seconds,\n        'provider_published_at', candidate.provider_published_at, 'availability_status', candidate.availability_status,\n        'exclusion_reason', candidate.exclusion_reason, 'retention_expires_at', candidate.retention_expires_at,\n        'review_input_json', candidate.review_input_json, 'linked_performance_id', candidate.linked_performance_id,\n        'classification', CASE\n  WHEN candidate.classification = 'existing_proposal' AND NOT EXISTS (\n    SELECT 1 FROM music_cover_proposals p WHERE p.youtube_video_id = candidate.external_video_id\n      AND p.segment_start_seconds = 0 AND p.status = 'pending_review'\n  ) THEN CASE\n    WHEN EXISTS (SELECT 1 FROM music_media_sources s WHERE s.provider = 'youtube' AND s.external_id = candidate.external_video_id) THEN 'existing_catalog'\n    WHEN candidate.availability_status <> 'playable' THEN 'unavailable'\n    WHEN candidate.made_for_kids = 1 OR EXISTS (SELECT 1 FROM music_channels channel\n      WHERE channel.provider = 'youtube' AND channel.external_channel_id = candidate.channel_id\n        AND (channel.verification_status = 'revoked' OR channel.active = 0)) THEN 'policy_blocked'\n    WHEN EXISTS (\n  SELECT 1 FROM music_channels AS channel\n  WHERE channel.provider = 'youtube'\n    AND channel.external_channel_id = candidate.channel_id\n    AND channel.verification_status = 'approved' AND channel.active = 1\n    AND (\n  (candidate.candidate_kind = 'official_video'\n    AND channel.channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'))\n  OR (candidate.candidate_kind = 'singing_clip'\n    AND channel.channel_role = 'approved_kirinuki')\n)\n) THEN 'eligible'\n    ELSE 'channel_review'\n  END\n  WHEN candidate.classification = 'channel_review'\n    AND EXISTS (\n  SELECT 1 FROM music_channels AS channel\n  WHERE channel.provider = 'youtube'\n    AND channel.external_channel_id = candidate.channel_id\n    AND channel.verification_status = 'approved' AND channel.active = 1\n    AND (\n  (candidate.candidate_kind = 'official_video'\n    AND channel.channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'))\n  OR (candidate.candidate_kind = 'singing_clip'\n    AND channel.channel_role = 'approved_kirinuki')\n)\n)\n    THEN 'eligible'\n  ELSE candidate.classification\nEND,\n        'catalog_channel_id', (SELECT channel.id FROM music_channels channel WHERE channel.provider = 'youtube'\n          AND channel.external_channel_id = candidate.channel_id AND channel.verification_status = 'approved' AND channel.active = 1 AND (\n  (candidate.candidate_kind = 'official_video'\n    AND channel.channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'))\n  OR (candidate.candidate_kind = 'singing_clip'\n    AND channel.channel_role = 'approved_kirinuki')\n) LIMIT 1)\n      ) FROM music_ingestion_candidates candidate WHERE candidate.id = review.id) ELSE NULL END AS candidate_data\n      FROM review LEFT JOIN music_ingestion_candidates c ON review.kind = 'candidate' AND c.id = review.id\n      ORDER BY review.ready_rank ASC, review.created_at DESC, review.sort_id DESC",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE review"
+      },
+      {
+        "id": 9,
+        "parent": 3,
+        "notused": 92,
+        "detail": "SEARCH c USING INDEX sqlite_autoindex_music_ingestion_candidates_1 (id=?)"
+      },
+      {
+        "id": 13,
+        "parent": 3,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 16,
+        "parent": 13,
+        "notused": 54,
+        "detail": "SEARCH music_ingestion_candidate_origins USING COVERING INDEX idx_music_ingestion_origins_job_candidate (job_id=?)"
+      },
+      {
+        "id": 26,
+        "parent": 13,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 116,
+        "parent": 3,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR ORDER BY"
+      },
+      {
+        "id": 128,
+        "parent": 0,
+        "notused": 60,
+        "detail": "SCAN review"
+      },
+      {
+        "id": 130,
+        "parent": 0,
+        "notused": 46,
+        "detail": "SEARCH c USING INDEX sqlite_autoindex_music_ingestion_candidates_1 (id=?) LEFT-JOIN"
+      },
+      {
+        "id": 151,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 4"
+      },
+      {
+        "id": 155,
+        "parent": 151,
+        "notused": 55,
+        "detail": "SEARCH o USING COVERING INDEX idx_music_ingestion_origins_candidate_discovered_id (candidate_id=?)"
+      },
+      {
+        "id": 166,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 5"
+      },
+      {
+        "id": 170,
+        "parent": 166,
+        "notused": 54,
+        "detail": "SEARCH o USING COVERING INDEX idx_music_channel_upload_origins_candidate (candidate_id=?)"
+      },
+      {
+        "id": 186,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 6"
+      },
+      {
+        "id": 202,
+        "parent": 186,
+        "notused": 45,
+        "detail": "SEARCH p USING INDEX uidx_music_cover_proposals_pending_video_segment (youtube_video_id=? AND segment_start_seconds=?)"
+      },
+      {
+        "id": 215,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 7"
+      },
+      {
+        "id": 231,
+        "parent": 215,
+        "notused": 45,
+        "detail": "SEARCH p USING INDEX uidx_music_cover_proposals_pending_video_segment (youtube_video_id=? AND segment_start_seconds=?)"
+      },
+      {
+        "id": 245,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 14"
+      },
+      {
+        "id": 250,
+        "parent": 245,
+        "notused": 39,
+        "detail": "SEARCH candidate USING INDEX sqlite_autoindex_music_ingestion_candidates_1 (id=?)"
+      },
+      {
+        "id": 270,
+        "parent": 245,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 8"
+      },
+      {
+        "id": 274,
+        "parent": 270,
+        "notused": 43,
+        "detail": "SEARCH p USING COVERING INDEX uidx_music_cover_proposals_pending_video_segment (youtube_video_id=? AND segment_start_seconds=?)"
+      },
+      {
+        "id": 284,
+        "parent": 245,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 9"
+      },
+      {
+        "id": 288,
+        "parent": 284,
+        "notused": 39,
+        "detail": "SEARCH s USING COVERING INDEX uidx_music_media_sources_provider_external (provider=? AND external_id=?)"
+      },
+      {
+        "id": 306,
+        "parent": 245,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 10"
+      },
+      {
+        "id": 311,
+        "parent": 306,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 329,
+        "parent": 245,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 11"
+      },
+      {
+        "id": 334,
+        "parent": 329,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 386,
+        "parent": 245,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 12"
+      },
+      {
+        "id": 391,
+        "parent": 386,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 440,
+        "parent": 245,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 13"
+      },
+      {
+        "id": 449,
+        "parent": 440,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT candidate.id, candidate.version, candidate.external_video_id,\n        candidate.candidate_kind,\n        candidate.status,\n        CASE\n  WHEN candidate.classification = 'existing_proposal' AND NOT EXISTS (\n    SELECT 1 FROM music_cover_proposals p WHERE p.youtube_video_id = candidate.external_video_id\n      AND p.segment_start_seconds = 0 AND p.status = 'pending_review'\n  ) THEN CASE\n    WHEN EXISTS (SELECT 1 FROM music_media_sources s WHERE s.provider = 'youtube' AND s.external_id = candidate.external_video_id) THEN 'existing_catalog'\n    WHEN candidate.availability_status <> 'playable' THEN 'unavailable'\n    WHEN candidate.made_for_kids = 1 OR EXISTS (SELECT 1 FROM music_channels channel\n      WHERE channel.provider = 'youtube' AND channel.external_channel_id = candidate.channel_id\n        AND (channel.verification_status = 'revoked' OR channel.active = 0)) THEN 'policy_blocked'\n    WHEN EXISTS (\n  SELECT 1 FROM music_channels AS channel\n  WHERE channel.provider = 'youtube'\n    AND channel.external_channel_id = candidate.channel_id\n    AND channel.verification_status = 'approved' AND channel.active = 1\n    AND (\n  (candidate.candidate_kind = 'official_video'\n    AND channel.channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'))\n  OR (candidate.candidate_kind = 'singing_clip'\n    AND channel.channel_role = 'approved_kirinuki')\n)\n) THEN 'eligible'\n    ELSE 'channel_review'\n  END\n  WHEN candidate.classification = 'channel_review'\n    AND EXISTS (\n  SELECT 1 FROM music_channels AS channel\n  WHERE channel.provider = 'youtube'\n    AND channel.external_channel_id = candidate.channel_id\n    AND channel.verification_status = 'approved' AND channel.active = 1\n    AND (\n  (candidate.candidate_kind = 'official_video'\n    AND channel.channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'))\n  OR (candidate.candidate_kind = 'singing_clip'\n    AND channel.channel_role = 'approved_kirinuki')\n)\n)\n    THEN 'eligible'\n  ELSE candidate.classification\nEND AS classification,\n        (SELECT channel.id FROM music_channels AS channel\n          WHERE channel.provider = 'youtube'\n            AND channel.external_channel_id = candidate.channel_id\n            AND channel.verification_status = 'approved' AND channel.active = 1\n            AND (\n  (candidate.candidate_kind = 'official_video'\n    AND channel.channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'))\n  OR (candidate.candidate_kind = 'singing_clip'\n    AND channel.channel_role = 'approved_kirinuki')\n)\n          LIMIT 1) AS catalog_channel_id,\n        candidate.review_input_json, candidate.linked_performance_id\n       FROM music_ingestion_candidates AS candidate\n       WHERE candidate.id = ?\n         ",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 39,
+        "detail": "SEARCH candidate USING INDEX sqlite_autoindex_music_ingestion_candidates_1 (id=?)"
+      },
+      {
+        "id": 18,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 1"
+      },
+      {
+        "id": 22,
+        "parent": 18,
+        "notused": 43,
+        "detail": "SEARCH p USING COVERING INDEX uidx_music_cover_proposals_pending_video_segment (youtube_video_id=? AND segment_start_seconds=?)"
+      },
+      {
+        "id": 32,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 2"
+      },
+      {
+        "id": 36,
+        "parent": 32,
+        "notused": 39,
+        "detail": "SEARCH s USING COVERING INDEX uidx_music_media_sources_provider_external (provider=? AND external_id=?)"
+      },
+      {
+        "id": 54,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 3"
+      },
+      {
+        "id": 59,
+        "parent": 54,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 77,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 4"
+      },
+      {
+        "id": 82,
+        "parent": 77,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 134,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 5"
+      },
+      {
+        "id": 139,
+        "parent": 134,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 188,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 6"
+      },
+      {
+        "id": 197,
+        "parent": 188,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "INSERT INTO music_songs (\n            id, slug, title, normalized_title, dedupe_key, is_otw_original,\n            original_release_date, original_release_precision, version,\n            created_at, updated_at\n          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+    "plan": []
+  },
+  {
+    "sql": "INSERT INTO music_song_original_artists (\n              song_id, entity_id, credit_order, is_primary\n            ) VALUES (?, ?, ?, ?)",
+    "plan": []
+  },
+  {
+    "sql": "INSERT INTO music_catalog_events (\n            id, aggregate_type, aggregate_id, event_type, actor_kind,\n            actor_user_id, after_json, created_at\n          ) VALUES (?, 'song', ?, 'song.created_from_ingestion_review',\n            'admin', ?, ?, ?)",
+    "plan": []
+  },
+  {
+    "sql": "DELETE FROM music_search_terms WHERE song_id = ?",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 56,
+        "detail": "SEARCH music_search_terms USING COVERING INDEX sqlite_autoindex_music_search_terms_1 (song_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "\n    INSERT OR IGNORE INTO music_search_terms (\n      song_id, term_kind, display_value, normalized_term\n    )\n    SELECT id, 'title', title, normalized_title\n      FROM music_songs WHERE id = ?\n    UNION ALL\n    SELECT song_id, 'title_alias', alias, normalized_alias\n      FROM music_song_aliases WHERE song_id = ?\n    UNION ALL\n    SELECT artist.song_id, 'original_artist', entity.display_name, entity.normalized_name\n      FROM music_song_original_artists AS artist\n      JOIN music_entities AS entity ON entity.id = artist.entity_id\n      WHERE artist.song_id = ?\n    UNION ALL\n    SELECT performance.song_id, 'participant', participant.credit_name_snapshot,\n           entity.normalized_name\n      FROM music_performances AS performance\n      JOIN music_performance_participants AS participant\n        ON participant.performance_id = performance.id\n      JOIN music_entities AS entity ON entity.id = participant.entity_id\n      WHERE performance.song_id = ?\n  ",
+    "plan": [
+      {
+        "id": 2,
+        "parent": 0,
+        "notused": 0,
+        "detail": "COMPOUND QUERY"
+      },
+      {
+        "id": 3,
+        "parent": 2,
+        "notused": 0,
+        "detail": "LEFT-MOST SUBQUERY"
+      },
+      {
+        "id": 6,
+        "parent": 3,
+        "notused": 39,
+        "detail": "SEARCH music_songs USING INDEX sqlite_autoindex_music_songs_1 (id=?)"
+      },
+      {
+        "id": 18,
+        "parent": 2,
+        "notused": 0,
+        "detail": "UNION ALL"
+      },
+      {
+        "id": 21,
+        "parent": 18,
+        "notused": 62,
+        "detail": "SEARCH music_song_aliases USING INDEX sqlite_autoindex_music_song_aliases_1 (song_id=?)"
+      },
+      {
+        "id": 34,
+        "parent": 2,
+        "notused": 0,
+        "detail": "UNION ALL"
+      },
+      {
+        "id": 38,
+        "parent": 34,
+        "notused": 56,
+        "detail": "SEARCH artist USING COVERING INDEX sqlite_autoindex_music_song_original_artists_1 (song_id=?)"
+      },
+      {
+        "id": 44,
+        "parent": 34,
+        "notused": 46,
+        "detail": "SEARCH entity USING INDEX sqlite_autoindex_music_entities_1 (id=?)"
+      },
+      {
+        "id": 55,
+        "parent": 2,
+        "notused": 0,
+        "detail": "UNION ALL"
+      },
+      {
+        "id": 62,
+        "parent": 55,
+        "notused": 61,
+        "detail": "SEARCH performance USING INDEX idx_music_performances_song_id (song_id=?)"
+      },
+      {
+        "id": 69,
+        "parent": 55,
+        "notused": 62,
+        "detail": "SEARCH participant USING INDEX uidx_music_performance_participants_credit_order (performance_id=?)"
+      },
+      {
+        "id": 74,
+        "parent": 55,
+        "notused": 46,
+        "detail": "SEARCH entity USING INDEX sqlite_autoindex_music_entities_1 (id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "DELETE FROM music_search_grams WHERE song_id = ?",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 56,
+        "detail": "SEARCH music_search_grams USING COVERING INDEX sqlite_autoindex_music_search_grams_1 (song_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "\n    INSERT OR IGNORE INTO music_search_grams (\n      song_id, gram_size, normalized_gram\n    )\n    WITH RECURSIVE source_terms(song_id, normalized_term) AS (\n      SELECT song_id, normalized_term\n      FROM music_search_terms\n      WHERE song_id = ? AND length(normalized_term) >= 2\n    ), positions(song_id, normalized_term, position) AS (\n      SELECT song_id, normalized_term, 1 FROM source_terms\n      UNION ALL\n      SELECT song_id, normalized_term, position + 1\n      FROM positions\n      WHERE position + 1 <= length(normalized_term)\n    )\n    SELECT song_id, 2, substr(normalized_term, position, 2)\n    FROM positions WHERE position + 1 <= length(normalized_term)\n    UNION\n    SELECT song_id, 3, substr(normalized_term, position, 3)\n    FROM positions WHERE position + 2 <= length(normalized_term)\n  ",
+    "plan": [
+      {
+        "id": 2,
+        "parent": 0,
+        "notused": 0,
+        "detail": "COMPOUND QUERY"
+      },
+      {
+        "id": 3,
+        "parent": 2,
+        "notused": 0,
+        "detail": "LEFT-MOST SUBQUERY"
+      },
+      {
+        "id": 7,
+        "parent": 3,
+        "notused": 0,
+        "detail": "MATERIALIZE positions"
+      },
+      {
+        "id": 11,
+        "parent": 7,
+        "notused": 0,
+        "detail": "SETUP"
+      },
+      {
+        "id": 13,
+        "parent": 11,
+        "notused": 56,
+        "detail": "SEARCH music_search_terms USING COVERING INDEX sqlite_autoindex_music_search_terms_1 (song_id=?)"
+      },
+      {
+        "id": 39,
+        "parent": 7,
+        "notused": 0,
+        "detail": "RECURSIVE STEP"
+      },
+      {
+        "id": 40,
+        "parent": 39,
+        "notused": 216,
+        "detail": "SCAN positions"
+      },
+      {
+        "id": 57,
+        "parent": 3,
+        "notused": 215,
+        "detail": "SCAN positions"
+      },
+      {
+        "id": 72,
+        "parent": 2,
+        "notused": 0,
+        "detail": "UNION USING TEMP B-TREE"
+      },
+      {
+        "id": 75,
+        "parent": 72,
+        "notused": 216,
+        "detail": "SCAN positions"
+      }
+    ]
+  },
+  {
+    "sql": "\n    INSERT INTO music_search_gram_stats (gram_size, normalized_gram, song_count)\n    SELECT gram_size, normalized_gram, 1\n    FROM music_search_grams\n    WHERE song_id = ?\n    ON CONFLICT(gram_size, normalized_gram) DO UPDATE SET\n      song_count = music_search_gram_stats.song_count + 1\n  ",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 56,
+        "detail": "SEARCH music_search_grams USING COVERING INDEX sqlite_autoindex_music_search_grams_1 (song_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "DELETE FROM music_public_performance_sort_keys WHERE performance_id IN\n      (SELECT id FROM music_performances WHERE song_id = ?)",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 90,
+        "detail": "SEARCH music_public_performance_sort_keys USING COVERING INDEX sqlite_autoindex_music_public_performance_sort_keys_1 (performance_id=?)"
+      },
+      {
+        "id": 7,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 11,
+        "parent": 7,
+        "notused": 61,
+        "detail": "SEARCH music_performances USING INDEX idx_music_performances_song_id (song_id=?)"
+      },
+      {
+        "id": 22,
+        "parent": 7,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      }
+    ]
+  },
+  {
+    "sql": "\n    INSERT INTO music_public_performance_sort_keys (\n      performance_id, song_id, representative_participant_entity_id,\n      normalized_participant\n    )\n    SELECT performance.id, performance.song_id,\n      (\n        SELECT participant.entity_id\n        FROM music_performance_participants AS participant\n        WHERE participant.performance_id = performance.id\n        ORDER BY participant.credit_order ASC, participant.entity_id ASC\n        LIMIT 1\n      ),\n      (\n        SELECT entity.normalized_name\n        FROM music_performance_participants AS participant\n        JOIN music_entities AS entity ON entity.id = participant.entity_id\n        WHERE participant.performance_id = performance.id\n        ORDER BY participant.credit_order ASC, participant.entity_id ASC\n        LIMIT 1\n      )\n    FROM music_performances AS performance\n    WHERE performance.song_id = ?\n  ",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 61,
+        "detail": "SEARCH performance USING INDEX idx_music_performances_song_id (song_id=?)"
+      },
+      {
+        "id": 14,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 1"
+      },
+      {
+        "id": 24,
+        "parent": 14,
+        "notused": 62,
+        "detail": "SEARCH participant USING INDEX uidx_music_performance_participants_credit_order (performance_id=?)"
+      },
+      {
+        "id": 35,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 2"
+      },
+      {
+        "id": 47,
+        "parent": 35,
+        "notused": 62,
+        "detail": "SEARCH participant USING INDEX uidx_music_performance_participants_credit_order (performance_id=?)"
+      },
+      {
+        "id": 52,
+        "parent": 35,
+        "notused": 46,
+        "detail": "SEARCH entity USING INDEX sqlite_autoindex_music_entities_1 (id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT catalog.revision, read_model.revision AS read_model_revision\n       FROM music_catalog_meta AS catalog\n       JOIN music_public_read_model_meta AS read_model ON read_model.id = catalog.id\n       WHERE catalog.id = 1",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 45,
+        "detail": "SEARCH catalog USING INTEGER PRIMARY KEY (rowid=?)"
+      },
+      {
+        "id": 6,
+        "parent": 0,
+        "notused": 45,
+        "detail": "SEARCH read_model USING INTEGER PRIMARY KEY (rowid=?)"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT EXISTS (\n        SELECT 1 FROM json_tree(?) AS entity_reference\n        WHERE entity_reference.key = 'entityId'\n          AND entity_reference.type = 'text'\n          AND entity_reference.atom NOT IN (SELECT value FROM json_each(?))\n          AND NOT EXISTS (\n            SELECT 1 FROM music_entities AS entity\n            WHERE entity.id = entity_reference.atom\n              AND entity.archived_at IS NULL\n          )\n      ) AS missing",
+    "plan": [
+      {
+        "id": 1,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCAN CONSTANT ROW"
+      },
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCALAR SUBQUERY 3"
+      },
+      {
+        "id": 8,
+        "parent": 4,
+        "notused": 0,
+        "detail": "SCAN entity_reference VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 20,
+        "parent": 4,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 23,
+        "parent": 20,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 32,
+        "parent": 20,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 50,
+        "parent": 4,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 2"
+      },
+      {
+        "id": 55,
+        "parent": 50,
+        "notused": 39,
+        "detail": "SEARCH entity USING INDEX sqlite_autoindex_music_entities_1 (id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "UPDATE music_ingestion_candidates\n         SET review_input_json = ?, reviewed_by_user_id = ?, status = 'ready',\n           classification = 'eligible', exclusion_reason = NULL,\n           last_conversion_outcome = NULL, last_conversion_error_code = NULL,\n           last_conversion_attempt_at = NULL,\n           version = version + 1, updated_at = ?\n         WHERE id = ? AND version = ?\n           AND classification IN ('eligible', 'scope_review', 'channel_review', 'existing_proposal')\n           AND availability_status = 'playable' AND COALESCE(made_for_kids, 0) = 0\n           AND NOT EXISTS (SELECT 1 FROM music_cover_proposals p\n             WHERE p.youtube_video_id = music_ingestion_candidates.external_video_id\n               AND p.segment_start_seconds = 0 AND p.status = 'pending_review')\n           AND NOT EXISTS (SELECT 1 FROM music_media_sources s\n             WHERE s.provider = 'youtube' AND s.external_id = music_ingestion_candidates.external_video_id)\n           AND status <> 'converted'\n           AND ((candidate_kind = 'official_video'\n               AND ? IN ('official_mv', 'official_video'))\n             OR (candidate_kind = 'singing_clip' AND ? = 'broadcast'))\n           AND EXISTS (\n             SELECT 1 FROM music_channels AS channel\n             WHERE channel.provider = 'youtube'\n                AND channel.external_channel_id = music_ingestion_candidates.channel_id\n                AND channel.verification_status = 'approved' AND channel.active = 1\n                 AND (\n  (music_ingestion_candidates.candidate_kind = 'official_video'\n    AND channel.channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'))\n  OR (music_ingestion_candidates.candidate_kind = 'singing_clip'\n    AND channel.channel_role = 'approved_kirinuki')\n)\n            )\n            AND NOT (EXISTS (\n  SELECT 1 FROM json_tree(?) AS entity_reference\n  WHERE entity_reference.key = 'entityId'\n    AND entity_reference.type = 'text'\n    AND NOT EXISTS (\n      SELECT 1 FROM music_entities AS entity\n      WHERE entity.id = entity_reference.atom\n        AND entity.archived_at IS NULL\n    )\n))",
+    "plan": [
+      {
+        "id": 5,
+        "parent": 0,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_candidates USING INDEX sqlite_autoindex_music_ingestion_candidates_1 (id=?)"
+      },
+      {
+        "id": 52,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 1"
+      },
+      {
+        "id": 56,
+        "parent": 52,
+        "notused": 43,
+        "detail": "SEARCH p USING COVERING INDEX uidx_music_cover_proposals_pending_video_segment (youtube_video_id=? AND segment_start_seconds=?)"
+      },
+      {
+        "id": 66,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 2"
+      },
+      {
+        "id": 70,
+        "parent": 66,
+        "notused": 39,
+        "detail": "SEARCH s USING COVERING INDEX uidx_music_media_sources_provider_external (provider=? AND external_id=?)"
+      },
+      {
+        "id": 80,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 3"
+      },
+      {
+        "id": 85,
+        "parent": 80,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 132,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCALAR SUBQUERY 5"
+      },
+      {
+        "id": 136,
+        "parent": 132,
+        "notused": 0,
+        "detail": "SCAN entity_reference VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 146,
+        "parent": 132,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 4"
+      },
+      {
+        "id": 151,
+        "parent": 146,
+        "notused": 39,
+        "detail": "SEARCH entity USING INDEX sqlite_autoindex_music_entities_1 (id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "INSERT INTO music_ingestion_events (\n          id, candidate_id, event_type, actor_user_id, detail_json, created_at\n        ) SELECT ?, ?, 'candidate.review_saved', ?, ?, ? WHERE changes() = 1",
+    "plan": [
+      {
+        "id": 2,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCAN CONSTANT ROW"
+      }
+    ]
+  },
+  {
+    "sql": "\n    UPDATE music_catalog_meta\n    SET id = CASE WHEN changes() = 1 THEN 1 ELSE 2 END\n    WHERE id = 1\n  ",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 33,
+        "detail": "SEARCH music_catalog_meta USING INTEGER PRIMARY KEY (rowid=?)"
+      }
+    ]
+  },
+  {
+    "sql": "UPDATE music_catalog_meta\n           SET revision = revision + 1, updated_at = ?\n           WHERE id = 1 AND revision = ?",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 33,
+        "detail": "SEARCH music_catalog_meta USING INTEGER PRIMARY KEY (rowid=?)"
+      }
+    ]
+  },
+  {
+    "sql": "UPDATE music_public_read_model_meta\n           SET revision = ?, updated_at = ?\n           WHERE id = 1 AND revision = ?",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 33,
+        "detail": "SEARCH music_public_read_model_meta USING INTEGER PRIMARY KEY (rowid=?)"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT 1 AS matched FROM music_ingestion_events WHERE id = ?",
+    "plan": [
+      {
+        "id": 2,
+        "parent": 0,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_events USING COVERING INDEX sqlite_autoindex_music_ingestion_events_1 (id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT catalog.revision, read_model.revision AS read_model_revision\n        FROM music_catalog_meta AS catalog JOIN music_public_read_model_meta AS read_model\n          ON read_model.id = catalog.id WHERE catalog.id = 1",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 45,
+        "detail": "SEARCH catalog USING INTEGER PRIMARY KEY (rowid=?)"
+      },
+      {
+        "id": 6,
+        "parent": 0,
+        "notused": 45,
+        "detail": "SEARCH read_model USING INTEGER PRIMARY KEY (rowid=?)"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT id, slug, title, normalized_title, is_otw_original,\n        original_release_date, original_release_precision, archived_at, version\n        FROM music_songs WHERE (id IN (SELECT value FROM json_each(?))) ORDER BY normalized_title, id",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 92,
+        "detail": "SEARCH music_songs USING INDEX sqlite_autoindex_music_songs_1 (id=?)"
+      },
+      {
+        "id": 8,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 11,
+        "parent": 8,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 20,
+        "parent": 8,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 42,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR ORDER BY"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT song_id, alias, normalized_alias, locale, alias_kind\n        FROM music_song_aliases WHERE (song_id IN (SELECT value FROM json_each(?))) ORDER BY song_id, normalized_alias",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 108,
+        "detail": "SEARCH music_song_aliases USING INDEX sqlite_autoindex_music_song_aliases_1 (song_id=?)"
+      },
+      {
+        "id": 8,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 11,
+        "parent": 8,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 20,
+        "parent": 8,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT song_id, tag_key, display_name\n        FROM music_song_tags WHERE (song_id IN (SELECT value FROM json_each(?))) ORDER BY song_id, tag_key",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 108,
+        "detail": "SEARCH music_song_tags USING INDEX sqlite_autoindex_music_song_tags_1 (song_id=?)"
+      },
+      {
+        "id": 8,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 11,
+        "parent": 8,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 20,
+        "parent": 8,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT artist.song_id, artist.entity_id, entity.display_name,\n        artist.credit_order, artist.is_primary\n        FROM music_song_original_artists AS artist\n        JOIN music_entities AS entity ON entity.id = artist.entity_id\n        WHERE (artist.song_id IN (SELECT value FROM json_each(?))) ORDER BY artist.song_id, artist.credit_order, artist.entity_id",
+    "plan": [
+      {
+        "id": 6,
+        "parent": 0,
+        "notused": 108,
+        "detail": "SEARCH artist USING INDEX uidx_music_song_original_artists_credit_order (song_id=?)"
+      },
+      {
+        "id": 10,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 13,
+        "parent": 10,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 22,
+        "parent": 10,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 32,
+        "parent": 0,
+        "notused": 46,
+        "detail": "SEARCH entity USING INDEX sqlite_autoindex_music_entities_1 (id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "\n      SELECT catalog.revision,\n             read_model.revision AS read_model_revision\n      FROM music_catalog_meta AS catalog\n      JOIN music_public_read_model_meta AS read_model ON read_model.id = catalog.id\n      WHERE catalog.id = 1\n    ",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 45,
+        "detail": "SEARCH catalog USING INTEGER PRIMARY KEY (rowid=?)"
+      },
+      {
+        "id": 6,
+        "parent": 0,
+        "notused": 45,
+        "detail": "SEARCH read_model USING INTEGER PRIMARY KEY (rowid=?)"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT id, channel_role, verification_status, active\n          FROM music_channels\n          WHERE provider = 'youtube' AND external_channel_id = ?",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 39,
+        "detail": "SEARCH music_channels USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT uid, suggested_role FROM (\n            SELECT member.uid AS uid, 'member_main' AS suggested_role, 0 AS precedence\n            FROM members AS member\n            WHERE member.youtube_channel_id = ?\n              AND (member.is_deprecated IS NULL OR member.is_deprecated = 0)\n            UNION ALL\n            SELECT member.uid AS uid, 'member_music' AS suggested_role, 1 AS precedence\n            FROM member_links AS link\n            JOIN members AS member ON member.uid = link.member_uid\n            WHERE link.youtube_channel_id = ? AND link.enabled = 1\n              AND link.type IN ('youtube_vod', 'youtube_sub')\n              AND (member.is_deprecated IS NULL OR member.is_deprecated = 0)\n          ) ORDER BY precedence, uid LIMIT 1",
+    "plan": [
+      {
+        "id": 2,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CO-ROUTINE (subquery-2)"
+      },
+      {
+        "id": 3,
+        "parent": 2,
+        "notused": 0,
+        "detail": "COMPOUND QUERY"
+      },
+      {
+        "id": 4,
+        "parent": 3,
+        "notused": 0,
+        "detail": "LEFT-MOST SUBQUERY"
+      },
+      {
+        "id": 6,
+        "parent": 4,
+        "notused": 216,
+        "detail": "SCAN member"
+      },
+      {
+        "id": 19,
+        "parent": 3,
+        "notused": 0,
+        "detail": "UNION ALL"
+      },
+      {
+        "id": 22,
+        "parent": 19,
+        "notused": 216,
+        "detail": "SCAN link"
+      },
+      {
+        "id": 31,
+        "parent": 19,
+        "notused": 45,
+        "detail": "SEARCH member USING INTEGER PRIMARY KEY (rowid=?)"
+      },
+      {
+        "id": 46,
+        "parent": 0,
+        "notused": 206,
+        "detail": "SCAN (subquery-2)"
+      },
+      {
+        "id": 60,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR ORDER BY"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT performance.song_id, link.performance_id\n          FROM music_media_sources AS source\n          JOIN music_performance_sources AS link ON link.source_id = source.id\n          JOIN music_performances AS performance ON performance.id = link.performance_id\n          WHERE source.provider = 'youtube' AND source.external_id = ?\n            AND link.start_seconds = ?\n          LIMIT 1",
+    "plan": [
+      {
+        "id": 8,
+        "parent": 0,
+        "notused": 47,
+        "detail": "SEARCH source USING INDEX uidx_music_media_sources_provider_external (provider=? AND external_id=?)"
+      },
+      {
+        "id": 16,
+        "parent": 0,
+        "notused": 47,
+        "detail": "SEARCH link USING INDEX uidx_music_performance_sources_source_start (source_id=? AND start_seconds=?)"
+      },
+      {
+        "id": 24,
+        "parent": 0,
+        "notused": 46,
+        "detail": "SEARCH performance USING INDEX sqlite_autoindex_music_performances_1 (id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT id, member_uid, entity_kind, display_name,\n        normalized_name, slug, archived_at, version FROM music_entities\n        WHERE (id IN (SELECT value FROM json_each(?))) ORDER BY normalized_name, id",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 92,
+        "detail": "SEARCH music_entities USING INDEX sqlite_autoindex_music_entities_1 (id=?)"
+      },
+      {
+        "id": 8,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 11,
+        "parent": 8,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 20,
+        "parent": 8,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 41,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR ORDER BY"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT id, provider, external_channel_id, display_name,\n        channel_role, verification_status, active, version\n        FROM music_channels WHERE (id IN (SELECT value FROM json_each(?)) OR external_channel_id IN (SELECT value FROM json_each(?))) ORDER BY display_name, id",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 216,
+        "detail": "SCAN music_channels"
+      },
+      {
+        "id": 8,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 11,
+        "parent": 8,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 20,
+        "parent": 8,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 32,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 2"
+      },
+      {
+        "id": 35,
+        "parent": 32,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 44,
+        "parent": 32,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 63,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR ORDER BY"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT channel_id, entity_id FROM music_channel_entities\n        WHERE (channel_id IN (SELECT id FROM music_channels WHERE id IN (SELECT value FROM json_each(?)) OR external_channel_id IN (SELECT value FROM json_each(?)))) ORDER BY channel_id, entity_id",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 102,
+        "detail": "SEARCH music_channel_entities USING COVERING INDEX sqlite_autoindex_music_channel_entities_1 (channel_id=?)"
+      },
+      {
+        "id": 7,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 3"
+      },
+      {
+        "id": 10,
+        "parent": 7,
+        "notused": 216,
+        "detail": "SCAN music_channels"
+      },
+      {
+        "id": 15,
+        "parent": 7,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 18,
+        "parent": 15,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 27,
+        "parent": 15,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 39,
+        "parent": 7,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 2"
+      },
+      {
+        "id": 42,
+        "parent": 39,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 51,
+        "parent": 39,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 63,
+        "parent": 7,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT 1 AS matched FROM music_ingestion_candidates AS candidate\n         WHERE candidate.id = ? AND candidate.status = 'ready'\n            AND candidate.version = ? AND candidate.classification = 'eligible'\n            AND ((candidate.candidate_kind = 'official_video'\n                AND ? IN ('official_mv', 'official_video'))\n              OR (candidate.candidate_kind = 'singing_clip' AND ? = 'broadcast'))\n            AND EXISTS (\n             SELECT 1 FROM music_channels AS channel\n             WHERE channel.provider = 'youtube'\n               AND channel.external_channel_id = candidate.channel_id\n               AND channel.verification_status = 'approved'\n               AND channel.active = 1\n                AND (\n  (candidate.candidate_kind = 'official_video'\n    AND channel.channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'))\n  OR (candidate.candidate_kind = 'singing_clip'\n    AND channel.channel_role = 'approved_kirinuki')\n)\n            )\n            AND (? IS NULL OR EXISTS (\n              SELECT 1 FROM music_ingestion_candidate_origins AS origin\n              WHERE origin.candidate_id = candidate.id AND origin.job_id = ?\n            ))",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 39,
+        "detail": "SEARCH candidate USING INDEX sqlite_autoindex_music_ingestion_candidates_1 (id=?)"
+      },
+      {
+        "id": 26,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 1"
+      },
+      {
+        "id": 31,
+        "parent": 26,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      },
+      {
+        "id": 78,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 2"
+      },
+      {
+        "id": 82,
+        "parent": 78,
+        "notused": 54,
+        "detail": "SEARCH origin USING COVERING INDEX idx_music_ingestion_origins_job_candidate (job_id=? AND candidate_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT performance.song_id, link.performance_id\n        FROM music_media_sources AS source\n        JOIN music_performance_sources AS link ON link.source_id = source.id\n        JOIN music_performances AS performance ON performance.id = link.performance_id\n        WHERE source.provider = 'youtube' AND source.external_id = ?\n          AND link.start_seconds = ? LIMIT 1",
+    "plan": [
+      {
+        "id": 8,
+        "parent": 0,
+        "notused": 47,
+        "detail": "SEARCH source USING INDEX uidx_music_media_sources_provider_external (provider=? AND external_id=?)"
+      },
+      {
+        "id": 16,
+        "parent": 0,
+        "notused": 47,
+        "detail": "SEARCH link USING INDEX uidx_music_performance_sources_source_start (source_id=? AND start_seconds=?)"
+      },
+      {
+        "id": 24,
+        "parent": 0,
+        "notused": 46,
+        "detail": "SEARCH performance USING INDEX sqlite_autoindex_music_performances_1 (id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT id FROM music_media_sources WHERE provider = 'youtube' AND external_id = ?",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 39,
+        "detail": "SEARCH music_media_sources USING INDEX uidx_music_media_sources_provider_external (provider=? AND external_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "INSERT INTO music_media_sources (\n      id, provider, external_id, channel_id, title, thumbnail_url, duration_seconds,\n      provider_published_at, availability_status, last_checked_at, next_check_at,\n      version, created_at, updated_at\n    ) VALUES (?, 'youtube', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+    "plan": []
+  },
+  {
+    "sql": "INSERT INTO music_performances (\n          id, song_id, dedupe_key, relation_type, release_type, participation_type,\n          publication_status, quality_status, released_at, internal_note, version,\n          created_at, updated_at, broadcast_metadata\n        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ok', ?, ?, 0, ?, ?, ?)",
+    "plan": []
+  },
+  {
+    "sql": "INSERT INTO music_performance_participants (\n            performance_id, entity_id, participant_role, credit_order, credit_name_snapshot\n          ) VALUES (?, ?, ?, ?, ?)",
+    "plan": []
+  },
+  {
+    "sql": "INSERT INTO music_performance_sources (\n          performance_id, source_id, start_seconds, end_seconds, source_role, priority, is_primary\n        ) VALUES (?, ?, ?, ?, ?, 0, 1)",
+    "plan": []
+  },
+  {
+    "sql": "DELETE FROM music_search_gram_stats\n       WHERE song_count <= 1\n         AND (gram_size, normalized_gram) IN (\n         SELECT existing.gram_size, existing.normalized_gram\n         FROM music_search_grams AS existing\n         WHERE existing.song_id = ?\n       )",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 93,
+        "detail": "SEARCH music_search_gram_stats USING INDEX sqlite_autoindex_music_search_gram_stats_1 (gram_size=? AND normalized_gram=?)"
+      },
+      {
+        "id": 8,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 11,
+        "parent": 8,
+        "notused": 56,
+        "detail": "SEARCH existing USING COVERING INDEX sqlite_autoindex_music_search_grams_1 (song_id=?)"
+      },
+      {
+        "id": 22,
+        "parent": 8,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      }
+    ]
+  },
+  {
+    "sql": "UPDATE music_search_gram_stats\n       SET song_count = song_count - 1\n       WHERE song_count > 1\n         AND (gram_size, normalized_gram) IN (\n         SELECT existing.gram_size, existing.normalized_gram\n         FROM music_search_grams AS existing\n         WHERE existing.song_id = ?\n       )",
+    "plan": [
+      {
+        "id": 5,
+        "parent": 0,
+        "notused": 93,
+        "detail": "SEARCH music_search_gram_stats USING INDEX sqlite_autoindex_music_search_gram_stats_1 (gram_size=? AND normalized_gram=?)"
+      },
+      {
+        "id": 9,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 12,
+        "parent": 9,
+        "notused": 56,
+        "detail": "SEARCH existing USING COVERING INDEX sqlite_autoindex_music_search_grams_1 (song_id=?)"
+      },
+      {
+        "id": 23,
+        "parent": 9,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      }
+    ]
+  },
+  {
+    "sql": "INSERT INTO music_catalog_events\n          (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)\n          VALUES (?, 'performance', ?, 'performance.created_inline', 'admin', ?, ?, ?)",
+    "plan": []
+  },
+  {
+    "sql": "UPDATE music_ingestion_candidates\n           SET status = 'converted', classification = 'existing_catalog',\n             linked_performance_id = ?, last_conversion_outcome = 'created',\n             last_conversion_error_code = NULL,\n             last_conversion_attempt_at = ?, reviewed_by_user_id = ?,\n             version = version + 1, updated_at = ?\n            WHERE id = ? AND status = 'ready' AND version = ?\n               AND classification = 'eligible'\n               AND ((candidate_kind = 'official_video'\n                   AND ? IN ('official_mv', 'official_video'))\n                 OR (candidate_kind = 'singing_clip' AND ? = 'broadcast'))\n              AND (? IS NULL OR EXISTS (\n                SELECT 1 FROM music_ingestion_candidate_origins AS origin\n                WHERE origin.candidate_id = music_ingestion_candidates.id\n                  AND origin.job_id = ?\n              ))\n              AND EXISTS (\n               SELECT 1 FROM music_channels AS channel\n               WHERE channel.provider = 'youtube'\n                 AND channel.external_channel_id = music_ingestion_candidates.channel_id\n                 AND channel.verification_status = 'approved'\n                 AND channel.active = 1\n                  AND ((music_ingestion_candidates.candidate_kind = 'official_video'\n                      AND channel.channel_role IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'))\n                    OR (music_ingestion_candidates.candidate_kind = 'singing_clip'\n                      AND channel.channel_role = 'approved_kirinuki'))\n             )",
+    "plan": [
+      {
+        "id": 5,
+        "parent": 0,
+        "notused": 39,
+        "detail": "SEARCH music_ingestion_candidates USING INDEX sqlite_autoindex_music_ingestion_candidates_1 (id=?)"
+      },
+      {
+        "id": 29,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 1"
+      },
+      {
+        "id": 33,
+        "parent": 29,
+        "notused": 54,
+        "detail": "SEARCH origin USING COVERING INDEX idx_music_ingestion_origins_job_candidate (job_id=? AND candidate_id=?)"
+      },
+      {
+        "id": 46,
+        "parent": 0,
+        "notused": 0,
+        "detail": "CORRELATED SCALAR SUBQUERY 2"
+      },
+      {
+        "id": 51,
+        "parent": 46,
+        "notused": 39,
+        "detail": "SEARCH channel USING INDEX uidx_music_channels_provider_external (provider=? AND external_channel_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "INSERT INTO music_ingestion_events (\n            id, job_id, candidate_id, event_type, actor_user_id,\n            detail_json, created_at\n          ) VALUES (?, ?, ?, 'candidate.convert.created', ?, ?, ?)",
+    "plan": []
+  },
+  {
+    "sql": "\n    UPDATE music_catalog_meta\n    SET revision = revision + 1, updated_at = ?\n    WHERE id = 1 AND revision = ?\n  ",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 33,
+        "detail": "SEARCH music_catalog_meta USING INTEGER PRIMARY KEY (rowid=?)"
+      }
+    ]
+  },
+  {
+    "sql": "\n    UPDATE music_public_read_model_meta\n    SET revision = ?, updated_at = ?\n    WHERE id = 1 AND revision = ?\n  ",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 33,
+        "detail": "SEARCH music_public_read_model_meta USING INTEGER PRIMARY KEY (rowid=?)"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT id, provider, external_channel_id, display_name,\n        channel_role, verification_status, active, version\n        FROM music_channels WHERE (id IN (SELECT value FROM json_each(?))) ORDER BY display_name, id",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 92,
+        "detail": "SEARCH music_channels USING INDEX sqlite_autoindex_music_channels_1 (id=?)"
+      },
+      {
+        "id": 8,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 11,
+        "parent": 8,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 20,
+        "parent": 8,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 41,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR ORDER BY"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT channel_id, entity_id FROM music_channel_entities\n        WHERE (channel_id IN (SELECT id FROM music_channels WHERE id IN (SELECT value FROM json_each(?)))) ORDER BY channel_id, entity_id",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 102,
+        "detail": "SEARCH music_channel_entities USING COVERING INDEX sqlite_autoindex_music_channel_entities_1 (channel_id=?)"
+      },
+      {
+        "id": 7,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 2"
+      },
+      {
+        "id": 10,
+        "parent": 7,
+        "notused": 90,
+        "detail": "SEARCH music_channels USING COVERING INDEX sqlite_autoindex_music_channels_1 (id=?)"
+      },
+      {
+        "id": 14,
+        "parent": 7,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 17,
+        "parent": 14,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 26,
+        "parent": 14,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 39,
+        "parent": 7,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT id, song_id, relation_type, release_type,\n        participation_type, publication_status, quality_status, released_at, broadcast_metadata,\n        internal_note, version FROM music_performances WHERE (id IN (SELECT value FROM json_each(?))) ORDER BY created_at DESC, id",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 92,
+        "detail": "SEARCH music_performances USING INDEX sqlite_autoindex_music_performances_1 (id=?)"
+      },
+      {
+        "id": 8,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 11,
+        "parent": 8,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 20,
+        "parent": 8,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 45,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR ORDER BY"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT performance_id, tag_key, display_name\n        FROM music_performance_tags WHERE (performance_id IN (SELECT value FROM json_each(?))) ORDER BY performance_id, tag_key",
+    "plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 108,
+        "detail": "SEARCH music_performance_tags USING INDEX sqlite_autoindex_music_performance_tags_1 (performance_id=?)"
+      },
+      {
+        "id": 8,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 11,
+        "parent": 8,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 20,
+        "parent": 8,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT participant.performance_id, participant.entity_id,\n        entity.display_name, participant.participant_role, participant.credit_order,\n        participant.credit_name_snapshot\n        FROM music_performance_participants AS participant\n        JOIN music_entities AS entity ON entity.id = participant.entity_id\n        WHERE (participant.performance_id IN (SELECT value FROM json_each(?))) ORDER BY participant.performance_id, participant.credit_order, participant.entity_id",
+    "plan": [
+      {
+        "id": 6,
+        "parent": 0,
+        "notused": 108,
+        "detail": "SEARCH participant USING INDEX uidx_music_performance_participants_credit_order (performance_id=?)"
+      },
+      {
+        "id": 10,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 13,
+        "parent": 10,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 22,
+        "parent": 10,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 32,
+        "parent": 0,
+        "notused": 46,
+        "detail": "SEARCH entity USING INDEX sqlite_autoindex_music_entities_1 (id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT link.performance_id, source.id AS source_id,\n        source.provider, source.external_id, source.channel_id, source.title,\n        source.thumbnail_url, source.duration_seconds, source.provider_published_at,\n        source.availability_status, source.last_checked_at, source.next_check_at,\n        source.version,\n        link.start_seconds, link.end_seconds, link.source_role, link.priority,\n        link.is_primary\n        FROM music_performance_sources AS link\n        JOIN music_media_sources AS source ON source.id = link.source_id\n        WHERE (link.performance_id IN (SELECT value FROM json_each(?))) ORDER BY link.performance_id, link.priority, source.id",
+    "plan": [
+      {
+        "id": 6,
+        "parent": 0,
+        "notused": 108,
+        "detail": "SEARCH link USING INDEX idx_music_performance_sources_performance_priority_source (performance_id=?)"
+      },
+      {
+        "id": 10,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 13,
+        "parent": 10,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 22,
+        "parent": 10,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 32,
+        "parent": 0,
+        "notused": 46,
+        "detail": "SEARCH source USING INDEX sqlite_autoindex_music_media_sources_1 (id=?)"
+      },
+      {
+        "id": 67,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT song_id, publication_status, release_type, broadcast_metadata, dedupe_key\n      FROM music_performances WHERE id = ?",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 39,
+        "detail": "SEARCH music_performances USING INDEX sqlite_autoindex_music_performances_1 (id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "SELECT\n        EXISTS (\n          SELECT 1 FROM music_performance_participants\n          WHERE performance_id = ?\n            AND participant_role IN ('vocal', 'featured_vocal', 'chorus')\n        ) AS has_participant,\n        EXISTS (\n          SELECT 1 FROM music_performance_sources AS link\n          JOIN music_media_sources AS source ON source.id = link.source_id\n          JOIN music_channels AS channel ON channel.id = source.channel_id\n          WHERE link.performance_id = ? AND link.is_primary = 1\n            AND link.source_role IN ('official', 'alternate') AND channel.channel_role IN\n         ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official')\n            AND channel.verification_status = 'approved' AND channel.active = 1\n        ) AS has_source,\n        1 AS valid_sources\n      ",
+    "plan": [
+      {
+        "id": 1,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCAN CONSTANT ROW"
+      },
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCALAR SUBQUERY 1"
+      },
+      {
+        "id": 9,
+        "parent": 4,
+        "notused": 62,
+        "detail": "SEARCH music_performance_participants USING INDEX uidx_music_performance_participants_credit_order (performance_id=?)"
+      },
+      {
+        "id": 40,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCALAR SUBQUERY 2"
+      },
+      {
+        "id": 49,
+        "parent": 40,
+        "notused": 46,
+        "detail": "SEARCH link USING INDEX uidx_music_performance_sources_primary (performance_id=?)"
+      },
+      {
+        "id": 59,
+        "parent": 40,
+        "notused": 46,
+        "detail": "SEARCH source USING INDEX sqlite_autoindex_music_media_sources_1 (id=?)"
+      },
+      {
+        "id": 64,
+        "parent": 40,
+        "notused": 46,
+        "detail": "SEARCH channel USING INDEX sqlite_autoindex_music_channels_1 (id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "UPDATE music_performances SET publication_status = ?,\n        catalog_published_at = CASE WHEN release_type = 'broadcast' AND publication_status = 'draft' THEN COALESCE(catalog_published_at, ?) ELSE catalog_published_at END,\n        version = version + 1, updated_at = ?\n        WHERE id = ? AND version = ? AND publication_status = ?\n        AND EXISTS (\n          SELECT 1 FROM music_performance_participants\n          WHERE performance_id = ?\n            AND participant_role IN ('vocal', 'featured_vocal', 'chorus')\n        )\n        AND EXISTS (\n          SELECT 1 FROM music_performance_sources AS link\n          JOIN music_media_sources AS source ON source.id = link.source_id\n          JOIN music_channels AS channel ON channel.id = source.channel_id\n          WHERE link.performance_id = ? AND link.is_primary = 1\n            AND link.source_role IN ('official', 'alternate') AND channel.channel_role IN\n         ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official')\n            AND channel.verification_status = 'approved' AND channel.active = 1\n        ) AND 1",
+    "plan": [
+      {
+        "id": 5,
+        "parent": 0,
+        "notused": 39,
+        "detail": "SEARCH music_performances USING INDEX sqlite_autoindex_music_performances_1 (id=?)"
+      },
+      {
+        "id": 14,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCALAR SUBQUERY 1"
+      },
+      {
+        "id": 19,
+        "parent": 14,
+        "notused": 62,
+        "detail": "SEARCH music_performance_participants USING INDEX uidx_music_performance_participants_credit_order (performance_id=?)"
+      },
+      {
+        "id": 50,
+        "parent": 0,
+        "notused": 0,
+        "detail": "SCALAR SUBQUERY 2"
+      },
+      {
+        "id": 59,
+        "parent": 50,
+        "notused": 46,
+        "detail": "SEARCH link USING INDEX uidx_music_performance_sources_primary (performance_id=?)"
+      },
+      {
+        "id": 69,
+        "parent": 50,
+        "notused": 46,
+        "detail": "SEARCH source USING INDEX sqlite_autoindex_music_media_sources_1 (id=?)"
+      },
+      {
+        "id": 74,
+        "parent": 50,
+        "notused": 46,
+        "detail": "SEARCH channel USING INDEX sqlite_autoindex_music_channels_1 (id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "INSERT INTO music_catalog_events\n        (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id,\n         before_json, after_json, created_at)\n        VALUES (?, 'performance', ?, ?, 'admin', ?, ?, ?, ?)",
+    "plan": []
+  },
+  {
+    "sql": "UPDATE music_songs SET slug = ?, title = ?, normalized_title = ?, dedupe_key = ?,\n        is_otw_original = ?, original_release_date = ?, original_release_precision = ?,\n        version = version + 1, updated_at = ? WHERE id = ? AND version = ?",
+    "plan": [
+      {
+        "id": 5,
+        "parent": 0,
+        "notused": 39,
+        "detail": "SEARCH music_songs USING INDEX sqlite_autoindex_music_songs_1 (id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "DELETE FROM music_song_aliases WHERE song_id = ?",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 55,
+        "detail": "SEARCH music_song_aliases USING COVERING INDEX sqlite_autoindex_music_song_aliases_1 (song_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "DELETE FROM music_song_original_artists WHERE song_id = ?",
+    "plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 55,
+        "detail": "SEARCH music_song_original_artists USING COVERING INDEX uidx_music_song_original_artists_credit_order (song_id=?)"
+      }
+    ]
+  },
+  {
+    "sql": "INSERT INTO music_song_original_artists\n        (song_id, entity_id, credit_order, is_primary) VALUES (?, ?, ?, ?)",
+    "plan": []
+  },
+  {
+    "sql": "INSERT INTO music_catalog_events\n        (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)\n        VALUES (?, 'song', ?, 'song.updated', 'admin', ?, ?, ?)",
+    "plan": []
+  }
+]

@@ -6,12 +6,10 @@ export const decrementGramStatsStatements = (
     .prepare(
       `DELETE FROM music_search_gram_stats
        WHERE song_count <= 1
-         AND EXISTS (
-         SELECT 1
+         AND (gram_size, normalized_gram) IN (
+         SELECT existing.gram_size, existing.normalized_gram
          FROM music_search_grams AS existing
          WHERE existing.song_id = ?
-           AND existing.gram_size = music_search_gram_stats.gram_size
-           AND existing.normalized_gram = music_search_gram_stats.normalized_gram
        )`,
     )
     .bind(songId),
@@ -20,12 +18,10 @@ export const decrementGramStatsStatements = (
       `UPDATE music_search_gram_stats
        SET song_count = song_count - 1
        WHERE song_count > 1
-         AND EXISTS (
-         SELECT 1
+         AND (gram_size, normalized_gram) IN (
+         SELECT existing.gram_size, existing.normalized_gram
          FROM music_search_grams AS existing
          WHERE existing.song_id = ?
-           AND existing.gram_size = music_search_gram_stats.gram_size
-           AND existing.normalized_gram = music_search_gram_stats.normalized_gram
        )`,
     )
     .bind(songId),
@@ -106,7 +102,8 @@ export const projectionStatements = (
       song_count = music_search_gram_stats.song_count + 1
   `).bind(songId),
   database
-    .prepare("DELETE FROM music_public_performance_sort_keys WHERE song_id = ?")
+    .prepare(`DELETE FROM music_public_performance_sort_keys WHERE performance_id IN
+      (SELECT id FROM music_performances WHERE song_id = ?)`)
     .bind(songId),
   database
     .prepare(

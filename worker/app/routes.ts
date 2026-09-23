@@ -724,6 +724,20 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
   { id: "otw-play.admin.ai-reviews", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviews.pattern, methods: methods(get(ADMIN_NO_STORE), post({ ...ADMIN_NO_STORE, successStatus: 202 })), handler: handleOtwPlayAiReview },
   { id: "otw-play.admin.ai-review", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReview.pattern, methods: methods(get(ADMIN_NO_STORE)), handler: handleOtwPlayAiReview },
   {
+    id: "otw-play.admin.import-budget",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.importBudget.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleOtwPlayIngestion,
+  },
+  {
+    id: "otw-play.admin.import-resume",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.importResume.pattern,
+    methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 202 })),
+    handler: handleOtwPlayIngestion,
+  },
+  {
     id: "otw-play.admin.import-jobs.list",
     owner: "otw-play",
     path: apiRoutes.otwPlay.admin.importJobs.pattern,

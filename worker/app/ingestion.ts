@@ -1,5 +1,6 @@
 import {
   D1IngestionRepository,
+  CloudflareIngestionReadBudget,
   IngestionService,
   YouTubeOtwPlayMetadataReader,
   type OtwPlayIngestionQueueMessage,
@@ -26,4 +27,5 @@ export const createOtwPlayIngestionService = (env: Env) =>
     () => crypto.randomUUID(),
     Date.now,
     createOtwPlayAdminCatalogService(env),
+    new CloudflareIngestionReadBudget(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_D1_TOKEN, env.OTW_PLAY_D1_READ_DAILY_TARGET),
   );

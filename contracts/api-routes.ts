@@ -148,6 +148,8 @@ export const apiRoutes = {
       playlistImportPreflight: staticRoute(
         "/api/play/admin/imports/playlist/preflight",
       ),
+      importBudget: staticRoute("/api/play/admin/imports/budget"),
+      importResume: dynamicRoute("/api/play/admin/imports/:jobId/resume", (jobId: string) => `/api/play/admin/imports/${encodeURIComponent(jobId)}/resume` as const),
       playlistImports: staticRoute("/api/play/admin/imports/playlist"),
       reviewItems: staticRoute("/api/play/admin/review-items"),
       aiReviews: staticRoute("/api/play/admin/ai-reviews"),

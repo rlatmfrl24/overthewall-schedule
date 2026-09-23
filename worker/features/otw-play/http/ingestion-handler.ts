@@ -94,6 +94,18 @@ export const createIngestionHandler = (
       request.headers.get("X-Forwarded-For"),
   };
   try {
+    if (request.method === "GET" && url.pathname === "/api/play/admin/imports/budget") {
+      return responseJson({ data: await service.readBudget() });
+    }
+    const resumeJobId = pathId(url.pathname, /^\/api\/play\/admin\/imports\/([^/]+)\/resume$/u);
+    if (request.method === "POST" && resumeJobId) {
+      const result = await service.resumeJob(resumeJobId);
+      if (result.budget.status === "blocked") {
+        return Response.json({ error: { code: "PLAY_INGESTION_READ_BUDGET_BLOCKED", message: "읽기 예산 초기화 후 다시 시도해 주세요.", requestId }, data: result },
+          { status: 429, headers: { ...NO_STORE_HEADERS, "Retry-After": String(Math.max(1, Math.ceil((Date.parse(result.budget.resetAt) - Date.now()) / 1000))) } });
+      }
+      return responseJson({ data: result }, 202);
+    }
     if (request.method === "GET" && url.pathname === "/api/play/admin/review-items") {
       const kind = url.searchParams.get("candidateKind");
       const source = url.searchParams.get("source");

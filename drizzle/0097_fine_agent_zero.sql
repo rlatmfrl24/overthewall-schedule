@@ -1,0 +1,2 @@
+CREATE INDEX `idx_music_channel_upload_origins_candidate` ON `music_channel_upload_candidate_origins` (`candidate_id`);--> statement-breakpoint
+CREATE INDEX `idx_music_ingestion_origins_job_candidate` ON `music_ingestion_candidate_origins` (`job_id`,`candidate_id`);

@@ -2968,6 +2968,7 @@ export const musicChannelUploadCandidateOrigins = sqliteTable(
     monitor_generation: integer("monitor_generation").notNull().default(0),
   },
   (table) => [
+    index("idx_music_channel_upload_origins_candidate").on(table.candidate_id),
     primaryKey({ columns: [table.monitor_id, table.candidate_id] }),
     index("idx_music_channel_upload_origins_monitor_discovered").on(
       table.monitor_id,
@@ -3057,6 +3058,7 @@ export const musicIngestionCandidateOrigins = sqliteTable(
     discovered_at: integer("discovered_at").notNull(),
   },
   (table) => [
+    index("idx_music_ingestion_origins_job_candidate").on(table.job_id, table.candidate_id),
     uniqueIndex("uidx_music_ingestion_origins_job_item").on(
       table.job_id,
       table.playlist_item_id,

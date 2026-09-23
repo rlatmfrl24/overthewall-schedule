@@ -343,6 +343,8 @@ describe("D1IngestionRepository", () => {
         }],
       },
     });
+    expect(saved.catalogChanges?.songs).toEqual([expect.objectContaining({ id: "ingestion-ready-song", title: "Ready Song", tags: ["Pop"] })]);
+    expect(saved.catalogChanges?.entities.map(entity => entity.id).sort()).toEqual(["ingestion-ready-artist", "ingestion-ready-singer"]);
     const catalogRows = await db.prepare(
       `SELECT
         (SELECT COUNT(*) FROM music_songs WHERE id = 'ingestion-ready-song') AS songs,

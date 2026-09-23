@@ -23,12 +23,12 @@ export class D1AiReviewContext implements AiReviewContext {
       );
     }
   }
-  async catalog() {
+  async catalog(options?: { membersOnly?: boolean }) {
     const [catalog, aliases, members, links] = await Promise.all([
-      new D1AdminCatalogRepository(this.db).readCatalog(),
+      new D1AdminCatalogRepository(this.db).readCatalog({ references: !options?.membersOnly, memberEntities: options?.membersOnly }),
       this.db
         .prepare(
-          "SELECT entity_id,alias FROM music_entity_aliases ORDER BY entity_id,normalized_alias",
+          `SELECT entity_id,alias FROM music_entity_aliases ${options?.membersOnly ? "WHERE entity_id IN (SELECT id FROM music_entities WHERE member_uid IS NOT NULL)" : ""} ORDER BY entity_id,normalized_alias`,
         )
         .all<{ entity_id: string; alias: string }>(),
       this.db.prepare("SELECT uid,name,youtube_channel_id,url_chzzk FROM members WHERE COALESCE(is_deprecated,0)=0 ORDER BY uid")

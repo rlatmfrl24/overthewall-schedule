@@ -176,7 +176,7 @@ export class AiReviewService {
         "invalid_range",
         "영상 길이와 분석 구간을 확인하세요.",
       );
-    const catalog = await this.context.catalog();
+    const catalog = await this.context.catalog({ membersOnly: true });
     const input = {
       video,
       range: request.range,

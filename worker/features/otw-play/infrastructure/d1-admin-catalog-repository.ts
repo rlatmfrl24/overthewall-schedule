@@ -29,6 +29,7 @@ import { OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES } from "../domain/ingestion-c
 import {
   AdminCatalogRepositoryError,
   type AdminCatalogActor,
+  type AdminCatalogScope,
   type AdminCatalogRepository,
   type AdminApproveProposalCommand,
   type AdminCreateCatalogEntryCommand,
@@ -36,6 +37,8 @@ import {
   type AdminUpdateSongCommand,
   type AdminUpdatePerformanceCommand,
 } from "../application/ports/admin-catalog-repository";
+
+
 
 type SqlValue = string | number | null;
 
@@ -304,7 +307,88 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     return row;
   }
 
-  async readCatalog(): Promise<OtwPlayAdminCatalogDto> {
+  async readCatalog(scope?: AdminCatalogScope): Promise<OtwPlayAdminCatalogDto> {
+    const select = (sql: string, kind: "entities" | "songs" | "channels" | "performances", column: string) => {
+      if (!scope || (scope.references && (kind === "songs" || kind === "entities"))) return this.database.prepare(sql);
+      const values: SqlValue[] = [];
+      const clauses: string[] = [];
+      const add = (field: string, ids: SqlValue[] = []) => {
+        const unique = [...new Set(ids)];
+        if (!unique.length) return;
+        clauses.push(`${field} IN (SELECT value FROM json_each(?))`);
+        values.push(JSON.stringify(unique));
+      };
+      if (kind === "entities") {
+        if (scope.memberEntities) clauses.push("member_uid IS NOT NULL");
+        add(column, [...(scope.entityIds ?? []), ...(scope.subjects ?? []).flatMap(s => s.kind === "entity" ? [s.entityId] : [])]);
+        add("member_uid", (scope.subjects ?? []).flatMap(s => s.kind === "member" ? [s.memberUid] : []));
+        const external = (scope.subjects ?? []).flatMap(subject => subject.kind === "new_external"
+          ? [[subject.entityKind, normalizeOtwPlaySearchText(subject.displayName)]] : []);
+        if (external.length) {
+          clauses.push("(member_uid IS NULL AND (entity_kind, normalized_name) IN (SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?)))");
+          values.push(JSON.stringify(external));
+        }
+      } else if (kind === "songs") add(column, scope.songIds);
+      else if (kind === "performances") add(column, scope.performanceIds);
+      else {
+        add(column === "channel_id" ? "id" : column, scope.channelIds);
+        add("external_channel_id", scope.externalChannelIds);
+      }
+      if (!clauses.length) return null;
+      const predicate = column === "channel_id"
+        ? `channel_id IN (SELECT id FROM music_channels WHERE ${clauses.join(" OR ")})`
+        : clauses.join(" OR ");
+      return this.database.prepare(sql.replace("ORDER BY", `WHERE (${predicate}) ORDER BY`)).bind(...values);
+    };
+
+    const statements = [
+      this.database
+        .prepare(`SELECT catalog.revision, read_model.revision AS read_model_revision
+        FROM music_catalog_meta AS catalog JOIN music_public_read_model_meta AS read_model
+          ON read_model.id = catalog.id WHERE catalog.id = 1`),
+      select(`SELECT id, member_uid, entity_kind, display_name,
+        normalized_name, slug, archived_at, version FROM music_entities
+        ORDER BY normalized_name, id`, "entities", "id"),
+      select(`SELECT id, slug, title, normalized_title, is_otw_original,
+        original_release_date, original_release_precision, archived_at, version
+        FROM music_songs ORDER BY normalized_title, id`, "songs", "id"),
+      select(`SELECT song_id, alias, normalized_alias, locale, alias_kind
+        FROM music_song_aliases ORDER BY song_id, normalized_alias`, "songs", "song_id"),
+      select(`SELECT song_id, tag_key, display_name
+        FROM music_song_tags ORDER BY song_id, tag_key`, "songs", "song_id"),
+      select(`SELECT artist.song_id, artist.entity_id, entity.display_name,
+        artist.credit_order, artist.is_primary
+        FROM music_song_original_artists AS artist
+        JOIN music_entities AS entity ON entity.id = artist.entity_id
+        ORDER BY artist.song_id, artist.credit_order, artist.entity_id`, "songs", "artist.song_id"),
+      select(`SELECT id, provider, external_channel_id, display_name,
+        channel_role, verification_status, active, version
+        FROM music_channels ORDER BY display_name, id`, "channels", "id"),
+      select(`SELECT channel_id, entity_id FROM music_channel_entities
+        ORDER BY channel_id, entity_id`, "channels", "channel_id"),
+      select(`SELECT id, song_id, relation_type, release_type,
+        participation_type, publication_status, quality_status, released_at, broadcast_metadata,
+        internal_note, version FROM music_performances ORDER BY created_at DESC, id`, "performances", "id"),
+      select(`SELECT performance_id, tag_key, display_name
+        FROM music_performance_tags ORDER BY performance_id, tag_key`, "performances", "performance_id"),
+      select(`SELECT participant.performance_id, participant.entity_id,
+        entity.display_name, participant.participant_role, participant.credit_order,
+        participant.credit_name_snapshot
+        FROM music_performance_participants AS participant
+        JOIN music_entities AS entity ON entity.id = participant.entity_id
+        ORDER BY participant.performance_id, participant.credit_order, participant.entity_id`, "performances", "participant.performance_id"),
+      select(`SELECT link.performance_id, source.id AS source_id,
+        source.provider, source.external_id, source.channel_id, source.title,
+        source.thumbnail_url, source.duration_seconds, source.provider_published_at,
+        source.availability_status, source.last_checked_at, source.next_check_at,
+        source.version,
+        link.start_seconds, link.end_seconds, link.source_role, link.priority,
+        link.is_primary
+        FROM music_performance_sources AS link
+        JOIN music_media_sources AS source ON source.id = link.source_id
+        ORDER BY link.performance_id, link.priority, source.id`, "performances", "link.performance_id"),
+    ];
+    const results = await this.database.batch(statements.filter((statement): statement is D1PreparedStatement => statement !== null));
     const [
       metaResult,
       entitiesResult,
@@ -318,59 +402,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       performanceTagsResult,
       participantsResult,
       sourcesResult,
-    ] = await this.database.batch([
-      this.database
-        .prepare(`SELECT catalog.revision, read_model.revision AS read_model_revision
-        FROM music_catalog_meta AS catalog JOIN music_public_read_model_meta AS read_model
-          ON read_model.id = catalog.id WHERE catalog.id = 1`),
-      this.database.prepare(`SELECT id, member_uid, entity_kind, display_name,
-        normalized_name, slug, archived_at, version FROM music_entities
-        ORDER BY normalized_name, id`),
-      this.database
-        .prepare(`SELECT id, slug, title, normalized_title, is_otw_original,
-        original_release_date, original_release_precision, archived_at, version
-        FROM music_songs ORDER BY normalized_title, id`),
-      this.database
-        .prepare(`SELECT song_id, alias, normalized_alias, locale, alias_kind
-        FROM music_song_aliases ORDER BY song_id, normalized_alias`),
-      this.database.prepare(`SELECT song_id, tag_key, display_name
-        FROM music_song_tags ORDER BY song_id, tag_key`),
-      this.database
-        .prepare(`SELECT artist.song_id, artist.entity_id, entity.display_name,
-        artist.credit_order, artist.is_primary
-        FROM music_song_original_artists AS artist
-        JOIN music_entities AS entity ON entity.id = artist.entity_id
-        ORDER BY artist.song_id, artist.credit_order, artist.entity_id`),
-      this.database
-        .prepare(`SELECT id, provider, external_channel_id, display_name,
-        channel_role, verification_status, active, version
-        FROM music_channels ORDER BY display_name, id`),
-      this.database
-        .prepare(`SELECT channel_id, entity_id FROM music_channel_entities
-        ORDER BY channel_id, entity_id`),
-      this.database.prepare(`SELECT id, song_id, relation_type, release_type,
-        participation_type, publication_status, quality_status, released_at, broadcast_metadata,
-        internal_note, version FROM music_performances ORDER BY created_at DESC, id`),
-      this.database.prepare(`SELECT performance_id, tag_key, display_name
-        FROM music_performance_tags ORDER BY performance_id, tag_key`),
-      this.database
-        .prepare(`SELECT participant.performance_id, participant.entity_id,
-        entity.display_name, participant.participant_role, participant.credit_order,
-        participant.credit_name_snapshot
-        FROM music_performance_participants AS participant
-        JOIN music_entities AS entity ON entity.id = participant.entity_id
-        ORDER BY participant.performance_id, participant.credit_order, participant.entity_id`),
-      this.database.prepare(`SELECT link.performance_id, source.id AS source_id,
-        source.provider, source.external_id, source.channel_id, source.title,
-        source.thumbnail_url, source.duration_seconds, source.provider_published_at,
-        source.availability_status, source.last_checked_at, source.next_check_at,
-        source.version,
-        link.start_seconds, link.end_seconds, link.source_role, link.priority,
-        link.is_primary
-        FROM music_performance_sources AS link
-        JOIN music_media_sources AS source ON source.id = link.source_id
-        ORDER BY link.performance_id, link.priority, source.id`),
-    ]);
+    ] = statements.map(statement => statement ? results.shift()! : { results: [] });
 
     const meta = resultsOf(metaResult as D1Result<CatalogMetaRow>)[0];
     if (!meta)
@@ -748,7 +780,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   }
 
   private async readSong(id: string) {
-    const catalog = await this.readCatalog();
+    const catalog = await this.readCatalog({ songIds: [id] });
     const song = catalog.songs.find((item) => item.id === id);
     if (!song)
       throw new AdminCatalogRepositoryError("not_found", "Song not found");
@@ -756,7 +788,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   }
 
   private async readEntity(id: string) {
-    const catalog = await this.readCatalog();
+    const catalog = await this.readCatalog({ entityIds: [id] });
     const entity = catalog.entities.find((item) => item.id === id);
     if (!entity)
       throw new AdminCatalogRepositoryError("not_found", "Entity not found");
@@ -764,7 +796,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   }
 
   private async readPerformance(id: string) {
-    const catalog = await this.readCatalog();
+    const catalog = await this.readCatalog({ performanceIds: [id] });
     const performance = catalog.performances.find((item) => item.id === id);
     if (!performance)
       throw new AdminCatalogRepositoryError(
@@ -775,7 +807,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   }
 
   private async readChannel(id: string) {
-    const catalog = await this.readCatalog();
+    const catalog = await this.readCatalog({ channelIds: [id] });
     const channel = catalog.channels.find((item) => item.id === id);
     if (!channel)
       throw new AdminCatalogRepositoryError("not_found", "Channel not found");
@@ -1080,7 +1112,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           ),
       ),
       ...songTagStatements(this.database, ids.songId, input.tags),
-      ...projectionStatements(this.database, ids.songId),
+      ...projectionStatements(this.database, ids.songId, { decrementExistingGrams: false }),
       this.database
         .prepare(
           `INSERT INTO music_catalog_events (
@@ -1103,7 +1135,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   async updateSong(command: AdminUpdateSongCommand) {
     const { input, actor, ids, now } = command;
     const meta = await this.readRevision();
-    const catalog = await this.readCatalog();
+    const catalog = await this.readCatalog({ subjects: input.originalArtists.map(a => a.subject) });
     const entityStatements: D1PreparedStatement[] = [];
     const resolved = new Map<string, { id: string; displayName: string }>();
     for (const artist of input.originalArtists) {
@@ -1681,7 +1713,15 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         "Catalog changed after video preflight",
       );
     }
-    const catalog = await this.readCatalog();
+    const catalog = await this.readCatalog({
+      subjects: [...input.participants.map(p => p.subject),
+        ...(input.song.kind === "create" ? input.song.originalArtists.map(a => a.subject) : []),
+        ...(input.channel.kind === "confirm" || input.channel.kind === "pending" ? input.channel.owners :
+          input.channel.kind === "recognized_member" ? [{ kind: "member" as const, memberUid: input.channel.memberUid }] : [])],
+      songIds: input.song.kind === "existing" ? [input.song.songId] : [],
+      channelIds: input.channel.kind === "existing" ? [input.channel.channelId] : [],
+      externalChannelIds: [video.channelId],
+    });
     if (proposalApproval) {
       const proposal = await this.database
         .prepare(
@@ -2350,7 +2390,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           input.endSeconds ?? null,
           input.releaseType === "broadcast" ? "kirinuki" : "official",
         ),
-      ...projectionStatements(this.database, songId),
+      ...projectionStatements(this.database, songId, { decrementExistingGrams: input.song.kind === "existing" }),
       this.database
         .prepare(
           `INSERT INTO music_catalog_events
@@ -2503,7 +2543,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       }
       throw error;
     }
-    const updated = await this.readCatalog();
+    const updated = await this.readCatalog({ songIds: [songId], performanceIds: [ids.performanceId], channelIds: [channelId], entityIds: createdEntityIds });
     const song = updated.songs.find((item) => item.id === songId);
     const performance = updated.performances.find(
       (item) => item.id === ids.performanceId,
@@ -2531,7 +2571,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   async updatePerformance(command: AdminUpdatePerformanceCommand) {
     const { input, sources, actor, now, ids } = command;
     const meta = await this.readRevision();
-    const catalog = await this.readCatalog();
+    const catalog = await this.readCatalog({ subjects: input.participants.map(p => p.subject), songIds: [input.songId], channelIds: sources.map(s => s.input.channelId) });
     const current = await this.database
       .prepare(
         `SELECT song_id, publication_status, release_type, broadcast_metadata, dedupe_key
@@ -3098,7 +3138,6 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         )
         .bind(...updateBinds),
       versionGuard(this.database),
-      ...projectionStatements(this.database, current.song_id),
       this.database
         .prepare(
           `INSERT INTO music_catalog_events
