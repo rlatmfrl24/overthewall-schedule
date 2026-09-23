@@ -1,5 +1,5 @@
-import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { describe, expect, it, vi } from "vitest";
 import type { OtwPlayAdminEntityDto, OtwPlayAdminSongDto, OtwPlayIngestionReviewCandidateDto } from "@contracts/otw-play";
 import { queryKeys } from "@/shared/query/query-keys";
 import { createAdminCatalogFixture } from "../test/catalog-fixtures";
@@ -28,9 +28,25 @@ describe("Ready catalog authority", () => {
     client.setQueryData(key, createAdminCatalogFixture({ revision: 7, readModelRevision: 7 }));
     applyReviewCatalogChanges(client, saved(10));
     expect(client.getQueryData(key)).toMatchObject({ revision: 7, songs: [song] });
+    expect(client.getQueryState(key)?.isInvalidated).toBe(true);
     client.setQueryData(key, createAdminCatalogFixture({ revision: 11, readModelRevision: 11 }));
     applyReviewCatalogChanges(client, saved(10));
     expect(client.getQueryData(key)).toMatchObject({ revision: 11, songs: [], entities: [] });
+    client.clear();
+  });
+  it("refetches the active catalog to recover changes missing from a Ready delta", async () => {
+    const client = new QueryClient(), key = queryKeys.otwPlay.adminCatalog();
+    client.setQueryData(key, createAdminCatalogFixture());
+    const complete = createAdminCatalogFixture({ revision: 10, readModelRevision: 10, songs: [song],
+      entities: [entity, { ...entity, id: "concurrent-singer" }] });
+    const fetchCatalog = vi.fn(async () => complete);
+    const observer = new QueryObserver(client, { queryKey: key, queryFn: fetchCatalog, staleTime: Infinity });
+    const unsubscribe = observer.subscribe(() => {});
+    applyReviewCatalogChanges(client, saved(10));
+    expect(client.getQueryData(key)).toMatchObject({ revision: 7, songs: [song] });
+    await vi.waitFor(() => expect(client.getQueryData(key)).toEqual(complete));
+    expect(fetchCatalog).toHaveBeenCalledTimes(1);
+    unsubscribe();
     client.clear();
   });
   it("cancels an in-flight page refresh before rebuilding cursors", async () => {
