@@ -33,6 +33,21 @@ describe("Ready catalog authority", () => {
     expect(client.getQueryData(key)).toMatchObject({ revision: 11, songs: [], entities: [] });
     client.clear();
   });
+  it("cancels an in-flight page refresh before rebuilding cursors", async () => {
+    const client = new QueryClient();
+    const filters = { jobId: "one" };
+    const key = ["otw-play-review-inbox", filters];
+    const pages = { pages: [{ items: [], nextCursor: "old" }, { items: [], nextCursor: null }], pageParams: [null, "old"] };
+    client.setQueryData(key, pages);
+    let finish!: (value: typeof pages) => void;
+    const response = new Promise<typeof pages>(resolve => { finish = resolve; });
+    const pending = client.fetchQuery({ queryKey: key, queryFn: () => response }).catch(() => {});
+    await refreshReviewInbox(client, filters);
+    finish(pages);
+    await pending;
+    expect(client.getQueryData(key)).toEqual({ pages: pages.pages.slice(0, 1), pageParams: [null] });
+    client.clear();
+  });
   it("drops obsolete subsequent page cursors before refreshing, without touching another import", async () => {
     const client = new QueryClient();
     const filters = { jobId: "one" }, other = { jobId: "two" };
