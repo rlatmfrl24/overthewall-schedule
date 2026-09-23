@@ -573,6 +573,8 @@ export class D1IngestionRepository implements IngestionRepository {
       branches.push(`SELECT 'p:' || p.id, p.id, 'proposal', CASE WHEN p.submission_kind = 'singing_clip' THEN 'singing_clip' ELSE 'official_video' END,
         p.submitted_title, p.status, p.version, p.created_at FROM music_cover_proposals p WHERE ${where.join(" AND ")}`);
     }
+    // User proposals do not belong to playlist import histories.
+    if (branches.length === 0) return { items: [], nextCursor: null };
     const rows = resultsOf(await this.database.prepare(`WITH review_candidates(sort_id, id, kind, candidate_kind, title, status, version, created_at) AS (${branches.join(" UNION ALL ")}), review AS MATERIALIZED (
       SELECT *, CASE WHEN status = 'ready' THEN 1 ELSE 0 END AS ready_rank FROM review_candidates
       WHERE (? IS NULL OR (CASE WHEN status = 'ready' THEN 1 ELSE 0 END) > ?

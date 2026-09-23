@@ -1534,6 +1534,8 @@ it("keeps pending proposals visible when the matching candidate was ignored", as
   await repository.recordPlaylistPage(await repository.readMessage(created.message.idempotencyKey), { items: [{ videoId: "AAAAAAAAAAA", position: 0, playlistItemId: "item-1" }], nextPageToken: null }, NOW + 1);
   await db.prepare(`UPDATE music_ingestion_candidates SET status = 'ignored' WHERE external_video_id = 'AAAAAAAAAAA'`).run();
   await db.prepare(`INSERT INTO music_cover_proposals (id, submitted_by_user_id, idempotency_key, submitted_url, youtube_video_id, submitted_title, created_at, updated_at) VALUES ('ignored-proposal', 'user-1', 'ignored-key', 'https://www.youtube.com/watch?v=AAAAAAAAAAA', 'AAAAAAAAAAA', 'Proposed cover', ?, ?)`).bind(NOW, NOW).run();
+  expect(await repository.listReviewItems({ source: "user", jobId: "unrelated-import" }))
+    .toEqual({ items: [], nextCursor: null });
   const pending = await repository.listReviewItems({ source: "user" });
   expect(pending.items).toHaveLength(1);
   expect(pending.items[0]).toMatchObject({ id: "ignored-proposal", kind: "proposal" });
