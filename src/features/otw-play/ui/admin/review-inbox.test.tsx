@@ -41,7 +41,20 @@ it("only converts selected ready candidates and retains failed selections for re
   await waitFor(() => expect(convert).toHaveBeenCalledTimes(2));
   expect(convert).toHaveBeenCalledWith("clip-a", { expectedVersion: 4 });
   expect(await screen.findByText("등록 실패: stale_write")).toBeTruthy();
+  expect(screen.getByRole("status", { name: "일괄 임시 등록 결과" }).textContent).toContain("완료 1개");
+  expect(screen.getByRole("status", { name: "일괄 임시 등록 결과" }).textContent).toContain("실패 1개");
   expect(screen.getByRole("button", { name: "선택 1개 일괄 임시 등록" })).toBeTruthy();
+});
+it("summarizes successful draft registrations once instead of repeating row messages", async () => {
+  convert.mockResolvedValue({ outcome: "created", performanceId: "performance" });
+  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  fireEvent.click(await screen.findByRole("button", { name: "등록 가능 2개 일괄 선택" }));
+  fireEvent.click(screen.getByRole("button", { name: "선택 2개 일괄 임시 등록" }));
+  await waitFor(() => expect(convert).toHaveBeenCalledTimes(2));
+  const summary = screen.getByRole("status", { name: "일괄 임시 등록 결과" });
+  expect(summary.textContent).toContain("완료 2개");
+  expect(summary.textContent).toContain("실패 0개");
+  expect(screen.queryByText("임시 등록 완료")).toBeNull();
 });
 it("toggles every loaded eligible candidate without selecting blocked rows", async () => {
   render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });

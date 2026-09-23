@@ -15,6 +15,7 @@ import { SingingClipReviewDialog } from "./singing-clip-review-dialog";
 
 const statusLabels: Record<string, string> = { withdrawn: "철회", discovered: "검수 대기", needs_input: "정보 입력 필요", ready: "등록 준비 완료", blocked: "확인 필요", converted: "등록 완료", ignored: "제외됨", pending_review: "제안 검수 대기", approved: "승인됨", rejected: "거절됨" };
 const sourceLabels = { playlist: "플레이리스트", automatic: "자동 수집", user: "사용자 제안" };
+type ReviewActionResult = { action: "conversion" | "kind-correction"; outcome: "success" | "error"; message: string };
 export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalog, active = true }: { active?: boolean; catalog: OtwPlayAdminCatalogDto | null; onProposal: (id: string) => void; onManageChannel: (id: string, kind?: "official_video" | "singing_clip") => void; onOpenCatalog: () => void }) {
   const [search, update] = useConsoleSearch();
   const jobsQuery = useOtwPlayImportJobs();
@@ -108,20 +109,24 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   }, [editingId]);
   const closeReview = () => update({ view: "inbox", selected: undefined }, false);
   const reviewEntries = editing && !visited[editing.id] ? { ...visited, [editing.id]: editing } : visited;
-  const [resultState, setResultState] = useState<Record<string, Record<string, string>>>({});
+  const [resultState, setResultState] = useState<Record<string, Record<string, ReviewActionResult>>>({});
   const results = resultState[scope] ?? {};
-  const setResults = (next: (current: Record<string, string>) => Record<string, string>) => setResultState(current => ({ ...current, [scope]: next(current[scope] ?? {}) }));
+  const setResults = (next: (current: Record<string, ReviewActionResult>) => Record<string, ReviewActionResult>) => setResultState(current => ({ ...current, [scope]: next(current[scope] ?? {}) }));
+  const conversionResults = Object.values(results).filter(result => result.action === "conversion");
+  const conversionSuccessCount = conversionResults.filter(result => result.outcome === "success").length;
+  const conversionFailureCount = conversionResults.length - conversionSuccessCount;
   const refresh = async () => { await Promise.all([client.invalidateQueries({ queryKey: ["otw-play-review-inbox"] }), client.invalidateQueries({ queryKey: ["otw-play-review-kind-conflicts"] }), client.invalidateQueries({ queryKey: queryKeys.otwPlay.all })]); };
   const convert = async () => {
+    setResults(current => Object.fromEntries(Object.entries(current).filter(([, result]) => result.action !== "conversion")));
     setBusy(true);
     try {
       for (const [id, expectedVersion] of Object.entries(selected)) {
         try {
           const result = await convertOtwPlayImportCandidate(id, { expectedVersion });
           const ok = result.outcome === "created" || result.outcome === "duplicate";
-          setResults(current => ({ ...current, [id]: ok ? "임시 등록 완료" : `등록 실패: ${result.errorCode ?? result.outcome}` }));
+          setResults(current => ({ ...current, [id]: { action: "conversion", outcome: ok ? "success" : "error", message: ok ? "임시 등록 완료" : `등록 실패: ${result.errorCode ?? result.outcome}` } }));
           if (ok) setSelected(current => { const next = { ...current }; delete next[id]; return next; });
-        } catch { setResults(current => ({ ...current, [id]: "등록 실패 · 최신 후보를 확인하고 재시도하세요." })); }
+        } catch { setResults(current => ({ ...current, [id]: { action: "conversion", outcome: "error", message: "등록 실패 · 최신 후보를 확인하고 재시도하세요." } })); }
       }
       await refresh();
     } finally { setBusy(false); }
@@ -151,8 +156,8 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
           await updateOtwPlayImportCandidate(row.id, { action: "change_kind", expectedVersion: row.version, candidateKind: targetKind });
           setVisited(current => { const next = { ...current }; delete next[row.id]; return next; });
           setSelected(current => { const next = { ...current }; delete next[row.id]; return next; });
-          setResults(current => ({ ...current, [row.id]: "종류 정정 완료 · 가창 정보를 검수하세요." }));
-        } catch { setResults(current => ({ ...current, [row.id]: "종류 정정 실패 · 최신 상태를 확인하고 재시도하세요." })); }
+          setResults(current => ({ ...current, [row.id]: { action: "kind-correction", outcome: "success", message: "종류 정정 완료 · 가창 정보를 검수하세요." } }));
+        } catch { setResults(current => ({ ...current, [row.id]: { action: "kind-correction", outcome: "error", message: "종류 정정 실패 · 최신 상태를 확인하고 재시도하세요." } })); }
       }
       await refresh();
     } finally { setBusy(false); }
@@ -191,6 +196,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
     </div>
     <div className="flex flex-wrap items-center gap-2"><Button variant="outline" disabled={busy || selectableRows.length === 0} onClick={toggleAllSelectableRows}>{allSelectableRowsSelected ? `일괄 선택 해제 (${selectableRows.length}개)` : `등록 가능 ${selectableRows.length}개 일괄 선택`}</Button><Button disabled={busy || !Object.keys(selected).length} onClick={() => void convert()}>선택 {Object.keys(selected).length}개 일괄 임시 등록</Button><Button variant="outline" onClick={() => onOpenCatalog()}>카탈로그 확인</Button></div>
     <p className="text-xs text-muted-foreground">검수를 저장한 후보만 임시 등록합니다. 공개는 카탈로그에서 별도로 실행합니다.</p>
+    {conversionResults.length > 0 && <div role="status" aria-label="일괄 임시 등록 결과" className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-muted/30 px-3 py-2 text-sm"><span className="font-medium">일괄 임시 등록 결과</span><span>완료 <strong className="tabular-nums">{conversionSuccessCount}개</strong></span><span className={conversionFailureCount > 0 ? "text-destructive" : "text-muted-foreground"}>실패 <strong className="tabular-nums">{conversionFailureCount}개</strong></span></div>}
     {query.isError && !query.isFetchNextPageError && <p role="alert">검수 목록을 불러오지 못했습니다. <Button variant="link" onClick={() => void query.refetch()}>다시 시도</Button></p>}
     {query.isLoading && <p role="status">검수 목록을 불러오는 중입니다.</p>}
     {!query.isLoading && !query.isError && !rows.length && <p className="rounded-lg border border-dashed p-6 text-center text-sm">해당 조건의 검수 항목이 없습니다.</p>}
@@ -200,9 +206,9 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
       <Button size="sm" variant="outline" disabled={busy || !catalog} onClick={event => { if (row.pendingProposalId) onProposal(row.pendingProposalId); else if (row.kind === "proposal") onProposal(row.id); else { returnFocus.current = event.currentTarget; update({ view: "review", selected: row.id }, false); } }}>{row.pendingProposalId ? "연결된 제안 검수" : "검수 열기"}</Button>
       {row.pendingProposalId && <p className="w-full text-xs text-muted-foreground">같은 영상의 사용자 제안이 검수 대기 중입니다. 연결된 제안을 먼저 처리하면 이 이력에서 후속 검수를 진행할 수 있습니다.</p>}
       {row.kind === "candidate" && !["converted", "ignored"].includes(row.status) && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void changeKind(row)}>{row.candidateKind === "official_video" ? "노래 클립으로 정정" : "공식 영상으로 정정"}</Button>}
-      {results[row.id] && <p className="w-full text-sm" role="status">{results[row.id]}</p>}
+      {results[row.id] && !(results[row.id].action === "conversion" && results[row.id].outcome === "success") && <p className="w-full text-sm" role="status">{results[row.id].message}</p>}
     </article>)}
-    {Object.entries(results).filter(([id]) => !rows.some(row => row.id === id)).map(([id, result]) => <p key={id} role="status" className="text-sm">{result}</p>)}
+    {Object.entries(results).filter(([id, result]) => !rows.some(row => row.id === id) && !(result.action === "conversion" && result.outcome === "success")).map(([id, result]) => <p key={id} role="status" className="text-sm">{result.message}</p>)}
     <div ref={setLoadMoreTarget} className="flex min-h-10 items-center justify-center gap-2">
       {query.isFetchingNextPage ? <p role="status" className="text-sm text-muted-foreground">다음 검수 항목을 불러오는 중입니다.</p> : query.isFetchNextPageError ? <><p role="alert" className="text-sm">다음 검수 항목을 불러오지 못했습니다.</p><Button variant="outline" disabled={busy || isFetching} onClick={() => void fetchNextPage({ cancelRefetch: false })}>다음 항목 다시 시도</Button></> : query.hasNextPage ? <Button variant="outline" disabled={busy || isFetching} onClick={() => void fetchNextPage({ cancelRefetch: false })}>더 보기</Button> : rows.length > 0 && <p className="text-sm text-muted-foreground">모든 검수 항목을 불러왔습니다.</p>}
     </div>
