@@ -118,7 +118,7 @@ describe("OTW Play operations section", () => {
       },
     }));
     expect(screen.getByText(/Analytics 조회 token/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: /회원 이용 canary 시작/ }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: /회원 이용 활성화/ }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("renders an observability query failure with retry without hiding release controls", () => {
@@ -131,7 +131,7 @@ describe("OTW Play operations section", () => {
     }));
 
     expect(screen.getByRole("alert").textContent).toContain("운영 지표를 불러오지 못했습니다");
-    expect(screen.getByRole("button", { name: /회원 이용 canary 시작/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /회원 이용 활성화/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
     expect(refetchObservability).toHaveBeenCalledOnce();
   });
@@ -143,9 +143,9 @@ describe("OTW Play operations section", () => {
     );
     const value = props();
     render(createElement(OperationsSection, value));
-    const trigger = screen.getByRole("button", { name: /회원 이용 canary 시작/ });
+    const trigger = screen.getByRole("button", { name: /회원 이용 활성화/ });
     fireEvent.click(trigger);
-    const submit = screen.getByRole("button", { name: "권위 상태 변경" }) as HTMLButtonElement;
+    const submit = screen.getByRole("button", { name: "공개 설정 변경" }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
     fireEvent.click(screen.getByRole("checkbox"));
     expect(submit.disabled).toBe(false);
@@ -171,13 +171,13 @@ describe("OTW Play operations section", () => {
     );
     const value = props();
     render(createElement(OperationsSection, value));
-    fireEvent.click(screen.getByRole("button", { name: /회원 이용 canary 시작/ }));
+    fireEvent.click(screen.getByRole("button", { name: /회원 이용 활성화/ }));
     fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "권위 상태 변경" }));
+    fireEvent.click(screen.getByRole("button", { name: "공개 설정 변경" }));
     await waitFor(() => expect(value.onReleaseChanged).toHaveBeenCalledOnce());
     expect(toastMock).toHaveBeenCalledWith({
       variant: "info",
-      description: "다른 변경이 먼저 반영되었습니다. 최신 권위 상태를 다시 불러왔습니다.",
+      description: "다른 변경이 먼저 반영되었습니다. 최신 공개 설정를 다시 불러왔습니다.",
     });
   });
 
@@ -194,6 +194,6 @@ describe("OTW Play operations section", () => {
       },
     }));
     expect(screen.getByRole("alert")).toBeTruthy();
-    expect((screen.getByRole("button", { name: /회원 이용 canary 시작/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /회원 이용 활성화/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

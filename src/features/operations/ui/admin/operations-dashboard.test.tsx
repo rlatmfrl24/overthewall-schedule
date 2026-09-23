@@ -270,7 +270,7 @@ describe("OperationsDashboard", () => {
     render(createElement(OperationsDashboard), { wrapper: createQueryWrapper() });
 
     const outbox = await screen.findByText("전송 대기");
-    const stale = screen.getByText("만료 lease");
+    const stale = screen.getByText("처리 기한 초과");
 
     expect(outbox.parentElement?.className).toContain("bg-muted/25");
     expect(stale.parentElement?.className).toContain("bg-destructive/5");

@@ -7,31 +7,8 @@ import { scheduledJobTypes, scheduledJobStatuses } from "@contracts/scheduled-op
 import { QueryReadback } from "@/shared/ui/query-readback";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Activity,
-  AlertTriangle,
-  BarChart3,
-  CalendarClock,
-  CheckCircle2,
-  ChevronDown,
-  Clock3,
-  Coffee,
-  DatabaseZap,
-  ExternalLink,
-  Gauge,
-  HardDrive,
-  History,
-  Inbox,
-  Info,
-  ListChecks,
-  Loader2,
-  MessageSquareText,
-  RefreshCw,
-  ShieldAlert,
-  TimerReset,
-  Youtube,
-  type LucideIcon,
-} from "lucide-react";
+import { PiPulseBold as Activity, PiWarningBold as AlertTriangle, PiChartBarBold as BarChart3, PiCalendarDotsBold as CalendarClock, PiCheckCircleBold as CheckCircle2, PiCaretDownBold as ChevronDown, PiClockBold as Clock3, PiCoffeeBold as Coffee, PiDatabaseBold as DatabaseZap, PiArrowSquareOutBold as ExternalLink, PiGaugeBold as Gauge, PiHardDriveBold as HardDrive, PiClockCounterClockwiseBold as History, PiTrayBold as Inbox, PiInfoBold as Info, PiListChecksBold as ListChecks, PiSpinnerGapBold as Loader2, PiChatTextBold as MessageSquareText, PiArrowsClockwiseBold as RefreshCw, PiShieldWarningBold as ShieldAlert, PiTimerBold as TimerReset, PiYoutubeLogoBold as Youtube } from "react-icons/pi";
+import type { IconType as LucideIcon } from "react-icons";
 import { AdminSectionHeader } from "@/app/admin";
 import { cn } from "@/shared/lib/utils";
 import { queryKeys } from "@/shared/query/query-keys";
@@ -286,6 +263,7 @@ function IssuePanel({ issues, updatedAt }: { issues: OperationsIssue[]; updatedA
       </div>
     );
   }
+  const groupedIssues = Array.from(new Map(issues.map(issue => [issue.code, issues.filter(item => item.code === issue.code)])).values());
   const hasCriticalIssue = issues.some((issue) => issue.severity === "critical");
   const guidanceForIssue = (issue: OperationsIssue) => {
     if (issue.code === "scheduled_d1_write_guard_blocked") {
@@ -318,7 +296,7 @@ function IssuePanel({ issues, updatedAt }: { issues: OperationsIssue[]; updatedA
     };
   };
   return (
-    <Card id="issues" role={hasCriticalIssue ? "alert" : "status"} aria-live="polite" className="border-amber-500/30">
+    <Card id="issues" role={hasCriticalIssue ? "alert" : "status"} aria-live="polite" className="border-border">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <AlertTriangle className="size-4 text-amber-600" /> 지금 확인할 것 · {issues.length}건
@@ -328,17 +306,18 @@ function IssuePanel({ issues, updatedAt }: { issues: OperationsIssue[]; updatedA
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <ul className="max-h-72 space-y-2 overflow-y-auto pr-1" aria-label="즉시 조치 목록" tabIndex={0}>
-          {issues.map((issue, index) => {
+        <ul className="divide-y" aria-label="즉시 조치 목록" tabIndex={0}>
+          {groupedIssues.map((group, index) => {
+            const issue = group.find(item => item.severity === "critical") ?? group[0];
             const guidance = guidanceForIssue(issue);
             return (
             <li
               key={`${issue.code}-${index}`}
               className={cn(
-                "rounded-md border p-3 text-sm",
+                "py-2 text-sm first:pt-0 last:pb-0",
                 issue.severity === "critical"
-                  ? "border-destructive/30 bg-destructive/[0.04]"
-                  : "border-amber-500/25 bg-amber-500/[0.04]",
+                  ? "border-destructive/30"
+                  : "border-border",
               )}
             >
               <div className="flex items-start gap-2">
@@ -346,10 +325,11 @@ function IssuePanel({ issues, updatedAt }: { issues: OperationsIssue[]; updatedA
                   {statusLabel(issue.severity)}
                 </Badge>
                 <div>
-                  <p><span className="font-medium">원인:</span> {issue.message}</p>
-                  <p className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">영향:</span> {guidance.impact}</p>
-                  <p className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">조치:</span> {guidance.action}</p>
-                  <a className="mt-1 inline-block text-xs font-medium underline" href={issue.code.startsWith("x_") ? "/admin/collection?source=x" : issue.code.startsWith("naver_") ? "/admin/collection?source=naver-cafe" : issue.code.includes("guard") ? "/admin/resources" : "/admin/history?tab=runs"}>근거 확인 및 조치 →</a><details className="text-xs text-muted-foreground"><summary>진단 코드</summary>{issue.code}</details>
+                  <p><span className="font-medium">원인:</span> {group.length === 1 ? issue.message : `${issue.code.startsWith("naver_") ? "네이버 카페" : "같은 원인의"} 확인 필요 · ${group.length}건`}</p>
+                  {group.length > 1 && <div className="mt-1 text-xs text-muted-foreground"><p>대상별 근거 {group.length}건</p><ul className="mt-1 grid gap-x-4 gap-y-0.5 sm:grid-cols-2">{group.map((item, i) => <li key={i}>{item.message}</li>)}</ul></div>}
+                  <div className="mt-1 space-y-0.5 text-xs leading-5 text-muted-foreground"><p><span className="font-medium text-foreground">영향:</span> {guidance.impact}</p>
+                  <p className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">조치:</span> {guidance.action}</p></div>
+                  <a className="mt-1 inline-block text-xs font-medium underline" href={issue.code.startsWith("pending_schedule") ? "/admin/review?tab=schedule" : issue.code.startsWith("auto_") ? "/admin/collection?source=schedule" : issue.code.startsWith("x_") ? "/admin/collection?source=x" : issue.code.startsWith("naver_") ? "/admin/collection?source=naver-cafe" : issue.code.includes("guard") ? "/admin/resources" : "/admin/history?tab=runs"}>근거 확인 및 조치 →</a><span className="ml-3 break-all text-[11px] text-muted-foreground">진단 코드: {issue.code}</span>
                 </div>
               </div>
             </li>
@@ -418,7 +398,7 @@ function QueueHealthCard({
         <div className="grid grid-cols-3 gap-2">
           <QueueMetric icon={Activity} label="실행 중" value={activeRunCount} tone="primary" />
           <QueueMetric icon={Inbox} label="전송 대기" value={outboxBacklog} tone={outboxBacklog > 0 ? "warning" : "neutral"} />
-          <QueueMetric icon={TimerReset} label="만료 lease" value={staleLeaseCount} tone={staleLeaseCount > 0 ? "critical" : "neutral"} />
+          <QueueMetric icon={TimerReset} label="처리 기한 초과" value={staleLeaseCount} tone={staleLeaseCount > 0 ? "critical" : "neutral"} />
         </div>
         <div className="space-y-2 rounded-md border bg-muted/20 p-3">
           <div className="flex items-center justify-between gap-3 text-xs">
@@ -697,7 +677,7 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog 
         <a href="/admin/otw-play?tab=play-monitor" className="mt-2 inline-block underline underline-offset-4">Play 채널 감시 설정 열기</a>
       </section>}
       {data && (view === "all" || view === "home") ? <section className="space-y-3" aria-labelledby="attention-heading">
-        <SectionHeading id="attention-heading" title="지금 확인할 것" description="문제와 대기열 상태를 다른 이력보다 먼저 확인합니다." />
+        <h2 id="attention-heading" className="sr-only">지금 확인할 것</h2>
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]" data-testid="operations-attention-grid"><IssuePanel issues={data.summary.issues} updatedAt={data.updatedAt} /><QueueHealthCard activeRunCount={data.scheduledOperations.activeRunCount} outboxBacklog={data.scheduledOperations.outboxBacklog} staleLeaseCount={data.scheduledOperations.staleLeaseCount} used={queue!.used} limit={queue!.limit} usedPercent={Math.max(0, Math.min(100, queue!.usedPercent))} /></div>
       </section> : null}
 
@@ -707,19 +687,15 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog 
           <a className="rounded border p-3 hover:bg-muted" href="/admin/review?tab=schedule">일정 승인 <strong className="float-right">{data.autoUpdate.pending.total}건</strong></a>
           {(["automatic", "proposals", "imports"] as const).map((kind) => {
             const entry = data.review?.entries.find((item) => item.kind === kind);
-            return <a key={kind} className="rounded border p-3 hover:bg-muted" href={`/admin/otw-play?tab=${kind === "automatic" ? "automatic-review" : kind === "proposals" ? "review" : "import"}`}>{kind === "automatic" ? "자동 영상 후보" : kind === "proposals" ? "사용자 제안" : "가져오기 검토"}<strong className="float-right">{entry?.status === "available" ? `${entry.count}건` : "미확인"}</strong></a>;
+            return <a key={kind} className="rounded border p-3 hover:bg-muted" href={`/admin/otw-play?tab=import&view=inbox&source=${kind === "automatic" ? "automatic" : kind === "proposals" ? "user" : "playlist"}`}>{kind === "automatic" ? "자동 영상 후보" : kind === "proposals" ? "사용자 제안" : "가져오기 검토"}<strong className="float-right">{entry?.status === "available" ? `${entry.count}건` : "미확인"}</strong></a>;
           })}
         </div><p className="mt-2 text-xs text-muted-foreground">종류별 대기량이며 후보가 중복될 수 있습니다. 검토 저장과 공개는 별도 동작입니다.</p>
       </section>}
       {data && view === "home" && (
         <section aria-label="자동 처리 대기" className="space-y-2 rounded-lg border p-3">
           <h2 className="font-semibold">자동 처리 대기</h2>
-          <div className="grid items-start gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-            <div className="min-w-0 space-y-1">
-              <p className="flex items-baseline justify-between gap-3"><span>전송 대기</span><strong className="tabular-nums">{data.scheduledOperations.outboxBacklog}건</strong></p>
-              <a className="text-xs text-muted-foreground underline" href="/admin/history?tab=runs">실행 근거 확인 →</a>
-            </div>
-            <div className="min-w-0 border-t pt-3 md:border-t-0 md:border-l md:pt-0 md:pl-3">
+          <div className="space-y-3">
+            <div className="min-w-0">
               {referenceBacklog ?? <a className="underline" href="/admin/collection?source=x">X 원문·작성자 보강 사유 확인 →</a>}
             </div>
           </div>

@@ -83,7 +83,7 @@ describe("default playlist management flow", () => {
     await screen.findByRole("button", { name: "노래 1 대표곡 지정" });
     fireEvent.change(screen.getByLabelText("이름"), { target: { value: "유지할 입력" } });
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("입력은 유지됩니다"));
+    expect(await screen.findByText(/입력은 유지됩니다/)).toBeTruthy();
     expect((screen.getByLabelText("이름") as HTMLInputElement).value).toBe("유지할 입력");
     fireEvent.click(screen.getByRole("button", { name: "기본 설정으로 복원" }));
     expect((screen.getByLabelText("이름") as HTMLInputElement).value).toBe("커버곡 모음");

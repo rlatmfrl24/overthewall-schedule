@@ -1,3 +1,4 @@
+import { AdminSectionHeader } from "@/app/admin";
 import {
   useCallback,
   useEffect,
@@ -7,15 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { format, parseISO } from "date-fns";
-import {
-  CalendarDays,
-  ExternalLink,
-  Image as ImageIcon,
-  Loader2,
-  Monitor,
-  Palette,
-  RefreshCw,
-} from "lucide-react";
+import { PiCalendarDotsBold as CalendarDays, PiArrowSquareOutBold as ExternalLink, PiImageBold as ImageIcon, PiSpinnerGapBold as Loader2, PiMonitorBold as Monitor, PiPaletteBold as Palette, PiArrowsClockwiseBold as RefreshCw } from "react-icons/pi";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
@@ -240,7 +233,8 @@ export function SnapshotPreviewManager({
   };
 
   return (
-    <section className="min-h-full">
+    <section className="min-h-full space-y-5">
+      <AdminSectionHeader title="스냅샷" description="날짜와 출력 형식을 선택하고 실제 결과를 미리 확인합니다." />
       <div className="grid gap-3">
         <Card className="gap-0 overflow-hidden py-0">
           <header className="border-b px-3 py-2">

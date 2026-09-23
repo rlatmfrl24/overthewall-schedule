@@ -245,6 +245,7 @@ describe("AutoUpdateSettingsManager", () => {
       wrapper: createQueryWrapper(),
     });
 
+    fireEvent.click(await screen.findByRole("tab", { name: "설정" }));
     expect(await screen.findByText("처리 전 후보")).toBeTruthy();
     await waitFor(() =>
       expect(screen.getByText("신규 1 · 수정 1")).toBeTruthy(),
@@ -282,23 +283,11 @@ describe("AutoUpdateSettingsManager", () => {
     );
   });
 
-  it("OTW Play 회원 제안 일일 제한을 저장한다", async () => {
-    render(createElement(AutoUpdateSettingsManager), {
-      wrapper: createQueryWrapper(),
-    });
-
-    await waitFor(() => expect(fetchSettingsMock).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("tab", { name: "설정" }));
-
-    const input = screen.getByLabelText("회원 곡 제안/일");
-    fireEvent.change(input, { target: { value: "7" } });
-    fireEvent.blur(input);
-
-    await waitFor(() =>
-      expect(updateSettingsMock).toHaveBeenCalledWith({
-        otw_play_submission_daily_limit: "7",
-      }),
-    );
+  it("일정 수집에는 Play 전용 설정을 표시하지 않는다", async () => {
+    render(createElement(AutoUpdateSettingsManager), { wrapper: createQueryWrapper() });
+    fireEvent.click(await screen.findByRole("tab", { name: "설정" }));
+    expect(screen.queryByLabelText("회원 곡 제안/일")).toBeNull();
+    expect(screen.queryByText("Play 자동화")).toBeNull();
   });
 
   it("승인 대기 항목의 중복/변경 경고와 일괄 승인 확인을 표시한다", async () => {

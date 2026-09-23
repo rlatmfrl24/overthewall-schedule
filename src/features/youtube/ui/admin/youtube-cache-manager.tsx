@@ -48,16 +48,7 @@ import {
 } from "@/shared/ui/table";
 import { useToast } from "@/shared/ui/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Activity,
-  ChevronDown,
-  CircleAlert,
-  DatabaseZap,
-  Loader2,
-  Play,
-  RefreshCw,
-  Youtube,
-} from "lucide-react";
+import { PiPulseBold as Activity, PiCaretDownBold as ChevronDown, PiWarningCircleBold as CircleAlert, PiDatabaseBold as DatabaseZap, PiSpinnerGapBold as Loader2, PiPlayBold as Play, PiArrowsClockwiseBold as RefreshCw, PiYoutubeLogoBold as Youtube } from "react-icons/pi";
 import { useEffect, useMemo, useState } from "react";
 import { fetchKirinukiChannels } from "../../api/kirinuki";
 import {
@@ -449,12 +440,12 @@ export function YouTubeCacheManager() {
   return (
     <div className="space-y-5">
       <AdminSectionHeader
-        title="YouTube 캐시 관리"
+        title="YouTube 피드·캐시"
         description="저장된 콘텐츠를 우선 제공하고 필요한 채널만 요청 시 갱신합니다."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="h-9 px-3">
-              수요 기반 SWR · 예약 예열 없음
+              요청 시 갱신 · 예약 예열 없음
             </Badge>
             <Button
               variant="outline"
@@ -469,25 +460,14 @@ export function YouTubeCacheManager() {
               )}
               상태 새로고침
             </Button>
-            <Button
-              size="sm"
-              onClick={() => setRefreshConfirmOpen(true)}
-              disabled={isRunning || !status || totalTargets === 0}
-            >
-              {isRunning ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Play className="size-4" />
-              )}
-              전체 채널 갱신 실행
-            </Button>
+
           </div>
         }
       />
 
       {status?.vodChannels && status.vodChannels.length > 0 ? (
         <Card>
-          <CardHeader><CardTitle>유튜브 다시보기 채널</CardTitle><CardDescription>프로필에 등록된 전용 채널을 예약 수집합니다. 채널 ID가 없으면 수집할 수 없습니다.</CardDescription></CardHeader>
+          <CardHeader><CardTitle>신규 피드 수집 · 다시보기 채널</CardTitle><CardDescription>프로필에 등록된 전용 채널을 예약 수집합니다. 채널 ID가 없으면 수집할 수 없습니다.</CardDescription></CardHeader>
           <CardContent className="space-y-2">
             {status.vodChannels.map((channel, index) => <div key={`${channel.memberUid}-${index}`} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
               <span>{channel.memberName} · {channel.label}</span>
@@ -500,7 +480,19 @@ export function YouTubeCacheManager() {
       ) : null}
 
       <QueryReadback updatedAt={statusQuery.dataUpdatedAt} fetching={isLoading} error={statusQuery.isError || settingsQuery.isError}/>
-      <p className="text-sm"><a className="underline" href="/admin/history?tab=runs&source=youtube_feed_collection">신규 피드 수집 실행 확인 →</a> · 아래는 요청 시 사용하는 캐시 상태입니다.</p>
+      <p className="text-sm"><a className="underline" href="/admin/history?tab=runs&source=youtube_feed_collection">신규 피드 수집 실행 확인 →</a></p>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-5"><div><h2 className="font-semibold">요청 시 캐시 갱신</h2><p className="text-sm text-muted-foreground">저장된 피드 응답의 최신 상태를 관리합니다. 신규 피드 수집과 별개입니다.</p></div>            <Button
+              size="sm"
+              onClick={() => setRefreshConfirmOpen(true)}
+              disabled={isRunning || !status || totalTargets === 0}
+            >
+              {isRunning ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Play className="size-4" />
+              )}
+              전체 채널 갱신 실행
+            </Button></div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <MetricCard
           icon={DatabaseZap}

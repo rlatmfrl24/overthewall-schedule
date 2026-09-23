@@ -1,3 +1,4 @@
+import { SecondaryAction } from "@/shared/ui/secondary-action";
 import { SelectField } from "@/shared/ui/select-field"
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { Input } from "@/shared/ui/input";
@@ -6,17 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchActiveMembers, type Member } from "@/features/members";
 import type { Notice } from "../../model/types";
-import {
-  Loader2,
-  PlusCircle,
-  Pencil,
-  Trash2,
-  RefreshCw,
-  HardDrive,
-  ImageOff,
-  Trash,
-  Star,
-} from "lucide-react";
+import { PiSpinnerGapBold as Loader2, PiPlusCircleBold as PlusCircle, PiPencilSimpleBold as Pencil, PiTrashBold as Trash2, PiArrowsClockwiseBold as RefreshCw, PiHardDriveBold as HardDrive, PiImageBrokenBold as ImageOff, PiTrashBold as Trash, PiStarBold as Star } from "react-icons/pi";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import {
@@ -442,9 +433,10 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
 
   return (
     <div className="space-y-4">
+      {view === "resources" && <a className="text-sm underline" href="/admin/content?tab=notices">공지 관리로 이동</a>}
       <AdminSectionHeader
         title={view === "resources" ? "이미지 정리" : "공지사항 관리"}
-        description="메인 페이지 상단에 노출될 공지사항과 이벤트를 관리합니다."
+        description={view === "resources" ? "공지에 사용되는 이미지의 저장 상태와 미사용 파일을 관리합니다." : "메인 페이지 상단에 노출될 공지사항과 이벤트를 관리합니다."}
         count={noticesQuery.data ? sortedNotices.length : undefined}
         actions={view === "content" &&
           <>
@@ -651,7 +643,7 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
                 <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-1 lg:w-64">
                   <Button size="sm" variant={notice.id === featuredNoticeId ? "default" : "outline"} aria-pressed={notice.id === featuredNoticeId} disabled={featuringNoticeId !== null || getNoticePublicationStatus(notice) !== "published"} onClick={() => void handleSetFeaturedNotice(notice)}><Star className="size-3.5"/>{notice.id === featuredNoticeId ? "대표 공지" : "대표로 선택"}</Button>
                   <Button size="sm" variant="ghost" onClick={() => handleOpenEdit(notice)} aria-label={`${notice.content} 수정`}><Pencil className="size-3.5"/>수정</Button>
-                  <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setDeletingNotice(notice)} aria-label={`${notice.content} 삭제`}><Trash2 className="size-3.5"/>삭제</Button>
+                  <SecondaryAction size="sm" variant="ghost" className="text-destructive" onClick={() => setDeletingNotice(notice)} aria-label={`${notice.content} 삭제`}><Trash2 className="size-3.5"/>삭제</SecondaryAction>
                 </div>
               </article>
             ))}

@@ -7,23 +7,9 @@ import { QueryReadback } from "@/shared/ui/query-readback";
 import { Input } from "@/shared/ui/input";
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  Loader2,
-  RefreshCw,
-} from "lucide-react";
+import { PiCaretLeftBold as ChevronLeft, PiCaretRightBold as ChevronRight, PiCaretDoubleLeftBold as ChevronsLeft, PiCaretDoubleRightBold as ChevronsRight, PiSpinnerGapBold as Loader2, PiArrowsClockwiseBold as RefreshCw } from "react-icons/pi";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/shared/ui/card";
 import { Label } from "@/shared/ui/label";
 import {
   Select,
@@ -312,14 +298,14 @@ export function AutoUpdateLogsManager({ view = "all" }: { view?: "all" | "schedu
         <Button className="justify-self-start" variant="outline" onClick={() => updateSearch({q: undefined, category: undefined, state: undefined, source: undefined, from: undefined, until: undefined, page: 1})}>조건 초기화</Button>
       </div>
       {view !== "audit" && (
-      <Card>
-        <CardHeader className="pb-3">
+      <section className="space-y-3" aria-label="로그 목록">
+        <header>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
-              <CardTitle className="text-base">로그 목록</CardTitle>
-              <CardDescription className="mt-1">
+              <h2 className="text-base font-semibold">로그 목록</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
                 로그를 클릭하면 상세 내용을 확인할 수 있습니다.
-              </CardDescription>
+              </p>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-[180px_160px_auto]">
               <div className="space-y-1">
@@ -375,8 +361,8 @@ export function AutoUpdateLogsManager({ view = "all" }: { view?: "all" | "schedu
               </Button>
             </div>
           </div>
-        </CardHeader>
-        <CardContent>
+        </header>
+        <div>
           {isLoading ? (
             <div className="flex items-center justify-center py-8 text-muted-foreground">
               <Loader2 className="w-5 h-5 animate-spin mr-2" />
@@ -487,8 +473,8 @@ export function AutoUpdateLogsManager({ view = "all" }: { view?: "all" | "schedu
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       )}
       {view !== "schedule" && (

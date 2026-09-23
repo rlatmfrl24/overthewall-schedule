@@ -1,25 +1,10 @@
 import { useMemo, type ReactNode } from "react";
 import { XCollectionOverview, XCollectionRuns } from "./x-collection-monitoring";
 import { useQuery } from "@tanstack/react-query";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Clock3,
-  Coffee,
-  Gauge,
-  Loader2,
-  Play,
-  RefreshCw,
-} from "lucide-react";
+import { PiWarningBold as AlertTriangle, PiCheckCircleBold as CheckCircle2, PiClockBold as Clock3, PiCoffeeBold as Coffee, PiGaugeBold as Gauge, PiSpinnerGapBold as Loader2, PiPlayBold as Play, PiArrowsClockwiseBold as RefreshCw } from "react-icons/pi";
 import IconX from "@/assets/icon_x.svg";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/shared/ui/card";
 import { useNaverCafePosts } from "@/features/naver-cafe";
 import {
   fetchOperationRuns,
@@ -304,11 +289,11 @@ export function MemberPostFeedMonitor({
     : loading || isRunningNaverCafeCheck;
 
   return (
-    <Card id={`${source}-monitoring`} className="gap-0! overflow-hidden py-0!">
-      <CardHeader className="gap-0 border-b px-3 py-2 [.border-b]:pb-2">
+    <section id={`${source}-monitoring`} className="space-y-3">
+      <header className="border-b pb-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
-            <CardTitle className="flex items-center gap-2 text-base">
+            <h2 className="flex items-center gap-2 text-base font-semibold">
               <span className="flex size-7 items-center justify-center rounded-md border bg-muted/30">
                 {isX ? (
                   <img src={IconX} alt="" className="h-3.5 w-3.5" />
@@ -317,7 +302,7 @@ export function MemberPostFeedMonitor({
                 )}
               </span>
               {isX ? "X 수집 운영" : "네이버 카페 운영"}
-            </CardTitle>
+            </h2>
             {!isX ? statusBadge : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -367,8 +352,8 @@ export function MemberPostFeedMonitor({
             </Button>
           </div>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-3 p-3">
+      </header>
+      <div className="space-y-3">
         {isX ? (
           <XCollectionOverview
             operations={operationsStatus} loading={operationsLoading} error={operationsError}
@@ -377,7 +362,7 @@ export function MemberPostFeedMonitor({
             enabled={xCollectionEnabled}
           />
         ) : (
-          <div className="grid divide-y overflow-hidden rounded-lg border bg-muted/10 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+          <div className="grid divide-y border-b sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
             <MetricTile
               label="최근 실제 수집"
               value={formatMonitorUpdatedAt(
@@ -416,6 +401,9 @@ export function MemberPostFeedMonitor({
 
 
 
+        {!isX && children ? <details className="border-b pb-2"><summary className="font-semibold">수집·공개 설정 및 게시판 관리</summary><div className="pt-3">{children}</div></details> : null}
+        {isX && children ? <section className="border-t pt-3">{children}</section> : null}
+        <a className="inline-block text-sm underline" href={`/admin/history?tab=runs&source=${isX ? "x_collection" : "naver_cafe_collection"}`}>전체 실행 이력</a>
         {isX ? <XCollectionRuns
           runs={operationRunsQuery.data?.runs ?? []} loading={operationRunsQuery.isLoading}
           error={operationRunsQuery.isError} updatedAt={operationRunsQuery.dataUpdatedAt}
@@ -448,8 +436,7 @@ export function MemberPostFeedMonitor({
           </div>
         </section>
         )}
-        {!isX && children ? <details className="rounded border p-3"><summary className="font-semibold">수집·공개 설정 및 게시판 관리</summary><div className="pt-3">{children}</div></details> : null}
-        {isX && children ? <section className="border-t pt-3">{children}</section> : null}
+
 
         {isX ? (
           <details className="rounded-lg border bg-muted/10">
@@ -467,7 +454,7 @@ export function MemberPostFeedMonitor({
         ) : null}
 
         {isX ? (
-          <details className="min-w-0 rounded-lg border bg-muted/10">
+          <details className="min-w-0 border-t">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3 marker:hidden">
               <h3 className="flex items-center gap-2 text-sm font-semibold">
                 <img src={IconX} alt="" className="h-3.5 w-3.5" />
@@ -531,7 +518,7 @@ export function MemberPostFeedMonitor({
             </div>
           </details>
         ) : (
-          <details className="min-w-0 rounded-lg border bg-muted/10">
+          <details className="min-w-0 border-t">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3 marker:hidden">
               <h3 className="flex items-center gap-2 text-sm font-semibold">
                 <Coffee className="h-3.5 w-3.5 text-emerald-600" />
@@ -601,7 +588,7 @@ export function MemberPostFeedMonitor({
           운영 지표는 최근 {operationsStatus?.window.hours ?? 24}시간 기준이며,
           관리자 피드 응답과 실제 예약 수집 이력을 구분해 표시합니다.
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }

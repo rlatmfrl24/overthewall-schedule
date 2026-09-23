@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { ReviewSegmentPlayer } from "./review-segment-player";
 import "../play-glass.css";
-import { Eye } from "lucide-react";
+import { PiEyeBold as Eye } from "react-icons/pi";
 import type { OtwPlayBroadcastMetadata, OtwPlayParticipantRole, OtwPlayParticipationType, OtwPlayRelationType } from "@contracts/otw-play";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";

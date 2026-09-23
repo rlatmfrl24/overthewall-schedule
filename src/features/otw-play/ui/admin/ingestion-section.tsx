@@ -1,3 +1,5 @@
+import { SecondaryAction } from "@/shared/ui/secondary-action";
+import { ingestionBudgetKey, useIngestionBudget } from "../../queries/use-ingestion-budget";
 import { useEffect, useState } from "react";
 import type { OtwPlayPlaylistPreflightDto } from "@contracts/otw-play";
 import { useQueryClient } from "@tanstack/react-query";
@@ -11,8 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { useToast } from "@/shared/ui/toast";
-import { Loader2, RefreshCw, Trash2, Upload } from "lucide-react";
-import { deleteOtwPlayImportHistory, createOtwPlayPlaylistImport, preflightOtwPlayPlaylistImport, retryOtwPlayImportJob } from "../../api/admin";
+import { PiSpinnerGapBold as Loader2, PiArrowsClockwiseBold as RefreshCw, PiTrashBold as Trash2, PiUploadSimpleBold as Upload } from "react-icons/pi";
+import { resumeOtwPlayImportJob, deleteOtwPlayImportHistory, createOtwPlayPlaylistImport, preflightOtwPlayPlaylistImport, retryOtwPlayImportJob } from "../../api/admin";
 import { useOtwPlayImportJob, useOtwPlayImportJobs } from "../../queries/use-admin-catalog";
 import { ChoiceGroup, type ChoiceOption } from "@/shared/ui/choice-group";
 
@@ -66,7 +68,7 @@ const importModeOptions = [
 ] satisfies readonly ChoiceOption<ImportMode>[];
 
 const importStatusLabels: Record<string, string> = {
-  queued: "접수 대기", running: "처리 중", completed: "수집 완료", partial: "일부 실패", failed: "실패", cancelled: "취소됨",
+  queued: "접수 대기", collecting: "처리 중", running: "처리 중", completed: "수집 완료", partial: "일부 실패", failed: "실패", cancelled: "취소됨",
 };
 const importCountLabels: Record<string, string> = {
   discovered: "발견", metadataChecked: "영상 확인", eligible: "검토 가능", existingCatalog: "기존 카탈로그",
@@ -91,8 +93,10 @@ export function IngestionSection({ active = true }: { active?: boolean }) {
   const activeJobId = search.category ?? null;
   const setActiveJobId = (category: string | null) => updateSearch({ category: category ?? undefined, selected: undefined }, false);
   const [busy, setBusy] = useState<string | null>(null);
-  const jobsQuery = useOtwPlayImportJobs();
-  const jobQuery = useOtwPlayImportJob(activeJobId);
+  const budgetQuery = useIngestionBudget(active);
+  const budgetBlocked = !budgetQuery.isError && budgetQuery.data?.status === "blocked" && Date.now() - Date.parse(budgetQuery.data.measuredAt) <= 120_000 && Date.parse(budgetQuery.data.resetAt) > Date.now();
+  const jobsQuery = useOtwPlayImportJobs(active);
+  const jobQuery = useOtwPlayImportJob(activeJobId, active, budgetBlocked);
   useEffect(() => {
     if (active && !activeJobId && jobsQuery.data?.[0]) updateSearch({ category: jobsQuery.data[0].id });
   }, [active, activeJobId, jobsQuery.data, updateSearch]);
@@ -100,7 +104,7 @@ export function IngestionSection({ active = true }: { active?: boolean }) {
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.importJobs() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.importJobs(), exact: true }),
       ...(activeJobId ? [queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.importJob(activeJobId) })] : []),
     ]);
   };
@@ -143,8 +147,9 @@ export function IngestionSection({ active = true }: { active?: boolean }) {
         idempotencyKey: crypto.randomUUID(),
       });
       setActiveJobId(job.id);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.importJobs() });
-      toast({ variant: "success", description: "수집 작업을 저장하고 수집 대기열에 등록했습니다." });
+      await queryClient.invalidateQueries({ queryKey: ingestionBudgetKey });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.importJobs(), exact: true });
+      toast({ variant: "success", description: "가져오기 작업을 저장했습니다. 예산이 부족하면 대기 후 수집을 시작합니다." });
     } catch {
       toast({ variant: "error", description: "수집 작업을 시작하지 못했습니다." });
     } finally {
@@ -187,6 +192,17 @@ export function IngestionSection({ active = true }: { active?: boolean }) {
 
   return (
     <div className="space-y-3">
+      {budgetBlocked && <div role="status" className="rounded-lg border p-3 text-sm">
+        {job && ["queued", "collecting", "partial"].includes(job.status) ? "읽기 예산 대기" : "새 수집 예산 소진"} · {budgetQuery.data!.rowsRead?.toLocaleString("ko-KR")} / {budgetQuery.data!.dailyTarget.toLocaleString("ko-KR")}행
+        <p>{new Date(budgetQuery.data!.resetAt).toLocaleString("ko-KR")} 초기화 후 자동 복구가 허용되는 다음 매시 03분에 수집을 재개합니다. 수동 검수·저장은 계속할 수 있습니다.</p>
+      </div>}
+      {(budgetQuery.isError || budgetQuery.data?.status === "unavailable") && <p role="status" className="text-sm text-amber-600">읽기 사용량을 확인할 수 없어 예산 보호 없이 수집을 계속합니다.</p>}
+      {job && ["queued", "collecting", "partial"].includes(job.status) && <Button variant="outline" disabled={Boolean(busy) || budgetBlocked} onClick={async () => {
+        setBusy("resume");
+        try { const result = await resumeOtwPlayImportJob(job.id); await refresh(); toast({ variant: "success", description: `대기 작업 ${result.enqueued}개를 수집 대기열에 등록했습니다.` }); }
+        catch { toast({ variant: "error", description: "수집을 재개하지 못했습니다. 예산과 작업 상태를 확인해 주세요." }); }
+        finally { setBusy(null); void queryClient.invalidateQueries({ queryKey: ingestionBudgetKey }); }
+      }}>대기 수집 재개</Button>}
       <Card id="playlist-import">
         <CardHeader className="border-b">
           <div className="flex items-start gap-3">
@@ -375,7 +391,7 @@ export function IngestionSection({ active = true }: { active?: boolean }) {
                     {retentionLabel(historyJob.retentionExpiresAt)}
                   </p>
                 </button>
-                <Button size="icon-sm" variant="ghost" aria-label="이력 삭제" title={`${historyJob.playlistTitle ?? historyJob.playlistId} 이력 삭제`} className="text-muted-foreground hover:text-destructive" disabled={busy !== null || historyJob.counts.retryPending > 0 || !["completed", "partial", "failed"].includes(historyJob.status)} onClick={() => setDeleteHistoryId(historyJob.id)}><Trash2 aria-hidden="true" /></Button>
+                <SecondaryAction size="icon-sm" variant="ghost" aria-label="이력 삭제" title={`${historyJob.playlistTitle ?? historyJob.playlistId} 이력 삭제`} className="text-muted-foreground hover:text-destructive" disabled={busy !== null || historyJob.counts.retryPending > 0 || !["completed", "partial", "failed"].includes(historyJob.status)} onClick={() => setDeleteHistoryId(historyJob.id)}><Trash2 aria-hidden="true" /></SecondaryAction>
                 </div>
               ))}
             </div>
@@ -425,7 +441,7 @@ export function IngestionSection({ active = true }: { active?: boolean }) {
                 if (activeJobId === deleteHistoryId) setActiveJobId(null);
                 setPreflight(null);
                 setDeleteHistoryId(null);
-                await queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.importJobs() });
+                await queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.importJobs(), exact: true });
                 toast({ variant: "success", description: "가져오기 이력을 삭제했습니다." });
               } catch {
                 toast({ variant: "error", description: "이력을 삭제하지 못했습니다. 작업이 진행 중인지 확인하고 다시 시도해 주세요." });

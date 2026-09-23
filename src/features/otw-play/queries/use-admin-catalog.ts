@@ -19,15 +19,18 @@ import {
   fetchOtwPlayChannelMonitorCandidates,
 } from "../api/admin";
 
-export const useOtwPlayAdminCatalog = () => useQuery({
+export const useOtwPlayAdminCatalog = (enabled = true) => useQuery({
   queryKey: queryKeys.otwPlay.adminCatalog(),
   queryFn: fetchOtwPlayAdminCatalog,
+  refetchOnWindowFocus: false,
+  enabled,
   staleTime: 15_000,
 });
 
-export const useOtwPlayAdminProposals = (status = "pending_review") => useQuery({
+export const useOtwPlayAdminProposals = (status = "pending_review", enabled = true) => useQuery({
   queryKey: queryKeys.otwPlay.adminProposals(status),
   queryFn: () => fetchOtwPlayAdminProposals(status),
+  enabled,
   staleTime: 15_000,
 });
 
@@ -52,14 +55,17 @@ export const useOtwPlayAdminRelease = (enabled: boolean) => useQuery({
   staleTime: 15_000,
 });
 
-export const useOtwPlayImportJob = (jobId: string | null) => {
+export const useOtwPlayImportJob = (jobId: string | null, enabled = true, budgetBlocked = false) => {
   const queryClient = useQueryClient();
   const previousStatus = useRef<string | null>(null);
   const query = useQuery({
     queryKey: queryKeys.otwPlay.importJob(jobId ?? "none"),
     queryFn: () => fetchOtwPlayImportJob(jobId!),
-    enabled: Boolean(jobId),
+    enabled: enabled && Boolean(jobId),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
     refetchInterval: (currentQuery) => {
+      if (!enabled || budgetBlocked) return false;
       const job = currentQuery.state.data;
       if (job?.status !== "queued" && job?.status !== "collecting") {
         return false;
@@ -77,7 +83,7 @@ export const useOtwPlayImportJob = (jobId: string | null) => {
     const status = query.data?.status ?? null;
     if (previousStatus.current && status && previousStatus.current !== status) {
       void queryClient.invalidateQueries({
-        queryKey: queryKeys.otwPlay.importJobs(),
+        queryKey: queryKeys.otwPlay.importJobs(), exact: true,
       });
     }
     previousStatus.current = status;
@@ -86,13 +92,15 @@ export const useOtwPlayImportJob = (jobId: string | null) => {
   return query;
 };
 
-export const useOtwPlayImportJobs = () => useQuery({
+export const useOtwPlayImportJobs = (enabled = true) => useQuery({
   queryKey: queryKeys.otwPlay.importJobs(),
   queryFn: fetchOtwPlayImportJobs,
+  enabled,
   staleTime: 5_000,
 });
 
-export const useOtwPlayChannelMonitors = () => useQuery({
+export const useOtwPlayChannelMonitors = (enabled = true) => useQuery({
+  enabled,
   queryKey: queryKeys.otwPlay.channelMonitors(),
   queryFn: fetchOtwPlayChannelMonitors,
   staleTime: 15_000,

@@ -1,6 +1,6 @@
 import { SignInButton, useUser } from "@clerk/clerk-react";
 import { Link, Outlet } from "@tanstack/react-router";
-import { Loader2, ShieldAlert } from "lucide-react";
+import { PiSpinnerGapBold as Loader2, PiShieldWarningBold as ShieldAlert } from "react-icons/pi";
 import { Button } from "@/shared/ui/button";
 import {
   Card,

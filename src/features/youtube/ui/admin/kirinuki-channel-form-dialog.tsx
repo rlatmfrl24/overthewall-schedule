@@ -13,7 +13,7 @@ import {
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { FieldError, FieldLabel } from "@/shared/ui/field";
-import { Loader2 } from "lucide-react";
+import { PiSpinnerGapBold as Loader2 } from "react-icons/pi";
 
 const YOUTUBE_CHANNEL_ID_REGEX = /^UC[\w-]{22}$/;
 

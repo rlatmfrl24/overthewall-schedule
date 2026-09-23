@@ -1,6 +1,8 @@
 import { apiRoutes, withRouteSearch } from "@contracts/api-routes";
 import type {
   OtwPlayAdminCatalogDto,
+  OtwPlayIngestionBudgetDto,
+  OtwPlayIngestionResumeDto,
   OtwPlayAdminCatalogEntryPreflightDto,
   OtwPlayAdminCatalogEntryPreflightRequest,
   OtwPlayAdminCatalogEntryResultDto,
@@ -410,3 +412,6 @@ export const fetchOtwPlayReviewItems = (filters: import("@contracts/otw-play").O
   for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value);
   return adminRequest<{ data: import("@contracts/otw-play").OtwPlayReviewPageDto }>(withRouteSearch(apiRoutes.otwPlay.admin.reviewItems.build(), params)).then(response => response.data);
 };
+
+export const fetchOtwPlayIngestionBudget = () => adminRequest<{ data: OtwPlayIngestionBudgetDto }>(apiRoutes.otwPlay.admin.importBudget.build()).then(r => r.data);
+export const resumeOtwPlayImportJob = (jobId: string) => adminRequest<{ data: OtwPlayIngestionResumeDto }>(apiRoutes.otwPlay.admin.importResume.build(jobId), { method: "POST" }).then(r => r.data);

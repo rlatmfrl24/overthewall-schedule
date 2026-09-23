@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Pause, Play, RotateCcw } from "lucide-react";
+import { PiPauseBold as Pause, PiPlayBold as Play, PiArrowCounterClockwiseBold as RotateCcw } from "react-icons/pi";
 import { Button } from "@/shared/ui/button";
 import { createOtwPlayYouTubePlayer, type OtwPlayYouTubePlayer } from "../../player/youtube-iframe-api";
 

@@ -8,17 +8,7 @@ import {
   type ClipboardEvent,
 } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
-import {
-  AlertCircle,
-  ChevronDown,
-  ChevronUp,
-  ImageIcon,
-  Link2,
-  Loader2,
-  Plus,
-  Trash2,
-  Upload,
-} from "lucide-react";
+import { PiWarningCircleBold as AlertCircle, PiCaretDownBold as ChevronDown, PiCaretUpBold as ChevronUp, PiImageBold as ImageIcon, PiLinkBold as Link2, PiSpinnerGapBold as Loader2, PiPlusBold as Plus, PiTrashBold as Trash2, PiUploadSimpleBold as Upload } from "react-icons/pi";
 import type { Member } from "@/features/members";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";

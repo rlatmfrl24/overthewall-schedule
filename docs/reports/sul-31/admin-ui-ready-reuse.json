@@ -1,0 +1,38 @@
+[
+  {
+    "candidateId": "youtube:diPUMZvDUWU",
+    "status": "ready",
+    "song": {
+      "kind": "existing",
+      "songId": "511a1181-aaef-482e-996f-5c22dbaf804b"
+    },
+    "participants": [
+      {
+        "subject": {
+          "kind": "member",
+          "memberUid": 6
+        },
+        "participantRole": "vocal",
+        "creditOrder": 0
+      }
+    ]
+  },
+  {
+    "candidateId": "youtube:fF0ns7kYPzc",
+    "status": "ready",
+    "song": {
+      "kind": "existing",
+      "songId": "511a1181-aaef-482e-996f-5c22dbaf804b"
+    },
+    "participants": [
+      {
+        "subject": {
+          "kind": "member",
+          "memberUid": 6
+        },
+        "participantRole": "vocal",
+        "creditOrder": 0
+      }
+    ]
+  }
+]

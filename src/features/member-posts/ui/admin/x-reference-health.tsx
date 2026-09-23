@@ -1,4 +1,4 @@
-import { MessageSquareQuote } from "lucide-react";
+import { PiChatTeardropTextBold as MessageSquareQuote } from "react-icons/pi";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { useXReferenceHealth } from "../../queries/use-x-reference-health";
@@ -13,7 +13,7 @@ export function XReferenceHealth() {
     : stale ? "이전 조회 결과" : health.errors > 0 ? "재시도 확인 필요"
       : health.pendingPosts > 0 || health.pendingAuthors > 0 ? "보강 대기" : "대기 없음";
   return (
-    <section className="min-w-0 space-y-3 rounded-lg border bg-background p-3" aria-label="X 원문 보강 상태">
+    <section className="min-w-0 space-y-3 rounded-lg border bg-card p-4" aria-label="X 원문 보강 상태">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-sm font-semibold"><MessageSquareQuote className="size-4" />{health?.replyPolicy === "stored_or_link" ? "인용 원문 보강" : "답글·인용 원문 보강"}</h3>
         <Button variant="ghost" size="sm" onClick={() => openXSettings("x-reference-settings")} aria-label="원문 보강 설정 열기">설정</Button>
@@ -31,7 +31,7 @@ export function XReferenceHealth() {
         {health.byRelation ? <div className="flex flex-wrap gap-x-4 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
           {health.byRelation.filter((item) => item.relation === "quote" || health.replyPolicy !== "stored_or_link").map((item) => <span key={item.relation}>{item.relation === "reply" ? "답글" : "인용"}: 원문 {item.pendingPosts} · 작성자 {item.pendingAuthors} · 접근 불가 {item.terminal}</span>)}
         </div> : <p className="text-xs text-muted-foreground">답글·인용별 대기 기록 없음</p>}
-        {health.replyPolicy === "stored_or_link" && <div className="space-y-1 rounded-md bg-muted/30 p-3 text-xs" aria-label="답글 표시 상태">
+        {health.replyPolicy === "stored_or_link" && <div className="space-y-1 border-t pt-3 text-xs" aria-label="답글 표시 상태">
           <p className="font-medium">답글 · 추가 X 조회 없음</p>
           {health.replyDisplay ? <p>미리보기 있음 {health.replyDisplay.withPreview}건 · 관계 표시 {health.replyDisplay.linkOnly}건 · 접근 불가 {health.replyDisplay.terminal}건</p> : <p>답글 표시 건수 확인 불가</p>}
           <p className="text-muted-foreground">저장된 미리보기를 유지하며, 관계와 링크 표시는 정상 완료 상태입니다.</p>

@@ -1,3 +1,5 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { applyReviewCatalogChanges } from "../../queries/review-catalog-changes";
 import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
 import { ReviewPublicationPreview } from "./review-publication-preview";
 import { AI_REVIEW_FIELDS, type AiReviewFields } from "@contracts/otw-play-ai-review";
@@ -41,7 +43,7 @@ import {
 import { SelectField } from "@/shared/ui/select-field";
 import { Textarea } from "@/shared/ui/textarea";
 import { useToast } from "@/shared/ui/toast";
-import { ArrowLeft, ExternalLink, Loader2 } from "lucide-react";
+import { PiArrowLeftBold as ArrowLeft, PiArrowSquareOutBold as ExternalLink, PiSpinnerGapBold as Loader2 } from "react-icons/pi";
 import {
   convertOtwPlayImportCandidate,
   updateOtwPlayImportCandidate,
@@ -111,6 +113,7 @@ export function SingingClipReviewDialog({
   onReviewSaved?: () => void;
   onReviewStateChanged: () => Promise<void>;
 }) {
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const id = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -323,6 +326,7 @@ export function SingingClipReviewDialog({
         action: "save",
         input: reviewInput,
       });
+      applyReviewCatalogChanges(queryClient, reviewed);
       reviewSaved = true;
       setReviewBaseline({
         version: reviewed.version,

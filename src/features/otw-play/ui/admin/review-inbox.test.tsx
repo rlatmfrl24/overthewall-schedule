@@ -12,8 +12,8 @@ const convert = vi.hoisted(() => vi.fn());
 const updateCandidate = vi.hoisted(() => vi.fn());
 const jobs = vi.hoisted(() => vi.fn());
 const scrollIntoView = vi.hoisted(() => vi.fn());
-vi.mock("../../queries/use-admin-catalog", () => ({ useOtwPlayImportJobs: jobs }));
-vi.mock("../../api/admin", () => ({ fetchOtwPlayReviewItems: fetchReview, convertOtwPlayImportCandidate: convert, updateOtwPlayImportCandidate: updateCandidate }));
+vi.mock("../../queries/use-admin-catalog", () => ({ useOtwPlayImportJobs: jobs, useOtwPlayImportJob: () => ({ data: undefined }) }));
+vi.mock("../../api/admin", () => ({ fetchOtwPlayIngestionBudget: vi.fn(async () => ({ status: "available" })), fetchOtwPlayReviewItems: fetchReview, convertOtwPlayImportCandidate: convert, updateOtwPlayImportCandidate: updateCandidate }));
 vi.mock("@/features/members", () => ({ fetchActiveMembers: vi.fn(async () => []) }));
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 vi.mock("@/shared/lib/confirmation", () => ({ useConfirmation: () => vi.fn(async () => true) }));
@@ -67,7 +67,7 @@ it("toggles every loaded eligible candidate without selecting blocked rows", asy
 it("keeps review discovery available when catalog editing cannot load", async () => {
   render(<ReviewInbox catalog={null} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
   expect(await screen.findByText("clip-a")).toBeTruthy();
-  expect(screen.getAllByRole("button", { name: "검수 열기" }).every(button => (button as HTMLButtonElement).disabled)).toBe(true);
+  expect(screen.getAllByRole("button", { name: "검수 열기" }).every(button => !(button as HTMLButtonElement).disabled)).toBe(true);
 });
 
 it("scopes playlist rows and bulk selections to the chosen import history", async () => {

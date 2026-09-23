@@ -160,7 +160,8 @@ html[data-animations="disabled"] *::after {
 .admin-console [data-slot="card"] { gap: 12px; padding-block: 12px; border-radius: 8px; box-shadow: none; }
 .admin-console [data-slot="card-header"], .admin-console [data-slot="card-content"] { padding-inline: 14px; }
 .admin-console td, .admin-console th { padding: 8px; }
-.admin-console td:last-child:not([colspan]), .admin-console th:last-child { position: sticky; right: 0; background: var(--card); }
+.admin-console .admin-compact-table :is(td, th) { padding: 6px 8px; }
+.admin-console .admin-compact-table button { height: 28px; }
 .admin-console summary { cursor: pointer; }
 .admin-console :is(button,a,input,select,summary):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .admin-console .console-tabs {
@@ -216,3 +217,40 @@ html[data-animations="disabled"] {
 .site-content-summary a, .site-content-summary button { text-decoration: underline; text-underline-offset: 3px; }
 .site-content-summary a:focus-visible, .site-content-summary summary:focus-visible, .site-content-summary button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .site-content-summary img { object-fit: cover; border-radius: .5rem; }
+
+/* Shared admin tokens also travel with portalled overlays through UiScopeContext. */
+.admin-console {
+  --background: #fbfbfa; --foreground: #292724; --card: #ffffff; --card-foreground: #292724;
+  --popover: #ffffff; --popover-foreground: #292724; --primary: #292724; --primary-foreground: #ffffff;
+  --secondary: #f0efec; --secondary-foreground: #292724; --muted: #f3f2ef; --muted-foreground: #6b6863;
+  --accent: #eeede9; --accent-foreground: #292724; --border: #e7e5e1; --input: #d7d4ce; --ring: #78736b;
+  --admin-content-padding: 20px;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Pretendard Variable", sans-serif;
+  color: var(--foreground); line-height: 1.6;
+}
+.dark .admin-console {
+  --background: #191918; --foreground: #eeede9; --card: #20201e; --card-foreground: #eeede9;
+  --popover: #252523; --popover-foreground: #eeede9; --primary: #eeede9; --primary-foreground: #242320;
+  --secondary: #2b2b28; --secondary-foreground: #eeede9; --muted: #282825; --muted-foreground: #aaa79f;
+  --accent: #30302c; --accent-foreground: #eeede9; --border: #383833; --input: #4b4a43; --ring: #b1ada3;
+}
+.admin-console [data-slot="card"] { gap: 16px; padding-block: 20px; border-radius: 8px; box-shadow: none; }
+.admin-console [data-slot="card-header"], .admin-console [data-slot="card-content"] { padding-inline: 20px; }
+.admin-console :is([data-slot="button"], [data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"]) { border-radius: 6px; box-shadow: none; }
+.admin-console [data-slot="button"] { font-weight: 500; }
+.admin-console [data-slot="badge"] { font-weight: 500; }
+.admin-console :is(h1,h2,h3) { text-wrap: balance; }
+.admin-console h1 { line-height: 1.3; letter-spacing: -.025em; }
+.admin-console td { line-height: 1.6; }
+.admin-console details > summary { min-height: 36px; }
+.admin-console:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"], [data-slot="select-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"]) { box-shadow: none; }
+.admin-console [data-slot="dialog-footer"] { position: sticky; bottom: -24px; margin-top: 12px; padding-block: 16px; border-top: 1px solid var(--border); background: var(--background); z-index: 2; }
+.admin-console [data-slot="dialog-header"] { text-align: left; padding-right: 20px; }
+.admin-console .admin-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding-block: 12px; border-block: 1px solid var(--border); }
+@media (min-width: 768px) { .admin-console { --admin-content-padding: 28px; } }
+@media (max-width: 767px) {
+  .admin-console { --admin-content-padding: 16px; }
+  .admin-console :is(button,input,select,[role="combobox"]) { min-height: 44px; }
+  .admin-console [data-slot="card-header"], .admin-console [data-slot="card-content"] { padding-inline: 16px; }
+  .admin-console [data-slot="dialog-footer"] { bottom: -24px; }
+}

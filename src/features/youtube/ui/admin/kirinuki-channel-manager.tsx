@@ -1,17 +1,11 @@
+import { SecondaryAction } from "@/shared/ui/secondary-action";
 import { QueryReadback } from "@/shared/ui/query-readback";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { Input } from "@/shared/ui/input";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { KirinukiChannelDto } from "@contracts/youtube";
-import {
-  Loader2,
-  PlusCircle,
-  Pencil,
-  Trash2,
-  Youtube,
-  RefreshCw,
-} from "lucide-react";
+import { PiSpinnerGapBold as Loader2, PiPlusCircleBold as PlusCircle, PiPencilSimpleBold as Pencil, PiTrashBold as Trash2, PiYoutubeLogoBold as Youtube, PiArrowsClockwiseBold as RefreshCw } from "react-icons/pi";
 import { Button } from "@/shared/ui/button";
 import {
   Select,
@@ -260,7 +254,7 @@ export function KirinukiChannelManager() {
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button
+                      <SecondaryAction
                         variant="ghost"
                         size="icon-sm"
                         className="text-destructive hover:text-destructive"
@@ -268,7 +262,7 @@ export function KirinukiChannelManager() {
                         title="삭제"
                       >
                         <Trash2 className="h-4 w-4" />
-                      </Button>
+                      </SecondaryAction>
                     </div>
                   </TableCell>
                 </TableRow>
