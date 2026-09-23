@@ -105,8 +105,8 @@ export class AdminCatalogService {
     this.officialCoverPolicyEnabled = officialCoverPolicyEnabled;
   }
 
-  readCatalog() {
-    return this.repository.readCatalog();
+  readCatalog(scope?: import("./ports/admin-catalog-repository").AdminCatalogScope) {
+    return this.repository.readCatalog(scope);
   }
 
   readProposals(status?: string) {
@@ -489,7 +489,7 @@ export class AdminCatalogService {
         { sources: "invalid" },
       );
     }
-    const catalog = await this.repository.readCatalog();
+    const catalog = await this.repository.readCatalog({ channelIds: input.sources.map(source => source.channelId) });
     const seenSegments = new Set<string>();
     const verified = [];
     for (const [index, source] of input.sources.entries()) {
@@ -767,7 +767,7 @@ export class AdminCatalogService {
       proposal.approvedPerformanceId !== null &&
       proposal.version === input.expectedVersion + 1
     ) {
-      const catalog = await this.repository.readCatalog();
+      const catalog = await this.repository.readCatalog({});
       return { data: proposal, catalogRevision: catalog.revision };
     }
     if (proposal.status !== "pending_review") {
@@ -782,7 +782,7 @@ export class AdminCatalogService {
         "Proposal changed during review",
       );
     }
-    const catalog = await this.repository.readCatalog();
+    const catalog = await this.repository.readCatalog({ channelIds: input.channel.kind === "existing" ? [input.channel.channelId] : [] });
     if (catalog.revision !== input.expectedCatalogRevision) {
       throw new AdminCatalogServiceError(
         "stale_write",

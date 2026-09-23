@@ -1,15 +1,8 @@
+import { SecondaryAction } from "@/shared/ui/secondary-action";
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { NaverCafeSourceDto as NaverCafeSource } from "@contracts/naver-cafe";
-import {
-  Coffee,
-  ExternalLink,
-  Loader2,
-  Pencil,
-  PlusCircle,
-  RefreshCw,
-  Trash2,
-} from "lucide-react";
+import { PiCoffeeBold as Coffee, PiArrowSquareOutBold as ExternalLink, PiSpinnerGapBold as Loader2, PiPencilSimpleBold as Pencil, PiPlusCircleBold as PlusCircle, PiArrowsClockwiseBold as RefreshCw, PiTrashBold as Trash2 } from "react-icons/pi";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import {
@@ -336,7 +329,7 @@ export function NaverCafeSourceManager() {
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button
+                        <SecondaryAction
                           variant="ghost"
                           size="icon-sm"
                           className="text-destructive hover:text-destructive"
@@ -344,7 +337,7 @@ export function NaverCafeSourceManager() {
                           title="삭제"
                         >
                           <Trash2 className="h-4 w-4" />
-                        </Button>
+                        </SecondaryAction>
                       </div>
                     </TableCell>
                   </TableRow>

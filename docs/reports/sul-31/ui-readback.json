@@ -1,0 +1,39 @@
+{
+  "environment": "localhost:5173; existing local development authentication and Worker/D1 bindings; no production writes",
+  "import": [
+    {
+      "id": "79fce9dd-1f68-4554-b3a6-15cc289399e4",
+      "status": "completed",
+      "requested_item_count": 1,
+      "candidate_id": "youtube:oYEWUGh-h2o",
+      "message_status": "completed",
+      "attempts": 0
+    },
+    {
+      "id": "79fce9dd-1f68-4554-b3a6-15cc289399e4",
+      "status": "completed",
+      "requested_item_count": 1,
+      "candidate_id": "youtube:oYEWUGh-h2o",
+      "message_status": "completed",
+      "attempts": 0
+    }
+  ],
+  "catalog": [
+    {
+      "id": "youtube:lk4XWoTHiwM",
+      "status": "converted",
+      "linked_performance_id": "9d386a85-7c42-48f5-8737-b30d5c9bf4a7",
+      "song_id": "f82b6083-90cf-4605-8935-9e7c227c8aa4",
+      "publication_status": "published",
+      "version": 1
+    },
+    {
+      "id": "youtube:oYEWUGh-h2o",
+      "status": "converted",
+      "linked_performance_id": "b4e6361a-e318-4519-a67a-d8bd4d209e79",
+      "song_id": "eda53e18-28a0-4cf7-b3c4-82659cde4acf",
+      "publication_status": "published",
+      "version": 1
+    }
+  ]
+}

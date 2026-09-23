@@ -21,6 +21,29 @@ describe("OTW Play ingestion handler", () => {
     });
   });
 
+  it("protects budget and resume, exposes no-store and a reset time on admission refusal", async () => {
+    const budget = { status: "blocked", rowsRead: 4_000_000, dailyTarget: 4_000_000,
+      measuredAt: new Date().toISOString(), resetAt: new Date(Date.now() + 60_000).toISOString(), reason: "daily_read_target" };
+    const resumeJob = vi.fn(async () => ({ enqueued: 0, budget }));
+    const resolve = vi.fn(() => ({ readBudget: async () => budget, resumeJob }) as unknown as IngestionService);
+    const handler = createIngestionHandler(resolve);
+    const read = await handler(new Request("https://example.com/api/play/admin/imports/budget"), env);
+    expect(read.status).toBe(200);
+    expect(read.headers.get("Cache-Control")).toBe("no-store");
+    expect(await read.json()).toEqual({ data: budget });
+    const request = () => new Request("https://example.com/api/play/admin/imports/job-1/resume", { method: "POST" });
+    const blocked = await handler(request(), env);
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("Cache-Control")).toBe("no-store");
+    expect(Number(blocked.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect(resumeJob).toHaveBeenCalledExactlyOnceWith("job-1");
+    for (const next of [new Request("https://example.com/api/play/admin/imports/budget"), request()]) {
+      requireAdminUserMock.mockResolvedValueOnce({ ok: false, response: new Response("denied", { status: 403 }) });
+      expect((await handler(next, env)).status).toBe(403);
+    }
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
+
   it("authenticates before resolving the ingestion service", async () => {
     const resolveService = vi.fn();
     requireAdminUserMock.mockResolvedValueOnce({

@@ -1,3 +1,5 @@
+import { AdminSectionHeader } from "@/app/admin/components/admin-section-header";
+import { QueryReadback } from "@/shared/ui/query-readback";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@clerk/clerk-react";
@@ -32,8 +34,7 @@ function Manager({ owner }: { owner?: string }) {
   const playlist = query.data?.data.find(item => item.id === selected) ?? query.data?.data[0];
   if (query.isPending) return <p role="status">기본 플레이리스트 불러오는 중…</p>;
   if (query.isError) return <div role="alert">기본 플레이리스트를 불러오지 못했습니다. <Button onClick={() => void query.refetch()}>다시 시도</Button></div>;
-  return <section className="space-y-3"><h2 className="text-xl font-semibold">기본 플레이리스트 관리</h2>
-    <p className="text-sm text-muted-foreground">자동으로 구성되는 목록의 이름, 설명과 대표곡을 지정합니다.</p>
+  return <section className="space-y-3"><AdminSectionHeader title="기본 플레이리스트 관리" description="자동으로 구성되는 목록의 이름, 설명과 대표곡을 지정합니다." metadata={<QueryReadback updatedAt={query.dataUpdatedAt} fetching={query.isFetching} />} />
     <div className="grid min-w-0 gap-2 sm:max-w-md">
       <Label htmlFor="default-playlist-selection">플레이리스트</Label>
       <SelectField

@@ -7,6 +7,7 @@ import { createQueryWrapper } from "@/test/query-client";
 import { ConsoleSearchContext } from "@/shared/lib/admin-console-search";
 import { IngestionSection } from "./ingestion-section";
 
+const budgetMock = vi.hoisted(() => vi.fn());
 const preflightMock = vi.hoisted(() => vi.fn());
 const createImportMock = vi.hoisted(() => vi.fn());
 const deleteHistoryMock = vi.hoisted(() => vi.fn());
@@ -16,6 +17,8 @@ const jobHookMock = vi.hoisted(() => vi.fn());
 const jobsHookMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../api/admin", () => ({
+  fetchOtwPlayIngestionBudget: budgetMock,
+  resumeOtwPlayImportJob: vi.fn(async () => ({ enqueued: 1 })),
   preflightOtwPlayPlaylistImport: preflightMock,
   createOtwPlayPlaylistImport: createImportMock,
   retryOtwPlayImportJob: retryMock,
@@ -44,6 +47,7 @@ describe("IngestionSection", () => {
   afterEach(cleanup);
 
   beforeEach(() => {
+    budgetMock.mockReset().mockResolvedValue({ status: "available" });
     deleteHistoryMock.mockReset();
     preflightMock.mockReset();
     createImportMock.mockReset();
@@ -121,6 +125,21 @@ describe("IngestionSection", () => {
     retryMock.mockResolvedValue(undefined);
   });
 
+  it("stops fast job polling when the current account budget blocks collection", async () => {
+    budgetMock.mockResolvedValue({ status: "blocked", rowsRead: 4_000_000, dailyTarget: 4_000_000,
+      measuredAt: new Date().toISOString(), resetAt: new Date(Date.now() + 60_000).toISOString(), reason: "daily_read_target" });
+    render(createElement(IngestionSection), { wrapper: createQueryWrapper() });
+    expect(await screen.findByText(/새 수집 예산 소진/)).toBeTruthy();
+    await waitFor(() => expect(jobHookMock).toHaveBeenLastCalledWith(null, true, true));
+  });
+
+  it("does not enable job queries on a hidden visited screen", () => {
+    render(createElement(IngestionSection, { active: false }), { wrapper: createQueryWrapper() });
+    expect(jobsHookMock).toHaveBeenLastCalledWith(false);
+    expect(jobHookMock).toHaveBeenLastCalledWith(null, false, false);
+    expect(budgetMock).not.toHaveBeenCalled();
+  });
+
   it("routes playlist review to the unified inbox without rendering a second editor", () => {
     const updateSearch = vi.fn();
     const job = { ...jobHookMock("job-1").data, candidateKind: "singing_clip" };
@@ -168,7 +187,8 @@ describe("IngestionSection", () => {
     jobsHookMock.mockReturnValue({ data: [jobHookMock("job-1").data], isLoading: false });
     deleteHistoryMock.mockRejectedValueOnce(new Error("busy"));
     render(createElement(IngestionSection, {}), { wrapper: createQueryWrapper() });
-    fireEvent.click(screen.getByRole("button", { name: "이력 삭제" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "이력 삭제 메뉴" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "이력 삭제" }));
     expect(deleteHistoryMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "삭제" }));
     await waitFor(() => expect(deleteHistoryMock).toHaveBeenCalledWith("job-1"));
@@ -218,7 +238,7 @@ describe("IngestionSection", () => {
     );
 
     expect(await screen.findByText("Previously Imported Playlist")).toBeTruthy();
-    await waitFor(() => expect(jobHookMock).toHaveBeenCalledWith("saved-job"));
+    await waitFor(() => expect(jobHookMock).toHaveBeenCalledWith("saved-job", true, false));
   });
 
   it("shows only the controls required by the selected import mode", () => {

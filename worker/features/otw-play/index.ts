@@ -95,3 +95,5 @@ export { readOtwPlayAutomationPaused } from "./infrastructure/play-automation-se
 
 export { D1DefaultPlaylistSettingsRepository } from "./infrastructure/d1-default-playlist-settings-repository";
 export { AiReviewBroadcastMetadataReader } from "./infrastructure/ai-review-broadcast-reader";
+
+export { CloudflareIngestionReadBudget } from "./infrastructure/cloudflare-ingestion-read-budget";

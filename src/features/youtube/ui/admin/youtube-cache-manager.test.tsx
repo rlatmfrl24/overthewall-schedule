@@ -187,7 +187,7 @@ describe("YouTubeCacheManager", () => {
     render(<YouTubeCacheManager />, { wrapper: createQueryWrapper() });
 
     await waitFor(() => expect(fetchStatusMock).toHaveBeenCalledWith(168));
-    expect(screen.getByText("수요 기반 SWR · 예약 예열 없음")).toBeTruthy();
+    expect(screen.getByText("요청 시 갱신 · 예약 예열 없음")).toBeTruthy();
     expect(await screen.findByText("캐시 가용성")).toBeTruthy();
     expect(screen.getByText("2/3")).toBeTruthy();
     expect(screen.getByText("최근 7일 활성 API 사용량")).toBeTruthy();

@@ -66,6 +66,7 @@ const repository = () => ({
     job: job(),
     message: { schemaVersion: 1 as const, jobId: "job-1", idempotencyKey: "message-1" },
   })),
+  getJobContext: vi.fn(async () => job()),
   getJob: vi.fn(async () => job()),
   listReviewItems: vi.fn(),
   changeCandidateKind: vi.fn(),
@@ -890,7 +891,7 @@ describe("IngestionService", () => {
         },
       ],
     });
-    expect(repo.getJob).toHaveBeenCalledWith("job-1");
+    expect(repo.getJobContext).toHaveBeenCalledWith("job-1");
     expect(repo.readReviewCandidate).toHaveBeenNthCalledWith(
       1,
       "job-1",
@@ -902,5 +903,72 @@ describe("IngestionService", () => {
       actorUserId: "admin-1",
     }));
     expect(repo.ignoreCandidate).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("ingestion read budget", () => {
+  const snapshot = (status: "available" | "blocked" | "unavailable") => ({ status,
+    rowsRead: status === "unavailable" ? null : status === "blocked" ? 4_000_000 : 100,
+    dailyTarget: 4_000_000, measuredAt: "2026-09-23T12:00:00.000Z",
+    resetAt: "2026-09-24T00:00:00.000Z", reason: status === "blocked" ? "daily_read_target" : null });
+  const setup = (status: "available" | "blocked" | "unavailable") => {
+    const repo = repository(), metadata = youtube(), queue = { send: vi.fn(async () => {}) };
+    const budget = { read: vi.fn(async () => snapshot(status)) };
+    const service = new IngestionService(repo, metadata, queue, () => "id", () => 100, null, budget);
+    return { repo, metadata, queue, budget, service };
+  };
+  const input = { playlistUrl: "PL1234567890", mode: "all_new" as const, idempotencyKey: "request-budget" };
+  const message = { schemaVersion: 1 as const, jobId: "job-1", idempotencyKey: "message-1" };
+
+  it("persists validated jobs while blocked without dispatch or failure mutation", async () => {
+    const { service, repo, metadata, queue } = setup("blocked");
+    expect((await service.createJob("admin-1", input)).status).toBe("queued");
+    expect(metadata.readPlaylistSummary).toHaveBeenCalledOnce();
+    expect(repo.createJob).toHaveBeenCalledOnce();
+    expect(queue.send).not.toHaveBeenCalled();
+    expect(repo.recordMessageFailure).not.toHaveBeenCalled();
+    repo.createJob.mockRejectedValueOnce(new Error("storage failed"));
+    await expect(service.createJob("admin-1", input)).rejects.toThrow("storage failed");
+  });
+
+  it("acknowledges duplicate deliveries without reading or changing durable pending state", async () => {
+    const { service, repo, metadata } = setup("blocked");
+    await service.process(message);
+    await service.process(message);
+    expect(repo.readMessage).not.toHaveBeenCalled();
+    expect(repo.recordMessageFailure).not.toHaveBeenCalled();
+    expect(repo.markMessageDeadLetter).not.toHaveBeenCalled();
+    expect(metadata.readPlaylistPage).not.toHaveBeenCalled();
+  });
+
+  it("defers automatic and manual recovery without consuming attempts, then resumes only the selected job", async () => {
+    const { service, repo, queue, budget } = setup("blocked");
+    expect(await service.requeuePending()).toBe(0);
+    expect(await service.resumeJob("job-1")).toMatchObject({ enqueued: 0, budget: { status: "blocked" } });
+    expect(repo.listPendingMessages).not.toHaveBeenCalled();
+    budget.read.mockResolvedValue(snapshot("available"));
+    repo.listPendingMessages.mockResolvedValue([message]);
+    expect(await service.resumeJob("job-1")).toMatchObject({ enqueued: 1 });
+    expect(repo.listPendingMessages).toHaveBeenCalledExactlyOnceWith(100, 100, "job-1");
+    expect(queue.send).toHaveBeenCalledExactlyOnceWith(message);
+    expect(repo.recordMessageFailure).not.toHaveBeenCalled();
+  });
+
+  it("does not apply collection admission to a manual Ready save", async () => {
+    const { service, repo, budget } = setup("blocked");
+    await service.updateCandidate("youtube:AAAAAAAAAAA", { action: "save", expectedVersion: 1, input: {
+      song: { kind: "existing", songId: "song-1" },
+      participants: [{ subject: { kind: "entity", entityId: "singer-1" }, participantRole: "vocal", creditOrder: 0 }],
+      relationType: "cover", releaseType: "official_video", participationType: "solo",
+    } }, adminActor);
+    expect(repo.saveCandidateReview).toHaveBeenCalledOnce();
+    expect(budget.read).not.toHaveBeenCalled();
+  });
+
+  it("keeps the chosen fail-open policy when measurement is unavailable", async () => {
+    const { service, queue } = setup("unavailable");
+    await service.createJob("admin-1", input);
+    expect(queue.send).toHaveBeenCalledOnce();
   });
 });

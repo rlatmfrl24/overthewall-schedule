@@ -8,13 +8,13 @@ import { Badge } from "@/shared/ui/badge";
 import { useToast } from "@/shared/ui/toast";
 import { fetchOtwPlayChannelMonitors, updateOtwPlayChannelMonitor } from "../../api/admin";
 
-export function PlayAutomationControl({ monitors }: { monitors: OtwPlayChannelMonitorDto[] }) {
+export function PlayAutomationControl({ monitors }: { monitors?: OtwPlayChannelMonitorDto[] }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   const settings = useQuery({ queryKey: queryKeys.settings.detail(), queryFn: fetchSettings, staleTime: 30_000 });
   const paused = settings.data?.otw_play_automation_paused === "true";
-  const activeCount = monitors.filter((monitor) => monitor.status === "active").length;
+  const activeCount = monitors?.filter((monitor) => monitor.status === "active").length;
 
   const changePause = async () => {
     setBusy(true);
@@ -57,7 +57,7 @@ export function PlayAutomationControl({ monitors }: { monitors: OtwPlayChannelMo
     </div>
     <p className="text-sm text-muted-foreground">전체 일시 중지는 채널 업로드 조회와 자동 수집·소스 점검을 멈춥니다. 기존 곡·후보 검수와 데이터 보존 정리는 유지합니다.</p>
     {paused && <p role="status" className="text-sm">재개 시 채널 감시를 개별적으로 켜야 합니다.</p>}
-    {!paused && <p className="text-sm text-muted-foreground">감시 중인 채널 {activeCount}개</p>}
+    {!paused && <p className="text-sm text-muted-foreground">{activeCount === undefined ? "채널 감시 수를 확인하지 못했습니다." : `감시 중인 채널 ${activeCount}개`}</p>}
     <Button variant="outline" disabled={busy || !settings.data || settings.isError} onClick={() => void changePause()}>
       {busy ? "상태 변경 중…" : paused ? "자동화 일시 중지 해제" : "Play 자동화 전체 일시 중지"}
     </Button>

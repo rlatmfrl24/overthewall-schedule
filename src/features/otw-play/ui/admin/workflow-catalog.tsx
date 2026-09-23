@@ -1,3 +1,4 @@
+import { SecondaryAction } from "@/shared/ui/secondary-action";
 import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { SelectField } from "@/shared/ui/select-field"
@@ -48,17 +49,7 @@ import {
   TableRow,
 } from "@/shared/ui/table";
 import { Textarea } from "@/shared/ui/textarea";
-import {
-  ChevronDown,
-  ChevronUp,
-  ChevronRight,
-  Loader2,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Trash2,
-  Upload,
-} from "lucide-react";
+import { PiCaretDownBold as ChevronDown, PiCaretUpBold as ChevronUp, PiCaretRightBold as ChevronRight, PiSpinnerGapBold as Loader2, PiPencilSimpleBold as Pencil, PiPlusBold as Plus, PiArrowsClockwiseBold as RefreshCw, PiTrashBold as Trash2, PiUploadSimpleBold as Upload } from "react-icons/pi";
 import {
   deleteOtwPlayPerformance,
   deleteOtwPlaySong,
@@ -237,7 +228,8 @@ export function WorkflowCatalog({
         <Badge variant="outline">{performance.broadcast?.extent ? "검수 완료" : "완곡 여부 확인 필요"}</Badge>
       )}
       {(performance.publicationStatus === "draft" || performance.publicationStatus === "withdrawn") && (
-        <Button
+        <SecondaryAction
+          aria-label="삭제"
           size="sm"
           variant="ghost"
           className="text-destructive hover:text-destructive"
@@ -251,7 +243,7 @@ export function WorkflowCatalog({
           })}
         >
           <Trash2 className="h-3.5 w-3.5" /> 삭제
-        </Button>
+        </SecondaryAction>
       )}
       {performance.publicationStatus === "published" && (
         <Button size="sm" variant="destructive" disabled={saving !== null} onClick={() => setConfirmation({
@@ -275,7 +267,8 @@ export function WorkflowCatalog({
       (performance) => performance.publicationStatus === "withdrawn",
     ).length;
     return (
-      <Button
+      <SecondaryAction
+        aria-label="곡 삭제"
         size="sm"
         variant="ghost"
         className="text-destructive hover:text-destructive"
@@ -296,7 +289,7 @@ export function WorkflowCatalog({
         })}
       >
         <Trash2 className="h-3.5 w-3.5" /> 곡 삭제
-      </Button>
+      </SecondaryAction>
     );
   };
 
@@ -346,8 +339,8 @@ export function WorkflowCatalog({
           </div>
           )}
           <div className="hidden overflow-x-auto rounded-xl border md:block">
-            <Table className="w-full">
-              <TableHeader><TableRow><TableHead className="w-10" /><TableHead>곡</TableHead><TableHead>원곡 가수</TableHead><TableHead>가창</TableHead><TableHead>분류</TableHead><TableHead className="text-right">작업</TableHead></TableRow></TableHeader>
+            <Table className="admin-compact-table w-full">
+              <TableHeader><TableRow><TableHead className="w-10" /><TableHead>곡</TableHead><TableHead>원곡 가수</TableHead><TableHead>가창</TableHead><TableHead>분류</TableHead><TableHead className="w-px text-right">작업</TableHead></TableRow></TableHeader>
               <TableBody>
                 {visibleSongs.flatMap((song) => {
                   const performances = scopedPerformances.filter((item) => item.songId === song.id);
@@ -359,7 +352,7 @@ export function WorkflowCatalog({
                       <TableCell>{song.originalArtists.map((artist) => artist.displayName).join(", ")}</TableCell>
                       <TableCell>{performances.length}개</TableCell>
                       <TableCell><div className="flex flex-wrap gap-1">{(song.tags?.length ?? 0) > 0 ? song.tags.map((tag) => <Badge key={tag}>{tag}</Badge>) : <span className="text-muted-foreground">미분류</span>}</div></TableCell>
-                      <TableCell><div className="flex flex-wrap justify-end gap-1"><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}><Pencil className="h-3.5 w-3.5" /> 곡 정보 수정</Button><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 다른 가창 추가</Button>{songDeleteAction(song, performances)}</div></TableCell>
+                      <TableCell><div className="flex items-center justify-end gap-1 whitespace-nowrap"><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}><Pencil className="h-3.5 w-3.5" /> 곡 정보 수정</Button><Button size="sm" variant="ghost" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 다른 가창 추가</Button>{songDeleteAction(song, performances)}</div></TableCell>
                     </TableRow>,
                   ];
                   if (open) rows.push(...performances.map((performance) => (
@@ -384,7 +377,7 @@ export function WorkflowCatalog({
           <div className="space-y-3 md:hidden">
             {visibleSongs.map((song) => {
               const performances = scopedPerformances.filter((item) => item.songId === song.id);
-              return <Card key={song.id}><CardContent className="space-y-3 p-3"><div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{song.title}</div><div className="text-sm text-muted-foreground">{song.originalArtists.map((artist) => artist.displayName).join(", ")}</div></div><Badge variant="outline">{performances.length} 가창</Badge></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 가창 추가</Button><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}>곡 수정</Button>{songDeleteAction(song, performances)}</div><div className="space-y-2">{performances.map((performance) => <div key={performance.id} className="rounded-lg border bg-muted/20 p-3"><div className="flex items-center justify-between gap-2"><div className="font-medium">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</div><Badge variant="outline">{publicationLabel(performance.publicationStatus)}</Badge></div><div className="mt-1 text-xs text-muted-foreground">{relationLabel(performance.relationType)} · {releaseLabel(performance.releaseType)} · {participationLabel(performance.participationType)}</div>{(performance.tags?.length ?? 0) > 0 ? <div className="mt-2 flex flex-wrap gap-1">{performance.tags?.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}</div> : null}<PerformanceSourceSummary catalog={catalog} performance={performance} /><div className="mt-2">{performanceActions(performance)}</div></div>)}</div></CardContent></Card>;
+              return <Card key={song.id}><CardContent className="space-y-3 p-3"><div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{song.title}</div><div className="text-sm text-muted-foreground">{song.originalArtists.map((artist) => artist.displayName).join(", ")}</div></div><Badge variant="outline">{performances.length} 가창</Badge></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="ghost" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 가창 추가</Button><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}>곡 수정</Button>{songDeleteAction(song, performances)}</div><div className="space-y-2">{performances.map((performance) => <div key={performance.id} className="rounded-lg border bg-muted/20 p-3"><div className="flex items-center justify-between gap-2"><div className="font-medium">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</div><Badge variant="outline">{publicationLabel(performance.publicationStatus)}</Badge></div><div className="mt-1 text-xs text-muted-foreground">{relationLabel(performance.relationType)} · {releaseLabel(performance.releaseType)} · {participationLabel(performance.participationType)}</div>{(performance.tags?.length ?? 0) > 0 ? <div className="mt-2 flex flex-wrap gap-1">{performance.tags?.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}</div> : null}<PerformanceSourceSummary catalog={catalog} performance={performance} /><div className="mt-2">{performanceActions(performance)}</div></div>)}</div></CardContent></Card>;
             })}
           </div>
         </>

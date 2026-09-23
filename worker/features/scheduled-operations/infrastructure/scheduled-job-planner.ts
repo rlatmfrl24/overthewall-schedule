@@ -3,6 +3,7 @@ import { parseAutoUpdateIntervalHours } from "@contracts/configuration";
 import { readDueDataRetentionPolicyIds } from "../../operations";
 import {
   D1IngestionRepository,
+  CloudflareIngestionReadBudget,
   D1ChannelMonitorRepository,
   readOtwPlayAutomationPaused,
 } from "../../otw-play";
@@ -186,10 +187,11 @@ const planSimpleJob = async (
     }
     case "ingestion_recovery": {
       const ingestion = new D1IngestionRepository(env.otw_db);
+      const budget = await new CloudflareIngestionReadBudget(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_D1_TOKEN, env.OTW_PLAY_D1_READ_DAILY_TARGET).read();
       const [recoverScheduled, cleanup, pending] = await Promise.all([
         repository.hasRecoveryWork(timestamp),
         ingestion.hasExpiredApiData(timestamp),
-        paused ? Promise.resolve([]) : ingestion.listPendingMessages(timestamp, 1),
+        paused || budget.status === "blocked" ? Promise.resolve([]) : ingestion.listPendingMessages(timestamp, 1),
       ]);
       const phases = [
         ...(recoverScheduled ? ["recover-scheduled"] : []),

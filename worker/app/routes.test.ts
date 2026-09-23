@@ -51,6 +51,7 @@ const expectedPolicies = [
     "/api/play/admin/ai-reviews",
     "/api/play/admin/ai-reviews/:id",
     "/api/play/admin/imports",
+    "/api/play/admin/imports/budget",
     "/api/play/admin/imports/:jobId",
     "/api/play/admin/imports/:jobId/items",
     "/api/play/admin/channel-monitors",
@@ -214,6 +215,7 @@ const expectedPolicies = [
   ] },
   { method: "POST", auth: "admin", successStatus: 202,
     cache: "no-store", paths: [
+    "/api/play/admin/imports/:jobId/resume",
     "/api/play/admin/ai-reviews",
     "/api/play/admin/imports/playlist",
     "/api/operations/runs",

@@ -1,5 +1,7 @@
+import type { IngestionReadBudget } from "./ports/ingestion-read-budget";
 import type {
   OtwPlayAdminCatalogSubjectInput,
+  OtwPlayIngestionBudgetDto,
   OtwPlayConvertIngestionCandidateRequest,
   OtwPlayConvertIngestionCandidatesRequest,
   OtwPlayIngestionConversionOutcome,
@@ -103,6 +105,7 @@ export class IngestionService {
   private readonly createId: () => string;
   private readonly clock: () => number;
   private readonly catalog: AdminCatalogService | null;
+  private readonly budgetReader?: IngestionReadBudget;
 
   constructor(
     repository: IngestionRepository,
@@ -111,6 +114,7 @@ export class IngestionService {
     createId: () => string,
     clock: () => number = Date.now,
     catalog: AdminCatalogService | null = null,
+    budgetReader?: IngestionReadBudget,
   ) {
     this.repository = repository;
     this.youtube = youtube;
@@ -118,6 +122,29 @@ export class IngestionService {
     this.createId = createId;
     this.clock = clock;
     this.catalog = catalog;
+    this.budgetReader = budgetReader;
+  }
+
+  readBudget(): Promise<OtwPlayIngestionBudgetDto> {
+    if (this.budgetReader) return this.budgetReader.read();
+    const now = this.clock();
+    return Promise.resolve({ status: "unavailable", rowsRead: null, dailyTarget: 4_000_000,
+      measuredAt: new Date(now).toISOString(), resetAt: new Date((Math.floor(now / 86_400_000) + 1) * 86_400_000).toISOString(), reason: "unconfigured" });
+  }
+
+  async resumeJob(jobId: string) {
+    let budget = await this.readBudget();
+    if (budget.status === "blocked") return { enqueued: 0, budget };
+    await this.repository.getJobContext(jobId);
+    const pending = await this.repository.listPendingMessages(this.clock(), 100, jobId);
+    let enqueued = 0;
+    for (const message of pending) {
+      budget = await this.readBudget();
+      if (budget.status === "blocked") break;
+      await this.queue.send(message);
+      enqueued += 1;
+    }
+    return { enqueued, budget };
   }
 
   async preflight(input: OtwPlayPlaylistPreflightRequest) {
@@ -183,6 +210,7 @@ export class IngestionService {
       preflight,
       now: this.clock(),
     });
+    if ((await this.readBudget()).status === "blocked") return created.job;
     try {
       await this.queue.send(created.message);
     } catch {
@@ -251,6 +279,7 @@ export class IngestionService {
     if (message.schemaVersion !== 1) {
       throw new IngestionProcessingError("invalid_message", false, null);
     }
+    if ((await this.readBudget()).status === "blocked") return;
     const stored = await this.repository.readMessage(message.idempotencyKey);
     if (stored.jobId !== message.jobId) {
       throw new IngestionProcessingError("invalid_message", false, null);
@@ -258,7 +287,7 @@ export class IngestionService {
     if (stored.status !== "pending") return;
     try {
       if (stored.kind === "playlist_page") {
-        const job = await this.repository.getJob(stored.jobId);
+        const job = await this.repository.getJobContext(stored.jobId);
         const page = await this.youtube.readPlaylistPage(
           job.playlistId,
           stored.pageToken,
@@ -321,10 +350,11 @@ export class IngestionService {
     limit = 100,
     canContinue: () => Promise<boolean> = async () => true,
   ) {
-    const pending = await this.repository.listPendingMessages(this.clock(), limit);
     const result = { attempted: 0, enqueued: 0, failed: 0 };
+    if ((await this.readBudget()).status === "blocked") return result;
+    const pending = await this.repository.listPendingMessages(this.clock(), limit);
     for (const message of pending) {
-      if (!(await canContinue())) break;
+      if (!(await canContinue()) || (await this.readBudget()).status === "blocked") break;
       result.attempted += 1;
       try {
         await this.queue.send(message);
@@ -463,7 +493,7 @@ export class IngestionService {
         youtubeUrl: `https://www.youtube.com/watch?v=${candidate.videoId}`,
         startSeconds: 0,
       });
-      const snapshot = await this.catalog.readCatalog();
+      const snapshot = await this.catalog.readCatalog({ entityIds: channelInput.entityIds, externalChannelIds: [preflight.video.channelId] });
       const ownershipEntities = channelInput.entityIds.map((entityId) =>
         snapshot.entities.find((entity) => entity.id === entityId)
       );
@@ -620,7 +650,7 @@ export class IngestionService {
     input: OtwPlayIgnoreIngestionCandidatesRequest,
     actor: AdminCatalogActor,
   ) {
-    await this.repository.getJob(jobId);
+    await this.repository.getJobContext(jobId);
     const results: OtwPlayIngestionIgnoreResultDto[] = [];
     for (const selection of input.candidates) {
       try {
@@ -670,7 +700,7 @@ export class IngestionService {
     input: OtwPlayConvertIngestionCandidatesRequest,
     actor: AdminCatalogActor,
   ) {
-    await this.repository.getJob(jobId);
+    await this.repository.getJobContext(jobId);
     return this.convertCandidateSelections(jobId, input.candidates, actor);
   }
 
@@ -860,6 +890,7 @@ export class IngestionService {
     });
     let enqueued = 0;
     for (const message of messages) {
+      if ((await this.readBudget()).status === "blocked") break;
       try {
         await this.queue.send(message);
         enqueued += 1;

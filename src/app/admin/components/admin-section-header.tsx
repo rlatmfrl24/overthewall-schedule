@@ -16,14 +16,14 @@ export function AdminSectionHeader({
   count,
   actions,
   metadata,
-  headingLevel = 2,
+  headingLevel = 1,
 }: AdminSectionHeaderProps) {
   const Heading = headingLevel === 1 ? "h1" : "h2";
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <Heading className="text-xl font-semibold tracking-tight">{title}</Heading>
+          <Heading className="text-2xl font-semibold tracking-tight">{title}</Heading>
           {typeof count === "number" && (
             <Badge variant="secondary" className="h-5 px-2 text-xs">
               {count}
@@ -35,7 +35,7 @@ export function AdminSectionHeader({
         ) : null}
         {metadata ? <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">{metadata}</div> : null}
       </div>
-      {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   );
 }

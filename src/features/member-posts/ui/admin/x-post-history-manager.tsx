@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ChevronDown, ExternalLink, Loader2, RefreshCw, ShieldX } from "lucide-react";
+import { PiArchiveBold as Archive, PiCaretDownBold as ChevronDown, PiArrowSquareOutBold as ExternalLink, PiSpinnerGapBold as Loader2, PiArrowsClockwiseBold as RefreshCw, PiShieldWarningBold as ShieldX } from "react-icons/pi";
 import type { XHistoryPostDto, XHistoryPostStatus } from "@contracts/x-posts";
 import { fetchActiveMembers } from "@/features/members";
 import { queryKeys } from "@/shared/query/query-keys";

@@ -1,18 +1,10 @@
+import { SecondaryAction } from "@/shared/ui/secondary-action";
 import { getAdminDDayOccurrence } from "../../model/admin-dday";
 import { QueryReadback } from "@/shared/ui/query-readback";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DDayItem as DDay } from "../../model/types";
-import {
-  Loader2,
-  PlusCircle,
-  Pencil,
-  Trash2,
-  Calendar,
-  RefreshCw,
-  Flag,
-  Sparkles,
-} from "lucide-react";
+import { PiSpinnerGapBold as Loader2, PiPlusCircleBold as PlusCircle, PiPencilSimpleBold as Pencil, PiTrashBold as Trash2, PiCalendarBold as Calendar, PiArrowsClockwiseBold as RefreshCw, PiFlagBold as Flag, PiSparkleBold as Sparkles } from "react-icons/pi";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import {
@@ -311,7 +303,7 @@ export function DDayManager() {
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button
+                        <SecondaryAction
                           variant="ghost"
                           size="icon-sm"
                           className="text-destructive hover:text-destructive"
@@ -319,7 +311,7 @@ export function DDayManager() {
                           title="삭제"
                         >
                           <Trash2 className="h-4 w-4" />
-                        </Button>
+                        </SecondaryAction>
                       </div>
                     </TableCell>
                   </TableRow>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, FileText, Wallet } from "lucide-react";
+import { PiCaretDownBold as ChevronDown, PiFileTextBold as FileText, PiWalletBold as Wallet } from "react-icons/pi";
 import type { OperationRunDto, XCollectionOperationItemDto } from "@contracts/scheduled-operations";
 import type { XReferenceHydrationHealthDto } from "@contracts/x-posts";
 import { Badge } from "@/shared/ui/badge";
@@ -32,7 +32,7 @@ function BudgetRow({ title, used, reserved, limit }: { title: string; used: numb
 
 export function XCollectionBudget({ health }: { health: XReferenceHydrationHealthDto | undefined }) {
   const global = health?.globalBudget;
-  return <section aria-label="X 예산" className="space-y-3 rounded-lg border bg-muted/10 p-3">
+  return <section aria-label="X 예산" className="space-y-3 rounded-lg border bg-card p-4">
     <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold"><Wallet className="size-4" />X API 예산 <span className="text-xs font-normal text-muted-foreground">{health ? health.budgetDay + " UTC" : "확인 중"}</span></h3>
     <div className="grid gap-3 lg:grid-cols-2">
       {global ? <BudgetRow title="전체 X 예산" used={global.usedMicros} reserved={global.reservedMicros} limit={global.limitMicros} /> : <p className="text-sm text-muted-foreground">전체 예산 정보 확인 불가</p>}
@@ -60,7 +60,7 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
   return <div className="space-y-3">
     <p className="text-sm leading-6 text-muted-foreground">게시물 수집 후 인용 원문·작성자를 보강합니다. 답글은 저장된 미리보기를 유지하거나 관계와 링크로 표시합니다.</p>
     <div className="grid items-stretch gap-3 xl:grid-cols-2">
-      <section aria-label="X 게시물 수집 상태" className="min-w-0 space-y-3 rounded-lg border bg-background p-3">
+      <section aria-label="X 게시물 수집 상태" className="min-w-0 space-y-3 rounded-lg border bg-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="flex items-center gap-2 text-sm font-semibold"><FileText className="size-4" />게시물 수집</h3>
           <Button variant="ghost" size="sm" onClick={() => openXSettings("x-collection-settings")} aria-label="게시물 수집 설정 열기">설정</Button>
@@ -75,7 +75,7 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
           <div><dt className="text-muted-foreground">자동 수집</dt><dd className="mt-1">{error || loading || !x ? "설정 확인 불가" : (enabled ? "활성" : "중지") + " · " + x.intervalHours + "시간 주기"}</dd></div>
           <div><dt className="text-muted-foreground">다음 수집 가능</dt><dd className="mt-1">{!enabled ? "자동 수집 중지" : error || loading || !x ? "확인 불가" : formatXEligibility(x.nextEligibleAt)}</dd></div>
         </dl>
-        <p className="border-t pt-3 text-xs leading-5 text-muted-foreground">새 게시물이 없어 저장 0건일 수 있습니다. 답글·인용 게시물 자체는 이 단계에서 수집하며, 인용 원문·작성자 보강과 답글 표시 현황은 옆 카드에서 확인합니다. 가능 시각은 실행 예약 시각이 아닙니다.</p>
+        <p className="border-t pt-3 text-xs leading-5 text-muted-foreground">새 게시물이 없어 저장 0건일 수 있습니다. 답글·인용 게시물 자체는 이 단계에서 수집하며, 인용 원문·작성자 보강과 답글 표시 현황은 원문 보강 영역에서 확인합니다. 가능 시각은 실행 예약 시각이 아닙니다.</p>
       </section>
       <XReferenceHealth />
     </div>

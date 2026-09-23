@@ -1,3 +1,4 @@
+import { SelectField } from "@/shared/ui/select-field";
 import { Link } from "@tanstack/react-router";
 import { SectionNavigation, sectionNavigationItemClassName } from "@/shared/ui/section-navigation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -21,7 +22,7 @@ const tabs: Record<ConsoleArea, readonly (readonly [string, string])[]> = {
   review: [["schedule", "일정 승인"], ["rejections", "거부 제외"]],
   collection: [["x", "X"], ["naver-cafe", "네이버 카페"], ["schedule", "일정 수집"], ["youtube", "YouTube 피드·캐시"], ["kirinuki", "방송 클립 채널"]],
   content: [["notices", "공지"], ["ddays", "D-Day"], ["snapshot", "스냅샷"]],
-  "otw-play": [["catalog", "카탈로그"], ["import", "가져오기/검수"], ["requests", "사용자 곡 요청"], ["channels", "채널"], ["playlists", "기본 플레이리스트"], ["operations", "운영"]],
+  "otw-play": [["catalog", "카탈로그"], ["import", "가져오기/검수"], ["channels", "채널"], ["playlists", "기본 플레이리스트"], ["operations", "운영"]],
   resources: [["usage", "사용량·한도"], ["media", "이미지 정리"]],
   history: [["runs", "작업 실행"], ["schedule", "일정 변경"], ["audit", "관리자 감사"]],
 };
@@ -54,7 +55,8 @@ export function ConsoleScreen({ area }: { area: ConsoleArea }) {
     content = tab === "media" ? <NoticeManager view="resources" /> : <><ResourceBudgets /><OperationsDashboard view="resources" onRefresh={() => { void queryClient.refetchQueries({queryKey: xReferenceHealthQueryKey, type: "active"}); void queryClient.refetchQueries({queryKey: queryKeys.youtubeCache.all, type: "active"}); }} /></>;
   }
   return <div className={area === "otw-play" ? "otw-play-console min-w-0 space-y-3" : "space-y-3"}>
-    <SectionNavigation label="업무 선택" className="console-tabs">
+    <div className="md:hidden"><label className="text-xs text-muted-foreground">현재 화면<SelectField aria-label="관리자 하위 화면" className="mt-1 w-full" value={tab} onValueChange={select} options={tabs[area].map(([value, label]) => ({ value, label }))} /></label></div>
+    <SectionNavigation label="업무 선택" className="console-tabs hidden md:flex">
       {tabs[area].map(([key, label]) => <Link key={key} to="." search={searchForTab(key)} resetScroll={false}
         aria-current={tab === key ? "page" : undefined} className={sectionNavigationItemClassName}>{label}</Link>)}
     </SectionNavigation><div>{content}</div>

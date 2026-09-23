@@ -11,6 +11,7 @@ export interface Env {
   OTW_PLAY_AI_REVIEW_ENABLED?: string;
   OTW_PLAY_AI_REVIEW_MODEL?: string;
   OTW_PLAY_AI_REVIEW_DAILY_LIMIT?: string;
+  OTW_PLAY_D1_READ_DAILY_TARGET?: string;
   OTW_PLAY_AI_REVIEW_QUEUE?: Queue<unknown>;
   X_BEARER_TOKEN?: string;
   VITE_CLERK_PUBLISHABLE_KEY?: string;

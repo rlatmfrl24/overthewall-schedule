@@ -32,7 +32,7 @@ import {
   TableRow,
 } from "@/shared/ui/table";
 import { useToast } from "@/shared/ui/toast";
-import { Activity, ArrowRight, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { PiPulseBold as Activity, PiArrowRightBold as ArrowRight, PiSpinnerGapBold as Loader2, PiArrowsClockwiseBold as RefreshCw, PiShieldCheckBold as ShieldCheck } from "react-icons/pi";
 import { updateOtwPlayAdminRelease } from "../../api/admin";
 
 type ReleaseAction = {
@@ -53,10 +53,10 @@ const releaseActions = (
   if (!flags.publicReadEnabled && !flags.navigationVisible) {
     return [{
       transition: "enable_public_read",
-      label: "회원 이용 canary 시작",
+      label: "회원 이용 활성화",
       title: "회원 이용을 활성화할까요?",
       description: "로그인한 회원이 직접 URL로 공식 영상을 이용할 수 있습니다. 노래 클립은 관리자 전용이며 메뉴는 아직 숨겨집니다.",
-      rollback: "문제가 있으면 같은 운영 화면에서 0/0으로 즉시 rollback합니다.",
+      rollback: "문제가 있으면 이 화면에서 회원 이용을 즉시 중단할 수 있습니다.",
       confirmation: "direct_routes_verified",
       target: { publicReadEnabled: true, navigationVisible: false },
       tone: "default",
@@ -70,7 +70,7 @@ const releaseActions = (
         label: "내비게이션 공개",
         title: "OTW Play를 최종 공개할까요?",
         description: "메뉴에 OTW Play를 표시합니다. 로그인한 회원만 이용할 수 있으며 노래 클립은 관리자 전용입니다.",
-        rollback: "문제가 있으면 먼저 navigation만 끄거나 전체 공개를 0/0으로 되돌릴 수 있습니다.",
+        rollback: "문제가 있으면 메뉴만 숨기거나 회원 이용과 메뉴 공개를 모두 중단할 수 있습니다.",
         confirmation: "public_canary_verified",
         target: { publicReadEnabled: true, navigationVisible: true },
         tone: "default",
@@ -78,7 +78,7 @@ const releaseActions = (
       },
       {
         transition: "rollback_all",
-        label: "회원 이용 rollback",
+        label: "회원 이용 중단",
         title: "OTW Play 공개를 모두 중단할까요?",
         description: "회원의 카탈로그 조회와 메뉴 노출을 중단합니다. 관리자와 곡 제안 경로는 유지됩니다.",
         rollback: "재공개하려면 직접 경로 검증부터 다시 수행해야 합니다.",
@@ -96,7 +96,7 @@ const releaseActions = (
         label: "내비게이션 숨기기",
         title: "내비게이션을 숨길까요?",
         description: "회원의 직접 URL 접근은 유지하고 내비게이션에서 메뉴를 숨깁니다.",
-        rollback: "canary 상태에서 문제를 확인한 뒤 다시 최종 공개할 수 있습니다.",
+        rollback: "직접 URL에서 동작을 확인한 뒤 메뉴를 다시 공개할 수 있습니다.",
         confirmation: "rollback_reviewed",
         target: { publicReadEnabled: true, navigationVisible: false },
         tone: "outline",
@@ -104,10 +104,10 @@ const releaseActions = (
       },
       {
         transition: "rollback_all",
-        label: "전체 공개 rollback",
+        label: "전체 공개 중단",
         title: "OTW Play 공개를 모두 중단할까요?",
-        description: "public read와 navigation을 한 command에서 모두 끕니다.",
-        rollback: "재공개하려면 0/0 → 1/0 → 1/1 검증을 다시 수행해야 합니다.",
+        description: "회원의 카탈로그 조회와 메뉴 노출을 함께 중단합니다.",
+        rollback: "재공개하려면 직접 URL에서 회원 이용을 검증한 뒤 메뉴를 공개해야 합니다.",
         confirmation: "rollback_reviewed",
         target: { publicReadEnabled: false, navigationVisible: false },
         tone: "destructive",
@@ -177,13 +177,13 @@ function ObservabilityPanel({
         <div role="status" className="m-3 rounded-lg border border-amber-300/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
           {data.status === "unconfigured"
             ? "Analytics 조회 token이 설정되지 않았습니다. 공개 제어는 계속 사용할 수 있습니다."
-            : "Analytics 집계를 일시적으로 불러올 수 없습니다. 공개 제어와 권위 상태에는 영향이 없습니다."}
+            : "Analytics 집계를 일시적으로 불러올 수 없습니다. 공개 설정에는 영향이 없습니다."}
         </div>
       )}
       <div className="grid grid-cols-2 divide-x border-b sm:grid-cols-3 xl:grid-cols-6" aria-live="polite">
         <MetricCard label="요청" value={formatCount(data.summary.requestCount)} />
         <MetricCard label="오류율" value={formatRate(data.summary.errorRate)} />
-        <MetricCard label="cache hit" value={formatRate(cacheHitRate)} />
+        <MetricCard label="캐시 적중률" value={formatRate(cacheHitRate)} />
         <MetricCard label="p95" value={formatDuration(data.summary.p95DurationMs)} />
         <MetricCard label="D1 rows read" value={formatCount(data.summary.d1RowsRead)} />
         <MetricCard label="D1 rows written" value={formatCount(data.summary.d1RowsWritten)} />
@@ -259,7 +259,7 @@ function ReleasePanel({
     return <div className="flex h-32 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div>;
   }
   if (!release) {
-    return <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 text-sm">공개 권위 상태를 불러오지 못했습니다{error ? `: ${error.message}` : "."}</div>;
+    return <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 text-sm">공개 설정를 불러오지 못했습니다{error ? `: ${error.message}` : "."}</div>;
   }
   const state = release.data;
   const actions = releaseActions(state);
@@ -277,15 +277,15 @@ function ReleasePanel({
         confirmation: pending.confirmation,
       });
       await onChanged();
-      toast({ variant: "success", description: "공개 권위 상태를 변경하고 감사 이력을 기록했습니다." });
+      toast({ variant: "success", description: "공개 설정를 변경하고 감사 이력을 기록했습니다." });
       close();
     } catch (caught) {
       if (caught instanceof ApiError && caught.code === "PLAY_ADMIN_STALE_WRITE") {
         await onChanged();
-        toast({ variant: "info", description: "다른 변경이 먼저 반영되었습니다. 최신 권위 상태를 다시 불러왔습니다." });
+        toast({ variant: "info", description: "다른 변경이 먼저 반영되었습니다. 최신 공개 설정를 다시 불러왔습니다." });
         close();
       } else {
-        toast({ variant: "error", description: "공개 권위 상태를 변경하지 못했습니다." });
+        toast({ variant: "error", description: "공개 설정를 변경하지 못했습니다." });
       }
     } finally {
       setSaving(false);
@@ -303,7 +303,7 @@ function ReleasePanel({
     <section aria-labelledby="release-title">
       <div className="flex flex-col gap-2 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 id="release-title" className="flex items-center gap-2 text-base font-semibold"><ShieldCheck className="h-4 w-4" /> 운영·공개 권위</h2>
+          <h2 id="release-title" className="flex items-center gap-2 text-base font-semibold"><ShieldCheck className="h-4 w-4" /> 공개 설정</h2>
 
         </div>
         <div className="flex flex-wrap gap-2">
@@ -358,7 +358,7 @@ function ReleasePanel({
           <AlertDialogFooter>
             <AlertDialogCancel disabled={saving}>취소</AlertDialogCancel>
             <AlertDialogAction disabled={!confirmed || saving} onClick={(event) => { event.preventDefault(); void run(); }}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} 권위 상태 변경
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} 공개 설정 변경
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

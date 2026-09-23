@@ -50,3 +50,10 @@ export function useConsoleSearch() {
   const update: ConsoleSearchUpdater = useCallback((patch) => setLocal((previous) => ({...previous, ...patch})), []);
   return context ?? [local, update] as const;
 }
+
+/** Preserve bookmarked proposal targets when folding the old request screen into review. */
+export function normalizePlayAdminSearch(search: ConsoleSearch): ConsoleSearch {
+  if (search.tab !== "requests" && search.tab !== "review") return search;
+  const proposal = search.proposal ?? search.selected;
+  return { ...search, tab: "import", source: "user", view: proposal ? "proposal" : "inbox", proposal, selected: undefined };
+}

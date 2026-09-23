@@ -7,7 +7,7 @@ import type {
   OtwPlayAdminCatalogDto,
   OtwPlayChannelMonitorCandidateDto,
 } from "@contracts/otw-play";
-import { ClipboardCheck, EyeOff, Loader2, Pause, Play, Radar, RefreshCw, Trash2 } from "lucide-react";
+import { PiClipboardTextBold as ClipboardCheck, PiEyeSlashBold as EyeOff, PiSpinnerGapBold as Loader2, PiPauseBold as Pause, PiPlayBold as Play, PiScanBold as Radar, PiArrowsClockwiseBold as RefreshCw, PiTrashBold as Trash2 } from "react-icons/pi";
 import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
 import { queryKeys } from "@/shared/query/query-keys";
 import { ApiError } from "@/shared/api/client";

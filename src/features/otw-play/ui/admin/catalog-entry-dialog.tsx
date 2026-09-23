@@ -43,15 +43,7 @@ import {
 import { SelectField } from "@/shared/ui/select-field";
 import { Textarea } from "@/shared/ui/textarea";
 import { useToast } from "@/shared/ui/toast";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Loader2,
-  Search,
-  UserRoundPlus,
-  UsersRound,
-  X,
-} from "lucide-react";
+import { PiArrowLeftBold as ArrowLeft, PiArrowRightBold as ArrowRight, PiSpinnerGapBold as Loader2, PiMagnifyingGlassBold as Search, PiUserPlusBold as UserRoundPlus, PiUsersBold as UsersRound, PiXBold as X } from "react-icons/pi";
 import {
   createOtwPlayCatalogEntry,
   preflightOtwPlayCatalogEntry,

@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/ui/table";
-import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
+import { PiArrowSquareOutBold as ExternalLink, PiSpinnerGapBold as Loader2, PiArrowsClockwiseBold as RefreshCw } from "react-icons/pi";
 import { recheckOtwPlaySource } from "../../api/admin";
 
 type Run = (label: string, task: () => Promise<unknown>) => Promise<boolean>;
@@ -104,7 +104,7 @@ function HealthList({
       <div>
         {items.length === 0 ? (
           <p className="px-3 py-4 text-sm text-muted-foreground">
-            해당 source가 없습니다.
+            해당 영상이 없습니다.
           </p>
         ) : (
           <>
@@ -222,7 +222,7 @@ export function SourceHealthSection({
   if (!data) {
     return (
       <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 text-sm">
-        source 상태를 불러오지 못했습니다{error ? `: ${error.message}` : "."}
+        영상 상태를 불러오지 못했습니다{error ? `: ${error.message}` : "."}
         <Button className="ml-3" size="sm" variant="outline" onClick={() => void refetch()}>다시 시도</Button>
       </div>
     );
@@ -246,9 +246,9 @@ export function SourceHealthSection({
             <div className="px-3 py-2.5 sm:px-4"><dt className="text-xs text-muted-foreground">최근 {data.recentRecoveryWindowDays}일 복구</dt><dd className="mt-0.5 text-xl font-semibold tabular-nums">{data.counts.recentlyRecovered}</dd></div>
           </dl>
           <div className="space-y-3 p-3">
-            <HealthList title="재확인 필요" description="점검 예정 시각이 지난 source" items={data.due} saving={saving} run={run} />
+            <HealthList title="재확인 필요" description="점검 예정 시각이 지난 영상" items={data.due} saving={saving} run={run} />
             <HealthList title="재생 불가" description="외부 장애 재시도와 확정 상태를 구분" items={data.unplayable} saving={saving} run={run} />
-            <HealthList title={`최근 ${data.recentRecoveryWindowDays}일 복구`} description="재생 불가에서 playable로 복구" items={data.recentlyRecovered} saving={saving} run={run} />
+            <HealthList title={`최근 ${data.recentRecoveryWindowDays}일 복구`} description="재생 불가에서 재생 가능으로 복구" items={data.recentlyRecovered} saving={saving} run={run} />
           </div>
         </CardContent>
       </Card>

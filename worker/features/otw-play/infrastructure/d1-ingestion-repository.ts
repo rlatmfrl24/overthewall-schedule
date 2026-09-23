@@ -1,3 +1,4 @@
+import { D1AdminCatalogRepository } from "./d1-admin-catalog-repository";
 import { projectionStatements } from "./d1-catalog-projection";
 import type {
   OtwPlayAdminCatalogSubjectInput,
@@ -137,45 +138,48 @@ const itemClassificationSql = `CASE
   ELSE ${effectiveCandidateClassificationSql}
 END`;
 
-const jobSelect = `SELECT job.*,
-  (SELECT COUNT(*) FROM music_ingestion_candidate_origins AS origin
-    WHERE origin.job_id = job.id) AS discovered_count,
-  (SELECT COUNT(*) FROM music_ingestion_candidate_origins AS origin
-    JOIN music_ingestion_candidates AS candidate ON candidate.id = origin.candidate_id
-    WHERE origin.job_id = job.id AND origin.is_playlist_duplicate = 0
-      AND candidate.metadata_checked_at IS NOT NULL) AS metadata_checked_count,
-  (SELECT COUNT(*) FROM music_ingestion_candidate_origins AS origin
-    JOIN music_ingestion_candidates AS candidate ON candidate.id = origin.candidate_id
-    WHERE origin.job_id = job.id AND (${itemClassificationSql}) = 'eligible') AS eligible_count,
-  (SELECT COUNT(*) FROM music_ingestion_candidate_origins AS origin
-    JOIN music_ingestion_candidates AS candidate ON candidate.id = origin.candidate_id
-    WHERE origin.job_id = job.id AND (${itemClassificationSql}) = 'existing_catalog') AS existing_catalog_count,
-  (SELECT COUNT(*) FROM music_ingestion_candidate_origins AS origin
-    JOIN music_ingestion_candidates AS candidate ON candidate.id = origin.candidate_id
-    WHERE origin.job_id = job.id AND (${itemClassificationSql}) = 'existing_proposal') AS existing_proposal_count,
-  (SELECT COUNT(*) FROM music_ingestion_candidate_origins AS origin
-    JOIN music_ingestion_candidates AS candidate ON candidate.id = origin.candidate_id
-    WHERE origin.job_id = job.id AND (${itemClassificationSql}) = 'existing_candidate') AS existing_candidate_count,
-  (SELECT COUNT(*) FROM music_ingestion_candidate_origins AS origin
-    JOIN music_ingestion_candidates AS candidate ON candidate.id = origin.candidate_id
-    WHERE origin.job_id = job.id AND (${itemClassificationSql}) = 'channel_review') AS channel_review_count,
-  (SELECT COUNT(*) FROM music_ingestion_candidate_origins AS origin
-    JOIN music_ingestion_candidates AS candidate ON candidate.id = origin.candidate_id
-    WHERE origin.job_id = job.id AND (${itemClassificationSql}) = 'unavailable') AS unavailable_count,
-  (SELECT COUNT(*) FROM music_ingestion_candidate_origins AS origin
-    JOIN music_ingestion_candidates AS candidate ON candidate.id = origin.candidate_id
-    WHERE origin.job_id = job.id AND (${itemClassificationSql}) = 'policy_blocked') AS policy_blocked_count,
-  (SELECT COUNT(*) FROM music_ingestion_candidate_origins AS origin
-    JOIN music_ingestion_candidates AS candidate ON candidate.id = origin.candidate_id
-    WHERE origin.job_id = job.id AND (${itemClassificationSql}) = 'scope_review') AS scope_review_count,
-  (SELECT COUNT(*) FROM music_ingestion_candidate_origins AS origin
-    WHERE origin.job_id = job.id AND origin.is_playlist_duplicate = 1) AS playlist_duplicate_count,
-  (SELECT COUNT(*) FROM music_ingestion_messages AS message
-    WHERE message.job_id = job.id AND message.status = 'pending'
-      AND message.next_retry_at IS NOT NULL) AS retry_pending_count,
-  (SELECT COUNT(*) FROM music_ingestion_messages AS message
-    WHERE message.job_id = job.id AND message.status = 'failed') AS permanent_error_count
-FROM music_ingestion_jobs AS job`;
+const jobSelect = (selection: string) => `WITH selected_jobs AS MATERIALIZED (
+  SELECT job.* FROM music_ingestion_jobs job ${selection}
+), classified AS MATERIALIZED (
+  SELECT origin.job_id, origin.is_playlist_duplicate, candidate.metadata_checked_at,
+    (${itemClassificationSql}) AS classification
+  FROM selected_jobs job JOIN music_ingestion_candidate_origins origin ON origin.job_id = job.id
+  JOIN music_ingestion_candidates candidate ON candidate.id = origin.candidate_id
+), origin_counts AS (
+  SELECT job_id, COUNT(*) AS discovered_count,
+    SUM(is_playlist_duplicate = 0 AND metadata_checked_at IS NOT NULL) AS metadata_checked_count,
+    SUM(classification = 'eligible') AS eligible_count,
+    SUM(classification = 'existing_catalog') AS existing_catalog_count,
+    SUM(classification = 'existing_proposal') AS existing_proposal_count,
+    SUM(classification = 'existing_candidate') AS existing_candidate_count,
+    SUM(classification = 'channel_review') AS channel_review_count,
+    SUM(classification = 'unavailable') AS unavailable_count,
+    SUM(classification = 'policy_blocked') AS policy_blocked_count,
+    SUM(classification = 'scope_review') AS scope_review_count,
+    SUM(classification = 'playlist_duplicate') AS playlist_duplicate_count
+  FROM classified GROUP BY job_id
+), message_counts AS (
+  SELECT message.job_id, SUM(message.status = 'pending' AND message.next_retry_at IS NOT NULL) AS retry_pending_count,
+    SUM(message.status = 'failed') AS permanent_error_count
+  FROM selected_jobs job JOIN music_ingestion_messages message ON message.job_id = job.id
+  GROUP BY message.job_id
+) SELECT job.*,
+  COALESCE(origin_counts.discovered_count, 0) AS discovered_count,
+  COALESCE(origin_counts.metadata_checked_count, 0) AS metadata_checked_count,
+  COALESCE(origin_counts.eligible_count, 0) AS eligible_count,
+  COALESCE(origin_counts.existing_catalog_count, 0) AS existing_catalog_count,
+  COALESCE(origin_counts.existing_proposal_count, 0) AS existing_proposal_count,
+  COALESCE(origin_counts.existing_candidate_count, 0) AS existing_candidate_count,
+  COALESCE(origin_counts.channel_review_count, 0) AS channel_review_count,
+  COALESCE(origin_counts.unavailable_count, 0) AS unavailable_count,
+  COALESCE(origin_counts.policy_blocked_count, 0) AS policy_blocked_count,
+  COALESCE(origin_counts.scope_review_count, 0) AS scope_review_count,
+  COALESCE(origin_counts.playlist_duplicate_count, 0) AS playlist_duplicate_count,
+  COALESCE(message_counts.retry_pending_count, 0) AS retry_pending_count,
+  COALESCE(message_counts.permanent_error_count, 0) AS permanent_error_count
+FROM selected_jobs job LEFT JOIN origin_counts ON origin_counts.job_id = job.id
+LEFT JOIN message_counts ON message_counts.job_id = job.id
+ORDER BY job.created_at DESC, job.id DESC`;
 
 const toJobDto = (row: JobRow): OtwPlayIngestionJobDto => ({
   id: row.id,
@@ -336,8 +340,7 @@ export class D1IngestionRepository implements IngestionRepository {
 
   private async readByIdempotency(actorUserId: string, key: string) {
     const row = await this.database.prepare(
-      `${jobSelect}
-       WHERE job.actor_user_id = ? AND job.idempotency_key = ?`,
+      jobSelect("WHERE job.actor_user_id = ? AND job.idempotency_key = ?"),
     ).bind(actorUserId, key).first<JobRow>();
     return row ? toJobDto(row) : null;
   }
@@ -457,9 +460,19 @@ export class D1IngestionRepository implements IngestionRepository {
     };
   }
 
+  async getJobContext(jobId: string) {
+    const row = await this.database.prepare(`SELECT source_external_id, range_start_position,
+      requested_item_count FROM music_ingestion_jobs WHERE id = ?`).bind(jobId)
+      .first<{ source_external_id: string; range_start_position: number; requested_item_count: number }>();
+    if (!row) throw new IngestionRepositoryError("not_found", "Ingestion job not found");
+    return { playlistId: row.source_external_id, rangeStartPosition: Number(row.range_start_position),
+      rangeEndExclusive: Number(row.range_start_position) + Number(row.requested_item_count),
+      requestedItemCount: Number(row.requested_item_count) };
+  }
+
   async getJob(jobId: string) {
     const row = await this.database.prepare(
-      `${jobSelect} WHERE job.id = ?`,
+      jobSelect("WHERE job.id = ?"),
     ).bind(jobId).first<JobRow>();
     if (!row) {
       throw new IngestionRepositoryError("not_found", "Ingestion job not found");
@@ -493,7 +506,7 @@ export class D1IngestionRepository implements IngestionRepository {
   }
 
   async deleteJobHistory(jobId: string, actorUserId: string, now: number) {
-    await this.getJob(jobId);
+    await this.getJobContext(jobId);
     // Retain candidate origins and audit records; only remove the history entry.
     const result = await this.database.prepare(
       `INSERT INTO music_ingestion_events
@@ -529,18 +542,47 @@ export class D1IngestionRepository implements IngestionRepository {
     const pendingProposal = `(SELECT p.id FROM music_cover_proposals p WHERE p.youtube_video_id = c.external_video_id
       AND p.status = 'pending_review' AND p.segment_start_seconds = 0
       AND c.status NOT IN ('converted', 'ignored') LIMIT 1)`;
-    const rows = resultsOf(await this.database.prepare(`WITH review AS (
-      SELECT 'c:' || c.id AS sort_id, c.id, 'candidate' AS kind, c.candidate_kind, c.title, c.status, c.version, c.first_discovered_at AS created_at,
-        ${candidateOrigins} AS playlist, ${automaticOrigins} AS automatic,
-        (${pendingProposal} IS NOT NULL) AS user, ${pendingProposal} AS pending_proposal_id
-      FROM music_ingestion_candidates c ${filters.source === "user" ? "WHERE 0" : ""}
-      UNION ALL
-      SELECT 'p:' || p.id, p.id, 'proposal', CASE WHEN p.submission_kind = 'singing_clip' THEN 'singing_clip' ELSE 'official_video' END, p.submitted_title, p.status, p.version, p.created_at, 0, 0, 1, NULL
-      FROM music_cover_proposals p
-      WHERE (${filters.source === "user" ? "1" : "0"} = 1) OR NOT (p.status = 'pending_review' AND p.segment_start_seconds = 0 AND EXISTS (
-        SELECT 1 FROM music_ingestion_candidates c WHERE c.external_video_id = p.youtube_video_id
-          AND c.status NOT IN ('converted', 'ignored')))
-    ) SELECT review.*, CASE WHEN status = 'ready' THEN 1 ELSE 0 END AS ready_rank,
+    const values: Array<string | number | null> = [];
+    const conditions = (alias: "c" | "p") => {
+      const clauses: string[] = [];
+      if (filters.candidateKind) {
+        clauses.push(`${alias === "c" ? "c.candidate_kind" : "CASE WHEN p.submission_kind = 'singing_clip' THEN 'singing_clip' ELSE 'official_video' END"} = ?`);
+        values.push(filters.candidateKind);
+      }
+      const state = filters.status ?? "pending";
+      clauses.push(state === "ready" ? `${alias}.status = 'ready'` :
+        `${alias}.status ${state === "pending" ? "NOT IN" : "IN"} ('converted','ignored','approved','rejected','withdrawn')`);
+      return clauses;
+    };
+    const branches: string[] = [];
+    if (filters.source !== "user") {
+      const where = conditions("c");
+      if (filters.jobId) {
+        where.push("c.id IN (SELECT candidate_id FROM music_ingestion_candidate_origins WHERE job_id = ?)");
+        values.push(filters.jobId);
+      } else if (filters.source === "playlist") where.push(candidateOrigins);
+      if (filters.source === "automatic") where.push(automaticOrigins);
+      branches.push(`SELECT 'c:' || c.id AS sort_id, c.id, 'candidate' AS kind, c.candidate_kind, c.title, c.status, c.version, c.first_discovered_at AS created_at
+        FROM music_ingestion_candidates c WHERE ${where.join(" AND ")}`);
+    }
+    if (!filters.jobId && (!filters.source || filters.source === "user")) {
+      const where = conditions("p");
+      if (filters.source !== "user") where.push(`NOT (p.status = 'pending_review' AND p.segment_start_seconds = 0 AND EXISTS (
+        SELECT 1 FROM music_ingestion_candidates c WHERE c.provider = 'youtube' AND c.external_video_id = p.youtube_video_id
+        AND c.status NOT IN ('converted', 'ignored')))`);
+      branches.push(`SELECT 'p:' || p.id, p.id, 'proposal', CASE WHEN p.submission_kind = 'singing_clip' THEN 'singing_clip' ELSE 'official_video' END,
+        p.submitted_title, p.status, p.version, p.created_at FROM music_cover_proposals p WHERE ${where.join(" AND ")}`);
+    }
+    // User proposals do not belong to playlist import histories.
+    if (branches.length === 0) return { items: [], nextCursor: null };
+    const rows = resultsOf(await this.database.prepare(`WITH review_candidates(sort_id, id, kind, candidate_kind, title, status, version, created_at) AS (${branches.join(" UNION ALL ")}), review AS MATERIALIZED (
+      SELECT *, CASE WHEN status = 'ready' THEN 1 ELSE 0 END AS ready_rank FROM review_candidates
+      WHERE (? IS NULL OR (CASE WHEN status = 'ready' THEN 1 ELSE 0 END) > ?
+        OR ((CASE WHEN status = 'ready' THEN 1 ELSE 0 END) = ? AND (created_at < ? OR (created_at = ? AND sort_id < ?))))
+      ORDER BY ready_rank ASC, created_at DESC, sort_id DESC LIMIT 51
+    ) SELECT review.*, ${candidateOrigins} AS playlist, ${automaticOrigins} AS automatic,
+      CASE WHEN review.kind = 'proposal' THEN 1 ELSE (${pendingProposal} IS NOT NULL) END AS user,
+      ${pendingProposal} AS pending_proposal_id,
       CASE WHEN review.kind = 'candidate' THEN (SELECT json_object(
         'external_video_id', candidate.external_video_id, 'channel_id', candidate.channel_id, 'channel_title', candidate.channel_title,
         'thumbnail_url', candidate.thumbnail_url, 'duration_seconds', candidate.duration_seconds,
@@ -551,15 +593,10 @@ export class D1IngestionRepository implements IngestionRepository {
         'catalog_channel_id', (SELECT channel.id FROM music_channels channel WHERE channel.provider = 'youtube'
           AND channel.external_channel_id = candidate.channel_id AND channel.verification_status = 'approved' AND channel.active = 1 AND ${reviewChannelRoleSql} LIMIT 1)
       ) FROM music_ingestion_candidates candidate WHERE candidate.id = review.id) ELSE NULL END AS candidate_data
-      FROM review WHERE (? IS NULL OR candidate_kind = ?)
-      AND (? IS NULL OR (kind = 'candidate' AND EXISTS (SELECT 1 FROM music_ingestion_candidate_origins history_origin WHERE history_origin.candidate_id = review.id AND history_origin.job_id = ?)))
-      AND (? IS NULL OR (? = 'playlist' AND playlist = 1) OR (? = 'automatic' AND automatic = 1) OR (? = 'user' AND user = 1))
-      AND ((? = 'pending' AND status NOT IN ('converted','ignored','approved','rejected','withdrawn')) OR (? = 'ready' AND status = 'ready') OR (? = 'completed' AND status IN ('converted','ignored','approved','rejected','withdrawn')))
-      AND (? IS NULL OR (CASE WHEN status = 'ready' THEN 1 ELSE 0 END) > ?
-        OR ((CASE WHEN status = 'ready' THEN 1 ELSE 0 END) = ? AND (created_at < ? OR (created_at = ? AND sort_id < ?))))
-      ORDER BY ready_rank ASC, created_at DESC, sort_id DESC LIMIT 51`)
-      .bind(filters.candidateKind ?? null, filters.candidateKind ?? null, filters.jobId ?? null, filters.jobId ?? null, filters.source ?? null, filters.source ?? null, filters.source ?? null, filters.source ?? null,
-        filters.status ?? "pending", filters.status ?? "pending", filters.status ?? "pending", position?.ready ?? null, position?.ready ?? null, position?.ready ?? null, position?.at ?? null, position?.at ?? null, position?.id ?? null)
+      FROM review LEFT JOIN music_ingestion_candidates c ON review.kind = 'candidate' AND c.id = review.id
+      ORDER BY review.ready_rank ASC, review.created_at DESC, review.sort_id DESC`)
+      .bind(...values, position?.ready ?? null, position?.ready ?? null, position?.ready ?? null,
+        position?.at ?? null, position?.at ?? null, position?.id ?? null)
       .all<{ candidate_data: string | null; ready_rank: number; sort_id: string; id: string; kind: "candidate" | "proposal"; candidate_kind: "official_video" | "singing_clip"; title: string | null; status: string; version: number; created_at: number; playlist: number; automatic: number; user: number; pending_proposal_id: string | null }>());
     const items: import("@contracts/otw-play").OtwPlayReviewItemDto[] = [];
     for (const row of rows.slice(0, 50)) {
@@ -585,7 +622,7 @@ export class D1IngestionRepository implements IngestionRepository {
 
   async listJobs(limit: number) {
     const result = await this.database.prepare(
-      `${jobSelect} WHERE NOT EXISTS (SELECT 1 FROM music_ingestion_events AS deleted WHERE deleted.job_id = job.id AND deleted.event_type = 'history_deleted') ORDER BY job.created_at DESC, job.id DESC LIMIT ?`,
+      jobSelect("WHERE NOT EXISTS (SELECT 1 FROM music_ingestion_events AS deleted WHERE deleted.job_id = job.id AND deleted.event_type = 'history_deleted') ORDER BY job.created_at DESC, job.id DESC LIMIT ?"),
     ).bind(limit).all<JobRow>();
     return resultsOf(result).map(toJobDto);
   }
@@ -596,7 +633,7 @@ export class D1IngestionRepository implements IngestionRepository {
     cursor: IngestionItemCursor | null,
     filters: OtwPlayIngestionItemFilters = {},
   ) {
-    await this.getJob(jobId);
+    await this.getJobContext(jobId);
     const classificationSql = filters.classification
       ? `AND (${itemClassificationSql}) = ?`
       : "";
@@ -805,7 +842,7 @@ export class D1IngestionRepository implements IngestionRepository {
     page: OtwPlayYouTubePlaylistPage,
     now: number,
   ) {
-    const job = await this.getJob(message.jobId);
+    const job = await this.getJobContext(message.jobId);
     const items = page.items.filter(
       (item) =>
         item.position >= job.rangeStartPosition &&
@@ -1240,13 +1277,13 @@ export class D1IngestionRepository implements IngestionRepository {
     ]);
   }
 
-  async listPendingMessages(now: number, limit: number) {
+  async listPendingMessages(now: number, limit: number, jobId?: string) {
     const result = await this.database.prepare(
       `SELECT job_id, idempotency_key FROM music_ingestion_messages
-       WHERE status = 'pending'
+       WHERE status = 'pending' ${jobId ? 'AND job_id = ?' : ''}
          AND (next_retry_at IS NULL OR next_retry_at <= ?)
        ORDER BY created_at ASC, idempotency_key ASC LIMIT ?`,
-    ).bind(now, limit).all<{ job_id: string; idempotency_key: string }>();
+    ).bind(...(jobId ? [jobId] : []), now, limit).all<{ job_id: string; idempotency_key: string }>();
     return resultsOf(result).map((row) =>
       queueMessage(row.job_id, row.idempotency_key),
     );
@@ -1678,7 +1715,7 @@ export class D1IngestionRepository implements IngestionRepository {
           command.now,
         ),
       );
-      statements.push(...projectionStatements(this.database, songId));
+      statements.push(...projectionStatements(this.database, songId, { decrementExistingGrams: false }));
       song = { kind: "existing", songId };
       createdSong = true;
     }
@@ -1902,7 +1939,13 @@ export class D1IngestionRepository implements IngestionRepository {
       throw error;
     }
     await this.requireCandidateEvent(command.eventId);
-    return this.readReviewCandidateById(command.candidateId);
+    const candidate = await this.readReviewCandidateById(command.candidateId);
+    if (materialized.expectedCatalogRevision === null) return candidate;
+    const catalog = await new D1AdminCatalogRepository(this.database).readCatalog({
+      songIds: materialized.createdSong && materialized.input.song.kind === "existing" ? [materialized.input.song.songId] : [],
+      entityIds: materialized.createdEntityIds,
+    });
+    return { ...candidate, catalogChanges: { songs: catalog.songs, entities: catalog.entities, revision: catalog.revision } };
   }
 
   async ignoreCandidate(command: {
@@ -2174,7 +2217,7 @@ export class D1IngestionRepository implements IngestionRepository {
     eventId: string;
     now: number;
   }) {
-    await this.getJob(command.jobId);
+    await this.getJobContext(command.jobId);
     const failed = await this.database.prepare(
       `SELECT idempotency_key FROM music_ingestion_messages
        WHERE job_id = ? AND status = 'failed'

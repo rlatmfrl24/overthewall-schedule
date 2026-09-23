@@ -673,6 +673,13 @@
       "when": 1789956736434,
       "tag": "0096_unknown_hex",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "6",
+      "when": 1790147065870,
+      "tag": "0097_fine_agent_zero",
+      "breakpoints": true
     }
   ]
 }

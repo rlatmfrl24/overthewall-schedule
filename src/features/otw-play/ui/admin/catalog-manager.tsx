@@ -1,3 +1,7 @@
+import { SecondaryAction } from "@/shared/ui/secondary-action";
+import { PlaySubmissionLimit } from "./play-submission-limit";
+import { preservesPlayReview } from "./review-navigation";
+import { refreshReviewInbox } from "../../queries/refresh-review-inbox";
 import { ReviewSegmentPlayer } from "./review-segment-player";
 import { BroadcastMetadataFields } from "../broadcast-metadata-fields";
 import { emptySubmissionBroadcast } from "../../model/submission-broadcast";
@@ -55,14 +59,7 @@ import {
   TableRow,
 } from "@/shared/ui/table";
 import { useToast } from "@/shared/ui/toast";
-import {
-  Loader2,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Trash2,
-  Video,
-} from "lucide-react";
+import { PiSpinnerGapBold as Loader2, PiPencilSimpleBold as Pencil, PiPlusBold as Plus, PiArrowsClockwiseBold as RefreshCw, PiTrashBold as Trash2, PiVideoCameraBold as Video } from "react-icons/pi";
 import {
   deleteOtwPlayChannel,
   fetchOtwPlayAdminCatalog,
@@ -106,7 +103,6 @@ export type Section =
 
 const SECTIONS: Array<{ value: Section; label: string }> = [
   { value: "catalog", label: "카탈로그" }, { value: "import", label: "가져오기/검수" },
-  { value: "requests", label: "사용자 곡 요청" },
   { value: "channels", label: "채널" }, { value: "operations", label: "운영" },
 ];
 
@@ -167,8 +163,6 @@ type ReviewChannelOwner = ReviewIdentity & {
 };
 
 export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorMode }: { activeSection?: Section; onSectionChange?: (section: Section) => void; monitorMode?: "review" | "sources" } = {}) {
-  const catalogQuery = useOtwPlayAdminCatalog();
-  const proposalsQuery = useOtwPlayAdminProposals();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [localSection, setLocalSection] = useState<Section>("catalog");
@@ -176,10 +170,18 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
   const section = requestedSection === "source-health" ? "operations"
     : requestedSection === "automatic-review" ? (monitorMode === "sources" ? "channels" : "import")
     : requestedSection === "clip-channels" ? "channels" : requestedSection === "clips" ? "catalog"
-    : requestedSection === "review" ? "import" : requestedSection;
+    : (requestedSection === "review" || requestedSection === "requests") ? "import" : requestedSection;
   const [reviewSearch, updateReviewSearch] = useConsoleSearch();
   const catalogScope = reviewSearch.kind ?? (requestedSection === "clips" || reviewSearch.tab === "clips" ? "broadcast" : "official");
   const importView = reviewSearch.view ?? (reviewSearch.category && reviewSearch.tab === "import" ? "jobs" : "inbox");
+  const needsCatalog = section === "catalog" || section === "channels" ||
+    section === "import" && (importView === "review" || Boolean(reviewSearch.proposal));
+  const catalogQuery = useOtwPlayAdminCatalog(needsCatalog);
+  const operationMonitors = useOtwPlayChannelMonitors(section === "operations");
+  const proposalsQuery = useOtwPlayAdminProposals("pending_review", section === "import" && Boolean(reviewSearch.proposal));
+  const needsProposalHistory = Boolean(reviewSearch.proposal) && proposalsQuery.isSuccess && !proposalsQuery.data.some(item => item.id === reviewSearch.proposal);
+  const proposalHistoryQuery = useOtwPlayAdminProposals("", section === "import" && needsProposalHistory);
+  const selectedProposalsQuery = needsProposalHistory ? proposalHistoryQuery : proposalsQuery;
   const openChannel = (id: string, kind: "official_video" | "singing_clip" = "singing_clip") => {
     if (!activeSection) setLocalSection("channels");
     updateReviewSearch({ tab: "channels", view: "channel-edit", channel: id, channelKind: kind, from: "play-review" }, false);
@@ -190,6 +192,9 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
   };
   const [importVisited, setImportVisited] = useState(section === "import");
   useEffect(() => { if (section === "import") setImportVisited(true); }, [section]);
+  const [visitedProposals, setVisitedProposals] = useState<string[]>([]);
+  useEffect(() => { if (reviewSearch.proposal) setVisitedProposals(ids => ids.includes(reviewSearch.proposal!) ? ids : [...ids, reviewSearch.proposal!]); }, [reviewSearch.proposal]);
+  const proposalIds = [...new Set([...visitedProposals, ...(reviewSearch.proposal ? [reviewSearch.proposal] : [])])];
   const setSection = onSectionChange ?? setLocalSection;
   const openCatalog = (kind?: "official" | "broadcast" | "all") => { setSection("catalog"); updateReviewSearch({ tab: "catalog", kind: kind ?? reviewSearch.kind ?? "all", view: undefined, category: undefined, selected: undefined, state: undefined, q: undefined }); };
   const sourceHealthQuery = useOtwPlayAdminSourceHealth(
@@ -243,7 +248,8 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
   const catalog = catalogQuery.data;
   const refresh = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["otw-play-review-inbox"] }),
+      refreshReviewInbox(queryClient),
+      queryClient.invalidateQueries({ queryKey: ["otw-play-review-kind-conflicts"] }),
       queryClient.invalidateQueries({
         queryKey: queryKeys.otwPlay.adminCatalog(),
       }),
@@ -253,7 +259,8 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
       queryClient.invalidateQueries({
         queryKey: queryKeys.otwPlay.adminSourceHealth(),
       }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.all }),
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.otwPlay.all, "admin-preview"] }),
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.otwPlay.all, "public"] }),
       queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }),
     ]);
   };
@@ -369,7 +376,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
   };
 
   const catalogSection =
-    section === "catalog" || section === "import" || section === "requests" || section === "channels";
+    section === "catalog" || section === "channels";
   const readModelReady = catalog
     ? catalog.revision === catalog.readModelRevision
     : false;
@@ -379,7 +386,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
     <div className="otw-play-admin min-w-0 space-y-3">
       <AdminSectionHeader
         title={activeSection ? SECTIONS.find((item) => item.value === section)?.label ?? "OTW Play" : "OTW Play 카탈로그"}
-        description={section === "requests" ? "사용자가 신청한 곡을 확인하고 영상·가창 정보를 검수해 승인하거나 거절합니다." : section === "import" ? "가져온 영상의 검토 대상을 선택하고, 근거를 확인해 카탈로그에 임시 저장합니다." : section === "channels" ? "채널 수집 감시, 승인 상태와 연결된 인물·그룹을 함께 관리합니다." : section === "operations" ? "공개 설정, 영상 재생 상태와 서비스 지표를 함께 확인합니다." : "곡과 가창을 검색하고 등록·공개 상태를 관리합니다."}
+        description={section === "import" ? "출처별 영상을 검수합니다. 가져온 후보는 임시 등록하고, 사용자 제안은 승인·게시 절차로 처리합니다." : section === "channels" ? "채널 수집 감시, 승인 상태와 연결된 인물·그룹을 함께 관리합니다." : section === "operations" ? "공개 설정, 영상 재생 상태와 서비스 지표를 함께 확인합니다." : "곡과 가창을 검색하고 등록·공개 상태를 관리합니다."}
         metadata={catalogSection ? <><QueryReadback className="m-0" updatedAt={catalogQuery.dataUpdatedAt} fetching={catalogQuery.isFetching} error={catalogQuery.isError && Boolean(catalog)} />{catalog && section === "catalog" ? <span>곡 {catalog.songs.length} · 가창 {catalog.performances.length}</span> : null}</> : undefined}
         actions={
           <div className="flex flex-wrap gap-2">
@@ -395,15 +402,15 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
                 <Video className="h-4 w-4" /> {catalogScope === "broadcast" ? "새 노래 클립 등록" : "새 영상 등록"}
               </Button>
             )}
-            <Button
+            {section !== "import" && section !== "operations" && <Button
               variant="ghost"
               size="sm"
-              onClick={() => void refresh()}
+              onClick={() => void catalogQuery.refetch()}
               disabled={catalogQuery.isFetching}
             >
               {catalogQuery.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               상태 새로고침
-            </Button>
+            </Button>}
           </div>
         }
       />
@@ -424,12 +431,12 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
         </div>
       )}
 
-      {catalogSection && catalogQuery.isLoading && (
+      {needsCatalog && catalogQuery.isLoading && (
         <div className="flex h-64 items-center justify-center">
           <Loader2 className="h-7 w-7 animate-spin" />
         </div>
       )}
-      {catalogSection && !catalogQuery.isLoading && !catalog && (
+      {needsCatalog && !catalogQuery.isLoading && !catalog && (
         <div
           role="alert"
           className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm"
@@ -447,12 +454,13 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
       </div>}
       {catalog && section === "catalog" && reviewSearch.view === "entities" && <EntitySection items={catalog.entities.filter(entity => entity.memberUid === null)} referencedEntityIds={new Set([...catalog.songs.flatMap(song => song.originalArtists.map(artist => artist.entityId)), ...catalog.performances.flatMap(performance => performance.participants.map(participant => participant.entityId)), ...catalog.channels.flatMap(channel => channel.entityIds)])} saving={effectiveSaving} run={run} />}
       {(importVisited || section === "import") && <div hidden={section !== "import"} className="space-y-3">
-        <div className="flex flex-wrap gap-2"><Button variant={importView !== "jobs" ? "secondary" : "outline"} onClick={() => updateReviewSearch({ view: "inbox", selected: undefined })}>검수 목록</Button><Button variant={importView === "jobs" ? "secondary" : "outline"} onClick={() => updateReviewSearch({ view: "jobs" })}>새 가져오기·이력</Button></div>
-        <div hidden={importView === "jobs" || section !== "import"}><ReviewInbox active={section === "import" && importView !== "jobs"} catalog={catalog ?? null} onManageChannel={openChannel} onOpenCatalog={openCatalog} onProposal={id => updateReviewSearch({ proposal: id })} /></div>
+        <div hidden={Boolean(reviewSearch.proposal || importView === "review")} className="flex flex-wrap gap-2"><Button variant={importView !== "jobs" ? "secondary" : "outline"} onClick={() => updateReviewSearch({ view: "inbox", selected: undefined })}>검수 목록</Button><Button variant={importView === "jobs" ? "secondary" : "outline"} onClick={() => updateReviewSearch({ view: "jobs" })}>새 가져오기·이력</Button></div>
+        <div hidden={importView === "jobs" || section !== "import"}><ReviewInbox active={section === "import" && importView !== "jobs" && !reviewSearch.proposal} catalog={catalog ?? null} onManageChannel={openChannel} onOpenCatalog={openCatalog} onProposal={id => updateReviewSearch({ proposal: id, view: "proposal" }, false)} /></div>
         <div hidden={importView !== "jobs" || section !== "import"}><IngestionSection active={section === "import" && importView === "jobs"} /></div>
-        {catalog && reviewSearch.proposal && <ProposalSection catalog={catalog} proposals={proposalsQuery.data ?? []} loading={proposalsQuery.isLoading} fetching={proposalsQuery.isFetching} error={proposalsQuery.error} refetch={proposalsQuery.refetch} saving={effectiveSaving} run={run} />}
+        {catalog && proposalIds.map(id => <div key={id} hidden={section !== "import" || reviewSearch.proposal !== id}>
+          <ProposalSection proposalId={id} active={section === "import" && reviewSearch.proposal === id} onClose={() => updateReviewSearch({ proposal: undefined, view: "inbox" }, false)} catalog={catalog} proposals={selectedProposalsQuery.data ?? proposalsQuery.data ?? []} loading={proposalsQuery.isLoading || selectedProposalsQuery.isLoading} fetching={selectedProposalsQuery.isFetching} error={proposalsQuery.error ?? selectedProposalsQuery.error} refetch={selectedProposalsQuery.refetch} saving={effectiveSaving} run={run} />
+        </div>)}
       </div>}
-      {section === "requests" && catalog && <ProposalSection catalog={catalog} proposals={proposalsQuery.data ?? []} loading={proposalsQuery.isLoading} fetching={proposalsQuery.isFetching} error={proposalsQuery.error} refetch={proposalsQuery.refetch} saving={effectiveSaving} run={run} />}
       {section === "channels" && catalog && <div className="space-y-3">
         {registrationChannelOpen && <Button disabled={effectiveSaving !== null} variant={registrationChannelReady ? "default" : "outline"} onClick={returnToRegistration}>{registrationChannelReady ? "설정 완료 · 곡 등록으로 돌아가기" : "작성 중인 곡으로 돌아가기"}</Button>}
         {reviewSearch.from === "play-review" && <Button variant="outline" disabled={effectiveSaving !== null} onClick={returnToReview}>작성 중인 검수로 돌아가기</Button>}
@@ -472,6 +480,10 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
           }}
         />
       )}
+      {section === "operations" && <>
+        <PlaySubmissionLimit />
+        <PlayAutomationControl monitors={operationMonitors.data} />
+      </>}
       {section === "operations" && (
         <OperationsSection
           observability={observabilityQuery.data}
@@ -520,6 +532,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
 }
 
 function ProposalSection({
+  proposalId, active, onClose,
   catalog,
   proposals,
   loading,
@@ -529,6 +542,9 @@ function ProposalSection({
   saving,
   run,
 }: {
+  proposalId: string;
+  active: boolean;
+  onClose: () => void;
   catalog: OtwPlayAdminCatalogDto;
   proposals: ReturnType<typeof useOtwPlayAdminProposals>["data"] extends infer T
     ? NonNullable<T>
@@ -542,11 +558,9 @@ function ProposalSection({
 }) {
   const confirm = useConfirmation();
   const [proposalDirty, setProposalDirty] = useState(false);
-  useUnsavedChanges(proposalDirty);
+  useUnsavedChanges(proposalDirty, preservesPlayReview);
   const [reasons, setReasons] = useState<Record<string, string>>({});
-  const [search, updateSearch] = useConsoleSearch();
-  const selectedId = search.proposal ?? (!search.category && search.tab !== "automatic-review" ? search.selected : undefined) ?? null;
-  const setSelectedId = (selected: string | null) => updateSearch({proposal: selected ?? undefined}, false);
+  const selectedId = proposalId;
   const [approvalPreflight, setApprovalPreflight] =
     useState<OtwPlayAdminCatalogEntryPreflightDto | null>(null);
   const approvalPreflightRequestId = useRef(0);
@@ -572,14 +586,17 @@ function ProposalSection({
     useState<OtwPlayParticipationType>("solo");
   const selected =
     proposals.find((proposal) => proposal.id === selectedId) ??
-    proposals[0] ??
     null;
+  const initializedProposal = useRef<string | null>(null);
+  const [reviewVersion, setReviewVersion] = useState<number | null>(null);
   const selectedProposalIdRef = useRef<string | null>(selected?.id ?? null);
   const channelNeedsConfirmation = Boolean(
     approvalPreflight &&
       ["unknown", "pending", "inactive"].includes(approvalPreflight.channel.state),
   );
+  useEffect(() => { if (!active) { approvalPreflightRequestId.current += 1; setSavingLocal(false); } }, [active]);
   const approvalBlockers: string[] = [];
+  if (selected && selected.status !== "pending_review") approvalBlockers.push("이미 처리된 제안입니다. 작성 중인 입력은 보존했습니다.");
   if (reviewReleaseType === "broadcast" && !reviewBroadcast.extent) approvalBlockers.push("완곡 또는 일부 가창 여부를 확인해 주세요.");
   if (savingLocal) approvalBlockers.push("영상·채널을 확인하고 있습니다.");
   else if (!approvalPreflight) approvalBlockers.push("영상·채널 확인을 먼저 실행해 주세요.");
@@ -594,22 +611,14 @@ function ProposalSection({
   if (saving !== null) approvalBlockers.push("진행 중인 저장 작업이 끝날 때까지 기다려 주세요.");
 
   useEffect(() => {
+    if (!selected || initializedProposal.current === selected.id) return;
+    initializedProposal.current = selected.id;
+    setReviewVersion(selected.version);
     setProposalDirty(false);
     setPreflightError(null);
     setSavingLocal(false);
-    selectedProposalIdRef.current = selected?.id ?? null;
+    selectedProposalIdRef.current = selected.id;
     approvalPreflightRequestId.current += 1;
-    if (!selected) {
-      setReviewTitle("");
-      setReviewSongId("__new");
-      setReviewSongTags([]);
-      setReviewPerformanceTags([]);
-      setReviewParticipants([]);
-      setReviewArtists([]);
-      setReviewChannelOwners([]);
-      setApprovalPreflight(null);
-      return;
-    }
     setReviewTitle(selected.submittedTitle);
     setReviewSongId(selected.suggestedSongId ?? "__new");
     setReviewSongTags(selected.suggestedSongId ? [] : selected.tags);
@@ -655,7 +664,7 @@ function ProposalSection({
     );
     setApprovalPreflight(null);
     setSingingCreditConfirmed(false);
-  }, [catalog.entities, selected]);
+  }, [catalog.entities, selected, reviewVersion]);
   const proposalSubject = (
     value: ReviewIdentity,
     clientKey: string,
@@ -762,7 +771,7 @@ function ProposalSection({
     if (!await confirm({ title: "제안을 승인하고 게시할까요?", description: "최신 영상·채널 metadata와 실제 가창 credit을 확인하고 게시할까요?", confirmLabel: "승인하고 게시" })) return;
     const approved = await run("제안 승인", () =>
       approveOtwPlayProposal(selected.id, {
-        expectedVersion: selected.version,
+        expectedVersion: reviewVersion ?? selected.version,
         expectedCatalogRevision: approvalPreflight.catalogRevision,
         song,
         participants: participantSubjects,
@@ -778,12 +787,27 @@ function ProposalSection({
         publish: true,
       }),
     );
-    if (approved) { setProposalDirty(false); setApprovalPreflight(null); setSingingCreditConfirmed(false); }
+    if (approved) { setProposalDirty(false); setApprovalPreflight(null); setSingingCreditConfirmed(false); onClose(); }
   };
   if (loading) return <Loader2 className="mx-auto h-7 w-7 animate-spin" />;
+  if (selected && selected.status !== "pending_review" && !proposalDirty) return <Card><CardContent className="space-y-4">
+    <Button variant="outline" onClick={onClose}>검수 목록으로</Button>
+    <h2 className="text-xl font-semibold">{selected.submittedTitle}</h2>
+    <p>처리 상태: {selected.status === "approved" ? "승인됨" : selected.status === "rejected" ? "거절됨" : "철회"}</p>
+    <p className="text-sm text-muted-foreground">{selected.reviewedAt ? new Date(selected.reviewedAt).toLocaleString("ko-KR") : "처리 시각 없음"}</p>
+    {selected.reviewResultCode && <p>처리 사유: {selected.reviewResultCode}</p>}
+    {selected.reviewNote && <p>{selected.reviewNote}</p>}
+    <a className="text-sm underline" href={selected.submittedUrl} target="_blank" rel="noreferrer">제출 영상 확인</a>
+    <p className="text-sm text-muted-foreground">처리된 제안은 다시 승인하거나 거절할 수 없습니다.</p>
+  </CardContent></Card>;
+
   return (
     <Card>
       <CardContent className="space-y-3" onChangeCapture={() => setProposalDirty(true)}>
+        <div className="flex flex-wrap items-center justify-between gap-3"><Button variant="outline" onClick={onClose}>검수 목록으로</Button><span className="text-xs text-muted-foreground">사용자 제안 · 영상 확인 → 승인·게시</span></div>
+        <h2 className="text-xl font-semibold">{selected?.submittedTitle ?? "사용자 제안 검수"}</h2>
+        {selected && reviewVersion !== null && selected.version !== reviewVersion && <p role="alert">다른 관리자가 이 제안을 변경했습니다. 입력을 보존했습니다. <Button variant="link" onClick={async () => { if (await confirm({ title: "최신 제안으로 다시 시작할까요?", description: "작성 중인 입력을 버리고 서버의 최신 제안을 불러옵니다.", confirmLabel: "다시 불러오기" })) { initializedProposal.current = null; setProposalDirty(false); setReviewVersion(null); await refetch(); } }}>최신 제안 다시 불러오기</Button></p>}
+        {selected && <div className="flex flex-wrap items-end gap-2 border-b pb-4"><Field label="거절 사유 코드"><Input aria-label={`${selected.submittedTitle} 거절 코드`} value={reasons[selected.id] ?? ""} onChange={event => setReasons(current => ({ ...current, [selected.id]: event.target.value }))} /></Field><Button variant="outline" disabled={selected.status !== "pending_review" || !reasons[selected.id]?.trim() || saving !== null} onClick={async () => { if (await confirm({ title: "제안을 거절할까요?", description: "입력한 사유를 기록하고 이 제안을 종료합니다.", confirmLabel: "거절" }) && await run("제안 거절", () => rejectOtwPlayProposal(selected.id, { expectedVersion: reviewVersion ?? selected.version, resultCode: reasons[selected.id]!.trim() }))) { setProposalDirty(false); onClose(); } }}>제안 거절</Button></div>}
         <p className="text-sm text-muted-foreground">
           영상·채널과 실제 가창자를 확인한 뒤 신청 유형에 맞게 게시합니다. 노래 클립은 승인된 클리퍼 채널과 완곡 여부를 확인해 주세요.
         </p>
@@ -796,105 +820,7 @@ function ProposalSection({
             </Button>
           </div>
         ) : null}
-        {!error && proposals.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-3 text-center text-sm text-muted-foreground">
-            대기 중인 제안이 없습니다.
-          </div>
-        ) : !error ? (
-          <div className="overflow-x-auto">
-            <Table className="console-history-table w-full">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>제목</TableHead>
-                  <TableHead>YouTube</TableHead>
-                  <TableHead>참여자</TableHead>
-                  <TableHead>거절 코드</TableHead>
-                  <TableHead className="text-right">작업</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {proposals.map((proposal) => (
-                  <TableRow
-                    key={proposal.id}
-                    data-state={
-                      selected?.id === proposal.id ? "selected" : undefined
-                    }
-                  >
-                    <TableCell className="whitespace-normal">
-                      <button
-                        type="button"
-                        className="font-medium text-left hover:underline"
-                        onClick={() => {
-                          setSelectedId(proposal.id);
-                        }}
-                      >
-                        {proposal.submittedTitle}
-                      </button>
-                      <div className="mt-1"><Badge variant="outline" aria-label="수집 출처: 사용자 제안">사용자 제안</Badge><Badge className="ml-1" variant="secondary">{proposal.submissionKind === "singing_clip" ? "노래 클립" : "공식 커버"}</Badge></div>
-
-                    </TableCell>
-                    <TableCell>
-                      <a
-                        className="text-primary hover:underline"
-                        href={proposal.submittedUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        원본 영상
-                      </a>
-                    </TableCell>
-                    <TableCell>
-                      {proposal.participants
-                        .map((item) => item.submittedNameSnapshot)
-                        .join(", ") || "미입력"}
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        aria-label={`${proposal.submittedTitle} 거절 코드`}
-                        value={reasons[proposal.id] ?? ""}
-                        onChange={(event) =>
-                          setReasons((current) => ({
-                            ...current,
-                            [proposal.id]: event.target.value,
-                          }))
-                        }
-                        placeholder="duplicate 등"
-                      />
-                    </TableCell>
-                    <TableCell className="whitespace-normal"><div className="flex flex-wrap justify-end gap-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setSelectedId(proposal.id);
-                        }}
-                      >
-                        검수
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        disabled={
-                          !reasons[proposal.id]?.trim() || saving !== null
-                        }
-                        onClick={() =>
-                          void run("제안 거절", () =>
-                            rejectOtwPlayProposal(proposal.id, {
-                              expectedVersion: proposal.version,
-                              resultCode: reasons[proposal.id]!.trim(),
-                            }),
-                          )
-                        }
-                      >
-                        거절
-                      </Button>
-                    </div></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        ) : null}
+        {!error && !selected && <p role="status">이 제안은 처리되었거나 현재 검수 목록에 없습니다.</p>}
         {!error && selected && (
           <div className="mx-auto grid w-full min-w-0 max-w-6xl gap-4 rounded-xl border bg-muted/20 p-4 lg:grid-cols-[minmax(240px,360px)_minmax(0,1fr)]">
             <div>
@@ -1100,7 +1026,7 @@ function ProposalSection({
                         }}
                         maxLength={300}
                       />
-                      <Button
+                      <SecondaryAction
                         type="button"
                         size="icon-sm"
                         variant="ghost"
@@ -1109,7 +1035,7 @@ function ProposalSection({
                           setReviewChannelOwners((items) => items.filter((_, itemIndex) => itemIndex !== index));
                           setSingingCreditConfirmed(false);
                         }}
-                      ><Trash2 /></Button>
+                      ><Trash2 /></SecondaryAction>
                     </div>
                   ))}
                 </div>
@@ -1148,9 +1074,9 @@ function ProposalSection({
                 </Field>
                 {reviewSongId === "__new" ? (
                   <>
-                    <Field label="곡명" htmlFor="proposal-review-title">
+                    <Field label="곡명" htmlFor={`proposal-review-title-${proposalId}`}>
                       <Input
-                        id="proposal-review-title"
+                        id={`proposal-review-title-${proposalId}`}
                         value={reviewTitle}
                         onChange={(event) => {
                           setReviewTitle(event.target.value);
@@ -1393,7 +1319,7 @@ function ProposalSection({
                 />
                 <span>영상의 실제 가창자와 입력된 참여자 credit이 일치함을 확인했습니다.</span>
               </label>
-              <div id="proposal-approval-status" role="status" className="text-xs text-muted-foreground">
+              <div id={`proposal-approval-status-${proposalId}`} role="status" className="text-xs text-muted-foreground">
                 {approvalBlockers.length > 0 ? (
                   <ul className="list-disc space-y-1 pl-4">{approvalBlockers.map((reason) => <li key={reason}>{reason}</li>)}</ul>
                 ) : "승인 준비가 완료되었습니다. 승인하면 공개 카탈로그에 게시됩니다."}
@@ -1402,7 +1328,7 @@ function ProposalSection({
                 size="sm"
                 className="w-full sm:w-auto"
                 disabled={approvalBlockers.length > 0}
-                aria-describedby="proposal-approval-status"
+                aria-describedby={`proposal-approval-status-${proposalId}`}
                 onClick={() => void approveSelected()}
               >
                 확인 후 승인·게시
@@ -1563,7 +1489,7 @@ function EntitySection({
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button
+                          <SecondaryAction
                             size="icon-sm"
                             variant="ghost"
                             className="text-destructive hover:text-destructive"
@@ -1573,7 +1499,7 @@ function EntitySection({
                             onClick={() => setDeleting(item)}
                           >
                             <Trash2 className="h-4 w-4" />
-                          </Button>
+                          </SecondaryAction>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -1833,7 +1759,7 @@ function ChannelSection({
         </div>
       </CardHeader>
       <CardContent className="space-y-3 p-3">
-        {!focusedEditor && <PlayAutomationControl monitors={monitors} />}
+        {!focusedEditor && <p className="text-sm text-muted-foreground">{monitorsQuery.data ? `감시 중인 채널 ${monitors.filter(item => item.status === "active").length}개` : "채널 감시 상태 확인 중"} · <a className="underline" href="/admin/otw-play?tab=operations">전체 자동화 중지·재개 설정</a></p>}
         {monitorsQuery.isError && <p role="alert" className="text-sm">수집 상태를 불러오지 못했습니다. 채널 정보는 유지되며 수집 상태 필터는 잠시 사용할 수 없습니다.</p>}
         {!focusedEditor && <>
         <div className="flex flex-wrap gap-2">
@@ -1845,15 +1771,16 @@ function ChannelSection({
         <div className="space-y-2">
           <div className="text-sm font-medium">등록된 채널</div>
           <div className="overflow-x-auto rounded-lg border">
-          <Table className="console-history-table w-full">
+          <Table className="console-history-table admin-compact-table w-full">
             <TableHeader>
               <TableRow>
                 <TableHead>채널</TableHead>
+                <TableHead>채널 ID</TableHead>
                 <TableHead>역할</TableHead>
                 <TableHead>연결 주체</TableHead>
                 <TableHead>검수</TableHead>
                 <TableHead>활성</TableHead>
-                <TableHead />
+                <TableHead className="w-px text-right">작업</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1861,8 +1788,8 @@ function ChannelSection({
                 <TableRow key={item.id}>
                   <TableCell className="whitespace-normal">
                     <div>{item.displayName}</div>
-                    <details className="text-xs text-muted-foreground"><summary>채널 ID</summary><span className="break-all">{item.externalChannelId}</span></details>
                   </TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">{item.externalChannelId}</TableCell>
                   <TableCell>{channelRoleLabels[item.channelRole]}</TableCell>
                   <TableCell>
                     {item.entityIds.length === 0 ? (
@@ -1906,7 +1833,7 @@ function ChannelSection({
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button
+                    <SecondaryAction
                       size="sm"
                       variant="ghost"
                       className="text-destructive hover:text-destructive"
@@ -1915,7 +1842,7 @@ function ChannelSection({
                       onClick={() => void removeChannel(item)}
                     >
                       <Trash2 className="h-4 w-4" /> 삭제
-                    </Button>
+                    </SecondaryAction>
                   </TableCell>
                 </TableRow>
               ))}

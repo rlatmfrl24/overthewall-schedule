@@ -3,25 +3,11 @@ import { TabsList } from "@/shared/ui/tabs-list";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Loader2,
-  RefreshCw,
-  Clock,
-  Power,
-  Play,
-  CheckCircle,
-  XCircle,
-  Calendar,
-  Check,
-  X,
-  AlertCircle,
-  Radio,
-  type LucideIcon,
-} from "lucide-react";
+import { PiSpinnerGapBold as Loader2, PiArrowsClockwiseBold as RefreshCw, PiClockBold as Clock, PiPowerBold as Power, PiPlayBold as Play, PiCheckCircleBold as CheckCircle, PiXCircleBold as XCircle, PiCalendarBold as Calendar, PiCheckBold as Check, PiXBold as X, PiWarningCircleBold as AlertCircle, PiRadioBold as Radio } from "react-icons/pi";
+import type { IconType as LucideIcon } from "react-icons";
 import { Button } from "@/shared/ui/button";
 import { ButtonGroup } from "@/shared/ui/button-group";
 import { Switch } from "@/shared/ui/switch";
-import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Checkbox } from "@/shared/ui/checkbox";
 import {
@@ -67,7 +53,6 @@ import {
   AUTO_UPDATE_INTERVAL_HOURS,
   isAutoUpdateIntervalHours,
   normalizeAutoUpdateIntervalHours,
-  isOtwPlaySubmissionDailyLimitValue,
 } from "../../model/settings-config";
 import { roundTimeToNearestScheduleHalfHour } from "@/features/schedules";
 import { cn } from "@/shared/lib/utils";
@@ -550,8 +535,6 @@ export function AutoUpdateSettingsManager({
   const [lastRunResult, setLastRunResult] =
     useState<OperationRunAccepted | null>(null);
   const lastRunQuery = useOperationRun(lastRunResult);
-  const [submissionDailyLimitDraft, setSubmissionDailyLimitDraft] =
-    useState("5");
 
   const settingsQuery = useQuery({
     queryKey: queryKeys.settings.detail(),
@@ -572,13 +555,6 @@ export function AutoUpdateSettingsManager({
   const isFetching = settingsQuery.isFetching;
   const isLoadingPending = pendingQuery.isFetching;
 
-  useEffect(() => {
-    if (settings?.otw_play_submission_daily_limit) {
-      setSubmissionDailyLimitDraft(
-        settings.otw_play_submission_daily_limit,
-      );
-    }
-  }, [settings?.otw_play_submission_daily_limit]);
 
   const loadSettings = useCallback(async () => {
     await settingsQuery.refetch();
@@ -719,47 +695,6 @@ export function AutoUpdateSettingsManager({
       toast({
         variant: "error",
         description: "검색 범위 변경에 실패했습니다.",
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleSubmissionDailyLimitSave = async () => {
-    if (!settings) return;
-    if (!isOtwPlaySubmissionDailyLimitValue(submissionDailyLimitDraft)) {
-      setSubmissionDailyLimitDraft(settings.otw_play_submission_daily_limit);
-      toast({
-        variant: "error",
-        description: "회원 제안 일일 제한은 1~100 사이여야 합니다.",
-      });
-      return;
-    }
-    if (
-      submissionDailyLimitDraft ===
-      settings.otw_play_submission_daily_limit
-    ) {
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      await updateSettings({
-        otw_play_submission_daily_limit: submissionDailyLimitDraft,
-      });
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.settings.detail(),
-      });
-      toast({
-        variant: "success",
-        description: `회원 제안 일일 제한을 ${submissionDailyLimitDraft}회로 변경했습니다.`,
-      });
-    } catch (error) {
-      console.error("Failed to update OTW Play submission daily limit:", error);
-      setSubmissionDailyLimitDraft(settings.otw_play_submission_daily_limit);
-      toast({
-        variant: "error",
-        description: "회원 제안 일일 제한 변경에 실패했습니다.",
       });
     } finally {
       setIsSaving(false);
@@ -1127,21 +1062,21 @@ export function AutoUpdateSettingsManager({
   return (
     <section className="space-y-3">
       <AdminSectionHeader
-        title={controlledActiveTab === "review" ? "자동 수집 스케쥴 검토" : controlledActiveTab === "rejections" ? "거부 제외 관리" : "일정 자동 수집"}
+        title={controlledActiveTab === "review" ? "일정 검수" : controlledActiveTab === "rejections" ? "거부 제외 관리" : "일정 자동 수집"}
         description={`치지직 VOD 기반 수집/승인 워크플로우를 관리합니다. 마지막 실행: ${formatLastRun(
           settings?.auto_update_last_run ?? null,
         )}`}
         count={activePendingCount}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" onClick={handleRunNow} disabled={isRunning}>
+            {activeTab === "settings" ? <Button size="sm" onClick={handleRunNow} disabled={isRunning}>
               {isRunning ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Play className="w-4 h-4" />
               )}
               <span className="ml-1">{isRunning ? "수집 중" : "지금 수집"}</span>
-            </Button>
+            </Button> : <Button asChild size="sm" variant="outline"><a href="/admin/collection?source=schedule">수집 설정·실행</a></Button>}
             <Button
               variant="outline"
               size="sm"
@@ -1165,7 +1100,7 @@ export function AutoUpdateSettingsManager({
       {!controlledActiveTab && <TabsList value={activeTab} onValueChange={setActiveTab} label="자동 일정 업데이트 관리"
         items={AUTO_UPDATE_TABS.map((tab) => ({ ...tab, id: `auto-update-tab-${tab.value}`, panelId: `auto-update-panel-${tab.value}` }))} />}
 
-      <Card className="gap-0 overflow-hidden py-0! shadow-sm">
+      {activeTab === "settings" && <Card className="gap-0 overflow-hidden py-0! shadow-sm">
         <CardContent className="grid grid-cols-2 gap-px bg-border p-0! [&>div]:bg-card lg:grid-cols-4">
           <AutoUpdateKpi
             icon={CheckCircle}
@@ -1192,7 +1127,7 @@ export function AutoUpdateSettingsManager({
             detail={`다음 가능 ${formatOperationTime(autoUpdateStatus?.nextEligibleAt)}`}
           />
         </CardContent>
-      </Card>
+      </Card>}
 
       {isFetching && !settings ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
@@ -1305,37 +1240,7 @@ export function AutoUpdateSettingsManager({
               </Select>
             </div>
 
-            <div className="flex h-full min-h-12 items-center gap-2 rounded-md bg-muted/35 px-3 py-2 md:col-span-2 xl:col-span-1">
-              <Label
-                htmlFor="otw-play-submission-daily-limit"
-                className="whitespace-nowrap text-sm font-medium"
-              >
-                회원 곡 제안/일
-              </Label>
-              <Input
-                id="otw-play-submission-daily-limit"
-                type="number"
-                min={1}
-                max={100}
-                value={submissionDailyLimitDraft}
-                onChange={(event) =>
-                  setSubmissionDailyLimitDraft(event.target.value)
-                }
-                onBlur={() => void handleSubmissionDailyLimitSave()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.currentTarget.blur();
-                  }
-                }}
-                disabled={isSaving}
-                className="h-8 w-24"
-              />
-            </div>
-            <div className="flex min-h-12 flex-wrap items-center gap-2 rounded-md bg-muted/35 px-3 py-2">
-              <span className="text-sm font-medium">Play 자동화</span>
-              <Badge variant="outline">{!settings ? "상태 확인 중" : settings.otw_play_automation_paused === "true" ? "일시 중지" : "자동화 허용"}</Badge>
-              <a className="text-sm underline underline-offset-4" href="/admin/otw-play?tab=channels">중지·재개 관리</a>
-            </div>
+
           </div>
           ) : null}
 

@@ -66,7 +66,7 @@ export interface AiReviewContext {
   candidate(
     id: string,
   ): Promise<{ videoId: string; candidateKind: AiReviewKind; status: string }>;
-  catalog(): Promise<
+  catalog(options?: { membersOnly?: boolean }): Promise<
     OtwPlayAdminCatalogDto & { entityAliases?: Record<string, string[]>; members?: AiReviewMember[] }
   >;
 }

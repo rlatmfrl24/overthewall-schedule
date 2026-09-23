@@ -23,7 +23,7 @@ import {
 } from "@/shared/ui/select";
 import { FieldLabel } from "@/shared/ui/field";
 import { normalizeDDayColors } from "../../model/dday";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { PiSpinnerGapBold as Loader2, PiPlusBold as Plus, PiTrashBold as Trash2 } from "react-icons/pi";
 
 const DDAY_COLOR_PRESETS = [
   "#f97316",

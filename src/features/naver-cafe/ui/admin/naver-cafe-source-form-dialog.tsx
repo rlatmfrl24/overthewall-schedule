@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { Switch } from "@/shared/ui/switch";
-import { Loader2 } from "lucide-react";
+import { PiSpinnerGapBold as Loader2 } from "react-icons/pi";
 import {
   buildNaverCafeBoardUrl,
   extractNaverCafeBoardIds,

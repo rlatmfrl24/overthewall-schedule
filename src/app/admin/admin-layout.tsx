@@ -1,18 +1,8 @@
 import { ConsoleSearchContext, validateConsoleSearch, type ConsoleSearch } from "@/shared/lib/admin-console-search";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { cn } from "@/shared/lib/utils";
-import {
-  Activity,
-  Calendar,
-  Settings,
-  Image,
-  LayoutDashboard,
-  History,
-  LogOut,
-  Menu,
-  Music2,
-  type LucideIcon,
-} from "lucide-react";
+import { PiPulseBold as Activity, PiCalendarBold as Calendar, PiGearBold as Settings, PiImageBold as Image, PiSquaresFourBold as LayoutDashboard, PiClockCounterClockwiseBold as History, PiSignOutBold as LogOut, PiListBold as Menu, PiMusicNotesBold as Music2 } from "react-icons/pi";
+import type { IconType as LucideIcon } from "react-icons";
 import { Button } from "@/shared/ui/button";
 import {
   Sheet,
@@ -41,7 +31,7 @@ interface SidebarSection {
 const SIDEBAR_SECTIONS: SidebarSection[] = [
   { title: "관리 업무", items: [
     { label: "대시보드", icon: Activity, href: "/admin/operations" },
-    { label: "자동 수집 스케쥴 검토", icon: Calendar, href: "/admin/review" },
+    { label: "일정 검수", icon: Calendar, href: "/admin/review" },
     { label: "수집·소스", icon: Settings, href: "/admin/collection" },
     { label: "OTW Play", icon: Music2, href: "/admin/otw-play" },
     { label: "콘텐츠", icon: LayoutDashboard, href: "/admin/content" },
@@ -116,13 +106,13 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   );
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden admin-console bg-muted/20 md:flex-row">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden admin-console bg-background md:flex-row">
 
       {/* Mobile Header */}
       <div className="md:hidden h-(--admin-header-height) border-b bg-background px-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <LayoutDashboard className="w-5 h-5 text-primary" />
-          <span className="font-semibold">Admin Center</span>
+          <span className="font-semibold">{SIDEBAR_SECTIONS.flatMap(section => section.items).find(item => isActive(item.href))?.label ?? "관리자"}</span>
         </div>
         <Sheet open={isMobileOpen} onOpenChange={setIsMobileOpen}>
           <SheetTrigger asChild>
@@ -146,7 +136,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       </div>
 
       {/* Main Content */}
-      <main className="relative min-h-0 min-w-0 flex-1 overflow-y-auto bg-muted/10">
+      <main className="relative min-h-0 min-w-0 flex-1 overflow-y-auto bg-background">
         <div className="w-full min-h-full p-(--admin-content-padding) pb-8 md:pb-10">
           <ConsoleSearchContext value={[search, updateSearch]}>{children}</ConsoleSearchContext>
         </div>

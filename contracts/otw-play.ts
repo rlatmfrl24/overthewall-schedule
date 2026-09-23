@@ -348,6 +348,7 @@ export interface OtwPlayIngestionCandidateItemDto {
 }
 
 export interface OtwPlayIngestionReviewCandidateDto {
+  catalogChanges?: Pick<OtwPlayAdminCatalogDto, "songs" | "entities" | "revision">;
   id: string;
   version: number;
   videoId: string;
@@ -1556,4 +1557,17 @@ export interface OtwPlayReviewItemDto {
 export interface OtwPlayReviewPageDto {
   items: OtwPlayReviewItemDto[];
   nextCursor: string | null;
+}
+
+export interface OtwPlayIngestionBudgetDto {
+  status: "available" | "blocked" | "unavailable";
+  rowsRead: number | null;
+  dailyTarget: number;
+  measuredAt: string;
+  resetAt: string;
+  reason: string | null;
+}
+export interface OtwPlayIngestionResumeDto {
+  enqueued: number;
+  budget: OtwPlayIngestionBudgetDto;
 }

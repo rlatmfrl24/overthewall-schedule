@@ -44,15 +44,7 @@ import { useToast } from "@/shared/ui/toast";
 import type { NaverCafePostsVisibility } from "@contracts/naver-cafe";
 import type { XPostsVisibility } from "@contracts/x-posts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Clock3,
-  Coffee,
-  EyeOff,
-  Globe2,
-  Loader2,
-  LockKeyhole,
-  RefreshCw
-} from "lucide-react";
+import { PiClockBold as Clock3, PiCoffeeBold as Coffee, PiEyeSlashBold as EyeOff, PiGlobeBold as Globe2, PiSpinnerGapBold as Loader2, PiLockKeyBold as LockKeyhole } from "react-icons/pi";
 import { useCallback, useEffect, useState } from "react";
 import { xReferenceHealthQueryKey } from "../../queries/use-x-reference-health";
 import {
@@ -623,24 +615,9 @@ export function MemberPostSettingsManager({
   return (
     <section className="space-y-3">
       <AdminSectionHeader
-        title="멤버 게시글 관리"
+        title={activeSource === "x" ? "X 수집·소스" : "네이버 카페 수집·소스"}
         description="수집 소스별 설정, 비용과 실제 운영 상태를 한 화면에서 관리합니다."
-        actions={
-          <Button
-            aria-label="멤버 게시글 운영 정보 새로고침"
-            variant="outline"
-            size="sm"
-            onClick={() => void loadSettings()}
-            disabled={isFetching || operationsQuery.isFetching}
-          >
-            {isFetching || operationsQuery.isFetching ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            <span className="ml-1">새로고침</span>
-          </Button>
-        }
+
       />
 
       {!controlledActiveSource && <TabsList value={activeSource} onValueChange={setActiveSource} label="멤버 게시글 수집 소스"

@@ -349,7 +349,7 @@ describe("MemberPostSettingsManager", () => {
     expect(document.activeElement).toBe(referenceGroup.querySelector("summary"));
     const healthCalls = fetchXHistoryHealthMock.mock.calls.length;
     const runCalls = fetchOperationRunsMock.mock.calls.length;
-    fireEvent.click(screen.getByRole("button", { name: "멤버 게시글 운영 정보 새로고침" }));
+    fireEvent.click(screen.getByRole("button", { name: "상태 새로고침" }));
     await waitFor(() => {
       expect(fetchXHistoryHealthMock.mock.calls.length).toBeGreaterThan(healthCalls);
       expect(fetchOperationRunsMock.mock.calls.length).toBeGreaterThan(runCalls);

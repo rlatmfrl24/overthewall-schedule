@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { D1IngestionRepository } from "../../otw-play";
+import { CloudflareIngestionReadBudget, D1IngestionRepository } from "../../otw-play";
 import type {
   NewScheduledItem,
   ScheduledJobRunRecord,
@@ -98,6 +98,20 @@ describe("ScheduledJobPlanner interval eligibility", () => {
       expect(await planner.planScheduled(jobType, 100)).toEqual([]);
     }
     expect(repository.addItems).not.toHaveBeenCalled();
+  });
+
+  it("holds only ingestion requeue while the read budget is exhausted and resumes after reset", async () => {
+    const { env } = makeEnv({});
+    const repository = { addItems: vi.fn(), hasRecoveryWork: vi.fn(async () => false) };
+    vi.spyOn(D1IngestionRepository.prototype, "hasExpiredApiData").mockResolvedValue(false);
+    const pending = vi.spyOn(D1IngestionRepository.prototype, "listPendingMessages").mockResolvedValue([{ schemaVersion: 1, jobId: "job", idempotencyKey: "message" }]);
+    const budget = vi.spyOn(CloudflareIngestionReadBudget.prototype, "read").mockResolvedValue({ status: "blocked", rowsRead: 4_000_000, dailyTarget: 4_000_000, measuredAt: "2026-09-23T12:00:00Z", resetAt: "2026-09-24T00:00:00Z", reason: "daily_read_target" });
+    const planner = new ScheduledJobPlanner(env, repository as never);
+    expect(await planner.planScheduled("ingestion_recovery", 100)).toEqual([]);
+    expect(pending).not.toHaveBeenCalled();
+    budget.mockResolvedValue({ status: "available", rowsRead: 0, dailyTarget: 4_000_000, measuredAt: "2026-09-24T00:03:00Z", resetAt: "2026-09-25T00:00:00Z", reason: null });
+    expect(await planner.planScheduled("ingestion_recovery", 200)).toEqual([{ targetKey: "requeue", phase: "requeue", lane: "ingestion" }]);
+    expect(pending).toHaveBeenCalledExactlyOnceWith(200, 1);
   });
 
   it("pausing Play keeps common recovery and metadata cleanup but skips ingestion requeue", async () => {

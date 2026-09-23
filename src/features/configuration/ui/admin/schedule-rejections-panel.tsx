@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RotateCcw, Search } from "lucide-react";
+import { PiSpinnerGapBold as Loader2, PiArrowCounterClockwiseBold as RotateCcw, PiMagnifyingGlassBold as Search } from "react-icons/pi";
 import {
   fetchScheduleCandidateRejections,
   reopenScheduleCandidateRejection,

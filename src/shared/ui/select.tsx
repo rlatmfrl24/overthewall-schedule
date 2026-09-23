@@ -1,7 +1,7 @@
 import { useUiScopeClassName } from "@/shared/lib/ui-scope";
 import * as React from "react"
 import * as SelectPrimitive from "@radix-ui/react-select"
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "./scoped-icons"
 
 import { cn } from "@/shared/lib/utils"
 

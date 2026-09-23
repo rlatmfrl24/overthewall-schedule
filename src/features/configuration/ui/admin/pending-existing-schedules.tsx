@@ -1,4 +1,4 @@
-import { Calendar, Clock } from "lucide-react";
+import { PiCalendarBold as Calendar, PiClockBold as Clock } from "react-icons/pi";
 import type { PendingSchedule } from "@/features/schedules";
 import { Badge } from "@/shared/ui/badge";
 import { cn } from "@/shared/lib/utils";
