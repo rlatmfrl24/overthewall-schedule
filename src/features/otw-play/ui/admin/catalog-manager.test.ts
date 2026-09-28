@@ -393,6 +393,7 @@ describe("OtwPlayCatalogManager", () => {
     expect(within(songs).queryByText("게시됨 1")).toBeNull();
     const deleteItem = await openSecondaryAction("곡 삭제", within(songs).getByRole("button", { name: "곡 작업 메뉴" }));
     expect(deleteItem.getAttribute("aria-disabled")).toBe("true");
+    expect(document.getElementById(deleteItem.getAttribute("aria-describedby")!)?.textContent).toBe("다른 영상 종류를 포함해 게시 중인 가창이 있어 삭제할 수 없습니다.");
     expect(screen.getByRole("menuitem", { name: "다른 가창 추가" })).toBeTruthy();
     fireEvent.keyDown(deleteItem, { key: "Escape" });
     const toggle = within(songs).getByRole("button", { name: "공통 곡 가창 펼치기" });

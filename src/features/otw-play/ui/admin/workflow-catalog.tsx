@@ -280,15 +280,12 @@ export function WorkflowCatalog({
       (performance) => performance.publicationStatus === "withdrawn",
     ).length;
     return (
+      <>
       <DropdownMenuItem
         aria-label="곡 삭제"
         className="text-destructive hover:text-destructive"
         disabled={saving !== null || !canDelete}
-        title={
-          canDelete
-            ? undefined
-            : "현재 게시 중인 가창이 있는 곡은 삭제할 수 없습니다."
-        }
+        aria-describedby={!canDelete ? `song-delete-reason-${song.id}` : undefined}
         onSelect={() => setConfirmation({
           title: "곡을 삭제할까요?",
           description: performances.length > 0
@@ -301,6 +298,8 @@ export function WorkflowCatalog({
       >
         <Trash2 className="h-3.5 w-3.5" /> 곡 삭제
       </DropdownMenuItem>
+      {!canDelete && <p id={`song-delete-reason-${song.id}`} className="max-w-56 px-2 py-1 text-xs text-muted-foreground">다른 영상 종류를 포함해 게시 중인 가창이 있어 삭제할 수 없습니다.</p>}
+      </>
     );
   };
 
