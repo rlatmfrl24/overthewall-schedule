@@ -376,6 +376,39 @@ describe("OtwPlayCatalogManager", () => {
     expect(publishPerformanceMock).not.toHaveBeenCalled();
   });
 
+  it("summarizes scoped states, labels expanded details and protects songs published in another scope", async () => {
+    const performance = {
+      id: "official-draft", songId: "shared-song", relationType: "cover", releaseType: "official_video",
+      participationType: "solo", publicationStatus: "draft", qualityStatus: "ok", releasedAt: null,
+      internalNote: null, version: 1, participants: [], sources: [],
+    };
+    fetchCatalogMock.mockResolvedValue({ ...catalog,
+      songs: [{ id: "shared-song", title: "공통 곡", isOtwOriginal: false, archivedAt: null, version: 1, tags: [], aliases: [], originalArtists: [] }],
+      performances: [performance, { ...performance, id: "broadcast-published", releaseType: "broadcast", publicationStatus: "published" }],
+    });
+    renderCatalogManager();
+    const songs = await screen.findByRole("table", { name: "곡 카탈로그" });
+    expect(within(songs).getByText("1개 가창")).toBeTruthy();
+    expect(within(songs).getByText("임시 저장 1")).toBeTruthy();
+    expect(within(songs).queryByText("게시됨 1")).toBeNull();
+    const deleteItem = await openSecondaryAction("곡 삭제", within(songs).getByRole("button", { name: "곡 작업 메뉴" }));
+    expect(deleteItem.getAttribute("aria-disabled")).toBe("true");
+    expect(document.getElementById(deleteItem.getAttribute("aria-describedby")!)?.textContent).toBe("다른 영상 종류를 포함해 게시 중인 가창이 있어 삭제할 수 없습니다.");
+    expect(screen.getByRole("menuitem", { name: "다른 가창 추가" })).toBeTruthy();
+    fireEvent.keyDown(deleteItem, { key: "Escape" });
+    const toggle = within(songs).getByRole("button", { name: "공통 곡 가창 펼치기" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const details = screen.getByRole("row", { name: "공통 곡 가창 1" });
+    expect(within(songs).queryByRole("table")).toBeNull();
+    expect(within(songs).getByRole("columnheader", { name: "곡 / 가창" })).toBeTruthy();
+    expect(within(details).getByText("연결된 영상 없음")).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "곡명·원곡 가수 검색" }), { target: { value: "없는 곡" } });
+    fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
+    expect(screen.getByText("1곡 중 1곡 · 1곡 표시")).toBeTruthy();
+  });
+
   it("appends catalog rows on intersection, stops at the end and resets on search", async () => {
     const observers: { notify: (visible: boolean) => void; disconnect: ReturnType<typeof vi.fn> }[] = [];
     vi.stubGlobal("IntersectionObserver", class {
@@ -399,25 +432,25 @@ describe("OtwPlayCatalogManager", () => {
       }));
       fetchCatalogMock.mockResolvedValue({ ...catalog, songs });
       renderCatalogManager();
-      await screen.findByText("전체 60곡 · 25곡 표시");
+      await screen.findByText("60곡 중 60곡 · 25곡 표시");
       expect(screen.queryByRole("button", { name: "다음" })).toBeNull();
       const first = observers.at(-1)!;
       act(() => first.notify(false));
-      expect(screen.getByText("전체 60곡 · 25곡 표시")).toBeTruthy();
+      expect(screen.getByText("60곡 중 60곡 · 25곡 표시")).toBeTruthy();
       act(() => { first.notify(true); first.notify(true); });
-      expect(screen.getByText("전체 60곡 · 50곡 표시")).toBeTruthy();
+      expect(screen.getByText("60곡 중 60곡 · 50곡 표시")).toBeTruthy();
       expect(screen.getAllByText("Song 0")).toHaveLength(2);
       expect(screen.getAllByText("Song 49")).toHaveLength(2);
       expect(first.disconnect).toHaveBeenCalled();
       const last = observers.at(-1)!;
       act(() => last.notify(true));
-      expect(screen.getByText("전체 60곡 · 60곡 표시")).toBeTruthy();
+      expect(screen.getByText("60곡 중 60곡 · 60곡 표시")).toBeTruthy();
       expect(screen.getByText("모든 곡을 표시했습니다.")).toBeTruthy();
       expect(screen.queryByRole("button", { name: "곡 더 보기" })).toBeNull();
       fireEvent.change(screen.getByRole("textbox", { name: "곡명·원곡 가수 검색" }), { target: { value: "Song" } });
-      expect(screen.getByText("전체 60곡 · 25곡 표시")).toBeTruthy();
+      expect(screen.getByText("60곡 중 60곡 · 25곡 표시")).toBeTruthy();
       act(() => last.notify(true));
-      expect(screen.getByText("전체 60곡 · 25곡 표시")).toBeTruthy();
+      expect(screen.getByText("60곡 중 60곡 · 25곡 표시")).toBeTruthy();
       expect(fetchCatalogMock).toHaveBeenCalledOnce();
     } finally {
       vi.unstubAllGlobals();
@@ -449,9 +482,9 @@ describe("OtwPlayCatalogManager", () => {
     await selectCategory("POP");
     expect(await options()).toContain("J-POP");
     await selectCategory("J-POP");
-    expect(screen.getByText("전체 1곡 · 1곡 표시")).toBeTruthy();
+    expect(screen.getByText("26곡 중 1곡 · 1곡 표시")).toBeTruthy();
     fireEvent.change(screen.getByRole("textbox", {name: "곡명·원곡 가수 검색"}), {target: {value: "no matching song"}});
-    expect(screen.getByText("조건에 맞는 곡이 없습니다.")).toBeTruthy();
+    expect(screen.getByText(/조건에 맞는 곡이 없습니다/)).toBeTruthy();
     expect(await options()).toEqual(["모든 분류", "J-POP", "POP"]);
     expect(category.textContent).toBe("J-POP");
     await selectCategory("모든 분류");
@@ -1686,18 +1719,15 @@ describe("OtwPlayCatalogManager", () => {
     renderCatalogManager();
 
     await screen.findAllByText("임시 곡");
-    const songDeleteButtons = screen.getAllByRole("button", { name: "곡 삭제 메뉴" });
-    const enabledSongDeletes = songDeleteButtons.filter(
-      (button) => !(button as HTMLButtonElement).disabled,
-    );
-    const disabledSongDeletes = songDeleteButtons.filter(
-      (button) => (button as HTMLButtonElement).disabled,
-    );
-    expect(enabledSongDeletes).toHaveLength(4);
-    expect(disabledSongDeletes).toHaveLength(2);
+    for (const [title, disabled] of [["임시 곡", false], ["게시 이력 곡", true], ["철회 곡", false]] as const) {
+      const row = screen.getAllByText(title)[0]!.closest("tr")!;
+      const item = await openSecondaryAction("곡 삭제", within(row).getByRole("button", { name: "곡 작업 메뉴" }));
+      expect(item.getAttribute("aria-disabled") === "true").toBe(disabled);
+      fireEvent.keyDown(item, { key: "Escape" });
+    }
 
     fireEvent.click(screen.getByRole("button", { name: "임시 곡 가창 펼치기" }));
-    fireEvent.click(await openSecondaryAction("삭제", screen.getAllByRole("button", { name: "삭제 메뉴" })[0]!));
+    fireEvent.click(await openSecondaryAction("삭제", screen.getAllByRole("button", { name: "가창 작업 메뉴" })[0]!));
     expect(screen.getByText("임시 저장 가창을 삭제할까요?")).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: "삭제" }).at(-1)!);
     await waitFor(() =>
@@ -1707,7 +1737,8 @@ describe("OtwPlayCatalogManager", () => {
       ),
     );
 
-    fireEvent.click(await openSecondaryAction("곡 삭제", enabledSongDeletes[0]!));
+    const draftSongRow = screen.getAllByText("임시 곡")[0]!.closest("tr")!;
+    fireEvent.click(await openSecondaryAction("곡 삭제", within(draftSongRow).getByRole("button", { name: "곡 작업 메뉴" })));
     expect(screen.getByText("곡을 삭제할까요?")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "삭제" }));
     await waitFor(() =>
@@ -1721,7 +1752,7 @@ describe("OtwPlayCatalogManager", () => {
     const withdrawnRow = withdrawnStatus.closest("tr");
     expect(withdrawnRow).toBeTruthy();
     fireEvent.click(
-      await openSecondaryAction("삭제", within(withdrawnRow!).getByRole("button", { name: "삭제 메뉴" })),
+      await openSecondaryAction("삭제", within(withdrawnRow!).getByRole("button", { name: "가창 작업 메뉴" })),
     );
     expect(screen.getByText("철회된 가창을 삭제할까요?")).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: "삭제" }).at(-1)!);
@@ -1736,7 +1767,7 @@ describe("OtwPlayCatalogManager", () => {
     const withdrawnSongRow = withdrawnSongTitle.closest("tr");
     expect(withdrawnSongRow).toBeTruthy();
     fireEvent.click(
-      await openSecondaryAction("곡 삭제", within(withdrawnSongRow!).getByRole("button", { name: "곡 삭제 메뉴" })),
+      await openSecondaryAction("곡 삭제", within(withdrawnSongRow!).getByRole("button", { name: "곡 작업 메뉴" })),
     );
     expect(screen.getByText(/철회 1개 포함/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "삭제" }));

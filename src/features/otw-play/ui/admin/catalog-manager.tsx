@@ -386,7 +386,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
     <div className="otw-play-admin min-w-0 space-y-3">
       <AdminSectionHeader
         title={activeSection ? SECTIONS.find((item) => item.value === section)?.label ?? "OTW Play" : "OTW Play 카탈로그"}
-        description={section === "import" ? "출처별 영상을 검수합니다. 가져온 후보는 임시 등록하고, 사용자 제안은 승인·게시 절차로 처리합니다." : section === "channels" ? "채널 수집 감시, 승인 상태와 연결된 인물·그룹을 함께 관리합니다." : section === "operations" ? "공개 설정, 영상 재생 상태와 서비스 지표를 함께 확인합니다." : "곡과 가창을 검색하고 등록·공개 상태를 관리합니다."}
+        description={section === "import" ? "출처별 영상을 검수합니다. 가져온 후보는 임시 등록하고, 사용자 제안은 승인·게시 절차로 처리합니다." : section === "channels" ? "채널 수집 감시, 승인 상태와 연결된 인물·그룹을 함께 관리합니다." : section === "operations" ? "공개 설정, 영상 재생 상태와 서비스 지표를 함께 확인합니다." : undefined}
         metadata={catalogSection ? <><QueryReadback className="m-0" updatedAt={catalogQuery.dataUpdatedAt} fetching={catalogQuery.isFetching} error={catalogQuery.isError && Boolean(catalog)} />{catalog && section === "catalog" ? <span>곡 {catalog.songs.length} · 가창 {catalog.performances.length}</span> : null}</> : undefined}
         actions={
           <div className="flex flex-wrap gap-2">
