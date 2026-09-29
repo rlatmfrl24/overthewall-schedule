@@ -78,9 +78,9 @@ export async function handleAiReviewQueue(
     if (isAiBatchMessage(message.body)) {
       const batches = createOtwPlayAiBatchService(env);
       try {
-        if (batch.queue === "otw-dead-letter") await batches.dead(message.body.itemId);
+        if (batch.queue === "otw-dead-letter") await batches.dead(message.body.itemId, message.body.generation);
         else {
-          const delay = await batches.process(message.body.itemId);
+          const delay = await batches.process(message.body.itemId, message.body.generation);
           if (delay) { message.retry({ delaySeconds: Math.min(43200, delay) }); continue; }
         }
         await batches.recover();
@@ -130,12 +130,13 @@ export async function handleAiReviewQueue(
 
 export const createOtwPlayAiBatchService = (env: Env) => new AiBatchService(
   new D1AiBatchRepository(env.otw_db), createOtwPlayAiReviewService(env),
-  async (itemId) => {
+  async (itemId, generation) => {
     if (!env.OTW_PLAY_AI_REVIEW_QUEUE) throw new Error("AI queue unconfigured");
-    await env.OTW_PLAY_AI_REVIEW_QUEUE.send({ kind: "otw_play_ai_batch", schemaVersion: 1, itemId });
+    await env.OTW_PLAY_AI_REVIEW_QUEUE.send({ kind: "otw_play_ai_batch", schemaVersion: 1, itemId, generation });
   }, env.OTW_PLAY_AI_REVIEW_ENABLED === "true" && Boolean(env.GEMINI_API_KEY && env.OTW_PLAY_AI_REVIEW_QUEUE),
   () => crypto.randomUUID(), Date.now, new D1AiReviewContext(env.otw_db),
 );
-export const isAiBatchMessage = (body: unknown): body is { kind: "otw_play_ai_batch"; schemaVersion: 1; itemId: string } =>
+export const isAiBatchMessage = (body: unknown): body is { kind: "otw_play_ai_batch"; schemaVersion: 1; itemId: string; generation: number } =>
   Boolean(body && typeof body === "object" && (body as { kind?: unknown }).kind === "otw_play_ai_batch" &&
-    (body as { schemaVersion?: unknown }).schemaVersion === 1 && typeof (body as { itemId?: unknown }).itemId === "string");
+    (body as { schemaVersion?: unknown }).schemaVersion === 1 && typeof (body as { itemId?: unknown }).itemId === "string" &&
+    Number.isSafeInteger((body as { generation?: unknown }).generation) && (body as { generation: number }).generation >= 0);

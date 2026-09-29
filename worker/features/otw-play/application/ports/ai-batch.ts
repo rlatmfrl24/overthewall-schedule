@@ -13,13 +13,13 @@ export interface AiBatchRepository {
   list(): Promise<AiBatchSummary[]>;
   get(id: string, cursor?: string): Promise<AiBatchPage>;
   draft(candidateId: string): Promise<AiBatchDraft | null>;
-  claim(id: string, token: string, now: number): Promise<AiBatchWork | null>;
+  claim(id: string, generation: number, token: string, now: number): Promise<AiBatchWork | null>;
   current(item: AiBatchWork): Promise<boolean>;
   attach(id: string, token: string, reviewId: string, now: number, waiting?: { message: string | null; retryAt: number | null }): Promise<void>;
   capture(id: string, token: string, result: AiReviewResult, now: number): Promise<void>;
   finish(id: string, token: string, status: AiBatchItem["status"], message: string | null, now: number): Promise<void>;
   release(id: string, token: string, now: number): Promise<void>;
-  pending(now: number, batchId?: string): Promise<string[]>;
+  pending(now: number, batchId?: string): Promise<{ id: string; generation: number }[]>;
   retry(id: string, now: number): Promise<void>;
-  dead(id: string, now: number): Promise<void>;
+  dead(id: string, generation: number, now: number): Promise<void>;
 }

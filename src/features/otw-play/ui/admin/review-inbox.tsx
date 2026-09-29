@@ -52,7 +52,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   useEffect(() => {
     if (!active || batchState === null) return;
     if (previousBatchState.current !== null && previousBatchState.current !== batchState) {
-      void client.invalidateQueries({ queryKey: ["otw-play-review-inbox"] });
+      void refreshReviewInbox(client);
     }
     previousBatchState.current = batchState;
   }, [active, batchState, client]);

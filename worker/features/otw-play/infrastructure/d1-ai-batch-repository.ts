@@ -95,9 +95,9 @@ export class D1AiBatchRepository implements AiBatchRepository {
       status: row.status as AiBatchItem["status"], result: JSON.parse(String(row.result_json)),
       autoApply: ["saved", "needs_selection"].includes(String(row.status)) && Boolean(row.auto_apply) && Boolean(row.can_apply) };
   }
-  async claim(id: string, token: string, now: number): Promise<AiBatchWork | null> {
+  async claim(id: string, generation: number, token: string, now: number): Promise<AiBatchWork | null> {
     const row = await this.db.prepare(`UPDATE music_ai_review_batch_items SET lease_token=?,lease_until=?,updated_at=?
-      WHERE id=? AND status IN ${pending} AND (lease_until IS NULL OR lease_until<=?) RETURNING *`).bind(token, now + 300000, now, id, now).first<Row>();
+      WHERE id=? AND generation=? AND status IN ${pending} AND (lease_until IS NULL OR lease_until<=?) RETURNING *`).bind(token, now + 300000, now, id, generation, now).first<Row>();
     if (!row) return null;
     const batch = await this.db.prepare("SELECT actor FROM music_ai_review_batches WHERE id=?").bind(row.batch_id).first<{ actor: string }>();
     return { ...decode(row), actor: batch!.actor, reviewId: row.review_id as string | null, generation: Number(row.generation), result: row.result_json ? JSON.parse(String(row.result_json)) : null };
@@ -123,9 +123,9 @@ export class D1AiBatchRepository implements AiBatchRepository {
   async pending(now: number, batchId?: string) {
     const rows = await this.db.prepare(`UPDATE music_ai_review_batch_items SET dispatch_until=? WHERE id IN (
       SELECT id FROM music_ai_review_batch_items WHERE status IN ${pending} AND (lease_until IS NULL OR lease_until<=?)
-      AND (dispatch_until IS NULL OR dispatch_until<=?) ${batchId ? "AND batch_id=?" : ""} ORDER BY updated_at,id LIMIT 20) RETURNING id`)
-      .bind(now + 600000, now, now, ...(batchId ? [batchId] : [])).all<{ id: string }>();
-    return rows.results.map(r => r.id);
+      AND (dispatch_until IS NULL OR dispatch_until<=?) ${batchId ? "AND batch_id=?" : ""} ORDER BY updated_at,id LIMIT 20) RETURNING id,generation`)
+      .bind(now + 600000, now, now, ...(batchId ? [batchId] : [])).all<{ id: string; generation: number }>();
+    return rows.results;
   }
   async hasRecoveryWork(now: number) {
     return Boolean(await this.db.prepare(`SELECT id FROM music_ai_review_batch_items WHERE status IN ${pending}
@@ -140,8 +140,8 @@ export class D1AiBatchRepository implements AiBatchRepository {
       WHERE batch_id=? AND status='failed' AND EXISTS (SELECT 1 FROM music_ingestion_candidates c WHERE c.id=i.candidate_id AND ${current})
       AND NOT EXISTS (SELECT 1 FROM music_ai_review_batch_items other WHERE other.candidate_id=i.candidate_id AND other.status IN ${pending})`).bind(now, id).run();
   }
-  async dead(id: string, now: number) {
+  async dead(id: string, generation: number, now: number) {
     await this.db.prepare(`UPDATE music_ai_review_batch_items SET status='failed',error_message='큐 처리를 완료하지 못했습니다. 다시 시도하세요.',updated_at=?
-      WHERE id=? AND status IN ${pending} AND (lease_until IS NULL OR lease_until<=?)`).bind(now, id, now).run();
+      WHERE id=? AND generation=? AND status IN ${pending} AND (lease_until IS NULL OR lease_until<=?)`).bind(now, id, generation, now).run();
   }
 }

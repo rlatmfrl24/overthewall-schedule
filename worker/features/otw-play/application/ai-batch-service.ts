@@ -9,13 +9,13 @@ import { resolveAiReviewCatalog } from "../domain/ai-review-result";
 export class AiBatchService {
   private readonly repository: AiBatchRepository;
   private readonly analysis: AiReviewService;
-  private readonly send: (id: string) => Promise<void>;
+  private readonly send: (id: string, generation: number) => Promise<void>;
   private readonly enabled: boolean;
   private readonly id: () => string;
   private readonly clock: () => number;
   private readonly context: AiReviewContext;
   constructor(repository: AiBatchRepository, analysis: AiReviewService,
-    send: (id: string) => Promise<void>, enabled: boolean,
+    send: (id: string, generation: number) => Promise<void>, enabled: boolean,
     id: () => string, clock: () => number, context: AiReviewContext) {
     this.repository = repository; this.analysis = analysis; this.send = send; this.enabled = enabled;
     this.id = id; this.clock = clock; this.context = context;
@@ -28,7 +28,7 @@ export class AiBatchService {
     const draft = await this.repository.draft(id);
     return draft ? { ...draft, result: resolveAiReviewCatalog(draft.result, await this.context.catalog()) } : null;
   }
-  dead(id: string) { return this.repository.dead(id, this.clock()); }
+  dead(id: string, generation: number) { return this.repository.dead(id, generation, this.clock()); }
   async start(selection: AiBatchSelection, key: string, actor: string) {
     if (!this.enabled) throw new AiReviewError("ai_unconfigured", "AI 자동 채우기가 설정되지 않았습니다.", 503);
     const batch = await this.repository.create(this.id(), actor, key, selection, this.clock());
@@ -43,15 +43,15 @@ export class AiBatchService {
   async recover(batchId?: string) {
     let queued = 0, failed = 0;
     if (!this.enabled) return { queued, failed };
-    for (const id of await this.repository.pending(this.clock(), batchId)) {
-      try { await this.send(id); queued++; } catch { failed++; }
+    for (const item of await this.repository.pending(this.clock(), batchId)) {
+      try { await this.send(item.id, item.generation); queued++; } catch { failed++; }
     }
     return { queued, failed };
   }
-  async process(id: string) {
+  async process(id: string, generation: number) {
     if (!this.enabled) return;
     const token = this.id();
-    const item = await this.repository.claim(id, token, this.clock());
+    const item = await this.repository.claim(id, generation, token, this.clock());
     if (!item) return;
     try {
       if (!await this.repository.current(item)) {

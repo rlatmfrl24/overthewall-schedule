@@ -49,13 +49,17 @@ it("refreshes the inbox only when batch progress changes, not on unchanged polls
   const invalidate = vi.spyOn(client, "invalidateQueries");
   await act(async () => { await client.refetchQueries({ queryKey: ["otw-play-ai-batches"] }); });
   expect(invalidate).not.toHaveBeenCalled();
+  await act(async () => { client.setQueriesData({ queryKey: ["otw-play-review-inbox"] }, { pages: [{ items: [row("clip-a")], nextCursor: "page-2" }, { items: [row("later-page")], nextCursor: null }], pageParams: [null, "page-2"] }); });
+  fetchReview.mockClear();
   progress.data[0].counts.queued = 1; progress.data[0].counts.saved = 1;
   await act(async () => { await client.refetchQueries({ queryKey: ["otw-play-ai-batches"] }); });
-  await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["otw-play-review-inbox"] }));
+  await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["otw-play-review-inbox"], exact: false }));
+  expect(fetchReview.mock.calls.every(([filters]) => filters.cursor === undefined)).toBe(true);
+  expect(client.getQueriesData<{ pages: unknown[] }>({ queryKey: ["otw-play-review-inbox"] })[0][1]?.pages).toHaveLength(1);
   invalidate.mockClear();
   progress.data[0].updatedAt = 2;
   await act(async () => { await client.refetchQueries({ queryKey: ["otw-play-ai-batches"] }); });
-  await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["otw-play-review-inbox"] }));
+  await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["otw-play-review-inbox"], exact: false }));
   client.clear();
 });
 it("shows AI status and draft review in the existing candidate row without a duplicate batch list", async () => {

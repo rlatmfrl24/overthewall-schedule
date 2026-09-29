@@ -16,6 +16,7 @@ vi.mock("./scheduled-queue", () => ({
 }));
 
 import { handleWorkerQueue } from "./worker-queue";
+import { isAiBatchMessage } from "./ai-review";
 
 describe("consolidated Worker queue routing", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -87,7 +88,7 @@ describe("consolidated Worker queue routing", () => {
         idempotencyKey: "legacy-1",
       },
     };
-    const aiMessage = { body: { kind: "otw_play_ai_batch", schemaVersion: 1, itemId: "batch-item" } };
+    const aiMessage = { body: { kind: "otw_play_ai_batch", schemaVersion: 1, itemId: "batch-item", generation: 0 } };
 
     await handleWorkerQueue({
       queue: "otw-dead-letter",
@@ -121,4 +122,11 @@ describe("consolidated Worker queue routing", () => {
 
     expect(ack).toHaveBeenCalledOnce();
   });
+});
+
+it("requires a non-negative integer retry generation for batch messages", () => {
+  const message = { kind: "otw_play_ai_batch", schemaVersion: 1, itemId: "item" };
+  for (const generation of [undefined, null, -1, 0.5, "1", Infinity])
+    expect(isAiBatchMessage({ ...message, generation })).toBe(false);
+  expect(isAiBatchMessage({ ...message, generation: 1 })).toBe(true);
 });
