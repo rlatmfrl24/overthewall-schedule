@@ -11,6 +11,7 @@ export const aiBatchStatusLabels: Record<AiBatchItemStatus, string> = {
 export interface AiBatchSummary {
   id: string;
   createdAt: number;
+  updatedAt: number;
   total: number;
   counts: Record<AiBatchItemStatus, number>;
 }

@@ -40,7 +40,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 it("refreshes the inbox only when batch progress changes, not on unchanged polls", async () => {
-  const progress = { data: [{ id: "batch", createdAt: 1, total: 2, counts: { queued: 2, analyzing: 0, saving: 0, saved: 0, needs_selection: 0, failed: 0, changed: 0 } }] };
+  const progress = { data: [{ id: "batch", createdAt: 1, updatedAt: 1, total: 2, counts: { queued: 2, analyzing: 0, saving: 0, saved: 0, needs_selection: 0, failed: 0, changed: 0 } }] };
   batchApi.list.mockImplementation(async () => structuredClone(progress));
   const client = createTestQueryClient();
   render(<QueryClientProvider client={client}><ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} /></QueryClientProvider>);
@@ -50,6 +50,10 @@ it("refreshes the inbox only when batch progress changes, not on unchanged polls
   await act(async () => { await client.refetchQueries({ queryKey: ["otw-play-ai-batches"] }); });
   expect(invalidate).not.toHaveBeenCalled();
   progress.data[0].counts.queued = 1; progress.data[0].counts.saved = 1;
+  await act(async () => { await client.refetchQueries({ queryKey: ["otw-play-ai-batches"] }); });
+  await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["otw-play-review-inbox"] }));
+  invalidate.mockClear();
+  progress.data[0].updatedAt = 2;
   await act(async () => { await client.refetchQueries({ queryKey: ["otw-play-ai-batches"] }); });
   await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["otw-play-review-inbox"] }));
   client.clear();

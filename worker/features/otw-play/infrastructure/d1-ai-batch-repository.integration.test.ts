@@ -78,6 +78,12 @@ it("includes only the latest AI summary on every review page without exposing th
   expect(rows.find(r => r.id === "youtube:AAAAAAAAAA0")?.aiDraft).toEqual({ status: "failed", errorMessage: "분석 실패" });
   expect(rows.filter(r => r.id !== "youtube:AAAAAAAAAA0").every(r => r.aiDraft?.status === "saved")).toBe(true);
   expect(rows.every(r => Object.keys(r.aiDraft!).length === 2)).toBe(true);
+  const before = (await repo.get("new")).batch;
+  await db.prepare("UPDATE music_ai_review_batch_items SET error_message='새 대기 사유',updated_at=? WHERE batch_id='new'").bind(now + 2).run();
+  const after = (await repo.get("new")).batch;
+  expect(after.counts).toEqual(before.counts);
+  expect(after.updatedAt).toBeGreaterThan(before.updatedAt);
+  expect((await repo.list()).find(b => b.id === "new")?.updatedAt).toBe(after.updatedAt);
 });
 
 function services(repository = new D1AiBatchRepository(db), dailyLimit = 100) {

@@ -58,19 +58,20 @@ export class D1AiBatchRepository implements AiBatchRepository {
     const row = await this.db.prepare("SELECT id,created_at FROM music_ai_review_batches WHERE id=?").bind(id).first<{ id: string; created_at: number }>();
     if (!row) throw new AiReviewError("not_found", "일괄 요청을 찾을 수 없습니다.", 404);
     const counts: AiBatchSummary["counts"] = { queued: 0, analyzing: 0, saving: 0, saved: 0, needs_selection: 0, failed: 0, changed: 0 };
-    const groups = await this.db.prepare("SELECT status,count(*) AS n FROM music_ai_review_batch_items WHERE batch_id=? GROUP BY status").bind(id).all<{ status: AiBatchItem["status"]; n: number }>();
+    const groups = await this.db.prepare("SELECT status,count(*) AS n,max(updated_at) AS updated_at FROM music_ai_review_batch_items WHERE batch_id=? GROUP BY status").bind(id).all<{ status: AiBatchItem["status"]; n: number; updated_at: number }>();
     for (const g of groups.results) counts[g.status] = g.n;
-    return { id, createdAt: row.created_at, counts, total: Object.values(counts).reduce((a, b) => a + b, 0) };
+    return { id, createdAt: row.created_at, updatedAt: Math.max(row.created_at, ...groups.results.map(g => g.updated_at)), counts, total: Object.values(counts).reduce((a, b) => a + b, 0) };
   }
   async list() {
-    const rows = await this.db.prepare(`SELECT b.id,b.created_at,i.status,count(i.id) AS n FROM music_ai_review_batches b
+    const rows = await this.db.prepare(`SELECT b.id,b.created_at,i.status,count(i.id) AS n,max(i.updated_at) AS updated_at FROM music_ai_review_batches b
       LEFT JOIN music_ai_review_batch_items i ON i.batch_id=b.id
       WHERE b.id IN (SELECT id FROM music_ai_review_batches ORDER BY created_at DESC,id DESC LIMIT 20)
         OR b.id IN (SELECT batch_id FROM music_ai_review_batch_items WHERE status IN ${pending})
-      GROUP BY b.id,i.status ORDER BY b.created_at DESC,b.id DESC`).all<{ id: string; created_at: number; status: AiBatchItem["status"] | null; n: number }>();
+      GROUP BY b.id,i.status ORDER BY b.created_at DESC,b.id DESC`).all<{ id: string; created_at: number; updated_at: number | null; status: AiBatchItem["status"] | null; n: number }>();
     const batches = new Map<string, AiBatchSummary>();
     for (const row of rows.results) {
-      const batch = batches.get(row.id) ?? { id: row.id, createdAt: row.created_at, total: 0, counts: { queued: 0, analyzing: 0, saving: 0, saved: 0, needs_selection: 0, failed: 0, changed: 0 } };
+      const batch = batches.get(row.id) ?? { id: row.id, createdAt: row.created_at, updatedAt: row.created_at, total: 0, counts: { queued: 0, analyzing: 0, saving: 0, saved: 0, needs_selection: 0, failed: 0, changed: 0 } };
+      batch.updatedAt = Math.max(batch.updatedAt, row.updated_at ?? row.created_at);
       if (row.status) batch.counts[row.status] = row.n;
       batch.total += row.n;
       batches.set(row.id, batch);

@@ -47,7 +47,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   const batchProgress = useQuery({ queryKey: ["otw-play-ai-batches"], queryFn: listAiBatches,
     enabled: active && source !== "user", retry: false,
     refetchInterval: q => active && !editingId && !search.proposal && q.state.data?.data.some(b => b.counts.queued + b.counts.analyzing + b.counts.saving > 0) ? 5000 : false });
-  const batchState = batchProgress.data ? JSON.stringify(batchProgress.data.data.map(batch => [batch.id, batch.counts])) : null;
+  const batchState = batchProgress.data ? JSON.stringify(batchProgress.data.data.map(batch => [batch.id, batch.counts, batch.updatedAt])) : null;
   const previousBatchState = useRef<string | null>(null);
   useEffect(() => {
     if (!active || batchState === null) return;
