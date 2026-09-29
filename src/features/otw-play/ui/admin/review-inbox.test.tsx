@@ -3,7 +3,8 @@ import { createAdminCatalogFixture, createReviewItemFixture } from "../../test/c
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { createQueryWrapper } from "@/test/query-client";
+import { createQueryWrapper, createTestQueryClient } from "@/test/query-client";
+import { QueryClientProvider } from "@tanstack/react-query";
 import type { OtwPlayAdminCatalogDto, OtwPlayReviewItemDto } from "@contracts/otw-play";
 import { ReviewInbox } from "./review-inbox";
 import { ConsoleSearchContext } from "@/shared/lib/admin-console-search";
@@ -38,6 +39,21 @@ beforeEach(() => {
   fetchReview.mockResolvedValue({ items: [row("clip-a"), row("clip-b"), row("clip-c", "needs_input")], nextCursor: null });
 });
 afterEach(cleanup);
+it("refreshes the inbox only when batch progress changes, not on unchanged polls", async () => {
+  const progress = { data: [{ id: "batch", createdAt: 1, total: 2, counts: { queued: 2, analyzing: 0, saving: 0, saved: 0, needs_selection: 0, failed: 0, changed: 0 } }] };
+  batchApi.list.mockImplementation(async () => structuredClone(progress));
+  const client = createTestQueryClient();
+  render(<QueryClientProvider client={client}><ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} /></QueryClientProvider>);
+  await screen.findByText("총 2개 · 대기 2개");
+  await screen.findByText("clip-a");
+  const invalidate = vi.spyOn(client, "invalidateQueries");
+  await act(async () => { await client.refetchQueries({ queryKey: ["otw-play-ai-batches"] }); });
+  expect(invalidate).not.toHaveBeenCalled();
+  progress.data[0].counts.queued = 1; progress.data[0].counts.saved = 1;
+  await act(async () => { await client.refetchQueries({ queryKey: ["otw-play-ai-batches"] }); });
+  await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["otw-play-review-inbox"] }));
+  client.clear();
+});
 it("shows AI status and draft review in the existing candidate row without a duplicate batch list", async () => {
   fetchReview.mockResolvedValue({ items: [
     { ...reviewRow("saved-video"), aiDraft: { status: "saved", errorMessage: null } },

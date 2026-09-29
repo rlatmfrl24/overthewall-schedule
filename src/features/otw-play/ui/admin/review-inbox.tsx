@@ -47,13 +47,15 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   const batchProgress = useQuery({ queryKey: ["otw-play-ai-batches"], queryFn: listAiBatches,
     enabled: active && source !== "user", retry: false,
     refetchInterval: q => active && !editingId && !search.proposal && q.state.data?.data.some(b => b.counts.queued + b.counts.analyzing + b.counts.saving > 0) ? 5000 : false });
-  const previousBatchUpdate = useRef(0);
+  const batchState = batchProgress.data ? JSON.stringify(batchProgress.data.data.map(batch => [batch.id, batch.counts])) : null;
+  const previousBatchState = useRef<string | null>(null);
   useEffect(() => {
-    if (active && previousBatchUpdate.current && previousBatchUpdate.current !== batchProgress.dataUpdatedAt) {
+    if (!active || batchState === null) return;
+    if (previousBatchState.current !== null && previousBatchState.current !== batchState) {
       void client.invalidateQueries({ queryKey: ["otw-play-review-inbox"] });
     }
-    previousBatchUpdate.current = batchProgress.dataUpdatedAt;
-  }, [active, batchProgress.dataUpdatedAt, client]);
+    previousBatchState.current = batchState;
+  }, [active, batchState, client]);
   const query = useInfiniteQuery({ enabled: active && (source !== "playlist" || Boolean(jobId)), queryKey: ["otw-play-review-inbox", filters], queryFn: ({ pageParam }) => fetchOtwPlayReviewItems({ ...filters, cursor: pageParam ?? undefined }), initialPageParam: null as string | null, getNextPageParam: page => page.nextCursor, refetchOnWindowFocus: false, refetchOnReconnect: false, staleTime: Infinity });
   const rows = query.data?.pages.flatMap(page => page.items) ?? [];
   const selectableRows = rows.filter(row => row.kind === "candidate" && row.status === "ready" && !row.pendingProposalId);
