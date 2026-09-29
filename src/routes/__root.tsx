@@ -52,7 +52,7 @@ const RootComponent = () => {
     <UiScopeContext value={chromeMode === "admin" ? "admin" : isPlayRoute ? "play" : "public"}>
       <InteractionProvider>
         <SiteSeoProvider pathname={location.pathname}>
-          <SiteContentProvider key={location.pathname}>
+          <SiteContentProvider>
             <SiteContentMetadata path={location.pathname} />
             {content}
           </SiteContentProvider>
