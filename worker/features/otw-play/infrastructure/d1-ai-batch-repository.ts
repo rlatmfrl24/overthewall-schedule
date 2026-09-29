@@ -126,6 +126,10 @@ export class D1AiBatchRepository implements AiBatchRepository {
       .bind(now + 600000, now, now, ...(batchId ? [batchId] : [])).all<{ id: string }>();
     return rows.results.map(r => r.id);
   }
+  async hasRecoveryWork(now: number) {
+    return Boolean(await this.db.prepare(`SELECT id FROM music_ai_review_batch_items WHERE status IN ${pending}
+      AND (lease_until IS NULL OR lease_until<=?) AND (dispatch_until IS NULL OR dispatch_until<=?) LIMIT 1`).bind(now, now).first());
+  }
   async retry(id: string, now: number) {
     await this.summary(id);
     await this.db.prepare(`UPDATE music_ai_review_batch_items AS i SET status='changed',error_message='후보가 변경되었습니다. 최신 내용을 확인하세요.',updated_at=?

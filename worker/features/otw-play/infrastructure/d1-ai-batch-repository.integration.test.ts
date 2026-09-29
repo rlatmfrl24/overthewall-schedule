@@ -137,7 +137,9 @@ it("recovers dispatch and abandoned leases, preserves multi-song results for sel
   const repo = new D1AiBatchRepository(db), { service, analyze, send, advance } = services(repo);
   send.mockRejectedValueOnce(new Error("queue offline"));
   const batch = await service.start(selection, "dispatch-retry", "admin"), item = (await service.get(batch.id)).items[0];
+  expect(await repo.hasRecoveryWork(now)).toBe(false);
   advance(600001);
+  expect(await repo.hasRecoveryWork(now + 600001)).toBe(true);
   expect(await service.recover()).toEqual({ queued: 1, failed: 0 });
   await repo.claim(item.id, "crashed-worker", now + 600001);
   expect(await repo.claim(item.id, "duplicate", now + 600002)).toBeNull();
@@ -146,6 +148,7 @@ it("recovers dispatch and abandoned leases, preserves multi-song results for sel
   await service.process(item.id);
   expect((await repo.draft(item.candidateId))?.result.songs).toHaveLength(2);
   expect((await service.get(batch.id)).batch.counts.needs_selection).toBe(1);
+  expect(await repo.hasRecoveryWork(now + 1200001)).toBe(false);
 });
 
 it("retries failed items without reprocessing successful drafts and blocks edits made during analysis", async () => {
