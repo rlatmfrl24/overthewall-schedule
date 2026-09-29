@@ -29,8 +29,7 @@ export function AiBatchPanel({ selection, allSelected, active, onToggleAll, onSt
         if (!await confirm({ title: `${preview.data.count}개 영상의 AI 초안을 준비할까요?`, description: "기존 검수값을 보존합니다. 페이지를 닫아도 분석·저장은 계속되며, 검수 완료와 카탈로그 등록은 직접 진행합니다. 실행 시점에 변경된 후보는 제외됩니다.", confirmLabel: "AI 분석·초안 저장" })) return;
         request.current = { selection: key, key: crypto.randomUUID() };
       }
-      const result = await startAiBatch(snapshot, request.current!.key);
-      await client.resetQueries({ queryKey: ["otw-play-ai-draft"] });
+      const result = await startAiBatch(snapshot, request.current!.key).finally(() => client.resetQueries({ queryKey: ["otw-play-ai-draft"] }));
       request.current = null;
       setSelectedBatch(result.data.id); onStarted();
       await client.invalidateQueries({ queryKey: ["otw-play-ai-batches"] });
@@ -61,7 +60,7 @@ export function AiBatchPanel({ selection, allSelected, active, onToggleAll, onSt
       <p role="status" className="min-w-0 flex-1 text-xs leading-5 tabular-nums">총 {batch.total}개 · {Object.entries(batch.counts).filter(([, count]) => count > 0).map(([status, count]) => `${aiBatchStatusLabels[status as keyof typeof aiBatchStatusLabels]} ${count}개`).join(" · ")}</p>
       {batch.counts.failed > 0 && <Button variant="outline" disabled={busy} onClick={async () => {
         setBusy(true); setError(null);
-        try { await retryAiBatch(batch.id); await client.resetQueries({ queryKey: ["otw-play-ai-draft"] }); await batches.refetch(); }
+        try { await retryAiBatch(batch.id).finally(() => client.resetQueries({ queryKey: ["otw-play-ai-draft"] })); await batches.refetch(); }
         catch { setError("재시도 요청에 실패했습니다."); } finally { setBusy(false); }
       }}>실패 항목 재시도</Button>}
     </>}

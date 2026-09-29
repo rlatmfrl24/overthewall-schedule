@@ -109,10 +109,14 @@ it("submits selected versions or the complete filter rather than only loaded row
 it("reuses the accepted request key after a lost response instead of requiring targets to be eligible again", async () => {
   fetchReview.mockResolvedValue({ items: [reviewRow("clip-a")], nextCursor: null });
   batchApi.start.mockRejectedValueOnce(new Error("응답 연결 끊김")).mockResolvedValueOnce({ data: { id: "batch-one" } });
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  const client = createTestQueryClient();
+  const draftKey = ["otw-play-ai-draft", "clip-a"];
+  client.setQueryData(draftKey, { data: { itemId: "old-draft", autoApply: true } });
+  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
   fireEvent.click(await screen.findByRole("checkbox", { name: "clip-a AI 초안 선택" }));
   fireEvent.click(screen.getByRole("button", { name: "선택 1개 AI 분석·초안 저장" }));
   await screen.findByText("응답 연결 끊김");
+  expect(client.getQueryData(draftKey)).toBeUndefined();
   await waitFor(() => expect(screen.getByRole("button", { name: "선택 1개 AI 분석·초안 저장" })).toHaveProperty("disabled", false));
   batchApi.preview.mockResolvedValue({ data: { count: 0 } });
   fireEvent.click(screen.getByRole("button", { name: "선택 1개 AI 분석·초안 저장" }));
