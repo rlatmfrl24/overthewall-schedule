@@ -70,7 +70,7 @@ AI 분석은 별도 작업·제안으로만 저장한다. 채널 승인, 후보 
 | `GEMINI_API_KEY` | Worker secret. 브라우저 환경 변수로 제공하지 않음 |
 | `OTW_PLAY_AI_REVIEW_ENABLED` | `false`; 신규 실행·모델 호출 활성화 |
 | `OTW_PLAY_AI_REVIEW_MODEL` | `gemini-3.8-flash` |
-| `OTW_PLAY_AI_REVIEW_DAILY_LIMIT` | `100`; 횟수 상한이며 금액 상한이 아님 |
+| `OTW_PLAY_AI_REVIEW_DAILY_LIMIT` | `500`; 실패·재시도를 포함한 UTC 일일 호출 시도 상한이며 금액 상한이 아님 |
 
 로컬은 Worker가 읽는 로컬 환경 파일에 키와 활성화 값을 설정한다. 운영은 로컬 검증 후 기존 릴리스 절차로 마이그레이션, `pnpm queues:provision`, Worker secret 설정, 코드 배포를 진행하고 실제 관리자 검증 후 활성화한다. 설정이 없으면 수동 검수는 계속 사용할 수 있다. 비활성화는 새 호출을 막으며 이미 진행 중인 외부 호출을 취소하지 않는다.
 

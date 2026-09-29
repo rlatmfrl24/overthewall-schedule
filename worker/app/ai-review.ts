@@ -40,7 +40,7 @@ export const createOtwPlayAiReviewService = (env: Env) => {
         1,
         Math.min(
           10000,
-          Math.floor(Number(env.OTW_PLAY_AI_REVIEW_DAILY_LIMIT) || 100),
+          Math.floor(Number(env.OTW_PLAY_AI_REVIEW_DAILY_LIMIT) || 500),
         ),
       ),
     },

@@ -49,7 +49,7 @@
     "OTW_PLAY_PUBLIC_ORIGIN": "https://otw-schedule.info",
     "OTW_PLAY_AI_REVIEW_ENABLED": "true",
     "OTW_PLAY_AI_REVIEW_MODEL": "gemini-3.8-flash",
-    "OTW_PLAY_AI_REVIEW_DAILY_LIMIT": "100",
+    "OTW_PLAY_AI_REVIEW_DAILY_LIMIT": "500",
   },
   "analytics_engine_datasets": [
     {
