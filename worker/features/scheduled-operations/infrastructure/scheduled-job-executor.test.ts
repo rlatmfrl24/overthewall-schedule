@@ -124,7 +124,7 @@ describe("scheduled job executor outcomes", () => {
     });
     const [planned] = await new ScheduledJobPlanner(env, repository as never).planScheduled("ingestion_recovery", 100);
     expect(planned.phase).toBe("requeue");
-    expect(await new ScheduledJobExecutor(env, repository as never).execute({ ...planned, run_id: "run" } as ScheduledJobItemRecord))
+    expect(await new ScheduledJobExecutor(env, repository as never).execute({ phase: planned.phase, run_id: "run" } as ScheduledJobItemRecord))
       .toMatchObject({ status: "succeeded", attempted: 1, succeeded: 1, failed: 0 });
     expect(aiRecovery).toHaveBeenCalledOnce();
     expect(ingestion).toHaveBeenCalledOnce();
