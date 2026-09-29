@@ -86,7 +86,7 @@ it("includes only the latest AI summary on every review page without exposing th
   expect((await repo.list()).find(b => b.id === "new")?.updatedAt).toBe(after.updatedAt);
 });
 
-function services(repository = new D1AiBatchRepository(db), dailyLimit = 100) {
+function services(repository = new D1AiBatchRepository(db), dailyLimit = 100, enabled = true) {
   let time = now;
   const catalog = { entities: [], songs: [], members: [] };
   const context = { candidate: async (id: string) => ({ videoId: id.slice(8), candidateKind: "official_video", status: "needs_input" }), catalog: async () => catalog } as unknown as AiReviewContext;
@@ -95,7 +95,7 @@ function services(repository = new D1AiBatchRepository(db), dailyLimit = 100) {
     readVideo: async (videoId) => ({ videoId, title: "Video", channelId: "channel", channelTitle: "Channel", thumbnailUrl: null, durationSeconds: 180, publishedAt: now, availabilityStatus: "playable", privacyStatus: "public" }), readChannel: vi.fn(),
   }, { analyze }, context, { send: vi.fn() }, { enabled: true, model: "test", dailyLimit }, async s => s, () => crypto.randomUUID(), () => time);
   const send = vi.fn(async () => {});
-  const service = new AiBatchService(repository, analysis, send, true, () => crypto.randomUUID(), () => time, context);
+  const service = new AiBatchService(repository, analysis, send, enabled, () => crypto.randomUUID(), () => time, context);
   return { service, analyze, send, advance: (ms: number) => { time += ms; } };
 }
 
@@ -208,4 +208,16 @@ it("ignores old queue and DLQ deliveries after an administrator retries", async 
   expect(analyze).not.toHaveBeenCalled();
   await service.process(item.id, 1);
   expect((await service.get(batch.id)).items[0].status).toBe("saved");
+});
+
+it("preserves failed items when retry is requested while AI is unconfigured", async () => {
+  await candidates(1);
+  const repo = new D1AiBatchRepository(db), { service } = services(repo);
+  const batch = await service.start(selection, "disabled-retry", "admin"), item = (await service.get(batch.id)).items[0];
+  await service.dead(item.id, 0);
+  const before = await repo.get(batch.id);
+  const disabled = services(repo, 100, false);
+  await expect(disabled.service.retry(batch.id)).rejects.toMatchObject({ code: "ai_unconfigured", status: 503 });
+  expect(await repo.get(batch.id)).toEqual(before);
+  expect(disabled.send).not.toHaveBeenCalled();
 });
