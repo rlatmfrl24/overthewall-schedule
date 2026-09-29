@@ -221,3 +221,18 @@ it("preserves failed items when retry is requested while AI is unconfigured", as
   expect(await repo.get(batch.id)).toEqual(before);
   expect(disabled.send).not.toHaveBeenCalled();
 });
+
+it("never falls back to an older draft while the latest request is pending", async () => {
+  await candidates(1);
+  const repo = new D1AiBatchRepository(db);
+  await repo.create("older", "admin", "older-draft", selection, now);
+  await db.prepare("UPDATE music_ai_review_batch_items SET status='saved',result_json=? WHERE batch_id='older'").bind(JSON.stringify(result)).run();
+  expect(await repo.draft("youtube:AAAAAAAAAA0")).not.toBeNull();
+  await repo.create("latest", "admin", "latest-draft", selection, now + 1);
+  for (const status of ["queued", "analyzing", "saving"]) {
+    await db.prepare("UPDATE music_ai_review_batch_items SET status=?,result_json=? WHERE batch_id='latest'").bind(status, status === "saving" ? JSON.stringify(result) : null).run();
+    expect(await repo.draft("youtube:AAAAAAAAAA0")).toBeNull();
+  }
+  await db.prepare("UPDATE music_ai_review_batch_items SET status='saved' WHERE batch_id='latest'").run();
+  expect((await repo.draft("youtube:AAAAAAAAAA0"))?.itemId).toBe((await repo.get("latest")).items[0].id);
+});

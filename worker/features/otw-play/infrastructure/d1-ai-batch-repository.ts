@@ -88,9 +88,9 @@ export class D1AiBatchRepository implements AiBatchRepository {
   }
   async draft(candidateId: string): Promise<AiBatchDraft | null> {
     const row = await this.db.prepare(`SELECT i.*, EXISTS (SELECT 1 FROM music_ingestion_candidates c WHERE c.id=i.candidate_id AND ${current} AND c.review_input_json IS NULL) AS can_apply
-      FROM music_ai_review_batch_items i WHERE i.candidate_id=? AND i.result_json IS NOT NULL AND i.status NOT IN ${pending}
+      FROM music_ai_review_batch_items i WHERE i.candidate_id=?
       ORDER BY i.created_at DESC,i.id DESC LIMIT 1`).bind(candidateId).first<Row>();
-    if (!row) return null;
+    if (!row?.result_json || ["queued", "analyzing", "saving"].includes(String(row.status))) return null;
     return { itemId: String(row.id), candidateVersion: Number(row.candidate_version), candidateKind: row.candidate_kind as AiBatchItem["candidateKind"],
       status: row.status as AiBatchItem["status"], result: JSON.parse(String(row.result_json)),
       autoApply: ["saved", "needs_selection"].includes(String(row.status)) && Boolean(row.auto_apply) && Boolean(row.can_apply) };
