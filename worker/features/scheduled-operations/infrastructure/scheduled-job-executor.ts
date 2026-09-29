@@ -297,7 +297,7 @@ export class ScheduledJobExecutor {
     const continuation = parseContinuation(item);
     const isPlayWork = [
       "websub_maintenance", "source_health", "channel_reconcile", "recent_reconcile",
-    ].includes(run.job_type) || run.job_type === "ingestion_recovery" && item.phase === "requeue";
+    ].includes(run.job_type);
     const automationPaused = run.source === "scheduled" && isPlayWork &&
       await readOtwPlayAutomationPaused(this.env.otw_db);
     if (automationPaused) {
