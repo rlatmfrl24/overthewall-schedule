@@ -90,14 +90,20 @@ it("shows an older batch's import job even when it is absent from recent history
 });
 it("submits selected versions or the complete filter rather than only loaded rows", async () => {
   fetchReview.mockResolvedValue({ items: [reviewRow("clip-a")], nextCursor: null });
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  const client = createTestQueryClient();
+  const draftKey = ["otw-play-ai-draft", "clip-a"];
+  client.setQueryData(draftKey, { data: { itemId: "old-draft", autoApply: true } });
+  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
   fireEvent.click(await screen.findByRole("checkbox", { name: "clip-a AI 초안 선택" }));
   fireEvent.click(screen.getByRole("button", { name: "선택 1개 AI 분석·초안 저장" }));
   await waitFor(() => expect(batchApi.start).toHaveBeenCalledWith({ candidates: [{ id: "clip-a", version: 4 }] }, expect.any(String)));
   await waitFor(() => expect(screen.getByRole("button", { name: "현재 필터 전체 대상 선택" })).toHaveProperty("disabled", false));
+  expect(client.getQueryData(draftKey)).toBeUndefined();
+  client.setQueryData(draftKey, { data: { itemId: "old-draft", autoApply: true } });
   fireEvent.click(screen.getByRole("button", { name: "현재 필터 전체 대상 선택" }));
   fireEvent.click(screen.getByRole("button", { name: "전체 대상 AI 분석·초안 저장" }));
   await waitFor(() => expect(batchApi.start).toHaveBeenLastCalledWith({ filters: { source: "playlist", jobId: "job-a" } }, expect.any(String)));
+  await waitFor(() => expect(client.getQueryData(draftKey)).toBeUndefined());
   expect(convert).not.toHaveBeenCalled();
 });
 it("reuses the accepted request key after a lost response instead of requiring targets to be eligible again", async () => {

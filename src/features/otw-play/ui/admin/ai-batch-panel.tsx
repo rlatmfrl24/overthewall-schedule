@@ -30,6 +30,7 @@ export function AiBatchPanel({ selection, allSelected, active, onToggleAll, onSt
         request.current = { selection: key, key: crypto.randomUUID() };
       }
       const result = await startAiBatch(snapshot, request.current!.key);
+      await client.resetQueries({ queryKey: ["otw-play-ai-draft"] });
       request.current = null;
       setSelectedBatch(result.data.id); onStarted();
       await client.invalidateQueries({ queryKey: ["otw-play-ai-batches"] });
@@ -60,7 +61,7 @@ export function AiBatchPanel({ selection, allSelected, active, onToggleAll, onSt
       <p role="status" className="min-w-0 flex-1 text-xs leading-5 tabular-nums">총 {batch.total}개 · {Object.entries(batch.counts).filter(([, count]) => count > 0).map(([status, count]) => `${aiBatchStatusLabels[status as keyof typeof aiBatchStatusLabels]} ${count}개`).join(" · ")}</p>
       {batch.counts.failed > 0 && <Button variant="outline" disabled={busy} onClick={async () => {
         setBusy(true); setError(null);
-        try { await retryAiBatch(batch.id); await batches.refetch(); }
+        try { await retryAiBatch(batch.id); await client.resetQueries({ queryKey: ["otw-play-ai-draft"] }); await batches.refetch(); }
         catch { setError("재시도 요청에 실패했습니다."); } finally { setBusy(false); }
       }}>실패 항목 재시도</Button>}
     </>}
