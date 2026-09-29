@@ -43,7 +43,7 @@ it("follows the selected week and clears stale JSON-LD without replacing the UI 
     useSiteContentDate(date);
     return <button onClick={() => setDate("2026-09-29")}>다음 주</button>;
   }
-  const view = render(<QueryClientProvider client={client}><SiteContentProvider><SiteContentMetadata path="/weekly" /><Week /></SiteContentProvider></QueryClientProvider>);
+  const view = render(<QueryClientProvider client={client}><SiteContentProvider pathname="/weekly"><SiteContentMetadata path="/weekly" /><Week /></SiteContentProvider></QueryClientProvider>);
   await waitFor(() => expect(document.getElementById("site-content-jsonld")?.textContent).toContain("선택한 주 일정"));
   expect(view.container.textContent).toBe("다음 주");
   fireEvent.click(screen.getByText("다음 주"));

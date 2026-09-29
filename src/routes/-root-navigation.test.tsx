@@ -30,9 +30,9 @@ function PersistentLayout() {
   </>;
 }
 
-function Week() {
-  useSiteContentDate("2026-09-22");
-  return <h1>Week</h1>;
+function Schedule({ date }: { date: string }) {
+  useSiteContentDate(date);
+  return <h1>Schedule</h1>;
 }
 
 function renderApp(initialPath = "/play") {
@@ -47,9 +47,10 @@ function renderApp(initialPath = "/play") {
   const pages = ["/", "clips", "playlists"].map(path => createRoute({
     getParentRoute: () => play, path, component: () => <h1>{path}</h1>,
   }));
-  const weekly = createRoute({ getParentRoute: () => root, path: "weekly", component: Week });
+  const weekly = createRoute({ getParentRoute: () => root, path: "weekly", component: () => <Schedule date="2026-09-22" /> });
+  const daily = createRoute({ getParentRoute: () => root, path: "/", component: () => <Schedule date="2026-09-29" /> });
   const router = createRouter({
-    routeTree: root.addChildren([play.addChildren(pages), weekly]),
+    routeTree: root.addChildren([play.addChildren(pages), weekly, daily]),
     history: createMemoryHistory({ initialEntries: [initialPath] }),
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -75,12 +76,19 @@ it("preserves the common layout and iframe across Play tabs while updating route
   } finally { app.dispose(); }
 });
 
-it("clears the selected schedule date on route exit without remounting the provider", async () => {
-  const app = renderApp("/weekly");
+it.each([
+  ["/weekly", "/play", "2026-09-22", undefined],
+  ["/weekly", "/", "2026-09-22", "2026-09-29"],
+  ["/", "/play", "2026-09-29", undefined],
+  ["/", "/weekly", "2026-09-29", "2026-09-22"],
+] as const)("never requests %s -> %s with the previous schedule date", async (from, to, oldDate, newDate) => {
+  const app = renderApp(from);
   try {
-    await waitFor(() => expect(fetchSiteContent).toHaveBeenCalledWith("/weekly", "2026-09-22"));
-    await act(async () => { await app.router.navigate({ to: "/play" }); });
-    await waitFor(() => expect(fetchSiteContent).toHaveBeenLastCalledWith("/play", undefined));
-    await waitFor(() => expect(document.getElementById("site-content-jsonld")?.textContent).toBe(JSON.stringify({ name: "/play" })));
+    await waitFor(() => expect(fetchSiteContent).toHaveBeenCalledWith(from, oldDate));
+    vi.mocked(fetchSiteContent).mockClear();
+    await act(async () => { await app.router.navigate({ to }); });
+    await waitFor(() => expect(fetchSiteContent).toHaveBeenLastCalledWith(to, newDate));
+    expect(fetchSiteContent).not.toHaveBeenCalledWith(to, oldDate);
+    await waitFor(() => expect(document.getElementById("site-content-jsonld")?.textContent).toBe(JSON.stringify({ name: to })));
   } finally { app.dispose(); }
 });
