@@ -6,7 +6,7 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Link, 
 import { afterEach, expect, it, vi } from "vitest";
 import { resolveSiteSeo } from "@contracts/site-seo";
 import { useSiteContentDate } from "@/features/site-content";
-import { fetchSiteContent } from "@/features/site-content/api/site-content";
+import { apiFetch } from "@/shared/api/client";
 import { Route } from "./__root";
 
 vi.mock("@/app/layout", () => ({
@@ -14,7 +14,9 @@ vi.mock("@/app/layout", () => ({
   PublicAppShell: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 vi.mock("@/app/layout/footer", () => ({ Footer: () => null }));
-vi.mock("@/features/site-content/api/site-content", () => ({ fetchSiteContent: vi.fn() }));
+vi.mock("@/shared/api/client", async importOriginal => ({
+  ...await importOriginal<typeof import("@/shared/api/client")>(), apiFetch: vi.fn(),
+}));
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -37,11 +39,14 @@ function Schedule({ date }: { date: string }) {
 
 function renderApp(initialPath = "/play") {
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
-  vi.mocked(fetchSiteContent).mockImplementation(async path => ({
-    path, date: "2026-09-29", metadata: resolveSiteSeo(path),
-    generatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 300_000).toISOString(),
-    sections: [], structuredData: { name: path },
-  }));
+  vi.mocked(apiFetch).mockImplementation(async url => {
+    const path = new URL(url, "http://localhost").searchParams.get("path")!;
+    return {
+      path, date: "2026-09-29", metadata: resolveSiteSeo(path),
+      generatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      sections: [], structuredData: { name: path },
+    };
+  });
   const root = createRootRoute({ component: Route.options.component });
   const play = createRoute({ getParentRoute: () => root, path: "play", component: PersistentLayout });
   const pages = ["/", "clips", "playlists"].map(path => createRoute({
@@ -83,12 +88,16 @@ it.each([
   ["/", "/weekly", "2026-09-29", "2026-09-22"],
 ] as const)("never requests %s -> %s with the previous schedule date", async (from, to, oldDate, newDate) => {
   const app = renderApp(from);
+  const requests = () => vi.mocked(apiFetch).mock.calls.map(([url]) => {
+    const params = new URL(url, "http://localhost").searchParams;
+    return [params.get("path"), params.get("date") ?? undefined];
+  });
   try {
-    await waitFor(() => expect(fetchSiteContent).toHaveBeenCalledWith(from, oldDate));
-    vi.mocked(fetchSiteContent).mockClear();
+    await waitFor(() => expect(requests()).toContainEqual([from, oldDate]));
+    vi.mocked(apiFetch).mockClear();
     await act(async () => { await app.router.navigate({ to }); });
-    await waitFor(() => expect(fetchSiteContent).toHaveBeenLastCalledWith(to, newDate));
-    expect(fetchSiteContent).not.toHaveBeenCalledWith(to, oldDate);
+    await waitFor(() => expect(requests().at(-1)).toEqual([to, newDate]));
+    expect(requests()).not.toContainEqual([to, oldDate]);
     await waitFor(() => expect(document.getElementById("site-content-jsonld")?.textContent).toBe(JSON.stringify({ name: to })));
   } finally { app.dispose(); }
 });
