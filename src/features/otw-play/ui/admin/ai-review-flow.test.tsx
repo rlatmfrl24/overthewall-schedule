@@ -19,6 +19,7 @@ import type {
 } from "@contracts/otw-play";
 import type { AiReviewDto } from "@contracts/otw-play-ai-review";
 const mocks = vi.hoisted(() => ({
+  draft: vi.fn(),
   start: vi.fn(),
   get: vi.fn(),
   latest: vi.fn(),
@@ -29,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   prepareSound: vi.fn(),
   playSound: vi.fn(),
 }));
+vi.mock("../../api/ai-batch", () => ({ getAiBatchDraft: mocks.draft }));
 vi.mock("./use-ai-review-sound", () => ({ useAiReviewSound: () => ({ prepare: mocks.prepareSound, play: mocks.playSound }) }));
 vi.mock("../../api/ai-review", () => ({
   startAiReview: mocks.start,
@@ -146,6 +148,7 @@ const result = (clip: boolean): AiReviewDto => ({
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.latest.mockResolvedValue({ data: null });
+  mocks.draft.mockResolvedValue({ data: null });
   mocks.create.mockResolvedValue({ data: { createdEntities: [] } });
   mocks.save.mockImplementation(async (_id, { input }) => ({
     id: candidate.candidateId,
@@ -156,6 +159,43 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe("AI suggestions through actual admin forms", () => {
+  it.each(["stale", "human"])("does not automatically replace %s review state with a batch draft", async mode => {
+    const protectedCandidate = mode === "human" ? { ...candidate, reviewInput: {
+      song: { kind: "create" as const, title: "저장한 곡", isOtwOriginal: false, originalReleaseDate: null, originalReleasePrecision: "unknown" as const, aliases: [], originalArtists: [], tags: [] },
+      participants: [], relationType: "singing_clip" as const, releaseType: "broadcast" as const, participationType: "solo" as const,
+    } } : candidate;
+    mocks.draft.mockResolvedValue({ data: { itemId: "batch-item", candidateVersion: mode === "stale" ? 0 : 1, candidateKind: "singing_clip", status: "saved", result: result(true).result, autoApply: mode !== "human" } });
+    render(createElement(SingingClipReviewDialog, { candidate: protectedCandidate, catalog, reviewOnly: true, onOpenChange: vi.fn(), onConverted: vi.fn(), onReviewStateChanged: async () => {} }), { wrapper: createQueryWrapper() });
+    await screen.findByRole("button", { name: "AI 제안 일괄 적용" });
+    expect(screen.getByLabelText("곡명")).toHaveProperty("value", mode === "human" ? "저장한 곡" : candidate.title);
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+  it("reopens a persisted batch draft, fills the form, and saves through human review before moving next", async () => {
+    const next = vi.fn(async () => {});
+    mocks.draft.mockResolvedValue({ data: { itemId: "batch-item", candidateVersion: 1, candidateKind: "singing_clip", status: "saved", result: result(true).result, autoApply: true } });
+    render(createElement(SingingClipReviewDialog, { candidate, catalog, reviewOnly: true, presentation: "page", onOpenChange: vi.fn(), onConverted: vi.fn(), onReviewStateChanged: async () => {}, onReviewNext: next }), { wrapper: createQueryWrapper() });
+    await waitFor(() => expect(screen.getByLabelText("곡명")).toHaveProperty("value", "정리된 곡명"));
+    expect(mocks.save).not.toHaveBeenCalled(); expect(mocks.start).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "검수 저장 후 다음 항목" }));
+    await waitFor(() => expect(next).toHaveBeenCalledTimes(1));
+    expect(mocks.save).toHaveBeenCalledWith(candidate.candidateId, expect.objectContaining({ action: "save", expectedVersion: 1,
+      input: expect.objectContaining({ startSeconds: 12, endSeconds: 140, song: expect.objectContaining({ title: "정리된 곡명" }) }) }));
+  });
+  it("keeps in-progress manual input when a stored draft arrives and lets a multi-song draft be selected", async () => {
+    const client = createTestQueryClient();
+    render(createElement(QueryClientProvider, { client }, createElement(SingingClipReviewDialog, { candidate, catalog, reviewOnly: true, presentation: "page", onOpenChange: vi.fn(), onConverted: vi.fn(), onReviewStateChanged: async () => {} })));
+    await waitFor(() => expect(mocks.draft).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("곡명"), { target: { value: "직접 수정한 곡" } });
+    mocks.draft.mockResolvedValue({ data: { itemId: "batch-item", candidateVersion: 1, candidateKind: "singing_clip", status: "saved", result: result(true).result, autoApply: true } });
+    await act(async () => { await client.invalidateQueries({ queryKey: ["otw-play-ai-draft"] }); });
+    expect(screen.getByLabelText("곡명")).toHaveProperty("value", "직접 수정한 곡");
+    const multi = { ...result(true).result!, songs: [result(true).result!.songs[0], result(true).result!.songs[0]] };
+    mocks.draft.mockResolvedValue({ data: { itemId: "multi", candidateVersion: 1, candidateKind: "singing_clip", status: "needs_selection", result: multi, autoApply: true } });
+    await act(async () => { await client.invalidateQueries({ queryKey: ["otw-play-ai-draft"] }); });
+    expect(await screen.findByLabelText("AI 분석 곡 선택")).toBeTruthy();
+    expect(screen.getByLabelText("곡명")).toHaveProperty("value", "직접 수정한 곡");
+    client.clear();
+  });
   it("keeps a searched song selection when an in-flight AI result arrives", async () => {
     const client = createTestQueryClient();
     const queued = { ...result(true), status: "queued" as const, result: null };

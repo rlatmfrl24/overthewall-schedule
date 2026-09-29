@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { XReferenceHydrationResultDto } from "@contracts/x-posts";
 import type { Env } from "../../../platform/types";
 import type { ScheduledJobItemRecord } from "../../../platform/scheduled-jobs";
-import { AiReviewService, IngestionService } from "../../otw-play";
+import { AiReviewService, AiBatchService, D1AiBatchRepository, D1IngestionRepository, CloudflareIngestionReadBudget, IngestionService } from "../../otw-play";
+import { ScheduledJobPlanner } from "./scheduled-job-planner";
 import * as schedules from "../../schedules";
 import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
 import {
@@ -105,6 +106,28 @@ describe("scheduled job executor outcomes", () => {
       .toMatchObject({ status: "succeeded", result: { cleared: 2, aiCleared: 1 } });
     expect(cleanup).toHaveBeenCalledWith(20);
     expect(aiCleanup).toHaveBeenCalledOnce();
+  });
+
+  it("executes AI-only recovery planned while ingestion is paused and read-budget blocked", async () => {
+    const statement = { bind: vi.fn(), first: vi.fn(async () => ({ value: "true" })) };
+    statement.bind.mockReturnValue(statement);
+    const env = { otw_db: { prepare: vi.fn(() => statement) }, YOUTUBE_API_KEY: "test", OTW_PLAY_AI_REVIEW_ENABLED: "true", GEMINI_API_KEY: "test", OTW_PLAY_AI_REVIEW_QUEUE: { send: vi.fn() } } as unknown as Env;
+    const repository = { readRun: vi.fn(async () => ({ job_type: "ingestion_recovery", source: "scheduled" })), hasRecoveryWork: async () => false };
+    vi.spyOn(D1IngestionRepository.prototype, "hasExpiredApiData").mockResolvedValue(false);
+    vi.spyOn(D1AiBatchRepository.prototype, "hasRecoveryWork").mockResolvedValue(true);
+    vi.spyOn(CloudflareIngestionReadBudget.prototype, "read").mockResolvedValue({ status: "blocked", rowsRead: 4_000_000, dailyTarget: 4_000_000, measuredAt: "2026-09-29T00:00:00Z", resetAt: "2026-09-30T00:00:00Z", reason: "daily_read_target" });
+    vi.spyOn(AiReviewService.prototype, "recover").mockResolvedValue({ queued: 0, failed: 0 });
+    const aiRecovery = vi.spyOn(AiBatchService.prototype, "recover").mockResolvedValue({ queued: 1, failed: 0 });
+    const ingestion = vi.spyOn(IngestionService.prototype, "requeuePendingWithOutcome").mockImplementation(async (_limit, maySend) => {
+      expect(await maySend!()).toBe(false);
+      return { attempted: 0, enqueued: 0, failed: 0 };
+    });
+    const [planned] = await new ScheduledJobPlanner(env, repository as never).planScheduled("ingestion_recovery", 100);
+    expect(planned.phase).toBe("requeue");
+    expect(await new ScheduledJobExecutor(env, repository as never).execute({ phase: planned.phase, run_id: "run" } as ScheduledJobItemRecord))
+      .toMatchObject({ status: "succeeded", attempted: 1, succeeded: 1, failed: 0 });
+    expect(aiRecovery).toHaveBeenCalledOnce();
+    expect(ingestion).toHaveBeenCalledOnce();
   });
 
   it.each(["websub_maintenance", "recent_reconcile"])("skips already dispatched retired %s work without D1 mutations", async (jobType) => {

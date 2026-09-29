@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloudflareIngestionReadBudget, D1IngestionRepository } from "../../otw-play";
+import { CloudflareIngestionReadBudget, D1IngestionRepository, D1AiBatchRepository } from "../../otw-play";
 import type {
   NewScheduledItem,
   ScheduledJobRunRecord,
@@ -130,6 +130,24 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     for (const jobType of ["channel_reconcile", "recent_reconcile", "source_health"] as const) {
       expect(await planner.planScheduled(jobType, 100)).toEqual([]);
     }
+  });
+
+  it("recovers AI-only batches despite paused ingestion and an exhausted read budget", async () => {
+    const { env } = makeEnv({});
+    env.OTW_PLAY_AI_REVIEW_ENABLED = "true";
+    env.GEMINI_API_KEY = "test";
+    env.OTW_PLAY_AI_REVIEW_QUEUE = { send: vi.fn() } as unknown as Queue;
+    mocks.readOtwPlayAutomationPaused.mockResolvedValue(true);
+    vi.spyOn(CloudflareIngestionReadBudget.prototype, "read").mockResolvedValue({ status: "blocked", rowsRead: 4_000_000, dailyTarget: 4_000_000, measuredAt: "2026-09-29T00:00:00Z", resetAt: "2026-09-30T00:00:00Z", reason: "daily_read_target" });
+    vi.spyOn(D1IngestionRepository.prototype, "hasExpiredApiData").mockResolvedValue(false);
+    const ingestion = vi.spyOn(D1IngestionRepository.prototype, "listPendingMessages");
+    const pending = vi.spyOn(D1AiBatchRepository.prototype, "hasRecoveryWork").mockResolvedValue(true);
+    const planner = new ScheduledJobPlanner(env, { hasRecoveryWork: async () => false } as never);
+    expect(await planner.planScheduled("ingestion_recovery", 100)).toEqual([{ targetKey: "requeue", phase: "requeue", lane: "ingestion" }]);
+    expect(ingestion).not.toHaveBeenCalled();
+    expect(pending).toHaveBeenCalledWith(100);
+    pending.mockResolvedValue(false);
+    expect(await planner.planScheduled("ingestion_recovery", 200)).toEqual([]);
   });
 
   it.each(["websub_maintenance", "recent_reconcile"] as const)("never plans retired %s work", async (jobType) => {
