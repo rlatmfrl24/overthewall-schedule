@@ -4,7 +4,7 @@ import {
 } from "@contracts/scheduled-operations";
 import type { Env } from "../platform/types";
 import { handleQueue } from "./queue";
-import { handleAiReviewQueue, isAiReviewMessage } from "./ai-review";
+import { handleAiReviewQueue, isAiReviewMessage, isAiBatchMessage } from "./ai-review";
 import {
   handleScheduledControlQueue,
   handleScheduledJobQueue,
@@ -49,9 +49,9 @@ export const handleWorkerQueue = async (
     );
     const mediaMessages = batch.messages.filter((message) =>
       !isScheduledControlQueueMessage(message.body) &&
-      !isScheduledJobQueueMessage(message.body) && !isAiReviewMessage(message.body)
+      !isScheduledJobQueueMessage(message.body) && !isAiReviewMessage(message.body) && !isAiBatchMessage(message.body)
     );
-    const aiMessages = batch.messages.filter(message => isAiReviewMessage(message.body));
+    const aiMessages = batch.messages.filter(message => isAiReviewMessage(message.body) || isAiBatchMessage(message.body));
     await Promise.all([
       aiMessages.length > 0 ? handleAiReviewQueue(asBatch(batch, aiMessages), env) : Promise.resolve(),
       scheduledMessages.length > 0

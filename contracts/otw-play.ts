@@ -1553,6 +1553,7 @@ export interface OtwPlayReviewItemDto {
   channelId: string | null;
   candidate: OtwPlayChannelMonitorCandidateDto | null;
   pendingProposalId?: string | null;
+  aiDraft?: { status: import("./otw-play-ai-batch").AiBatchItemStatus; errorMessage: string | null } | null;
 }
 export interface OtwPlayReviewPageDto {
   items: OtwPlayReviewItemDto[];

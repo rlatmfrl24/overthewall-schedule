@@ -583,6 +583,9 @@ export class D1IngestionRepository implements IngestionRepository {
     ) SELECT review.*, ${candidateOrigins} AS playlist, ${automaticOrigins} AS automatic,
       CASE WHEN review.kind = 'proposal' THEN 1 ELSE (${pendingProposal} IS NOT NULL) END AS user,
       ${pendingProposal} AS pending_proposal_id,
+      (SELECT json_object('status', i.status, 'errorMessage', i.error_message)
+        FROM music_ai_review_batch_items i WHERE review.kind = 'candidate' AND i.candidate_id = review.id
+        ORDER BY i.created_at DESC, i.id DESC LIMIT 1) AS ai_draft,
       CASE WHEN review.kind = 'candidate' THEN (SELECT json_object(
         'external_video_id', candidate.external_video_id, 'channel_id', candidate.channel_id, 'channel_title', candidate.channel_title,
         'thumbnail_url', candidate.thumbnail_url, 'duration_seconds', candidate.duration_seconds,
@@ -597,7 +600,7 @@ export class D1IngestionRepository implements IngestionRepository {
       ORDER BY review.ready_rank ASC, review.created_at DESC, review.sort_id DESC`)
       .bind(...values, position?.ready ?? null, position?.ready ?? null, position?.ready ?? null,
         position?.at ?? null, position?.at ?? null, position?.id ?? null)
-      .all<{ candidate_data: string | null; ready_rank: number; sort_id: string; id: string; kind: "candidate" | "proposal"; candidate_kind: "official_video" | "singing_clip"; title: string | null; status: string; version: number; created_at: number; playlist: number; automatic: number; user: number; pending_proposal_id: string | null }>());
+      .all<{ ai_draft: string | null; candidate_data: string | null; ready_rank: number; sort_id: string; id: string; kind: "candidate" | "proposal"; candidate_kind: "official_video" | "singing_clip"; title: string | null; status: string; version: number; created_at: number; playlist: number; automatic: number; user: number; pending_proposal_id: string | null }>());
     const items: import("@contracts/otw-play").OtwPlayReviewItemDto[] = [];
     for (const row of rows.slice(0, 50)) {
       let candidate: import("@contracts/otw-play").OtwPlayChannelMonitorCandidateDto | null = null;
@@ -614,6 +617,7 @@ export class D1IngestionRepository implements IngestionRepository {
           linkedPerformanceId: review.linkedPerformanceId, discoveredAt: row.created_at, monitorGeneration: 0, retentionExpiresAt: Number(detail.retention_expires_at) };
       }
       items.push({ id: row.id, kind: row.kind, candidateKind: row.candidate_kind, title: row.title, status: row.status, version: row.version, createdAt: row.created_at, channelId, candidate, pendingProposalId: row.pending_proposal_id,
+        aiDraft: row.ai_draft ? JSON.parse(row.ai_draft) : null,
         sources: [...(row.playlist ? ["playlist" as const] : []), ...(row.automatic ? ["automatic" as const] : []), ...(row.user ? ["user" as const] : [])] });
     }
     const last = rows.slice(0, 50).at(-1);

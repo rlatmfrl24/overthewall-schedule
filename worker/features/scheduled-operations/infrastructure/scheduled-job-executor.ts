@@ -26,7 +26,7 @@ import { getDb } from "../../../platform/db";
 import type { Env } from "../../../platform/types";
 import { createOtwPlayChannelMonitorService } from "../../../app/channel-monitors";
 import { createOtwPlayIngestionService } from "../../../app/ingestion";
-import { createOtwPlayAiReviewService } from "../../../app/ai-review";
+import { createOtwPlayAiReviewService, createOtwPlayAiBatchService } from "../../../app/ai-review";
 import type {
   D1ScheduledJobRepository,
   ScheduledJobItemRecord,
@@ -297,7 +297,7 @@ export class ScheduledJobExecutor {
     const continuation = parseContinuation(item);
     const isPlayWork = [
       "websub_maintenance", "source_health", "channel_reconcile", "recent_reconcile",
-    ].includes(run.job_type) || run.job_type === "ingestion_recovery" && item.phase === "requeue";
+    ].includes(run.job_type);
     const automationPaused = run.source === "scheduled" && isPlayWork &&
       await readOtwPlayAutomationPaused(this.env.otw_db);
     if (automationPaused) {
@@ -448,6 +448,9 @@ export class ScheduledJobExecutor {
         }
         if (item.phase === "requeue") {
           const ai = await createOtwPlayAiReviewService(this.env).recover();
+          const batches = await createOtwPlayAiBatchService(this.env).recover();
+          ai.queued += batches.queued;
+          ai.failed += batches.failed;
           const result = await service.requeuePendingWithOutcome(
             20,
             async () => !(await readOtwPlayAutomationPaused(this.env.otw_db)),
