@@ -4,6 +4,7 @@ import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
 import { ReviewPublicationPreview } from "./review-publication-preview";
 import { AI_REVIEW_FIELDS, type AiReviewFields } from "@contracts/otw-play-ai-review";
 import { AiReviewPanel } from "./ai-review-panel";
+import { getAiBatchDraft } from "../../api/ai-batch";
 import { SongConnectionPicker } from "./song-connection-picker";
 import { aiPersonSelection, useAiReviewForm } from "./ai-review-form";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
@@ -100,6 +101,7 @@ export function SingingClipReviewDialog({
   onConverted,
   onReviewSaved,
   onReviewStateChanged,
+  onReviewNext,
 }: {
   candidate: OtwPlayChannelMonitorCandidateDto | null;
   candidateKind?: "official_video" | "singing_clip";
@@ -112,6 +114,7 @@ export function SingingClipReviewDialog({
   onConverted: (performanceId: string | null) => Promise<void>;
   onReviewSaved?: () => void;
   onReviewStateChanged: () => Promise<void>;
+  onReviewNext?: () => Promise<void>;
 }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -198,6 +201,10 @@ export function SingingClipReviewDialog({
       case "extent":setBroadcast(old=>({...old,extent:value as "full"|"partial"|null}));break;
     }
   }, candidate?.reviewInput ? AI_REVIEW_FIELDS : []);
+  const batchDraftQuery = useQuery({ queryKey: ["otw-play-ai-draft", candidate?.candidateId],
+    queryFn: () => getAiBatchDraft(candidate!.candidateId), enabled: Boolean(candidate) && active && reviewOnly, retry: false });
+  const batchDraft = batchDraftQuery.data?.data;
+  const appliedBatch = useRef<string | null>(null);
   useEffect(() => {
     if (!candidate) {
       initializedCandidate.current = null;
@@ -247,6 +254,17 @@ export function SingingClipReviewDialog({
     );
     setInternalNote(input?.internalNote ?? "");
   }, [candidate, catalog]);
+  useEffect(() => {
+    if (!active || !candidate || !batchDraft || appliedBatch.current === batchDraft.itemId) return;
+    appliedBatch.current = batchDraft.itemId;
+    if (dirty || candidate.reviewInput || !batchDraft.autoApply || batchDraft.candidateVersion !== candidate.candidateVersion || batchDraft.candidateKind !== candidateKind || batchDraft.result.songs.length !== 1) return;
+    const suggestion = structuredClone(batchDraft.result.songs[0]);
+    if (suggestion.values.classification && (suggestion.values.classification.releaseType === "broadcast") !== (candidateKind === "singing_clip")) delete suggestion.values.classification;
+    if (candidateKind !== "singing_clip") { delete suggestion.values.broadcastDate; delete suggestion.values.originalUrl; delete suggestion.values.extent; }
+    ai.begin();
+    ai.receive(suggestion);
+    if (suggestion.values.segment) setSegmentEnabled(true);
+  }, [active, candidate, candidateKind, batchDraft, dirty, ai]);
 
   const parsedStart = Number(startSeconds);
   const parsedEnd = endSeconds.trim() ? Number(endSeconds) : null;
@@ -281,7 +299,7 @@ export function SingingClipReviewDialog({
     });
   };
 
-  const save = async () => {
+  const save = async (next = false) => {
     if (!candidate || !canSave || !reviewBaseline) return;
     setSaving(true);
     setSaveMessage("저장 중…");
@@ -345,7 +363,7 @@ export function SingingClipReviewDialog({
           participantRole: participant.participantRole,
         })));
       }
-      if (reviewOnly) { setDirty(false); setSaveMessage("검수 저장 완료"); await onReviewStateChanged(); onReviewSaved?.(); onOpenChange(false); return; }
+      if (reviewOnly) { setDirty(false); setSaveMessage("검수 저장 완료"); await onReviewStateChanged(); onReviewSaved?.(); if (next && onReviewNext) await onReviewNext(); else onOpenChange(false); return; }
       const converted = await convertOtwPlayImportCandidate(candidate.candidateId, {
         expectedVersion: reviewed.version,
       });
@@ -442,7 +460,9 @@ export function SingingClipReviewDialog({
             {candidate.catalogChannelId === null && <p role="status" className="text-sm text-destructive">업로드 채널 승인이 필요합니다. 채널 설정을 확인한 뒤 검수를 저장하세요.</p>}
             {candidate.availabilityStatus !== "playable" && <p role="status" className="text-sm text-destructive">현재 재생 가능 여부를 확인해야 저장할 수 있습니다.</p>}
             {onManageChannel && <Button variant="outline" disabled={saving} onClick={onManageChannel}>채널 승인·수집 설정</Button>}
-            <AiReviewPanel segmentEnabled={segmentEnabled} key={`${candidate.candidateId}:${candidateKind}`} target={{candidateId:candidate.candidateId}} videoId={candidate.videoId} candidateKind={candidateKind} durationSeconds={durationSeconds} initialRange={parsedEnd!==null?{startSeconds:parsedStart,endSeconds:parsedEnd}:null} form={ai} disabled={saving || !active || ["converted","ignored"].includes(candidate.status)} onSeek={presentation==="page"?setPreviewSeconds:undefined} />
+            {batchDraft && <p role="status" className="text-sm">AI 초안이 저장되어 있습니다. {batchDraft.candidateVersion !== candidate.candidateVersion || batchDraft.candidateKind !== candidateKind ? "후보가 변경되어 자동 적용하지 않았습니다. 최신 내용과 비교해 주세요." : batchDraft.result.songs.length !== 1 ? "적용할 곡과 구간을 선택해 주세요." : "내용을 확인한 뒤 검수 저장을 진행하세요."} 기존 검수값·작성 중인 입력은 보존합니다.</p>}
+            {batchDraftQuery.isError && <p role="alert">저장된 AI 초안을 불러오지 못했습니다. <Button variant="link" onClick={() => void batchDraftQuery.refetch()}>초안 다시 불러오기</Button></p>}
+            <AiReviewPanel storedDraft={batchDraft} segmentEnabled={segmentEnabled} key={`${candidate.candidateId}:${candidateKind}`} target={{candidateId:candidate.candidateId}} videoId={candidate.videoId} candidateKind={candidateKind} durationSeconds={durationSeconds} initialRange={parsedEnd!==null?{startSeconds:parsedStart,endSeconds:parsedEnd}:null} form={ai} disabled={saving || !active || ["converted","ignored"].includes(candidate.status)} onSeek={presentation==="page"?setPreviewSeconds:undefined} />
             </aside>
             <fieldset disabled={saving} className="min-w-0 space-y-6">
             <section className="grid gap-3 sm:grid-cols-2">
@@ -624,6 +644,7 @@ export function SingingClipReviewDialog({
             {saving ? <Loader2 className="animate-spin" /> : null}
             {reviewOnly ? "검수 저장 · 등록 준비 완료" : "검수 완료 후 임시 등록"}
           </Button>
+          {reviewOnly && onReviewNext && <Button disabled={!canSave} onClick={() => void save(true)}>검수 저장 후 다음 항목</Button>}
         </Footer>
         </div>
     </>

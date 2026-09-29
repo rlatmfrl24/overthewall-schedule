@@ -1,5 +1,6 @@
 import { useAiReviewSession } from "./use-ai-review-session";
 import { useAiReviewSound } from "./use-ai-review-sound";
+import type { AiBatchDraft } from "@contracts/otw-play-ai-batch";
 import { useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -102,6 +103,7 @@ export function AiReviewPanel({
   compact = false,
   session,
   segmentEnabled = false,
+  storedDraft,
 }: {
   target: AiReviewTarget;
   videoId: string;
@@ -114,6 +116,7 @@ export function AiReviewPanel({
   compact?: boolean;
   session?: ReturnType<typeof useAiReviewSession>;
   segmentEnabled?: boolean;
+  storedDraft?: AiBatchDraft | null;
 }) {
   const client = useQueryClient();
   const { toast } = useToast();
@@ -196,7 +199,12 @@ export function AiReviewPanel({
       durationMs: 6000,
     });
   }, [data, disabled, launching, notificationJob, toast, playSound]);
-  const result = data?.result;
+  const batchDraft = !rangeEnabled && !jobId ? storedDraft : null;
+  const result = batchDraft?.result ?? data?.result;
+  const batchDraftId = batchDraft?.itemId, batchSongCount = batchDraft?.result.songs.length;
+  useEffect(() => {
+    if (batchDraftId) setSelected(batchSongCount === 1 ? 0 : null);
+  }, [batchDraftId, batchSongCount, setSelected]);
   const apply = useCallback(
     (s: AiReviewSuggestion, field?: AiReviewField | "all") => {
       const copy = structuredClone(s);
@@ -311,7 +319,7 @@ export function AiReviewPanel({
         />
         지정 구간만 분석
       </label>
-      {data && (
+      {data && !batchDraft && (
         <span role="status" className="rounded bg-muted px-2 py-1 text-xs">
           {statuses[data.status]}
         </span>
@@ -342,10 +350,10 @@ export function AiReviewPanel({
         <summary className="cursor-pointer rounded focus-visible:outline focus-visible:outline-2">자동 입력·적용 안내</summary>
         <p className="mt-1 leading-relaxed">새 분석은 미편집 항목만 자동 입력합니다. 기존 검수값·직접 수정한 값은 보호하며, 이전 결과는 자동 적용하지 않습니다. 가창 구간은 ‘구간 선택’을 켠 경우에만 반영합니다. ‘지정 구간만 분석’은 분석 범위만 제한합니다. 일괄 적용은 기존 값을 바꾸며 되돌릴 수 있습니다. 저장은 별도로 진행하세요.</p>
       </details>
-      {(error || recent.error || job.error) && (
+      {(error || (!batchDraft && recent.error) || job.error) && (
         <p role="alert">{error ?? (recent.error ?? job.error)?.message}</p>
       )}
-      {data && (data.errorMessage || data.nextRetryAt) && (
+      {data && !batchDraft && (data.errorMessage || data.nextRetryAt) && (
         <p role="status">
           {data.errorMessage}
           {data.nextRetryAt

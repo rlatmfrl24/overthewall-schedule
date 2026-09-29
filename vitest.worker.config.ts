@@ -50,6 +50,7 @@ const OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES = [
   "0093_omniscient_sunset_bain.sql",
   "0094_reflective_spirit.sql",
   "0097_fine_agent_zero.sql",
+  "0098_late_beast.sql",
 ] as const;
 const OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES = [
   ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.slice(0, 4),

@@ -11,8 +11,11 @@ const fetchReview = vi.hoisted(() => vi.fn());
 const convert = vi.hoisted(() => vi.fn());
 const updateCandidate = vi.hoisted(() => vi.fn());
 const jobs = vi.hoisted(() => vi.fn());
+const jobDetail = vi.hoisted(() => vi.fn());
+const batchApi = vi.hoisted(() => ({ preview: vi.fn(), start: vi.fn(), list: vi.fn(), get: vi.fn() }));
+vi.mock("../../api/ai-batch", () => ({ previewAiBatch: batchApi.preview, startAiBatch: batchApi.start, listAiBatches: batchApi.list, getAiBatch: batchApi.get, getAiBatchDraft: async () => ({ data: null }), retryAiBatch: vi.fn() }));
 const scrollIntoView = vi.hoisted(() => vi.fn());
-vi.mock("../../queries/use-admin-catalog", () => ({ useOtwPlayImportJobs: jobs, useOtwPlayImportJob: () => ({ data: undefined }) }));
+vi.mock("../../queries/use-admin-catalog", () => ({ useOtwPlayImportJobs: jobs, useOtwPlayImportJob: jobDetail }));
 vi.mock("../../api/admin", () => ({ fetchOtwPlayIngestionBudget: vi.fn(async () => ({ status: "available" })), fetchOtwPlayReviewItems: fetchReview, convertOtwPlayImportCandidate: convert, updateOtwPlayImportCandidate: updateCandidate }));
 vi.mock("@/features/members", () => ({ fetchActiveMembers: vi.fn(async () => []) }));
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
@@ -25,11 +28,68 @@ const selectOption = async (label: string, option: string | RegExp) => {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  jobDetail.mockReturnValue({ data: undefined });
+  batchApi.list.mockResolvedValue({ data: [] });
+  batchApi.preview.mockResolvedValue({ data: { count: 75 } });
+  batchApi.start.mockResolvedValue({ data: { id: "batch-one" } });
+  batchApi.get.mockResolvedValue({ data: { batch: { id: "batch-one", total: 75, counts: { queued: 75 } }, items: [], nextCursor: null } });
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
   jobs.mockReturnValue({ data: [{ id: "job-a", playlistTitle: "첫 번째 가져오기", createdAt: 1, candidateKind: "singing_clip" }, { id: "job-b", playlistTitle: "두 번째 가져오기", createdAt: 2, candidateKind: "official_video" }], isLoading: false });
   fetchReview.mockResolvedValue({ items: [row("clip-a"), row("clip-b"), row("clip-c", "needs_input")], nextCursor: null });
 });
 afterEach(cleanup);
+it("shows AI status and draft review in the existing candidate row without a duplicate batch list", async () => {
+  fetchReview.mockResolvedValue({ items: [
+    { ...reviewRow("saved-video"), aiDraft: { status: "saved", errorMessage: null } },
+    { ...reviewRow("failed-video"), aiDraft: { status: "failed", errorMessage: "분석 실패" } },
+  ], nextCursor: null });
+  const update = vi.fn();
+  render(<ConsoleSearchContext.Provider value={[{ source: "playlist", category: "job-a" }, update]}>
+    <ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />
+  </ConsoleSearchContext.Provider>, { wrapper: createQueryWrapper() });
+  const saved = (await screen.findByText("saved-video")).closest("article")!;
+  expect(within(saved).getByText("AI · 초안 저장")).toBeTruthy();
+  fireEvent.click(within(saved).getByRole("button", { name: "초안 검수" }));
+  expect(update).toHaveBeenCalledWith({ view: "review", selected: "saved-video" }, false);
+  const failed = screen.getByText("failed-video").closest("article")!;
+  expect(within(failed).getByText("AI · 실패")).toBeTruthy();
+  expect(within(failed).getByText("AI · 분석 실패")).toBeTruthy();
+  expect(within(screen.getByRole("region", { name: "일괄 AI 검수 초안" })).queryByRole("list")).toBeNull();
+  expect(batchApi.get).not.toHaveBeenCalled();
+});
+it("shows an older batch's import job even when it is absent from recent history", async () => {
+  jobDetail.mockReturnValue({ data: { id: "old-job", playlistTitle: "오래된 가져오기", candidateKind: "singing_clip" } });
+  render(<ConsoleSearchContext.Provider value={[{ source: "playlist", category: "old-job" }, vi.fn()]}>
+    <ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />
+  </ConsoleSearchContext.Provider>, { wrapper: createQueryWrapper() });
+  expect(await screen.findByRole("combobox", { name: "검수 가져오기 이력" })).toHaveProperty("textContent", "오래된 가져오기");
+});
+it("submits selected versions or the complete filter rather than only loaded rows", async () => {
+  fetchReview.mockResolvedValue({ items: [reviewRow("clip-a")], nextCursor: null });
+  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  fireEvent.click(await screen.findByRole("checkbox", { name: "clip-a AI 초안 선택" }));
+  fireEvent.click(screen.getByRole("button", { name: "선택 1개 AI 분석·초안 저장" }));
+  await waitFor(() => expect(batchApi.start).toHaveBeenCalledWith({ candidates: [{ id: "clip-a", version: 4 }] }, expect.any(String)));
+  await waitFor(() => expect(screen.getByRole("button", { name: "현재 필터 전체 대상 선택" })).toHaveProperty("disabled", false));
+  fireEvent.click(screen.getByRole("button", { name: "현재 필터 전체 대상 선택" }));
+  fireEvent.click(screen.getByRole("button", { name: "전체 대상 AI 분석·초안 저장" }));
+  await waitFor(() => expect(batchApi.start).toHaveBeenLastCalledWith({ filters: { source: "playlist", jobId: "job-a" } }, expect.any(String)));
+  expect(convert).not.toHaveBeenCalled();
+});
+it("reuses the accepted request key after a lost response instead of requiring targets to be eligible again", async () => {
+  fetchReview.mockResolvedValue({ items: [reviewRow("clip-a")], nextCursor: null });
+  batchApi.start.mockRejectedValueOnce(new Error("응답 연결 끊김")).mockResolvedValueOnce({ data: { id: "batch-one" } });
+  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  fireEvent.click(await screen.findByRole("checkbox", { name: "clip-a AI 초안 선택" }));
+  fireEvent.click(screen.getByRole("button", { name: "선택 1개 AI 분석·초안 저장" }));
+  await screen.findByText("응답 연결 끊김");
+  await waitFor(() => expect(screen.getByRole("button", { name: "선택 1개 AI 분석·초안 저장" })).toHaveProperty("disabled", false));
+  batchApi.preview.mockResolvedValue({ data: { count: 0 } });
+  fireEvent.click(screen.getByRole("button", { name: "선택 1개 AI 분석·초안 저장" }));
+  await waitFor(() => expect(batchApi.start).toHaveBeenCalledTimes(2));
+  expect(batchApi.start.mock.calls[1][1]).toBe(batchApi.start.mock.calls[0][1]);
+  expect(batchApi.preview).toHaveBeenCalledTimes(1);
+});
 it("only converts selected ready candidates and retains failed selections for retry", async () => {
   convert.mockResolvedValueOnce({ outcome: "created", performanceId: "p-a" }).mockResolvedValueOnce({ outcome: "stale", errorCode: "stale_write" });
   render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });

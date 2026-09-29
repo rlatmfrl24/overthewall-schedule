@@ -2,6 +2,9 @@ export { createPerformanceDedupeKeyMaterial, createSongDedupeKeyMaterial, create
 export type { PerformanceDedupeKeyInput, SongDedupeKeyInput, VideoBackedSongDedupeKeyInput } from "./domain/duplicate-policy";
 export { normalizeOtwPlaySearchText } from "./domain/search-normalization";
 export { AiReviewService } from "./application/ai-review-service";
+export { AiBatchService } from "./application/ai-batch-service";
+export { D1AiBatchRepository } from "./infrastructure/d1-ai-batch-repository";
+export { createAiBatchHandler } from "./http/ai-batch-handler";
 export { AiReviewError } from "./application/ports/ai-review";
 export { createAiReviewHandler } from "./http/ai-review-handler";
 export { D1AiReviewRepository } from "./infrastructure/d1-ai-review-repository";

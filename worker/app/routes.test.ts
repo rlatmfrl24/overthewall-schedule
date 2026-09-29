@@ -48,6 +48,9 @@ const expectedPolicies = [
     "/api/play/admin/playlists/defaults",
     "/api/play/admin/playlists/defaults/:playlistKey",
     "/api/play/admin/review-items",
+    "/api/play/admin/ai-review-batches",
+    "/api/play/admin/ai-review-batches/:id",
+    "/api/play/admin/ai-review-drafts/:id",
     "/api/play/admin/ai-reviews",
     "/api/play/admin/ai-reviews/:id",
     "/api/play/admin/imports",
@@ -80,6 +83,7 @@ const expectedPolicies = [
   ] },
   { method: "POST", auth: "admin", successStatus: 200,
     cache: "no-store", paths: [
+    "/api/play/admin/ai-review-batches/preview",
     "/api/youtube/cache/refresh",
     "/api/youtube/cache/warmup/run",
     "/api/play/admin/imports/playlist/preflight",
@@ -215,6 +219,8 @@ const expectedPolicies = [
   ] },
   { method: "POST", auth: "admin", successStatus: 202,
     cache: "no-store", paths: [
+    "/api/play/admin/ai-review-batches",
+    "/api/play/admin/ai-review-batches/:id/retry",
     "/api/play/admin/imports/:jobId/resume",
     "/api/play/admin/ai-reviews",
     "/api/play/admin/imports/playlist",

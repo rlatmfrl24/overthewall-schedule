@@ -3,11 +3,13 @@ import type { Env } from "../platform/types";
 
 const mocks = vi.hoisted(() => ({
   handleQueue: vi.fn(async () => undefined),
+  handleAiReviewQueue: vi.fn(async () => undefined),
   handleScheduledControlQueue: vi.fn(async () => undefined),
   handleScheduledJobQueue: vi.fn(async () => undefined),
 }));
 
 vi.mock("./queue", () => ({ handleQueue: mocks.handleQueue }));
+vi.mock("./ai-review", async importOriginal => ({ ...await importOriginal<typeof import("./ai-review")>(), handleAiReviewQueue: mocks.handleAiReviewQueue }));
 vi.mock("./scheduled-queue", () => ({
   handleScheduledControlQueue: mocks.handleScheduledControlQueue,
   handleScheduledJobQueue: mocks.handleScheduledJobQueue,
@@ -85,10 +87,11 @@ describe("consolidated Worker queue routing", () => {
         idempotencyKey: "legacy-1",
       },
     };
+    const aiMessage = { body: { kind: "otw_play_ai_batch", schemaVersion: 1, itemId: "batch-item" } };
 
     await handleWorkerQueue({
       queue: "otw-dead-letter",
-      messages: [ingestionMessage, scheduledMessage, controlMessage],
+      messages: [ingestionMessage, scheduledMessage, controlMessage, aiMessage],
     } as unknown as MessageBatch<unknown>, {} as Env);
 
     expect(mocks.handleScheduledJobQueue).toHaveBeenCalledWith(
@@ -105,6 +108,7 @@ describe("consolidated Worker queue routing", () => {
       }),
       expect.anything(),
     );
+    expect(mocks.handleAiReviewQueue).toHaveBeenCalledWith(expect.objectContaining({ queue: "otw-dead-letter", messages: [aiMessage] }), expect.anything());
   });
 
   it("acknowledges messages from an unknown binding", async () => {

@@ -16,6 +16,18 @@
 
 ## 가져오기부터 등록까지
 
+### Batch AI review drafts (SUL-35)
+
+The import inbox supports explicit candidate selection and all eligible candidates matching the current filter, including unloaded pages. The preview reports the eligible count; acceptance atomically snapshots candidate IDs and versions. Completed reviews, unavailable videos, and candidates with pending user proposals are excluded.
+
+Batch items use the existing AI Queue, analysis service, daily budget and maintenance recovery. Their durable result snapshots survive analysis-history expiry. An interrupted save resumes from the saved analysis without another model call. Progress distinguishes queued work, analysis, draft persistence, choices requiring review, failures and changed candidates. A lost acceptance response is retried with the same request key.
+
+Drafts are separate from human `reviewInput`. They never approve a channel, set `ready`, create catalog identities, convert a performance, or publish. Single-song suggestions fill an untouched form; saved human input and in-progress edits are preserved. Multi-song results require explicit song/segment selection, and ambiguous catalog identities remain unselected. Human review save keeps the existing version checks and catalog materialization; reviewers may save and advance to the next pending candidate.
+
+Migration `0098_late_beast.sql` adds batch and item storage. Apply it before deploying the batch endpoints/consumer. No new Queue binding or AI model configuration is required. Pending dispatches and expired leases are recovered by the existing requeue maintenance operation. Recent batches and all pending batches remain discoverable; item results are paginated.
+
+Local verification on 2026-09-29 used the authenticated admin UI and real AI analysis for `vXF-yALUKOA` and `RPlGddUGgpc`. Both continued after the initiating tab closed. Reopening showed one saved single-song draft and one two-song result requiring selection. D1 readback confirmed neither candidate had human review input at that point. Explicit review save then changed only the single-song candidate to `ready`, materialized its song identity, and advanced to the next candidate; no performance was converted or published. Production migration/deployment is outside this change's verification.
+
 카탈로그의 `새 영상 등록 → 노래방송`도 노래 클립 직접 등록을 사용한다. 승인된 활성 Play 노래 클립 채널의 영상을 곡·가창자·방송 정보와 연결해 비공개 저장하며, 등록 후 노래 클립 필터에서 결과를 확인한다. 여러 곡이 담긴 영상은 구간을 지정해 한 곡씩 저장한 뒤 `같은 영상의 다음 곡 추가`로 이어서 입력한다. 각 구간은 별도의 가창이며 방송 전체의 setlist나 자동 곡 분할을 생성하지 않는다.
 
 1. 가져오기/검수 → 새 가져오기·이력에서 공식 곡 또는 노래 클립을 선택한다.

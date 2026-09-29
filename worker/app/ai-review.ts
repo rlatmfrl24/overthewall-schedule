@@ -1,5 +1,7 @@
 import {
   AiReviewService,
+  AiBatchService,
+  D1AiBatchRepository,
   D1AiReviewRepository,
   D1AiReviewContext,
   GeminiReviewAnalyzer,
@@ -73,6 +75,19 @@ export async function handleAiReviewQueue(
 ) {
   const service = createOtwPlayAiReviewService(env);
   for (const message of batch.messages) {
+    if (isAiBatchMessage(message.body)) {
+      const batches = createOtwPlayAiBatchService(env);
+      try {
+        if (batch.queue === "otw-dead-letter") await batches.dead(message.body.itemId);
+        else {
+          const delay = await batches.process(message.body.itemId);
+          if (delay) { message.retry({ delaySeconds: Math.min(43200, delay) }); continue; }
+        }
+        await batches.recover();
+        message.ack();
+      } catch { message.retry({ delaySeconds: 60 }); }
+      continue;
+    }
     if (!isAiReviewMessage(message.body)) {
       message.ack();
       continue;
@@ -112,3 +127,15 @@ export async function handleAiReviewQueue(
     }
   }
 }
+
+export const createOtwPlayAiBatchService = (env: Env) => new AiBatchService(
+  new D1AiBatchRepository(env.otw_db), createOtwPlayAiReviewService(env),
+  async (itemId) => {
+    if (!env.OTW_PLAY_AI_REVIEW_QUEUE) throw new Error("AI queue unconfigured");
+    await env.OTW_PLAY_AI_REVIEW_QUEUE.send({ kind: "otw_play_ai_batch", schemaVersion: 1, itemId });
+  }, env.OTW_PLAY_AI_REVIEW_ENABLED === "true" && Boolean(env.GEMINI_API_KEY && env.OTW_PLAY_AI_REVIEW_QUEUE),
+  () => crypto.randomUUID(), Date.now, new D1AiReviewContext(env.otw_db),
+);
+export const isAiBatchMessage = (body: unknown): body is { kind: "otw_play_ai_batch"; schemaVersion: 1; itemId: string } =>
+  Boolean(body && typeof body === "object" && (body as { kind?: unknown }).kind === "otw_play_ai_batch" &&
+    (body as { schemaVersion?: unknown }).schemaVersion === 1 && typeof (body as { itemId?: unknown }).itemId === "string");

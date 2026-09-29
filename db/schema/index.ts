@@ -11,6 +11,39 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+export const musicAiReviewBatches = sqliteTable("music_ai_review_batches", {
+  id: text().primaryKey(),
+  actor: text().notNull(),
+  request_key: text().notNull().unique(),
+  selection_json: text().notNull(),
+  created_at: integer().notNull(),
+});
+export const musicAiReviewBatchItems = sqliteTable("music_ai_review_batch_items", {
+  id: text().primaryKey(),
+  batch_id: text().notNull().references(() => musicAiReviewBatches.id, { onDelete: "cascade" }),
+  candidate_id: text().notNull(),
+  candidate_version: integer().notNull(),
+  candidate_kind: text().notNull(),
+  title: text(),
+  auto_apply: integer().notNull(),
+  dispatch_until: integer(),
+  status: text().notNull().default("queued"),
+  review_id: text(),
+  generation: integer().notNull().default(0),
+  result_json: text(),
+  error_message: text(),
+  lease_token: text(),
+  lease_until: integer(),
+  created_at: integer().notNull(),
+  updated_at: integer().notNull(),
+}, table => [
+  uniqueIndex("uidx_ai_batch_candidate").on(table.batch_id, table.candidate_id),
+  uniqueIndex("uidx_ai_batch_active_candidate").on(table.candidate_id).where(sql`${table.status} IN ('queued','analyzing','saving')`),
+  index("idx_ai_batch_draft").on(table.candidate_id, table.created_at),
+  index("idx_ai_batch_pending").on(table.status, table.lease_until),
+  check("ai_batch_item_status", sql`${table.status} IN ('queued','analyzing','saving','saved','needs_selection','failed','changed')`),
+]);
+
 export const musicAiReviews = sqliteTable("music_ai_reviews", {
   id: text().primaryKey(),
   candidate_id: text(),
