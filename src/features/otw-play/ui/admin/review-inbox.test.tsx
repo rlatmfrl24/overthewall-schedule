@@ -359,3 +359,20 @@ it("disconnects automatic pagination when the review inbox becomes inactive", as
   act(() => callbacks.forEach(callback => callback()));
   expect(fetchReview.mock.calls.some(([filters]) => filters.cursor)).toBe(false);
 });
+
+it("blocks opening a review until an in-flight AI request and cache reset finish", async () => {
+  fetchReview.mockResolvedValue({ items: [reviewRow("clip-a")], nextCursor: null });
+  let reject!: (reason: Error) => void;
+  batchApi.start.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+  const client = createTestQueryClient();
+  const draftKey = ["otw-play-ai-draft", "clip-a"];
+  client.setQueryData(draftKey, { data: { itemId: "old-draft", autoApply: true } });
+  render(<QueryClientProvider client={client}><ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} /></QueryClientProvider>);
+  fireEvent.click(await screen.findByRole("checkbox", { name: "clip-a AI 초안 선택" }));
+  fireEvent.click(screen.getByRole("button", { name: "선택 1개 AI 분석·초안 저장" }));
+  await waitFor(() => expect(batchApi.start).toHaveBeenCalled());
+  expect(screen.getByRole("button", { name: "검수 열기" })).toHaveProperty("disabled", true);
+  await act(async () => { reject(new Error("응답 연결 끊김")); });
+  await waitFor(() => expect(screen.getByRole("button", { name: "검수 열기" })).toHaveProperty("disabled", false));
+  expect(client.getQueryData(draftKey)).toBeUndefined();
+});

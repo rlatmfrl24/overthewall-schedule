@@ -98,6 +98,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   const { hasNextPage, isFetching, isError, fetchNextPage } = query;
   const [loadMoreTarget, setLoadMoreTarget] = useState<HTMLDivElement | null>(null);
   const [busy, setBusy] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
   useEffect(() => {
     if (!active || editingId || search.proposal || busy || !loadMoreTarget || !hasNextPage || isFetching || isError || typeof IntersectionObserver === "undefined") return;
     let requested = false;
@@ -256,7 +257,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
     </div>}
     {source === "playlist" && conflicts.isError && <p role="alert">기존 후보의 종류 충돌을 확인하지 못했습니다. 새로고침해 주세요.</p>}
     {source !== "user" && filters.status === "pending" && (source !== "playlist" || jobId) && <AiBatchPanel
-      active={active && !editingId && !search.proposal} allSelected={aiAll}
+      active={active && !editingId && !search.proposal} allSelected={aiAll} busy={aiBusy} setBusy={setAiBusy}
       selection={aiAll ? { filters: { source, ...(jobId ? { jobId } : {}), ...(filters.candidateKind ? { candidateKind: filters.candidateKind } : {}) } } : Object.keys(aiSelected).length ? { candidates: Object.entries(aiSelected).map(([id, version]) => ({ id, version })) } : null}
       onToggleAll={() => setAiSelection({ scope, all: !aiAll, ids: {} })}
       onStarted={() => setAiSelection({ scope, all: false, ids: {} })} />}
@@ -296,7 +297,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
         {row.aiDraft && <Badge variant="outline">AI · {aiBatchStatusLabels[row.aiDraft.status]}</Badge>}
       </div>
       <div className="col-start-2 grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 xl:col-start-4">
-      <Button size="sm" variant="outline" className="h-11 w-full xl:h-9" disabled={busy} onClick={event => { if (row.pendingProposalId) onProposal(row.pendingProposalId); else if (row.kind === "proposal") onProposal(row.id); else { returnFocus.current = event.currentTarget; update({ view: "review", selected: row.id }, false); } }}>{row.pendingProposalId ? "연결된 제안 검수" : row.kind === "proposal" && row.status !== "pending_review" ? "처리 내역" : row.aiDraft && ["saved", "needs_selection", "changed"].includes(row.aiDraft.status) ? "초안 검수" : "검수 열기"}</Button>
+      <Button size="sm" variant="outline" className="h-11 w-full xl:h-9" disabled={busy || aiBusy} onClick={event => { if (row.pendingProposalId) onProposal(row.pendingProposalId); else if (row.kind === "proposal") onProposal(row.id); else { returnFocus.current = event.currentTarget; update({ view: "review", selected: row.id }, false); } }}>{row.pendingProposalId ? "연결된 제안 검수" : row.kind === "proposal" && row.status !== "pending_review" ? "처리 내역" : row.aiDraft && ["saved", "needs_selection", "changed"].includes(row.aiDraft.status) ? "초안 검수" : "검수 열기"}</Button>
       {row.kind === "candidate" && !["converted", "ignored"].includes(row.status) && <Button size="sm" variant="ghost" className="h-11 w-full xl:h-9" disabled={busy} onClick={() => void changeKind(row)}>{row.candidateKind === "official_video" ? "노래 클립으로 정정" : "공식 영상으로 정정"}</Button>}
       </div>
       {row.aiDraft?.errorMessage && <p className="col-start-2 -col-end-1 break-words text-xs leading-5 text-destructive">AI · {row.aiDraft.errorMessage}</p>}

@@ -6,12 +6,12 @@ import { SelectField } from "@/shared/ui/select-field";
 import { useConfirmation } from "@/shared/lib/confirmation";
 import { listAiBatches, previewAiBatch, retryAiBatch, startAiBatch } from "../../api/ai-batch";
 
-export function AiBatchPanel({ selection, allSelected, active, onToggleAll, onStarted }: {
-  selection: AiBatchSelection | null; allSelected: boolean; active: boolean;
+export function AiBatchPanel({ selection, allSelected, active, busy, setBusy, onToggleAll, onStarted }: {
+  selection: AiBatchSelection | null; allSelected: boolean; active: boolean; busy: boolean; setBusy: (busy: boolean) => void;
   onToggleAll: () => void; onStarted: () => void;
 }) {
   const confirm = useConfirmation(), client = useQueryClient();
-  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
   const request = useRef<{ selection: string; key: string } | null>(null);
   const batches = useQuery({ queryKey: ["otw-play-ai-batches"], queryFn: listAiBatches, enabled: active, retry: false });
