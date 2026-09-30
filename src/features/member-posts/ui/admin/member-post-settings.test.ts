@@ -334,14 +334,15 @@ describe("MemberPostSettingsManager", () => {
     expect(screen.getByText("2시간마다")).toBeTruthy();
     expect(screen.getByText("게시물 수집 설정")).toBeTruthy();
     expect(screen.queryByText("수집 실행")).toBeNull();
-    expect(screen.getByText("X 수집 운영")).toBeTruthy();
-    expect(screen.getByText("수집 설정")).toBeTruthy();
+    expect(screen.getByRole("heading", {level: 1, name: "X(트위터) 수집"})).toBeTruthy();
+    expect(screen.queryByText("수집 소스별 설정, 비용과 실제 운영 상태를 한 화면에서 관리합니다.")).toBeNull();
     await screen.findByRole("progressbar", { name: "전체 X 예산" });
     expect(screen.getByText("보강 대기")).toBeTruthy();
     const settingGroup = document.getElementById("x-collection-settings") as HTMLDetailsElement;
     expect(settingGroup.open).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "게시물 수집 설정 열기" }));
     expect(settingGroup.open).toBe(true);
+    expect(settingGroup.parentElement?.closest("details")?.open).toBe(true);
     expect(document.activeElement).toBe(settingGroup.querySelector("summary"));
     const referenceGroup = document.getElementById("x-reference-settings") as HTMLDetailsElement;
     fireEvent.click(screen.getByRole("button", { name: "원문 보강 설정 열기" }));
@@ -354,14 +355,12 @@ describe("MemberPostSettingsManager", () => {
       expect(fetchXHistoryHealthMock.mock.calls.length).toBeGreaterThan(healthCalls);
       expect(fetchOperationRunsMock.mock.calls.length).toBeGreaterThan(runCalls);
     });
-    expect(screen.getByText("X 계정별 관리자 피드 응답")).toBeTruthy();
-    expect(screen.getByText("테스트 멤버 · @otw_member")).toBeTruthy();
-    const xDiagnostics = screen.getByText("X 계정별 관리자 피드 응답").closest("details");
-    expect(xDiagnostics?.open).toBe(false);
-    const xDiagnosticsSummary = xDiagnostics?.querySelector("summary");
-    if (!xDiagnosticsSummary) throw new Error("X diagnostics summary is missing");
-    fireEvent.click(xDiagnosticsSummary);
-    expect(xDiagnostics?.open).toBe(true);
+    expect(screen.getByRole("heading", { name: "계정별 관리자 피드 응답" }).closest("details")).toBeNull();
+    expect(screen.getByRole("row", { name: /테스트 멤버 @otw_member/ })).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", {name: "X 계정 검색"}), {target: {value: "없는계정"}});
+    expect(screen.queryByRole("row", {name: /테스트 멤버 @otw_member/})).toBeNull();
+    fireEvent.click(screen.getByRole("button", {name: "검색 결과 없음 · 초기화"}));
+    expect(screen.getByRole("row", {name: /테스트 멤버 @otw_member/})).toBeTruthy();
     expect(screen.queryByText("카페 소스 관리")).toBeNull();
     expect(useXPostsMock).toHaveBeenCalledWith(
       expect.any(Array),
@@ -395,17 +394,12 @@ describe("MemberPostSettingsManager", () => {
     fireEvent.click(cafeTab);
 
     expect(cafeTab.getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByText("네이버 카페 운영")).toBeTruthy();
-    expect(screen.getByText("수집 설정과 게시판 소스")).toBeTruthy();
+    expect(screen.getByRole("heading", {level: 1, name: "네이버 카페 수집"})).toBeTruthy();
     expect(screen.getByText("카페 소스 관리")).toBeTruthy();
-    expect(screen.getByText("게시판별 소스 점검 상태")).toBeTruthy();
+    expect(screen.getByRole("heading", {name: "게시판별 점검 상태"}).closest("details")).toBeNull();
     expect(screen.getByText("테스트 게시판")).toBeTruthy();
-    const cafeDiagnostics = screen.getByText("게시판별 소스 점검 상태").closest("details");
-    expect(cafeDiagnostics?.open).toBe(false);
-    const cafeDiagnosticsSummary = cafeDiagnostics?.querySelector("summary");
-    if (!cafeDiagnosticsSummary) throw new Error("Cafe diagnostics summary is missing");
-    fireEvent.click(cafeDiagnosticsSummary);
-    expect(cafeDiagnostics?.open).toBe(true);
+    expect(screen.getByRole("row", {name: /테스트 게시판 카페 31352147/})).toBeTruthy();
+    expect(screen.getByText("수집·공개 설정 및 게시판 관리").closest("details")?.open).toBe(false);
     expect(screen.queryByText("X 수집 및 링크 설정")).toBeNull();
     expect(useNaverCafePostsMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ admin: true, enabled: true, size: 10 }),
@@ -419,5 +413,21 @@ describe("MemberPostSettingsManager", () => {
         description: "네이버 카페 점검이 대기열에 등록되었습니다.",
       }),
     );
+  });
+
+  it("지난 성공을 현재 정상으로 오인하지 않고 오류·지연 게시판을 중복 계산하지 않는다", async () => {
+    const status = await fetchOperationsStatusMock();
+    const source = status.naverCafe.sources[0];
+    status.naverCafe.sources = [
+      {...source, stale: true},
+      {...source, sourceId: 2, sourceName: "오류 게시판", stale: true, failing: true, latestCheck: {...source.latestCheck, status: "error"}, latestError: "점검 실패"},
+    ];
+    Object.assign(status.naverCafe, {sourceCount: 2, enabledSourceCount: 2, staleSourceCount: 2, failingSourceCount: 1});
+    fetchOperationsStatusMock.mockResolvedValue(status);
+    render(createElement(MemberPostSettingsManager, {activeSource: "naver-cafe"}), {wrapper: createQueryWrapper()});
+    await screen.findByRole("row", {name: /테스트 게시판.*확인 지연/});
+    expect(screen.getByRole("row", {name: /오류 게시판.*오류.*점검 실패/})).toBeTruthy();
+    expect(screen.getByText("주의 게시판").parentElement?.textContent).toContain("2개");
+    expect(screen.queryByRole("row", {name: /테스트 게시판.*정상/})).toBeNull();
   });
 });

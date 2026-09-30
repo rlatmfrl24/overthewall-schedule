@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Env } from "../../../platform/types";
 import {
-  importLegacyOfficialShorts,
   isYouTubeShortsPageComplete,
   readStoredYouTubeFeed,
 } from "./youtube-feed";
@@ -85,75 +84,6 @@ describe("YouTube Shorts frontier completeness", () => {
 });
 
 describe("YouTube Shorts storage", () => {
-  it("imports valid legacy cache rows idempotently", async () => {
-    const inserted = new Set<string>();
-    let checkpoint: string | null = null;
-    let cacheReads = 0;
-    const channelId = `UC${"A".repeat(22)}`;
-    const db = {
-      prepare(sql: string) {
-        let bindings: unknown[] = [];
-        const statement = {
-          bind(...values: unknown[]) {
-            bindings = values;
-            return statement;
-          },
-          async first<T>() {
-            return (checkpoint ? { value: checkpoint } : null) as T | null;
-          },
-          async all<T>() {
-            if (sql.includes("FROM youtube_api_cache")) {
-              cacheReads += 1;
-              return {
-                results: [{
-                  fetched_at: initialized,
-                  value: JSON.stringify({
-                    videos: [],
-                    shorts: [{
-                      videoId: "short-1",
-                      title: "Short",
-                      publishedAt: "2026-09-03T00:00:00Z",
-                      thumbnailUrl: "",
-                      duration: 30,
-                      viewCount: 1,
-                      channelId,
-                      channelTitle: "Member",
-                      isShort: true,
-                    }],
-                  }),
-                }] as T[],
-              };
-            }
-            if (sql.includes("FROM youtube_feed_sources")) {
-              return {
-                results: [{ id: 7, youtube_channel_id: channelId }] as T[],
-              };
-            }
-            return { results: [] as T[] };
-          },
-          async run() {
-            if (sql.includes("INSERT INTO settings")) checkpoint = String(bindings[1]);
-            if (sql.includes("INSERT INTO youtube_feed_videos")) {
-              const videoId = String(bindings[0]);
-              const changes = inserted.has(videoId) ? 0 : 1;
-              inserted.add(videoId);
-              return { meta: { changes } };
-            }
-            return { meta: { changes: 0 } };
-          },
-        };
-        return statement;
-      },
-    } as unknown as D1Database;
-    const testEnv = { otw_db: db } as Env;
-
-    expect(await importLegacyOfficialShorts(testEnv, initialized)).toBe(1);
-    expect(await importLegacyOfficialShorts(testEnv, initialized)).toBe(0);
-    expect(inserted).toEqual(new Set(["short-1"]));
-    expect(cacheReads).toBe(1);
-    expect(checkpoint).toBe(String(initialized));
-  });
-
   it("queries normal videos and Shorts independently before applying limits", async () => {
     const prepared: string[] = [];
     const channelId = `UC${"A".repeat(22)}`;

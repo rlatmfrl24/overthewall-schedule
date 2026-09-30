@@ -1,4 +1,3 @@
-import { AdminSectionHeader } from "@/app/admin";
 import IconX from "@/assets/icon_x.svg";
 import {
   fetchSettings,
@@ -614,12 +613,6 @@ export function MemberPostSettingsManager({
 
   return (
     <section className="space-y-3">
-      <AdminSectionHeader
-        title={activeSource === "x" ? "X 수집·소스" : "네이버 카페 수집·소스"}
-        description="수집 소스별 설정, 비용과 실제 운영 상태를 한 화면에서 관리합니다."
-
-      />
-
       {!controlledActiveSource && <TabsList value={activeSource} onValueChange={setActiveSource} label="멤버 게시글 수집 소스"
         items={SOURCE_TABS.map((tab) => ({ value: tab.value, id: `member-post-tab-${tab.value}`, panelId: `member-post-panel-${tab.value}`,
           label: <><span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-background">
@@ -649,6 +642,7 @@ export function MemberPostSettingsManager({
               operationsStatus={operationsQuery.data ?? null}
               operationsLoading={operationsQuery.isLoading || settingsQuery.isLoading}
               operationsError={operationsQuery.isError || settingsQuery.isError}
+              operationsUpdatedAt={operationsQuery.dataUpdatedAt}
               onReloadOperations={loadSettings}
               onRunXCollection={settings ? () => void handleRunXCollectionNow() : undefined}
               isRunningXCollection={isRunningCollection || (
@@ -951,40 +945,20 @@ export function MemberPostSettingsManager({
               operationsStatus={operationsQuery.data ?? null}
               operationsLoading={operationsQuery.isLoading}
               operationsError={operationsQuery.isError}
-              onReloadOperations={() => operationsQuery.refetch()}
+              operationsUpdatedAt={operationsQuery.dataUpdatedAt}
+              onReloadOperations={loadSettings}
               onRunNaverCafeCheck={() => void handleRunNaverCafeCheck()}
               isRunningNaverCafeCheck={isRunningNaverCafeCheck}
             >
             <div className="space-y-3">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="text-sm font-semibold">수집 설정과 게시판 소스</h3>
-                <p className="text-xs text-muted-foreground">피드 공개 범위와 수집할 게시판을 관리합니다.</p>
-              </div>
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="space-y-1">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Coffee className="h-4 w-4 text-muted-foreground" />
-                    네이버 카페 최신글
-                  </CardTitle>
-                  <CardDescription>
-                    네이버 카페 최신글의 사용자 피드 표시 여부와 공개 범위를 설정합니다.
-                  </CardDescription>
-                </div>
-                <Badge variant="outline" className="w-fit">
-                  내부 게시판 목록 API
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex flex-col gap-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="grid gap-3 md:grid-cols-2">
+              <div className="flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 space-y-1">
                   <Label htmlFor="naver-cafe-collection-enabled" className="text-sm font-semibold">
-                    관리자 수집 킬스위치
+                    외부 수집
                   </Label>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    scheduled·manual·queue의 네이버 외부 요청만 중지합니다. 저장된 피드는 계속 제공됩니다.
+                    중지 시에도 저장된 피드는 유지됩니다.
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
@@ -999,7 +973,7 @@ export function MemberPostSettingsManager({
                   />
                 </div>
               </div>
-              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 space-y-1">
                   <Label
                     htmlFor="naver-cafe-posts-enabled"
@@ -1008,8 +982,7 @@ export function MemberPostSettingsManager({
                     카페 최신글 표시
                   </Label>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    공개 접근 가능한 네이버 카페 게시판 목록에서 제목, 요약, 작성일,
-                    대표 이미지만 가져옵니다. 꺼도 관리자 모니터링은 유지됩니다.
+                    사용자 피드 표시 · 꺼도 관리자 점검은 유지됩니다.
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
@@ -1028,7 +1001,7 @@ export function MemberPostSettingsManager({
                   />
                 </div>
               </div>
-
+              </div>
               <ButtonGroup className="flex w-full flex-col sm:flex-row">
                 {VISIBILITY_OPTIONS.map((option) => {
                   const Icon = option.icon;
@@ -1059,9 +1032,6 @@ export function MemberPostSettingsManager({
                   );
                 })}
               </ButtonGroup>
-            </CardContent>
-          </Card>
-
           <NaverCafeSourceManager />
             </div>
             </MemberPostFeedMonitor>

@@ -43,7 +43,7 @@ const expectedPolicies = [
   ] },
   { method: "GET", auth: "admin", successStatus: 200,
     cache: "no-store", paths: [
-    "/api/youtube/cache/status",
+    "/api/youtube/feed/status",
     "/api/kirinuki/channels",
     "/api/play/admin/playlists/defaults",
     "/api/play/admin/playlists/defaults/:playlistKey",
@@ -84,8 +84,6 @@ const expectedPolicies = [
   { method: "POST", auth: "admin", successStatus: 200,
     cache: "no-store", paths: [
     "/api/play/admin/ai-review-batches/preview",
-    "/api/youtube/cache/refresh",
-    "/api/youtube/cache/warmup/run",
     "/api/play/admin/imports/playlist/preflight",
     "/api/play/admin/import-candidates/:id/convert",
     "/api/play/admin/imports/:jobId/convert",
@@ -149,6 +147,7 @@ const expectedPolicies = [
     "/api/kirinuki/channels",
     "/api/play/admin/imports/:jobId",
     "/api/play/admin/channel-monitors/:id",
+    "/api/play/admin/review-items/:id",
     "/api/play/admin/entities/:id",
     "/api/play/admin/songs/:id",
     "/api/play/admin/performances/:id",

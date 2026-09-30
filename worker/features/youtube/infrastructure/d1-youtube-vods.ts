@@ -1,4 +1,4 @@
-import type { YouTubeVodChannelStatusDto, YouTubeVodsRequest, YouTubeVodsResponseDto } from "@contracts/youtube";
+import type { YouTubeVodsRequest, YouTubeVodsResponseDto } from "@contracts/youtube";
 import type { Env } from "../../../platform/types";
 import { YOUTUBE_CHANNEL_ID_PATTERN } from "../domain/channel-targets";
 import { decodeVodCursor, encodeVodCursor } from "../domain/vod-cursor";
@@ -15,12 +15,6 @@ const readLinks = async (db: D1Database) => (await db.prepare(`
   ORDER BY member.uid, link.sort_order, link.id
 `).all<LinkRow>()).results ?? [];
 
-export const readYouTubeVodChannelStatus = async (db: D1Database): Promise<YouTubeVodChannelStatusDto[]> =>
-  (await readLinks(db)).map((link) => ({
-    memberUid: link.member_uid, memberName: link.name, label: link.label, channelId: link.youtube_channel_id,
-    issue: !link.youtube_channel_id ? "missing_channel_id" : !YOUTUBE_CHANNEL_ID_PATTERN.test(link.youtube_channel_id) ? "invalid_channel_id" : link.last_error_code ? "collection_failed" : !link.initialization_completed_at ? "initializing" : null,
-  }));
-
 export const readYouTubeVods = async (env: Env, input: YouTubeVodsRequest): Promise<YouTubeVodsResponseDto> => {
   const filter = [...new Set(input.memberUids)].sort((a, b) => a - b);
   const cursor = decodeVodCursor(input.cursor, filter);
@@ -30,8 +24,8 @@ export const readYouTubeVods = async (env: Env, input: YouTubeVodsRequest): Prom
   const channels = [...new Set(selected.map((link) => link.youtube_channel_id!))];
   const empty = { items: [], availableMemberUids, nextCursor: null, hasMore: false, updatedAt: null };
   if (!channels.length) return { ...empty, collection: { state: links.length ? "ready" : "unregistered" } };
-  const settings = (await env.otw_db.prepare("SELECT key, value FROM settings WHERE key IN ('youtube_feed_enabled', 'scheduled_v2_youtube_feed_collection_enabled')").all<{ key: string; value: string }>()).results ?? [];
-  const enabled = ["youtube_feed_enabled", "scheduled_v2_youtube_feed_collection_enabled"].every((key) => settings.some((setting) => setting.key === key && setting.value === "true"));
+  const settings = (await env.otw_db.prepare("SELECT key, value FROM settings WHERE key = 'scheduled_v2_youtube_feed_collection_enabled'").all<{ key: string; value: string }>()).results ?? [];
+  const enabled = ["scheduled_v2_youtube_feed_collection_enabled"].every((key) => settings.some((setting) => setting.key === key && setting.value === "true"));
   const initialized = selected.filter((link) => link.initialization_completed_at);
   const failed = selected.filter((link) => link.last_error_code);
   const state = !enabled || !env.YOUTUBE_API_KEY?.trim() ? "disabled" :

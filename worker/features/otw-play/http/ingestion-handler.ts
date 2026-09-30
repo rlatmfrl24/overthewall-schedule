@@ -20,6 +20,7 @@ import {
   parseConvertIngestionCandidate,
   parseConvertIngestionCandidates,
   parseCreatePlaylistImport,
+  parseDeleteReviewItem,
   parseIgnoreIngestionCandidates,
   parsePlaylistPreflight,
   parseRetryIngestionJob,
@@ -105,6 +106,13 @@ export const createIngestionHandler = (
           { status: 429, headers: { ...NO_STORE_HEADERS, "Retry-After": String(Math.max(1, Math.ceil((Date.parse(result.budget.resetAt) - Date.now()) / 1000))) } });
       }
       return responseJson({ data: result }, 202);
+    }
+    const reviewItemId = pathId(url.pathname, /^\/api\/play\/admin\/review-items\/([^/]+)$/u);
+    if (request.method === "DELETE" && reviewItemId) {
+      const parsed = await readBody(request, parseDeleteReviewItem);
+      if (!parsed.ok) return errorResponse(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "Invalid review item deletion", parsed.fields);
+      await service.deleteReviewItem(reviewItemId, parsed.value, actor.userId);
+      return responseJson({ data: { deleted: true } });
     }
     if (request.method === "GET" && url.pathname === "/api/play/admin/review-items") {
       const kind = url.searchParams.get("candidateKind");

@@ -1,10 +1,13 @@
 import { useMemo, type ReactNode } from "react";
-import { XCollectionOverview, XCollectionRuns } from "./x-collection-monitoring";
+import { XCollectionOverview, XCollectionRuns, XUsageChart } from "./x-collection-monitoring";
 import { useQuery } from "@tanstack/react-query";
-import { PiWarningBold as AlertTriangle, PiCheckCircleBold as CheckCircle2, PiClockBold as Clock3, PiCoffeeBold as Coffee, PiGaugeBold as Gauge, PiSpinnerGapBold as Loader2, PiPlayBold as Play, PiArrowsClockwiseBold as RefreshCw } from "react-icons/pi";
-import IconX from "@/assets/icon_x.svg";
+import { PiCheckCircleBold as CheckCircle2, PiClockBold as Clock3, PiSpinnerGapBold as Loader2, PiPlayBold as Play, PiArrowsClockwiseBold as RefreshCw } from "react-icons/pi";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import { Card, CardContent, CardHeader } from "@/shared/ui/card";
+import { QueryReadback } from "@/shared/ui/query-readback";
+import { Input } from "@/shared/ui/input";
+import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { useNaverCafePosts } from "@/features/naver-cafe";
 import {
   fetchOperationRuns,
@@ -38,6 +41,7 @@ const formatMonitorUpdatedAt = (
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Asia/Seoul",
   });
 };
 
@@ -100,7 +104,7 @@ const MetricTile = ({
 }) => (
   <div className="min-w-0 p-3">
     <p className="text-xs font-medium text-muted-foreground">{label}</p>
-    <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+    <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
       {value}
     </p>
     {detail ? (
@@ -119,6 +123,7 @@ export function MemberPostFeedMonitor({
   operationsStatus,
   operationsLoading,
   operationsError,
+  operationsUpdatedAt,
   onReloadOperations,
   children,
   onRunXCollection,
@@ -134,6 +139,7 @@ export function MemberPostFeedMonitor({
   operationsStatus: OperationsStatusResponse | null;
   operationsLoading: boolean;
   operationsError: boolean;
+  operationsUpdatedAt: number;
   onReloadOperations: () => Promise<unknown>;
   children?: ReactNode;
   onRunXCollection?: () => void;
@@ -142,6 +148,7 @@ export function MemberPostFeedMonitor({
   isRunningNaverCafeCheck?: boolean;
 }) {
   const isX = source === "x";
+  const [search, updateSearch] = useConsoleSearch();
   const operationRunsQuery = useQuery({
     queryKey: [...queryKeys.operations.runs(), source, "monitoring"],
     queryFn: () => fetchOperationRuns({
@@ -190,7 +197,7 @@ export function MemberPostFeedMonitor({
       membersWithXHandles.map(({ member, handle }) => {
         const result = xByHandle.get(handle.toLowerCase());
         const status = !result
-          ? "대기"
+          ? "미확인"
           : result.error
             ? "오류"
             : result.stale
@@ -200,7 +207,7 @@ export function MemberPostFeedMonitor({
           memberName: member.name,
           handle,
           status,
-          postCount: result?.posts.length ?? 0,
+          postCount: result?.posts.length ?? null,
           error: result?.errorDetail ?? result?.error ?? null,
         };
       }),
@@ -220,9 +227,9 @@ export function MemberPostFeedMonitor({
         menuId: item.menuId,
         enabled: item.enabled,
         status: (item.enabled
-          ? item.latestCheck?.status ?? "stale"
+          ? item.stale && (!item.latestCheck || ["ok", "stale"].includes(item.latestCheck.status)) ? "stale" : item.latestCheck?.status ?? "stale"
           : "disabled") as NaverCafeSourceStatusDto["status"],
-        postCount: item.latestCheck?.postCount ?? 0,
+        postCount: item.latestCheck?.postCount ?? null,
         error: item.disabledReason ?? item.latestError,
         lastSuccessAt: item.lastSuccessAt,
       }))
@@ -241,7 +248,7 @@ export function MemberPostFeedMonitor({
   const sourceEnabled = isX
     ? xCollectionEnabled
     : naverCafeStatus
-      ? naverCafeStatus.enabledSourceCount > 0
+      ? naverCafeStatus.enabled && naverCafeStatus.enabledSourceCount > 0
       : cafeRows.some((item) => item.enabled);
   const sourceVisibility = isX ? xPostsVisibility : naverCafeVisibility;
 
@@ -262,16 +269,17 @@ export function MemberPostFeedMonitor({
       <Loader2 className="h-3 w-3 animate-spin" />
       확인 중
     </Badge>
+  ) : hasError ? (
+    <Badge variant="destructive">확인 필요</Badge>
   ) : !sourceEnabled ? (
     <Badge variant="secondary" className="gap-1">
       <Clock3 className="h-3 w-3" />
       운영 중지
     </Badge>
-  ) : hasError ? (
-    <Badge variant="destructive" className="gap-1">
-      <AlertTriangle className="h-3 w-3" />
-      확인 필요
-    </Badge>
+  ) : (naverCafeStatus?.failingSourceCount ?? 0) > 0 ? (
+    <Badge variant="destructive">오류 있음</Badge>
+  ) : (naverCafeStatus?.staleSourceCount ?? 0) > 0 ? (
+    <Badge variant="secondary">점검 지연</Badge>
   ) : sourceStale ? (
     <Badge variant="secondary" className="gap-1">
       <Clock3 className="h-3 w-3" />
@@ -289,20 +297,11 @@ export function MemberPostFeedMonitor({
     : loading || isRunningNaverCafeCheck;
 
   return (
-    <section id={`${source}-monitoring`} className="space-y-3">
-      <header className="border-b pb-3">
+    <section id={`${source}-monitoring`} className="admin-dense-panel min-w-0 space-y-3 text-[13px] tabular-nums">
+      <header className="space-y-1">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
-            <h2 className="flex items-center gap-2 text-base font-semibold">
-              <span className="flex size-7 items-center justify-center rounded-md border bg-muted/30">
-                {isX ? (
-                  <img src={IconX} alt="" className="h-3.5 w-3.5" />
-                ) : (
-                  <Coffee className="h-3.5 w-3.5 text-emerald-600" />
-                )}
-              </span>
-              {isX ? "X 수집 운영" : "네이버 카페 운영"}
-            </h2>
+            <h1 className="text-xl font-semibold">{isX ? "X(트위터) 수집" : "네이버 카페 수집"}</h1>
             {!isX ? statusBadge : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -334,7 +333,7 @@ export function MemberPostFeedMonitor({
                 {isRunningNaverCafeCheck ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Coffee className="h-4 w-4" />
+                  <Play className="h-4 w-4" />
                 )}
                 지금 점검
               </Button>
@@ -352,6 +351,7 @@ export function MemberPostFeedMonitor({
             </Button>
           </div>
         </div>
+        <QueryReadback updatedAt={operationsUpdatedAt} fetching={operationsLoading} error={operationsError} className="my-0" />
       </header>
       <div className="space-y-3">
         {isX ? (
@@ -362,13 +362,13 @@ export function MemberPostFeedMonitor({
             enabled={xCollectionEnabled}
           />
         ) : (
-          <div className="grid divide-y border-b sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+          <Card className="grid grid-cols-2 gap-0 py-0 shadow-none lg:grid-cols-4">
             <MetricTile
               label="최근 실제 수집"
               value={formatMonitorUpdatedAt(
                 naverCafeStatus?.collection.lastRun,
               )}
-              detail="피드 조회 시각이 아닌 소스 점검 저장 이력 기준"
+              detail="소스 점검 저장 이력 · KST"
             />
             <MetricTile
               label="다음 수집 가능"
@@ -379,15 +379,15 @@ export function MemberPostFeedMonitor({
             />
             <MetricTile
               label="활성 게시판"
-              value={`${naverCafeStatus?.enabledSourceCount ?? cafeRows.filter((item) => item.enabled).length}/${naverCafeStatus?.sourceCount ?? cafeRows.length}개`}
+              value={naverCafeStatus ? `${naverCafeStatus.enabledSourceCount}/${naverCafeStatus.sourceCount}개` : "미확인"}
               detail={`비활성 ${naverCafeStatus?.disabledSourceCount ?? cafeRows.filter((item) => !item.enabled).length}개 · 공개 ${getVisibilityLabel(sourceVisibility)}`}
             />
             <MetricTile
               label="주의 게시판"
-              value={`${(naverCafeStatus?.failingSourceCount ?? 0) + (naverCafeStatus?.staleSourceCount ?? 0)}개`}
-              detail={`오류 ${naverCafeStatus?.failingSourceCount ?? 0}개 · 확인 지연 ${naverCafeStatus?.staleSourceCount ?? 0}개 · 응답 ${cafeState.posts.length}건`}
+              value={naverCafeStatus ? `${naverCafeStatus.sources.filter((item) => item.enabled && (item.failing || item.stale)).length}개` : "미확인"}
+              detail={naverCafeStatus ? `오류 ${naverCafeStatus.failingSourceCount} · 지연 ${naverCafeStatus.staleSourceCount}` : "운영 지표 조회 필요"}
             />
-          </div>
+          </Card>
         )}
 
         {hasError ? (
@@ -401,23 +401,20 @@ export function MemberPostFeedMonitor({
 
 
 
-        {!isX && children ? <details className="border-b pb-2"><summary className="font-semibold">수집·공개 설정 및 게시판 관리</summary><div className="pt-3">{children}</div></details> : null}
-        {isX && children ? <section className="border-t pt-3">{children}</section> : null}
-        <a className="inline-block text-sm underline" href={`/admin/history?tab=runs&source=${isX ? "x_collection" : "naver_cafe_collection"}`}>전체 실행 이력</a>
         {isX ? <XCollectionRuns
           runs={operationRunsQuery.data?.runs ?? []} loading={operationRunsQuery.isLoading}
           error={operationRunsQuery.isError} updatedAt={operationRunsQuery.dataUpdatedAt}
         /> : (
-        <section className="space-y-2 border-t pt-3">
+        <section className="space-y-2">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 className="text-sm font-semibold">최근 정기·수동 작업 로그</h3>
+            <h2 className="text-sm font-semibold">최근 실행</h2>
             <p className="text-xs text-muted-foreground">
               작업 묶음 진행률과 오류를 기준으로 표시합니다.
             </p>
           </div>
           <div className="max-h-72 overflow-auto rounded-md border">
           <Table className="min-w-[680px]">
-            <TableHeader><TableRow><TableHead>시작</TableHead><TableHead>구분</TableHead><TableHead>상태</TableHead><TableHead>진행</TableHead><TableHead>오류</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>시작 · KST</TableHead><TableHead>구분</TableHead><TableHead>상태</TableHead><TableHead>완료·건너뜀 / 작업</TableHead><TableHead>오류</TableHead></TableRow></TableHeader>
             <TableBody>
               {(operationRunsQuery.data?.runs ?? []).map((run) => (
                 <TableRow key={run.runId}>
@@ -428,8 +425,10 @@ export function MemberPostFeedMonitor({
                   <TableCell className="max-w-56 truncate">{run.failures[0]?.message ?? run.lastError ?? "-"}</TableCell>
                 </TableRow>
               ))}
-              {!operationRunsQuery.isLoading && (operationRunsQuery.data?.runs.length ?? 0) === 0 ? (
-                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">작업 이력이 없습니다.</TableCell></TableRow>
+              {operationRunsQuery.isLoading && <TableRow><TableCell colSpan={5} className="py-4 text-muted-foreground">실행 이력 확인 중</TableCell></TableRow>}
+              {operationRunsQuery.isError && <TableRow><TableCell colSpan={5} className="whitespace-normal text-destructive">실행 이력 조회 실패{operationRunsQuery.data ? " · 이전 조회 결과" : ""}</TableCell></TableRow>}
+              {!operationRunsQuery.isLoading && !operationRunsQuery.isError && (operationRunsQuery.data?.runs.length ?? 0) === 0 ? (
+                <TableRow><TableCell colSpan={5} className="text-muted-foreground">작업 이력이 없습니다.</TableCell></TableRow>
               ) : null}
             </TableBody>
           </Table>
@@ -438,156 +437,60 @@ export function MemberPostFeedMonitor({
         )}
 
 
-        {isX ? (
-          <details className="rounded-lg border bg-muted/10">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3 text-sm font-medium marker:hidden">
-              <span>X API 사용량</span>
-              <Badge variant="outline">최근 24시간 {xUsage?.apiCalls ?? "확인 불가"}회</Badge>
-            </summary>
-            {!xUsage || operationsError ? <p className="border-t p-3 text-sm text-muted-foreground">{xUsage ? "최신 사용량 조회 실패 · 이전에 조회한 값입니다." : "사용량을 확인할 수 없습니다."}</p> : null}
-            {xUsage ? <div className="grid border-t lg:grid-cols-3">
-              <MetricTile label="일별 API 사용" value={`${xUsage?.daily.reduce((total, day) => total + day.apiCalls, 0) ?? 0}회`} detail={(xUsage?.daily ?? []).slice(0, 3).map((day) => `${day.day} ${day.apiCalls}회`).join(" · ") || "기록 없음"} />
-              <MetricTile label="작업별 API 사용" value={`${xUsage?.byOperation.length ?? 0}개 작업`} detail={(xUsage?.byOperation ?? []).slice(0, 3).map((item) => `${item.operation} ${item.apiCalls}회`).join(" · ") || "기록 없음"} />
-              <MetricTile label="강제 새로고침 경로" value={`${xUsage?.forceRefreshPaths.length ?? 0}개`} detail={(xUsage?.forceRefreshPaths ?? []).slice(0, 2).map((item) => `${item.label} ${item.apiCalls}회`).join(" · ") || "기록 없음"} />
-            </div> : null}
-          </details>
-        ) : null}
-
-        {isX ? (
-          <details className="min-w-0 border-t">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3 marker:hidden">
-              <h3 className="flex items-center gap-2 text-sm font-semibold">
-                <img src={IconX} alt="" className="h-3.5 w-3.5" />
-                X 계정별 관리자 피드 응답
-              </h3>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">계정 {membersWithXHandles.length}개</Badge>
-                <Badge variant={xErrorCount > 0 ? "destructive" : "secondary"}>오류 {xErrorCount}개</Badge>
-                <Badge variant="outline">캐시 {xStaleCount}개</Badge>
-              </div>
-            </summary>
-            <div className="space-y-3 border-t p-3">
-            <div className="grid gap-2 lg:grid-cols-2">
-              {xHandleRows.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  등록된 X 계정이 없습니다.
-                </p>
-              ) : (
-                xHandleRows.map((row) => (
-                  <div
-                    key={row.handle}
-                    className="grid gap-2 rounded-md border bg-background p-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto]"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-foreground">
-                        {row.memberName} · @{row.handle}
-                      </p>
-                      {row.error ? (
-                        <p className="mt-1 truncate text-xs text-destructive">
-                          {row.error}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant={
-                          row.status === "오류"
-                            ? "destructive"
-                            : row.status === "캐시"
-                              ? "secondary"
-                              : "outline"
-                        }
-                      >
-                        {row.status}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {row.postCount}건
-                      </span>
-                    </div>
-                  </div>
-                ))
-              )}
+        {isX && <XUsageChart usage={xUsage} error={operationsError} hours={operationsStatus?.window.hours ?? 24} />}
+        <Card className="min-w-0 gap-0 py-0 shadow-none">
+          <CardHeader className="gap-2 px-3 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold">{isX ? "계정별 관리자 피드 응답" : "게시판별 점검 상태"}</h2>
+              <span className="text-xs text-muted-foreground">
+                {isX ? `계정 ${xHandleRows.length} · 오류 ${xErrorCount} · 캐시 ${xStaleCount}` : `등록 ${cafeRows.length} · 공개 ${getVisibilityLabel(sourceVisibility)}`}
+              </span>
             </div>
-            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <span>{sourceEnabled ? "수집 활성" : "수집 비활성"}</span>
-              <span>·</span>
-              <span>공개 {getVisibilityLabel(sourceVisibility)}</span>
-              <span>·</span>
-              <span>{operationsStatus?.xCollection.feed.apiPath ?? "/api/member-posts?sources=x&admin=1"}</span>
-            </div>
-            </div>
-          </details>
-        ) : (
-          <details className="min-w-0 border-t">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3 marker:hidden">
-              <h3 className="flex items-center gap-2 text-sm font-semibold">
-                <Coffee className="h-3.5 w-3.5 text-emerald-600" />
-                게시판별 소스 점검 상태
-              </h3>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">전체 {cafeRows.length}개</Badge>
-                <Badge variant={(naverCafeStatus?.failingSourceCount ?? 0) > 0 ? "destructive" : "secondary"}>오류 {naverCafeStatus?.failingSourceCount ?? 0}개</Badge>
-                <Badge variant="outline">지연 {naverCafeStatus?.staleSourceCount ?? 0}개</Badge>
-              </div>
-            </summary>
-            <div className="space-y-3 border-t p-3">
-            <div className="grid gap-2 lg:grid-cols-2">
-              {cafeRows.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  등록된 카페 게시판이 없습니다.
-                </p>
-              ) : (
-                cafeRows.map((item) => (
-                  <div
-                    key={item.id}
-                    className="grid gap-2 rounded-md border bg-background p-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto]"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-foreground">
-                        {item.name}
-                      </p>
-                      <p className="mt-1 truncate text-xs text-muted-foreground">
-                        cafe {item.cafeId} · menu {item.menuId}
-                        {item.lastSuccessAt
-                          ? ` · 마지막 성공 ${formatMonitorUpdatedAt(item.lastSuccessAt)}`
-                          : ""}
-                      </p>
-                      {item.error ? (
-                        <p className="mt-1 truncate text-xs text-destructive">
-                          {item.error}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant={getNaverCafeSourceStatusVariant(item.status)}
-                      >
-                        {getNaverCafeSourceStatusLabel(item.status)}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {item.postCount}건
-                      </span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <span>{naverCafeEnabled ? "표시 활성" : "표시 비활성"}</span>
-              <span>·</span>
-              <span>공개 {getVisibilityLabel(sourceVisibility)}</span>
-              <span>·</span>
-              <span>{naverCafeStatus?.apiPath ?? "/api/member-posts?sources=naver-cafe&admin=1"}</span>
-            </div>
-            </div>
-          </details>
-        )}
-
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Gauge className="h-3.5 w-3.5" />
-          운영 지표는 최근 {operationsStatus?.window.hours ?? 24}시간 기준이며,
-          관리자 피드 응답과 실제 예약 수집 이력을 구분해 표시합니다.
+            <Input aria-label={isX ? "X 계정 검색" : "카페 게시판 검색"} placeholder={isX ? "멤버 또는 계정 검색" : "게시판명 또는 ID 검색"}
+              value={search.q ?? ""} onChange={(event) => updateSearch({ q: event.target.value || undefined })} />
+          </CardHeader>
+          <CardContent className="px-0">
+            <Table className="min-w-[560px] text-[13px]">
+              <TableHeader><TableRow>
+                <TableHead className="px-3">{isX ? "멤버 / 계정" : "게시판 / ID"}</TableHead>
+                <TableHead>상태</TableHead><TableHead className="text-right">{isX ? "피드 응답" : "점검 응답"}</TableHead>
+                {!isX && <TableHead>마지막 성공 · KST</TableHead>}
+                <TableHead className="pr-3">오류</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {isX ? xHandleRows.filter((row) => `${row.memberName} ${row.handle}`.toLocaleLowerCase().includes((search.q ?? "").trim().toLocaleLowerCase())).map((row) => (
+                  <TableRow key={row.handle}>
+                    <TableCell className="px-3 whitespace-normal"><span className="font-medium">{row.memberName}</span><p className="text-xs text-muted-foreground">@{row.handle}</p></TableCell>
+                    <TableCell><Badge variant={row.status === "오류" ? "destructive" : "secondary"}>{row.status}</Badge></TableCell>
+                    <TableCell className="text-right">{row.postCount == null ? "—" : row.postCount + "건"}</TableCell>
+                    <TableCell className={`max-w-60 whitespace-normal break-words pr-3 text-xs ${row.error ? "text-destructive" : "text-muted-foreground"}`}>{row.error ?? "—"}</TableCell>
+                  </TableRow>
+                )) : cafeRows.filter((row) => `${row.name} ${row.cafeId} ${row.menuId}`.toLocaleLowerCase().includes((search.q ?? "").trim().toLocaleLowerCase())).map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="px-3 whitespace-normal"><span className="font-medium">{item.name}</span><p className="text-xs text-muted-foreground">카페 {item.cafeId} / 게시판 {item.menuId}</p></TableCell>
+                    <TableCell><Badge variant={getNaverCafeSourceStatusVariant(item.status)}>{getNaverCafeSourceStatusLabel(item.status)}</Badge></TableCell>
+                    <TableCell className="text-right">{item.postCount == null ? "—" : item.postCount + "건"}</TableCell>
+                    <TableCell className="text-xs">{formatMonitorUpdatedAt(item.lastSuccessAt)}</TableCell>
+                    <TableCell className={`max-w-60 whitespace-normal break-words pr-3 text-xs ${item.error ? "text-destructive" : "text-muted-foreground"}`}>{item.error ?? "—"}</TableCell>
+                  </TableRow>
+                ))}
+                {(isX ? xHandleRows : cafeRows).length === 0 && <TableRow><TableCell colSpan={isX ? 4 : 5} className="py-4 text-muted-foreground">
+                  {loading ? "소스 상태 확인 중" : hasError ? "소스 상태를 확인할 수 없습니다." : isX ? "등록된 X 계정이 없습니다." : "등록된 카페 게시판이 없습니다."}
+                </TableCell></TableRow>}
+                {search.q && (isX ? xHandleRows.filter((row) => `${row.memberName} ${row.handle}`.toLocaleLowerCase().includes(search.q!.trim().toLocaleLowerCase())) : cafeRows.filter((row) => `${row.name} ${row.cafeId} ${row.menuId}`.toLocaleLowerCase().includes(search.q!.trim().toLocaleLowerCase()))).length === 0 && (isX ? xHandleRows : cafeRows).length > 0 &&
+                  <TableRow><TableCell colSpan={isX ? 4 : 5} className="py-4"><Button variant="ghost" size="sm" onClick={() => updateSearch({q: undefined})}>검색 결과 없음 · 초기화</Button></TableCell></TableRow>}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span>{isX ? "저장 피드 응답 ≠ 예약 수집 성공" : `피드 ${naverCafeEnabled ? "표시" : "숨김"} · 현재 게시판 상태 · 점검 이력 기준`} · 시각 KST</span>
+          <Button variant="ghost" size="sm" asChild><a href={`/admin/history?tab=runs&source=${isX ? "x_collection" : "naver_cafe_collection"}`}>전체 실행 이력</a></Button>
         </div>
+        {children && <details key={source} className="rounded-lg border">
+          <summary className="cursor-pointer px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">{isX ? "수집·공개 설정 및 보관 기록" : "수집·공개 설정 및 게시판 관리"}</summary>
+          <div className="border-t p-3">{children}</div>
+        </details>}
       </div>
     </section>
   );

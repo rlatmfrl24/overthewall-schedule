@@ -5,7 +5,9 @@ import { Input } from "@/shared/ui/input";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { KirinukiChannelDto } from "@contracts/youtube";
-import { PiSpinnerGapBold as Loader2, PiPlusCircleBold as PlusCircle, PiPencilSimpleBold as Pencil, PiTrashBold as Trash2, PiYoutubeLogoBold as Youtube, PiArrowsClockwiseBold as RefreshCw } from "react-icons/pi";
+import { PiSpinnerGapBold as Loader2, PiPlusCircleBold as PlusCircle, PiPencilSimpleBold as Pencil, PiTrashBold as Trash2, PiArrowSquareOutBold as ExternalLink, PiArrowsClockwiseBold as RefreshCw } from "react-icons/pi";
+import { Badge } from "@/shared/ui/badge";
+import { Skeleton } from "@/shared/ui/skeleton";
 import { Button } from "@/shared/ui/button";
 import {
   Select,
@@ -143,6 +145,9 @@ export function KirinukiChannelManager() {
     }
     return list.sort((a, b) => a.channel_name.localeCompare(b.channel_name));
   }, [channelsQuery.data, channelSort]);
+  const filteredChannels = sortedChannels.filter((channel) =>
+    `${channel.channel_name} ${channel.youtube_channel_id}`.toLocaleLowerCase().includes((search.q ?? "").trim().toLocaleLowerCase()),
+  );
 
   const handleOpenCreate = () => {
     setEditingChannel(null);
@@ -169,28 +174,12 @@ export function KirinukiChannelManager() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="admin-dense-panel min-w-0 space-y-3">
       <AdminSectionHeader
-        title="방송 클립 채널 관리"
-        description="VOD 페이지 키리누키 섹션에 표시될 유튜브 채널을 관리합니다."
+        title="방송 클립 채널"
         count={channelsQuery.data ? sortedChannels.length : undefined}
         actions={
           <>
-            <Select
-              value={channelSort}
-              onValueChange={(value) => setChannelSort(value as KirinukiSortKey)}
-            >
-              <SelectTrigger aria-label="방송 클립 채널 정렬" size="sm" className="w-[170px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {KIRINUKI_SORT_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             <Button
               variant="outline"
               size="sm"
@@ -212,45 +201,52 @@ export function KirinukiChannelManager() {
         }
       />
 
-      <div className="flex flex-wrap gap-3"><Input aria-label="방송 클립 채널 검색" placeholder="채널명 검색" className="max-w-sm" value={search.q ?? ""} onChange={(event) => updateSearch({q: event.target.value})}/><a className="text-sm underline" href="/admin/otw-play?tab=clip-channels">노래 클립 채널 관리 →</a><a className="text-sm underline" href="/admin/otw-play?tab=play-monitor">Play 감시 대상 →</a></div>
-      <QueryReadback updatedAt={channelsQuery.dataUpdatedAt} fetching={channelsQuery.isFetching} error={channelsQuery.isError} />
+      <div className="flex flex-wrap items-center gap-2">
+        <Input aria-label="방송 클립 채널 검색" placeholder="채널명 또는 채널 ID 검색" className="min-w-0 flex-1 basis-60" value={search.q ?? ""} onChange={(event) => updateSearch({q: event.target.value})}/>
+        <Select value={channelSort} onValueChange={(value) => setChannelSort(value as KirinukiSortKey)}>
+          <SelectTrigger aria-label="방송 클립 채널 정렬" size="sm" className="w-auto"><SelectValue /></SelectTrigger>
+          <SelectContent>{KIRINUKI_SORT_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+        </Select>
+        {search.q && <Button size="sm" variant="ghost" onClick={() => updateSearch({ q: undefined })}>초기화</Button>}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <QueryReadback updatedAt={channelsQuery.dataUpdatedAt} fetching={channelsQuery.isFetching} error={channelsQuery.isError} />
+        {channelsQuery.data && <span className="tabular-nums">{filteredChannels.length} / {sortedChannels.length}채널</span>}
+      </div>
       {channelsQuery.isError && !channelsQuery.data ? <p>채널 목록을 확인할 수 없습니다.</p> : channelsQuery.isFetching && sortedChannels.length === 0 ? (
-        <div className="flex h-44 items-center justify-center rounded-xl border border-dashed">
-          <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
-        </div>
+        <div role="status" aria-label="채널 목록 확인 중" className="space-y-2 rounded-lg border p-3">{[1, 2, 3].map((row) => <Skeleton key={row} className="h-11 w-full" />)}</div>
       ) : sortedChannels.length === 0 ? (
-        <div className="flex h-44 items-center justify-center rounded-xl border border-dashed bg-muted/30 text-sm text-muted-foreground">
+        <div className="rounded-lg border p-6 text-center text-sm text-muted-foreground">
           등록된 방송 클립 채널이 없습니다.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card">
-          <Table className="w-full">
+        <div className="overflow-hidden rounded-lg border bg-card">
+          <Table className="text-[13px]">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[70px]">구분</TableHead>
-                <TableHead className="w-[220px]">채널명</TableHead>
-                <TableHead>연결·사용처</TableHead>
-
-                <TableHead className="w-[90px] text-right">작업</TableHead>
+                <TableHead className="px-3">채널</TableHead>
+                <TableHead>사용처</TableHead>
+                <TableHead className="text-right pr-3">작업</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedChannels.filter((channel) => !search.q || channel.channel_name.toLocaleLowerCase().includes(search.q.toLocaleLowerCase())).map((channel) => (
+              {filteredChannels.map((channel) => (
                 <TableRow key={channel.id}>
-                  <TableCell>
-                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-red-100">
-                      <Youtube className="h-4 w-4 text-red-600" />
-                    </span>
+                  <TableCell className="px-3 whitespace-normal">
+                    <a className="inline-flex items-center gap-1 font-medium underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring" href={channel.channel_url} target="_blank" rel="noreferrer">
+                      {channel.channel_name}<ExternalLink className="size-3 shrink-0 text-muted-foreground" /><span className="sr-only">YouTube 채널 새 탭에서 열기</span>
+                    </a>
+                    <p className="mt-0.5 break-all font-mono text-xs text-muted-foreground">{channel.youtube_channel_id}</p>
                   </TableCell>
-                  <TableCell className="font-medium">{channel.channel_name}</TableCell>
-                  <TableCell className="text-xs"><span>키리누키 피드</span><details><summary>채널 정보</summary><p className="break-all">{channel.youtube_channel_id}</p><a className="underline" href={channel.channel_url} target="_blank" rel="noreferrer">YouTube 채널 열기 ↗</a></details></TableCell>
-                  <TableCell className="text-right">
+                  <TableCell><Badge variant="secondary">VOD 키리누키</Badge></TableCell>
+                  <TableCell className="text-right pr-3">
                     <div className="inline-flex items-center gap-1">
                       <Button
                         variant="ghost"
                         size="icon-sm"
                         onClick={() => handleOpenEdit(channel)}
                         title="수정"
+                        aria-label={`${channel.channel_name} 수정`}
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -260,6 +256,8 @@ export function KirinukiChannelManager() {
                         className="text-destructive hover:text-destructive"
                         onClick={() => setDeletingChannel(channel)}
                         title="삭제"
+                        aria-label={`${channel.channel_name} 삭제`}
+                        disabled={deleteMutation.isPending}
                       >
                         <Trash2 className="h-4 w-4" />
                       </SecondaryAction>
@@ -267,10 +265,15 @@ export function KirinukiChannelManager() {
                   </TableCell>
                 </TableRow>
               ))}
+              {filteredChannels.length === 0 && <TableRow><TableCell colSpan={3} className="py-6 text-center text-muted-foreground">검색 조건에 맞는 채널이 없습니다.</TableCell></TableRow>}
             </TableBody>
           </Table>
         </div>
       )}
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" asChild><a href="/admin/otw-play?tab=clip-channels">노래 클립 채널 관리</a></Button>
+        <Button variant="ghost" size="sm" asChild><a href="/admin/otw-play?tab=play-monitor">Play 감시 대상</a></Button>
+      </div>
 
       <KirinukiChannelFormDialog
         open={isDialogOpen}
@@ -286,9 +289,10 @@ export function KirinukiChannelManager() {
           if (!open) setDeletingChannel(null);
         }}
         title="채널 삭제 확인"
-        description="정말로 이 방송 클립 채널을 삭제하시겠습니까?"
+        description={`${deletingChannel?.channel_name ?? ""} 방송 클립 채널을 삭제하시겠습니까?`}
         confirmLabel="삭제"
         destructive
+        isProcessing={deleteMutation.isPending}
         onConfirm={() => {
           void handleDelete();
         }}

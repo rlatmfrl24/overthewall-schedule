@@ -527,6 +527,30 @@ export class D1IngestionRepository implements IngestionRepository {
     }
   }
 
+  async deleteReviewItem(command: import("@contracts/otw-play").OtwPlayDeleteReviewItemRequest & { id: string; actorUserId: string; eventId: string; now: number }) {
+    const candidate = command.kind === "candidate";
+    const table = candidate ? "music_ingestion_candidates" : "music_cover_proposals";
+    const aggregate = candidate ? "review_candidate" : "review_proposal";
+    const guard = candidate
+      ? `NOT EXISTS (SELECT 1 FROM music_cover_proposals p WHERE p.youtube_video_id = item.external_video_id
+          AND p.status = 'pending_review' AND p.segment_start_seconds = 0 AND item.status NOT IN ('converted', 'ignored'))`
+      : "item.status IN ('approved', 'rejected', 'withdrawn')";
+    // Keep catalog links and review evidence; the audit event removes the inbox entry.
+    const results = await this.database.batch([
+      this.database.prepare(`INSERT INTO music_catalog_events
+          (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, before_json, detail_json, created_at)
+        SELECT ?, ?, item.id, 'review_item.deleted', 'admin', ?, json_object('status', item.status, 'version', item.version), '{}', ?
+        FROM ${table} item WHERE item.id = ? AND item.version = ? AND ${guard}
+          AND NOT EXISTS (SELECT 1 FROM music_catalog_events e WHERE e.aggregate_type = ? AND e.aggregate_id = item.id AND e.event_type = 'review_item.deleted')`)
+        .bind(command.eventId, aggregate, command.actorUserId, command.now, command.id, command.expectedVersion, aggregate),
+      this.database.prepare(`UPDATE ${table} SET ${candidate ? "status = CASE WHEN status = 'converted' THEN status ELSE 'ignored' END," : ""}
+        version = version + 1, updated_at = ? WHERE id = ? AND version = ?
+          AND EXISTS (SELECT 1 FROM music_catalog_events WHERE id = ?)`)
+        .bind(command.now, command.id, command.expectedVersion, command.eventId),
+    ]);
+    if (!results[1]?.meta.changes) throw new IngestionRepositoryError("stale_write", "항목이 변경되었거나 처리 대기 중인 제안이 있습니다. 목록을 새로고침해 주세요.");
+  }
+
   async listReviewItems(filters: import("@contracts/otw-play").OtwPlayReviewFilters): Promise<import("@contracts/otw-play").OtwPlayReviewPageDto> {
     const identity = JSON.stringify([filters.candidateKind ?? null, filters.source ?? null, filters.status ?? "pending", filters.jobId ?? null]);
     let position: { at: number; id: string; ready: number } | null = null;
@@ -544,7 +568,8 @@ export class D1IngestionRepository implements IngestionRepository {
       AND c.status NOT IN ('converted', 'ignored') LIMIT 1)`;
     const values: Array<string | number | null> = [];
     const conditions = (alias: "c" | "p") => {
-      const clauses: string[] = [];
+      const clauses: string[] = [`NOT EXISTS (SELECT 1 FROM music_catalog_events deleted
+        WHERE deleted.aggregate_type = '${alias === "c" ? "review_candidate" : "review_proposal"}' AND deleted.aggregate_id = ${alias}.id AND deleted.event_type = 'review_item.deleted')`];
       if (filters.candidateKind) {
         clauses.push(`${alias === "c" ? "c.candidate_kind" : "CASE WHEN p.submission_kind = 'singing_clip' THEN 'singing_clip' ELSE 'official_video' END"} = ?`);
         values.push(filters.candidateKind);
@@ -1393,6 +1418,8 @@ export class D1IngestionRepository implements IngestionRepository {
         candidate.review_input_json, candidate.linked_performance_id
        FROM music_ingestion_candidates AS candidate
        WHERE candidate.id = ?
+         AND NOT EXISTS (SELECT 1 FROM music_catalog_events deleted WHERE deleted.aggregate_type = 'review_candidate'
+           AND deleted.aggregate_id = candidate.id AND deleted.event_type = 'review_item.deleted')
          ${jobId ? `AND EXISTS (
            SELECT 1 FROM music_ingestion_candidate_origins AS origin
            WHERE origin.candidate_id = candidate.id AND origin.job_id = ?

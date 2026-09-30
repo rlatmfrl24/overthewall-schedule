@@ -1,7 +1,5 @@
 export {
   YouTubeAllowlistUnavailableError,
-  YouTubeApiKeyUnavailableError,
-  YouTubeCacheRefreshInProgressError,
   YouTubeTargetsNotAllowedError, createYouTubeApplication, type YouTubeApplication,
   type YouTubeApplicationPorts
 } from "./application/youtube-service";
@@ -25,11 +23,4 @@ export {
   YouTubeQuotaAdmissionError,
   YouTubeQuotaConfigurationError, reserveYouTubeQuota, type YouTubeQuotaPriority
 } from "./infrastructure/youtube-quota";
-export {
-  getYouTubeWarmupStatus,
-  readYouTubeWarmupSettings,
-  readYouTubeWarmupTargets,
-  runManualYouTubeCacheRefresh
-} from "./infrastructure/youtube-warmup";
-export type { YouTubeWarmupTarget } from "./infrastructure/youtube-warmup";
 export { readSiteContentYouTube } from "./infrastructure/site-content-videos";

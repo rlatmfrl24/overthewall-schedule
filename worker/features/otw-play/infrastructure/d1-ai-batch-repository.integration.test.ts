@@ -31,6 +31,7 @@ beforeEach(async () => {
   await db.batch([
     db.prepare("DELETE FROM music_ai_review_batches"), db.prepare("DELETE FROM music_ai_reviews"),
     db.prepare("DELETE FROM music_cover_proposals WHERE id='batch-proposal'"),
+    db.prepare("DELETE FROM music_catalog_events WHERE id='batch-inbox-delete-event'"),
     db.prepare("DELETE FROM music_ingestion_candidate_origins"), db.prepare("DELETE FROM music_ingestion_candidates"), db.prepare("DELETE FROM music_ingestion_jobs"),
   ]);
   await db.prepare(`INSERT INTO music_ingestion_jobs(id,source_external_id,source_url,source_title,owner_channel_id,owner_channel_title,import_mode,requested_item_count,actor_user_id,idempotency_key,created_at,updated_at)
@@ -84,6 +85,21 @@ it("includes only the latest AI summary on every review page without exposing th
   expect(after.counts).toEqual(before.counts);
   expect(after.updatedAt).toBeGreaterThan(before.updatedAt);
   expect((await repo.list()).find(b => b.id === "new")?.updatedAt).toBe(after.updatedAt);
+});
+
+it("excludes deleted inbox entries from new AI work and cancels their queued analysis", async () => {
+  await candidates(2);
+  const repo = new D1AiBatchRepository(db), { service, analyze } = services(repo);
+  const batch = await service.start(selection, "delete-inbox", "admin");
+  const item = (await service.get(batch.id)).items[0];
+  await new D1IngestionRepository(db).deleteReviewItem({ id: item.candidateId, kind: "candidate", expectedVersion: item.candidateVersion, actorUserId: "admin", eventId: "batch-inbox-delete-event", now: now + 1 });
+  await service.process(item.id, 0);
+  expect(analyze).not.toHaveBeenCalled();
+  expect((await service.get(batch.id)).items.find(row => row.id === item.id)?.status).toBe("changed");
+  // A recreated candidate must not undo the durable removal.
+  await db.prepare("UPDATE music_ingestion_candidates SET status='needs_input',version=? WHERE id=?").bind(item.candidateVersion, item.candidateId).run();
+  expect(await repo.preview({ candidates: [{ id: item.candidateId, version: item.candidateVersion }] })).toBe(0);
+  expect((await repo.create("after-deletion", "admin", "after-deletion", { candidates: [{ id: item.candidateId, version: item.candidateVersion }] }, now + 2)).total).toBe(0);
 });
 
 function services(repository = new D1AiBatchRepository(db), dailyLimit = 100, enabled = true) {

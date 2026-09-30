@@ -4,9 +4,9 @@ import type { Env } from "../../../platform/types";
 import { createYouTubeHandler } from "../http/youtube";
 import { buildYouTubeApplication } from "./youtube-adapters";
 import { clearActiveYouTubeChannelsCacheForTests } from "./d1-active-channels";
+import { readYouTubeFeedStatus } from "./d1-youtube-feed-status";
 import {
   hasScheduledYouTubeFeedWork,
-  importLegacyOfficialShorts,
   runScheduledYouTubeFeedCollection,
 } from "./youtube-feed";
 
@@ -14,7 +14,6 @@ const testEnv = env as unknown as Env & { YOUTUBE_FEED_MIGRATIONS: D1Migration[]
 const database = testEnv.otw_db;
 const channelId = `UC${"A".repeat(22)}`;
 const otherChannelId = `UC${"B".repeat(22)}`;
-const checkpointKey = "youtube_shorts_legacy_import_completed_at";
 const handle = createYouTubeHandler(buildYouTubeApplication);
 const now = () => Date.now();
 
@@ -90,7 +89,7 @@ beforeEach(async () => {
     database.prepare("DELETE FROM member_links"),
     database.prepare("DELETE FROM members"),
     database.prepare("DELETE FROM settings WHERE key <> 'youtube_api_daily_quota_units'"),
-    database.prepare("INSERT INTO settings (key, value) VALUES ('youtube_feed_enabled', 'true'), ('scheduled_v2_youtube_feed_collection_enabled', 'true')"),
+    database.prepare("INSERT INTO settings (key, value) VALUES ('scheduled_v2_youtube_feed_collection_enabled', 'true')"),
     database.prepare("INSERT INTO members (uid, code, name, youtube_channel_id) VALUES (1, 'one', 'One', ?)").bind(channelId),
   ]);
   clearActiveYouTubeChannelsCacheForTests();
@@ -159,30 +158,12 @@ describe("YouTube public Shorts storage cost", () => {
       .toBe("video-0");
   });
 
-  it("checkpoints legacy migration only after success and skips the next full scan", async () => {
-    await seedSource();
-    await seedLegacyCache();
-    await database.prepare(
-      `CREATE TRIGGER fail_feed_video BEFORE INSERT ON youtube_feed_videos
-       BEGIN SELECT RAISE(ABORT, 'storage unavailable'); END`,
-    ).run();
-    await expect(importLegacyOfficialShorts(testEnv, now())).rejects.toThrow();
-    expect(await database.prepare("SELECT value FROM settings WHERE key = ?").bind(checkpointKey).first()).toBeNull();
-    await database.prepare("DROP TRIGGER fail_feed_video").run();
-    expect(await importLegacyOfficialShorts(testEnv, now())).toBe(1);
-    const observed = observe();
-    expect(await importLegacyOfficialShorts({ ...testEnv, otw_db: observed.db }, now())).toBe(0);
-    expect(observed.statements).toHaveLength(1);
-    expect(observed.statements[0]).not.toContain("youtube_api_cache");
-  });
 });
 
 describe("YouTube scheduled work admission", () => {
   it("keeps an idle fully initialized feed read-only while detecting each remaining work category", async () => {
     await seedSource();
     const readyEnv = { ...testEnv, YOUTUBE_API_KEY: "test" };
-    expect(await hasScheduledYouTubeFeedWork(readyEnv, now())).toBe(true);
-    await importLegacyOfficialShorts(testEnv, now());
     const observed = observe();
     expect(await hasScheduledYouTubeFeedWork({ ...readyEnv, otw_db: observed.db }, now())).toBe(false);
     expect(observed.statements).toHaveLength(1);
@@ -206,8 +187,7 @@ describe("YouTube scheduled work admission", () => {
     await database.prepare("DELETE FROM members WHERE uid = 2").run();
     await database.prepare("UPDATE members SET is_deprecated = 1 WHERE uid = 1").run();
     expect(await hasScheduledYouTubeFeedWork(readyEnv, now())).toBe(true);
-    await database.prepare("UPDATE settings SET value = 'false' WHERE key = 'youtube_feed_enabled'").run();
-    expect(await hasScheduledYouTubeFeedWork(readyEnv, now())).toBe(false);
+    expect(await hasScheduledYouTubeFeedWork({ ...readyEnv, YOUTUBE_API_KEY: "" }, now())).toBe(false);
   });
 });
 
@@ -223,7 +203,6 @@ describe("dedicated YouTube VOD channels", () => {
   it("collects a dedicated channel through the scheduler and keeps public main-channel access restricted", async () => {
     await database.prepare("UPDATE members SET youtube_channel_id = NULL WHERE uid = 1").run();
     await linkVod();
-    await database.prepare("INSERT INTO settings (key, value) VALUES (?, 'true')").bind(checkpointKey).run();
     expect(await hasScheduledYouTubeFeedWork({ ...testEnv, YOUTUBE_API_KEY: "test" }, now())).toBe(true);
     fakeYouTube(25, "PT1H");
     await runScheduledYouTubeFeedCollection({ ...testEnv, YOUTUBE_API_KEY: "test" });
@@ -247,7 +226,6 @@ describe("dedicated YouTube VOD channels", () => {
     await linkVod();
     await seedSource();
     await database.prepare("UPDATE youtube_feed_sources SET backfill_page_token = 'older', backfill_exhausted_at = NULL").run();
-    await database.prepare("INSERT INTO settings (key, value) VALUES (?, 'true')").bind(checkpointKey).run();
     expect(await hasScheduledYouTubeFeedWork({ ...testEnv, YOUTUBE_API_KEY: "test" }, now())).toBe(false);
     const upstream = fakeYouTube(10);
     await runScheduledYouTubeFeedCollection({ ...testEnv, YOUTUBE_API_KEY: "test" });
@@ -262,8 +240,7 @@ describe("dedicated YouTube VOD channels", () => {
     const result = await (await requestVods("", watched.db)).json() as import("@contracts/youtube").YouTubeVodsResponseDto;
     expect(result.availableMemberUids).toEqual([1]);
     expect(watched.statements.every((sql) => !/^\s*(INSERT|UPDATE|DELETE)/i.test(sql))).toBe(true);
-    const { readYouTubeVodChannelStatus } = await import("./d1-youtube-vods");
-    expect((await readYouTubeVodChannelStatus(database)).some((row) => row.issue === "missing_channel_id")).toBe(true);
+    expect((await readYouTubeFeedStatus({ ...testEnv, YOUTUBE_API_KEY: "test" }, 24)).configurationIssues.some((row) => row.issue === "missing_channel_id")).toBe(true);
     await database.prepare("UPDATE member_links SET enabled = 0").run();
     const disabled = await (await requestVods()).json() as typeof result;
     expect(disabled.items).toEqual([]);
@@ -306,8 +283,7 @@ describe("dedicated YouTube VOD channels", () => {
     await runScheduledYouTubeFeedCollection({ ...testEnv, YOUTUBE_API_KEY: "test" });
     const result = await (await requestVods()).json() as import("@contracts/youtube").YouTubeVodsResponseDto;
     expect(result.collection.state).toBe("error");
-    const { readYouTubeVodChannelStatus } = await import("./d1-youtube-vods");
-    expect((await readYouTubeVodChannelStatus(database))[0].issue).toBe("collection_failed");
+    expect((await readYouTubeFeedStatus({ ...testEnv, YOUTUBE_API_KEY: "test" }, 24)).channels[0].state).toBe("failed");
   });
 
   it("rejects invalid limits, member filters, and foreign cursors", async () => {
@@ -325,7 +301,6 @@ describe("daily YouTube metadata refresh", () => {
   const seedMetadata = async (count: number, fetchedAt: number) => {
     await seedSource();
     await linkVod();
-    await importLegacyOfficialShorts(testEnv, now());
     await database.batch(Array.from({ length: count }, (_, index) => database.prepare(
       `INSERT INTO youtube_feed_videos
        (video_id, source_id, title, channel_title, published_at, fetched_at, view_count, is_short)
@@ -403,4 +378,69 @@ describe("daily YouTube metadata refresh", () => {
     expect(await hasScheduledYouTubeFeedWork(readyEnv, now())).toBe(true);
   });
 
+});
+
+describe("read-only YouTube operator status", () => {
+  it("marks vanished due work as no-target instead of claiming a 0/0 collection success", async () => {
+    await seedSource();
+    const upstream = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("No API call expected"));
+    const result = await runScheduledYouTubeFeedCollection({ ...testEnv, YOUTUBE_API_KEY: "test" }, "manual");
+    expect(result).toMatchObject({ status: "skipped", attempted: 0, metadataRefreshed: 0, scanPages: 0 });
+    expect(upstream).not.toHaveBeenCalled();
+  });
+  it("deduplicates main/VOD roles, reads all API origins and Pacific quota without writes or external requests", async () => {
+    await seedSource();
+    await linkVod();
+    const timestamp = now();
+    await database.prepare("UPDATE youtube_feed_sources SET last_success_at = ?, last_attempt_at = ?, next_check_at = ?")
+      .bind(timestamp - 1000, timestamp - 1000, timestamp - 7_200_000).run();
+    await database.prepare("INSERT INTO youtube_feed_videos (video_id, source_id, title, channel_title, published_at, fetched_at) VALUES ('old', 1, 'Old', 'One', 1, ?)")
+      .bind(timestamp - 86_400_000).run();
+    await database.batch(["scheduled", "manual", "demand"].map((origin) => database.prepare(
+      "INSERT INTO youtube_api_usage_events (operation, quota_units, status, duration_ms, created_at, request_origin) VALUES ('videos.list', 1, 200, 1, ?, ?)",
+    ).bind(timestamp, origin)));
+    await database.prepare("INSERT INTO youtube_api_usage_events (operation, quota_units, status, duration_ms, created_at, request_origin) VALUES ('videos.list', 0, 429, 0, ?, 'manual')").bind(timestamp).run();
+    const { getYouTubeQuotaWindow } = await import("./youtube-quota");
+    await database.prepare("INSERT INTO scheduled_usage_daily (day, lane, resource, used, limit_value, updated_at) VALUES (?, 'youtube-all', 'youtube_quota_units', 9, 1000, ?)")
+      .bind(getYouTubeQuotaWindow(timestamp).day, timestamp).run();
+    const upstream = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Must not call YouTube"));
+    const observed = observe();
+    const snapshot = await readYouTubeFeedStatus({ ...testEnv, otw_db: observed.db, YOUTUBE_API_KEY: "test" }, 24, timestamp);
+    expect(snapshot.summary).toMatchObject({ channels: 1, videos: 1, metadataPending: 1, states: { delayed: 1 } });
+    expect(snapshot.channels[0]).toMatchObject({ roles: ["official", "vod"], lastSuccessAt: timestamp - 1000, initialized: true });
+    expect(snapshot.usage).toMatchObject({ apiCalls: 3, quotaUnits: 3, failures: 0 });
+    expect(snapshot.usage.byOrigin.map((row) => row.origin).sort()).toEqual(["demand", "manual", "scheduled"]);
+    expect(snapshot.quota).toMatchObject({ used: 9, limit: 1000, lowPriorityLimit: 700, day: getYouTubeQuotaWindow(timestamp).day });
+    expect(snapshot.quota.nextResetAt).toBeGreaterThan(timestamp);
+    expect(observed.statements.every((sql) => /^\s*SELECT\b/i.test(sql))).toBe(true);
+    expect(observed.statements.join("\n")).not.toMatch(/youtube_api_cache|youtube_warmup_runs/);
+    expect(upstream).not.toHaveBeenCalled();
+    expect(snapshot.configurationIssues).toEqual([]);
+  });
+  it("shows invalid registrations, missing sources, paused automation and configuration errors explicitly", async () => {
+    await linkVod("bad");
+    let snapshot = await readYouTubeFeedStatus({ ...testEnv, YOUTUBE_API_KEY: "test" }, 168);
+    expect(snapshot.channels[0].state).toBe("initializing");
+    expect(snapshot.configurationIssues.map((issue) => issue.issue)).toEqual(expect.arrayContaining(["invalid_channel_id", "missing_source"]));
+    await database.prepare("UPDATE settings SET value = 'false' WHERE key = 'scheduled_v2_youtube_feed_collection_enabled'").run();
+    snapshot = await readYouTubeFeedStatus({ ...testEnv, YOUTUBE_API_KEY: "test" }, 24);
+    expect(snapshot.channels[0].state).toBe("paused");
+    snapshot = await readYouTubeFeedStatus({ ...testEnv, YOUTUBE_API_KEY: "" }, 24);
+    expect(snapshot.channels[0].state).toBe("misconfigured");
+    expect(snapshot.apiConfigured).toBe(false);
+  });
+  it("records manual metadata refresh in manual usage, keeps the feed enabled switch retired and reads authoritative updated data", async () => {
+    await seedSource();
+    await linkVod();
+    await database.prepare("INSERT INTO settings (key, value) VALUES ('youtube_feed_enabled', 'false')").run();
+    await database.prepare("INSERT INTO youtube_feed_videos (video_id, source_id, title, channel_title, published_at, fetched_at) VALUES ('manual', 1, 'Old', 'One', 1, 1)").run();
+    fakeYouTube(0, "PT1H");
+    const result = await runScheduledYouTubeFeedCollection({ ...testEnv, YOUTUBE_API_KEY: "test" }, "manual");
+    expect(result).toMatchObject({ status: "succeeded", attempted: 0, metadataRefreshed: 1 });
+    expect((await database.prepare("SELECT request_origin FROM youtube_api_usage_events").all()).results).toEqual([{ request_origin: "manual" }]);
+    const snapshot = await readYouTubeFeedStatus({ ...testEnv, YOUTUBE_API_KEY: "test" }, 24);
+    expect(snapshot.summary.metadataPending).toBe(0);
+    expect(snapshot.usage.byOrigin).toEqual([{ origin: "manual", apiCalls: 1, quotaUnits: 1, failures: 0 }]);
+    expect(await (await requestVods()).json()).toMatchObject({ items: [{ videoId: "manual", viewCount: 123 }] });
+  });
 });

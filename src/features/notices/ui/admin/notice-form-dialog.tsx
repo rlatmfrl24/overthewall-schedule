@@ -354,7 +354,7 @@ export function NoticeFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="notice-form-dialog max-h-[92vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{initialValues ? "공지사항 수정" : "새 공지사항 등록"}</DialogTitle>
           <DialogDescription>
@@ -473,17 +473,18 @@ export function NoticeFormDialog({
             </label>
           </div>
 
-          <div className="space-y-3">
-            <div className="flex flex-wrap gap-2">
+          <fieldset className="min-w-0 space-y-3 rounded-lg border p-3">
+            <legend className="px-1 text-sm font-semibold">게시 기간</legend>
+            <div className="flex flex-wrap items-center gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => applyPeriodPreset(7)}>7일</Button>
               <Button type="button" variant="outline" size="sm" onClick={() => applyPeriodPreset(30)}>30일</Button>
-              <Button type="button" variant="ghost" size="sm" onClick={() => { setValue("started_at", ""); setValue("ended_at", ""); clearErrors("ended_at"); }}>상시 게시</Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => { setValue("started_at", "", { shouldDirty: true }); setValue("ended_at", "", { shouldDirty: true }); clearErrors("ended_at"); }}>상시 게시</Button>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div><FieldLabel htmlFor="started_at">시작일</FieldLabel><Input id="started_at" type="date" {...register("started_at")} /></div>
+            <div className="grid items-start gap-3 sm:grid-cols-2">
+              <LabeledField label="시작일" htmlFor="started_at">{(control) => <Input {...control} className="min-w-0" type="date" {...register("started_at")} />}</LabeledField>
               <LabeledField label="종료일" htmlFor="ended_at" error={errors.ended_at?.message}>{(control) => <Input {...control} type="date" {...register("ended_at")} />}</LabeledField>
             </div>
-          </div>
+          </fieldset>
 
           {message ? <div role="status" className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{message}</div> : null}
 

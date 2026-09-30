@@ -24,9 +24,8 @@ const PAGE_SIZE = 50;
 const SHORTS_REVALIDATE_MS = 15_000 as const;
 const BACKFILL_LEASE_MS = 60_000;
 const VIDEO_WRITE_CHUNK_SIZE = Math.floor(100 / 11);
-const LEGACY_SHORTS_IMPORT_CHECKPOINT = "youtube_shorts_legacy_import_completed_at";
 
-type YouTubeRequestOrigin = "demand" | "scheduled";
+type YouTubeRequestOrigin = "demand" | "manual" | "scheduled";
 
 type FeedSource = {
   id: number;
@@ -444,7 +443,7 @@ const initializeSource = async (
   return { discovered: ids.length, shortsStored, exhausted: !nextPageToken };
 };
 
-const collectSource = async (env: Env, source: FeedSource, timestamp: number) => {
+const collectSource = async (env: Env, source: FeedSource, timestamp: number, origin: YouTubeRequestOrigin) => {
   const needsOfficialInitialization =
     source.source_kind === "official" &&
     (!source.initialization_completed_at ||
@@ -455,14 +454,14 @@ const collectSource = async (env: Env, source: FeedSource, timestamp: number) =>
       return { discovered: 0, shortsStored: 0, exhausted: false };
     }
     try {
-      return await initializeSource(env, source, timestamp, "scheduled");
+      return await initializeSource(env, source, timestamp, origin);
     } catch (error) {
       await recordBackfillFailure(env, source, timestamp, error);
       throw error;
     }
   }
   if (!source.initialization_completed_at || !source.uploads_playlist_id) {
-    return initializeSource(env, source, timestamp, "scheduled");
+    return initializeSource(env, source, timestamp, origin);
   }
 
   const base = source.sync_base_video_id ?? source.last_seen_video_id;
@@ -480,7 +479,7 @@ const collectSource = async (env: Env, source: FeedSource, timestamp: number) =>
       source,
       source.uploads_playlist_id,
       pageToken,
-      "scheduled",
+      origin,
     );
     const items = response.items ?? [];
     newest ??= items[0]?.snippet?.resourceId?.videoId ?? null;
@@ -507,7 +506,7 @@ const collectSource = async (env: Env, source: FeedSource, timestamp: number) =>
   const shortsStored = await persistVideoDetails(
     env,
     source.id,
-    await fetchVideoDetails(env, ids, "scheduled", source.youtube_channel_id),
+    await fetchVideoDetails(env, ids, origin, source.youtube_channel_id),
     timestamp,
   );
   await env.otw_db
@@ -530,84 +529,6 @@ const collectSource = async (env: Env, source: FeedSource, timestamp: number) =>
     )
     .run();
   return { discovered: ids.length, shortsStored, exhausted: false };
-};
-
-export const importLegacyOfficialShorts = async (
-  env: Env,
-  timestamp: number,
-) => {
-  const checkpoint = await env.otw_db.prepare(
-    "SELECT value FROM settings WHERE key = ?",
-  ).bind(LEGACY_SHORTS_IMPORT_CHECKPOINT).first<{ value: string }>();
-  if (checkpoint) return 0;
-
-  const rows = await env.otw_db
-    .prepare(
-      `SELECT value, fetched_at FROM youtube_api_cache
-       WHERE type = 'channel_videos' AND stale_until >= ?`,
-    )
-    .bind(timestamp)
-    .all<{ value: string; fetched_at: number }>();
-  const sources = await readSources(env);
-  const sourceByChannel = new Map(
-    sources.map((source) => [source.youtube_channel_id, source.id]),
-  );
-  let imported = 0;
-  for (const row of rows.results ?? []) {
-    let shorts: unknown[] = [];
-    try {
-      const parsed: unknown = JSON.parse(row.value);
-      if (typeof parsed === "object" && parsed !== null) {
-        const content = (parsed as { content?: unknown }).content ?? parsed;
-        if (typeof content === "object" && content !== null) {
-          const candidate = (content as { shorts?: unknown }).shorts;
-          if (Array.isArray(candidate)) shorts = candidate;
-        }
-      }
-    } catch {
-      continue;
-    }
-    for (const candidate of shorts) {
-      if (typeof candidate !== "object" || candidate === null) continue;
-      const video = candidate as Partial<YouTubeVideoDto>;
-      const sourceId = video.channelId
-        ? sourceByChannel.get(video.channelId)
-        : null;
-      const publishedAt = Date.parse(video.publishedAt ?? "");
-      if (!sourceId || !video.videoId || !Number.isFinite(publishedAt)) {
-        continue;
-      }
-      const result = await env.otw_db
-        .prepare(
-          `INSERT INTO youtube_feed_videos
-           (video_id, source_id, title, description, thumbnail_url,
-            channel_title, duration_seconds, view_count, is_short,
-            published_at, fetched_at, available)
-           VALUES (?, ?, ?, '', ?, ?, ?, ?, 1, ?, ?, 1)
-           ON CONFLICT(video_id) DO NOTHING`,
-        )
-        .bind(
-          video.videoId,
-          sourceId,
-          video.title ?? "",
-          video.thumbnailUrl ?? null,
-          video.channelTitle ?? "",
-          Number(video.duration) || 0,
-          Number(video.viewCount) || 0,
-          publishedAt,
-          row.fetched_at,
-        )
-        .run();
-      imported += Number(result.meta?.changes ?? 0) || 0;
-    }
-  }
-  // Only a completely successful import may suppress future attempts. Inserts
-  // remain idempotent if a failed run or concurrent maintenance is retried.
-  await env.otw_db.prepare(
-    `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
-     ON CONFLICT(key) DO NOTHING`,
-  ).bind(LEGACY_SHORTS_IMPORT_CHECKPOINT, String(timestamp), String(timestamp)).run();
-  return imported;
 };
 
 const acquireBackfillLease = async (
@@ -772,7 +693,7 @@ const scanOfficialBackfill = async (
   return progress;
 };
 
-const refreshStaleMetadata = async (env: Env, timestamp: number) => {
+const refreshStaleMetadata = async (env: Env, timestamp: number, origin: YouTubeRequestOrigin) => {
   const rows = await env.otw_db
     .prepare(
       `SELECT video.video_id, video.source_id FROM youtube_feed_videos video
@@ -788,7 +709,7 @@ const refreshStaleMetadata = async (env: Env, timestamp: number) => {
     const candidates = pending.slice(offset, offset + PAGE_SIZE);
     let details: VideoDetail[];
     try {
-      details = await fetchVideoDetails(env, candidates.map((row) => row.video_id), "scheduled");
+      details = await fetchVideoDetails(env, candidates.map((row) => row.video_id), origin);
     } catch (error) {
       if (!(error instanceof YouTubeQuotaAdmissionError)) throw error;
       result.quotaBlocked = true;
@@ -836,10 +757,8 @@ export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) =
   // is due. Only initialized sources can collect new videos independently.
   const row = await env.otw_db.prepare(
     `SELECT
-       EXISTS (SELECT 1 FROM settings WHERE key = 'youtube_feed_enabled' AND value = 'true')
-       AND (
-         NOT EXISTS (SELECT 1 FROM settings WHERE key = ?)
-         OR EXISTS (
+       (
+         EXISTS (
            SELECT 1 FROM youtube_feed_sources WHERE enabled = 1 AND (
              ((next_check_at IS NULL OR next_check_at <= ?)
               AND (source_kind != 'official'
@@ -883,23 +802,19 @@ export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) =
          )
        ) AS has_work`,
   ).bind(
-    LEGACY_SHORTS_IMPORT_CHECKPOINT, timestamp, timestamp, timestamp,
+    timestamp, timestamp, timestamp,
     timestamp - METADATA_REFRESH_AGE_MS,
   ).first<{ has_work: number }>();
   return Number(row?.has_work) === 1;
 };
 
-export const runScheduledYouTubeFeedCollection = async (env: Env) => {
-  const setting = await env.otw_db
-    .prepare(`SELECT value FROM settings WHERE key = 'youtube_feed_enabled'`)
-    .first<{ value: string | null }>();
-  if (setting?.value !== "true" || !env.YOUTUBE_API_KEY?.trim()) {
+export const runScheduledYouTubeFeedCollection = async (env: Env, origin: "manual" | "scheduled" = "scheduled") => {
+  if (!env.YOUTUBE_API_KEY?.trim()) {
     return {
       status: "skipped" as const,
       attempted: 0,
       succeeded: 0,
       failed: 0,
-      legacyImported: 0,
       shortsStored: 0,
       scanPages: 0,
       exhaustedSources: 0,
@@ -912,8 +827,7 @@ export const runScheduledYouTubeFeedCollection = async (env: Env) => {
   }
   const timestamp = Date.now();
   await syncSourceRegistry(env, timestamp);
-  const legacyImported = await importLegacyOfficialShorts(env, timestamp);
-  const metadata = await refreshStaleMetadata(env, timestamp);
+  const metadata = await refreshStaleMetadata(env, timestamp, origin);
   const rows = await env.otw_db
     .prepare(
       `SELECT id, source_kind, youtube_channel_id, uploads_playlist_id,
@@ -940,7 +854,7 @@ export const runScheduledYouTubeFeedCollection = async (env: Env) => {
   let quotaBlocked = metadata.quotaBlocked;
   for (const source of rows.results ?? []) {
     try {
-      const result = await collectSource(env, source, timestamp);
+      const result = await collectSource(env, source, timestamp, origin);
       shortsStored += result.shortsStored;
       exhaustedSources += result.exhausted ? 1 : 0;
       succeeded += 1;
@@ -971,16 +885,18 @@ export const runScheduledYouTubeFeedCollection = async (env: Env) => {
     env,
     sources.map((source) => source.youtube_channel_id),
     2,
-    "scheduled",
+    origin,
   );
   const backfillIncomplete =
     quotaBlocked ||
     backfill.quotaBlocked ||
     backfill.failed > 0 ||
     backfill.backoffSources > 0;
+  const noWork = succeeded + failed === 0 && metadata.refreshed === 0 &&
+    metadata.unavailable === 0 && backfill.scanPages === 0 && !backfillIncomplete;
   return {
     status:
-      failed === 0 && !backfillIncomplete
+      noWork ? ("skipped" as const) : failed === 0 && !backfillIncomplete
         ? ("succeeded" as const)
         : succeeded === 0 && failed > 0
           ? ("failed" as const)
@@ -988,7 +904,6 @@ export const runScheduledYouTubeFeedCollection = async (env: Env) => {
     attempted: succeeded + failed,
     succeeded,
     failed,
-    legacyImported,
     shortsStored: shortsStored + backfill.shortsStored,
     scanPages: backfill.scanPages,
     exhaustedSources: exhaustedSources + backfill.exhaustedSources,
@@ -1044,12 +959,6 @@ export const readStoredYouTubeFeed = async (
   maxResults: number,
   sourceKind: "official" | "kirinuki",
 ) => {
-  const settingStatement = env.otw_db.prepare(
-    `SELECT value FROM settings WHERE key = 'youtube_feed_enabled'`,
-  );
-  if (typeof settingStatement.first !== "function") return null;
-  const enabled = await settingStatement.first<{ value: string | null }>();
-  if (enabled?.value !== "true") return null;
   if (channelIds.length === 0) {
     return { videos: [], shorts: [], oldestRetainedAt: null };
   }
@@ -1201,18 +1110,6 @@ export const readOfficialYouTubeShorts = async (
 ) => {
   const cursor = decodeYouTubeShortsCursor(rawCursor, channelIds);
   const timestamp = Date.now();
-  const settingStatement = env.otw_db.prepare(
-    `SELECT value FROM settings WHERE key = 'youtube_feed_enabled'`,
-  );
-  if (typeof settingStatement.first !== "function") {
-    throw new YouTubeShortsUnavailableError(
-      "YouTube feed storage is unavailable",
-    );
-  }
-  const enabled = await settingStatement.first<{ value: string | null }>();
-  if (enabled?.value !== "true") {
-    throw new YouTubeShortsUnavailableError("YouTube feed storage is disabled");
-  }
   let sources = await prepareMissingOfficialSources(
     env, channelIds, await readSources(env, channelIds), timestamp,
   );

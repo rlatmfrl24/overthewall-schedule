@@ -339,7 +339,7 @@ export class ScheduledJobExecutor {
         };
       }
       case "youtube_feed_collection": {
-        const result = await runScheduledYouTubeFeedCollection(this.env);
+        const result = await runScheduledYouTubeFeedCollection(this.env, run.source);
         return toYouTubeFeedCollectionOutcome(result);
       }
       case "schedule_auto_update": {

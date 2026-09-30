@@ -2,9 +2,11 @@ import { SecondaryAction } from "@/shared/ui/secondary-action";
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { NaverCafeSourceDto as NaverCafeSource } from "@contracts/naver-cafe";
-import { PiCoffeeBold as Coffee, PiArrowSquareOutBold as ExternalLink, PiSpinnerGapBold as Loader2, PiPencilSimpleBold as Pencil, PiPlusCircleBold as PlusCircle, PiArrowsClockwiseBold as RefreshCw, PiTrashBold as Trash2 } from "react-icons/pi";
+import { PiArrowSquareOutBold as ExternalLink, PiSpinnerGapBold as Loader2, PiPencilSimpleBold as Pencil, PiPlusCircleBold as PlusCircle, PiArrowsClockwiseBold as RefreshCw, PiTrashBold as Trash2 } from "react-icons/pi";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
+import { QueryReadback } from "@/shared/ui/query-readback";
+import { Skeleton } from "@/shared/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -206,21 +208,20 @@ export function NaverCafeSourceManager() {
   };
 
   return (
-    <section className="space-y-3 rounded-lg border bg-muted/10 p-3">
+    <section className="min-w-0 space-y-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h4 className="text-sm font-semibold">네이버 카페 게시판</h4>
-            <Badge variant="outline">{sortedSources.length}개</Badge>
+            {sourcesQuery.data && <Badge variant="outline">{sortedSources.length}개</Badge>}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">수집할 멤버별 공지 게시판을 관리합니다.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
             <Select
               value={sourceSort}
               onValueChange={(value) => setSourceSort(value as SourceSortKey)}
             >
-              <SelectTrigger size="sm" className="w-[170px]">
+              <SelectTrigger size="sm" className="w-auto" aria-label="카페 게시판 정렬">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -236,6 +237,7 @@ export function NaverCafeSourceManager() {
               size="sm"
               onClick={() => void loadData()}
               disabled={isFetching}
+              aria-label="카페 게시판 목록 새로고침"
             >
               {isFetching ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -249,26 +251,23 @@ export function NaverCafeSourceManager() {
         </div>
       </div>
 
-      {isFetching && sortedSources.length === 0 ? (
-        <div className="flex h-44 items-center justify-center rounded-xl border border-dashed">
-          <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
-        </div>
+      <QueryReadback updatedAt={sourcesQuery.dataUpdatedAt} fetching={sourcesQuery.isFetching} error={sourcesQuery.isError} />
+      {sourcesQuery.isError && !sourcesQuery.data ? <p className="text-sm text-destructive">게시판 목록 조회 실패 · 새로고침으로 다시 확인해 주세요.</p> : isFetching && sortedSources.length === 0 ? (
+        <div role="status" aria-label="게시판 목록 확인 중" className="space-y-2">{[1, 2, 3].map((row) => <Skeleton key={row} className="h-11 w-full" />)}</div>
       ) : sortedSources.length === 0 ? (
-        <div className="flex h-44 items-center justify-center rounded-xl border border-dashed bg-muted/30 text-sm text-muted-foreground">
+        <div className="rounded-lg border p-6 text-center text-sm text-muted-foreground">
           등록된 네이버 카페 게시판이 없습니다.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card">
-          <Table className="min-w-[980px]">
+        <div className="overflow-hidden rounded-lg border bg-card">
+          <Table className="min-w-[560px] text-[13px]">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[70px]">상태</TableHead>
-                <TableHead className="w-[180px]">게시판</TableHead>
-                <TableHead className="w-[150px]">멤버</TableHead>
-                <TableHead className="w-[190px]">ID</TableHead>
-                <TableHead>URL</TableHead>
-                <TableHead className="w-[80px] text-right">정렬</TableHead>
-                <TableHead className="w-[90px] text-right">작업</TableHead>
+                <TableHead className="px-3">게시판 / ID</TableHead>
+                <TableHead>멤버</TableHead>
+                <TableHead>활성</TableHead>
+                <TableHead className="text-right">정렬</TableHead>
+                <TableHead className="text-right pr-3">작업</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -278,18 +277,11 @@ export function NaverCafeSourceManager() {
                   : null;
                 return (
                   <TableRow key={source.id}>
-                    <TableCell>
-                      {source.enabled !== false ? (
-                        <Badge className="bg-emerald-600">활성</Badge>
-                      ) : (
-                        <Badge variant="secondary">비활성</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2 font-medium">
-                        <Coffee className="h-4 w-4 text-emerald-600" />
-                        {source.name}
-                      </div>
+                    <TableCell className="px-3 whitespace-normal">
+                      <a href={source.cafe_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring">
+                        {source.name}<ExternalLink className="size-3 shrink-0" /><span className="sr-only">카페 새 탭에서 열기</span>
+                      </a>
+                      <p className="mt-0.5 text-xs text-muted-foreground">카페 {source.cafe_id} / 게시판 {source.menu_id}</p>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {member ? (
@@ -301,31 +293,20 @@ export function NaverCafeSourceManager() {
                         "매핑 없음"
                       )}
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
-                      {source.cafe_id} / {source.menu_id}
-                    </TableCell>
                     <TableCell>
-                      <a
-                        href={source.cafe_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex max-w-[330px] items-center gap-1 truncate text-xs text-primary hover:underline"
-                        title={source.cafe_url}
-                      >
-                        <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                        {source.cafe_url}
-                      </a>
+                      <Badge variant={source.enabled !== false ? "outline" : "secondary"}>{source.enabled !== false ? "활성" : "비활성"}</Badge>
                     </TableCell>
                     <TableCell className="text-right text-sm text-muted-foreground">
                       {source.sort_order ?? 0}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right pr-3">
                       <div className="inline-flex items-center gap-1">
                         <Button
                           variant="ghost"
                           size="icon-sm"
                           onClick={() => handleOpenEdit(source)}
                           title="수정"
+                          aria-label={`${source.name} 수정`}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -335,6 +316,8 @@ export function NaverCafeSourceManager() {
                           className="text-destructive hover:text-destructive"
                           onClick={() => setDeletingSource(source)}
                           title="삭제"
+                          aria-label={`${source.name} 삭제`}
+                          disabled={deleteSourceMutation.isPending}
                         >
                           <Trash2 className="h-4 w-4" />
                         </SecondaryAction>
@@ -363,9 +346,10 @@ export function NaverCafeSourceManager() {
           if (!open) setDeletingSource(null);
         }}
         title="게시판 삭제 확인"
-        description="정말로 이 네이버 카페 게시판 소스를 삭제하시겠습니까?"
+        description={`${deletingSource?.name ?? ""} 게시판 소스를 삭제하시겠습니까?`}
         confirmLabel="삭제"
         destructive
+        isProcessing={deleteSourceMutation.isPending}
         onConfirm={() => {
           void handleDelete();
         }}

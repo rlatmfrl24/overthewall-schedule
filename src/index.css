@@ -247,6 +247,16 @@ html[data-animations="disabled"] {
 .admin-console [data-slot="dialog-footer"] { position: sticky; bottom: -24px; margin-top: 12px; padding-block: 16px; border-top: 1px solid var(--border); background: var(--background); z-index: 2; }
 .admin-console [data-slot="dialog-header"] { text-align: left; padding-right: 20px; }
 .admin-console .admin-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding-block: 12px; border-block: 1px solid var(--border); }
+.admin-console .admin-dense-panel [data-slot="card"] { gap: 0; padding-block: 0; }
+.admin-console .admin-dense-panel [data-slot="card-header"] { padding: 8px 12px; }
+.admin-console .admin-dense-panel [data-slot="card-content"] { padding: 0 12px 12px; }
+.admin-console .admin-dense-panel [data-slot="card-content"].px-0 { padding-inline: 0; }
+.admin-console .admin-dense-panel :is(td, th) { padding: 6px 12px; font-size: 13px; }
+.admin-console .admin-dense-panel td { min-height: 44px; line-height: 1.4; }
+@media (max-width: 767px) {
+  .admin-console.notice-form-dialog [data-slot="checkbox"] { min-height: 16px; height: 16px; }
+  .admin-console.notice-form-dialog label:has([data-slot="checkbox"]) { min-height: 44px; }
+}
 @media (min-width: 768px) { .admin-console { --admin-content-padding: 28px; } }
 @media (max-width: 767px) {
   .admin-console { --admin-content-padding: 16px; }

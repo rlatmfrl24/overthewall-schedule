@@ -87,6 +87,30 @@ describe("OTW Play ingestion handler", () => {
     expect(deleteJobHistory).toHaveBeenCalledTimes(2);
   });
 
+  it("deletes review items with version and admin authority, rejecting malformed and stale requests", async () => {
+    const deleteReviewItem = vi.fn().mockResolvedValue(undefined);
+    const resolve = vi.fn(() => ({ deleteReviewItem }) as unknown as IngestionService);
+    const handler = createIngestionHandler(resolve);
+    const request = (body: unknown) => new Request("https://example.com/api/play/admin/review-items/youtube%3AAAAAAAAAAAA", { method: "DELETE", body: JSON.stringify(body) });
+    for (const kind of ["candidate", "proposal"]) {
+      const response = await handler(request({ kind, expectedVersion: 4 }), env);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(await response.json()).toEqual({ data: { deleted: true } });
+      expect(deleteReviewItem).toHaveBeenLastCalledWith("youtube:AAAAAAAAAAA", { kind, expectedVersion: 4 }, "admin-1");
+    }
+    for (const body of [{ kind: "other", expectedVersion: 4 }, { kind: "candidate" }, { kind: "candidate", expectedVersion: -1 }, { kind: "proposal", expectedVersion: 1.5 }, { kind: "candidate", expectedVersion: 4, force: true }]) {
+      expect((await handler(request(body), env)).status).toBe(400);
+    }
+    expect(deleteReviewItem).toHaveBeenCalledTimes(2);
+    deleteReviewItem.mockRejectedValueOnce(new IngestionRepositoryError("stale_write", "Changed"));
+    expect((await handler(request({ kind: "candidate", expectedVersion: 4 }), env)).status).toBe(409);
+    resolve.mockClear();
+    requireAdminUserMock.mockResolvedValueOnce({ ok: false, response: new Response("denied", { status: 403 }) });
+    expect((await handler(request({ kind: "candidate", expectedVersion: 4 }), env)).status).toBe(403);
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
   it("preflights and creates persisted imports with no-store authority responses", async () => {
     const preflight = vi.fn(async () => ({ playlistId: "PL1234567890" }));
     const createJob = vi.fn(async () => ({ id: "job-1", status: "queued" }));

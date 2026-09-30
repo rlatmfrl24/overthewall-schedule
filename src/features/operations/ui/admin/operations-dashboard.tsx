@@ -563,6 +563,7 @@ function RunDetails({ run }: { run: OperationRun }) {
     {open && <div className="mt-2 min-w-0 space-y-2 text-xs">
       <QueryReadback updatedAt={detail.dataUpdatedAt} fetching={detail.isFetching} error={detail.isError}/>
       {reason && <p>사유: {reason}</p>}{recorded.lastError && <p className="text-destructive">{recorded.lastError}</p>}
+      {recorded.youtubeCollection && <div className="space-y-1"><p>채널 성공 {recorded.youtubeCollection.succeeded} / 시도 {recorded.youtubeCollection.attempted} · 실패 {recorded.youtubeCollection.failed}</p><p>메타데이터 갱신 {recorded.youtubeCollection.metadataRefreshed} · 접근 불가 {recorded.youtubeCollection.unavailableMarked}</p><p>Shorts 저장 {recorded.youtubeCollection.shortsStored} · 백필 {recorded.youtubeCollection.scanPages}페이지 · 백필 실패 {recorded.youtubeCollection.backfillFailed} · 재시도 대기 {recorded.youtubeCollection.backoffSources}{recorded.youtubeCollection.quotaBlocked ? " · 할당량 제한" : ""}</p></div>}
       {recorded.xCollection?.items.map((item) => <article key={item.itemId} className="space-y-1 rounded border p-2">
         <p className="font-semibold break-words">{item.targetKey.replace(/^handles:\d+:/, "@").replaceAll(",", " · @")} · {statusLabel(item.status)}</p>
         <p>게시물 수집: {item.collection ? `응답 ${item.collection.postsReturned}건 · 저장 ${item.collection.postsStored}건` : "수집 결과 기록 없음"}</p>
@@ -667,10 +668,13 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog 
   const refreshAll = () => { onRefresh?.(); void statusQuery.refetch(); if (view !== "resources") void jobSummariesQuery.refetch(); if (view === "all" || view === "resources") { void d1Query.refetch(); void retentionQuery.refetch(); } if (runView === "history") void runsQuery.refetch(); };
 
   return (
-    <div className="flex w-full flex-col gap-6" data-testid="operations-dashboard">
-      {view !== "resources" && <AdminSectionHeader headingLevel={1} title={view === "home" ? "대시보드" : view === "history" ? "작업 실행 이력" : "운영 대시보드"} description={`운영 상태 ${data?.window.hours ?? WINDOW_HOURS}시간 · D1 실계측 UTC 일자 기준`} actions={<Button variant="outline" onClick={refreshAll} disabled={statusQuery.isFetching}><RefreshCw className={cn(statusQuery.isFetching && "animate-spin")} /> 상태 새로고침</Button>} />}
+    <div className={cn("flex w-full flex-col", view === "resources" ? "admin-dense-panel gap-3" : "gap-6")} data-testid="operations-dashboard">
+      <AdminSectionHeader headingLevel={1} title={view === "home" ? "대시보드" : view === "history" ? "작업 실행 이력" : view === "resources" ? "사용량·한도" : "운영 대시보드"} description={view === "resources" ? undefined : `운영 상태 ${data?.window.hours ?? WINDOW_HOURS}시간 · D1 실계측 UTC 일자 기준`} actions={<>
+        {view === "resources" && <QueryReadback updatedAt={statusQuery.dataUpdatedAt} fetching={statusQuery.isFetching} error={statusQuery.isError} className="my-0" />}
+        <Button variant="outline" onClick={refreshAll} disabled={statusQuery.isFetching || (view === "resources" && (d1Query.isFetching || retentionQuery.isFetching))}><RefreshCw className={cn(statusQuery.isFetching && "animate-spin")} /> 상태 새로고침</Button>
+      </>} />
 
-      <QueryReadback updatedAt={statusQuery.dataUpdatedAt} fetching={statusQuery.isFetching} error={statusQuery.isError} />
+      {view !== "resources" && <QueryReadback updatedAt={statusQuery.dataUpdatedAt} fetching={statusQuery.isFetching} error={statusQuery.isError} />}
       {data?.playAutomationPaused && <section role="status" className="rounded-lg border bg-muted/30 p-4 text-sm">
         <p className="font-medium">Play 자동화가 일시 중지되어 있습니다.</p>
         <p className="mt-1 text-muted-foreground">채널 업로드 조회와 자동 수집·소스 점검을 중지합니다. 기존 곡과 후보 검수, 데이터 보존 정리는 계속 이용할 수 있습니다.</p>
@@ -724,7 +728,7 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog 
 
       {view === "all" || view === "resources" ? <section className="space-y-3" aria-labelledby="resources-heading">
         <SectionHeading id="resources-heading" title="자원 및 한도" description="Cloudflare 실계측과 내부 실행 허용 예상치를 혼동하지 않도록 분리합니다." />
-        <div className="grid gap-4 lg:grid-cols-3"><D1ObservabilityCard data={d1Query.data} loading={d1Query.isLoading} />{d1WriteGuard ? <D1WriteGuardCard guard={d1WriteGuard} /> : <p role="status">실행 보호 한도 미확인</p>}</div>
+        <div className={cn("grid lg:grid-cols-3", view === "resources" ? "items-start gap-3" : "gap-4")}><D1ObservabilityCard data={d1Query.data} loading={d1Query.isLoading} />{d1WriteGuard ? <D1WriteGuardCard guard={d1WriteGuard} /> : <p role="status">실행 보호 한도 미확인</p>}</div>
       </section> : null}
 
       {view === "all" || view === "history" ? <section id="scheduled-jobs" className="space-y-3" aria-labelledby="jobs-heading">

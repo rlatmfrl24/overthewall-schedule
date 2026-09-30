@@ -44,8 +44,7 @@ import { fetchScheduleBoard } from "@/features/schedule-board";
 import { fetchMemberPostsAggregate } from "@/features/member-posts";
 import {
   fetchKirinukiVideos,
-  fetchYouTubeCacheStatus,
-  refreshYouTubeCache,
+  fetchYouTubeFeedStatus,
 } from "@/features/youtube";
 import {
   fetchSettings,
@@ -317,94 +316,10 @@ describe("api wrapper modules", () => {
     );
   });
 
-  it("YouTube 캐시 관리 API는 모니터링과 동기 수동 새로고침 endpoint를 호출한다", async () => {
-    apiFetchMock
-      .mockResolvedValueOnce({
-        updatedAt: "2026-07-09T00:00:00.000Z",
-        window: { hours: 72, since: 1, until: 2 },
-        cache: { total: 0, fresh: 0, stale: 0, expired: 0, byType: [] },
-        usage: {
-          apiCalls: 0,
-          quotaUnits: 0,
-          successCount: 0,
-          failureCount: 0,
-          rateLimitCount: 0,
-          quotaErrorCount: 0,
-          byOperation: [],
-          byOrigin: [],
-        },
-        channels: [],
-        analytics: {
-          status: "available",
-          generatedAt: "2026-07-09T00:00:00.000Z",
-          windowHours: 72,
-          observedSince: "2026-07-08T00:00:00.000Z",
-          coverageHours: 24,
-          schemaVersion: "v2",
-          sampled: true,
-          summary: {
-            requestCount: 0,
-            nonBlockingServeCount: 0,
-            requestedTargetCount: 0,
-            immediateAvailableCount: 0,
-            refreshCount: 0,
-            baselineCount: 0,
-            changedCount: 0,
-            unchangedCount: 0,
-          },
-          bySource: [],
-          byOrigin: [],
-          reasonCode: null,
-        },
-        effectiveness: {
-          requestCount: 0,
-          nonBlockingServeCount: 0,
-          nonBlockingServeRate: null,
-          externalApiCalls: 0,
-          activeQuotaUnits: 0,
-          baselineCount: 0,
-          changedCount: 0,
-          unchangedCount: 0,
-          changeRate: null,
-          quotaPerChange: null,
-        },
-        targetStates: {
-          official: { total: 0, fresh: 0, stale: 0, expired: 0, missing: 0 },
-          kirinuki: { total: 0, fresh: 0, stale: 0, expired: 0, missing: 0 },
-        },
-        legacyScheduledRuns: [],
-      })
-      .mockResolvedValueOnce({
-        id: 1,
-        source: "manual",
-        status: "success",
-        targetCount: 0,
-        skippedFreshCount: 0,
-        refreshedCount: 0,
-        failedCount: 0,
-        staleFallbackCount: 0,
-        baselineCount: 0,
-        changedCount: 0,
-        unchangedCount: 0,
-        apiCalls: 0,
-        quotaUnits: 0,
-        durationMs: 1,
-        startedAt: 1,
-        finishedAt: 2,
-        error: null,
-      });
-
-    await fetchYouTubeCacheStatus(72);
-    await refreshYouTubeCache();
-
-    expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/youtube/cache/status?windowHours=72",
-      { cache: "no-store" },
-    );
-    expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/youtube/cache/refresh",
-      { method: "POST" },
-    );
+  it("YouTube feed status is a no-store admin snapshot", async () => {
+    apiFetchMock.mockResolvedValueOnce({ updatedAt: 1 });
+    await fetchYouTubeFeedStatus(168);
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/youtube/feed/status?windowHours=168", { cache: "no-store" });
   });
 
   it("D1 데이터 보존 API는 status와 prune endpoint를 호출한다", async () => {
