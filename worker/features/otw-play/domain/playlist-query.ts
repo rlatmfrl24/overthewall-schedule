@@ -11,6 +11,7 @@ export interface PlaylistPerformanceQuery {
   member: number | null;
   relation: "original" | "cover" | null;
   limit: number;
+  /** Effective ordering timestamp: broadcast day for clips, release time for official performances. */
   after: { releasedAt: number | null; id: string } | null;
 }
 
@@ -43,6 +44,7 @@ export function parsePlaylistQuery(params: URLSearchParams, revision: number): P
       if (decoded.identity !== identity || typeof decoded.id !== "string" || !decoded.id ||
         !(decoded.releasedAt === null || Number.isSafeInteger(decoded.releasedAt))) throw new Error();
       if (decoded.revision !== revision) throw new PlaylistError(409, "PLAY_CURSOR_STALE");
+      if (scope === "broadcast" && decoded.order !== "broadcast_date_desc") throw new PlaylistError(409, "PLAY_CURSOR_STALE");
       after = { id: decoded.id, releasedAt: decoded.releasedAt };
     } catch (error) {
       if (error instanceof PlaylistError) throw error;
@@ -52,8 +54,15 @@ export function parsePlaylistQuery(params: URLSearchParams, revision: number): P
   return { q: normalized, member, relation, limit, after, ...filters };
 }
 
-export function playlistCursor(query: PlaylistPerformanceQuery, revision: number, last: { id: string; releasedAt: number | null }) {
-  return encodeURIComponent(JSON.stringify({ revision, identity: queryIdentity(query), id: last.id, releasedAt: last.releasedAt }));
+export function playlistCursor(query: PlaylistPerformanceQuery, revision: number, last: {
+  id: string; releasedAt: number | null; broadcast?: { performedOn: string | null } | null;
+}) {
+  const broadcast = query.scope === "broadcast";
+  const releasedAt = broadcast
+    ? (last.broadcast?.performedOn ? Date.parse(`${last.broadcast.performedOn}T00:00:00Z`) : null)
+    : last.releasedAt;
+  return encodeURIComponent(JSON.stringify({ revision, identity: queryIdentity(query), id: last.id, releasedAt,
+    ...(broadcast ? { order: "broadcast_date_desc" } : {}) }));
 }
 
 function queryIdentity(query: Pick<PlaylistPerformanceQuery, "q" | "member" | "relation" | "scope" | "songSlug" | "broadcastFrom" | "broadcastTo" | "dateUnknown">) {
