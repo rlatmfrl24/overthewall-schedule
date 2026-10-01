@@ -387,7 +387,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
       <AdminSectionHeader
         title={activeSection ? SECTIONS.find((item) => item.value === section)?.label ?? "OTW Play" : "OTW Play 카탈로그"}
         description={section === "import" ? "출처별 영상을 검수합니다. 가져온 후보는 임시 등록하고, 사용자 제안은 승인·게시 절차로 처리합니다." : section === "channels" ? "채널 수집 감시, 승인 상태와 연결된 인물·그룹을 함께 관리합니다." : section === "operations" ? "공개 설정, 영상 재생 상태와 서비스 지표를 함께 확인합니다." : undefined}
-        metadata={catalogSection ? <><QueryReadback className="m-0" updatedAt={catalogQuery.dataUpdatedAt} fetching={catalogQuery.isFetching} error={catalogQuery.isError && Boolean(catalog)} />{catalog && section === "catalog" ? <span>곡 {catalog.songs.length} · 가창 {catalog.performances.length}</span> : null}</> : undefined}
+        metadata={catalogSection ? <><QueryReadback className="m-0" updatedAt={catalogQuery.dataUpdatedAt} fetching={catalogQuery.isFetching} error={catalogQuery.isError && Boolean(catalog)} />{catalog && section === "catalog" ? <span>곡 {new Set(catalog.performances.map(performance => performance.songId)).size} · 가창 {catalog.performances.length}</span> : null}</> : undefined}
         actions={
           <div className="flex flex-wrap gap-2">
             {catalog && (section === "catalog") && (
@@ -557,8 +557,7 @@ function ProposalSection({
   run: (label: string, task: () => Promise<unknown>) => Promise<boolean>;
 }) {
   const confirm = useConfirmation();
-  const [proposalDirty, setProposalDirty] = useState(false);
-  useUnsavedChanges(proposalDirty, preservesPlayReview);
+  const [proposalBaseline, setProposalBaseline] = useState<string | null>(null);
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const selectedId = proposalId;
   const [approvalPreflight, setApprovalPreflight] =
@@ -589,6 +588,18 @@ function ProposalSection({
     null;
   const initializedProposal = useRef<string | null>(null);
   const [reviewVersion, setReviewVersion] = useState<number | null>(null);
+  const proposalSnapshot = JSON.stringify([
+    reasons[selectedId] ?? "", reviewSongId, reviewTitle, reviewSongTags, reviewPerformanceTags,
+    reviewParticipants.map(item => [item.resolvedEntityId, item.submittedMemberUid, item.submittedNameSnapshot, item.entityKind, item.participantRole]),
+    reviewArtists.map(item => [item.resolvedEntityId, item.submittedMemberUid, item.submittedNameSnapshot, item.entityKind]),
+    reviewChannelOwners.map(item => [item.resolvedEntityId, item.submittedMemberUid, item.submittedNameSnapshot, item.entityKind, item.source]),
+    channelRole, reviewReleaseType, reviewBroadcast, reviewStart, reviewEnd, reviewParticipationType,
+  ]);
+  useEffect(() => {
+    if (selected && reviewVersion !== null && proposalBaseline === null) setProposalBaseline(proposalSnapshot);
+  }, [selected, reviewVersion, proposalBaseline, proposalSnapshot]);
+  const proposalDirty = proposalBaseline !== null && proposalSnapshot !== proposalBaseline;
+  useUnsavedChanges(proposalDirty, preservesPlayReview);
   const selectedProposalIdRef = useRef<string | null>(selected?.id ?? null);
   const channelNeedsConfirmation = Boolean(
     approvalPreflight &&
@@ -614,7 +625,7 @@ function ProposalSection({
     if (!selected || initializedProposal.current === selected.id) return;
     initializedProposal.current = selected.id;
     setReviewVersion(selected.version);
-    setProposalDirty(false);
+    setProposalBaseline(null);
     setPreflightError(null);
     setSavingLocal(false);
     selectedProposalIdRef.current = selected.id;
@@ -787,7 +798,7 @@ function ProposalSection({
         publish: true,
       }),
     );
-    if (approved) { setProposalDirty(false); setApprovalPreflight(null); setSingingCreditConfirmed(false); onClose(); }
+    if (approved) { setProposalBaseline(proposalSnapshot); setApprovalPreflight(null); setSingingCreditConfirmed(false); onClose(); }
   };
   if (loading) return <Loader2 className="mx-auto h-7 w-7 animate-spin" />;
   if (selected && selected.status !== "pending_review" && !proposalDirty) return <Card><CardContent className="space-y-4">
@@ -803,11 +814,11 @@ function ProposalSection({
 
   return (
     <Card>
-      <CardContent className="space-y-3" onChangeCapture={() => setProposalDirty(true)}>
+      <CardContent className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3"><Button variant="outline" onClick={onClose}>검수 목록으로</Button><span className="text-xs text-muted-foreground">사용자 제안 · 영상 확인 → 승인·게시</span></div>
         <h2 className="text-xl font-semibold">{selected?.submittedTitle ?? "사용자 제안 검수"}</h2>
-        {selected && reviewVersion !== null && selected.version !== reviewVersion && <p role="alert">다른 관리자가 이 제안을 변경했습니다. 입력을 보존했습니다. <Button variant="link" onClick={async () => { if (await confirm({ title: "최신 제안으로 다시 시작할까요?", description: "작성 중인 입력을 버리고 서버의 최신 제안을 불러옵니다.", confirmLabel: "다시 불러오기" })) { initializedProposal.current = null; setProposalDirty(false); setReviewVersion(null); await refetch(); } }}>최신 제안 다시 불러오기</Button></p>}
-        {selected && <div className="flex flex-wrap items-end gap-2 border-b pb-4"><Field label="거절 사유 코드"><Input aria-label={`${selected.submittedTitle} 거절 코드`} value={reasons[selected.id] ?? ""} onChange={event => setReasons(current => ({ ...current, [selected.id]: event.target.value }))} /></Field><Button variant="outline" disabled={selected.status !== "pending_review" || !reasons[selected.id]?.trim() || saving !== null} onClick={async () => { if (await confirm({ title: "제안을 거절할까요?", description: "입력한 사유를 기록하고 이 제안을 종료합니다.", confirmLabel: "거절" }) && await run("제안 거절", () => rejectOtwPlayProposal(selected.id, { expectedVersion: reviewVersion ?? selected.version, resultCode: reasons[selected.id]!.trim() }))) { setProposalDirty(false); onClose(); } }}>제안 거절</Button></div>}
+        {selected && reviewVersion !== null && selected.version !== reviewVersion && <p role="alert">다른 관리자가 이 제안을 변경했습니다. 입력을 보존했습니다. <Button variant="link" onClick={async () => { if (await confirm({ title: "최신 제안으로 다시 시작할까요?", description: "작성 중인 입력을 버리고 서버의 최신 제안을 불러옵니다.", confirmLabel: "다시 불러오기" })) { initializedProposal.current = null; setProposalBaseline(null); setReviewVersion(null); await refetch(); } }}>최신 제안 다시 불러오기</Button></p>}
+        {selected && <div className="flex flex-wrap items-end gap-2 border-b pb-4"><Field label="거절 사유 코드"><Input aria-label={`${selected.submittedTitle} 거절 코드`} value={reasons[selected.id] ?? ""} onChange={event => setReasons(current => ({ ...current, [selected.id]: event.target.value }))} /></Field><Button variant="outline" disabled={selected.status !== "pending_review" || !reasons[selected.id]?.trim() || saving !== null} onClick={async () => { if (await confirm({ title: "제안을 거절할까요?", description: "입력한 사유를 기록하고 이 제안을 종료합니다.", confirmLabel: "거절" }) && await run("제안 거절", () => rejectOtwPlayProposal(selected.id, { expectedVersion: reviewVersion ?? selected.version, resultCode: reasons[selected.id]!.trim() }))) { setProposalBaseline(proposalSnapshot); onClose(); } }}>제안 거절</Button></div>}
         <p className="text-sm text-muted-foreground">
           영상·채널과 실제 가창자를 확인한 뒤 신청 유형에 맞게 게시합니다. 노래 클립은 승인된 클리퍼 채널과 완곡 여부를 확인해 주세요.
         </p>

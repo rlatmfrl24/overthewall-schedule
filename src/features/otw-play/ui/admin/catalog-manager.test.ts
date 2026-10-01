@@ -97,6 +97,11 @@ vi.mock("@/features/members", () => ({
 }));
 
 const catalog = createAdminCatalogFixture();
+const linkedPerformance = {
+  id: "performance", songId: "song", relationType: "cover" as const, releaseType: "official_video" as const,
+  participationType: "solo" as const, publicationStatus: "published" as const, qualityStatus: "ok" as const,
+  releasedAt: null, internalNote: null, version: 1, participants: [], sources: [],
+};
 
 const selectOption = async (label: string, option: string | RegExp) => {
   fireEvent.click(await screen.findByRole("combobox", { name: label }));
@@ -158,6 +163,36 @@ const openVideoRegistration = async () => {
 };
 
 describe("OtwPlayCatalogManager", () => {
+  it("protects actual proposal edits and clears protection when values are restored", async () => {
+    const protectedInput = () => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    renderCatalogManager();
+    fireEvent.click(await screen.findByRole("tab", { name: "가져오기/검수" }));
+    await selectOption("검수 출처", "사용자 제안");
+    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
+    const title = await screen.findByLabelText("곡명");
+    expect(protectedInput()).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
+    await screen.findByText(/영상·채널 확인 완료/);
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(protectedInput()).toBe(false);
+    fireEvent.change(title, { target: { value: "실제 변경" } });
+    expect(protectedInput()).toBe(true);
+    fireEvent.change(title, { target: { value: proposal.submittedTitle } });
+    expect(protectedInput()).toBe(false);
+    await selectOption("참여자 가창 역할", "코러스");
+    expect(protectedInput()).toBe(true);
+    await selectOption("참여자 가창 역할", "메인 보컬");
+    expect(protectedInput()).toBe(false);
+    const reason = screen.getByLabelText(`${proposal.submittedTitle} 거절 코드`);
+    fireEvent.change(reason, { target: { value: "invalid" } });
+    expect(protectedInput()).toBe(true);
+    fireEvent.change(reason, { target: { value: "" } });
+    expect(protectedInput()).toBe(false);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     fetchCatalogMock.mockReset();
@@ -376,6 +411,49 @@ describe("OtwPlayCatalogManager", () => {
     expect(publishPerformanceMock).not.toHaveBeenCalled();
   });
 
+  it("hides songs without performances from every catalog scope, counts and category filters", async () => {
+    const songs = ["공식곡", "클립곡", "가창없는곡"].map((title, index) => ({
+      id: `song-${index}`, title, isOtwOriginal: false, archivedAt: null, version: 1,
+      tags: [index === 2 ? "ORPHAN" : "POP"], aliases: [], originalArtists: [],
+    }));
+    fetchCatalogMock.mockResolvedValue({ ...catalog, songs, performances: [
+      { ...linkedPerformance, id: "official", songId: songs[0]!.id, publicationStatus: "draft" },
+      { ...linkedPerformance, id: "broadcast", songId: songs[1]!.id, relationType: "singing_clip", releaseType: "broadcast", publicationStatus: "withdrawn" },
+    ] });
+    renderCatalogManager();
+    await screen.findByText("1곡 중 1곡 · 1곡 표시");
+    expect(screen.getByText("곡 2 · 가창 2")).toBeTruthy();
+    expect(screen.getAllByText("공식곡")).toHaveLength(2);
+    expect(screen.queryByText("클립곡")).toBeNull();
+    expect(screen.queryByText("가창없는곡")).toBeNull();
+    await selectOption("카탈로그 영상 종류", "전체");
+    expect(screen.getByText("2곡 중 2곡 · 2곡 표시")).toBeTruthy();
+    expect(screen.getAllByText("클립곡")).toHaveLength(2);
+    expect(screen.queryByText("가창없는곡")).toBeNull();
+    fireEvent.click(screen.getByRole("combobox", { name: "곡 분류" }));
+    expect(screen.queryByRole("option", { name: "ORPHAN" })).toBeNull();
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
+    await selectOption("카탈로그 영상 종류", "노래 클립");
+    expect(screen.getByText("1곡 중 1곡 · 1곡 표시")).toBeTruthy();
+    expect(screen.queryByText("공식곡")).toBeNull();
+    expect(screen.queryByText("가창없는곡")).toBeNull();
+    fetchCatalogMock.mockResolvedValue({ ...catalog, songs: [songs[2]], performances: [] });
+    fireEvent.click(screen.getByRole("button", { name: "상태 새로고침" }));
+    await screen.findByText("0곡 중 0곡 · 0곡 표시");
+    expect(screen.getByText("곡 0 · 가창 0")).toBeTruthy();
+    expect(screen.getByText(/연결된 가창이 있는 곡이 없습니다/)).toBeTruthy();
+    await selectOption("카탈로그 영상 종류", "공식 곡");
+    expect(screen.queryByText("가창없는곡")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "새 영상 등록" }));
+    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    await screen.findByRole("region", { name: "등록 채널 상태" });
+    fireEvent.click(screen.getByRole("button", { name: /오리지널곡/ }));
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    fireEvent.change(screen.getByLabelText("기존 곡 검색"), { target: { value: "가창없는곡" } });
+    expect(screen.getByRole("option", { name: /가창없는곡/ })).toBeTruthy();
+  });
+
   it("summarizes scoped states, labels expanded details and protects songs published in another scope", async () => {
     const performance = {
       id: "official-draft", songId: "shared-song", relationType: "cover", releaseType: "official_video",
@@ -430,7 +508,7 @@ describe("OtwPlayCatalogManager", () => {
         id: `song-${index}`, title: `Song ${index}`, isOtwOriginal: false,
         archivedAt: null, version: 0, tags: [], aliases: [], originalArtists: [],
       }));
-      fetchCatalogMock.mockResolvedValue({ ...catalog, songs });
+      fetchCatalogMock.mockResolvedValue({ ...catalog, songs, performances: songs.map(song => ({ ...linkedPerformance, id: `performance-${song.id}`, songId: song.id })) });
       renderCatalogManager();
       await screen.findByText("60곡 중 60곡 · 25곡 표시");
       expect(screen.queryByRole("button", { name: "다음" })).toBeNull();
@@ -462,7 +540,7 @@ describe("OtwPlayCatalogManager", () => {
       id: `song-${index}`, title: `Song ${index}`, isOtwOriginal: false,
       archivedAt: null, version: 0, tags: [index < 25 ? "POP" : "J-POP"], aliases: [], originalArtists: [],
     }));
-    fetchCatalogMock.mockResolvedValue({...catalog, songs: [...songs, {...songs[0], id: "archived", archivedAt: 1, tags: ["ARCHIVED"]}]});
+    fetchCatalogMock.mockResolvedValue({...catalog, songs: [...songs, {...songs[0], id: "archived", archivedAt: 1, tags: ["ARCHIVED"]}], performances: [...songs, {id: "archived"}].map(song => ({ ...linkedPerformance, id: `performance-${song.id}`, songId: song.id }))});
     renderCatalogManager();
     const category = await screen.findByRole("combobox", {name: "곡 분류"});
     const options = async () => {
@@ -1324,6 +1402,7 @@ describe("OtwPlayCatalogManager", () => {
   it("edits original artists as reusable chips without exposing the original release date", async () => {
     fetchCatalogMock.mockResolvedValue({
       ...catalog,
+      performances: [{ ...linkedPerformance, songId: "song-edit" }],
       songs: [
         {
           id: "song-edit",
@@ -1917,14 +1996,14 @@ describe("OtwPlayCatalogManager", () => {
       target: { value: "https://youtu.be/dQw4w9WgXcQ" },
     });
     fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByText(/멤버 채널 자동 인식/);
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    await screen.findByRole("region", { name: "등록 채널 상태" });
     fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     expect(screen.queryByText("기존 곡 연결")).toBeNull();
     expect(screen.queryByText("새 곡 만들기")).toBeNull();
     const coverNext = screen.getByRole("button", { name: /다음/ });
     expect((coverNext as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("원곡 제목"), {
+    fireEvent.change(screen.getByLabelText("곡 제목"), {
       target: { value: "정식 원곡 제목" },
     });
     fireEvent.change(screen.getByLabelText("원곡 가수 검색"), {
@@ -1989,6 +2068,110 @@ describe("OtwPlayCatalogManager", () => {
     );
   });
 
+  it("connects an existing song in an ordinary cover and keeps optional performance details through review", async () => {
+    fetchCatalogMock.mockResolvedValue({ ...catalog, songs: [{
+      id: "existing-song", slug: "existing-song", title: "기존 곡", normalizedTitle: "기존 곡",
+      isOtwOriginal: false, originalReleaseDate: null, originalReleasePrecision: "unknown",
+      archivedAt: null, version: 0, tags: ["J-POP"], aliases: [{ alias: "Existing Song", locale: null, aliasKind: null }],
+      originalArtists: [{ entityId: "original-artist", displayName: "기존 원곡 가수", creditOrder: 0, isPrimary: true }],
+    }] });
+    await openVideoRegistration();
+    await screen.findByRole("region", { name: "등록 채널 상태" });
+    expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    fireEvent.change(screen.getByLabelText("기존 곡 검색"), { target: { value: "Existing Song" } });
+    fireEvent.click(screen.getByRole("option", { name: /기존 곡/ }));
+    expect(screen.queryByLabelText("곡 제목")).toBeNull();
+    expect(screen.queryByLabelText("원곡 가수 검색")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    fireEvent.change(screen.getByLabelText("가창 참여자 검색"), { target: { value: "현재 멤버" } });
+    fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
+    await selectOption("현재 멤버 역할", "기타");
+    const optionalSummary = screen.getByText("가창 라벨·내부 메모 (선택)");
+    expect(optionalSummary.closest("details")?.hasAttribute("open")).toBe(false);
+    fireEvent.click(optionalSummary);
+    fireEvent.change(screen.getByLabelText("가창 라벨"), { target: { value: "라이브" } });
+    fireEvent.keyDown(screen.getByLabelText("가창 라벨"), { key: "Enter" });
+    fireEvent.change(screen.getByLabelText("내부 메모 (선택)"), { target: { value: "현장 라이브 버전" } });
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    expect(screen.getByText("라이브")).toBeTruthy();
+    expect(screen.getByText(/현장 라이브 버전/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "AI로 자동 채우기" })).toBeNull();
+    expect(screen.getByRole("button", { name: "임시 저장" })).toHaveProperty("disabled", false);
+    expect(screen.getByRole("button", { name: "게시" })).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: /이전/ }));
+    fireEvent.click(screen.getByText(/^가창 라벨·내부 메모 \(선택\)/));
+    expect(screen.getByLabelText("내부 메모 (선택)")).toHaveProperty("value", "현장 라이브 버전");
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
+    await waitFor(() => expect(createEntryMock).toHaveBeenCalledWith(expect.objectContaining({
+      song: { kind: "existing", songId: "existing-song" }, relationType: "cover",
+      performanceTags: ["라이브"], internalNote: "현장 라이브 버전", publicationTarget: "draft",
+      participants: [expect.objectContaining({ participantRole: "other" })],
+    })));
+  });
+
+  it("closes URL-only source inspection without confirmation and protects an actual registration draft", async () => {
+    const dirtyStates = new Map<string, boolean>();
+    const confirmDiscard = vi.fn(async () => false);
+    render(createElement(UnsavedChangesContext.Provider, { value: {
+      register: (id, dirty) => { dirtyStates.set(id, dirty); }, confirm: confirmDiscard,
+    } }, createElement(OtwPlayCatalogManager)), { wrapper: createQueryWrapper() });
+    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
+    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    await screen.findByRole("region", { name: "등록 채널 상태" });
+    expect([...dirtyStates.values()].some(Boolean)).toBe(false);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Close|닫기/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(confirmDiscard).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "새 영상 등록" }));
+    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    await screen.findByRole("region", { name: "등록 채널 상태" });
+    fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    fireEvent.change(screen.getByLabelText("곡 제목"), { target: { value: "보존할 곡 입력" } });
+    expect([...dirtyStates.values()].some(Boolean)).toBe(true);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Close|닫기/ }));
+    await waitFor(() => expect(confirmDiscard).toHaveBeenCalledTimes(1));
+    expect(screen.getByLabelText("곡 제목")).toHaveProperty("value", "보존할 곡 입력");
+    expect(createEntryMock).not.toHaveBeenCalled();
+  });
+
+  it("ignores a late video preflight after closing source inspection and reopening registration", async () => {
+    const preflight = await preflightEntryMock();
+    preflightEntryMock.mockClear();
+    let completePreflight!: (value: typeof preflight) => void;
+    preflightEntryMock.mockImplementationOnce(() => new Promise<typeof preflight>(resolve => { completePreflight = resolve; }));
+    renderCatalogManager();
+    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
+    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    expect(preflightEntryMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Close|닫기/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "새 영상 등록" }));
+    expect(screen.getByLabelText("YouTube URL")).toHaveProperty("value", "");
+    expect(screen.getByLabelText("YouTube URL")).toHaveProperty("disabled", false);
+
+    await act(async () => completePreflight(preflight));
+    expect(screen.queryByRole("region", { name: "등록 채널 상태" })).toBeNull();
+    expect(screen.queryByText("확인된 영상")).toBeNull();
+    expect(screen.getByLabelText("YouTube URL")).toHaveProperty("value", "");
+    expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", true);
+    expect(createEntryMock).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    await screen.findByRole("region", { name: "등록 채널 상태" });
+    fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
+    expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", false);
+    expect(preflightEntryMock).toHaveBeenCalledTimes(2);
+  });
+
   it.each(["checkbox", "video kind"])(
     "restores editable new-song fields when leaving medley through %s",
     async (transition) => {
@@ -1999,24 +2182,26 @@ describe("OtwPlayCatalogManager", () => {
         target: { value: "https://youtu.be/dQw4w9WgXcQ" },
       });
       fireEvent.click(within(dialog).getByRole("button", { name: "영상 확인" }));
-      await waitFor(() =>
-        expect((within(dialog).getByRole("button", { name: /다음/ }) as HTMLButtonElement).disabled).toBe(false),
-      );
-      fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
-      fireEvent.click(within(dialog).getByRole("button", { name: /공식 커버곡/ }));
+      await within(dialog).findByRole("region", { name: "등록 채널 상태" });
+      fireEvent.click(await within(dialog).findByRole("button", { name: /공식 커버곡/ }));
       fireEvent.click(within(dialog).getByRole("checkbox", { name: "메들리의 한 곡 구간" }));
+      fireEvent.click(within(dialog).getByRole("button", { name: "영상 확인" }));
+      await waitFor(() => expect(within(dialog).getByRole("button", { name: /다음/ })).toHaveProperty("disabled", false));
+      fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
       fireEvent.change(within(dialog).getByLabelText("기존 곡 검색"), {
         target: { value: "새 커버 원곡" },
       });
       fireEvent.click(within(dialog).getByRole("option", { name: /새 곡 입력/ }));
+      fireEvent.click(within(dialog).getByRole("button", { name: /이전/ }));
       if (transition === "checkbox") {
         fireEvent.click(within(dialog).getByRole("checkbox", { name: "메들리의 한 곡 구간" }));
       } else {
         fireEvent.click(within(dialog).getByRole("button", { name: /오리지널곡/ }));
         fireEvent.click(within(dialog).getByRole("button", { name: /공식 커버곡/ }));
       }
+      fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
 
-      expect(within(dialog).getByLabelText("원곡 제목")).toHaveProperty("value", "새 커버 원곡");
+      expect(within(dialog).getByLabelText("곡 제목")).toHaveProperty("value", "새 커버 원곡");
       const next = within(dialog).getByRole("button", { name: /다음/ });
       expect(next).toHaveProperty("disabled", true);
       fireEvent.change(within(dialog).getByLabelText("원곡 가수 검색"), {
@@ -2075,14 +2260,21 @@ describe("OtwPlayCatalogManager", () => {
     });
     fireEvent.click(within(dialog).getByRole("checkbox", { name: "구간 선택" }));
     fireEvent.change(within(dialog).getByLabelText("종료 위치(초)"), { target: { value: "90" } });
-    const confirmVideo = async () => {
+    const confirmVideo = async (first = false) => {
       fireEvent.click(within(dialog).getByRole("button", { name: "영상 확인" }));
+      await within(dialog).findByRole("region", { name: "등록 채널 상태" });
+      if (first) {
+        fireEvent.click(within(dialog).getByRole("button", { name: /공식 커버곡/ }));
+        fireEvent.click(within(dialog).getByRole("checkbox", { name: "메들리의 한 곡 구간" }));
+        fireEvent.change(within(dialog).getByLabelText("채널 소유·연결 주체 검색"), {
+          target: { value: "메들리 외부 가창자" },
+        });
+        fireEvent.click(within(dialog).getByRole("button", { name: /외부 인물로 추가/ }));
+      }
       await waitFor(() => expect(within(dialog).getByRole("button", { name: /다음/ })).toHaveProperty("disabled", false));
       fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
     };
-    await confirmVideo();
-    fireEvent.click(within(dialog).getByRole("button", { name: /공식 커버곡/ }));
-    fireEvent.click(within(dialog).getByRole("checkbox", { name: "메들리의 한 곡 구간" }));
+    await confirmVideo(true);
     const selectSong = () => {
       fireEvent.change(within(dialog).getByLabelText("기존 곡 검색"), { target: { value: "기존 곡" } });
       fireEvent.click(within(dialog).getByRole("option", { name: /기존 곡/ }));
@@ -2090,10 +2282,6 @@ describe("OtwPlayCatalogManager", () => {
     };
     selectSong();
     fireEvent.change(within(dialog).getByLabelText("가창 참여자 검색"), {
-      target: { value: "메들리 외부 가창자" },
-    });
-    fireEvent.click(within(dialog).getByRole("button", { name: /외부 인물로 추가/ }));
-    fireEvent.change(within(dialog).getByLabelText("채널 소유·연결 주체 검색"), {
       target: { value: "메들리 외부 가창자" },
     });
     fireEvent.click(within(dialog).getByRole("option", { name: /메들리 외부 가창자/ }));
@@ -2162,10 +2350,9 @@ describe("OtwPlayCatalogManager", () => {
         endSeconds: 90,
       }),
     );
-
-    fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
     fireEvent.click(within(dialog).getByRole("button", { name: /공식 커버곡/ }));
     fireEvent.click(within(dialog).getByRole("checkbox", { name: "메들리의 한 곡 구간" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
     fireEvent.change(within(dialog).getByLabelText("기존 곡 검색"), {
       target: { value: "Medley Song" },
     });
@@ -2179,8 +2366,9 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(
       await within(dialog).findByRole("option", { name: /현재 멤버/ }),
     );
+    fireEvent.click(within(dialog).getByText("가창 라벨·내부 메모 (선택)"));
     expect(within(dialog).getByRole("button", { name: "메들리 수록" })).toBeTruthy();
-    expect(within(dialog).queryByLabelText("선택한 커버 영상 라벨")).toBeNull();
+    expect(within(dialog).queryByLabelText("선택한 가창 라벨")).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
     expect(within(dialog).getByText("메들리 구간")).toBeTruthy();
     expect(within(dialog).queryByRole("button", { name: "게시" })).toBeNull();
@@ -2229,10 +2417,10 @@ describe("OtwPlayCatalogManager", () => {
       target: { value: "https://youtu.be/dQw4w9WgXcQ" },
     });
     fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByText(/멤버 채널 자동 인식/);
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    await screen.findByRole("region", { name: "등록 채널 상태" });
     fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
-    fireEvent.change(screen.getByLabelText("원곡 제목"), {
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    fireEvent.change(screen.getByLabelText("곡 제목"), {
       target: { value: "중복 방지 원곡" },
     });
     fireEvent.change(screen.getByLabelText("원곡 가수 검색"), {
@@ -2281,9 +2469,9 @@ describe("OtwPlayCatalogManager", () => {
       target: { value: "https://youtu.be/dQw4w9WgXcQ" },
     });
     fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByText(/멤버 채널 자동 인식/);
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    await screen.findByRole("region", { name: "등록 채널 상태" });
     fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     fireEvent.change(screen.getByLabelText("원곡 가수 검색"), {
       target: { value: "  deco*27  " },
     });
@@ -2335,7 +2523,9 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(await screen.findByRole("button", { name: kind === "broadcast" ? "새 노래 클립 등록" : "새 영상 등록" }));
     fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
     fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    fireEvent.click(await screen.findByRole("button", { name: "이 채널 등록하기" }));
+    await screen.findByRole("button", { name: "이 채널 등록하기" });
+    if (kind === "official") fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
+    fireEvent.click(screen.getByRole("button", { name: "이 채널 등록하기" }));
     expect(await screen.findByLabelText("YouTube channel ID")).toHaveProperty("value", channel.externalChannelId);
     await waitFor(() => expect(screen.getByLabelText("채널 표시명")).toHaveProperty("value", channel.displayName));
     expect(screen.queryByText("등록된 채널")).toBeNull();
@@ -2494,12 +2684,12 @@ describe("OtwPlayCatalogManager", () => {
     );
   });
 
-  it("uses original-song participants as original artists without a song-link step", async () => {
+  it("defaults an original song to the video title and uses participants when original artists are empty", async () => {
     await openVideoRegistration();
-    await screen.findByText(/멤버 채널 자동 인식/);
+    await screen.findByRole("region", { name: "등록 채널 상태" });
     expect(screen.queryByLabelText("시작 위치(초)")).toBeNull();
     expect(screen.queryByLabelText("종료 위치(초)")).toBeNull();
-    expect(screen.getByText("전체 영상 · 180초")).toBeTruthy();
+    expect(screen.getByText("영상 길이 · 180초")).toBeTruthy();
     fireEvent.click(screen.getByRole("checkbox", { name: "구간 선택" }));
     fireEvent.change(screen.getByLabelText("시작 위치(초)"), {
       target: { value: "10" },
@@ -2508,20 +2698,21 @@ describe("OtwPlayCatalogManager", () => {
       target: { value: "90" },
     });
     fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByText(/멤버 채널 자동 인식/);
+    await screen.findByRole("region", { name: "등록 채널 상태" });
     fireEvent.click(screen.getByRole("checkbox", { name: "구간 선택" }));
     expect(screen.queryByLabelText("시작 위치(초)")).toBeNull();
     expect(screen.queryByLabelText("종료 위치(초)")).toBeNull();
     expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", true);
     fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByText(/멤버 채널 자동 인식/);
+    await screen.findByRole("region", { name: "등록 채널 상태" });
     expect(preflightEntryMock).toHaveBeenLastCalledWith({
       youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
       startSeconds: 0,
       endSeconds: null,
     });
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /오리지널곡/ }));
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    expect(screen.getByLabelText("곡 제목")).toHaveProperty("value", "확인된 영상");
     fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     fireEvent.change(screen.getByLabelText("가창 참여자 검색"), {
       target: { value: "현재 멤버" },
@@ -2534,7 +2725,12 @@ describe("OtwPlayCatalogManager", () => {
       expect(createEntryMock).toHaveBeenCalledWith(
         expect.objectContaining({
           relationType: "original",
-          song: { kind: "from_video" },
+          song: expect.objectContaining({
+            kind: "create",
+            title: "확인된 영상",
+            isOtwOriginal: true,
+            originalArtists: [{ subject: { kind: "member", memberUid: 1 }, creditOrder: 0, isPrimary: true }],
+          }),
           startSeconds: 0,
           endSeconds: 180,
         }),
@@ -2542,10 +2738,47 @@ describe("OtwPlayCatalogManager", () => {
     );
   });
 
+  it("edits an original song manually and preserves its title and artists across registration steps", async () => {
+    await openVideoRegistration();
+    await screen.findByRole("region", { name: "등록 채널 상태" });
+    fireEvent.click(screen.getByRole("button", { name: /오리지널곡/ }));
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    fireEvent.change(screen.getByLabelText("곡 제목"), { target: { value: "" } });
+    expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", true);
+    fireEvent.change(screen.getByLabelText("곡 제목"), { target: { value: "직접 입력한 곡" } });
+    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), { target: { value: "원곡 가수" } });
+    fireEvent.click(screen.getByRole("button", { name: /외부 인물로 추가/ }));
+    fireEvent.click(screen.getByRole("button", { name: /이전/ }));
+    fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
+    fireEvent.click(screen.getByRole("button", { name: /오리지널곡/ }));
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    expect(screen.getByLabelText("곡 제목")).toHaveProperty("value", "직접 입력한 곡");
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    fireEvent.change(screen.getByLabelText("가창 참여자 검색"), { target: { value: "현재 멤버" } });
+    fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
+    fireEvent.click(screen.getByRole("button", { name: /이전/ }));
+    fireEvent.change(screen.getByLabelText("곡 제목"), { target: { value: "수정한 곡명" } });
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    expect(screen.getByText("수정한 곡명")).toBeTruthy();
+    expect(screen.getByText("원곡 가수 · 원곡 가수")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
+    await waitFor(() => expect(createEntryMock).toHaveBeenCalledWith(expect.objectContaining({
+      relationType: "original",
+      song: expect.objectContaining({
+        kind: "create", title: "수정한 곡명", isOtwOriginal: true,
+        originalArtists: [expect.objectContaining({
+          subject: expect.objectContaining({ kind: "new_external", displayName: "원곡 가수" }),
+          creditOrder: 0, isPrimary: true,
+        })],
+      }),
+      participants: [expect.objectContaining({ subject: { kind: "member", memberUid: 1 } })],
+    })));
+  });
+
   it("requires clip channel approval when switching to karaoke without losing the video", async () => {
     await openVideoRegistration();
-    await screen.findByText(/멤버 채널 자동 인식/);
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    await screen.findByRole("region", { name: "등록 채널 상태" });
     fireEvent.click(screen.getByRole("button", { name: /노래방송/ }));
 
     expect(
@@ -2556,7 +2789,6 @@ describe("OtwPlayCatalogManager", () => {
         .disabled,
     ).toBe(true);
     expect(createEntryMock).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: /이전/ }));
     expect(screen.getByLabelText("YouTube URL")).toHaveProperty("value", "https://youtu.be/dQw4w9WgXcQ");
     expect(screen.getByText("확인된 영상")).toBeTruthy();
   });
@@ -2573,6 +2805,8 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
     fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
     fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    await screen.findByRole("region", { name: "등록 채널 상태" });
+    fireEvent.click(await screen.findByRole("button", { name: /노래방송/ }));
     await waitFor(() => expect(screen.getByRole("button", { name: "다음" })).toHaveProperty("disabled", false));
     fireEvent.click(screen.getByRole("checkbox", { name: "구간 선택" }));
     fireEvent.change(screen.getByLabelText("시작 위치(초)"), { target: { value: "10" } });
@@ -2580,7 +2814,6 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "다음" })).toHaveProperty("disabled", false));
     fireEvent.click(screen.getByRole("button", { name: "다음" }));
-    fireEvent.click(screen.getByRole("button", { name: /노래방송/ }));
     expect(screen.queryByText(/지원하지 않습니다/)).toBeNull();
     fireEvent.change(screen.getByLabelText("기존 곡 검색"), { target: { value: "방송 첫 곡" } });
     fireEvent.click(screen.getByRole("option", { name: /새 곡 입력/ }));
@@ -2615,8 +2848,8 @@ describe("OtwPlayCatalogManager", () => {
     expect(screen.getByLabelText("종료 위치(초)")).toHaveProperty("value", "180");
     fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "다음" })).toHaveProperty("disabled", false));
-    fireEvent.click(screen.getByRole("button", { name: "다음" }));
     expect(screen.getByRole("button", { name: /노래방송/ }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
     fireEvent.change(screen.getByLabelText("기존 곡 검색"), { target: { value: "방송 다음 곡" } });
     fireEvent.click(screen.getByRole("option", { name: /새 곡 입력/ }));
     fireEvent.change(screen.getByLabelText("원곡 가수 검색"), { target: { value: "다음 원곡 가수" } });
@@ -2669,10 +2902,17 @@ describe("OtwPlayCatalogManager", () => {
       target: { value: "https://youtu.be/dQw4w9WgXcQ" },
     });
     fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByText("채널: 미등록");
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    await screen.findByRole("region", { name: "등록 채널 상태" });
     fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
-    fireEvent.change(screen.getByLabelText("원곡 제목"), {
+    const nextButton = screen.getByRole("button", { name: /다음/ });
+    expect(nextButton).toHaveProperty("disabled", true);
+    fireEvent.change(screen.getByLabelText("채널 소유·연결 주체 검색"), {
+      target: { value: "현재 멤버" },
+    });
+    fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
+    expect(nextButton).toHaveProperty("disabled", false);
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    fireEvent.change(screen.getByLabelText("곡 제목"), {
       target: { value: "미등록 채널 원곡" },
     });
     fireEvent.change(screen.getByLabelText("원곡 가수 검색"), {
@@ -2685,17 +2925,8 @@ describe("OtwPlayCatalogManager", () => {
     });
     fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
 
-    const nextButton = screen.getByRole("button", { name: /다음/ });
-    expect((nextButton as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("채널 소유·연결 주체 검색"), {
-      target: { value: "현재 멤버" },
-    });
-    const currentMemberButtons = await screen.findAllByRole("option", {
-      name: /현재 멤버/,
-    });
-    fireEvent.click(currentMemberButtons[currentMemberButtons.length - 1]!);
-    expect((nextButton as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(nextButton);
+    expect(screen.queryByLabelText("채널 소유·연결 주체 검색")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
 
     await waitFor(() =>
@@ -2714,10 +2945,10 @@ describe("OtwPlayCatalogManager", () => {
   it("keeps the registration step and chips after an integrated command failure", async () => {
     createEntryMock.mockRejectedValueOnce(new Error("stale revision"));
     await openVideoRegistration();
-    await screen.findByText(/멤버 채널 자동 인식/);
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    await screen.findByRole("region", { name: "등록 채널 상태" });
     fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
-    fireEvent.change(screen.getByLabelText("원곡 제목"), {
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    fireEvent.change(screen.getByLabelText("곡 제목"), {
       target: { value: "실패 후 보존 원곡" },
     });
     fireEvent.change(screen.getByLabelText("원곡 가수 검색"), {

@@ -246,6 +246,9 @@ html[data-animations="disabled"] {
 .admin-console:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"], [data-slot="select-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"]) { box-shadow: none; }
 .admin-console [data-slot="dialog-footer"] { position: sticky; bottom: -24px; margin-top: 12px; padding-block: 16px; border-top: 1px solid var(--border); background: var(--background); z-index: 2; }
 .admin-console [data-slot="dialog-header"] { text-align: left; padding-right: 20px; }
+.admin-console.otw-play-entry-dialog [data-slot="dialog-header"] { padding-right: 48px; }
+.admin-console.otw-play-entry-dialog [data-slot="dialog-footer"] { position: static; margin-top: 0; padding-block: 12px; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+@media (max-width: 767px) { .admin-console.otw-play-entry-dialog details > summary { min-height: 44px; } }
 .admin-console .admin-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding-block: 12px; border-block: 1px solid var(--border); }
 .admin-console .admin-dense-panel [data-slot="card"] { gap: 0; padding-block: 0; }
 .admin-console .admin-dense-panel [data-slot="card-header"] { padding: 8px 12px; }

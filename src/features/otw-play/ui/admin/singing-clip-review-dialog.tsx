@@ -156,14 +156,31 @@ export function SingingClipReviewDialog({
   const [releaseType, setReleaseType] = useState<"official_video" | "official_mv">("official_video");
   const [previewSeconds, setPreviewSeconds] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const canDiscard = useUnsavedChanges(candidate !== null && dirty, presentation === "page" ? preservesPlayReview : undefined);
   const [reviewBaseline, setReviewBaseline] = useState<{
     version: number;
     status: OtwPlayChannelMonitorCandidateDto["status"];
     reviewInput: OtwPlayChannelMonitorCandidateDto["reviewInput"];
   } | null>(null);
+  const savedInput = reviewBaseline?.reviewInput;
+  const dirty = candidate !== null && reviewBaseline !== null && JSON.stringify([
+    songId, songId === "__new" ? [songTitle.trim(), originalArtists.map(item => item.subject), songTags] : null,
+    participants.map(item => [item.subject, item.participantRole]), participationType, performanceTags,
+    startSeconds, endSeconds, internalNote.trim(),
+    candidateKind === "singing_clip" ? broadcast : [relationType, releaseType],
+  ]) !== JSON.stringify([
+    savedInput?.song.kind === "existing" ? savedInput.song.songId : "__new",
+    savedInput?.song.kind === "existing" ? null : [
+      (savedInput?.song.kind === "create" ? savedInput.song.title : candidate.title ?? "").trim(),
+      savedInput?.song.kind === "create" ? savedInput.song.originalArtists.map(item => item.subject) : [], savedInput?.song.tags ?? [],
+    ],
+    savedInput?.participants.map(item => [item.subject, item.participantRole]) ?? [],
+    savedInput?.participationType ?? "solo", savedInput?.performanceTags ?? [],
+    String(savedInput?.startSeconds ?? 0), savedInput?.endSeconds == null ? "" : String(savedInput.endSeconds),
+    (savedInput?.internalNote ?? "").trim(),
+    candidateKind === "singing_clip" ? savedInput?.broadcast ?? EMPTY_BROADCAST : [savedInput?.relationType ?? "cover", savedInput?.releaseType === "official_mv" ? "official_mv" : "official_video"],
+  ]);
+  const canDiscard = useUnsavedChanges(dirty, presentation === "page" ? preservesPlayReview : undefined);
   const draftExternalSubjects = [...originalArtists, ...participants].filter(
     (subject, index, subjects) =>
       subject.subject.kind === "new_external" &&
@@ -176,7 +193,6 @@ export function SingingClipReviewDialog({
     classification: [relationType, releaseType], participationType, performanceTags,
     segment: [startSeconds, endSeconds, segmentEnabled], broadcastDate: [broadcast.performedOn, broadcast.dateEvidence], originalUrl: broadcast.originalUrl, extent: broadcast.extent,
   }, (field, value) => {
-    setDirty(true);
     switch(field) {
       case "song": { const v=value as AiReviewFields["song"]; setSongId(v.existingSongId ?? "__new"); setSongTitle(v.title); setOriginalArtists(v.existingSongId ? [] : v.originalArtists.map(aiPersonSelection)); setSongTags(v.existingSongId ? [] : v.tags); break; }
       case "participants": setParticipants((value as AiReviewFields["participants"]).map(p=>({...aiPersonSelection(p),participantRole:p.role}))); break;
@@ -213,7 +229,6 @@ export function SingingClipReviewDialog({
     }
     if (initializedCandidate.current === candidate.candidateId) return;
     initializedCandidate.current = candidate.candidateId;
-    setDirty(false);
     setSaveMessage(null);
     const input = candidate.reviewInput;
     setBroadcast(input?.broadcast ?? EMPTY_BROADCAST);
@@ -356,6 +371,10 @@ export function SingingClipReviewDialog({
       if (reviewed.reviewInput) {
         const saved = reviewed.reviewInput;
         if (saved.song.kind === "existing") setSongId(saved.song.songId);
+        setBroadcast(saved.broadcast ?? EMPTY_BROADCAST);
+        setPerformanceTags(saved.performanceTags ?? []);
+        setStartSeconds(String(saved.startSeconds));
+        setEndSeconds(saved.endSeconds == null ? "" : String(saved.endSeconds));
         setParticipants(saved.participants.map((participant, index) => ({
           ...selectedSubjectFromInput(participant.subject, catalog),
           label: participant.creditNameSnapshot ?? participants[index]?.label ??
@@ -363,7 +382,7 @@ export function SingingClipReviewDialog({
           participantRole: participant.participantRole,
         })));
       }
-      if (reviewOnly) { setDirty(false); setSaveMessage("검수 저장 완료"); await onReviewStateChanged(); onReviewSaved?.(); if (next && onReviewNext) await onReviewNext(); else onOpenChange(false); return; }
+      if (reviewOnly) { setSaveMessage("검수 저장 완료"); await onReviewStateChanged(); onReviewSaved?.(); if (next && onReviewNext) await onReviewNext(); else onOpenChange(false); return; }
       const converted = await convertOtwPlayImportCandidate(candidate.candidateId, {
         expectedVersion: reviewed.version,
       });
@@ -376,7 +395,6 @@ export function SingingClipReviewDialog({
           ? "검수한 영상을 가창 임시 항목로 저장했습니다."
           : "이미 등록된 영상과 연결했습니다.",
       });
-      setDirty(false);
       setSaveMessage("저장 완료 · 서버 결과 확인 중");
       onOpenChange(false);
       await onConverted(converted.performanceId);
@@ -420,7 +438,7 @@ export function SingingClipReviewDialog({
           startSeconds={startSeconds} endSeconds={endSeconds} segmentValid={segmentValid} existingSong={selectedExistingSong !== null}
         />}
         {candidate ? (
-          <div className={presentation === "page" ? "grid items-start gap-6 lg:grid-cols-[minmax(260px,0.7fr)_minmax(0,1.3fr)]" : "space-y-3"} onChangeCapture={() => setDirty(true)} onClickCapture={(event) => { const target = event.target as HTMLElement; if (!target.closest("aside") && target.closest("[role=combobox],button")) setDirty(true); }}>
+          <div className={presentation === "page" ? "grid items-start gap-6 lg:grid-cols-[minmax(260px,0.7fr)_minmax(0,1.3fr)]" : "space-y-3"}>
             <aside className={presentation === "page" ? "space-y-3 lg:sticky lg:top-4" : "space-y-3"}>
             {presentation === "page" && active && <iframe
               className="aspect-video max-h-80 w-full rounded-lg border"
@@ -462,7 +480,7 @@ export function SingingClipReviewDialog({
             {onManageChannel && <Button variant="outline" disabled={saving} onClick={onManageChannel}>채널 승인·수집 설정</Button>}
             {batchDraft && <p role="status" className="text-sm">AI 초안이 저장되어 있습니다. {batchDraft.candidateVersion !== candidate.candidateVersion || batchDraft.candidateKind !== candidateKind ? "후보가 변경되어 자동 적용하지 않았습니다. 최신 내용과 비교해 주세요." : batchDraft.result.songs.length !== 1 ? "적용할 곡과 구간을 선택해 주세요." : "내용을 확인한 뒤 검수 저장을 진행하세요."} 기존 검수값·작성 중인 입력은 보존합니다.</p>}
             {batchDraftQuery.isError && <p role="alert">저장된 AI 초안을 불러오지 못했습니다. <Button variant="link" onClick={() => void batchDraftQuery.refetch()}>초안 다시 불러오기</Button></p>}
-            <AiReviewPanel storedDraft={batchDraft} segmentEnabled={segmentEnabled} key={`${candidate.candidateId}:${candidateKind}`} target={{candidateId:candidate.candidateId}} videoId={candidate.videoId} candidateKind={candidateKind} durationSeconds={durationSeconds} initialRange={parsedEnd!==null?{startSeconds:parsedStart,endSeconds:parsedEnd}:null} form={ai} disabled={saving || !active || ["converted","ignored"].includes(candidate.status)} onSeek={presentation==="page"?setPreviewSeconds:undefined} />
+            <AiReviewPanel compact={presentation === "dialog"} storedDraft={batchDraft} segmentEnabled={segmentEnabled} key={`${candidate.candidateId}:${candidateKind}`} target={{candidateId:candidate.candidateId}} videoId={candidate.videoId} candidateKind={candidateKind} durationSeconds={durationSeconds} initialRange={parsedEnd!==null?{startSeconds:parsedStart,endSeconds:parsedEnd}:null} form={ai} disabled={saving || !active || ["converted","ignored"].includes(candidate.status)} onSeek={presentation==="page"?setPreviewSeconds:undefined} />
             </aside>
             <fieldset disabled={saving} className="min-w-0 space-y-6">
             <section className="grid gap-3 sm:grid-cols-2">
@@ -483,7 +501,7 @@ export function SingingClipReviewDialog({
                 <SongConnectionPicker
                   inputKey={`${id}-review`} catalog={catalog} selectedSongId={songId}
                   query={songSearch} onQueryChange={setSongSearch}
-                  onSelectExisting={(value) => { ai.touch("song"); setSongId(value); setDirty(true); }}
+                  onSelectExisting={(value) => { ai.touch("song"); setSongId(value); }}
                 />
               </div>
               {songId === "__new" ? (
@@ -597,10 +615,10 @@ export function SingingClipReviewDialog({
             <section className="grid gap-3 border-t pt-4 sm:grid-cols-2">
               <h3 className="text-base font-semibold sm:col-span-2">{candidateKind === "singing_clip" ? "3. 방송 출처·가창 구간" : "3. 영상 재생 구간"}</h3>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label className="flex items-center gap-2"><Checkbox checked={segmentEnabled} onCheckedChange={checked => { setSegmentEnabled(checked === true); if (!checked) { ai.touch("segment"); setStartSeconds("0"); setEndSeconds(""); } setDirty(true); }} />구간 선택</Label>
+                <Label className="flex items-center gap-2"><Checkbox checked={segmentEnabled} onCheckedChange={checked => { setSegmentEnabled(checked === true); if (!checked) { ai.touch("segment"); setStartSeconds("0"); setEndSeconds(""); } }} />구간 선택</Label>
                 <p className="text-xs text-muted-foreground">전체 영상은 선택하지 않아도 돼요. 선택한 경우에만 AI의 시작·종료 위치를 반영합니다.</p>
               </div>
-            {candidateKind === "singing_clip" && <div className="sm:col-span-2"><BroadcastFields flat value={broadcast} onChange={value => { if (value.performedOn !== broadcast.performedOn || value.dateEvidence !== broadcast.dateEvidence) ai.touch("broadcastDate"); if(value.originalUrl !== broadcast.originalUrl) ai.touch("originalUrl"); if(value.extent !== broadcast.extent) ai.touch("extent"); setBroadcast(value); setDirty(true); }} /></div>}
+            {candidateKind === "singing_clip" && <div className="sm:col-span-2"><BroadcastFields flat value={broadcast} onChange={value => { if (value.performedOn !== broadcast.performedOn || value.dateEvidence !== broadcast.dateEvidence) ai.touch("broadcastDate"); if(value.originalUrl !== broadcast.originalUrl) ai.touch("originalUrl"); if(value.extent !== broadcast.extent) ai.touch("extent"); setBroadcast(value); }} /></div>}
               <div className="space-y-1.5">
                 <Label htmlFor={`${id}-clip-start-seconds`}>시작 위치(초)</Label>
                 <Input id={`${id}-clip-start-seconds`} type="number" min={0} value={startSeconds} onChange={(event) => { ai.touch("segment"); setSegmentEnabled(true); setStartSeconds(event.target.value); }} />

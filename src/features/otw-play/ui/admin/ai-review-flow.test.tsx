@@ -320,6 +320,35 @@ describe("AI suggestions through actual admin forms", () => {
     expect(mocks.start).not.toHaveBeenCalled();
     expect(mocks.create).not.toHaveBeenCalled();
   });
+  it("blocks final registration when an AI suggestion invalidates the already confirmed video range", async () => {
+    const data = result(true);
+    data.result!.songs[0]!.values.segment = { startSeconds: 150, endSeconds: 140 };
+    mocks.start.mockResolvedValue({ data });
+    mocks.get.mockResolvedValue({ data });
+    mocks.preflight.mockResolvedValue({ catalogRevision: 1, duplicate: null,
+      video: { videoId: candidate.videoId, title: candidate.title, channelId: "channel", channelTitle: "Uploader", durationSeconds: 180, thumbnailUrl: null, availabilityStatus: "playable" },
+      channel: { state: "approved", catalogChannelId: "channel", channelRole: "approved_kirinuki" },
+    });
+    render(createElement(CatalogEntryDialog, { open: true, clip: true, onOpenChange: vi.fn(), catalog, preselectedSongId: null, onSaved: async () => {} }), { wrapper: createQueryWrapper() });
+    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/BBBBBBBBBBB" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "구간 선택" }));
+    fireEvent.click(screen.getByRole("button", { name: /영상 확인/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    fireEvent.change(screen.getByLabelText("곡 제목"), { target: { value: "수동 곡" } });
+    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), { target: { value: "수동 원곡 가수" } });
+    fireEvent.click(screen.getByRole("button", { name: "외부 인물로 추가" }));
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    fireEvent.change(screen.getByLabelText("가창 참여자 검색"), { target: { value: "수동 가창자" } });
+    fireEvent.click(screen.getByRole("button", { name: "외부 인물로 추가" }));
+    fireEvent.click(screen.getByRole("button", { name: "AI로 자동 채우기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "AI 제안 일괄 적용" }));
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    expect(screen.getByRole("button", { name: "임시 저장" })).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
   it.each(["candidate", "url"])("links a catalog match and saves the extent from the %s form", async (entry) => {
     const data = result(true);
     const song = data.result!.songs[0].values.song!;
@@ -342,7 +371,7 @@ describe("AI suggestions through actual admin forms", () => {
       await screen.findByRole("button", { name: "AI로 자동 채우기" });
     }
     fireEvent.click(screen.getByRole("button", { name: "AI로 자동 채우기" }));
-    await waitFor(() => expect(screen.getByLabelText("AI 카탈로그 대조 결과").textContent).toContain("폼에 연결했습니다"));
+    await screen.findByRole("button", { name: "AI 입력 되돌리기" });
     if (entry === "candidate") {
       expect(screen.getByRole("combobox", { name: "가창 범위" }).textContent).toContain("일부 가창");
       fireEvent.click(screen.getByRole("button", { name: "OTW Play 게시 미리보기" }));
@@ -492,18 +521,13 @@ describe("AI suggestions through actual admin forms", () => {
       await screen.findByRole("button", { name: "AI로 자동 채우기" });
       fireEvent.click(screen.getByRole("button", { name: "AI로 자동 채우기" }));
       await screen.findByText("분석 완료");
+      if (!clip) fireEvent.click(screen.getByRole("button", { name: /오리지널곡/ }));
       fireEvent.click(screen.getByRole("button", { name: /다음/ }));
       await waitFor(() =>
         expect(
-          (screen.getByLabelText("원곡 제목") as HTMLInputElement).value,
+          (screen.getByLabelText("곡 제목") as HTMLInputElement).value,
         ).toBe("정리된 곡명"),
       );
-      if (!clip) {
-        fireEvent.click(screen.getByRole("button", { name: /오리지널곡/ }));
-        expect(
-          (screen.getByLabelText("원곡 제목") as HTMLInputElement).value,
-        ).toBe("정리된 곡명");
-      }
       fireEvent.click(screen.getByRole("button", { name: /다음/ }));
       fireEvent.click(screen.getByRole("button", { name: /다음/ }));
       fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));

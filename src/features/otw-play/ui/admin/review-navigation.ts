@@ -1,12 +1,10 @@
 import type { PreservedNavigation } from "@/shared/lib/unsaved-changes";
 import type { ConsoleSearch } from "@/shared/lib/admin-console-search";
 
-// The catalog manager keeps review forms mounted across these local surfaces.
-// Other destinations and browser reloads still require unsaved-input protection.
+// Catalog, import, channels and operations share the mounted catalog manager.
+// Playlists replace it; other pages and reloads also discard the review forms.
 export const preservesPlayReview: PreservedNavigation = ({ current, next }) => {
   if (current.pathname !== next.pathname || next.pathname !== "/admin/otw-play") return false;
-  const search = next.search as ConsoleSearch;
-  if (search.tab === "import") return true;
-  return search.tab === "channels" && search.view === "channel-edit"
-    && search.from === "play-review" && typeof search.channel === "string";
+  return (current.search as ConsoleSearch).tab !== "playlists"
+    && (next.search as ConsoleSearch).tab !== "playlists";
 };
