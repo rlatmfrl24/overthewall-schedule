@@ -1,11 +1,35 @@
 // @vitest-environment jsdom
 import { createElement } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { OperationRunDto, XCollectionOperationItemDto } from "@contracts/scheduled-operations";
-import { XCollectionRuns } from "./x-collection-monitoring";
+import { XCollectionRuns, XUsageChart } from "./x-collection-monitoring";
 
 afterEach(cleanup);
+it("distinguishes a real zero, an unrecorded breakdown, and unavailable usage", () => {
+  const usage = {apiCalls: 4, estimatedCostMicros: 40_000, resourceCount: 4, successCount: 4, failureCount: 0, rateLimitCount: 0,
+    quota: {dailyBudgetMicros: 1_000_000, todayUsedMicros: 40_000, todayRemainingMicros: 960_000, todayBudgetUsedPercent: 4},
+    daily: [], byOperation: [], forceRefreshPaths: []};
+  const view = render(createElement(XUsageChart, {usage, error: false, hours: 24}));
+  expect(screen.getByText("작업별 호출 내역 미기록")).toBeTruthy();
+  expect(screen.queryByText("조회 기간에 기록된 API 호출이 없습니다.")).toBeNull();
+  view.rerender(createElement(XUsageChart, {usage: {...usage, apiCalls: 0}, error: false, hours: 24}));
+  expect(screen.getByText("조회 기간에 기록된 API 호출이 없습니다.")).toBeTruthy();
+  view.rerender(createElement(XUsageChart, {usage: undefined, error: true, hours: 24}));
+  expect(screen.getByText("API 사용량을 확인할 수 없습니다.")).toBeTruthy();
+  expect(screen.getByRole("alert").textContent).toContain("사용량 조회 실패");
+});
+it("keeps actual operation counts, cost, and failure details accessible when a usage snapshot is stale", () => {
+  const usage = {apiCalls: 4, estimatedCostMicros: 40_000, resourceCount: 4, successCount: 3, failureCount: 1, rateLimitCount: 0,
+    quota: {dailyBudgetMicros: 1_000_000, todayUsedMicros: 40_000, todayRemainingMicros: 960_000, todayBudgetUsedPercent: 4},
+    daily: [], byOperation: [{operation: "timeline", apiCalls: 4, estimatedCostMicros: 40_000, resourceCount: 4, failureCount: 1, rateLimitCount: 0}], forceRefreshPaths: []};
+  render(createElement(XUsageChart, {usage, error: true, hours: 168}));
+  expect(screen.getByText(/최근 168시간 · 4회/)).toBeTruthy();
+  expect(screen.getByRole("alert").textContent).toContain("이전 조회 결과");
+  fireEvent.click(screen.getByText("호출·비용 상세"));
+  const table = screen.getByRole("table");
+  expect(within(table).getByRole("row", {name: "timeline 4 $0.040 1 0"})).toBeTruthy();
+});
 const item = (): XCollectionOperationItemDto => ({
   itemId: "item", targetKey: "handles:0:member", status: "partial", attempts: 1,
   updatedAt: 1, errorCode: "x_api_503", error: "원문 보강 재시도 대기",

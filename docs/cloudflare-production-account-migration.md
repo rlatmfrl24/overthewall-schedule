@@ -34,7 +34,7 @@ projects. OTW Schedule is deployed as:
 | Queues | 10 physical queues |
 | D1 | `otw-db` |
 | R2 | `otw-schedule` |
-| Analytics Engine | `otw_play_events`, `otw_youtube_cache_events` |
+| Analytics Engine | `otw_play_events` (YouTube-cache runtime retired) |
 | Public domain | `otw-schedule.info` |
 
 The shared account has already reached its account-level Cron Trigger limit
@@ -53,7 +53,7 @@ The production account target is:
 | Queues | 6 physical queues | Consolidates compatible traffic while preserving latency and retry boundaries |
 | D1 | 1 production `otw-db` | Same schema and migration history |
 | R2 | 1 production `otw-schedule` bucket | Same object-key contract |
-| Analytics Engine | 2 datasets | Keeps product and YouTube-cache metric contracts separate |
+| Analytics Engine | 1 dataset | OTW Play telemetry only; the feed uses existing D1 usage ledgers |
 | Domain | `otw-schedule.info` | Moved only after target-account verification |
 
 The consolidated Worker exports all supported Cloudflare entry points:
@@ -101,9 +101,9 @@ Consolidation must not change the product contract or increase upstream load.
 
 - Public and admin HTTP routes keep their existing methods, payloads, status
   codes, authentication, and cache behavior.
-- YouTube public media remains demand-driven D1 SWR. It does not become a
-  scheduled job.
-- Manual YouTube cache refresh remains a synchronous `200` command.
+- YouTube public media uses the stored feed, with bounded Shorts backfill.
+- Manual YouTube feed collection uses the existing asynchronous `202` Operations
+  command and verifies terminal results; retired cache routes return `404`.
 - General Operations commands remain asynchronous `202` runs with polling.
 - The existing staggered Cron expression and job selection times remain
   unchanged.
@@ -155,7 +155,6 @@ Required target secrets include, as applicable:
 - `CLERK_JWKS_URL` when explicitly configured
 - `OTW_PLAY_ANALYTICS_READ_TOKEN`
 - `CLOUDFLARE_D1_TOKEN` with the existing D1 permissions and Account Analytics Read
-- `YOUTUBE_CACHE_ANALYTICS_READ_TOKEN` when separate
 
 ## 6. Execution Phases
 

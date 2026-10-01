@@ -2,6 +2,7 @@ import {
   OTW_PLAY_INGESTION_CANDIDATE_STATUSES,
   type OtwPlayIngestionCandidateStatus,
   type OtwPlayConvertIngestionCandidateRequest,
+  type OtwPlayDeleteReviewItemRequest,
   type OtwPlayConvertIngestionCandidatesRequest,
   type OtwPlayCreatePlaylistImportRequest,
   type OtwPlayIgnoreIngestionCandidatesRequest,
@@ -191,6 +192,14 @@ export const parseConvertIngestionCandidate = (
   return Number.isSafeInteger(value.expectedVersion) && Number(value.expectedVersion) >= 0
     ? { ok: true, value: { expectedVersion: Number(value.expectedVersion) } }
     : { ok: false, fields: { expectedVersion: "invalid" } };
+};
+
+export const parseDeleteReviewItem = (value: unknown): IngestionInputResult<OtwPlayDeleteReviewItemRequest> => {
+  if (!isObject(value) || !hasExactKeys(value, ["kind", "expectedVersion"]) || (value.kind !== "candidate" && value.kind !== "proposal")) {
+    return { ok: false, fields: { body: "invalid_shape" } };
+  }
+  const parsed = parseConvertIngestionCandidate({ expectedVersion: value.expectedVersion });
+  return parsed.ok ? { ok: true, value: { kind: value.kind, ...parsed.value } } : parsed;
 };
 
 export const parseUpdateIngestionCandidate = (

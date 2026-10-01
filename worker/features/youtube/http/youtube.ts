@@ -2,7 +2,6 @@ import { decodeVodCursor, YouTubeVodInputError } from "../domain/vod-cursor";
 import { requireAdminUser } from "../../../platform/auth";
 import {
   badRequest,
-  getActorInfo,
   json,
   methodNotAllowed,
 } from "../../../platform/http-helpers";
@@ -13,7 +12,6 @@ import {
 } from "../domain/channel-targets";
 import {
   YouTubeAllowlistUnavailableError,
-  YouTubeCacheRefreshInProgressError,
   YouTubeTargetsNotAllowedError,
   type YouTubeApplication,
 } from "../application/youtube-service";
@@ -31,7 +29,7 @@ const parseWindowHours = (value: string | null) => {
   const trimmed = value.trim();
   if (!/^\d+$/.test(trimmed)) return null;
   const parsed = Number.parseInt(trimmed, 10);
-  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 168
+  return parsed === 24 || parsed === 168
     ? parsed
     : null;
 };
@@ -42,67 +40,21 @@ export const createYouTubeHandler =
   const url = new URL(request.url);
   const application = buildApplication(env);
 
-  if (url.pathname === "/api/youtube/cache/status") {
-    if (request.method !== "GET") {
-      return methodNotAllowed();
-    }
-
+  if (url.pathname === "/api/youtube/feed/status") {
+    if (request.method !== "GET") return methodNotAllowed();
     const admin = await requireAdminUser(request, env);
     if (!admin.ok) return admin.response;
-
-    const windowHours = parseWindowHours(url.searchParams.get("windowHours"));
-    if (windowHours === null) {
-      return badRequest("windowHours must be an integer between 1 and 168");
-    }
-
-    const cacheStatus = await application.readCacheOverview(windowHours);
-
-    return json(
-      { ...cacheStatus, vodChannels: await application.readVodChannelStatus() },
-      200,
-      {
-        headers: {
-          "Cache-Control": PRIVATE_YOUTUBE_CACHE_CONTROL,
-          Vary: "Authorization",
-        },
-      },
-    );
-  }
-
-  if (
-    url.pathname === "/api/youtube/cache/refresh" ||
-    url.pathname === "/api/youtube/cache/warmup/run"
-  ) {
-    if (request.method !== "POST") {
-      return methodNotAllowed();
-    }
-
-    const admin = await requireAdminUser(request, env);
-    if (!admin.ok) return admin.response;
-
-    const actor = getActorInfo(request, admin.user);
+    const hours = parseWindowHours(url.searchParams.get("windowHours"));
+    if (hours === null) return badRequest("windowHours must be 24 or 168");
     try {
-      const result = await application.runManualCacheRefresh(actor);
-      return json(result, 200, {
-        headers: {
-          "Cache-Control": PRIVATE_YOUTUBE_CACHE_CONTROL,
-          Vary: "Authorization",
-        },
+      return json(await application.readFeedStatus(hours), 200, {
+        headers: { "Cache-Control": PRIVATE_YOUTUBE_CACHE_CONTROL, Vary: "Authorization" },
       });
     } catch (error) {
-      if (error instanceof YouTubeCacheRefreshInProgressError) {
-        return json(
-          { error: "youtube_cache_refresh_in_progress" },
-          409,
-          {
-            headers: {
-              "Cache-Control": PRIVATE_YOUTUBE_CACHE_CONTROL,
-              Vary: "Authorization",
-            },
-          },
-        );
-      }
-      throw error;
+      console.error("Failed to read YouTube feed status", error);
+      return json({ error: "youtube_feed_status_unavailable" }, 503, {
+        headers: { "Cache-Control": PRIVATE_YOUTUBE_CACHE_CONTROL, Vary: "Authorization" },
+      });
     }
   }
 
@@ -147,7 +99,6 @@ export const createYouTubeHandler =
       const content = await application.readVideos(
         parsedTargets.channelIds,
         maxResults,
-        ctx,
       );
       const { targetCount, availableTargetCount, ...responseContent } = content;
       const status = targetCount > 0 && availableTargetCount === 0 ? 503 : 200;

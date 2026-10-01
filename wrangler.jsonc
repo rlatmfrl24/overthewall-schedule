@@ -56,10 +56,6 @@
       "binding": "OTW_PLAY_ANALYTICS",
       "dataset": "otw_play_events",
     },
-    {
-      "binding": "YOUTUBE_CACHE_ANALYTICS",
-      "dataset": "otw_youtube_cache_events",
-    },
   ],
   "d1_databases": [
     {

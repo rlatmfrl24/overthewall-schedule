@@ -448,56 +448,25 @@ VOD 자동 수집은 곧바로 일정을 바꾸지 않고 `pending_schedules`에
 
 ### 6.2 CHZZK·YouTube 미디어
 
-```mermaid
-flowchart LR
-  page["/vods<br/>VodsOverview"]
-  members["useScheduleData<br/>GET /api/members + /api/ddays"]
-  mediaUi["media-library<br/>탭·필터·표시 조합"]
-  query["TanStack Query<br/>선택한 탭만 요청"]
-  chzzkRoute["/api/vods/chzzk<br/>/api/clips/chzzk"]
-  youtubeRoute["/api/youtube/videos<br/>/api/kirinuki/videos"]
-  chzzkAllowlist["D1 활성 member"]
-  youtubeAllowlist["D1 허용 대상<br/>활성 member · kirinuki channel"]
-  chzzkCache[("CHZZK Worker memory + D1 cache")]
-  youtubeCache[("YouTube D1 canonical cache<br/>official 20 · kirinuki 40")]
-  swr["Demand-SWR<br/>요청당 최대 2채널"]
-  waitUntil["stale/expired<br/>waitUntil refresh"]
-  manual["관리자 동기 전체 새로고침<br/>POST /api/youtube/cache/refresh"]
-  analytics[("Analytics Engine<br/>비식별 v2 운영 지표")]
-  chzzkApi["CHZZK API"]
-  youtubeApi["YouTube API"]
+CHZZK retains its existing memory/D1 cache and public allowlist. YouTube public
+videos, kirinuki, VODs and Shorts read the stored feed; no legacy cache fallback
+exists. Normal reads never fetch upstream. Incomplete Shorts pages retain the
+bounded, quota-admitted backfill path and their own continuation contract.
+The public cache metadata uses the retained metadata age (24h), not the presence
+of videos, to distinguish fresh from stale.
 
-  page --> mediaUi
-  members --> mediaUi
-  mediaUi --> query
-  query --> chzzkRoute
-  query --> youtubeRoute
-  chzzkRoute --> chzzkAllowlist
-  youtubeRoute --> youtubeAllowlist
-  chzzkAllowlist --> chzzkCache
-  youtubeAllowlist --> swr
-  swr <--> youtubeCache
-  chzzkCache -->|"cache miss"| chzzkApi
-  swr -->|"missing · 동기"| youtubeApi
-  swr -. "저장값 즉시 제공" .-> waitUntil
-  waitUntil --> youtubeApi
-  manual --> youtubeApi
-  youtubeApi --> analytics
-  swr --> analytics
-  chzzkApi --> chzzkCache
-  youtubeApi --> youtubeCache
-  chzzkCache --> query
-  youtubeCache --> query
-```
+Admin `GET /api/youtube/feed/status?windowHours=24|168` is authenticated,
+no-store and SELECT-only. Registered main, dedicated VOD and kirinuki roles are
+deduplicated by channel; registry mismatches are separate from collection errors.
+API usage includes scheduled, manual and demand origins. The rolling window and
+Pacific quota ledger are different authorities and must not be added together.
+Manual “대기 작업 실행” uses `POST /api/operations/runs` with
+`youtube_feed_collection`, then watches the actual terminal run and reloads
+the stored snapshot. Nested YouTube results are separate from wrapper progress.
 
-`media-library`는 화면을 조합하지만 외부 API 자체를 소유하지 않는다.
-CHZZK와 YouTube capability가 허용된 채널인지 먼저 확인하고, 정해진 cache
-profile을 사용할 수 있는 요청만 cache한다. YouTube는 정기 예열 없이
-주 HTTP Worker의 D1 Demand-SWR을 사용한다. Fresh는 외부 호출 없이 반환하고,
-저장된 stale/expired는 즉시 제공한 뒤 `waitUntil()`에서 최대 2개만 갱신한다.
-Missing만 요청당 최대 2개를 동기 갱신하며, official과 kirinuki의 canonical
-수집량은 각각 20개와 40개다. 관리자 전체 새로고침은 동기 `200` command이고,
-일반 Operations의 비동기 run pipeline에는 포함되지 않는다.
+Legacy cache routes return 404. Runtime retirement is Stage A; destructive schema
+cleanup is Stage B only after production readback and a recoverable export.
+See [YouTube feed retirement](operations/youtube-feed-retirement.md).
 
 ### 6.3 X·Naver Cafe 통합 게시물
 
@@ -609,8 +578,7 @@ flowchart TB
   executor["protocol-aware queue router<br/>scheduled · ingestion · AI review"]
   admin["관리자 Operations UI"]
   command["POST /api/operations/runs<br/>202 + run polling"]
-  youtube["YouTube Demand-SWR<br/>정기 schedule 0건"]
-  youtubeManual["POST /api/youtube/cache/refresh<br/>동기 200"]
+  youtube["YouTube stored feed<br/>due channels and 24h metadata"]
 
   runtime --> workflows
   workflows --> state
@@ -619,8 +587,7 @@ flowchart TB
   executor --> state
   admin --> command
   command --> state
-  admin --> youtubeManual
-  youtubeManual --> youtube
+  executor --> youtube
 ```
 
 범용 운영 작업은 통합 Worker의 Free-plan Cron Trigger 하나가 job type을 담은 범용

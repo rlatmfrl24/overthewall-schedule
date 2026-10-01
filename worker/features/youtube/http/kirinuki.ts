@@ -19,7 +19,7 @@ export type BuildKirinukiApplication = (env: Env) => YouTubeApplication;
 
 export const createKirinukiHandler =
   (buildApplication: BuildKirinukiApplication) =>
-  async (request: Request, env: Env, ctx?: ExecutionContext) => {
+  async (request: Request, env: Env) => {
   const url = new URL(request.url);
   if (url.pathname === "/api/kirinuki/channels") {
     const admin = await requireAdminUser(request, env);
@@ -144,7 +144,7 @@ export const createKirinukiHandler =
       );
     }
 
-    const content = await application.readKirinukiVideos(maxResults, ctx);
+    const content = await application.readKirinukiVideos(maxResults);
     if (content.byChannel.length === 0) {
       return Response.json(
         {

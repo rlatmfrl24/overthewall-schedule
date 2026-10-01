@@ -118,15 +118,6 @@ export const DATA_RETENTION_POLICIES = [
     retentionDays: 30,
   },
   {
-    id: "youtube-api-cache",
-    category: "feed",
-    table: "youtube_api_cache",
-    label: "YouTube API 기반 캐시",
-    timestampColumn: "fetched_at",
-    timestampKind: "epoch_ms",
-    retentionDays: 30,
-  },
-  {
     id: "x-api-usage-events",
     category: "usage_events",
     table: "x_api_usage_events",
@@ -170,15 +161,6 @@ export const DATA_RETENTION_POLICIES = [
     timestampColumn: "started_at",
     timestampKind: "epoch_ms",
     retentionDays: 30,
-  },
-  {
-    id: "youtube-warmup-runs",
-    category: "collection_runs",
-    table: "youtube_warmup_runs",
-    label: "YouTube 준비 작업 이력",
-    timestampColumn: "started_at",
-    timestampKind: "epoch_ms",
-    retentionDays: 90,
   },
   {
     id: "auto-update-runs",

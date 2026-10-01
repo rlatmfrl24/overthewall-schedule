@@ -98,6 +98,13 @@ export type OperationRunDto = {
   lastError: string | null;
   /** Stored results of each account shard, separate from wrapper progress. */
   xCollection?: { items: XCollectionOperationItemDto[] };
+  /** Actual YouTube results, never the single wrapper item's progress. */
+  youtubeCollection?: {
+    attempted: number; succeeded: number; failed: number;
+    metadataRefreshed: number; unavailableMarked: number;
+    shortsStored: number; scanPages: number; exhaustedSources: number;
+    quotaBlocked: boolean; backoffSources: number; backfillFailed: number;
+  };
 };
 
 export type OperationRunListDto = {

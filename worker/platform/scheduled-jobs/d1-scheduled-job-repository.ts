@@ -1031,6 +1031,20 @@ export class D1ScheduledJobRepository {
     if (run.job_type === "x_collection") {
       dto.xCollection = { items: xResult.results.map(toXCollectionOperationItem) };
     }
+    if (run.job_type === "youtube_feed_collection") {
+      const evidence = await this.db.prepare(
+        "SELECT result_json FROM scheduled_job_items WHERE run_id = ? AND phase = 'collect' ORDER BY updated_at DESC LIMIT 1",
+      ).bind(runId).first<{ result_json: string | null }>();
+      if (evidence?.result_json) {
+        try {
+          const result = JSON.parse(evidence.result_json) as Record<string, unknown>;
+          const keys = ["attempted", "succeeded", "failed", "metadataRefreshed", "unavailableMarked", "shortsStored", "scanPages", "exhaustedSources", "backoffSources", "backfillFailed"] as const;
+          if (keys.every((key) => typeof result[key] === "number" && Number.isFinite(result[key]) && Number(result[key]) >= 0) && typeof result.quotaBlocked === "boolean") {
+            dto.youtubeCollection = { ...Object.fromEntries(keys.map((key) => [key, result[key]])), quotaBlocked: result.quotaBlocked } as NonNullable<OperationRunDto["youtubeCollection"]>;
+          }
+        } catch { /* Historic malformed results remain unknown, not zero. */ }
+      }
+    }
     return dto;
   }
 

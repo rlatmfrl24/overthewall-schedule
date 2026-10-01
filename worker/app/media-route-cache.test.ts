@@ -4,8 +4,7 @@ import { workerRouteRegistry } from "./routes";
 
 const fetchChzzkVideosBatchMock = vi.hoisted(() => vi.fn());
 const fetchChzzkClipsBatchMock = vi.hoisted(() => vi.fn());
-const fetchYouTubeVideosForChannelMock = vi.hoisted(() => vi.fn());
-const readYouTubeChannelsWithSWRMock = vi.hoisted(() => vi.fn());
+const readStoredYouTubeFeedMock = vi.hoisted(() => vi.fn());
 const chzzkChannelId = "a".repeat(32);
 const youtubeChannelId = `UC${"A".repeat(22)}`;
 
@@ -16,13 +15,8 @@ vi.mock("../features/chzzk/infrastructure/chzzk-api", () => ({
   isChzzkClipD1CacheProfile: () => false,
 }));
 
-vi.mock("../features/youtube/infrastructure/youtube-api", () => ({
-  fetchYouTubeVideosForChannel: fetchYouTubeVideosForChannelMock,
-  getYouTubeCacheStatus: vi.fn(),
-}));
-
-vi.mock("../features/youtube/infrastructure/youtube-cache-swr", () => ({
-  readYouTubeChannelsWithSWR: readYouTubeChannelsWithSWRMock,
+vi.mock("../features/youtube/infrastructure/youtube-feed", () => ({
+  readStoredYouTubeFeed: readStoredYouTubeFeedMock,
 }));
 
 vi.mock("../platform/db", () => ({
@@ -63,8 +57,7 @@ describe("media route cache headers", () => {
   beforeEach(() => {
     fetchChzzkVideosBatchMock.mockReset();
     fetchChzzkClipsBatchMock.mockReset();
-    fetchYouTubeVideosForChannelMock.mockReset();
-    readYouTubeChannelsWithSWRMock.mockReset();
+    readStoredYouTubeFeedMock.mockReset();
   });
 
   it("sets public cache headers for chzzk vods and clips", async () => {
@@ -98,22 +91,10 @@ describe("media route cache headers", () => {
   });
 
   it("sets public cache headers for youtube and kirinuki videos", async () => {
-    readYouTubeChannelsWithSWRMock.mockImplementation(
-      async ({ targets }: { targets: Array<{ channelId: string; source: string }> }) => ({
-        byChannel: targets.map((target) => ({
-          ...target,
-          content: { videos: [], shorts: [] },
-        })),
-        cache: {
-          state: "fresh",
-          oldestFetchedAt: "2026-08-31T00:00:00.000Z",
-          refreshScheduledCount: 0,
-          pendingCount: 0,
-          revalidateAfterMs: null,
-        },
-        targetStates: { fresh: targets.length, stale: 0, expired: 0, missing: 0 },
-      }),
-    );
+    readStoredYouTubeFeedMock.mockResolvedValue({
+      videos: [{ videoId: "one", channelId: youtubeChannelId }], shorts: [],
+      oldestRetainedAt: new Date().toISOString(),
+    });
 
     const youtubeResponse = await dispatch(
       new Request(

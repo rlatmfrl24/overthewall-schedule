@@ -507,6 +507,23 @@ describe("D1 scheduled job state machine", () => {
     });
   });
 
+  it("keeps actual YouTube channel counts separate from a single completed wrapper", async () => {
+    const repository = createRepository();
+    const run = await repository.createRun({ jobType: "youtube_feed_collection", source: "manual", idempotencyKey: "youtube:actual-results" });
+    await repository.addItems(run.id, [{ targetKey: "feed:0", phase: "collect", lane: "maintenance" }]);
+    const [outbox] = await repository.claimPendingOutbox(run.id, 1);
+    await repository.markOutboxDispatched(outbox!.id);
+    const item = await repository.claimItem(outbox!.item_id);
+    const result = { status: "succeeded", attempted: 8, succeeded: 8, failed: 0, metadataRefreshed: 100, unavailableMarked: 2, shortsStored: 9, scanPages: 2, exhaustedSources: 1, quotaBlocked: false, backoffSources: 0, backfillFailed: 0 };
+    expect(await repository.completeItem(item!, { status: "succeeded", result })).toBe(true);
+    expect(await repository.readRunDto(run.id)).toMatchObject({
+      status: "succeeded", source: "manual", progress: { total: 1, succeeded: 1 },
+      youtubeCollection: { attempted: 8, succeeded: 8, metadataRefreshed: 100, unavailableMarked: 2 },
+    });
+    await db.prepare("UPDATE scheduled_job_items SET result_json = 'invalid' WHERE run_id = ?").bind(run.id).run();
+    expect((await repository.readRunDto(run.id))?.youtubeCollection).toBeUndefined();
+  });
+
   it("작업별 최신 점검과 과거의 마지막 성공 시각을 서로 분리한다", async () => {
     const repository = createRepository();
     const succeeded = await repository.createRun({

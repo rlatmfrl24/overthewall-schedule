@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement } from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { XReferenceHealth } from "./x-reference-health";
 import { XCollectionBudget } from "./x-collection-monitoring";
@@ -53,15 +53,20 @@ describe("XReferenceHealth", () => {
     expect(screen.queryByText(/답글: 원문/)).toBeNull();
     client.clear();
   });
-  it("separates body and author backlog and explains stored deferral without claiming collection failure", async () => {
+  it("keeps primary backlog visible and disclosure contains deferral diagnostics without claiming failure", async () => {
     vi.mocked(fetchXHistoryHealth).mockResolvedValue(health());
     const client = show();
     expect(await screen.findByText("보강 대기")).toBeTruthy();
+    expect(screen.getByText("원문 대기")).toBeTruthy();
+    expect(screen.getByText("작성자 대기")).toBeTruthy();
+    const diagnostics = screen.getByText("진단 상세 · 접근 불가 3건 · 오류 0건");
+    expect(diagnostics.closest("details")?.open).toBe(false);
+    fireEvent.click(diagnostics);
+    expect(diagnostics.closest("details")?.open).toBe(true);
     expect(screen.getByText("원문 2건")).toBeTruthy();
     expect(screen.getByText("작성자 1건")).toBeTruthy();
     expect(screen.getByText(/원문 보강 예산 대기/)).toBeTruthy();
     expect(screen.getByText(/미리보기 설정에 따른 보류/)).toBeTruthy();
-    expect(screen.getByText(/예산 대기는 신규 수집 실패가 아닙니다/)).toBeTruthy();
     expect(screen.getByText(/접근 불가 3건/)).toBeTruthy();
     expect(screen.queryByText("재시도 확인 필요")).toBeNull();
     client.clear();
@@ -113,7 +118,7 @@ describe("XCollectionBudget", () => {
     render(createElement(XCollectionBudget, { health: health().referenceHydration }));
     expect(screen.getByRole("progressbar", { name: "전체 X 예산" }).getAttribute("aria-valuenow")).toBe("98");
     expect(screen.getByRole("progressbar", { name: /원문 보강 한도/ }).getAttribute("aria-valuenow")).toBe("60");
-    expect(screen.getByText(/현재 보강에 사용 가능한 금액 \$0.020/)).toBeTruthy();
-    expect(screen.getByText(/두 금액을 더하지 않습니다/)).toBeTruthy();
+    expect(screen.getByText("보강 가능").textContent).toContain("$0.020");
+    expect(screen.getByText(/보강 예산은 전체에 포함/)).toBeTruthy();
   });
 });

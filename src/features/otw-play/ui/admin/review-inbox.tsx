@@ -5,7 +5,7 @@ import { useConfirmation } from "@/shared/lib/confirmation";
 import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OtwPlayAdminCatalogDto, OtwPlayReviewFilters, OtwPlayReviewItemDto } from "@contracts/otw-play";
-import { fetchOtwPlayReviewItems, convertOtwPlayImportCandidate, updateOtwPlayImportCandidate } from "../../api/admin";
+import { fetchOtwPlayReviewItems, convertOtwPlayImportCandidate, updateOtwPlayImportCandidate, deleteOtwPlayReviewItem } from "../../api/admin";
 import { queryKeys } from "@/shared/query/query-keys";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { useToast } from "@/shared/ui/toast";
@@ -152,8 +152,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   const conversionResults = Object.values(results).filter(result => result.action === "conversion");
   const conversionSuccessCount = conversionResults.filter(result => result.outcome === "success").length;
   const conversionFailureCount = conversionResults.length - conversionSuccessCount;
-  const resetList = () => refreshReviewInbox(client, filters);
-  const refresh = async () => { await Promise.all([resetList(), client.invalidateQueries({ queryKey: queryKeys.otwPlay.importJobs(), exact: true }), client.invalidateQueries({ queryKey: ["otw-play-review-kind-conflicts", jobId] }),
+  const refresh = async (allScopes = false) => { await Promise.all([refreshReviewInbox(client, allScopes ? undefined : filters), client.invalidateQueries({ queryKey: queryKeys.otwPlay.importJobs(), exact: true }), client.invalidateQueries({ queryKey: allScopes ? ["otw-play-review-kind-conflicts"] : ["otw-play-review-kind-conflicts", jobId] }),
     ...(jobId ? [client.invalidateQueries({ queryKey: queryKeys.otwPlay.importJob(jobId), exact: true })] : [])]); };
   const filterKey = JSON.stringify(filters);
   const running = selectedJob?.status === "queued" || selectedJob?.status === "collecting";
@@ -193,6 +192,22 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
     } catch { toast({ variant: "error", description: "등록되었거나 다른 관리자가 변경한 후보는 정정할 수 없습니다." }); }
     finally { setBusy(false); }
   };
+  const deleteItem = async (row: OtwPlayReviewItemDto) => {
+    setBusy(true);
+    try {
+      if (!await confirm({ title: "검수 항목을 삭제할까요?", description: `“${row.title ?? "제목 미확인"}”을 모든 검수 목록에서 제거합니다. 등록된 곡·가창과 처리 기록은 보존됩니다. 삭제한 항목은 다시 가져와도 목록에 표시되지 않습니다.`, confirmLabel: "삭제", destructive: true })) return;
+      await deleteOtwPlayReviewItem(row.id, { kind: row.kind, expectedVersion: row.version });
+      setSelectionState(current => Object.fromEntries(Object.entries(current).map(([key, ids]) => [key, Object.fromEntries(Object.entries(ids).filter(([id]) => id !== row.id))])));
+      setAiSelection(current => ({ ...current, ids: Object.fromEntries(Object.entries(current.ids).filter(([id]) => id !== row.id)) }));
+      setVisited(current => Object.fromEntries(Object.entries(current).filter(([id]) => id !== row.id)));
+      setResultState(current => Object.fromEntries(Object.entries(current).map(([key, results]) => [key, Object.fromEntries(Object.entries(results).filter(([id]) => id !== row.id))])));
+      await refresh(true);
+      list.current?.focus({ preventScroll: true });
+      toast({ variant: "success", description: "검수 목록에서 삭제했습니다." });
+    } catch (error) {
+      toast({ variant: "error", description: error instanceof Error ? error.message : "삭제하지 못했습니다. 목록을 새로고침하고 다시 시도해 주세요." });
+    } finally { setBusy(false); }
+  };
   const correctImportKinds = async () => {
     if (!selectedJob || !conflicts.data?.length || !await confirm({
       title: "가져오기 종류에 맞춰 정정할까요?",
@@ -217,7 +232,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   };
   return <div className="space-y-3">
     {budgetBlocked && running && <p role="status" className="text-sm text-muted-foreground">읽기 예산 대기 중입니다. 새 수집은 예산 초기화 후 재개하며, 검수·저장은 계속할 수 있습니다.</p>}
-    <section ref={list} aria-label="통합 검수 목록" hidden={Boolean(editingId || search.proposal)} className="space-y-5">
+    <section ref={list} tabIndex={-1} aria-label="통합 검수 목록" hidden={Boolean(editingId || search.proposal)} className="space-y-5">
     <section aria-label="검수 목록 필터" className="space-y-4 border-b pb-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">목록 필터</h3>
@@ -296,12 +311,14 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
         <Badge variant="secondary">{statusLabels[row.status] ?? row.status}</Badge>
         {row.aiDraft && <Badge variant="outline">AI · {aiBatchStatusLabels[row.aiDraft.status]}</Badge>}
       </div>
-      <div className="col-start-2 grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 xl:col-start-4">
-      <Button size="sm" variant="outline" className="h-11 w-full xl:h-9" disabled={busy || aiBusy} onClick={event => { if (row.pendingProposalId) onProposal(row.pendingProposalId); else if (row.kind === "proposal") onProposal(row.id); else { returnFocus.current = event.currentTarget; update({ view: "review", selected: row.id }, false); } }}>{row.pendingProposalId ? "연결된 제안 검수" : row.kind === "proposal" && row.status !== "pending_review" ? "처리 내역" : row.aiDraft && ["saved", "needs_selection", "changed"].includes(row.aiDraft.status) ? "초안 검수" : "검수 열기"}</Button>
-      {row.kind === "candidate" && !["converted", "ignored"].includes(row.status) && <Button size="sm" variant="ghost" className="h-11 w-full xl:h-9" disabled={busy} onClick={() => void changeKind(row)}>{row.candidateKind === "official_video" ? "노래 클립으로 정정" : "공식 영상으로 정정"}</Button>}
+      <div className="col-start-2 flex flex-wrap items-center gap-2 xl:col-start-4">
+      <Button size="sm" variant="outline" className="h-11 flex-1 xl:h-9" disabled={busy || aiBusy} onClick={event => { if (row.pendingProposalId) onProposal(row.pendingProposalId); else if (row.kind === "proposal") onProposal(row.id); else { returnFocus.current = event.currentTarget; update({ view: "review", selected: row.id }, false); } }}>{row.pendingProposalId ? "연결된 제안 검수" : row.kind === "proposal" && row.status !== "pending_review" ? "처리 내역" : row.aiDraft && ["saved", "needs_selection", "changed"].includes(row.aiDraft.status) ? "초안 검수" : "검수 열기"}</Button>
+      {row.kind === "candidate" && !["converted", "ignored"].includes(row.status) && <Button size="sm" variant="ghost" className="h-11 xl:h-9" disabled={busy} onClick={() => void changeKind(row)}>{row.candidateKind === "official_video" ? "노래 클립으로 정정" : "공식 영상으로 정정"}</Button>}
+      <Button size="sm" variant="ghost" className="h-11 text-destructive hover:text-destructive xl:h-9" aria-label={`${row.title ?? row.id} 삭제`} disabled={busy || aiBusy || Boolean(row.pendingProposalId) || (row.kind === "proposal" && row.status === "pending_review")} onClick={() => void deleteItem(row)}>삭제</Button>
       </div>
       {row.aiDraft?.errorMessage && <p className="col-start-2 -col-end-1 break-words text-xs leading-5 text-destructive">AI · {row.aiDraft.errorMessage}</p>}
       {row.pendingProposalId && <p className="col-start-2 -col-end-1 text-xs leading-5 text-muted-foreground">같은 영상의 사용자 제안이 검수 대기 중입니다. 연결된 제안을 먼저 처리하면 이 이력에서 후속 검수를 진행할 수 있습니다.</p>}
+      {row.kind === "proposal" && row.status === "pending_review" && <p className="col-start-2 -col-end-1 text-xs leading-5 text-muted-foreground">대기 중인 제안은 승인·거절 후 목록에서 삭제할 수 있습니다.</p>}
       {results[row.id] && !(results[row.id].action === "conversion" && results[row.id].outcome === "success") && <p className="col-start-2 -col-end-1 text-sm leading-6" role="status">{results[row.id].message}</p>}
     </article>)}
     </div>

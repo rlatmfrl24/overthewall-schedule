@@ -242,6 +242,52 @@ describe("D1IngestionRepository", () => {
     expect(await db.prepare("SELECT COUNT(*) AS count FROM music_ingestion_events WHERE job_id = ? AND event_type = 'history_deleted'").bind(created.job.id).first()).toEqual({ count: 1 });
   });
 
+  it("deletes review inbox entries durably without erasing review evidence or registered performances", async () => {
+    const repository = new D1IngestionRepository(db);
+    const created = await repository.createJob({ jobId: "delete-inbox", actorUserId: "admin-1", input, preflight, now: NOW });
+    const children = await repository.recordPlaylistPage(await repository.readMessage(created.message.idempotencyKey), {
+      items: [{ playlistItemId: "delete-a", videoId: "AAAAAAAAAAA", position: 0 }, { playlistItemId: "delete-b", videoId: "BBBBBBBBBBB", position: 1 }], nextPageToken: null,
+    }, NOW + 1);
+    await repository.recordVideoBatch(await repository.readMessage(children[0]!.idempotencyKey), ["AAAAAAAAAAA", "BBBBBBBBBBB"].map(videoId => ({
+      videoId, availabilityStatus: "playable" as const, video: { videoId, channelId: "UCaaaaaaaaaaaaaaaaaaaaaa", channelTitle: "Approved", title: "Delete test", thumbnailUrl: null, durationSeconds: 180, publishedAt: NOW, availabilityStatus: "playable" as const, madeForKids: false },
+    })), NOW + 2);
+    const saved = await repository.saveCandidateReview({ candidateId: "youtube:AAAAAAAAAAA", expectedVersion: 1,
+      input: { ...reviewInput, song: { kind: "create", title: "Deletion test song", isOtwOriginal: false, originalReleaseDate: null, originalReleasePrecision: "unknown", aliases: [], originalArtists: [{ subject: { kind: "entity", entityId: "entity-1" }, creditOrder: 0, isPrimary: true }], tags: [] } },
+      catalogMaterialization: { entityIds: {}, entityEventIds: {}, songId: "ingestion-ready-delete-song", songEventId: "ingestion-ready-delete-song-event" },
+      actorUserId: "admin-1", eventId: "delete-review", now: NOW + 3 });
+    const command = { id: saved.id, kind: "candidate" as const, expectedVersion: saved.version, actorUserId: "admin-1", eventId: "ingestion-ready-delete-a", now: NOW + 4 };
+    await expect(repository.deleteReviewItem({ ...command, expectedVersion: 0, eventId: "ingestion-ready-delete-stale" })).rejects.toMatchObject({ code: "stale_write" });
+    expect((await repository.listReviewItems({ status: "ready" })).items[0]?.id).toBe(saved.id);
+    await repository.deleteReviewItem(command);
+    const fresh = new D1IngestionRepository(db);
+    for (const status of ["pending", "ready", "completed"] as const) {
+      expect((await fresh.listReviewItems({ jobId: created.job.id, source: "playlist", status })).items.some(row => row.id === saved.id)).toBe(false);
+    }
+    expect(await db.prepare("SELECT status, version, review_input_json FROM music_ingestion_candidates WHERE id = ?").bind(saved.id).first()).toEqual({ status: "ignored", version: saved.version + 1, review_input_json: JSON.stringify(saved.reviewInput) });
+    await expect(fresh.saveCandidateReview({ candidateId: saved.id, expectedVersion: saved.version, input: reviewInput, actorUserId: "admin-1", eventId: "delete-late-save", now: NOW + 5 })).rejects.toMatchObject({ code: "not_found" });
+    await expect(fresh.deleteReviewItem(command)).rejects.toMatchObject({ code: "stale_write" });
+    expect(await db.prepare("SELECT actor_user_id, before_json FROM music_catalog_events WHERE id = ?").bind(command.eventId).first()).toEqual({ actor_user_id: "admin-1", before_json: JSON.stringify({ status: "ready", version: saved.version }) });
+    expect(await db.prepare("SELECT id FROM music_catalog_events WHERE id = 'ingestion-ready-delete-stale'").first()).toBeNull();
+
+    const youtube = { readChannel: async (channelId: string) => ({ channelId, displayName: "Approved" }), readVideo: async (videoId: string) => ({ videoId, channelId: "UCaaaaaaaaaaaaaaaaaaaaaa", channelTitle: "Approved", title: "Delete test", thumbnailUrl: null, durationSeconds: 180, publishedAt: NOW, availabilityStatus: "playable" as const, madeForKids: false }), readVideos: async () => [], readChannelUploads: async () => null, readPlaylistSummary: async () => null, readPlaylistPage: async () => ({ items: [], nextPageToken: null }) };
+    let serial = 0;
+    const createId = () => `ingestion-workflow-delete-${++serial}`;
+    const service = new IngestionService(repository, youtube, { send: async () => {} }, createId, () => NOW + 10, new AdminCatalogService(new D1AdminCatalogRepository(db), youtube, { record: async () => {} }, createId, true, () => NOW + 10));
+    const other = await repository.saveCandidateReview({ candidateId: "youtube:BBBBBBBBBBB", expectedVersion: 1, input: saved.reviewInput!, actorUserId: "admin-1", eventId: "delete-other-review", now: NOW + 6 });
+    const converted = await service.convertCandidates(created.job.id, { candidates: [{ id: other.id, expectedVersion: other.version }] }, { userId: "admin-1", displayName: "Admin", ipAddress: null });
+    expect(converted.results[0]?.outcome).toBe("created");
+    const completed = (await fresh.listReviewItems({ status: "completed" })).items[0]!;
+    const performanceId = completed.candidate!.linkedPerformanceId;
+    await fresh.deleteReviewItem({ ...command, id: completed.id, expectedVersion: completed.version, eventId: "ingestion-ready-delete-converted", now: NOW + 11 });
+    expect((await fresh.listReviewItems({ status: "completed" })).items).toEqual([]);
+    expect(await db.prepare("SELECT status, linked_performance_id FROM music_ingestion_candidates WHERE id = ?").bind(completed.id).first()).toEqual({ status: "converted", linked_performance_id: performanceId });
+    expect(await db.prepare("SELECT publication_status FROM music_performances WHERE id = ?").bind(performanceId).first()).toEqual({ publication_status: "draft" });
+
+    const rediscovered = await repository.createJob({ jobId: "delete-rediscovery", actorUserId: "admin-1", input: { ...input, idempotencyKey: "delete-rediscovery" }, preflight, now: NOW + 20 });
+    await repository.recordPlaylistPage(await repository.readMessage(rediscovered.message.idempotencyKey), { items: [{ playlistItemId: "delete-rediscovery-a", videoId: "AAAAAAAAAAA", position: 0 }], nextPageToken: null }, NOW + 21);
+    expect((await fresh.listReviewItems({ jobId: rediscovered.job.id, status: "completed" })).items).toEqual([]);
+  });
+
   it("materializes a ready song and external identities for reuse by the next row", async () => {
     const repository = new D1IngestionRepository(db);
     const created = await repository.createJob({
@@ -1521,11 +1567,18 @@ it("retains overlapping proposal origins and resumes candidate review after reje
   }
   const command = { candidateId: "youtube:AAAAAAAAAAA", expectedVersion: 1, actorUserId: "admin-1", eventId: "overlap-save", now: NOW + 4, input: { ...reviewInput, relationType: "singing_clip" as const, releaseType: "broadcast" as const, startSeconds: 0, endSeconds: 120 } };
   await expect(repository.saveCandidateReview(command)).rejects.toMatchObject({ code: "validation_failed" });
+  const deletion = { id: "overlap-proposal", kind: "proposal" as const, expectedVersion: 0, actorUserId: "admin-1", eventId: "ingestion-ready-delete-proposal", now: NOW + 3 };
+  await expect(repository.deleteReviewItem(deletion)).rejects.toMatchObject({ code: "stale_write" });
+  await expect(repository.deleteReviewItem({ ...deletion, id: command.candidateId, kind: "candidate", expectedVersion: command.expectedVersion })).rejects.toMatchObject({ code: "stale_write" });
+  expect(await db.prepare("SELECT id FROM music_catalog_events WHERE id = ?").bind(deletion.eventId).first()).toBeNull();
   await db.prepare(`UPDATE music_cover_proposals SET status = 'rejected', reviewed_by_user_id = 'admin-1', reviewed_at = ?, review_result_code = 'out_of_scope', version = version + 1 WHERE id = 'overlap-proposal'`).bind(NOW + 3).run();
   const resolved = await repository.listReviewItems({ jobId: created.job.id });
   expect(resolved.items[0]).toMatchObject({ pendingProposalId: null, candidate: { classification: "eligible" } });
   const saved = await repository.saveCandidateReview(command);
   expect(saved).toMatchObject({ status: "ready", reviewInput: { song: reviewInput.song, relationType: "singing_clip" } });
+  await repository.deleteReviewItem({ ...deletion, expectedVersion: 1, now: NOW + 5 });
+  expect((await new D1IngestionRepository(db).listReviewItems({ source: "user", status: "completed" })).items).toEqual([]);
+  expect(await db.prepare("SELECT status, version FROM music_cover_proposals WHERE id = 'overlap-proposal'").first()).toEqual({ status: "rejected", version: 2 });
 });
 
 it("keeps pending proposals visible when the matching candidate was ignored", async () => {

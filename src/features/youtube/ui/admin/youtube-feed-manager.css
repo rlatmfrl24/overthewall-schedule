@@ -1,0 +1,40 @@
+.youtube-collection-dashboard { font-variant-numeric: tabular-nums; }
+.youtube-collection-dashboard .feed-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.youtube-collection-dashboard .feed-toolbar-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.admin-console .youtube-collection-dashboard [data-slot="card"], .youtube-collection-dashboard [data-slot="card"] { gap: 8px; padding-block: 12px; border-radius: 8px; box-shadow: none; min-width: 0; }
+.admin-console .youtube-collection-dashboard [data-slot="card-header"], .admin-console .youtube-collection-dashboard [data-slot="card-content"], .youtube-collection-dashboard [data-slot="card-header"], .youtube-collection-dashboard [data-slot="card-content"] { padding-inline: 12px; }
+.youtube-collection-dashboard [data-slot="card-header"] { display: flex; align-items: center; justify-content: space-between; min-height: 28px; gap: 8px; flex-wrap: wrap; }
+.youtube-collection-dashboard .feed-metric-value { display: flex; align-items: baseline; justify-content: flex-start; margin-block: 3px; padding: 0; height: auto; min-height: 32px; font-size: 24px; line-height: 1.3; font-weight: 600; white-space: normal; text-align: left; letter-spacing: -.02em; }
+.youtube-collection-dashboard .feed-metric-note { min-height: 32px; color: var(--muted-foreground); font-size: 11px; line-height: 16px; }
+.youtube-collection-dashboard .feed-chart-layout { display: grid; grid-template-columns: 112px minmax(0, 1fr); height: 200px; gap: 8px; }
+.youtube-collection-dashboard .feed-chart { height: 200px; width: 100%; min-width: 0; aspect-ratio: auto; }
+.youtube-collection-dashboard .feed-state-controls { display: grid; grid-template-rows: repeat(8, 1fr); padding-bottom: 20px; }
+.youtube-collection-dashboard .feed-state-controls button { height: auto; min-height: 0; padding-block: 0; line-height: 1; }
+.youtube-collection-dashboard .feed-state-controls button[aria-pressed="true"] { background: var(--muted); outline: 1px solid var(--border); }
+.youtube-collection-dashboard .feed-origin-values { display: grid; grid-template-rows: repeat(4, 1fr); padding-bottom: 20px; }
+.youtube-collection-dashboard .feed-origin-values > div { align-self: center; }
+.youtube-collection-dashboard .feed-filters { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.youtube-collection-dashboard .feed-filters input { flex: 1 1 220px; }
+.youtube-collection-dashboard .feed-table-region { min-width: 0; border: 1px solid var(--border); border-radius: 6px; }
+.youtube-collection-dashboard .feed-table-region:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.youtube-collection-dashboard .feed-table-region [data-slot="table-container"] { max-height: 32rem; overflow: auto; }
+.youtube-collection-dashboard [data-slot="table-header"] { position: sticky; top: 0; z-index: 1; background: var(--card); }
+.admin-console .youtube-collection-dashboard [data-slot="table-cell"], .youtube-collection-dashboard [data-slot="table-cell"] { padding: 6px 8px; font-size: 13px; line-height: 1.3; height: 44px; }
+.youtube-collection-dashboard .feed-state { font-size: 11px; font-weight: 500; border-radius: 4px; }
+.youtube-collection-dashboard .feed-state-failed, .youtube-collection-dashboard .feed-state-misconfigured, .youtube-collection-dashboard .feed-state-text-failed, .youtube-collection-dashboard .feed-state-text-misconfigured { color: var(--destructive); }
+.youtube-collection-dashboard .feed-state-delayed { border-color: var(--chart-3); }
+.youtube-collection-dashboard .feed-state-healthy { border-color: var(--chart-2); }
+.feed-detail { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 16px; font-size: 13px; }
+.feed-detail dt { color: var(--muted-foreground); }
+.feed-detail dd { text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 767px) {
+  .youtube-collection-dashboard .feed-toolbar-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+  .youtube-collection-dashboard .feed-toolbar-actions > button:first-child { grid-column: 1 / -1; width: 100%; }
+  .youtube-collection-dashboard .feed-metric-value { font-size: 22px; }
+  .youtube-collection-dashboard .feed-filters { display: grid; grid-template-columns: 1fr 1fr; }
+  .youtube-collection-dashboard .feed-filters input { grid-column: 1 / -1; }
+  .youtube-collection-dashboard .feed-filters [data-slot="select-trigger"] { width: 100%; }
+  .youtube-collection-dashboard [data-slot="tabs-trigger"] { font-size: 12px; }
+  .youtube-collection-dashboard .feed-chart-layout:has(.feed-state-controls), .youtube-collection-dashboard .feed-state-controls + .feed-chart { height: 372px; }
+  .youtube-collection-dashboard .feed-state-controls button { min-height: 44px; }
+}

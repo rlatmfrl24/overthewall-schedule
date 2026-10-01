@@ -1534,6 +1534,11 @@ export interface OtwPlayAdminCommandResponse<T> {
   catalogRevision: number;
 }
 
+export interface OtwPlayDeleteReviewItemRequest {
+  kind: "candidate" | "proposal";
+  expectedVersion: number;
+}
+
 export interface OtwPlayReviewFilters {
   jobId?: string;
   candidateKind?: OtwPlayIngestionCandidateKind;

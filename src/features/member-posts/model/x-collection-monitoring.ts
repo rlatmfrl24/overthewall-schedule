@@ -2,7 +2,7 @@ import type { OperationRunDto, XCollectionOperationItemDto } from "@contracts/sc
 
 export const formatXTime = (value: number | null | undefined) =>
   value == null ? "기록 없음" : new Date(value).toLocaleString("ko-KR", {
-    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul",
   });
 
 export const formatXEligibility = (value: number | null | undefined) =>

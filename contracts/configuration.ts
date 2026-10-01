@@ -1,4 +1,5 @@
 export const RETIRED_SETTINGS_KEYS = [
+  "youtube_feed_enabled",
   "youtube_warmup_enabled",
   "youtube_warmup_interval_hours",
   "youtube_warmup_daily_quota_units",
@@ -83,7 +84,6 @@ export interface AdminSettingsDto {
   x_reference_preview_daily_budget_cents: string;
   x_collection_last_run: string | null;
   youtube_api_daily_quota_units: string;
-  youtube_feed_enabled: BooleanSettingValue;
   otw_play_submission_daily_limit: string;
   otw_play_automation_paused: BooleanSettingValue;
 }
@@ -107,7 +107,6 @@ export const SETTINGS_KEYS = [
   "x_reference_preview_daily_budget_cents",
   "x_collection_last_run",
   YOUTUBE_API_DAILY_QUOTA_SETTING_KEY,
-  "youtube_feed_enabled",
   OTW_PLAY_SUBMISSION_DAILY_LIMIT_SETTING_KEY,
   OTW_PLAY_AUTOMATION_PAUSED_SETTING_KEY,
   LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY,
@@ -354,12 +353,6 @@ const SETTINGS_CONFIGS: readonly SettingConfig[] = [
     key: "naver_cafe_collection_enabled",
     writable: true,
     normalize: (value) => normalizeBoolean(value, "true"),
-    validate: isBooleanValue,
-  },
-  {
-    key: "youtube_feed_enabled",
-    writable: true,
-    normalize: (value) => normalizeBoolean(value, "false"),
     validate: isBooleanValue,
   },
   {

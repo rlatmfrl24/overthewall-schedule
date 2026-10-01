@@ -7,6 +7,7 @@ type Row = Record<string, string | number | null>;
 const pending = "('queued','analyzing','saving')";
 const eligible = `c.status IN ('discovered','needs_input','blocked') AND c.availability_status='playable'
   AND c.linked_performance_id IS NULL
+  AND NOT EXISTS (SELECT 1 FROM music_catalog_events deleted WHERE deleted.aggregate_type='review_candidate' AND deleted.aggregate_id=c.id AND deleted.event_type='review_item.deleted')
   AND NOT EXISTS (SELECT 1 FROM music_cover_proposals p WHERE p.youtube_video_id=c.external_video_id AND p.status='pending_review' AND p.segment_start_seconds=0)`;
 const current = `${eligible} AND c.version=i.candidate_version AND c.candidate_kind=i.candidate_kind`;
 const decode = (r: Row): AiBatchItem => ({ id: String(r.id), batchId: String(r.batch_id), candidateId: String(r.candidate_id),

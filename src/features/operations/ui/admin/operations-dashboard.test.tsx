@@ -207,6 +207,41 @@ describe("OperationsDashboard", () => {
     vi.clearAllMocks();
   });
 
+  it("keeps resource-only usage, guard and retention with one header and refresh", async () => {
+    render(<OperationsDashboard view="resources" />, { wrapper: createQueryWrapper() });
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "사용량·한도" })).toBeTruthy();
+    await screen.findByText("Cloudflare D1 실제 사용량");
+    expect(screen.getByText("정기 작업 쓰기 예산")).toBeTruthy();
+    await screen.findByText("D1 데이터 보존");
+    expect(screen.queryByText("X(트위터) 일일 예산")).toBeNull();
+    expect(screen.queryByText("YouTube 일일 할당량")).toBeNull();
+    const refresh = screen.getByRole("button", { name: "상태 새로고침" });
+    await waitFor(() => expect((refresh as HTMLButtonElement).disabled).toBe(false));
+    const toolbar = refresh.parentElement!;
+    const readback = within(toolbar).getByRole("status");
+    expect(readback.textContent).toContain("확인 완료");
+    const checkedAt = readback.querySelector("time")?.getAttribute("datetime");
+    expect(checkedAt).toBeTruthy();
+    fireEvent.click(refresh);
+    await waitFor(() => {
+      expect(fetchOperationsStatusMock).toHaveBeenCalledTimes(2);
+      expect(fetchD1ObservabilityMock).toHaveBeenCalledTimes(2);
+      expect(fetchDataRetentionStatusMock).toHaveBeenCalledTimes(2);
+    });
+    expect(fetchOperationJobSummariesMock).not.toHaveBeenCalled();
+    expect(fetchOperationRunsMock).not.toHaveBeenCalled();
+    expect(runDataRetentionPruneMock).not.toHaveBeenCalled();
+    await waitFor(() => expect((refresh as HTMLButtonElement).disabled).toBe(false));
+    const refreshedAt = within(toolbar).getByRole("status").querySelector("time")?.getAttribute("datetime");
+    fetchOperationsStatusMock.mockRejectedValue(new Error("refresh failed"));
+    fireEvent.click(refresh);
+    const failure = await within(toolbar).findByRole("alert");
+    expect(failure.textContent).toContain("조회 실패");
+    expect(failure.querySelector("time")?.getAttribute("datetime")).toBe(refreshedAt);
+    expect(screen.getByText("정기 작업 쓰기 예산")).toBeTruthy();
+  });
+
   it("shows an explicit Play pause and a reachable channel control while retaining operations", async () => {
     fetchOperationsStatusMock.mockResolvedValue({ ...makeOperationsStatus(), playAutomationPaused: true });
     render(<OperationsDashboard view="home" />, { wrapper: createQueryWrapper() });

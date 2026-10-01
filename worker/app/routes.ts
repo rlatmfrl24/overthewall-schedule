@@ -462,24 +462,10 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleYouTube,
   },
   {
-    id: "youtube.cache-status",
+    id: "youtube.feed-status",
     owner: "youtube",
-    path: apiRoutes.youtube.cacheStatus.pattern,
+    path: apiRoutes.youtube.feedStatus.pattern,
     methods: methods(get(ADMIN_NO_STORE)),
-    handler: handleYouTube,
-  },
-  {
-    id: "youtube.cache-refresh",
-    owner: "youtube",
-    path: apiRoutes.youtube.cacheRefresh.pattern,
-    methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 200 })),
-    handler: handleYouTube,
-  },
-  {
-    id: "youtube.cache-warmup",
-    owner: "youtube",
-    path: apiRoutes.youtube.cacheWarmup.pattern,
-    methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 200 })),
     handler: handleYouTube,
   },
   {
@@ -721,6 +707,10 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
   {
     id: "otw-play.admin.review-items", owner: "otw-play", path: apiRoutes.otwPlay.admin.reviewItems.pattern,
     methods: methods(get(ADMIN_NO_STORE)), handler: handleOtwPlayIngestion,
+  },
+  {
+    id: "otw-play.admin.review-item", owner: "otw-play", path: apiRoutes.otwPlay.admin.reviewItem.pattern,
+    methods: methods(del(ADMIN_NO_STORE)), handler: handleOtwPlayIngestion,
   },
   { id: "otw-play.admin.ai-batches", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviewBatches.pattern, methods: methods(get(ADMIN_NO_STORE), post({ ...ADMIN_NO_STORE, successStatus: 202 })), handler: handleOtwPlayAiBatch },
   { id: "otw-play.admin.ai-batch-preview", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviewBatchPreview.pattern, methods: methods(post(ADMIN_NO_STORE)), handler: handleOtwPlayAiBatch },

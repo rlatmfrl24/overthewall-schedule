@@ -72,6 +72,21 @@ describe("NoticeFormDialog", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it("상시 게시로 기간을 제거해도 변경 취소 확인을 유지한다", async () => {
+    const confirm = vi.fn().mockResolvedValue(false);
+    const onOpenChange = vi.fn();
+    const notice: Notice = {id: 1, content: "공지", type: "notice", is_active: true, started_at: "2026-10-01", ended_at: "2026-10-07", links: [], image_urls: [], related_member_uids: [],
+      url: null, thumbnail_url: null, publisher_type: "otw", publisher_member_uid: null, is_featured: false, created_at: null};
+    render(createElement(UnsavedChangesContext.Provider, {value: {register: vi.fn(), confirm}}, createElement(NoticeFormDialog, {open: true, onOpenChange, onSubmit: vi.fn(), initialValues: notice, members: []})));
+    expect((screen.getByLabelText("시작일") as HTMLInputElement).value).toBe("2026-10-01");
+    fireEvent.click(screen.getByRole("button", {name: "상시 게시"}));
+    expect((screen.getByLabelText("시작일") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("종료일") as HTMLInputElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", {name: "취소"}));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
   it("loads and reorders existing links and images", async () => {
     const notice = {
       id: 1,

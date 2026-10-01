@@ -109,85 +109,17 @@ describe("YouTube media queries", () => {
     expect(fetchMembersYouTubeVideosMock).toHaveBeenCalledTimes(2);
   });
 
-  it("공식 영상은 SWR 결과를 유지하며 15초 뒤 한 번만 자동 재조회한다", async () => {
+  it("official and kirinuki storage reads do not use retired one-shot cache polling", async () => {
     vi.useFakeTimers();
-    let resolveRefresh: ((value: unknown) => void) | undefined;
-    fetchMembersYouTubeVideosMock
-      .mockResolvedValueOnce({
-        videos: [{ videoId: "old", channelId: "UC1" }],
-        shorts: [],
-        updatedAt: "2026-08-31T00:00:00Z",
-        cache: refreshingCache("2026-08-30T00:00:00Z"),
-      })
-      .mockReturnValueOnce(
-        new Promise((resolve) => {
-          resolveRefresh = resolve;
-        }),
-      );
-
-    const members = [makeMember(2, "UC1")];
-    const { result } = renderHook(() => useYouTubeVideos(members), {
-      wrapper: createQueryWrapper(),
-    });
-
-    await vi.waitFor(() => expect(result.current.hasLoaded).toBe(true));
-    expect(result.current.videos[0]?.videoId).toBe("old");
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(15000);
-    });
-    expect(fetchMembersYouTubeVideosMock).toHaveBeenCalledTimes(2);
-    expect(result.current.videos[0]?.videoId).toBe("old");
-
-    resolveRefresh?.({
-      videos: [{ videoId: "new", channelId: "UC1" }],
-      shorts: [],
-      updatedAt: "2026-08-31T00:00:15Z",
-      cache: refreshingCache("2026-08-31T00:00:15Z"),
-    });
-    await vi.waitFor(() =>
-      expect(result.current.videos[0]?.videoId).toBe("new"),
-    );
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30000);
-    });
-    expect(fetchMembersYouTubeVideosMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("키리누키 영상도 pending이 남아도 자동 재조회를 한 번만 수행한다", async () => {
-    vi.useFakeTimers();
-    fetchKirinukiVideosMock
-      .mockResolvedValueOnce({
-        videos: [{ videoId: "old" }],
-        shorts: [],
-        byChannel: [],
-        updatedAt: "2026-08-31T00:00:00Z",
-        cache: refreshingCache("2026-08-30T00:00:00Z"),
-      })
-      .mockResolvedValueOnce({
-        videos: [{ videoId: "new" }],
-        shorts: [],
-        byChannel: [],
-        updatedAt: "2026-08-31T00:00:15Z",
-        cache: refreshingCache("2026-08-31T00:00:15Z"),
-      });
-
-    const { result } = renderHook(() => useKirinukiVideos(), {
-      wrapper: createQueryWrapper(),
-    });
-    await vi.waitFor(() => expect(result.current.hasLoaded).toBe(true));
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(15000);
-    });
-    await vi.waitFor(() =>
-      expect(result.current.videos[0]?.videoId).toBe("new"),
-    );
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30000);
-    });
-
-    expect(fetchKirinukiVideosMock).toHaveBeenCalledTimes(2);
+    fetchMembersYouTubeVideosMock.mockResolvedValue({ videos: [{ videoId: "old", channelId: "UC1" }], shorts: [], cache: refreshingCache("2026-08-30T00:00:00Z") });
+    fetchKirinukiVideosMock.mockResolvedValue({ videos: [{ videoId: "old" }], shorts: [], byChannel: [], cache: refreshingCache("2026-08-30T00:00:00Z") });
+    const official = renderHook(() => useYouTubeVideos([makeMember(2, "UC1")]), { wrapper: createQueryWrapper() });
+    const clips = renderHook(() => useKirinukiVideos(), { wrapper: createQueryWrapper() });
+    await vi.waitFor(() => expect(official.result.current.hasLoaded && clips.result.current.hasLoaded).toBe(true));
+    await act(async () => { await vi.advanceTimersByTimeAsync(45_000); });
+    expect(fetchMembersYouTubeVideosMock).toHaveBeenCalledTimes(1);
+    expect(fetchKirinukiVideosMock).toHaveBeenCalledTimes(1);
+    expect(official.result.current.videos[0]?.videoId).toBe("old");
+    expect(clips.result.current.videos[0]?.videoId).toBe("old");
   });
 });

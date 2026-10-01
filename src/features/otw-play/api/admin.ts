@@ -414,4 +414,6 @@ export const fetchOtwPlayReviewItems = (filters: import("@contracts/otw-play").O
 };
 
 export const fetchOtwPlayIngestionBudget = () => adminRequest<{ data: OtwPlayIngestionBudgetDto }>(apiRoutes.otwPlay.admin.importBudget.build()).then(r => r.data);
+export const deleteOtwPlayReviewItem = (id: string, json: import("@contracts/otw-play").OtwPlayDeleteReviewItemRequest) =>
+  adminRequest<{ data: { deleted: true } }>(apiRoutes.otwPlay.admin.reviewItem.build(id), { method: "DELETE", json });
 export const resumeOtwPlayImportJob = (jobId: string) => adminRequest<{ data: OtwPlayIngestionResumeDto }>(apiRoutes.otwPlay.admin.importResume.build(jobId), { method: "POST" }).then(r => r.data);

@@ -235,6 +235,10 @@ export class IngestionService {
 
   listReviewItems(filters: import("@contracts/otw-play").OtwPlayReviewFilters) { return this.repository.listReviewItems(filters); }
 
+  deleteReviewItem(id: string, input: import("@contracts/otw-play").OtwPlayDeleteReviewItemRequest, actorUserId: string) {
+    return this.repository.deleteReviewItem({ ...input, id, actorUserId, eventId: this.createId(), now: this.clock() });
+  }
+
   listJobs(limit = 100) {
     return this.repository.listJobs(Math.max(1, Math.min(100, limit)));
   }

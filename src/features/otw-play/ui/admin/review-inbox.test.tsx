@@ -11,16 +11,19 @@ import { ConsoleSearchContext } from "@/shared/lib/admin-console-search";
 const fetchReview = vi.hoisted(() => vi.fn());
 const convert = vi.hoisted(() => vi.fn());
 const updateCandidate = vi.hoisted(() => vi.fn());
+const deleteReviewItem = vi.hoisted(() => vi.fn());
+const confirm = vi.hoisted(() => vi.fn());
+const toast = vi.hoisted(() => vi.fn());
 const jobs = vi.hoisted(() => vi.fn());
 const jobDetail = vi.hoisted(() => vi.fn());
 const batchApi = vi.hoisted(() => ({ preview: vi.fn(), start: vi.fn(), list: vi.fn(), get: vi.fn() }));
 vi.mock("../../api/ai-batch", () => ({ previewAiBatch: batchApi.preview, startAiBatch: batchApi.start, listAiBatches: batchApi.list, getAiBatch: batchApi.get, getAiBatchDraft: async () => ({ data: null }), retryAiBatch: vi.fn() }));
 const scrollIntoView = vi.hoisted(() => vi.fn());
 vi.mock("../../queries/use-admin-catalog", () => ({ useOtwPlayImportJobs: jobs, useOtwPlayImportJob: jobDetail }));
-vi.mock("../../api/admin", () => ({ fetchOtwPlayIngestionBudget: vi.fn(async () => ({ status: "available" })), fetchOtwPlayReviewItems: fetchReview, convertOtwPlayImportCandidate: convert, updateOtwPlayImportCandidate: updateCandidate }));
+vi.mock("../../api/admin", () => ({ fetchOtwPlayIngestionBudget: vi.fn(async () => ({ status: "available" })), fetchOtwPlayReviewItems: fetchReview, convertOtwPlayImportCandidate: convert, updateOtwPlayImportCandidate: updateCandidate, deleteOtwPlayReviewItem: deleteReviewItem }));
 vi.mock("@/features/members", () => ({ fetchActiveMembers: vi.fn(async () => []) }));
-vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
-vi.mock("@/shared/lib/confirmation", () => ({ useConfirmation: () => vi.fn(async () => true) }));
+vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast }) }));
+vi.mock("@/shared/lib/confirmation", () => ({ useConfirmation: () => confirm }));
 const row = (id: string, status = "ready"): OtwPlayReviewItemDto => createReviewItemFixture({ id, kind: "candidate", candidateKind: "singing_clip", sources: ["playlist", "automatic"], title: id, version: 4, status, createdAt: 1 });
 const catalog = createAdminCatalogFixture({ revision: 1, readModelRevision: 1 });
 const selectOption = async (label: string, option: string | RegExp) => {
@@ -29,6 +32,8 @@ const selectOption = async (label: string, option: string | RegExp) => {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  confirm.mockResolvedValue(true);
+  deleteReviewItem.mockReset();
   jobDetail.mockReturnValue({ data: undefined });
   batchApi.list.mockResolvedValue({ data: [] });
   batchApi.preview.mockResolvedValue({ data: { count: 75 } });
@@ -39,6 +44,51 @@ beforeEach(() => {
   fetchReview.mockResolvedValue({ items: [row("clip-a"), row("clip-b"), row("clip-c", "needs_input")], nextCursor: null });
 });
 afterEach(cleanup);
+it("deletes a confirmed review item, refreshes all inbox scopes and clears its registration selection", async () => {
+  const client = createTestQueryClient();
+  const otherKey = ["otw-play-review-inbox", { source: "automatic", status: "completed" }];
+  client.setQueryData(otherKey, { pages: [{ items: [row("clip-a")], nextCursor: null }], pageParams: [null] });
+  deleteReviewItem.mockImplementation(async () => { fetchReview.mockResolvedValue({ items: [row("clip-b")], nextCursor: null }); });
+  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+  fireEvent.click(await screen.findByRole("checkbox", { name: "clip-a 선택" }));
+  fireEvent.click(screen.getByRole("button", { name: "clip-a 삭제" }));
+  await waitFor(() => expect(deleteReviewItem).toHaveBeenCalledExactlyOnceWith("clip-a", { kind: "candidate", expectedVersion: 4 }));
+  expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ confirmLabel: "삭제", destructive: true }));
+  await waitFor(() => expect(screen.queryByText("clip-a")).toBeNull());
+  expect(screen.getByRole("button", { name: "선택 0개 일괄 임시 등록" })).toHaveProperty("disabled", true);
+  expect(client.getQueryState(otherKey)?.isInvalidated).toBe(true);
+  expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: "success" }));
+  expect(document.activeElement).toBe(screen.getByRole("region", { name: "통합 검수 목록" }));
+  client.clear();
+});
+
+it("keeps the item and selection when deletion is cancelled or fails", async () => {
+  confirm.mockResolvedValueOnce(false);
+  deleteReviewItem.mockRejectedValueOnce(new Error("다른 관리자가 변경했습니다."));
+  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  const checkbox = await screen.findByRole("checkbox", { name: "clip-a 선택" });
+  fireEvent.click(checkbox);
+  fireEvent.click(screen.getByRole("button", { name: "clip-a 삭제" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "clip-a 삭제" })).toHaveProperty("disabled", false));
+  expect(deleteReviewItem).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "clip-a 삭제" }));
+  await waitFor(() => expect(toast).toHaveBeenCalledWith({ variant: "error", description: "다른 관리자가 변경했습니다." }));
+  expect(screen.getByText("clip-a")).toBeTruthy();
+  expect(checkbox.getAttribute("data-state")).toBe("checked");
+});
+
+it("requires proposal processing before removal and lets processed proposals be deleted", async () => {
+  const proposal = { ...row("proposal"), kind: "proposal" as const, candidate: null, status: "pending_review", sources: ["user" as const] };
+  fetchReview.mockResolvedValue({ items: [proposal, { ...row("linked"), pendingProposalId: "proposal" }, { ...proposal, id: "processed", title: "processed", status: "rejected" }], nextCursor: null });
+  deleteReviewItem.mockResolvedValue(undefined);
+  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  expect(await screen.findByRole("button", { name: "proposal 삭제" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "linked 삭제" })).toHaveProperty("disabled", true);
+  expect(screen.getByText("대기 중인 제안은 승인·거절 후 목록에서 삭제할 수 있습니다.")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "processed 삭제" }));
+  await waitFor(() => expect(deleteReviewItem).toHaveBeenCalledWith("processed", { kind: "proposal", expectedVersion: 4 }));
+});
+
 it("refreshes the inbox only when batch progress changes, not on unchanged polls", async () => {
   const progress = { data: [{ id: "batch", createdAt: 1, updatedAt: 1, total: 2, counts: { queued: 2, analyzing: 0, saving: 0, saved: 0, needs_selection: 0, failed: 0, changed: 0 } }] };
   batchApi.list.mockImplementation(async () => structuredClone(progress));

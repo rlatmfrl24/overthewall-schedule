@@ -5,7 +5,6 @@ import { fetchMembersYouTubeVideos } from "../api/youtube";
 import type { YouTubeVideo, YouTubeVideosResponse } from "../model/types";
 import { MEDIA_QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 import { queryKeys } from "@/shared/query/query-keys";
-import { useOneShotCacheRevalidation } from "./use-one-shot-cache-revalidation";
 
 interface UseYouTubeVideosReturn {
   videos: YouTubeVideo[];
@@ -58,11 +57,6 @@ export function useYouTubeVideos(
     staleTime: MEDIA_QUERY_STALE_TIME_MS,
   });
 
-  useOneShotCacheRevalidation({
-    identity: `${channelIdsKey}:${maxResults}`,
-    cache: query.data?.cache,
-    refetch: query.refetch,
-  });
 
   const reload = useCallback(async () => {
     if (!enabled) return;

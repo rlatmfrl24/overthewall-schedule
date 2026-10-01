@@ -69,6 +69,7 @@ const repository = () => ({
   getJobContext: vi.fn(async () => job()),
   getJob: vi.fn(async () => job()),
   listReviewItems: vi.fn(),
+  deleteReviewItem: vi.fn(async () => {}),
   changeCandidateKind: vi.fn(),
   deleteJobHistory: vi.fn(async () => {}),
   listJobs: vi.fn(async () => [job()]),

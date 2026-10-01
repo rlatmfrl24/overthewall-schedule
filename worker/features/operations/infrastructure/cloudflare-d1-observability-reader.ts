@@ -139,9 +139,7 @@ const classifyWriteQuery = (query: string): WorkloadKey => {
     return "retention";
   }
   if (
-    normalized.includes("youtube_api_usage_events") ||
-    normalized.includes("youtube_api_usage_contexts") ||
-    normalized.includes("youtube_warmup_runs")
+    normalized.includes("youtube_api_usage_events")
   ) {
     return "youtube_usage";
   }

@@ -21,6 +21,7 @@ describe("protected worker routes", () => {
     ["GET", "/api/play/songs/song?scope=all"], ["GET", "/api/play/performances/clip"],
     ["GET", "/api/play/performances?scope=broadcast"], ["POST", "/api/play/performances/resolve"],
     ["GET", "/api/play/playlists/defaults"], ["POST", "/api/play/admin/ai-reviews"],
+    ["DELETE", "/api/play/admin/review-items/candidate"],
   ])("requires authentication through the real route dispatcher: %s %s", async (method, path) => {
     const response = await dispatch(new Request(`https://example.com${path}`, {
       method, headers: { "If-None-Match": "*" },

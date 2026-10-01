@@ -87,6 +87,7 @@ export interface SaveCandidateReviewCommand {
 
 export interface IngestionRepository {
   listReviewItems(filters: import("@contracts/otw-play").OtwPlayReviewFilters): Promise<import("@contracts/otw-play").OtwPlayReviewPageDto>;
+  deleteReviewItem(command: import("@contracts/otw-play").OtwPlayDeleteReviewItemRequest & { id: string; actorUserId: string; eventId: string; now: number }): Promise<void>;
   findPreviousImport(
     playlistId: string,
     candidateKind?: "official_video" | "singing_clip",
