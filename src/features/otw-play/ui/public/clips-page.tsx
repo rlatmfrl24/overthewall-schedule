@@ -71,7 +71,7 @@ export function OtwPlayClipsPage() {
     <header>
       <p className="play-kicker mb-2">Find your music</p>
       <h1 className="play-page-title mb-2">노래 클립</h1>
-      <p className="text-sm text-muted-foreground">방송에서 부른 노래를 최근 공개순으로 만나보세요. 가창 멤버와 방송일로 찾을 수 있습니다.</p>
+      <p className="text-sm text-muted-foreground">방송에서 부른 노래를 최신 방송일순으로 만나보세요. 가창 멤버와 방송일로 찾을 수 있습니다.</p>
     </header>
     <div className="play-search-controls space-y-3">
       <div className="play-search-row">

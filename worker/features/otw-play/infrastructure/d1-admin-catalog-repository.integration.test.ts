@@ -1,5 +1,5 @@
 import { toPerformanceResponse } from "../http/public-catalog-handler";
-import { parsePlaylistQuery } from "../domain/playlist-query";
+import { parsePlaylistQuery, playlistCursor } from "../domain/playlist-query";
 import { applyD1Migrations, env } from "cloudflare:test";
 import type { D1Migration } from "cloudflare:test";
 import type { OtwPlayAdminCatalogSubjectInput } from "@contracts/otw-play";
@@ -584,6 +584,30 @@ describe("D1AdminCatalogRepository", () => {
     expect(dated.map(item => item.performance.id)).toEqual(["another-broadcast"]);
     const unknown = await reader.readPlaylistPerformances(parsePlaylistQuery(new URLSearchParams("scope=broadcast&dateUnknown=1"), 0));
     expect(unknown.map(item => item.performance.id)).toEqual(["clip-performance"]);
+    for (const [index, [performanceId, performedOn]] of ([
+      ["same-day", "2026-09-01"], ["older-broadcast", "2026-08-01"], ["unknown-later", null],
+    ] as const).entries()) {
+      const clipInput = { ...sourceInput, youtubeUrl: `https://youtu.be/${["EEEEEEEEEEE", "FFFFFFFFFFF", "GGGGGGGGGGG"][index]}` };
+      const created = await repository.createPerformance({ input: { ...correction.input,
+        broadcast: { performedOn, dateEvidence: null, originalUrl: null, extent: "full" },
+        participants: [{ entityId: singer.data.id, participantRole: "vocal", creditOrder: 0 }], sources: [clipInput] },
+        sources: [{ input: clipInput, video: { ...video, videoId: ["EEEEEEEEEEE", "FFFFFFFFFFF", "GGGGGGGGGGG"][index] }, sourceId: `${performanceId}-source` }],
+        actor, now: NOW + 20 + index * 2, ids: { performanceId, eventId: `${performanceId}-created` } });
+      await repository.transitionPerformance(created.data.id, created.data.version, "published", actor, `${performanceId}-published`, NOW + 21 + index * 2);
+    }
+    const expectedOrder = ["another-broadcast", "same-day", "older-broadcast", "clip-performance", "unknown-later"];
+    expect((await reader.readPlaylistPerformances(parsePlaylistQuery(new URLSearchParams("scope=broadcast"), 0)))
+      .map(item => item.performance.id)).toEqual(expectedOrder);
+    const pagedIds: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const params = new URLSearchParams({ scope: "broadcast", limit: "1", ...(cursor ? { cursor } : {}) });
+      const query = parsePlaylistQuery(params, 0);
+      const rows = await reader.readPlaylistPerformances(query);
+      pagedIds.push(rows[0].performance.id);
+      cursor = rows.length > query.limit ? playlistCursor(query, 0, rows[0].performance) : null;
+    } while (cursor);
+    expect(pagedIds).toEqual(expectedOrder);
     await repository.updateChannel({ ...channel.data, expectedVersion: channel.data.version, verificationStatus: "revoked", active: false }, actor, "clip-approval-revoked", NOW + 8);
     expect(await reader.readPerformanceById("clip-performance")).toBeNull();
     expect(await reader.resolvePlaylistPerformances(["clip-performance"], "all")).toEqual([]);

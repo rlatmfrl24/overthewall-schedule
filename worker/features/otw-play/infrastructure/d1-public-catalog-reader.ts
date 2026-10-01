@@ -1770,7 +1770,9 @@ export class D1PublicCatalogReader
 
   async readPlaylistPerformances(query: PlaylistPerformanceQuery): Promise<PublicCatalogPerformanceDetail[]> {
     const scope = query.scope ?? "official";
-    const date = performanceDate(scope);
+    const date = scope === "broadcast"
+      ? "(CAST(strftime('%s', json_extract(performance.broadcast_metadata, '$.performedOn')) AS INTEGER) * 1000)"
+      : performanceDate(scope);
     const conditions: string[] = [];
     const binds: SqlBind[] = [];
     if (query.relation) { conditions.push("performance.relation_type = ?"); binds.push(query.relation); }
