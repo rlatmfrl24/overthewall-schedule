@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
 import { SingingClipReviewDialog } from "./singing-clip-review-dialog";
+import { UnsavedChangesContext } from "@/shared/lib/unsaved-changes";
 
 const updateCandidateMock = vi.hoisted(() => vi.fn());
 const convertCandidateMock = vi.hoisted(() => vi.fn());
@@ -84,6 +85,58 @@ const reviewFixture = () => {
 };
 
 describe("SingingClipReviewDialog", () => {
+  it.each([null, "from_video"])("does not protect untouched %s review defaults", (songKind) => {
+    const { candidate, catalog, reviewInput } = reviewFixture();
+    render(createElement(SingingClipReviewDialog, { candidate: { ...candidate,
+      reviewInput: songKind ? { ...reviewInput, song: { kind: "from_video", tags: ["POP"] } } : null,
+    }, catalog, onOpenChange: vi.fn(), onConverted: vi.fn(), onReviewStateChanged: async () => {} }), { wrapper: createQueryWrapper() });
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  });
+  it.each(["singing_clip", "official_video"] as const)("only protects changed %s review values, including failed saves", async (candidateKind) => {
+    const { candidate, catalog, reviewInput } = reviewFixture();
+    const confirm = vi.fn(async () => false);
+    const onOpenChange = vi.fn();
+    const protectedInput = () => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    render(createElement(UnsavedChangesContext.Provider, { value: { register: vi.fn(), confirm } },
+      createElement(SingingClipReviewDialog, { candidate, catalog, candidateKind, reviewOnly: true,
+        onOpenChange, onConverted: vi.fn(), onReviewStateChanged: async () => {} })), { wrapper: createQueryWrapper() });
+    expect(protectedInput()).toBe(false);
+    const search = screen.getByRole("combobox", { name: "기존 곡 검색" });
+    fireEvent.click(search);
+    fireEvent.change(search, { target: { value: "검색만 수행" } });
+    fireEvent.keyDown(search, { key: "Escape" });
+    fireEvent.click(screen.getByRole("combobox", { name: "연결할 곡" }));
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
+    expect(protectedInput()).toBe(false);
+    const note = screen.getByLabelText("검수 메모");
+    fireEvent.change(note, { target: { value: "변경한 검수 메모" } });
+    expect(protectedInput()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    fireEvent.change(note, { target: { value: reviewInput.internalNote } });
+    expect(protectedInput()).toBe(false);
+    fireEvent.change(note, { target: { value: "저장할 메모" } });
+    if (candidateKind === "singing_clip") fireEvent.change(screen.getByLabelText("방송일 확인 근거 (선택)"), { target: { value: "  검수 근거  " } });
+    updateCandidateMock.mockRejectedValueOnce(new Error("저장 실패"));
+    fireEvent.click(screen.getByRole("button", { name: "검수 저장 · 등록 준비 완료" }));
+    await screen.findByText("저장 실패 · 입력값과 최신 후보를 확인하고 다시 저장해 주세요.");
+    expect(protectedInput()).toBe(true);
+    updateCandidateMock.mockImplementationOnce(async (_id, command) => ({ version: 4, status: "ready", reviewInput: {
+      ...command.input, ...(candidateKind === "singing_clip" ? { broadcast: { ...command.input.broadcast, dateEvidence: "검수 근거" } } : {}),
+    } }));
+    fireEvent.click(screen.getByRole("button", { name: "검수 저장 · 등록 준비 완료" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(protectedInput()).toBe(false);
+    fireEvent.change(note, { target: { value: "저장 후 추가 편집" } });
+    expect(protectedInput()).toBe(true);
+  });
   it.each(["연결할 노래", "Alternate", "원곡 가수"])("searches existing songs by %s and saves the selected identity", async (query) => {
     const { candidate, catalog } = reviewFixture();
     const searchableCatalog = { ...Object(catalog), songs: [

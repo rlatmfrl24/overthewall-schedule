@@ -155,7 +155,7 @@ export function WorkflowCatalog({
     confirmLabel?: string;
     action: () => Promise<void>;
   } | null>(null);
-  const activeSongs = catalog.songs.filter(song => scopedSongIds.has(song.id) || (scope !== "broadcast" && !catalog.performances.some(performance => performance.songId === song.id))).filter((song) => song.archivedAt === null);
+  const activeSongs = catalog.songs.filter(song => song.archivedAt === null && scopedSongIds.has(song.id));
   const filteredSongs = activeSongs.filter((song) => {
     const text = [song.title, ...song.originalArtists.map((artist) => artist.displayName)].join(" ").toLocaleLowerCase();
     return (!consoleSearch.q || text.includes(consoleSearch.q.toLocaleLowerCase())) &&
@@ -327,7 +327,7 @@ export function WorkflowCatalog({
       {activeSongs.length > 0 && filteredSongs.length === 0 && <p role="status" className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">조건에 맞는 곡이 없습니다. 검색어를 바꾸거나 필터를 초기화해 주세요.</p>}
       {activeSongs.length === 0 ? (
         <div className="rounded-xl border border-dashed p-3 text-center text-sm text-muted-foreground">
-          등록된 곡이 없습니다. 새 영상 등록에서 첫 곡과 가창을 함께 만드세요.
+          연결된 가창이 있는 곡이 없습니다. 새 영상 등록에서 곡과 가창을 함께 만드세요.
         </div>
       ) : (
         <>
@@ -377,7 +377,6 @@ export function WorkflowCatalog({
                       <TableCell>{songActions(song)}</TableCell>
                     </TableRow>,
                   ];
-                  if (open && performances.length === 0) rows.push(<TableRow key={`${song.id}-empty`} id={`catalog-song-${song.id}`}><TableCell /><TableCell colSpan={4} className="text-muted-foreground">연결된 가창이 없습니다.</TableCell></TableRow>);
                   if (open) rows.push(...performances.map((performance, index) => (
                     <TableRow key={performance.id} id={index === 0 ? `catalog-song-${song.id}` : undefined} aria-label={`${song.title} 가창 ${index + 1}`} className="bg-muted/15">
                       <TableCell><PiMicrophoneBold className="mx-auto size-4 text-muted-foreground" aria-hidden="true" /><span className="sr-only">가창</span></TableCell>
@@ -404,7 +403,6 @@ export function WorkflowCatalog({
                 <PublicationSummary performances={performances} />
                 <div className="flex items-center justify-between gap-2"><Button size="sm" variant="outline" aria-expanded={open} aria-controls={open ? `catalog-mobile-${song.id}` : undefined} onClick={() => updateConsole({ selected: open ? undefined : song.id }, false)}>{open ? "가창 접기" : "가창 보기"}</Button>{songActions(song)}</div>
                 {open && <div id={`catalog-mobile-${song.id}`} className="space-y-2">
-                  {performances.length === 0 && <p className="text-sm text-muted-foreground">연결된 가창이 없습니다.</p>}
                   {performances.map((performance) => <div key={performance.id} className="border-t pt-2">
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0 font-medium break-words">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</div>

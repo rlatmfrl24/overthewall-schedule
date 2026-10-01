@@ -287,10 +287,9 @@ export function AiReviewPanel({
   return (
     <section
       aria-label="AI 자동 채우기"
-      className="space-y-2 rounded-lg border bg-muted/10 p-3 text-sm"
+      className="min-w-0 space-y-2 break-words rounded-lg border bg-muted/10 p-3 text-sm"
     >
       <div className="flex flex-wrap items-center gap-2">
-        <span className="mr-1 font-semibold">AI 제안</span>
         <Button
           type="button"
           size="sm"
@@ -310,7 +309,22 @@ export function AiReviewPanel({
             재분석
           </Button>
         )}
-      <label className="flex items-center gap-2 text-xs text-muted-foreground sm:ml-auto">
+        {suggestion && (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              disabled={disabled || pending}
+              onClick={() => apply(suggestion, "all")}
+            >
+              AI 제안 일괄 적용
+            </Button>
+            {form.applied.length > 0 && (
+              <Button type="button" size="sm" variant="ghost" onClick={form.undo} disabled={disabled}>AI 입력 되돌리기</Button>
+            )}
+          </>
+        )}
+      <label className="flex min-h-11 items-center gap-2 text-xs text-muted-foreground sm:ml-auto sm:min-h-8">
         <input
           type="checkbox"
           checked={rangeEnabled}
@@ -346,10 +360,6 @@ export function AiReviewPanel({
       {!valid && (
         <p role="alert">영상 길이 안의 시작·종료 위치를 입력하세요.</p>
       )}
-      <details className="text-xs text-muted-foreground">
-        <summary className="cursor-pointer rounded focus-visible:outline focus-visible:outline-2">자동 입력·적용 안내</summary>
-        <p className="mt-1 leading-relaxed">새 분석은 미편집 항목만 자동 입력합니다. 기존 검수값·직접 수정한 값은 보호하며, 이전 결과는 자동 적용하지 않습니다. 가창 구간은 ‘구간 선택’을 켠 경우에만 반영합니다. ‘지정 구간만 분석’은 분석 범위만 제한합니다. 일괄 적용은 기존 값을 바꾸며 되돌릴 수 있습니다. 저장은 별도로 진행하세요.</p>
-      </details>
       {(error || (!batchDraft && recent.error) || job.error) && (
         <p role="alert">{error ?? (recent.error ?? job.error)?.message}</p>
       )}
@@ -391,33 +401,6 @@ export function AiReviewPanel({
       )}
       {suggestion && (
         <div className="space-y-2">
-          {suggestion.values.song && (
-            <p role="status" aria-label="AI 카탈로그 대조 결과" className="text-xs leading-relaxed text-muted-foreground">
-              {suggestion.values.song.existingSongId
-                ? `카탈로그 확인 완료 · 기존 곡: ${suggestion.values.song.title}. ${form.applied.includes("song") ? "폼에 연결했습니다." : "기존 곡 연결을 제안합니다."}`
-                : suggestion.values.song.candidates.length > 0
-                  ? `카탈로그 확인 완료 · 유사 표기 또는 동명곡 ${suggestion.values.song.candidates.length}개가 있습니다. 원곡 가수를 확인하고 아래에서 선택하세요.`
-                  : "카탈로그 확인 완료 · 제목·별칭·원곡 가수가 일치하는 곡을 찾지 못했습니다. 새 곡 초안을 제안합니다."}
-            </p>
-          )}
-          <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            disabled={disabled || pending}
-            onClick={() => apply(suggestion, "all")}
-          >
-            AI 제안 일괄 적용
-          </Button>
-          <p role="status" className="text-xs text-muted-foreground">
-            {form.applied.length > 0
-              ? `${form.applied.length}개 항목에 AI 제안을 적용했습니다.`
-              : "미적용 · 적용 시 기존 입력값을 바꿉니다."}
-          </p>
-          {form.applied.length > 0 && (
-            <Button type="button" size="sm" variant="ghost" onClick={form.undo} disabled={disabled}>AI 입력 되돌리기</Button>
-          )}
-          </div>
           {(suggestion.values.participants?.some((p) => !p.subject) ||
             (suggestion.values.song &&
               !suggestion.values.song.existingSongId &&
@@ -426,10 +409,7 @@ export function AiReviewPanel({
                 suggestion.values.song.originalArtists.some(
                   (p) => !p.subject,
                 )))) && (
-            <p className="text-xs text-muted-foreground">
-              곡·인물 연결이 모호한 항목은 제외합니다. 기존 곡을 선택하거나
-              폼에서 직접 확인하세요.
-            </p>
+            <p role="alert" className="text-xs text-muted-foreground">곡·인물 연결 확인 필요</p>
           )}
           {suggestion.warnings.map((w, i) => (
             <p key={i}>{w}</p>
@@ -460,7 +440,7 @@ export function AiReviewPanel({
               </label>
             )}
           <details open={compact ? undefined : true} className="rounded-md border">
-          <summary className="cursor-pointer rounded-md px-3 py-2 text-xs font-medium focus-visible:outline focus-visible:outline-2">항목별 제안 · {Object.keys(suggestion.values).length}개 · 현재 값·근거 확인</summary>
+          <summary className="cursor-pointer rounded-md px-3 py-2 text-xs font-medium focus-visible:outline focus-visible:outline-2">항목별 제안 · {Object.keys(suggestion.values).length}개</summary>
           <div className="grid items-start gap-2 border-t p-2 sm:grid-cols-2">
           {AI_REVIEW_FIELDS.filter(
             (k) => suggestion.values[k] !== undefined,
