@@ -26,7 +26,7 @@ const service=new WorkQueueService(repo,imports,ingestion,ai,reader as unknown a
 beforeEach(async()=>{
   await applyD1Migrations(db,(env as unknown as {OTW_PLAY_INGESTION_MIGRATIONS:D1Migration[]}).OTW_PLAY_INGESTION_MIGRATIONS);
   await db.batch([
-    db.prepare("DELETE FROM music_catalog_events WHERE aggregate_type='playlist_work_queue'"),
+    db.prepare("DELETE FROM music_catalog_events WHERE aggregate_type IN ('playlist_work_queue','playlist_work_batch')"),
     db.prepare("DELETE FROM music_playlist_work_items"),db.prepare("DELETE FROM music_playlist_work_batches"),db.prepare("DELETE FROM music_playlist_work_queues"),db.prepare("DELETE FROM music_ai_review_batches"),
     db.prepare("DELETE FROM music_ingestion_events"),db.prepare("DELETE FROM music_ingestion_candidate_origins"),db.prepare("DELETE FROM music_ingestion_messages"),db.prepare("DELETE FROM music_ingestion_candidates"),db.prepare("DELETE FROM music_ingestion_jobs"),
     db.prepare("DELETE FROM music_performances WHERE id LIKE 'work-id-%'"),db.prepare("DELETE FROM music_media_sources WHERE id LIKE 'work-id-%'"),db.prepare("DELETE FROM music_songs WHERE id LIKE 'work-id-%'"),
@@ -65,7 +65,7 @@ it("persists private catalog conversion, retains partial successes and never con
   expect(await db.prepare("SELECT count(*) AS n FROM music_performances WHERE id LIKE 'work-id-%'").first()).toEqual({n:1});
   expect(await repo.active()).not.toBeNull();
   failSecond=false;
-  await actual.retry(b.id,partial.version,actor);
+  await actual.retry(b.id,{expectedVersion:partial.version,idempotencyKey:"partial-registration-retry"},actor);
   expect((await ai.get(b.ai!.id)).batch.counts.queued).toBe(0);
   const latest=await actual.batch(b.id);
   const command={expectedVersion:latest.version,idempotencyKey:"convert-retry",startNext:false};
@@ -228,7 +228,7 @@ it.each(["queue_retries_exhausted","provider_auth","invalid_request"])("does not
   await service.afterIngestion(b.jobId);
   const failed=await service.batch(b.id);
   expect(failed.status).toBe("preparing");expect(failed.errorMessage).toBeTruthy();
-  await service.retry(b.id,failed.version,{userId:"admin",displayName:null,ipAddress:null});
+  await service.retry(b.id,{expectedVersion:failed.version,idempotencyKey:`metadata-retry-${code}`},{userId:"admin",displayName:null,ipAddress:null});
   await ingestion.process(metadata);await service.afterIngestion(b.jobId);
   expect((await service.batch(b.id)).ai?.total).toBe(50);
 });
@@ -284,6 +284,18 @@ it("shares and locks decisions for the same unavailable playlist membership acro
   const current=await service.batch(next.id);
   await service.complete(current.id,{expectedVersion:current.version,idempotencyKey:"missing-complete",startNext:false},"admin");
   await expect(service.disposition(old.id,old.version+2,"deferred","다시 확인","admin")).rejects.toMatchObject({code:"stale_write"});
+});
+it("recovers a lost batch retry response without incrementing versions or AI retries twice",async()=>{
+  const b=await prepared(),actor={userId:"admin",displayName:null,ipAddress:null};
+  await db.prepare("UPDATE music_ai_review_batch_items SET status='failed' WHERE batch_id=?").bind(b.ai!.id).run();
+  const command={expectedVersion:b.version,idempotencyKey:"batch-retry-response-lost"};
+  await Promise.all([service.retry(b.id,command,actor),service.retry(b.id,command,actor)]);
+  const accepted=await service.batch(b.id);
+  await service.retry(b.id,command,actor);
+  expect((await service.batch(b.id)).version).toBe(accepted.version);
+  expect(await db.prepare("SELECT MIN(generation) AS minimum,MAX(generation) AS maximum FROM music_ai_review_batch_items WHERE batch_id=?").bind(b.ai!.id).first()).toEqual({minimum:1,maximum:1});
+  await expect(service.retry(b.id,{...command,expectedVersion:command.expectedVersion+1},actor)).rejects.toMatchObject({code:"idempotency_conflict"});
+  expect(await db.prepare("SELECT COUNT(*) AS count FROM music_catalog_events WHERE aggregate_type='playlist_work_batch'").first()).toEqual({count:1});
 });
 it("starts a new scan after metadata expiration without accumulating previous scan slots",async()=>{
   const b=await prepared();

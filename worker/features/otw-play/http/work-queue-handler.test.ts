@@ -35,3 +35,11 @@ it("scopes deferred reads to a validated playlist without starting work",async()
   expect(overview).toHaveBeenCalledWith("cursor-id","queue-id");
   expect((await handler(new Request("https://example.com/api/play/admin/work-queues?queueId=one&queueId=two"),{} as Env)).status).toBe(400);
 });
+it("passes the batch retry idempotency key and version to the service",async()=>{
+  const retry=vi.fn().mockResolvedValue({id:"batch"});
+  const handler=createWorkQueueHandler(()=>({retry}) as unknown as WorkQueueService);
+  const command={expectedVersion:7,idempotencyKey:"retry-lost-response"};
+  const response=await handler(new Request("https://example.com/api/play/admin/work-batches/batch/command",{method:"POST",body:JSON.stringify({action:"retry",...command})}),{} as Env);
+  expect(response.status).toBe(202);expect(response.headers.get("Cache-Control")).toBe("no-store");
+  expect(retry).toHaveBeenCalledWith("batch",command,expect.objectContaining({userId:"admin"}));
+});

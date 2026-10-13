@@ -213,10 +213,23 @@ export class D1WorkQueueRepository implements WorkQueueRepository {
   async failed(m: WorkQueueMessage, token: string, message: string, now: number) {
     await this.db.prepare(`UPDATE ${table(m)} SET error_message=?,${m.target === "queue" ? "status='failed'," : ""}version=version+1,updated_at=? WHERE id=? AND lease_token=?${m.target === "queue" ? " AND status='checking'" : ""}`).bind(message,now,m.id,token).run();
   }
-  async retryBatch(id: string, version: number, now: number) {
-    const r=await this.db.prepare(`UPDATE music_playlist_work_batches SET status=CASE WHEN status='completing' THEN 'review' ELSE status END,completion_key=NULL,start_next=0,error_message=NULL,dispatch_until=NULL,version=version+1,updated_at=?
-      WHERE id=? AND version=? AND status!='completed' AND (lease_until IS NULL OR lease_until<=?)`).bind(now,id,version,now).run();
-    if (!r.meta.changes) throw new WorkQueueError("stale_write", "최신 묶음 상태를 확인하세요.");
+  async retryBatch(id: string, command: PlayWorkCommand, actor: string, now: number) {
+    const eventId=`playlist-work-batch-command:${actor}:${command.idempotencyKey}`;
+    const replay=async()=>{
+      const event=await this.db.prepare("SELECT aggregate_id,detail_json FROM music_catalog_events WHERE id=? AND aggregate_type='playlist_work_batch'").bind(eventId).first<{aggregate_id:string;detail_json:string}>();
+      if(!event)return false;
+      if(event.aggregate_id!==id || JSON.parse(event.detail_json).expectedVersion!==command.expectedVersion)throw new WorkQueueError("idempotency_conflict","다른 작업에 사용된 요청 키입니다.");
+      return true;
+    };
+    if(await replay())return;
+    const results=await this.db.batch([
+      this.db.prepare(`UPDATE music_playlist_work_batches SET status=CASE WHEN status='completing' THEN 'review' ELSE status END,completion_key=NULL,start_next=0,error_message=NULL,dispatch_until=NULL,version=version+1,updated_at=?
+        WHERE id=? AND version=? AND status!='completed' AND (lease_until IS NULL OR lease_until<=?)
+        AND NOT EXISTS(SELECT 1 FROM music_catalog_events WHERE id=?)`).bind(now,id,command.expectedVersion,now,eventId),
+      this.db.prepare(`INSERT INTO music_catalog_events(id,aggregate_type,aggregate_id,event_type,actor_kind,actor_user_id,detail_json,created_at)
+        SELECT ?,'playlist_work_batch',?,'work_batch.retry','admin',?,?,? WHERE changes()=1`).bind(eventId,id,actor,JSON.stringify({expectedVersion:command.expectedVersion}),now),
+    ]);
+    if (!results[0].meta.changes && !await replay()) throw new WorkQueueError("stale_write", "최신 묶음 상태를 확인하세요.");
   }
   async pending(now: number) {
     const rows=(await this.db.prepare(`SELECT 'queue' AS target,id FROM music_playlist_work_queues WHERE status='checking' AND error_message IS NULL AND COALESCE(dispatch_until,0)<=? AND COALESCE(lease_until,0)<=?

@@ -78,9 +78,9 @@ export class WorkQueueService {
     await this.dispatch({kind:"otw_play_work_queue",schemaVersion:1,target:"batch",id});
     return this.batch(id);
   }
-  async retry(id: string, version: number, actor: AdminCatalogActor) {
+  async retry(id: string, command: PlayWorkCommand, actor: AdminCatalogActor) {
     const b = await this.repo.record(id);
-    await this.repo.retryBatch(id,version,this.clock());
+    await this.repo.retryBatch(id,command,actor.userId,this.clock());
     if (b.status === "review" && b.aiBatchId) {
       const ids=(await this.repo.items(b.id)).filter(i=>i.outcome === "pending" && i.aiStatus === "failed").flatMap(i=>i.candidateId ? [i.candidateId] : []);
       if (ids.length) await this.ai.retry(b.aiBatchId,ids);

@@ -45,7 +45,7 @@ export interface WorkQueueRepository {
   claim(message: WorkQueueMessage, token: string, now: number): Promise<boolean>;
   release(message: WorkQueueMessage, token: string, now: number): Promise<void>;
   failed(message: WorkQueueMessage, token: string, messageText: string, now: number): Promise<void>;
-  retryBatch(id: string, version: number, now: number): Promise<void>;
+  retryBatch(id: string, command: PlayWorkCommand, actor: string, now: number): Promise<void>;
   pending(now: number): Promise<WorkQueueMessage[]>;
   dispatched(message: WorkQueueMessage, now: number): Promise<void>;
   clearExpired(now: number): Promise<void>;

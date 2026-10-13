@@ -53,7 +53,7 @@ export const createWorkQueueHandler=(resolve:(env:Env)=>WorkQueueService)=>async
       return json({data:await service.action(id,body.action as "start"|"rescan"|"retry"|"archive",command,actor.userId)},202);
     }
     if (resource === "work-batches" && body.action === "complete" && typeof body.startNext === "boolean") return json({data:await service.complete(id,{...command,startNext:body.startNext},actor.userId)},202);
-    if (resource === "work-batches" && body.action === "retry" && body.startNext === undefined) return json({data:await service.retry(id,command.expectedVersion,actor)},202);
+    if (resource === "work-batches" && body.action === "retry" && body.startNext === undefined) return json({data:await service.retry(id,command,actor)},202);
     throw invalid();
   } catch (error) {
     const e=error instanceof WorkQueueError ? error : new WorkQueueError("work_queue_unavailable","작업 큐를 불러오거나 처리하지 못했습니다. 최신 상태를 확인하세요.",503);
