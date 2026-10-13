@@ -38,8 +38,9 @@ alwaysApply: true
 - Keep public navigation changes centralized in `src/app/layout/app-navigation.ts`.
 
 ## Multiview
-- Keep `/multiview` usable without authentication and without browser-extension support unless the product requirement changes.
-- Use the current Mul.Live iframe fallback model for CHZZK multiview behavior.
+- Keep `/multiview` member selection public and authentication-free. CHZZK viewing on Mul.Live requires the latest Mul.Live Plus extension.
+- Follow the 2026-10-02 decision: announce the extension requirement and installation link, open Mul.Live in a new tab, and keep embedded viewing disabled without creating an iframe.
+- A dedicated OTW multiview extension is planned in `docs/development-status.md`; implementation and embedded-viewing reactivation are follow-up work.
 - Preserve selected channel URL state through repeated `c=` params when touching multiview routing.
 - Do not add CHZZK DOM automation, iframe cookie/login bridging, or Chrome extension coupling without an explicit new request.
 
