@@ -87,6 +87,8 @@ import { WorkflowCatalog } from "./workflow-catalog";
 import { SourceHealthSection } from "./source-health-section";
 import { OperationsSection } from "./operations-section";
 import { IngestionSection } from "./ingestion-section";
+import { WorkQueuePanel } from "./work-queue-panel";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/shared/ui/dropdown-menu";
 
 
 export type Section =
@@ -173,7 +175,8 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
     : (requestedSection === "review" || requestedSection === "requests") ? "import" : requestedSection;
   const [reviewSearch, updateReviewSearch] = useConsoleSearch();
   const catalogScope = reviewSearch.kind ?? (requestedSection === "clips" || reviewSearch.tab === "clips" ? "broadcast" : "official");
-  const importView = reviewSearch.view ?? (reviewSearch.category && reviewSearch.tab === "import" ? "jobs" : "inbox");
+  const importView = reviewSearch.view ?? (reviewSearch.category && reviewSearch.tab === "import" ? "jobs" : reviewSearch.source || ["automatic-review","requests"].includes(requestedSection) ? "inbox" : "work-queue");
+  const workView = ["work-queue","work-deferred","work-summary"].includes(importView) || Boolean(reviewSearch.workBatch) && importView === "review";
   const needsCatalog = section === "catalog" || section === "channels" ||
     section === "import" && (importView === "review" || Boolean(reviewSearch.proposal));
   const catalogQuery = useOtwPlayAdminCatalog(needsCatalog);
@@ -386,7 +389,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
     <div className="otw-play-admin min-w-0 space-y-3">
       <AdminSectionHeader
         title={activeSection ? SECTIONS.find((item) => item.value === section)?.label ?? "OTW Play" : "OTW Play 카탈로그"}
-        description={section === "import" ? "출처별 영상을 검수합니다. 가져온 후보는 임시 등록하고, 사용자 제안은 승인·게시 절차로 처리합니다." : section === "channels" ? "채널 수집 감시, 승인 상태와 연결된 인물·그룹을 함께 관리합니다." : section === "operations" ? "공개 설정, 영상 재생 상태와 서비스 지표를 함께 확인합니다." : undefined}
+        description={section === "import" ? "플레이리스트를 50개씩 준비하고 한 곡씩 검수합니다. 비공개 등록 후 게시는 카탈로그에서 진행합니다." : section === "channels" ? "채널 수집 감시, 승인 상태와 연결된 인물·그룹을 함께 관리합니다." : section === "operations" ? "공개 설정, 영상 재생 상태와 서비스 지표를 함께 확인합니다." : undefined}
         metadata={catalogSection ? <><QueryReadback className="m-0" updatedAt={catalogQuery.dataUpdatedAt} fetching={catalogQuery.isFetching} error={catalogQuery.isError && Boolean(catalog)} />{catalog && section === "catalog" ? <span>곡 {new Set(catalog.performances.map(performance => performance.songId)).size} · 가창 {catalog.performances.length}</span> : null}</> : undefined}
         actions={
           <div className="flex flex-wrap gap-2">
@@ -454,11 +457,12 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
       </div>}
       {catalog && section === "catalog" && reviewSearch.view === "entities" && <EntitySection items={catalog.entities.filter(entity => entity.memberUid === null)} referencedEntityIds={new Set([...catalog.songs.flatMap(song => song.originalArtists.map(artist => artist.entityId)), ...catalog.performances.flatMap(performance => performance.participants.map(participant => participant.entityId)), ...catalog.channels.flatMap(channel => channel.entityIds)])} saving={effectiveSaving} run={run} />}
       {(importVisited || section === "import") && <div hidden={section !== "import"} className="space-y-3">
-        <div hidden={Boolean(reviewSearch.proposal || importView === "review")} className="flex flex-wrap gap-2"><Button variant={importView !== "jobs" ? "secondary" : "outline"} onClick={() => updateReviewSearch({ view: "inbox", selected: undefined })}>검수 목록</Button><Button variant={importView === "jobs" ? "secondary" : "outline"} onClick={() => updateReviewSearch({ view: "jobs" })}>새 가져오기·이력</Button></div>
-        <div hidden={importView === "jobs" || section !== "import"}><ReviewInbox active={section === "import" && importView !== "jobs" && !reviewSearch.proposal} catalog={catalog ?? null} onManageChannel={openChannel} onOpenCatalog={openCatalog} onProposal={id => updateReviewSearch({ proposal: id, view: "proposal" }, false)} /></div>
+        <div hidden={Boolean(reviewSearch.proposal || importView === "review")} className="flex flex-wrap gap-2"><Button variant={workView ? "secondary" : "outline"} onClick={() => updateReviewSearch({ view: "work-queue", selected: undefined, workBatch: undefined,workQueue:undefined,state:undefined,category:undefined })}>플레이리스트 작업</Button><DropdownMenu><DropdownMenuTrigger asChild><Button variant={!workView ? "secondary" : "outline"}>기타 검수·관리</Button></DropdownMenuTrigger><DropdownMenuContent align="start"><DropdownMenuItem onSelect={()=>updateReviewSearch({view:"jobs",workBatch:undefined,workQueue:undefined,selected:undefined})}>기존 가져오기·이력</DropdownMenuItem><DropdownMenuItem onSelect={()=>updateReviewSearch({view:"inbox",source:"automatic",workBatch:undefined,workQueue:undefined,selected:undefined,category:undefined})}>자동 수집 후보</DropdownMenuItem><DropdownMenuItem onSelect={()=>updateReviewSearch({view:"inbox",source:"user",workBatch:undefined,workQueue:undefined,selected:undefined,category:undefined})}>사용자 제안</DropdownMenuItem><DropdownMenuItem onSelect={()=>updateReviewSearch({view:"inbox",source:"playlist",workBatch:undefined,workQueue:undefined,selected:undefined})}>기존 가져오기 검수</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
+        <div hidden={workView || importView === "jobs" || section !== "import"}><ReviewInbox active={section === "import" && importView !== "jobs" && !workView && !reviewSearch.proposal} catalog={catalog ?? null} onManageChannel={openChannel} onOpenCatalog={openCatalog} onProposal={id => updateReviewSearch({ proposal: id, view: "proposal" }, false)} /></div>
+        <div hidden={!workView || section !== "import"}><WorkQueuePanel active={section === "import" && workView} catalog={catalog ?? null} onManageChannel={openChannel} onProposal={id=>updateReviewSearch({proposal:id,view:"proposal"},false)}/></div>
         <div hidden={importView !== "jobs" || section !== "import"}><IngestionSection active={section === "import" && importView === "jobs"} /></div>
         {catalog && proposalIds.map(id => <div key={id} hidden={section !== "import" || reviewSearch.proposal !== id}>
-          <ProposalSection proposalId={id} active={section === "import" && reviewSearch.proposal === id} onClose={() => updateReviewSearch({ proposal: undefined, view: "inbox" }, false)} catalog={catalog} proposals={selectedProposalsQuery.data ?? proposalsQuery.data ?? []} loading={proposalsQuery.isLoading || selectedProposalsQuery.isLoading} fetching={selectedProposalsQuery.isFetching} error={proposalsQuery.error ?? selectedProposalsQuery.error} refetch={selectedProposalsQuery.refetch} saving={effectiveSaving} run={run} />
+          <ProposalSection proposalId={id} active={section === "import" && reviewSearch.proposal === id} onClose={() => updateReviewSearch({ proposal: undefined, view: reviewSearch.workBatch ? "review" : "inbox" }, false)} catalog={catalog} proposals={selectedProposalsQuery.data ?? proposalsQuery.data ?? []} loading={proposalsQuery.isLoading || selectedProposalsQuery.isLoading} fetching={selectedProposalsQuery.isFetching} error={proposalsQuery.error ?? selectedProposalsQuery.error} refetch={selectedProposalsQuery.refetch} saving={effectiveSaving} run={run} />
         </div>)}
       </div>}
       {section === "channels" && catalog && <div className="space-y-3">

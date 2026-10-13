@@ -3,6 +3,19 @@ import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metada
 import { YouTubeOtwPlayMetadataReader } from "./youtube-metadata-reader";
 
 describe("YouTubeOtwPlayMetadataReader", () => {
+  it("retains identifiable private entries and flags malformed playlist memberships", async () => {
+    const reader = new YouTubeOtwPlayMetadataReader("secret-key", vi.fn<typeof fetch>(async () => Response.json({
+      pageInfo:{totalResults:2000},items:[
+        {id:"private-item",snippet:{position:50}},
+        {id:"public-item",snippet:{position:51},contentDetails:{videoId:"dQw4w9WgXcQ"}},
+        {snippet:{position:52},contentDetails:{videoId:"dQw4w9WgXcQ"}},
+      ],nextPageToken:"page-3",
+    })));
+    await expect(reader.readPlaylistPage("PL1234567890","page-2")).resolves.toEqual({
+      items:[{playlistItemId:"public-item",videoId:"dQw4w9WgXcQ",position:51}],
+      unavailableItems:[{playlistItemId:"private-item",position:50}],incomplete:true,totalResults:2000,nextPageToken:"page-3",
+    });
+  });
   it("calls fetch without rebinding the Cloudflare-compatible receiver", async () => {
     let calledWithoutReceiver = false;
     const fetcher = async function (this: unknown) {
@@ -150,6 +163,9 @@ describe("YouTubeOtwPlayMetadataReader", () => {
         position: 50,
       }],
       nextPageToken: "next-page",
+      unavailableItems: [],
+      incomplete: false,
+      totalResults: undefined,
     });
     const pageUrl = new URL(String(fetcher.mock.calls[1]?.[0]));
     expect(pageUrl.searchParams.get("maxResults")).toBe("50");

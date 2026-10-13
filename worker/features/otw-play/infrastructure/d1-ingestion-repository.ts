@@ -100,6 +100,7 @@ const missingReviewInputEntityReferenceSql = `EXISTS (
 )`;
 
 type JobRow = {
+  work_batch_id?: string | null;
   candidate_kind: "official_video" | "singing_clip";
   id: string;
   source_external_id: string;
@@ -164,6 +165,7 @@ const jobSelect = (selection: string) => `WITH selected_jobs AS MATERIALIZED (
   FROM selected_jobs job JOIN music_ingestion_messages message ON message.job_id = job.id
   GROUP BY message.job_id
 ) SELECT job.*,
+  (SELECT b.id FROM music_playlist_work_batches b WHERE b.job_id=job.id) AS work_batch_id,
   COALESCE(origin_counts.discovered_count, 0) AS discovered_count,
   COALESCE(origin_counts.metadata_checked_count, 0) AS metadata_checked_count,
   COALESCE(origin_counts.eligible_count, 0) AS eligible_count,
@@ -183,6 +185,7 @@ ORDER BY job.created_at DESC, job.id DESC`;
 
 const toJobDto = (row: JobRow): OtwPlayIngestionJobDto => ({
   id: row.id,
+  ...(row.work_batch_id ? {workBatchId:row.work_batch_id} : {}),
   playlistId: row.source_external_id,
   candidateKind: row.candidate_kind,
   playlistTitle: row.source_title,
@@ -402,10 +405,10 @@ export class D1IngestionRepository implements IngestionRepository {
         ),
         this.database.prepare(
           `INSERT INTO music_ingestion_messages (
-            idempotency_key, job_id, message_kind, payload_key, status,
+            idempotency_key, job_id, message_kind, payload_key, page_token, status,
             created_at, updated_at
-          ) VALUES (?, ?, 'playlist_page', 'first', 'pending', ?, ?)`,
-        ).bind(firstMessageKey, command.jobId, command.now, command.now),
+          ) VALUES (?, ?, 'playlist_page', 'first', ?, 'pending', ?, ?)`,
+        ).bind(firstMessageKey, command.jobId, command.initialPageToken ?? null, command.now, command.now),
         this.database.prepare(
           `INSERT INTO music_ingestion_events (
             id, job_id, event_type, actor_user_id, detail_json, created_at
@@ -514,6 +517,7 @@ export class D1IngestionRepository implements IngestionRepository {
        SELECT ?, job.id, 'history_deleted', ?, '{}', ?
        FROM music_ingestion_jobs AS job
        WHERE job.id = ? AND job.status IN ('completed', 'partial', 'failed')
+         AND NOT EXISTS (SELECT 1 FROM music_playlist_work_batches b WHERE b.job_id=job.id AND b.status!='completed')
          AND NOT EXISTS (SELECT 1 FROM music_ingestion_messages AS message
            WHERE message.job_id = job.id AND message.status = 'pending')
          AND NOT EXISTS (SELECT 1 FROM music_ingestion_events AS deleted
@@ -608,6 +612,7 @@ export class D1IngestionRepository implements IngestionRepository {
     ) SELECT review.*, ${candidateOrigins} AS playlist, ${automaticOrigins} AS automatic,
       CASE WHEN review.kind = 'proposal' THEN 1 ELSE (${pendingProposal} IS NOT NULL) END AS user,
       ${pendingProposal} AS pending_proposal_id,
+      (SELECT b.id FROM music_playlist_work_items wi JOIN music_playlist_work_batches b ON b.id=wi.batch_id WHERE wi.candidate_id=c.id ORDER BY (b.status!='completed') DESC,b.created_at DESC,b.id DESC LIMIT 1) AS work_batch_id,
       (SELECT json_object('status', i.status, 'errorMessage', i.error_message)
         FROM music_ai_review_batch_items i WHERE review.kind = 'candidate' AND i.candidate_id = review.id
         ORDER BY i.created_at DESC, i.id DESC LIMIT 1) AS ai_draft,
@@ -625,7 +630,7 @@ export class D1IngestionRepository implements IngestionRepository {
       ORDER BY review.ready_rank ASC, review.created_at DESC, review.sort_id DESC`)
       .bind(...values, position?.ready ?? null, position?.ready ?? null, position?.ready ?? null,
         position?.at ?? null, position?.at ?? null, position?.id ?? null)
-      .all<{ ai_draft: string | null; candidate_data: string | null; ready_rank: number; sort_id: string; id: string; kind: "candidate" | "proposal"; candidate_kind: "official_video" | "singing_clip"; title: string | null; status: string; version: number; created_at: number; playlist: number; automatic: number; user: number; pending_proposal_id: string | null }>());
+      .all<{ work_batch_id:string|null;ai_draft: string | null; candidate_data: string | null; ready_rank: number; sort_id: string; id: string; kind: "candidate" | "proposal"; candidate_kind: "official_video" | "singing_clip"; title: string | null; status: string; version: number; created_at: number; playlist: number; automatic: number; user: number; pending_proposal_id: string | null }>());
     const items: import("@contracts/otw-play").OtwPlayReviewItemDto[] = [];
     for (const row of rows.slice(0, 50)) {
       let candidate: import("@contracts/otw-play").OtwPlayChannelMonitorCandidateDto | null = null;
@@ -642,6 +647,7 @@ export class D1IngestionRepository implements IngestionRepository {
           linkedPerformanceId: review.linkedPerformanceId, discoveredAt: row.created_at, monitorGeneration: 0, retentionExpiresAt: Number(detail.retention_expires_at) };
       }
       items.push({ id: row.id, kind: row.kind, candidateKind: row.candidate_kind, title: row.title, status: row.status, version: row.version, createdAt: row.created_at, channelId, candidate, pendingProposalId: row.pending_proposal_id,
+        ...(row.work_batch_id ? {workBatchId:row.work_batch_id} : {}),
         aiDraft: row.ai_draft ? JSON.parse(row.ai_draft) : null,
         sources: [...(row.playlist ? ["playlist" as const] : []), ...(row.automatic ? ["automatic" as const] : []), ...(row.user ? ["user" as const] : [])] });
     }
@@ -872,7 +878,8 @@ export class D1IngestionRepository implements IngestionRepository {
     now: number,
   ) {
     const job = await this.getJobContext(message.jobId);
-    const items = page.items.filter(
+    const workBatch = await this.database.prepare("SELECT id FROM music_playlist_work_batches WHERE job_id=?").bind(message.jobId).first<{ id: string }>();
+    const items = workBatch ? page.items.slice(0, 50) : page.items.filter(
       (item) =>
         item.position >= job.rangeStartPosition &&
         item.position < job.rangeEndExclusive,
@@ -881,7 +888,7 @@ export class D1IngestionRepository implements IngestionRepository {
     const reachedLimit = job.requestedItemCount === 0 || page.items.some(
       (item) => item.position + 1 >= job.rangeEndExclusive,
     );
-    const nextPageToken = reachedLimit ? null : page.nextPageToken;
+    const nextPageToken = workBatch || reachedLimit ? null : page.nextPageToken;
     const children: Array<{
       message: OtwPlayIngestionQueueMessage;
       statement: D1PreparedStatement;
@@ -1018,6 +1025,16 @@ export class D1IngestionRepository implements IngestionRepository {
       ...candidateStatements,
       ...originStatements,
       ...children.map((child) => child.statement),
+      ...(workBatch ? (page.unavailableItems ?? []).slice(0,50-items.length).map(i=>this.database.prepare(`INSERT OR IGNORE INTO music_playlist_work_items
+        (id,batch_id,candidate_id,playlist_item_id,playlist_position,disposition,reason,created_at,updated_at)
+        VALUES(?,?,NULL,?,?,COALESCE((SELECT prior.disposition FROM music_playlist_work_items prior JOIN music_playlist_work_batches pb ON pb.id=prior.batch_id
+          WHERE prior.playlist_item_id=? AND pb.queue_id=(SELECT queue_id FROM music_playlist_work_batches WHERE id=?) ORDER BY prior.updated_at DESC,prior.rowid DESC LIMIT 1),'pending'),
+          COALESCE((SELECT prior.reason FROM music_playlist_work_items prior JOIN music_playlist_work_batches pb ON pb.id=prior.batch_id
+            WHERE prior.playlist_item_id=? AND pb.queue_id=(SELECT queue_id FROM music_playlist_work_batches WHERE id=?) ORDER BY prior.updated_at DESC,prior.rowid DESC LIMIT 1),'영상 정보를 확인할 수 없습니다.'),?,?)`).bind(`${message.jobId}:origin:${i.playlistItemId}`,workBatch.id,i.playlistItemId,i.position,i.playlistItemId,workBatch.id,i.playlistItemId,workBatch.id,now,now)) : []),
+      ...(workBatch ? [this.database.prepare(`UPDATE music_playlist_work_queues SET progress_uncertain=1 WHERE id=(SELECT queue_id FROM music_playlist_work_batches WHERE id=?)
+        AND (?=1 OR (? IS NOT NULL AND scan_item_count!=?))`).bind(workBatch.id,Number(Boolean(page.incomplete)),page.totalResults ?? null,page.totalResults ?? null)] : []),
+      ...(workBatch ? [this.database.prepare(`UPDATE music_playlist_work_batches SET next_page_token=?,page_recorded=1 WHERE id=?
+        AND EXISTS(SELECT 1 FROM music_ingestion_messages WHERE idempotency_key=? AND status='pending')`).bind(page.nextPageToken,workBatch.id,message.idempotencyKey)] : []),
       this.database.prepare(
         `UPDATE music_ingestion_messages
          SET status = 'completed', completed_at = ?, next_retry_at = NULL,
@@ -2252,10 +2269,14 @@ export class D1IngestionRepository implements IngestionRepository {
     const failed = await this.database.prepare(
       `SELECT idempotency_key FROM music_ingestion_messages
        WHERE job_id = ? AND status = 'failed'
-         AND last_error_code IN (
+         AND (last_error_code IN (
            'queue_retries_exhausted', 'quota_exceeded', 'rate_limited',
            'timeout', 'upstream_unavailable', 'ingestion_internal'
-         )
+         ) OR (message_kind = 'video_batch'
+           AND last_error_code IN ('provider_auth', 'invalid_request')
+           AND EXISTS (SELECT 1 FROM music_playlist_work_batches b
+             WHERE b.job_id = music_ingestion_messages.job_id
+               AND b.status = 'preparing' AND b.page_recorded = 1)))
        ORDER BY created_at, idempotency_key LIMIT 100`,
     ).bind(command.jobId).all<{ idempotency_key: string }>();
     const keys = resultsOf(failed).map((row) => row.idempotency_key);

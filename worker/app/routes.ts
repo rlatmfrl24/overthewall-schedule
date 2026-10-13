@@ -1,7 +1,8 @@
 import { createSiteContentHandler } from "../features/seo";
 import { createSiteSeoDependencies } from "./site-seo";
 import { apiRoutes } from "@contracts/api-routes";
-import { createAiReviewHandler, createAiBatchHandler } from "../features/otw-play";
+import { createAiReviewHandler, createAiBatchHandler, createWorkQueueHandler } from "../features/otw-play";
+import { createOtwPlayWorkQueueService } from "./work-queue";
 import { createOtwPlayAiReviewService, createOtwPlayAiBatchService } from "./ai-review";
 import { createAuthStatusHandler } from "../features/auth";
 import {
@@ -268,6 +269,7 @@ const handleOtwPlayIngestion = withPlayOperationsTelemetry(
 );
 const handleOtwPlayAiReview = createAiReviewHandler(createOtwPlayAiReviewService);
 const handleOtwPlayAiBatch = createAiBatchHandler(createOtwPlayAiBatchService);
+const handleOtwPlayWorkQueue = createWorkQueueHandler(createOtwPlayWorkQueueService);
 const handleOtwPlayChannelMonitors = withPlayOperationsTelemetry(
   createChannelMonitorHandler(createOtwPlayChannelMonitorService),
   resolvePlayTelemetry,
@@ -713,6 +715,11 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     methods: methods(del(ADMIN_NO_STORE)), handler: handleOtwPlayIngestion,
   },
   { id: "otw-play.admin.ai-batches", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviewBatches.pattern, methods: methods(get(ADMIN_NO_STORE), post({ ...ADMIN_NO_STORE, successStatus: 202 })), handler: handleOtwPlayAiBatch },
+  { id: "otw-play.admin.work-queues", owner: "otw-play", path: apiRoutes.otwPlay.admin.workQueues.pattern, methods: methods(get(ADMIN_NO_STORE), post({ ...ADMIN_NO_STORE, successStatus: 202 })), handler: handleOtwPlayWorkQueue },
+  { id: "otw-play.admin.work-queue-command", owner: "otw-play", path: apiRoutes.otwPlay.admin.workQueueCommand.pattern, methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 202 })), handler: handleOtwPlayWorkQueue },
+  { id: "otw-play.admin.work-batch", owner: "otw-play", path: apiRoutes.otwPlay.admin.workBatch.pattern, methods: methods(get(ADMIN_NO_STORE)), handler: handleOtwPlayWorkQueue },
+  { id: "otw-play.admin.work-batch-command", owner: "otw-play", path: apiRoutes.otwPlay.admin.workBatchCommand.pattern, methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 202 })), handler: handleOtwPlayWorkQueue },
+  { id: "otw-play.admin.work-item", owner: "otw-play", path: apiRoutes.otwPlay.admin.workItem.pattern, methods: methods(patch(ADMIN_NO_STORE)), handler: handleOtwPlayWorkQueue },
   { id: "otw-play.admin.ai-batch-preview", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviewBatchPreview.pattern, methods: methods(post(ADMIN_NO_STORE)), handler: handleOtwPlayAiBatch },
   { id: "otw-play.admin.ai-batch", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviewBatch.pattern, methods: methods(get(ADMIN_NO_STORE)), handler: handleOtwPlayAiBatch },
   { id: "otw-play.admin.ai-batch-retry", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviewBatchRetry.pattern, methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 202 })), handler: handleOtwPlayAiBatch },

@@ -142,6 +142,11 @@ export const apiRoutes = {
       ),
     },
     admin: {
+      workQueues: staticRoute("/api/play/admin/work-queues"),
+      workQueueCommand: dynamicRoute("/api/play/admin/work-queues/:id/command", (id: string) => `/api/play/admin/work-queues/${encodeURIComponent(id)}/command` as const),
+      workBatch: dynamicRoute("/api/play/admin/work-batches/:id", (id: string) => `/api/play/admin/work-batches/${encodeURIComponent(id)}` as const),
+      workBatchCommand: dynamicRoute("/api/play/admin/work-batches/:id/command", (id: string) => `/api/play/admin/work-batches/${encodeURIComponent(id)}/command` as const),
+      workItem: dynamicRoute("/api/play/admin/work-items/:id", (id: string) => `/api/play/admin/work-items/${encodeURIComponent(id)}` as const),
       playlistDefaults: staticRoute("/api/play/admin/playlists/defaults"),
       playlistDefault: dynamicRoute("/api/play/admin/playlists/defaults/:playlistKey",
         (playlistKey: string) => `/api/play/admin/playlists/defaults/${encodeURIComponent(playlistKey)}` as const),

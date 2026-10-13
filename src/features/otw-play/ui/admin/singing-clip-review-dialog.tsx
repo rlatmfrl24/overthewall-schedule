@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { applyReviewCatalogChanges } from "../../queries/review-catalog-changes";
 import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
 import { ReviewPublicationPreview } from "./review-publication-preview";
+import { ReviewSegmentPlayer } from "./review-segment-player";
 import { AI_REVIEW_FIELDS, type AiReviewFields } from "@contracts/otw-play-ai-review";
 import { AiReviewPanel } from "./ai-review-panel";
 import { getAiBatchDraft } from "../../api/ai-batch";
@@ -9,7 +10,7 @@ import { SongConnectionPicker } from "./song-connection-picker";
 import { aiPersonSelection, useAiReviewForm } from "./ai-review-form";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { preservesPlayReview } from "./review-navigation";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type {
   OtwPlayAdminCatalogDto,
@@ -59,6 +60,15 @@ type SelectedParticipant = SelectedSubject & {
   participantRole: OtwPlayParticipantRole;
 };
 
+function ReviewFieldSection({fast,title,summary,required=false,className,children}:{fast:boolean;title:string;summary:string;required?:boolean;className?:string;children:ReactNode}) {
+  const [open,setOpen]=useState(false);
+  if(!fast)return <section className={className}>{children}</section>;
+  return <details open={required || open} className="rounded-lg border bg-background p-3">
+    <summary onClick={e=>{e.preventDefault();setOpen(v=>!v);}} className="min-h-11 cursor-pointer list-none space-y-2"><span className="flex items-center justify-between gap-2 text-sm font-semibold">{title}<span className="text-xs font-normal text-muted-foreground">{required ? "확인 필요" : open ? "접기" : "펼치기"}</span></span><span className="block break-words text-sm">{summary}</span></summary>
+    <div className={`mt-3 border-t pt-3 ${className ?? ''}`}>{children}</div>
+  </details>;
+}
+
 const selectedSubjectFromInput = (
   subject: OtwPlayAdminCatalogSubjectInput,
   catalog: OtwPlayAdminCatalogDto,
@@ -102,6 +112,9 @@ export function SingingClipReviewDialog({
   onReviewSaved,
   onReviewStateChanged,
   onReviewNext,
+  fastReview = false,
+  onDefer,
+  onExclude,
 }: {
   candidate: OtwPlayChannelMonitorCandidateDto | null;
   candidateKind?: "official_video" | "singing_clip";
@@ -115,6 +128,9 @@ export function SingingClipReviewDialog({
   onReviewSaved?: () => void;
   onReviewStateChanged: () => Promise<void>;
   onReviewNext?: () => Promise<void>;
+  fastReview?: boolean;
+  onDefer?: () => void;
+  onExclude?: () => void;
 }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -154,7 +170,7 @@ export function SingingClipReviewDialog({
   const [segmentEnabled, setSegmentEnabled] = useState(false);
   const [internalNote, setInternalNote] = useState("");
   const [releaseType, setReleaseType] = useState<"official_video" | "official_mv">("official_video");
-  const [previewSeconds, setPreviewSeconds] = useState(0);
+  const [previewSeconds, setPreviewSeconds] = useState<number|null>(null);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [reviewBaseline, setReviewBaseline] = useState<{
@@ -399,13 +415,13 @@ export function SingingClipReviewDialog({
       onOpenChange(false);
       await onConverted(converted.performanceId);
     } catch {
-      setSaveMessage("저장 실패 · 입력값과 최신 후보를 확인하고 다시 저장해 주세요.");
+      setSaveMessage(reviewSaved && reviewOnly ? "검수 저장 완료 · 다음 항목을 불러오지 못했습니다. 다시 시도해 주세요." : "저장 실패 · 입력값과 최신 후보를 확인하고 다시 저장해 주세요.");
       if (reviewSaved) {
         await onReviewStateChanged().catch(() => undefined);
       }
       toast({
         variant: "error",
-        description: "검수 영상을 임시 항목으로 저장하지 못했습니다. 최신 후보와 입력값을 확인해 주세요.",
+        description: reviewSaved && reviewOnly ? "검수는 저장됐습니다. 다음 항목을 불러오려면 다시 시도해 주세요." : "검수 영상을 임시 항목으로 저장하지 못했습니다. 최신 후보와 입력값을 확인해 주세요.",
       });
     } finally {
       setSaving(false);
@@ -417,16 +433,8 @@ export function SingingClipReviewDialog({
   const Description = presentation === "page" ? "p" : DialogDescription;
   const Footer = presentation === "page" ? "footer" : DialogFooter;
   const returnToList = () => { if (!saving) onOpenChange(false); };
-  const content = (
-    <>
-        <Header className="space-y-2">
-          {presentation === "page" && <Button variant="ghost" size="sm" disabled={saving} onClick={returnToList}><ArrowLeft /> 검수 목록으로</Button>}
-          <Title ref={headingRef} tabIndex={-1} className="text-xl font-semibold outline-none">{candidateKind === "singing_clip" ? "노래 클립" : "공식 영상"} 검수</Title>
-          <Description className="text-sm text-muted-foreground">
-            {reviewOnly ? "영상과 곡·가창 정보를 확인한 뒤 검수를 저장하세요. 저장한 항목은 목록에서 일괄 임시 등록할 수 있습니다." : "승인 채널의 개별 영상을 곡과 가창자에 연결합니다. 저장 결과는 비공개 가창 임시 항목이며 자동 게시되지 않습니다."}
-          </Description>
-        </Header>
-        {candidate && active && <ReviewPublicationPreview key={candidate.candidateId}
+  const publicationPreview = candidate && active && <ReviewPublicationPreview key={candidate.candidateId}
+          showPlayer={!fastReview}
           videoId={candidate.videoId}
           title={selectedExistingSong?.title ?? songTitle}
           originalArtists={selectedExistingSong ? (selectedExistingSong.originalArtists ?? []).map(artist => artist.displayName) : originalArtists.map(artist => artist.label)}
@@ -436,13 +444,25 @@ export function SingingClipReviewDialog({
           performanceTags={performanceTags} broadcast={broadcast} thumbnailUrl={candidate.thumbnailUrl}
           publishedAt={candidate.publishedAt} channelTitle={candidate.channelTitle}
           startSeconds={startSeconds} endSeconds={endSeconds} segmentValid={segmentValid} existingSong={selectedExistingSong !== null}
-        />}
+        />;
+  if(fastReview && !active)return null;
+  const content = (
+    <>
+        <Header className="space-y-2">
+          {presentation === "page" && !fastReview && <Button variant="ghost" size="sm" disabled={saving} onClick={returnToList}><ArrowLeft /> 검수 목록으로</Button>}
+          <Title ref={headingRef} tabIndex={-1} className="text-xl font-semibold outline-none">{candidateKind === "singing_clip" ? "노래 클립" : "공식 영상"} 검수</Title>
+          <Description className="text-sm text-muted-foreground" hidden={fastReview}>
+            {reviewOnly ? "영상과 곡·가창 정보를 확인한 뒤 검수를 저장하세요. 저장한 항목은 목록에서 일괄 임시 등록할 수 있습니다." : "승인 채널의 개별 영상을 곡과 가창자에 연결합니다. 저장 결과는 비공개 가창 임시 항목이며 자동 게시되지 않습니다."}
+          </Description>
+        </Header>
+        {!fastReview && publicationPreview}
         {candidate ? (
-          <div className={presentation === "page" ? "grid items-start gap-6 lg:grid-cols-[minmax(260px,0.7fr)_minmax(0,1.3fr)]" : "space-y-3"}>
-            <aside className={presentation === "page" ? "space-y-3 lg:sticky lg:top-4" : "space-y-3"}>
-            {presentation === "page" && active && <iframe
-              className="aspect-video max-h-80 w-full rounded-lg border"
-              src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(candidate.videoId)}?start=${previewSeconds}`}
+          <div className={presentation === "page" ? fastReview ? "grid items-start gap-4 md:grid-cols-[minmax(240px,0.8fr)_minmax(0,1.2fr)]" : "grid items-start gap-6 lg:grid-cols-[minmax(260px,0.7fr)_minmax(0,1.3fr)]" : "space-y-3"}>
+            <aside className={presentation === "page" ? "space-y-3 md:sticky md:top-4" : "space-y-3"}>
+            {fastReview && active && <div className="[&_.aspect-video]:w-full [&_.aspect-video]:min-h-[200px]"><ReviewSegmentPlayer videoId={candidate.videoId} startSeconds={previewSeconds ?? parsedStart} endSeconds={parsedEnd} valid={segmentValid} thumbnailUrl={candidate.thumbnailUrl}/></div>}
+            {presentation === "page" && active && !fastReview && <iframe
+              className="aspect-video min-h-[200px] max-h-80 w-full rounded-lg border"
+              src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(candidate.videoId)}?start=${previewSeconds ?? parsedStart}`}
               title={`검수 영상 · ${candidate.title ?? candidate.videoId}`}
               allow="encrypted-media; picture-in-picture; fullscreen"
               allowFullScreen
@@ -477,16 +497,19 @@ export function SingingClipReviewDialog({
 
             {candidate.catalogChannelId === null && <p role="status" className="text-sm text-destructive">업로드 채널 승인이 필요합니다. 채널 설정을 확인한 뒤 검수를 저장하세요.</p>}
             {candidate.availabilityStatus !== "playable" && <p role="status" className="text-sm text-destructive">현재 재생 가능 여부를 확인해야 저장할 수 있습니다.</p>}
-            {onManageChannel && <Button variant="outline" disabled={saving} onClick={onManageChannel}>채널 승인·수집 설정</Button>}
+            {onManageChannel && (!fastReview || candidate.catalogChannelId === null) && <Button variant="outline" disabled={saving} onClick={onManageChannel}>채널 승인·수집 설정</Button>}
             {batchDraft && <p role="status" className="text-sm">AI 초안이 저장되어 있습니다. {batchDraft.candidateVersion !== candidate.candidateVersion || batchDraft.candidateKind !== candidateKind ? "후보가 변경되어 자동 적용하지 않았습니다. 최신 내용과 비교해 주세요." : batchDraft.result.songs.length !== 1 ? "적용할 곡과 구간을 선택해 주세요." : "내용을 확인한 뒤 검수 저장을 진행하세요."} 기존 검수값·작성 중인 입력은 보존합니다.</p>}
             {batchDraftQuery.isError && <p role="alert">저장된 AI 초안을 불러오지 못했습니다. <Button variant="link" onClick={() => void batchDraftQuery.refetch()}>초안 다시 불러오기</Button></p>}
-            <AiReviewPanel compact={presentation === "dialog"} storedDraft={batchDraft} segmentEnabled={segmentEnabled} key={`${candidate.candidateId}:${candidateKind}`} target={{candidateId:candidate.candidateId}} videoId={candidate.videoId} candidateKind={candidateKind} durationSeconds={durationSeconds} initialRange={parsedEnd!==null?{startSeconds:parsedStart,endSeconds:parsedEnd}:null} form={ai} disabled={saving || !active || ["converted","ignored"].includes(candidate.status)} onSeek={presentation==="page"?setPreviewSeconds:undefined} />
+            <ReviewFieldSection fast={fastReview} title="상세 도구·AI 근거" summary={batchDraft ? "저장된 초안과 추정 근거 확인" : "필요할 때 AI 분석 또는 수동 입력"} required={Boolean(batchDraft && (batchDraft.result.songs.length!==1 || batchDraft.candidateVersion!==candidate.candidateVersion))}>
+              <AiReviewPanel compact={presentation === "dialog"} storedDraft={batchDraft} segmentEnabled={segmentEnabled} key={`${candidate.candidateId}:${candidateKind}`} target={{candidateId:candidate.candidateId}} videoId={candidate.videoId} candidateKind={candidateKind} durationSeconds={durationSeconds} initialRange={parsedEnd!==null?{startSeconds:parsedStart,endSeconds:parsedEnd}:null} form={ai} disabled={saving || !active || ["converted","ignored"].includes(candidate.status)} onSeek={presentation==="page"?setPreviewSeconds:undefined} />
+              {fastReview && onManageChannel && candidate.catalogChannelId !== null && <Button variant="outline" disabled={saving} onClick={onManageChannel}>채널 승인·수집 설정</Button>}
+            </ReviewFieldSection>
             </aside>
             <fieldset disabled={saving} className="min-w-0 space-y-6">
-            <section className="grid gap-3 sm:grid-cols-2">
-              <h3 className="text-base font-semibold sm:col-span-2">1. 곡 연결·원곡 정보</h3>
+            <ReviewFieldSection fast={fastReview} title="곡 정보 수정" summary={`${(selectedExistingSong?.title ?? songTitle) || '곡 선택 필요'} · ${selectedExistingSong ? (selectedExistingSong.originalArtists ?? []).map(a=>a.displayName).join(', ') || '원곡 가수 미확인' : originalArtists.map(a=>a.label).join(', ') || '원곡 가수 미확인'}`} required={!songValid} className="grid gap-3 sm:grid-cols-2">
+              {!fastReview && <h3 className="text-base font-semibold sm:col-span-2">1. 곡 연결·원곡 정보</h3>}
               <div role="group" aria-label="곡 연결" className="min-w-0 space-y-3 rounded-lg border bg-muted/10 p-3 sm:col-span-2">
-                <div className="space-y-1.5">
+                <div className="space-y-1.5" hidden={fastReview}>
                   <Label>연결할 곡</Label>
                   <Select value={songId} onValueChange={(value) => { ai.touch("song"); setSongId(value); }}>
                     <SelectTrigger className="w-full" aria-label="연결할 곡"><SelectValue /></SelectTrigger>
@@ -502,6 +525,7 @@ export function SingingClipReviewDialog({
                   inputKey={`${id}-review`} catalog={catalog} selectedSongId={songId}
                   query={songSearch} onQueryChange={setSongSearch}
                   onSelectExisting={(value) => { ai.touch("song"); setSongId(value); }}
+                  onSelectNew={fastReview ? title=>{ai.touch("song");setSongId("__new");setSongTitle(title);} : undefined}
                 />
               </div>
               {songId === "__new" ? (
@@ -563,10 +587,10 @@ export function SingingClipReviewDialog({
                 </Select>}
               </div>
               {candidateKind === "official_video" && <label>공개 형태<SelectField aria-label="공개 형태" value={releaseType} onValueChange={value=>{ai.touch("classification");setReleaseType(value as typeof releaseType);}} options={[{ value: "official_video", label: "공식 영상" }, { value: "official_mv", label: "공식 MV" }]} /></label>}
-            </section>
+            </ReviewFieldSection>
 
-            <section className="space-y-3 border-t pt-4">
-              <h3 className="text-base font-semibold">2. 가창자·참여 형태</h3>
+            <ReviewFieldSection fast={fastReview} title="가창자 수정" summary={participants.map(p=>p.label).join(', ') || '가창자 선택 필요'} required={participants.length===0} className="space-y-3">
+              {!fastReview && <h3 className="text-base font-semibold">2. 가창자·참여 형태</h3>}
               <div className="space-y-1.5">
                 <Label>참여 형태</Label>
                 <Select value={participationType} onValueChange={(value) => { ai.touch("participationType"); setParticipationType(value as OtwPlayParticipationType); }}>
@@ -610,26 +634,26 @@ export function SingingClipReviewDialog({
                   </Select>
                 </div>
               ))}
-            </section>
+            </ReviewFieldSection>
 
-            <section className="grid gap-3 border-t pt-4 sm:grid-cols-2">
-              <h3 className="text-base font-semibold sm:col-span-2">{candidateKind === "singing_clip" ? "3. 방송 출처·가창 구간" : "3. 영상 재생 구간"}</h3>
+            <ReviewFieldSection fast={fastReview} title="가창 구간·방송 정보 수정" summary={`${startSeconds}초부터 ${endSeconds ? `${endSeconds}초까지` : '영상 끝까지'} · ${broadcast.extent === 'full' ? '완곡' : broadcast.extent === 'partial' ? '일부 가창' : '가창 범위 미확인'} · ${broadcast.performedOn ?? '방송일 미확인'}`} required={!segmentValid} className="grid gap-3 sm:grid-cols-2">
+              {!fastReview && <h3 className="text-base font-semibold sm:col-span-2">{candidateKind === "singing_clip" ? "3. 방송 출처·가창 구간" : "3. 영상 재생 구간"}</h3>}
               <div className="space-y-1.5 sm:col-span-2">
-                <Label className="flex items-center gap-2"><Checkbox checked={segmentEnabled} onCheckedChange={checked => { setSegmentEnabled(checked === true); if (!checked) { ai.touch("segment"); setStartSeconds("0"); setEndSeconds(""); } }} />구간 선택</Label>
+                <Label className="flex items-center gap-2"><Checkbox checked={segmentEnabled} onCheckedChange={checked => { setPreviewSeconds(null); setSegmentEnabled(checked === true); if (!checked) { ai.touch("segment"); setStartSeconds("0"); setEndSeconds(""); } }} />구간 선택</Label>
                 <p className="text-xs text-muted-foreground">전체 영상은 선택하지 않아도 돼요. 선택한 경우에만 AI의 시작·종료 위치를 반영합니다.</p>
               </div>
             {candidateKind === "singing_clip" && <div className="sm:col-span-2"><BroadcastFields flat value={broadcast} onChange={value => { if (value.performedOn !== broadcast.performedOn || value.dateEvidence !== broadcast.dateEvidence) ai.touch("broadcastDate"); if(value.originalUrl !== broadcast.originalUrl) ai.touch("originalUrl"); if(value.extent !== broadcast.extent) ai.touch("extent"); setBroadcast(value); }} /></div>}
               <div className="space-y-1.5">
                 <Label htmlFor={`${id}-clip-start-seconds`}>시작 위치(초)</Label>
-                <Input id={`${id}-clip-start-seconds`} type="number" min={0} value={startSeconds} onChange={(event) => { ai.touch("segment"); setSegmentEnabled(true); setStartSeconds(event.target.value); }} />
+                <Input id={`${id}-clip-start-seconds`} type="number" min={0} value={startSeconds} onChange={(event) => { ai.touch("segment"); setPreviewSeconds(null); setSegmentEnabled(true); setStartSeconds(event.target.value); }} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={`${id}-clip-end-seconds`}>종료 위치(초)</Label>
-                <Input id={`${id}-clip-end-seconds`} type="number" min={0} value={endSeconds} onChange={(event) => { ai.touch("segment"); setSegmentEnabled(true); setEndSeconds(event.target.value); }} placeholder="전체 영상이면 비워두기" />
+                <Input id={`${id}-clip-end-seconds`} type="number" min={0} value={endSeconds} onChange={(event) => { ai.touch("segment"); setPreviewSeconds(null); setSegmentEnabled(true); setEndSeconds(event.target.value); }} placeholder="전체 영상이면 비워두기" />
               </div>
-            </section>
-            <section className="space-y-3 border-t pt-4">
-              <h3 className="text-base font-semibold">4. 추가 분류·검수 메모</h3>
+            </ReviewFieldSection>
+            <ReviewFieldSection fast={fastReview} title="추가 분류·검수 메모" summary={performanceTags.join(', ') || internalNote || '필요할 때 추가'} className="space-y-3">
+              {!fastReview && <h3 className="text-base font-semibold">4. 추가 분류·검수 메모</h3>}
               <div className="sm:col-span-2">
                 <SongTagPicker
                   tags={performanceTags}
@@ -646,7 +670,8 @@ export function SingingClipReviewDialog({
                 <Label htmlFor={`${id}-clip-internal-note`}>검수 메모</Label>
                 <Textarea id={`${id}-clip-internal-note`} value={internalNote} onChange={(event) => setInternalNote(event.target.value)} placeholder="원본 방송, 방송일 또는 확인 근거가 있으면 기록" />
               </div>
-            </section>
+            </ReviewFieldSection>
+            {fastReview && publicationPreview}
             </fieldset>
           </div>
         ) : null}
@@ -657,12 +682,16 @@ export function SingingClipReviewDialog({
         <div ref={footerRef} className={presentation === "page" ? "otw-play-review-footer" : "sticky bottom-0 z-10"}>
         <Footer className="flex flex-wrap items-center justify-end gap-2 border-t bg-background py-3">
           {presentation === "page" && <p className="mr-auto text-xs text-muted-foreground">{dirty ? "작성 중인 내용은 목록으로 돌아가도 유지됩니다." : "공개는 카탈로그에서 별도로 진행합니다."}</p>}
-          <Button variant="outline" disabled={saving} onClick={async () => { if (presentation === "page" || await canDiscard()) onOpenChange(false); }}>{presentation === "page" ? "목록으로" : "취소"}</Button>
+          {fastReview ? <>
+            <Button variant="ghost" disabled={saving} onClick={onExclude}>제외</Button>
+            <Button variant="outline" disabled={saving} onClick={onDefer}>보류하고 다음</Button>
+            <Button className="min-h-11" disabled={!canSave} onClick={()=>void save(true)}>{saving ? "저장 중…" : "확인하고 다음"}</Button>
+          </> : <><Button variant="outline" disabled={saving} onClick={async () => { if (presentation === "page" || await canDiscard()) onOpenChange(false); }}>{presentation === "page" ? "목록으로" : "취소"}</Button>
           <Button disabled={!canSave} onClick={() => void save()}>
             {saving ? <Loader2 className="animate-spin" /> : null}
             {reviewOnly ? "검수 저장 · 등록 준비 완료" : "검수 완료 후 임시 등록"}
           </Button>
-          {reviewOnly && onReviewNext && <Button disabled={!canSave} onClick={() => void save(true)}>검수 저장 후 다음 항목</Button>}
+          {reviewOnly && onReviewNext && <Button disabled={!canSave} onClick={() => void save(true)}>검수 저장 후 다음 항목</Button>}</>}
         </Footer>
         </div>
     </>

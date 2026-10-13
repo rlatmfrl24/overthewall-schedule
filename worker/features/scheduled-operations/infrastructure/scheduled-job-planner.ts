@@ -4,6 +4,7 @@ import { readDueDataRetentionPolicyIds } from "../../operations";
 import {
   D1IngestionRepository,
   D1AiBatchRepository,
+  D1WorkQueueRepository,
   CloudflareIngestionReadBudget,
   D1ChannelMonitorRepository,
   readOtwPlayAutomationPaused,
@@ -189,17 +190,20 @@ const planSimpleJob = async (
     case "ingestion_recovery": {
       const ingestion = new D1IngestionRepository(env.otw_db);
       const budget = await new CloudflareIngestionReadBudget(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_D1_TOKEN, env.OTW_PLAY_D1_READ_DAILY_TARGET).read();
-      const [recoverScheduled, cleanup, pending, aiPending] = await Promise.all([
+      const work=new D1WorkQueueRepository(env.otw_db);
+      const [recoverScheduled, cleanup, pending, aiPending, workPending, workExpired] = await Promise.all([
         repository.hasRecoveryWork(timestamp),
         ingestion.hasExpiredApiData(timestamp),
         paused || budget.status === "blocked" ? Promise.resolve([]) : ingestion.listPendingMessages(timestamp, 1),
         env.OTW_PLAY_AI_REVIEW_ENABLED === "true" && env.GEMINI_API_KEY && env.OTW_PLAY_AI_REVIEW_QUEUE
           ? new D1AiBatchRepository(env.otw_db).hasRecoveryWork(timestamp) : Promise.resolve(false),
+        work.hasRecoveryWork(timestamp,budget.status !== "blocked"),
+        work.hasExpired(timestamp),
       ]);
       const phases = [
         ...(recoverScheduled ? ["recover-scheduled"] : []),
-        ...(cleanup ? ["cleanup"] : []),
-        ...(pending.length > 0 || aiPending ? ["requeue"] : []),
+        ...(cleanup || workExpired ? ["cleanup"] : []),
+        ...(pending.length > 0 || aiPending || workPending ? ["requeue"] : []),
       ];
       return phases.map((phase) => ({
         targetKey: phase,

@@ -10,6 +10,8 @@ const service = vi.hoisted(() => ({
 vi.mock("./ingestion", () => ({
   createOtwPlayIngestionService: () => service,
 }));
+const work=vi.hoisted(()=>({afterIngestion:vi.fn(),process:vi.fn(),dead:vi.fn()}));
+vi.mock("./work-queue",()=>({createOtwPlayWorkQueueService:()=>work,isWorkQueueMessage:(v:unknown)=>Boolean(v && typeof v === "object" && (v as {kind?:string}).kind === "otw_play_work_queue")}));
 
 const batch = (
   queue: string,
@@ -29,8 +31,17 @@ const message = {
 
 describe("OTW Play ingestion queue handler", () => {
   beforeEach(() => {
+    work.afterIngestion.mockReset();work.process.mockReset();work.dead.mockReset();
     service.process.mockReset();
     service.markDeadLetter.mockReset();
+  });
+  it("routes work preparation and DLQ failure through the same ingestion binding",async()=>{
+    const body={kind:"otw_play_work_queue",schemaVersion:1,target:"batch",id:"batch"};
+    const ack=vi.fn();
+    await handleQueue(batch("otw-play-ingestion",body,ack),{} as Env);
+    expect(work.process).toHaveBeenCalledWith(body);expect(ack).toHaveBeenCalledOnce();
+    await handleQueue(batch("otw-dead-letter",body),{} as Env);
+    expect(work.dead).toHaveBeenCalledWith(body);
   });
 
   it("acks successful and malformed main-queue deliveries", async () => {

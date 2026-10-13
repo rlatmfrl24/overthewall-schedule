@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloudflareIngestionReadBudget, D1IngestionRepository, D1AiBatchRepository } from "../../otw-play";
+import { CloudflareIngestionReadBudget, D1IngestionRepository, D1AiBatchRepository, D1WorkQueueRepository } from "../../otw-play";
 import type {
   NewScheduledItem,
   ScheduledJobRunRecord,
@@ -77,6 +77,8 @@ const makeEnv = (
 describe("ScheduledJobPlanner interval eligibility", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.spyOn(D1WorkQueueRepository.prototype,"hasRecoveryWork").mockResolvedValue(false);
+    vi.spyOn(D1WorkQueueRepository.prototype,"hasExpired").mockResolvedValue(false);
     mocks.getScheduledXCollectionDecision.mockResolvedValue({
       shouldRun: true,
     });

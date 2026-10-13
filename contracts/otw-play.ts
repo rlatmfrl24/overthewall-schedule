@@ -169,6 +169,7 @@ export interface OtwPlayIngestionJobCountsDto {
 
 export interface OtwPlayIngestionJobDto {
   candidateKind?: OtwPlayIngestionCandidateKind;
+  workBatchId?: string;
   id: string;
   playlistId: string;
   playlistTitle: string | null;
@@ -1547,6 +1548,7 @@ export interface OtwPlayReviewFilters {
   cursor?: string;
 }
 export interface OtwPlayReviewItemDto {
+  workBatchId?: string;
   id: string;
   kind: "candidate" | "proposal";
   candidateKind: OtwPlayIngestionCandidateKind;

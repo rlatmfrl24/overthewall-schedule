@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { XReferenceHydrationResultDto } from "@contracts/x-posts";
 import type { Env } from "../../../platform/types";
 import type { ScheduledJobItemRecord } from "../../../platform/scheduled-jobs";
-import { AiReviewService, AiBatchService, D1AiBatchRepository, D1IngestionRepository, CloudflareIngestionReadBudget, IngestionService } from "../../otw-play";
+import { AiReviewService, AiBatchService, D1AiBatchRepository, D1WorkQueueRepository, WorkQueueService, D1IngestionRepository, CloudflareIngestionReadBudget, IngestionService } from "../../otw-play";
 import { ScheduledJobPlanner } from "./scheduled-job-planner";
 import * as schedules from "../../schedules";
 import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
@@ -31,6 +31,12 @@ const result = (
 });
 
 describe("scheduled job executor outcomes", () => {
+  beforeEach(()=>{
+    vi.spyOn(WorkQueueService.prototype,"clearExpired").mockResolvedValue();
+    vi.spyOn(WorkQueueService.prototype,"recover").mockResolvedValue({queued:0,failed:0});
+    vi.spyOn(D1WorkQueueRepository.prototype,"hasRecoveryWork").mockResolvedValue(false);
+    vi.spyOn(D1WorkQueueRepository.prototype,"hasExpired").mockResolvedValue(false);
+  });
   afterEach(() => vi.restoreAllMocks());
 
   const executeScheduleScan = async (statuses: ("complete" | "failed" | "incomplete")[], attempts = 3) => {

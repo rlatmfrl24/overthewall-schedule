@@ -62,6 +62,7 @@ export interface CreateIngestionJobCommand {
   input: OtwPlayCreatePlaylistImportRequest;
   preflight: OtwPlayPlaylistPreflightDto;
   now: number;
+  initialPageToken?: string | null;
 }
 
 export type IngestionReviewCandidate = OtwPlayIngestionReviewCandidateDto;

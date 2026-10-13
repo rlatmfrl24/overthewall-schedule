@@ -48,6 +48,8 @@ const expectedPolicies = [
     "/api/play/admin/playlists/defaults",
     "/api/play/admin/playlists/defaults/:playlistKey",
     "/api/play/admin/review-items",
+    "/api/play/admin/work-queues",
+    "/api/play/admin/work-batches/:id",
     "/api/play/admin/ai-review-batches",
     "/api/play/admin/ai-review-batches/:id",
     "/api/play/admin/ai-review-drafts/:id",
@@ -128,6 +130,14 @@ const expectedPolicies = [
     "/api/ddays",
     "/api/naver-cafe/sources",
   ] },
+  { method: "POST", auth: "admin", successStatus: 202,
+    cache: "no-store", paths: [
+    "/api/play/admin/work-queues",
+    "/api/play/admin/work-queues/:id/command",
+    "/api/play/admin/work-batches/:id/command",
+  ] },
+  { method: "PATCH", auth: "admin", successStatus: 200,
+    cache: "no-store", paths: ["/api/play/admin/work-items/:id"] },
   { method: "PUT", auth: "admin", successStatus: 200,
     cache: "no-store", paths: [
     "/api/kirinuki/channels",

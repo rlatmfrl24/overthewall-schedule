@@ -70,6 +70,9 @@ export interface OtwPlayYouTubePlaylistItem {
 
 export interface OtwPlayYouTubePlaylistPage {
   items: OtwPlayYouTubePlaylistItem[];
+  unavailableItems?: { playlistItemId: string; position: number }[];
+  incomplete?: boolean;
+  totalResults?: number;
   nextPageToken: string | null;
 }
 

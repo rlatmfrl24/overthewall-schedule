@@ -9,7 +9,8 @@ import { BroadcastInformation } from "../public/broadcast-information";
 import { OtwPlayPerformanceBadges, OtwPlayPerformanceTags, OtwPlaySongTags } from "../public/catalog-components";
 import { otwPlayParticipantRoleLabel, otwPlayParticipantRoleOrder } from "../public/participant-presentation";
 
-export function ReviewPublicationPreview({ videoId, title, originalArtists, songTags, participants, relation, releaseType, participation, performanceTags, broadcast, thumbnailUrl, publishedAt, channelTitle, startSeconds, endSeconds, segmentValid, existingSong }: {
+export function ReviewPublicationPreview({ videoId, title, originalArtists, songTags, participants, relation, releaseType, participation, performanceTags, broadcast, thumbnailUrl, publishedAt, channelTitle, startSeconds, endSeconds, segmentValid, existingSong,showPlayer=true }: {
+  showPlayer?:boolean;
   videoId: string;
   title: string;
   originalArtists: string[];
@@ -42,7 +43,7 @@ export function ReviewPublicationPreview({ videoId, title, originalArtists, song
         <p className="mt-1 text-xs text-muted-foreground">{existingSong ? "기존 곡 상세에 이 가창 버전이 추가됩니다. 곡명·원곡 가수·곡 분류는 카탈로그 정보를 사용합니다." : "새 곡 상세에 이 가창 버전이 표시됩니다."} 다른 가창 버전과 목록 정렬은 이 미리보기에 포함하지 않습니다.</p>
       </div>
       <section className="play-detail-hero gap-5 border bg-card p-4 md:p-6">
-        <ReviewSegmentPlayer key={`${videoId}:${startSeconds}:${endSeconds}`} videoId={videoId} startSeconds={Number(startSeconds)} endSeconds={endSeconds.trim() ? Number(endSeconds) : null} valid={segmentValid} thumbnailUrl={thumbnailUrl} />
+        {showPlayer ? <ReviewSegmentPlayer key={`${videoId}:${startSeconds}:${endSeconds}`} videoId={videoId} startSeconds={Number(startSeconds)} endSeconds={endSeconds.trim() ? Number(endSeconds) : null} valid={segmentValid} thumbnailUrl={thumbnailUrl} /> : thumbnailUrl ? <img src={thumbnailUrl} alt="" className="aspect-video w-full rounded-xl object-contain"/> : null}
         <div className="flex flex-col justify-center gap-4">
           <div><h4 className="play-detail-title text-2xl sm:text-3xl">{title.trim() || "곡명 미입력"}</h4><p className="mt-2 text-sm text-muted-foreground">원곡 가수 {originalArtists.join(", ") || "정보 없음"}</p></div>
           <div className="flex flex-wrap gap-1.5">{(primary.length ? primary : participants.slice(0, 1)).map(person => <Badge key={person.key} variant="outline">{person.label}</Badge>)}</div>
