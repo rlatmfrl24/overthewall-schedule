@@ -6,6 +6,8 @@ import {
 import type { ScheduledOperationsWorkflowParams } from "@contracts/scheduled-operations";
 
 export interface Env {
+  SITE_ID?: string;
+  SITE_PUBLIC_ORIGIN?: string;
   YOUTUBE_API_KEY: string;
   GEMINI_API_KEY?: string;
   OTW_PLAY_AI_REVIEW_ENABLED?: string;

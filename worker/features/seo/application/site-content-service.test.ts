@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { getSiteDefinition } from "@contracts/site-definition";
 import type { MemberDto } from "@contracts/members";
 import { siteContentCacheControl, scheduleRange } from "@contracts/site-public-content";
 import type { SiteContentReader } from "./ports/site-content-reader";
@@ -21,10 +22,25 @@ const setup = (requiresMembership: boolean | undefined = true) => {
     readFeed: vi.fn(async () => [{ id: "x", title: "공개 X", status: "available" as const, updatedAt: null, items: [{ title: "공개 게시글" }] }]),
     readPlaySongs: vi.fn(async () => [{ id: "play", title: "공개 곡", status: "available" as const, updatedAt: null, items: [{ title: "공개 곡", url: "/play/songs/song" }] }]),
   };
-  return { seo, reader, service: new SiteContentService(seo, reader) };
+  return { seo, reader, service: new SiteContentService(seo, reader, site) };
 };
 
 describe("public site content", () => {
+  it("keeps LuvDia canonical and JSON-LD local and excludes private feed and member Play", async () => {
+    const { seo, reader } = setup();
+    const site = { ...getSiteDefinition("luvdia"), publicOrigin: "http://localhost:5174" };
+    const service = new SiteContentService(seo, reader, site);
+    const weekly = (await service.read("/weekly", undefined, now))!;
+    expect(weekly.metadata.canonical).toBe("http://localhost:5174/weekly");
+    expect(JSON.stringify(weekly.structuredData)).toContain("LuvDia Schedule");
+    expect(JSON.stringify(weekly.structuredData)).not.toContain("otw-schedule.info");
+    vi.mocked(seo.readFeedState).mockResolvedValue({ xVisibility: "members", cafeEnabled: false, cafeVisibility: "private" });
+    expect((await service.read("/feed"))!.structuredData).toBeNull();
+    expect((await service.read("/play"))!.structuredData).toBeNull();
+    const urls = await new SiteSeoService(seo, site).buildSitemapUrls();
+    expect(urls).toContain(weekly.metadata.canonical);
+    expect(urls.some(url => url.includes("/play") || url.includes("/feed") || url.includes("otw-schedule.info"))).toBe(false);
+  });
   it("uses Korean dates, Monday weeks and expires before midnight without fabricating live status", async () => {
     const { reader, service } = setup();
     const content = (await service.read("/weekly", undefined, now))!;
@@ -40,7 +56,7 @@ describe("public site content", () => {
     const { seo, reader, service } = setup();
     const cached = (await service.read("/", undefined, now))!;
     const cache = { get: vi.fn(async () => cached), put: vi.fn() };
-    const cachedService = new SiteContentService(seo, reader, cache);
+    const cachedService = new SiteContentService(seo, reader, site, cache);
     vi.mocked(reader.readSchedule).mockClear();
     const hit = (await cachedService.read("/", undefined, now + 10_000))!;
     expect(hit.generatedAt).toBe(cached.generatedAt);
@@ -48,6 +64,18 @@ describe("public site content", () => {
     expect(reader.readSchedule).not.toHaveBeenCalled();
     await cachedService.read("/", undefined, now + 40_000);
     expect(reader.readSchedule).toHaveBeenCalledWith("2026-09-23", "2026-09-23");
+  });
+
+  it("ignores cached metadata from a different site origin", async () => {
+    const { seo, reader, service } = setup();
+    const cached = (await service.read("/", undefined, now))!;
+    const cache = { get: vi.fn(async () => cached), put: vi.fn() };
+    const luvdia = { ...getSiteDefinition("luvdia"), publicOrigin: "http://localhost:5174" };
+    vi.mocked(reader.readSchedule).mockClear();
+    const content = (await new SiteContentService(seo, reader, luvdia, cache).read("/", undefined, now))!;
+    expect(content.metadata.canonical).toBe("http://localhost:5174/");
+    expect(reader.readSchedule).toHaveBeenCalled();
+    expect(cache.put).toHaveBeenCalledWith(content);
   });
 
   it.each([true, undefined])("does not disclose Play when membership policy is %s", async requiresMembership => {
@@ -61,7 +89,7 @@ describe("public site content", () => {
     }
     expect(reader.readPlaySongs).not.toHaveBeenCalled();
     expect(seo.findPublishedPlaySongBySlug).not.toHaveBeenCalled();
-    expect(await new SiteSeoService(seo).buildSitemapUrls()).not.toContain("https://otw-schedule.info/play/songs/song");
+    expect(await new SiteSeoService(seo, site).buildSitemapUrls()).not.toContain("https://otw-schedule.info/play/songs/song");
   });
 
   it("includes only published Play pages under explicit anonymous policy", async () => {
@@ -70,10 +98,10 @@ describe("public site content", () => {
     expect(content.sections[0].items[0].title).toBe("공개 곡");
     expect(siteContentCacheControl(content)).toBe("no-store");
     expect(reader.readPlaySongs).toHaveBeenCalledWith("song");
-    expect(await new SiteSeoService(seo).buildSitemapUrls()).toContain(content.metadata.canonical);
+    expect(await new SiteSeoService(seo, site).buildSitemapUrls()).toContain(content.metadata.canonical);
     vi.mocked(seo.findPublishedPlaySongBySlug).mockResolvedValue(null);
     expect(await service.read("/play/songs/draft")).toBeNull();
-    expect(await new SiteSeoService(seo).readPlaySongs()).toMatchObject({ robots: "noindex,follow", sitemap: false });
+    expect(await new SiteSeoService(seo, site).readPlaySongs()).toMatchObject({ robots: "noindex,follow", sitemap: false });
   });
 
   it("rejects a public policy change during a feed read", async () => {
@@ -102,3 +130,5 @@ describe("public site content", () => {
     await expect(service.read("/")).rejects.toThrow("database unavailable");
   });
 });
+
+const site = getSiteDefinition("otw");

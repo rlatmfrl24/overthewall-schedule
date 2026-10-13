@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { Button } from "@/shared/ui/button";
 import { SignInButton, useUser } from "@clerk/clerk-react";
 import { LoaderCircle, Music2 } from "lucide-react";
@@ -14,7 +15,7 @@ export function OtwPlayMemberShell({ children }: { children: ReactNode }) {
       <OtwPlayFrame>
         <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
           <p className="text-sm text-muted-foreground">곡 제안은 PC에서 이용해 주세요.</p>
-          <Button asChild className="rounded-full"><Link to="/play">OTW Play로 돌아가기</Link></Button>
+          <Button asChild className="rounded-full"><Link to="/play">{site.playName}로 돌아가기</Link></Button>
         </main>
       </OtwPlayFrame>
     );

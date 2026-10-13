@@ -34,3 +34,14 @@ export function parseSiteId(value: string | undefined): SiteId {
 export function getSiteDefinition(siteId: SiteId): SiteDefinition {
   return definitions[parseSiteId(siteId)];
 }
+
+export function requireSiteOrigin(site: SiteDefinition): string {
+  if (!site.publicOrigin) throw new Error(`Missing public origin for ${site.id}.`);
+  const url = new URL(site.publicOrigin);
+  if (!["http:", "https:"].includes(url.protocol) ||
+      (url.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) ||
+      url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+    throw new Error(`Invalid public origin for ${site.id}.`);
+  }
+  return url.origin;
+}

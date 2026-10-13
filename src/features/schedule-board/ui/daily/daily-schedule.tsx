@@ -418,7 +418,7 @@ export const DailySchedule = ({
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = getSnapshotFilename(format(currentDate, "yyyy-MM-dd"), viewMode, design);
+      anchor.download = getSnapshotFilename(format(currentDate, "yyyy-MM-dd"), viewMode, design, site);
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -843,3 +843,4 @@ export const DailySchedule = ({
   );
 };
 import { useSiteContentDate } from "@/features/site-content";
+import { site } from "@/shared/config/site";

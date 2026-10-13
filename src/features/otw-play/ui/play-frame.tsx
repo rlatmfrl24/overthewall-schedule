@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import type { OtwPlaySubmissionKind } from "@contracts/otw-play";
 import { SectionNavigation } from "@/shared/ui/section-navigation";
 import { Link } from "@tanstack/react-router";
@@ -82,14 +83,14 @@ function OtwPlayHeader({
         <div className="play-header-navigation">
         <Link
           to="/play"
-          aria-label="OTW Play 홈"
+          aria-label={`${site.playName} 홈`}
           className="play-wordmark flex shrink-0 items-center gap-2 font-bold"
         >
           <Music2 className="size-5" />
-          <span>OTW Play</span>
+          <span>{site.playName}</span>
         </Link>
           {showCatalogTabs ? (
-            <SectionNavigation label="OTW Play 탐색" className="play-tabs">
+            <SectionNavigation label={`${site.playName} 탐색`} className="play-tabs">
               <span ref={indicatorRef} className="play-tab-indicator" aria-hidden="true" hidden />
               {catalogTabs.filter(tab => showClips || tab.to !== "/play/clips").map((tab) => (
                 <Tooltip key={tab.to} delayDuration={250}>

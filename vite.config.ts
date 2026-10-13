@@ -14,7 +14,9 @@ import {
   assertClerkSiteIdentity,
   resolveClerkEnvironmentTarget,
 } from "./scripts/clerk-environment.mjs";
-import { parseSiteId } from "./contracts/site-definition";
+import { getSiteDefinition, parseSiteId } from "./contracts/site-definition";
+import { resolveSiteSeo } from "./contracts/site-seo";
+import { renderRobots, renderSeoDocument } from "./scripts/generate-seo-assets";
 import { getSiteTarget, getSiteEnvDirectory, loadSiteEnvironment, resolveSiteOrigin } from "./scripts/site-target.mjs";
 import { writeLocalSiteConfig } from "./scripts/local-site-config.mjs";
 
@@ -51,6 +53,7 @@ export default defineConfig(({ command, mode, isPreview }) => {
   }
   const local = command === "serve" && !isPreview;
   const publicOrigin = local ? getLocalDevOrigin(process.env, siteId) : resolveSiteOrigin(siteId, environment);
+  const site = { ...getSiteDefinition(siteId), publicOrigin };
   const configPath = local ? writeLocalSiteConfig(siteId, environment) : target.configPath;
 
   return {
@@ -69,6 +72,17 @@ export default defineConfig(({ command, mode, isPreview }) => {
       watch: { ignored: ["**/coverage/**", "**/.tmp/**"] },
     },
     plugins: [
+      {
+        name: "site-seo-shell",
+        transformIndexHtml: (html: string) => renderSeoDocument(html, resolveSiteSeo("/", site), site),
+        configureServer(server) {
+          server.middlewares.use((request, response, next) => {
+            if (request.url?.split("?")[0] !== "/robots.txt") return next();
+            response.setHeader("Content-Type", "text/plain; charset=utf-8");
+            response.end(renderRobots(site));
+          });
+        },
+      },
       spaDevRewrite(),
       tanstackRouter({
         target: "react",

@@ -249,6 +249,7 @@ export const createSiteSeoHandler = (
   }
 
   const service = getService(env);
+  const site = service.site;
   if (!env.ASSETS && url.pathname !== "/sitemap.xml") {
     console.error("[seo] ASSETS binding is unavailable");
     return unavailable(request);
@@ -264,7 +265,7 @@ export const createSiteSeoHandler = (
   }
 
   if (url.pathname === "/feed") {
-    let metadata = buildFeedSiteSeo(false);
+    let metadata = buildFeedSiteSeo(false, site);
     try {
       metadata = (await service.readFeed()).metadata;
     } catch (error) {
@@ -285,18 +286,18 @@ export const createSiteSeoHandler = (
         const asset = await env.ASSETS!.fetch(assetRequest(request, "/404.html"));
         return toHeadResponse(
           request,
-          rewritePlayHtml(asset, buildNotFoundSiteSeo(url.pathname), 404),
+          rewritePlayHtml(asset, buildNotFoundSiteSeo(url.pathname, site), 404),
         );
       }
       if (playRoute.kind === "clips") {
         const asset = await env.ASSETS!.fetch(assetRequest(request, "/"));
-        return toHeadResponse(request, rewritePlayHtml(asset, buildPlayClipsSiteSeo(playRoute.canonicalPath)));
+        return toHeadResponse(request, rewritePlayHtml(asset, buildPlayClipsSiteSeo(playRoute.canonicalPath, site)));
       }
       if (playRoute.kind === "private") {
         const asset = await env.ASSETS!.fetch(assetRequest(request, "/"));
         return toHeadResponse(
           request,
-          rewritePlayHtml(asset, buildPlayPrivateSiteSeo(playRoute.canonicalPath)),
+          rewritePlayHtml(asset, buildPlayPrivateSiteSeo(playRoute.canonicalPath, site)),
         );
       }
 
@@ -316,7 +317,7 @@ export const createSiteSeoHandler = (
           const asset = await env.ASSETS!.fetch(assetRequest(request, "/404.html"));
           return toHeadResponse(
             request,
-            rewritePlayHtml(asset, buildNotFoundSiteSeo(url.pathname), 404),
+            rewritePlayHtml(asset, buildNotFoundSiteSeo(url.pathname, site), 404),
           );
         }
         if (playRoute.kind === "member") {
@@ -339,7 +340,7 @@ export const createSiteSeoHandler = (
         const asset = await env.ASSETS!.fetch(assetRequest(request, "/404.html"));
         return toHeadResponse(
           request,
-          rewritePlayHtml(asset, buildNotFoundSiteSeo(url.pathname), 404),
+          rewritePlayHtml(asset, buildNotFoundSiteSeo(url.pathname, site), 404),
         );
       }
       const asset = await env.ASSETS!.fetch(assetRequest(request, "/"));
@@ -363,7 +364,7 @@ export const createSiteSeoHandler = (
     const member = code ? await service.findProfile(code) : null;
     if (!member) {
       const asset = await env.ASSETS!.fetch(assetRequest(request, "/404.html"));
-      const response = rewriteHtml(asset, buildNotFoundSiteSeo(url.pathname), 404);
+      const response = rewriteHtml(asset, buildNotFoundSiteSeo(url.pathname, site), 404);
       response.headers.set("Cache-Control", "no-store");
       response.headers.set("X-Robots-Tag", "noindex,nofollow");
       return toHeadResponse(request, response);

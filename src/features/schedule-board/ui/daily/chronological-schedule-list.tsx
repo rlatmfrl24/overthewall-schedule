@@ -1,3 +1,5 @@
+import { site } from "@/shared/config/site";
+import { getCurrentMemberAffiliation } from "@/features/members";
 import {
   useMemo,
   type ComponentType,
@@ -252,9 +254,9 @@ const ScheduleBoardRow = ({
                 <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" />
               )}
             </div>
-            {member.unit_name && (
+            {getCurrentMemberAffiliation(member, site) && (
               <p className="truncate text-xs font-bold text-muted-foreground">
-                {member.unit_name}
+                {getCurrentMemberAffiliation(member, site)}
               </p>
             )}
           </div>

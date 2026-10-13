@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { SecondaryAction } from "@/shared/ui/secondary-action";
 import { PlaySubmissionLimit } from "./play-submission-limit";
 import { preservesPlayReview } from "./review-navigation";
@@ -388,7 +389,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
   return (
     <div className="otw-play-admin min-w-0 space-y-3">
       <AdminSectionHeader
-        title={activeSection ? SECTIONS.find((item) => item.value === section)?.label ?? "OTW Play" : "OTW Play 카탈로그"}
+        title={activeSection ? SECTIONS.find((item) => item.value === section)?.label ?? site.playName : `${site.playName} 카탈로그`}
         description={section === "import" ? "플레이리스트를 50개씩 준비하고 한 곡씩 검수합니다. 비공개 등록 후 게시는 카탈로그에서 진행합니다." : section === "channels" ? "채널 수집 감시, 승인 상태와 연결된 인물·그룹을 함께 관리합니다." : section === "operations" ? "공개 설정, 영상 재생 상태와 서비스 지표를 함께 확인합니다." : undefined}
         metadata={catalogSection ? <><QueryReadback className="m-0" updatedAt={catalogQuery.dataUpdatedAt} fetching={catalogQuery.isFetching} error={catalogQuery.isError && Boolean(catalog)} />{catalog && section === "catalog" ? <span>곡 {new Set(catalog.performances.map(performance => performance.songId)).size} · 가창 {catalog.performances.length}</span> : null}</> : undefined}
         actions={
@@ -444,7 +445,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
           role="alert"
           className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm"
         >
-          OTW Play 관리자 카탈로그를 불러오지 못했습니다. 카탈로그 작업은
+          {site.playName} 관리자 카탈로그를 불러오지 못했습니다. 카탈로그 작업은
           복구 후 다시 시도해 주세요. 운영·공개와 소스 상태는 위 메뉴에서
           독립적으로 확인할 수 있습니다.
         </div>

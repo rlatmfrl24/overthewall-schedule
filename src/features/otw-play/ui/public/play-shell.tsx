@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { requiresOtwPlayMembership } from "@contracts/otw-play-access";
 import { QueryState } from "@/shared/ui/query-state";
 import { Input } from "@/shared/ui/input";
@@ -45,7 +46,7 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
     return (
       <main className="flex min-h-0 flex-1 items-center justify-center" aria-busy="true">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <LoaderCircle className="size-4 animate-spin" /> OTW Play 공개 상태 확인 중
+          <LoaderCircle className="size-4 animate-spin" /> {site.playName} 공개 상태 확인 중
         </div>
       </main>
     );
@@ -73,7 +74,7 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
   if (!isSignedIn) {
     return (
       <OtwPlayAccessCard
-        title="로그인하고 OTW Play를 만나보세요"
+        title={`로그인하고 ${site.playName}를 만나보세요`}
         description={mobile ? "OTW 회원이라면 노래를 듣고 플레이리스트를 이용할 수 있어요." : "OTW 회원이라면 노래를 듣고 플레이리스트와 곡 제안을 이용할 수 있어요."}
       >
         <SignInButton>
@@ -127,7 +128,7 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
 
   return (
     <OtwPlayAccessCard
-      title="OTW Play 공개 준비 중입니다"
+      title={`${site.playName} 공개 준비 중입니다`}
       description={mobile ? "공개 후 이곳에서 노래와 플레이리스트를 만나보세요." : "곡 제안과 내 제안은 공개 전에도 계속 이용할 수 있습니다."}
     >
       {!mobile && <Button asChild className="w-full rounded-full">
@@ -176,7 +177,7 @@ function AuthorizedOtwPlayShell({ children }: { children: ReactNode }) {
 function OtwPlayConfigError({ onRetry }: { onRetry: () => void }) {
   return (
     <main className="flex min-h-0 flex-1 items-center justify-center p-5">
-      <QueryState state="error" headingLevel={1} title="OTW Play 상태를 확인하지 못했습니다"
+      <QueryState state="error" headingLevel={1} title={`${site.playName} 상태를 확인하지 못했습니다`}
         description="잠시 후 다시 시도해 주세요." action={{ onClick: onRetry }}
         className="max-w-md rounded-xl border bg-card p-6 shadow-sm" />
     </main>
@@ -190,7 +191,7 @@ function AdminPreviewOtwPlayShell({ children }: { children: ReactNode }) {
     return (
       <main className="flex min-h-0 flex-1 items-center justify-center" aria-busy="true">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <LoaderCircle className="size-4 animate-spin" /> OTW Play 준비 상태 확인 중
+          <LoaderCircle className="size-4 animate-spin" /> {site.playName} 준비 상태 확인 중
         </div>
       </main>
     );
@@ -308,7 +309,7 @@ function PlayHeaderSearch() {
     <form
       id="otw-play-header-search-form"
       role="search"
-      aria-label="OTW Play 빠른 검색"
+      aria-label={`${site.playName} 빠른 검색`}
       onSubmit={submit}
       onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}
       onKeyDown={(event) => {

@@ -19,10 +19,13 @@ describe("local Worker config isolation", () => {
     try {
       writeFileSync(join(root, "wrangler.luvdia.jsonc"), JSON.stringify({ main: "worker/index.ts", assets: { directory: "dist/luvdia/client" }, d1_databases: [], r2_buckets: [] }));
       const path = writeLocalSiteConfig("luvdia", { CLERK_ADMIN_IDS: "selected-private", VITE_CLERK_PUBLISHABLE_KEY: "public-key" }, root);
+      expect(JSON.parse(readFileSync(path, "utf8")).vars.SITE_PUBLIC_ORIGIN).toBe("http://localhost:5174");
       expect(readFileSync(path, "utf8")).not.toContain("selected-private");
       const privateVars = readFileSync(join(root, ".wrangler/local/luvdia/.dev.vars"), "utf8");
       expect(privateVars).toContain("selected-private");
       expect(privateVars).not.toContain("public-key");
+      writeLocalSiteConfig("luvdia", { DEV_PORT: "5194" }, root);
+      expect(JSON.parse(readFileSync(path, "utf8")).vars.SITE_PUBLIC_ORIGIN).toBe("http://localhost:5194");
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

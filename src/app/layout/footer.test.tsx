@@ -1,3 +1,4 @@
+import { getSiteDefinition } from "@contracts/site-definition";
 // @vitest-environment jsdom
 
 import React, { type ReactNode } from "react";
@@ -33,7 +34,7 @@ describe("Footer", () => {
       name: "저작권 및 권리 안내",
     });
     expect(rightsLink.getAttribute("href")).toBe("/rights");
-    expect(rightsLink.textContent).toBe(getSiteCopyrightNotice());
+    expect(rightsLink.textContent).toBe(getSiteCopyrightNotice(getSiteDefinition("otw")));
     expect(screen.queryByText("권리/카피라이트")).toBeNull();
   });
 });

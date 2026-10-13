@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import type { ReactNode } from "react";
 import { getSiteCopyrightNotice } from "@/shared/lib/site-rights";
 import { ContentPageShell } from "@/shared/ui/content-page-shell";
@@ -20,11 +21,11 @@ export function RightsPage() {
         </h2>
         <div className="space-y-3 text-sm leading-7 text-muted-foreground sm:text-base">
           <p>
-            OTW Schedule은 팬이 운영하는 비공식 정보 사이트이며, 오버더월,
+            {site.serviceName}은 팬이 운영하는 비공식 정보 사이트이며, {site.id === "otw" ? site.siteName : "방송인"},
             소속사 또는 외부 플랫폼의 공식 서비스가 아닙니다.
           </p>
           <p>
-            {getSiteCopyrightNotice()} 이 고지는 사이트 운영자가 직접 제작한
+            {getSiteCopyrightNotice(site)} 이 고지는 사이트 운영자가 직접 제작한
             UI, 설명 문구와 편집물에만 적용됩니다. 제3자의 콘텐츠, 상표 또는
             그 밖의 권리까지 사이트가 소유한다는 뜻이 아닙니다.
           </p>
@@ -73,8 +74,8 @@ export function RightsPage() {
           <p>
             권리 침해, 잘못된 출처 또는 콘텐츠 정정·제한·삭제가 필요한 경우
             아래 정보를{" "}
-            <a className={linkClassName} href="mailto:397love@gmail.com">
-              397love@gmail.com
+            <a className={linkClassName} href={site.contactEmail ? `mailto:${site.contactEmail}` : undefined}>
+              {site.contactEmail}
             </a>
             으로 보내 주세요.
           </p>
@@ -90,7 +91,7 @@ export function RightsPage() {
           <address className="not-italic">
             <p>
               권리 관련 요청:{" "}
-              <a className={linkClassName} href="mailto:397love@gmail.com">
+              <a className={linkClassName} href={site.contactEmail ? `mailto:${site.contactEmail}` : undefined}>
                 이메일
               </a>
             </p>

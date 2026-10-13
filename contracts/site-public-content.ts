@@ -1,4 +1,5 @@
 import type { SiteSeoMetadata } from "./site-seo";
+import { requireSiteOrigin, type SiteDefinition } from "./site-definition";
 
 export interface SiteContentItem {
   title: string;
@@ -53,10 +54,10 @@ export const siteContentStatusText: Record<SiteContentSection["status"], string>
   unavailable: "저장된 정보를 확인할 수 없습니다. 원래 화면에서 다시 확인해 주세요.",
 };
 
-export const safeSiteContentUrl = (value: string | null | undefined): string | undefined => {
+export const safeSiteContentUrl = (value: string | null | undefined, site: SiteDefinition): string | undefined => {
   if (!value) return undefined;
   try {
-    const url = new URL(value, "https://otw-schedule.info");
+    const url = new URL(value, requireSiteOrigin(site));
     return ["https:", "http:", "mailto:"].includes(url.protocol)
       ? value.startsWith("/") && !value.startsWith("//") ? `${url.pathname}${url.search}${url.hash}` : url.toString()
       : undefined;

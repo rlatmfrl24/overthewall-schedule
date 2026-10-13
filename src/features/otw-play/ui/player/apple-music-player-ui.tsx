@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type KeyboardEvent, type RefObject } from "react";
 import { Reorder, useDragControls, useReducedMotion } from "motion/react";
 import { useAnimations } from "@/shared/ui/animation-provider";
@@ -54,10 +55,10 @@ export function AppleMusicPlayer({ player, editing, desktop, open, sectionRef, o
   const visible = desktop || open;
   const launcherRef = usePlayerTransition(sectionRef, { open, desktop, editing, hasQueue, trackId: track?.performance.id ?? null });
   return <>
-    <aside aria-label="OTW Play 재생 및 플레이큐" aria-hidden={editing || !hasQueue || undefined} inert={editing || !hasQueue}
+    <aside aria-label={`${site.playName} 재생 및 플레이큐`} aria-hidden={editing || !hasQueue || undefined} inert={editing || !hasQueue}
       data-button-feedback="local" data-has-queue={hasQueue} data-presentation={desktop ? "rail" : open ? "full" : "launcher"}
       className="am-player-rail" style={editing ? { display: "none" } : undefined}>
-      <section hidden={!visible} aria-hidden={!visible || undefined} inert={!visible} data-player-presentation={open ? "full" : "launcher"} ref={sectionRef} className="am-player" aria-label="OTW Play 재생 플레이어" role={!desktop && open ? "dialog" : "region"}
+      <section hidden={!visible} aria-hidden={!visible || undefined} inert={!visible} data-player-presentation={open ? "full" : "launcher"} ref={sectionRef} className="am-player" aria-label={`${site.playName} 재생 플레이어`} role={!desktop && open ? "dialog" : "region"}
         aria-modal={!desktop && open ? true : undefined} tabIndex={!desktop && open ? -1 : undefined} onKeyDown={onKeyDown}>
         <header className="am-mobile-header" data-player-enter>
           <IconButton icon="down" aria-label="카탈로그로 돌아가기" onClick={onClose} />

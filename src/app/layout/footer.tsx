@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { Link } from "@tanstack/react-router";
 import { Github, Mail } from "lucide-react";
 import { getSiteCopyrightNotice } from "@/shared/lib/site-rights";
@@ -14,7 +15,7 @@ export const Footer = () => {
         <p className="text-xs sm:text-sm text-muted-foreground">
           <span className="sm:hidden">팬 운영 사이트입니다.</span>
           <span className="hidden sm:inline">
-            본 스케쥴표/사이트는 오버더월 공식 계정이 아닌 팬 운영 사이트임을
+            본 스케쥴표/사이트는 {site.id === "otw" ? site.siteName : "방송인"} 공식 계정이 아닌 팬 운영 사이트임을
             알립니다.
           </span>
         </p>
@@ -30,7 +31,7 @@ export const Footer = () => {
             <span>GitHub</span>
           </a>
           <a
-            href="mailto:397love@gmail.com"
+            href={site.contactEmail ? `mailto:${site.contactEmail}` : undefined}
             className={footerLinkClassName}
             aria-label="문의 메일"
           >
@@ -42,7 +43,7 @@ export const Footer = () => {
             className="inline-flex h-5 items-center text-[10px] leading-none text-muted-foreground/60 transition-colors hover:text-foreground sm:text-xs"
             aria-label="저작권 및 권리 안내"
           >
-            {getSiteCopyrightNotice()}
+            {getSiteCopyrightNotice(site)}
           </Link>
         </div>
       </div>

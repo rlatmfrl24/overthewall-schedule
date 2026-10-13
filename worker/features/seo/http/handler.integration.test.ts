@@ -1,3 +1,4 @@
+import { getSiteDefinition } from "@contracts/site-definition";
 import { describe, expect, it } from "vitest";
 import type { MemberProfileDto } from "@contracts/members";
 import type { Env } from "../../../platform/types";
@@ -62,7 +63,7 @@ const setup = (state: "public" | "private") => {
     findActiveProfileByCode: async (code) =>
       code.toLowerCase() === profile.code.toLowerCase() ? profile : null,
   });
-  const service = new SiteSeoService(reader);
+  const service = new SiteSeoService(reader, site);
   const handler = createSiteSeoHandler(() => service);
   const testEnv = {
     ASSETS: testAssets,
@@ -103,7 +104,7 @@ describe("SEO HTML worker", () => {
       listActiveProfileCodes: async () => [],
       findActiveProfileByCode: async () => null,
     });
-    const handler = createSiteSeoHandler(() => new SiteSeoService(reader));
+    const handler = createSiteSeoHandler(() => new SiteSeoService(reader, site));
     const testEnv = {
       ASSETS: { fetch: async () => new Response(shell) },
     } as unknown as Env;
@@ -150,7 +151,7 @@ describe("SEO HTML worker", () => {
       listActiveProfileCodes: async () => ["partial"],
       findActiveProfileByCode: async () => null,
     });
-    const handler = createSiteSeoHandler(() => new SiteSeoService(reader));
+    const handler = createSiteSeoHandler(() => new SiteSeoService(reader, site));
     const response = await handler(
       new Request("https://otw-schedule.info/sitemap.xml"),
       {} as Env,
@@ -188,7 +189,7 @@ describe("SEO HTML worker", () => {
             : null,
       });
       const handler = createSiteSeoHandler(
-        () => new SiteSeoService(reader),
+        () => new SiteSeoService(reader, site),
       );
       const testEnv = { ASSETS: testAssets } as unknown as Env;
 
@@ -243,7 +244,7 @@ describe("SEO HTML worker", () => {
         thumbnailUrl: "https://i.example/image?a=1&b=2",
       }),
     });
-    const handler = createSiteSeoHandler(() => new SiteSeoService(reader));
+    const handler = createSiteSeoHandler(() => new SiteSeoService(reader, site));
     const response = await handler(
       new Request("https://otw-schedule.info/play/songs/escaped-song?q=ignored"),
       { ASSETS: testAssets } as unknown as Env,
@@ -260,7 +261,7 @@ describe("SEO HTML worker", () => {
 
   it("canonicalizes Play routes, preserves query filters, and rejects unknown paths", async () => {
     const handler = createSiteSeoHandler(
-      () => new SiteSeoService(createReader()),
+      () => new SiteSeoService(createReader(), site),
     );
     const testEnv = { ASSETS: testAssets } as unknown as Env;
 
@@ -306,7 +307,7 @@ describe("SEO HTML worker", () => {
             readPlayState: async () => {
               throw new Error("must not read catalog state");
             },
-          }),
+          }), site,
         ),
     );
     const testEnv = { ASSETS: testAssets } as unknown as Env;
@@ -324,7 +325,7 @@ describe("SEO HTML worker", () => {
 
   it("matches GET headers for HEAD, rejects writes, and fails closed on missing dependencies", async () => {
     const reader = createReader();
-    const handler = createSiteSeoHandler(() => new SiteSeoService(reader));
+    const handler = createSiteSeoHandler(() => new SiteSeoService(reader, site));
     const testEnv = { ASSETS: testAssets } as unknown as Env;
     const get = await handler(
       new Request("https://otw-schedule.info/play"),
@@ -360,7 +361,7 @@ describe("SEO HTML worker", () => {
       },
     });
     const failedHandler = createSiteSeoHandler(
-      () => new SiteSeoService(failedReader),
+      () => new SiteSeoService(failedReader, site),
     );
     const failed = await failedHandler(
       new Request("https://otw-schedule.info/play"),
@@ -380,7 +381,7 @@ describe("member profile and Play SEO policy", () => {
       findActiveProfileByCode: async code => code.toLowerCase() === "alpha" ? profile : null,
       listActiveProfileCodes: async () => ["Alpha"],
     });
-    const handler = createSiteSeoHandler(() => new SiteSeoService(reader));
+    const handler = createSiteSeoHandler(() => new SiteSeoService(reader, site));
     const testEnv = { ASSETS: testAssets } as unknown as Env;
     for (const method of ["GET", "HEAD"]) {
       for (const code of ["Alpha", "alpha/", "ALPHA"]) {
@@ -402,7 +403,7 @@ describe("member profile and Play SEO policy", () => {
   it("returns a retryable error when the member lookup fails", async () => {
     const handler = createSiteSeoHandler(() => new SiteSeoService(createReader({
       findActiveProfileByCode: async () => { throw new Error("offline"); },
-    })));
+    }), site));
     const response = await handler(new Request("https://otw-schedule.info/play/members/Alpha"), { ASSETS: testAssets } as unknown as Env);
     expect(response?.status).toBe(503);
     expect(response?.headers.get("Retry-After")).toBe("300");
@@ -411,7 +412,7 @@ describe("member profile and Play SEO policy", () => {
 
   it("does not reuse shell validators or duplicate sharing images in rewritten profile HTML", async () => {
     const reader = createReader({ findActiveProfileByCode: async () => profile });
-    const handler = createSiteSeoHandler(() => new SiteSeoService(reader));
+    const handler = createSiteSeoHandler(() => new SiteSeoService(reader, site));
     const testEnv = { ASSETS: { fetch: async (request: Request) => {
       expect(request.headers.has("If-None-Match")).toBe(false);
       expect(request.headers.has("If-Modified-Since")).toBe(false);
@@ -438,7 +439,7 @@ describe("member profile and Play SEO policy", () => {
       readPlayMemberSummaries: async () => { throw new Error("Play unavailable"); },
       findActiveProfileByCode: async code => code.toLowerCase() === "alpha" ? { ...profile, introduction: null, profileImages: [] } : null,
     });
-    const handler = createSiteSeoHandler(() => new SiteSeoService(reader));
+    const handler = createSiteSeoHandler(() => new SiteSeoService(reader, site));
     const testEnv = { ASSETS: testAssets } as unknown as Env;
     const redirect = await handler(new Request("https://otw-schedule.info/profile/alpha/?utm_source=test"), testEnv);
     expect(redirect?.status).toBe(301);
@@ -457,3 +458,5 @@ describe("member profile and Play SEO policy", () => {
   });
 
 });
+
+const site = getSiteDefinition("otw");

@@ -1,3 +1,6 @@
+import { SnapshotPortrait } from "./snapshot-portrait";
+import { site } from "@/shared/config/site";
+import { getCurrentMemberAffiliation } from "@/features/members";
 import type { Member } from "@/features/members";
 import type { ScheduleItem } from "@/features/schedules";
 import { getContrastColor, hexToRgba } from "@/shared/lib/utils";
@@ -32,7 +35,7 @@ export const SnapshotCardMember = ({
         className="flex min-h-16 min-w-0 items-center gap-3 px-3 py-2.5"
         style={{ backgroundColor: mainColor }}
       >
-        <img
+        <SnapshotPortrait
           src={`/profile/${member.code}.webp`}
           alt={member.name}
           className="h-12 w-12 shrink-0 rounded-full border-[3px] border-white object-cover shadow-md"
@@ -44,7 +47,7 @@ export const SnapshotCardMember = ({
           >
             {member.name}
           </h2>
-          {member.unit_name && (
+          {getCurrentMemberAffiliation(member, site) && (
             <span
               className="inline-flex min-h-6 max-w-full items-center rounded-full border px-2 py-1 text-[10px] font-extrabold leading-none"
               style={{
@@ -53,7 +56,7 @@ export const SnapshotCardMember = ({
                 color: headerTextColor,
               }}
             >
-              {member.unit_name}
+              {getCurrentMemberAffiliation(member, site)}
             </span>
           )}
         </div>

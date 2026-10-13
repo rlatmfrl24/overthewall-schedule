@@ -1,3 +1,5 @@
+import { getCurrentMemberAffiliation } from "../model/current-member-affiliation";
+import { site } from "@/shared/config/site";
 import { useAnimations } from "@/shared/ui/animation-provider";
 import { ApiError } from "@/shared/api/client";
 import { Link } from "@tanstack/react-router";
@@ -456,7 +458,7 @@ export function MemberProfilePage({ code, renderPlayLink }: {
   const member = memberQuery.isError ? null : memberQuery.data ?? null;
   const missingMember = memberQuery.error instanceof ApiError && memberQuery.error.status === 404;
   const profileSeo = useMemo(
-    () => member ? buildProfileSiteSeo(member) : missingMember ? buildNotFoundSiteSeo(`/profile/${encodeURIComponent(code)}`) : null,
+    () => member ? buildProfileSiteSeo(member, site) : missingMember ? buildNotFoundSiteSeo(`/profile/${encodeURIComponent(code)}`, site) : null,
     [member, missingMember, code],
   );
   useSiteSeo(profileSeo);
@@ -867,7 +869,7 @@ export function MemberProfilePage({ code, renderPlayLink }: {
   } as CSSProperties;
   const birthDate = formatProfileDate(member.birth_date);
   const debutDate = formatProfileDate(member.debut_date);
-  const unitLogo = getUnitLogo(member.unit_name);
+  const unitLogo = site.id === "otw" ? getUnitLogo(member.unit_name) : null;
   const hasInfoCapsules =
     Boolean(member.fan_name) ||
     Boolean(member.oshi_mark) ||
@@ -975,6 +977,7 @@ export function MemberProfilePage({ code, renderPlayLink }: {
             animate={{ opacity: 1, y: 0 }}
             transition={enabled ? { duration: 0.45, ease: "easeOut" } : { duration: 0, delay: 0 }}
           >
+            {site.id === "luvdia" && <p className="mb-5 text-sm text-white/80">{getCurrentMemberAffiliation(member, site)}</p>}
             {unitLogo && (
               <div className="mb-5 flex max-w-full items-center lg:mb-6">
                 <img

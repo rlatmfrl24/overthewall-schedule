@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { useUser } from "@clerk/clerk-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -47,7 +48,7 @@ const roleLabels: Record<OtwPlayParticipantRole, string> = {
 function BackToPlayLink() {
   return (
     <Button asChild variant="ghost" size="sm" className="-ml-2">
-      <Link to="/play"><ChevronLeft /> OTW Play로 돌아가기</Link>
+      <Link to="/play"><ChevronLeft /> {site.playName}로 돌아가기</Link>
     </Button>
   );
 }

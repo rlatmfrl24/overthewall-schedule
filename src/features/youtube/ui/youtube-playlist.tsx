@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { useAnimations } from "@/shared/ui/animation-provider";
 import { useRef, useState, useEffect, useMemo } from "react";
 import type { MemberDto } from "@contracts/members";
@@ -98,7 +99,7 @@ const KirinukiInfoButton = ({
             <div className="pt-4 mt-2 border-t">
               <div className="rounded-xl bg-primary/5 border border-primary/10 p-4 text-center">
                 <p className="font-semibold text-primary mb-1 break-keep">
-                  오버더월을 사랑해주시는 <br /> 키리누커&클리퍼분들의 참여를
+                  {site.siteName}을 사랑해주시는 <br /> 키리누커&클리퍼분들의 참여를
                   기다리고 있습니다!
                 </p>
                 <p className="text-xs text-muted-foreground mt-2">

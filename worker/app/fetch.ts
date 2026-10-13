@@ -3,6 +3,7 @@ import { workerRouteRegistry } from "./routes";
 import { createSiteSeoHandler, rewriteSiteContent, siteContentUnavailable } from "../features/seo";
 import { isSiteContentPath } from "@contracts/site-public-content";
 import { createSiteSeoDependencies } from "./site-seo";
+import { getWorkerSiteDefinition } from "../platform/site";
 
 const handleSiteSeo = createSiteSeoHandler(env => createSiteSeoDependencies(env).seo);
 
@@ -88,7 +89,7 @@ export const handleWorkerFetch = async (
           const source = request.method === "HEAD" && seoResponse ? await handleSiteSeo(assetRequest, env) : seoResponse;
           const asset = source ?? await env.ASSETS!.fetch(new Request(new URL("/", request.url), { method: "GET" }));
           if (asset.status !== 200) return asset;
-          const response = rewriteSiteContent(asset, content);
+          const response = rewriteSiteContent(asset, content, getWorkerSiteDefinition(env));
           return request.method === "HEAD" ? new Response(null, response) : response;
         }
       } catch (error) { console.error("[site-content] HTML failed", error); const response = siteContentUnavailable(); return request.method === "HEAD" ? new Response(null, response) : response; }

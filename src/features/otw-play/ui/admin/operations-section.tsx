@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { PlayAdminHelp } from "./play-admin-help";
 import { useRef, useState, type ReactNode } from "react";
 import type {
@@ -68,8 +69,8 @@ const releaseActions = (
       {
         transition: "enable_navigation",
         label: "내비게이션 공개",
-        title: "OTW Play를 최종 공개할까요?",
-        description: "메뉴에 OTW Play를 표시합니다. 로그인한 회원만 이용할 수 있으며 노래 클립은 관리자 전용입니다.",
+        title: `${site.playName}를 최종 공개할까요?`,
+        description: `메뉴에 ${site.playName}를 표시합니다. 로그인한 회원만 이용할 수 있으며 노래 클립은 관리자 전용입니다.`,
         rollback: "문제가 있으면 메뉴만 숨기거나 회원 이용과 메뉴 공개를 모두 중단할 수 있습니다.",
         confirmation: "public_canary_verified",
         target: { publicReadEnabled: true, navigationVisible: true },
@@ -79,7 +80,7 @@ const releaseActions = (
       {
         transition: "rollback_all",
         label: "회원 이용 중단",
-        title: "OTW Play 공개를 모두 중단할까요?",
+        title: `${site.playName} 공개를 모두 중단할까요?`,
         description: "회원의 카탈로그 조회와 메뉴 노출을 중단합니다. 관리자와 곡 제안 경로는 유지됩니다.",
         rollback: "재공개하려면 직접 경로 검증부터 다시 수행해야 합니다.",
         confirmation: "rollback_reviewed",
@@ -105,7 +106,7 @@ const releaseActions = (
       {
         transition: "rollback_all",
         label: "전체 공개 중단",
-        title: "OTW Play 공개를 모두 중단할까요?",
+        title: `${site.playName} 공개를 모두 중단할까요?`,
         description: "회원의 카탈로그 조회와 메뉴 노출을 함께 중단합니다.",
         rollback: "재공개하려면 직접 URL에서 회원 이용을 검증한 뒤 메뉴를 공개해야 합니다.",
         confirmation: "rollback_reviewed",

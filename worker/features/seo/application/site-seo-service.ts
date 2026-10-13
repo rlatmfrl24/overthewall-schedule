@@ -6,12 +6,13 @@ import {
   buildPlaySongSiteSeo,
   buildProfileSiteSeo,
   isFeedPublic,
-  STATIC_SITEMAP_URLS,
+  buildStaticSitemapUrls,
   toSiteUrl,
   type SiteSeoMetadata,
   type SiteRobots,
 } from "@contracts/site-seo";
 import type { MemberProfileDto } from "@contracts/members";
+import type { SiteDefinition } from "@contracts/site-definition";
 import type {
   PlaySeoState,
   SiteSeoReader,
@@ -47,15 +48,17 @@ const playRobots = (state: PlaySeoState): SiteRobots =>
 
 export class SiteSeoService {
   private readonly reader: SiteSeoReader;
+  readonly site: SiteDefinition;
 
-  constructor(reader: SiteSeoReader) {
+  constructor(reader: SiteSeoReader, site: SiteDefinition) {
     this.reader = reader;
+    this.site = site;
   }
 
   async readFeed(): Promise<{ metadata: SiteSeoMetadata; isPublic: boolean }> {
     const state = await this.reader.readFeedState();
     const publicFeed = isFeedPublic(state);
-    return { metadata: buildFeedSiteSeo(publicFeed), isPublic: publicFeed };
+    return { metadata: buildFeedSiteSeo(publicFeed, this.site), isPublic: publicFeed };
   }
 
   findProfile(code: string): Promise<MemberProfileDto | null> {
@@ -68,13 +71,13 @@ export class SiteSeoService {
 
   async readPlayHome(): Promise<SiteSeoMetadata> {
     const state = await this.readPlayState();
-    return buildPlayHomeSiteSeo(playRobots(state));
+    return buildPlayHomeSiteSeo(playRobots(state), this.site);
   }
 
   async readPlaySongs(): Promise<SiteSeoMetadata> {
     const state = await this.readPlayState();
     return buildPlaySongsSiteSeo(
-      state.requiresMembership === false && state.publicReadEnabled ? "noindex,follow" : "noindex,nofollow",
+      state.requiresMembership === false && state.publicReadEnabled ? "noindex,follow" : "noindex,nofollow", this.site,
     );
   }
 
@@ -84,11 +87,11 @@ export class SiteSeoService {
     const state = await this.readPlayState();
     if (state.requiresMembership !== false || !state.publicReadEnabled) {
       return buildPlaySongPlaceholderSeo(
-        `/play/songs/${encodeURIComponent(slug)}`,
+        `/play/songs/${encodeURIComponent(slug)}`, this.site,
       );
     }
     const song = await this.reader.findPublishedPlaySongBySlug(slug);
-    return song ? buildPlaySongSiteSeo(song, playRobots(state)) : null;
+    return song ? buildPlaySongSiteSeo(song, playRobots(state), this.site) : null;
   }
 
   private async assertPlaySnapshot(state: PlaySeoState) {
@@ -103,9 +106,9 @@ export class SiteSeoService {
       this.reader.listActiveProfileCodes(),
       this.readPlayState(),
     ]);
-    const urls = new Set(STATIC_SITEMAP_URLS);
+    const urls = new Set(buildStaticSitemapUrls(this.site));
     if (feed.isPublic) urls.add(feed.metadata.canonical);
-    for (const code of codes) urls.add(toSiteUrl(`/profile/${code}`));
+    for (const code of codes) urls.add(toSiteUrl(`/profile/${code}`, this.site));
     if (playState.requiresMembership === false && playState.navigationVisible) {
       const slugs = [
         ...new Set(await this.reader.listPublishedPlaySongSlugs()),
@@ -114,15 +117,15 @@ export class SiteSeoService {
         throw new Error("OTW Play sitemap exceeds the supported song limit");
       }
       await this.assertPlaySnapshot(playState);
-      urls.add(toSiteUrl("/play"));
+      urls.add(toSiteUrl("/play", this.site));
       for (const slug of slugs) {
-        urls.add(toSiteUrl(`/play/songs/${encodeURIComponent(slug)}`));
+        urls.add(toSiteUrl(`/play/songs/${encodeURIComponent(slug)}`, this.site));
       }
     }
     return [...urls];
   }
 
   buildProfileMetadata(member: MemberProfileDto): SiteSeoMetadata {
-    return buildProfileSiteSeo(member);
+    return buildProfileSiteSeo(member, this.site);
   }
 }

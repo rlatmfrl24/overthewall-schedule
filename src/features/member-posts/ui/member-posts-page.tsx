@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { SignInButton, useUser } from "@clerk/clerk-react";
 import { Link } from "@tanstack/react-router";
 import { EyeOff, Loader2, LockKeyhole, MessageSquareText } from "lucide-react";
@@ -52,7 +53,7 @@ export function MemberPostsPage({ footer }: { footer?: ReactNode }) {
           !cafeLoading &&
           !xError &&
           !cafeError &&
-          isFeedPublic({ xVisibility, cafeEnabled, cafeVisibility }),
+          isFeedPublic({ xVisibility, cafeEnabled, cafeVisibility }), site,
       ),
     [
       cafeEnabled,

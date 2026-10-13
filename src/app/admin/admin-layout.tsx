@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { ConsoleSearchContext, validateConsoleSearch, type ConsoleSearch } from "@/shared/lib/admin-console-search";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { cn } from "@/shared/lib/utils";
@@ -33,7 +34,7 @@ const SIDEBAR_SECTIONS: SidebarSection[] = [
     { label: "대시보드", icon: Activity, href: "/admin/operations" },
     { label: "일정 검수", icon: Calendar, href: "/admin/review" },
     { label: "수집·소스", icon: Settings, href: "/admin/collection" },
-    { label: "OTW Play", icon: Music2, href: "/admin/otw-play" },
+    { label: site.playName, icon: Music2, href: "/admin/otw-play" },
     { label: "콘텐츠", icon: LayoutDashboard, href: "/admin/content" },
     { label: "자원·보존", icon: Image, href: "/admin/resources" },
     { label: "실행·변경 이력", icon: History, href: "/admin/history" },

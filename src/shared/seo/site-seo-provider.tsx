@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import {
   type ReactNode,
   useCallback,
@@ -17,7 +18,7 @@ export const SiteSeoProvider = ({
   pathname: string;
   children: ReactNode;
 }) => {
-  const base = useMemo(() => resolveSiteSeo(pathname), [pathname]);
+  const base = useMemo(() => resolveSiteSeo(pathname, site), [pathname]);
   const [overrides, setOverrides] = useState<Map<string, { metadata: SiteSeoMetadata; priority: number }>>(() => new Map());
   const active = [...overrides.values()]
     .filter(({ metadata }) => metadata.path.toLowerCase() === base.path.toLowerCase())

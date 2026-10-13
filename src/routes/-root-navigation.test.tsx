@@ -1,3 +1,4 @@
+import { getSiteDefinition } from "@contracts/site-definition";
 // @vitest-environment jsdom
 import React, { useState, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -42,7 +43,7 @@ function renderApp(initialPath = "/play") {
   vi.mocked(apiFetch).mockImplementation(async url => {
     const path = new URL(url, "http://localhost").searchParams.get("path")!;
     return {
-      path, date: "2026-09-29", metadata: resolveSiteSeo(path),
+      path, date: "2026-09-29", metadata: resolveSiteSeo(path, site),
       generatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 300_000).toISOString(),
       sections: [], structuredData: { name: path },
     };
@@ -73,7 +74,7 @@ it("preserves the common layout and iframe across Play tabs while updating route
       await screen.findByRole("heading", { name: path });
       expect(screen.getByRole("button", { name: "Queue 1" })).toBeTruthy();
       expect(screen.getByTitle("Persistent player host")).toBe(host);
-      expect(document.title).toBe(resolveSiteSeo(app.router.state.location.pathname).title);
+      expect(document.title).toBe(resolveSiteSeo(app.router.state.location.pathname, site).title);
     }
     await waitFor(() => expect(document.getElementById("site-content-jsonld")?.textContent).toBe(JSON.stringify({ name: "/play" })));
     await act(async () => { await app.router.navigate({ to: "/weekly" }); });
@@ -101,3 +102,5 @@ it.each([
     await waitFor(() => expect(document.getElementById("site-content-jsonld")?.textContent).toBe(JSON.stringify({ name: to })));
   } finally { app.dispose(); }
 });
+
+const site = getSiteDefinition("otw");

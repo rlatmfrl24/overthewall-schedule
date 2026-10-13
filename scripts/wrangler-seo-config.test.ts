@@ -1,3 +1,4 @@
+import { getSiteDefinition } from "../contracts/site-definition";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -5,10 +6,9 @@ import { describe, expect, it } from "vitest";
 import { createTestHarness, unstable_readConfig } from "wrangler";
 import {
   FIXED_SITE_PATHS,
-  SITE_ORIGIN,
   STATIC_SHELL_PATHS,
 } from "../contracts/site-seo";
-import { generateSeoAssets } from "./generate-seo-assets";
+import { renderRobots, generateSeoAssets } from "./generate-seo-assets";
 
 const readPolicyLines = async (path: string): Promise<Set<string>> => {
   const content = await readFile(path, "utf8");
@@ -45,7 +45,7 @@ describe("Cloudflare SEO asset routing", () => {
     const server = createTestHarness({ workers: [{ configPath }] });
     try {
       await writeFile(join(outputRoot, "index.html"), await readFile("index.html", "utf8"));
-      await generateSeoAssets(outputRoot);
+      await generateSeoAssets(outputRoot, site);
       await writeFile(join(outputRoot, "worker.js"),
         'export default { fetch() { throw new Error("Admin HTML must be served by static assets"); } };');
       await writeFile(configPath, JSON.stringify({
@@ -110,10 +110,12 @@ describe("Cloudflare SEO asset routing", () => {
   });
 
   it("publishes sitemap discovery without blocking search crawlers", async () => {
-    const robots = await readPolicyLines("public/robots.txt");
+    const robots = new Set(renderRobots(site).split(/\r?\n/));
 
     expect(robots).toContain("User-agent: *");
     expect(robots).toContain("Allow: /");
-    expect(robots).toContain(`Sitemap: ${SITE_ORIGIN}/sitemap.xml`);
+    expect(robots).toContain(`Sitemap: ${site.publicOrigin}/sitemap.xml`);
   });
 });
+
+const site = getSiteDefinition("otw");

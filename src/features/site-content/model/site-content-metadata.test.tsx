@@ -1,3 +1,4 @@
+import { getSiteDefinition } from "@contracts/site-definition";
 // @vitest-environment jsdom
 import { afterEach, it, expect, vi } from "vitest";
 import { cleanup, render, screen, waitFor, fireEvent } from "@testing-library/react";
@@ -12,7 +13,7 @@ import { fetchSiteContent } from "../api/site-content";
 vi.mock("../api/site-content", () => ({ fetchSiteContent: vi.fn() }));
 vi.mock("@/shared/seo/use-site-seo", () => ({ useSiteSeo: vi.fn() }));
 
-const data = (path: string, title: string): SitePublicContent => ({ path, date: "2026-09-22", metadata: resolveSiteSeo(path), generatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 300_000).toISOString(), sections: [{ id: "s", title, status: "available", updatedAt: null, items: [{ title: "항목" }] }], structuredData: { name: title } });
+const data = (path: string, title: string): SitePublicContent => ({ path, date: "2026-09-22", metadata: resolveSiteSeo(path, site), generatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 300_000).toISOString(), sections: [{ id: "s", title, status: "available", updatedAt: null, items: [{ title: "항목" }] }], structuredData: { name: title } });
 afterEach(() => { cleanup(); vi.clearAllMocks(); document.getElementById("site-content-jsonld")?.remove(); });
 
 it("uses the delivered data and replaces JSON-LD without adding app UI", async () => {
@@ -52,3 +53,5 @@ it("follows the selected week and clears stale JSON-LD without replacing the UI 
   expect(view.container.textContent).toBe("다음 주");
   client.clear();
 });
+
+const site = getSiteDefinition("otw");

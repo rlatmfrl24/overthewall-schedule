@@ -1,3 +1,5 @@
+import { site } from "@/shared/config/site";
+import { getCurrentMemberAffiliation } from "@/features/members";
 import type { Member } from "@/features/members";
 import type { ScheduleItem } from "@/features/schedules";
 import {
@@ -77,7 +79,7 @@ export const CardMember = ({
         data-member-card-header="true"
       >
         <div className="absolute right-3 top-3 z-20 flex max-w-[calc(100%-7.25rem)] flex-col items-end gap-1.5">
-          {member.unit_name && (
+          {getCurrentMemberAffiliation(member, site) && (
             <span
               className="inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-extrabold leading-none shadow-sm backdrop-blur-sm break-keep"
               style={{
@@ -85,10 +87,10 @@ export const CardMember = ({
                 borderColor: unitChipBorderColor,
                 color: headerTextColor,
               }}
-              title={member.unit_name}
+              title={getCurrentMemberAffiliation(member, site) ?? undefined}
               data-member-unit-chip="true"
             >
-              <span className="truncate">{member.unit_name}</span>
+              <span className="truncate">{getCurrentMemberAffiliation(member, site)}</span>
             </span>
           )}
         </div>

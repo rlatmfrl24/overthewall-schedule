@@ -2,6 +2,10 @@ import { defineConfig } from "vitest/config";
 import { testAliases, testCoverage, testMaxWorkers } from "./vitest.shared";
 
 export default defineConfig({
+  define: {
+    "import.meta.env.VITE_SITE_ID": JSON.stringify("otw"),
+    "import.meta.env.VITE_PUBLIC_ORIGIN": JSON.stringify("https://otw-schedule.info"),
+  },
   resolve: { alias: testAliases },
   test: {
     name: "unit",

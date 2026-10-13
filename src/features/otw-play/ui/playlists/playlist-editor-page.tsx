@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { useAnimations } from "@/shared/ui/animation-provider";
 import { PlaylistDetailSkeleton, PlaylistTracksSkeleton } from "./playlist-skeletons";
 import { motion, Reorder, useDragControls } from "motion/react";
@@ -23,7 +24,7 @@ import { PlaylistArtworkPreview } from "./playlist-artwork-preview";
 import { PerformanceRow, PlaylistLoginGate } from "./playlist-components";
 
 export function OtwPlayPlaylistEditorPage({ playlistId, from }: { playlistId?: string; from?: string }) {
-  const seo = useMemo(() => ({ ...resolveSiteSeo(playlistId ? `/play/playlists/${playlistId}/edit` : "/play/playlists/new"), title: "플레이리스트 편집 | OTW Play" }), [playlistId]);
+  const seo = useMemo(() => ({ ...resolveSiteSeo(playlistId ? `/play/playlists/${playlistId}/edit` : "/play/playlists/new", site), title: `플레이리스트 편집 | ${site.playName}` }), [playlistId]);
   useSiteSeo(seo);
   return <PlaylistLoginGate className="playlist-editor-root"><EditorLoader key={playlistId ?? from ?? "new"} playlistId={playlistId} from={from} /></PlaylistLoginGate>;
 }
