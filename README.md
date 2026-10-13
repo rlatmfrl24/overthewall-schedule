@@ -18,8 +18,9 @@ content discovery, and lightweight admin workflows.
   headers and media cards.
 - **Member posts**: X and Naver Cafe post feeds with member-aware filtering and
   shared content page spacing.
-- **Multiview**: temporary Mul.Live embed surface with top member chips for
-  quick CHZZK channel selection.
+- **Multiview**: public CHZZK member selection with a new-tab Mul.Live link and
+  a notice requiring the latest Mul.Live Plus extension. Embedded viewing is
+  temporarily disabled; a dedicated OTW extension is planned.
 - **Profile and snapshot routes**: chrome-free profile pages and stable image
   capture surfaces for schedule sharing.
 - **OTW Play**: member music catalog, YouTube player, saved private playlists,

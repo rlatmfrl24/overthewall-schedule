@@ -33,7 +33,7 @@ flowchart LR
   user["사용자 / 관리자"]
   auth["Clerk<br/>로그인·JWT"]
   cron["Cloudflare Cron"]
-  mulLive["Mul.Live<br/>멀티뷰 iframe"]
+  mulLive["Mul.Live<br/>새 탭 · Plus 확장 필요"]
   external["CHZZK · YouTube · X · Naver Cafe"]
   d1[("Cloudflare D1<br/>업무 데이터·캐시")]
   r2[("Cloudflare R2<br/>공지·프로필 파일")]
@@ -271,7 +271,7 @@ import/export뿐 아니라 문자열 또는 값 치환이 없는 템플릿 리�
 | `x-posts` | X gateway, cache, collection, link preview |
 | `naver-cafe` | source 설정, post 수집과 표시 |
 | `member-posts` | X·Naver Cafe feed 조합과 monitor |
-| `multiview` | member source 선택, 반복 `c=` URL, Mul.Live iframe |
+| `multiview` | member source 선택, 반복 `c=` URL, 확장 필요 공지·Mul.Live 새 탭 링크 |
 | `configuration` | settings 계약, 정규화, 저장 |
 | `audit` | admin audit 조회 |
 | `operations` | health, retention, 운영 command 조합 |
@@ -547,7 +547,7 @@ flowchart LR
   localState["MultiviewPage local urlState<br/>선택 상태의 기준"]
   browserUrl["반복 c= query<br/>브라우저 URL"]
   embedUrl["Mul.Live URL 계산"]
-  iframe["Mul.Live iframe"]
+  externalView["Mul.Live 새 탭<br/>Plus 확장 필요"]
 
   route --> board
   board --> sourceQuery
@@ -558,14 +558,16 @@ flowchart LR
   select --> localState
   localState <--> browserUrl
   localState --> embedUrl
-  embedUrl --> iframe
+  embedUrl --> externalView
 ```
 
-멀티뷰는 별도의 Worker capability나 브라우저 확장 기능을 두지 않는다.
+현재 멀티뷰는 별도의 Worker capability나 자체 브라우저 확장 기능을 두지 않는다.
 기존 멤버 정보와 CHZZK live status를 프런트에서 조합하고, 선택한 채널을
 local `urlState`에 둔다. 이 상태를 반복 `c=` parameter와 양방향
-동기화하고 Mul.Live URL로 변환한다. 로그인 없이 사용할 수 있으며 iframe은
-선택 결과가 바뀔 때만 새 URL을 받는다.
+동기화하고 Mul.Live 새 탭 링크로 변환한다. 멤버 선택은 로그인 없이 사용할 수 있다.
+2026-10-02 결정에 따라 치지직 시청에 최신 Mul.Live Plus 확장이 필요함을 공지하며
+자체 화면 시청은 비활성화하고 iframe을 생성하지 않는다. 전용 OTW 확장 개발과 자체 화면
+재개는 [개발 상태](development-status.md#2026-10-02-멀티뷰-결정)의 후속 작업이다.
 
 ### 6.5 운영 자동화
 
@@ -719,8 +721,8 @@ pnpm sync:agent-cursor:check
   adapter로 명시한다.
 - 기존 pending URL alias는 호환을 위해 유지하지만 같은 application use
   case를 호출한다.
-- `/multiview`는 extension 없이 동작하는 공개 Mul.Live iframe과 반복
-  `c=` query parameter를 유지한다.
+- `/multiview`는 로그인 없는 멤버 선택과 반복 `c=` query parameter를 유지한다.
+  Mul.Live 직접 시청은 최신 Plus 확장을 필요로 하며 자체 화면 시청은 일시 비활성화한다.
 
 ## 13. OTW Play 계층과 연계성
 

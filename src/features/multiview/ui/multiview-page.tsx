@@ -1,19 +1,13 @@
-import { Check, ExternalLink, MonitorPlay, RotateCcw, Users, X } from "lucide-react";
-import { memo, useEffect, useRef, useState } from "react";
+import { Check, ExternalLink, MonitorPlay, RotateCcw, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Button } from "@/shared/ui/button";
 import { Skeleton } from "@/shared/ui/skeleton";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/shared/ui/dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { useScheduleData } from "@/features/schedule-board";
 import { cn } from "@/shared/lib/utils";
-import { buildMulLiveUrl, buildMultiviewSearchParams, dedupeMultiviewChannelIds, MAX_MULTIVIEW_CHANNELS, parseMultiviewUrlState } from "../model/multiview-utils";
+import { buildMulLiveUrl, buildMultiviewSearchParams, MAX_MULTIVIEW_CHANNELS, parseMultiviewUrlState } from "../model/multiview-utils";
 import type { MultiviewSource } from "../model/types";
 import { useMultiviewSources } from "../queries/use-multiview-sources";
-
-const MulLiveFrame = memo(function MulLiveFrame({ src }: { src: string }) {
-  return <iframe data-testid="multiview-mullive-frame" title="Mul.Live 멀티뷰" src={src}
-    className="block h-full w-full border-0" allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-    allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />;
-});
 
 const initialChannels = () => typeof window === "undefined" ? []
   : parseMultiviewUrlState(new URLSearchParams(window.location.search)).channelIds;
@@ -103,12 +97,6 @@ function MemberPicker({ sources, ids, onToggle, loading, membersLoading, hasLoad
 
 export function MultiviewPage() {
   const [ids, setIds] = useState(initialChannels);
-  const [watching, setWatching] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<string[]>([]);
-  const selectionHeading = useRef<HTMLHeadingElement>(null);
-  const watchHeading = useRef<HTMLHeadingElement>(null);
-  const firstRender = useRef(true);
   const { loading: membersLoading, members } = useScheduleData();
   const { sources, loading, hasLoaded, isError, reload } = useMultiviewSources(members);
 
@@ -118,51 +106,26 @@ export function MultiviewPage() {
     if (`${window.location.pathname}${window.location.search}` !== next) window.history.replaceState(window.history.state, "", next);
   }, [ids]);
   useEffect(() => {
-    const onPopState = () => { setIds(initialChannels()); setWatching(false); setEditing(false); };
+    const onPopState = () => setIds(initialChannels());
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
-  useEffect(() => {
-    if (firstRender.current) { firstRender.current = false; return; }
-    (watching ? watchHeading : selectionHeading).current?.focus();
-  }, [watching]);
 
   const pickerProps = { sources, loading, membersLoading, hasLoaded, isError, reload: () => { void reload(); } };
   const toggle = (id: string) => setIds((current) => toggleSelection(current, id));
-  const onEditOpen = (open: boolean) => {
-    if (open) setDraft([...ids]);
-    else setDraft([]);
-    setEditing(open);
-  };
-  const apply = () => { if (!draft.length) return; setIds(dedupeMultiviewChannelIds(draft)); onEditOpen(false); };
 
   return <main data-testid="multiview-root" className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-background text-foreground">
-    {watching ? <>
-      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b bg-card px-3 py-3 sm:px-4">
-        <h1 ref={watchHeading} tabIndex={-1} className="mr-auto text-base font-bold">오버더월 멀티뷰</h1>
-        <Dialog open={editing} onOpenChange={onEditOpen}>
-          <DialogTrigger asChild><Button variant="outline" className="min-h-11"><Users aria-hidden="true" />멤버 변경</Button></DialogTrigger>
-          <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-3xl" showCloseButton={false}>
-            <DialogHeader className="shrink-0 pr-10"><DialogTitle>시청 멤버 변경</DialogTitle><DialogDescription>적용하면 방송 구성이 변경됩니다. 닫으면 현재 재생을 유지합니다.</DialogDescription></DialogHeader>
-            <Button variant="ghost" size="icon" className="absolute right-3 top-3 min-h-11 min-w-11" aria-label="멤버 변경 닫기" onClick={() => onEditOpen(false)}><X aria-hidden="true" /></Button>
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1"><MemberPicker {...pickerProps} ids={draft} onToggle={(id) => setDraft((current) => toggleSelection(current, id))} /></div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2 border-t pt-3">
-              <span role="status" className="mr-auto text-sm">선택 {draft.length}/{MAX_MULTIVIEW_CHANNELS}</span>
-              <Button variant="ghost" className="min-h-11" disabled={!draft.length} onClick={() => setDraft([])}>초기화</Button>
-              <Button variant="outline" className="min-h-11" onClick={() => onEditOpen(false)}>취소</Button>
-              <Button className="min-h-11" disabled={!draft.length} onClick={apply}>적용</Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-        <ExternalWatchLink ids={ids} />
-        <Button variant="ghost" className="min-h-11" onClick={() => setWatching(false)}>선택 화면으로</Button>
-      </header>
-      <section className="min-h-0 flex-1 bg-black"><MulLiveFrame src={buildMulLiveUrl(ids)} /></section>
-    </> : <>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-6xl space-y-7 p-4 sm:p-6">
-          <header className="space-y-2"><h1 ref={selectionHeading} tabIndex={-1} className="flex items-center gap-2 text-xl font-bold"><MonitorPlay aria-hidden="true" />오버더월 멀티뷰</h1>
-            <p className="text-sm text-muted-foreground">함께 볼 멤버를 선택하고 시청 방식을 골라 주세요. 최대 {MAX_MULTIVIEW_CHANNELS}명까지 선택할 수 있습니다.</p></header>
+          <header className="space-y-2"><h1 className="flex items-center gap-2 text-xl font-bold"><MonitorPlay aria-hidden="true" />오버더월 멀티뷰</h1>
+            <p className="text-sm text-muted-foreground">함께 볼 멤버를 선택하고 Mul.Live에서 시청해 주세요. 최대 {MAX_MULTIVIEW_CHANNELS}명까지 선택할 수 있습니다.</p></header>
+          <Alert>
+            <AlertTitle>치지직 멀티뷰 시청 안내</AlertTitle>
+            <AlertDescription>
+              <p>최근 치지직 업데이트로 인해 Mul.Live에서 방송을 시청하려면 Mul.Live Plus 확장 프로그램이 필요합니다. 최신 버전을 설치하거나 업데이트한 뒤 Mul.Live에서 시청해 주세요.</p>
+              <a href="https://chromewebstore.google.com/detail/mullive-plus/pahcphmhihleneomklgfbbneokhjiaim" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1 font-medium text-foreground underline underline-offset-4">Mul.Live Plus 설치<ExternalLink aria-hidden="true" className="size-4" /></a>
+            </AlertDescription>
+          </Alert>
           <MemberPicker {...pickerProps} ids={ids} onToggle={toggle} />
         </div>
       </div>
@@ -170,10 +133,9 @@ export function MultiviewPage() {
         <div className="mx-auto max-w-6xl space-y-3">
           <div className="flex flex-wrap items-center gap-2"><span role="status" className="mr-auto text-sm font-medium">선택 {ids.length}/{MAX_MULTIVIEW_CHANNELS}{!ids.length ? " · 시청할 멤버를 선택해 주세요" : ""}</span>
             <Button variant="ghost" size="sm" className="min-h-11" disabled={!ids.length} onClick={() => setIds([])}><RotateCcw aria-hidden="true" />초기화</Button></div>
-          <div className="grid gap-2 sm:flex"><ExternalWatchLink ids={ids} /><Button variant="outline" className="min-h-11" disabled={!ids.length} onClick={() => setWatching(true)}><MonitorPlay aria-hidden="true" />이 화면에서 보기</Button></div>
-          <p className="text-xs leading-relaxed text-muted-foreground">로그인·채팅은 Mul.Live Plus 확장을 설치한 브라우저에서 Mul.Live를 직접 열어 이용하세요.</p>
+          <div className="grid gap-2 sm:flex"><ExternalWatchLink ids={ids} /><Button variant="outline" className="min-h-11" disabled aria-describedby="multiview-embed-unavailable"><MonitorPlay aria-hidden="true" />이 화면에서 보기</Button></div>
+          <p id="multiview-embed-unavailable" className="text-xs leading-relaxed text-muted-foreground">이 화면에서 보기는 일시 중단되었습니다. 현재는 Mul.Live에서 보기로 이용해 주세요.</p>
         </div>
       </footer>
-    </>}
   </main>;
 }

@@ -32,7 +32,7 @@ trigger: always_on
 - Public chrome is selected by `getAppChromeMode` and rendered by `PublicAppShell`.
 - Content pages such as notice, VOD, and member posts share `ContentPageShell`.
 - Daily and weekly schedule views consume the `schedule-board` read model.
-- `/multiview` is a public Mul.Live iframe surface. Member chips with CHZZK channel URLs build `c=` URL state and the embedded Mul.Live URL.
+- `/multiview` is public CHZZK member selection with repeated `c=` URL state and a new-tab Mul.Live link. Viewing requires the latest Mul.Live Plus extension; embedded viewing is temporarily disabled. A dedicated OTW extension is planned as follow-up work in `docs/development-status.md`.
 - Admin screens control notices, schedules, source settings, auto-update settings, pending schedules, and logs.
 - OTW Play shares song/performance/source identities across official releases
   and singing clips, with distinct discovery and review/publication policies.
@@ -83,7 +83,7 @@ trigger: always_on
 ## Current Non-Goals
 - No Chrome extension package is maintained in this repository.
 - Do not reintroduce extension bridge code, CHZZK DOM automation, iframe cookie bridging, or Chrome Web Store packaging unless explicitly requested.
-- Keep `/multiview` web-safe and functional without privileged browser APIs.
+- Keep `/multiview` selection and external navigation web-safe without privileged browser APIs; external CHZZK viewing requires the extension disclosed in the page notice.
 
 ## Commands (pnpm-first)
 - `pnpm dev`: start local development server.

@@ -28,8 +28,9 @@ remote mutations, or merging by itself; use existing session authorization.
    when that capability is in scope. For scheduled work, distinguish request
    acceptance, dispatch, item outcomes, retries, and final operation status.
 5. For UI changes, use [Design.md](../../../Design.md) and inspect the rendered
-   affected flow when practical. For multiview, preserve public Mul.Live iframe
-   behavior and repeated `c=` state without extension or cookie-bridge assumptions.
+   affected flow when practical. For multiview, preserve public selection and
+   repeated `c=` state, the Mul.Live extension notice and external link, and disabled
+   embedded viewing. Dedicated OTW extension development remains follow-up work.
 6. Execute the smallest relevant checks allowed by the review scope. When actual
    behavior verification is requested, use the intended UI/runtime and authoritative
    readback; unit tests or direct lower-level writes cannot replace that flow.

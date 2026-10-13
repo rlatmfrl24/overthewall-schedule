@@ -73,4 +73,4 @@ These wrappers must remain lightweight pointers to canonical skills and referenc
 ## Current Repository Scope
 - This repository currently ships the OTW Schedule web app and Cloudflare Worker only.
 - No Chrome extension package is part of the active source tree. Do not recreate `extensions/*`, extension store metadata, or browser-extension release steps unless the user explicitly requests that work again.
-- `/multiview` is currently a public Mul.Live iframe surface driven by selected CHZZK member channels, not an extension-assisted CHZZK DOM automation flow.
+- `/multiview` currently provides public CHZZK member selection and a new-tab Mul.Live link with a notice requiring the latest Mul.Live Plus extension. Embedded viewing is temporarily disabled; a dedicated OTW extension is planned as follow-up work.
