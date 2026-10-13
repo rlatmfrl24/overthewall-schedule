@@ -75,7 +75,7 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
     return (
       <OtwPlayAccessCard
         title={`로그인하고 ${site.playName}를 만나보세요`}
-        description={mobile ? "OTW 회원이라면 노래를 듣고 플레이리스트를 이용할 수 있어요." : "OTW 회원이라면 노래를 듣고 플레이리스트와 곡 제안을 이용할 수 있어요."}
+        description={`${site.id === "otw" ? "OTW" : site.serviceName} 회원이라면 노래를 듣고 ${mobile ? "플레이리스트를" : "플레이리스트와 곡 제안을"} 이용할 수 있어요.`}
       >
         <SignInButton>
           <Button className="w-full rounded-full">로그인</Button>
