@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getSiteDefinition, type SiteDefinition } from "../contracts/site-definition";
+import { getSiteTarget, parseSiteArgument } from "./site-target.mjs";
 import {
   resolveSiteSeo,
   STATIC_SHELL_PATHS,
@@ -69,7 +71,8 @@ export const renderNotFoundDocument = (): string => `<!doctype html>
   </body>
 </html>`;
 
-export const generateSeoAssets = async (outputRoot: string): Promise<void> => {
+export const generateSeoAssets = async (outputRoot: string, site: SiteDefinition = getSiteDefinition("otw")): Promise<void> => {
+  if (site.id !== "otw") throw new Error("LuvDia SEO generation requires Task 2's site-aware metadata contracts.");
   const rootIndex = resolve(outputRoot, "index.html");
   const source = await readFile(rootIndex, "utf8");
   for (const path of STATIC_SHELL_PATHS) {
@@ -84,5 +87,6 @@ export const generateSeoAssets = async (outputRoot: string): Promise<void> => {
 
 const currentFile = fileURLToPath(import.meta.url);
 if (process.argv[1] && resolve(process.argv[1]) === currentFile) {
-  await generateSeoAssets(resolve(process.cwd(), "dist/client"));
+  const siteId = parseSiteArgument();
+  await generateSeoAssets(resolve(process.cwd(), getSiteTarget(siteId).outputRoot, "client"), getSiteDefinition(siteId));
 }

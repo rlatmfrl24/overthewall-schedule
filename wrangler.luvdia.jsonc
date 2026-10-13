@@ -1,0 +1,163 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "luvdia-schedule",
+  "main": "worker/index.ts",
+  "compatibility_date": "2025-11-25",
+  "assets": {
+    "directory": "./dist/luvdia/client",
+    "binding": "ASSETS",
+    "html_handling": "drop-trailing-slash",
+    "not_found_handling": "404-page",
+    "run_worker_first": [
+      "/api/*",
+      "/",
+      "/weekly",
+      "/weekly/",
+      "/notice",
+      "/notice/",
+      "/vods",
+      "/vods/",
+      "/rights",
+      "/rights/",
+      "/r2-assets/*",
+      "/feed",
+      "/feed/",
+      "/play",
+      "/play/*",
+      "/profile/*",
+      "!/profile/*.webp",
+      "!/profile/signatures/*",
+      "/sitemap.xml"
+    ]
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "SITE_ID": "luvdia",
+    "SITE_RESOURCES_PROVISIONED": "false",
+    "OTW_PLAY_AI_REVIEW_ENABLED": "false"
+  },
+  "analytics_engine_datasets": [
+    {
+      "binding": "OTW_PLAY_ANALYTICS",
+      "dataset": "luvdia_play_events"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "otw_db",
+      "database_name": "luvdia-db",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ASSET_BUCKET",
+      "bucket_name": "luvdia-schedule",
+      "remote": false
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "OTW_PLAY_SUBMISSION_RATE_LIMITER",
+      "namespace_id": "1002",
+      "simple": {
+        "limit": 3,
+        "period": 60
+      }
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "OTW_PLAY_AI_REVIEW_QUEUE",
+        "queue": "luvdia-play-ai-review"
+      },
+      {
+        "binding": "OTW_OPS_CONTROL_QUEUE",
+        "queue": "luvdia-ops-control"
+      },
+      {
+        "binding": "OTW_OPS_CRITICAL_QUEUE",
+        "queue": "luvdia-ops-critical"
+      },
+      {
+        "binding": "OTW_OPS_BACKGROUND_QUEUE",
+        "queue": "luvdia-ops-background"
+      },
+      {
+        "binding": "OTW_PLAY_INGESTION_QUEUE",
+        "queue": "luvdia-play-ingestion"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "luvdia-play-ai-review",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 100,
+        "dead_letter_queue": "luvdia-dead-letter",
+        "max_concurrency": 1
+      },
+      {
+        "queue": "luvdia-ops-control",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "luvdia-dead-letter",
+        "max_concurrency": 1
+      },
+      {
+        "queue": "luvdia-ops-critical",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "luvdia-dead-letter",
+        "max_concurrency": 1
+      },
+      {
+        "queue": "luvdia-ops-background",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "luvdia-dead-letter",
+        "max_concurrency": 1
+      },
+      {
+        "queue": "luvdia-play-ingestion",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "luvdia-dead-letter",
+        "max_concurrency": 1
+      },
+      {
+        "queue": "luvdia-dead-letter",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 0,
+        "max_concurrency": 1
+      }
+    ]
+  },
+  "workflows": [
+    {
+      "binding": "SCHEDULED_OPERATIONS_WORKFLOW",
+      "name": "luvdia-scheduled-operations",
+      "class_name": "ScheduledOperationsWorkflow",
+      "limits": {
+        "steps": 3
+      }
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "3,13,23,33,53 * * * *"
+    ]
+  },
+  "placement": {
+    "region": "aws:ap-northeast-2"
+  },
+  "workers_dev": false
+}

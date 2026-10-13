@@ -1,7 +1,7 @@
 const CLERK_DEVELOPMENT_PUBLISHABLE_KEY_PATTERN =
-  /^pk_test_[A-Za-z0-9_-]{10,}$/;
+  /^pk_test_[A-Za-z0-9_=-]{10,}$/;
 const CLERK_PRODUCTION_PUBLISHABLE_KEY_PATTERN =
-  /^pk_live_[A-Za-z0-9_-]{10,}$/;
+  /^pk_live_[A-Za-z0-9_=-]{10,}$/;
 
 export const CLERK_ENVIRONMENT_TARGETS = {
   development: "development",
@@ -58,4 +58,21 @@ export const assertClerkPublishableKeyForTarget = ({
   }
 
   return { kind, target };
+};
+
+export const assertClerkSiteIdentity = ({ publishableKey, issuer, target }) => {
+  assertClerkPublishableKeyForTarget({ publishableKey, target });
+  if (!issuer) throw new Error("Missing site-scoped CLERK_ISSUER for Clerk app identity verification.");
+  let expected;
+  let actual;
+  try {
+    expected = new URL(issuer);
+    const decoded = atob(publishableKey.trim().slice(8));
+    if (!decoded.endsWith("$")) throw new Error("Invalid encoded key");
+    actual = new URL(`https://${decoded.slice(0, -1)}`);
+    if (expected.protocol !== "https:" || expected.origin !== actual.origin || expected.pathname !== "/" || expected.search || expected.hash || expected.username || expected.password || actual.pathname !== "/") throw new Error("Identity mismatch");
+  } catch {
+    throw new Error("Clerk publishable key app identity does not match the selected site's CLERK_ISSUER.");
+  }
+  return expected.origin;
 };

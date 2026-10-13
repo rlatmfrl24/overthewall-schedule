@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
@@ -6,13 +6,17 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import {
   getLocalDevServerConfig,
+  getLocalDevOrigin,
   resolveLocalD1PersistState,
   rewriteLocalSpaRequest,
 } from "./scripts/local-dev-config.mjs";
 import {
-  assertClerkPublishableKeyForTarget,
+  assertClerkSiteIdentity,
   resolveClerkEnvironmentTarget,
 } from "./scripts/clerk-environment.mjs";
+import { parseSiteId } from "./contracts/site-definition";
+import { getSiteTarget, getSiteEnvDirectory, loadSiteEnvironment, resolveSiteOrigin } from "./scripts/site-target.mjs";
+import { writeLocalSiteConfig } from "./scripts/local-site-config.mjs";
 
 const spaDevRewrite = () => ({
   name: "otw-spa-dev-rewrite",
@@ -28,25 +32,39 @@ const spaDevRewrite = () => ({
 
 // https://vite.dev/config/
 export default defineConfig(({ command, mode, isPreview }) => {
+  const siteId = parseSiteId(process.env.SITE_ID);
+  const target = getSiteTarget(siteId);
+  const environment = loadSiteEnvironment(siteId, mode);
   const clerkTarget = resolveClerkEnvironmentTarget({
     command,
     mode,
     isPreview,
   });
   if (clerkTarget) {
-    const environment = {
-      ...loadEnv(mode, process.cwd(), ""),
-      ...process.env,
-    };
-    assertClerkPublishableKeyForTarget({
+    const issuer = assertClerkSiteIdentity({
       publishableKey: environment.VITE_CLERK_PUBLISHABLE_KEY,
+      issuer: environment.CLERK_ISSUER,
       target: clerkTarget,
     });
+    const other = loadSiteEnvironment(siteId === "otw" ? "luvdia" : "otw", mode);
+    if ((other.CLERK_ISSUER && new URL(other.CLERK_ISSUER).origin === issuer) || other.VITE_CLERK_PUBLISHABLE_KEY === environment.VITE_CLERK_PUBLISHABLE_KEY) throw new Error("Sites must use separate Clerk app identities.");
   }
+  const local = command === "serve" && !isPreview;
+  const publicOrigin = local ? getLocalDevOrigin(process.env, siteId) : resolveSiteOrigin(siteId, environment);
+  const configPath = local ? writeLocalSiteConfig(siteId, environment) : target.configPath;
 
   return {
+    envDir: getSiteEnvDirectory(siteId),
+    // Expose only the approved public inputs; ambient VITE_* values cannot replace them.
+    envPrefix: "__SITE_PUBLIC_INPUTS_ONLY__",
+    define: {
+      "import.meta.env.VITE_SITE_ID": JSON.stringify(siteId),
+      "import.meta.env.VITE_PUBLIC_ORIGIN": JSON.stringify(publicOrigin),
+      "import.meta.env.VITE_CLERK_PUBLISHABLE_KEY": JSON.stringify(environment.VITE_CLERK_PUBLISHABLE_KEY),
+      "import.meta.env.VITE_CLERK_ISSUER": JSON.stringify(environment.CLERK_ISSUER),
+    },
     server: {
-      ...getLocalDevServerConfig(),
+      ...getLocalDevServerConfig(process.env, siteId),
       // Reports and local tool downloads must not trigger application reloads.
       watch: { ignored: ["**/coverage/**", "**/.tmp/**"] },
     },
@@ -58,8 +76,10 @@ export default defineConfig(({ command, mode, isPreview }) => {
       }),
       react(),
       cloudflare({
-        configPath: "./wrangler.jsonc",
-        persistState: resolveLocalD1PersistState(),
+        configPath,
+        persistState: resolveLocalD1PersistState(process.env, siteId),
+        remoteBindings: false,
+        inspectorPort: siteId === "otw" ? 9229 : 9230,
       }),
       tailwindcss(),
     ],
@@ -71,6 +91,7 @@ export default defineConfig(({ command, mode, isPreview }) => {
       },
     },
     build: {
+      outDir: target.outputRoot,
       rollupOptions: {
         output: {
           manualChunks(id) {

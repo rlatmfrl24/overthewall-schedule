@@ -1,12 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { getClerkPublishableKeyKind } from "./clerk-environment.mjs";
+import { getClerkPublishableKeyKind, assertClerkSiteIdentity } from "./clerk-environment.mjs";
 
-const CLERK_PUBLISHABLE_KEY_PATTERN = /pk_(?:test|live)_[A-Za-z0-9_-]{10,}/g;
+const CLERK_PUBLISHABLE_KEY_PATTERN = /pk_(?:test|live)_[A-Za-z0-9_=-]{10,}/g;
 const ENTRY_SCRIPT_PATTERN = /<script\b[^>]*\bsrc=["']([^"']+\.js(?:\?[^"']*)?)["'][^>]*>/g;
 
 export const verifyClientBuildForDeploy = (
-  clientDirectory = path.resolve("dist/client"),
+  clientDirectory = path.resolve("dist/otw/client"),
+  expectedIdentity,
 ) => {
   const indexPath = path.join(clientDirectory, "index.html");
   if (!existsSync(indexPath)) {
@@ -58,6 +59,13 @@ export const verifyClientBuildForDeploy = (
     throw new Error(
       "Client build does not contain a Clerk production publishable key. Rebuild with VITE_CLERK_PUBLISHABLE_KEY before deploying.",
     );
+  }
+  if (expectedIdentity) {
+    for (const source of entryScripts) {
+      for (const match of source.matchAll(CLERK_PUBLISHABLE_KEY_PATTERN)) {
+        assertClerkSiteIdentity({ publishableKey: match[0], issuer: expectedIdentity.issuer, target: "production" });
+      }
+    }
   }
 
   return { entryScriptCount: entryScripts.length };

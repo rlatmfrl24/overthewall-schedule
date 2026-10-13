@@ -8,7 +8,7 @@ import {
 } from "./d1-seed-guard.mjs";
 import {
   buildD1LocationArgs,
-  parsePersistToOption,
+  resolveLocalD1Options,
 } from "./d1-local-options.mjs";
 
 const require = createRequire(import.meta.url);
@@ -19,8 +19,10 @@ const fixtureFile = resolve(rootDir, "scripts", "fixtures", "local-d1-seed.sql")
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
 const force = args.includes("--force");
 let persistTo;
+let target;
 try {
-  persistTo = parsePersistToOption(args);
+  target = resolveLocalD1Options(args);
+  persistTo = target.persistTo;
 } catch (error) {
   console.error(`[d1:seed:local] ${error.message}`);
   process.exit(2);
@@ -28,7 +30,7 @@ try {
 
 const runWrangler = (args, options = {}) =>
   new Promise((resolveRun, rejectRun) => {
-    const child = spawn(process.execPath, [wranglerEntry, ...args], {
+    const child = spawn(process.execPath, [wranglerEntry, ...args, "--config", target.configPath], {
       cwd: rootDir,
       stdio: options.capture ? ["ignore", "pipe", "pipe"] : "inherit",
     });
@@ -61,7 +63,7 @@ const guardResult = await runWrangler(
   [
     "d1",
     "execute",
-    "otw-db",
+    "otw_db",
     ...buildD1LocationArgs("local", persistTo),
     "--json",
     "--command",
@@ -122,7 +124,7 @@ if (force && hasProtectedData) {
 const seedResult = await runWrangler([
   "d1",
   "execute",
-  "otw-db",
+  "otw_db",
   ...buildD1LocationArgs("local", persistTo),
   "--yes",
   "--file",

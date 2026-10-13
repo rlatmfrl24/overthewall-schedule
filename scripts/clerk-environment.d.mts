@@ -1,4 +1,9 @@
 export type ClerkEnvironmentTarget = "development" | "production";
+export function assertClerkSiteIdentity(input: {
+  publishableKey: string | null | undefined;
+  issuer: string | null | undefined;
+  target: ClerkEnvironmentTarget;
+}): string;
 
 export const CLERK_ENVIRONMENT_TARGETS: {
   development: "development";

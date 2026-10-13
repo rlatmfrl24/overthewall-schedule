@@ -30,6 +30,11 @@ afterEach(() => {
 });
 
 describe("verifyClientBuildForDeploy", () => {
+  it("rejects another site's live app even though its key is production", () => {
+    const key = `pk_live_${Buffer.from("other.clerk.accounts.dev$").toString("base64")}`;
+    const directory = createClientBuild(`const publishableKey = "${key}";`);
+    expect(() => verifyClientBuildForDeploy(directory, { issuer: "https://selected.clerk.accounts.dev", siteId: "luvdia" })).toThrow(/identity/);
+  });
   it("accepts an entry bundle containing a Clerk production key", () => {
     const directory = createClientBuild(
       'const publishableKey = "pk_live_example_publishable_key_123";',

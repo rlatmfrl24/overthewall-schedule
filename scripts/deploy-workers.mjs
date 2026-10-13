@@ -1,11 +1,18 @@
 import { spawnSync } from "node:child_process";
 import { verifyClientBuildForDeploy } from "./client-build-deploy-guard.mjs";
+import { getSiteTarget, parseSiteArgument } from "./site-target.mjs";
+import { verifySiteBuildManifest } from "./site-build-manifest.mjs";
+import { resolve } from "node:path";
 
 const isWindows = process.platform === "win32";
 const dryRun = process.argv.includes("--dry-run");
-const configs = ["wrangler.jsonc"];
+const siteId = parseSiteArgument();
+const target = getSiteTarget(siteId);
+if (siteId === "luvdia") throw new Error("LuvDia remote operations require provisioned resources and Task 5's deployment guards.");
+const manifest = verifySiteBuildManifest(siteId);
+const configs = [manifest.workerConfigPath];
 
-const verifiedClientBuild = verifyClientBuildForDeploy();
+const verifiedClientBuild = verifyClientBuildForDeploy(resolve(target.outputRoot, "client"), { siteId, issuer: manifest.clerkIssuer });
 process.stdout.write(
   `[deploy] Verified Clerk configuration in ${verifiedClientBuild.entryScriptCount} client entry script(s).\n`,
 );
@@ -32,7 +39,7 @@ const run = (args, options = {}) => {
 };
 
 if (!dryRun) {
-  const doctor = spawnSync(process.execPath, ["scripts/d1-doctor.mjs", "--remote", "--skip-local"], {
+  const doctor = spawnSync(process.execPath, ["scripts/d1-doctor.mjs", `--site=${siteId}`, "--remote", "--skip-local"], {
     cwd: process.cwd(), stdio: "inherit",
   });
   if (doctor.status !== 0) throw new Error("Remote D1 schema and configuration checks failed");

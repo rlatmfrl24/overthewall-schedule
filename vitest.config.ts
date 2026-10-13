@@ -10,7 +10,7 @@ export default defineConfig({
     maxWorkers: testMaxWorkers,
     include: [
       "src/**/*.test.ts", "src/**/*.test.tsx",
-      "worker/**/*.test.ts", "scripts/**/*.test.ts",
+      "worker/**/*.test.ts", "scripts/**/*.test.ts", "contracts/**/*.test.ts",
     ],
     exclude: ["worker/**/*.integration.test.ts"],
     coverage: { ...testCoverage, provider: "v8" },

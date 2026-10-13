@@ -3,12 +3,19 @@ import {
   assertClerkPublishableKeyForTarget,
   getClerkPublishableKeyKind,
   resolveClerkEnvironmentTarget,
+  assertClerkSiteIdentity,
 } from "./clerk-environment.mjs";
 
 const developmentKey = "pk_test_example_publishable_key_123";
 const productionKey = "pk_live_example_publishable_key_123";
 
 describe("Clerk environment contract", () => {
+  it("checks app identity as well as key kind without exposing a key", () => {
+    const key = `pk_test_${Buffer.from("luvdia.clerk.accounts.dev$").toString("base64")}`;
+    expect(assertClerkSiteIdentity({ publishableKey: key, issuer: "https://luvdia.clerk.accounts.dev", target: "development" })).toBe("https://luvdia.clerk.accounts.dev");
+    expect(() => assertClerkSiteIdentity({ publishableKey: key, issuer: "https://otw.clerk.accounts.dev", target: "development" })).toThrow(/identity/);
+    expect(() => assertClerkSiteIdentity({ publishableKey: key, issuer: undefined, target: "development" })).toThrow(/CLERK_ISSUER/);
+  });
   it("classifies development and production publishable keys", () => {
     expect(getClerkPublishableKeyKind(developmentKey)).toBe("development");
     expect(getClerkPublishableKeyKind(productionKey)).toBe("production");

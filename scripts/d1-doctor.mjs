@@ -16,13 +16,14 @@ import {
 } from "./d1-doctor-core.mjs";
 import {
   buildD1LocationArgs,
-  parsePersistToOption,
+  resolveLocalD1Options,
 } from "./d1-local-options.mjs";
 import {
   DEFAULT_LOCAL_DEV_PORT,
   LOCAL_DEV_HOST,
   getLocalDevOrigin,
 } from "./local-dev-config.mjs";
+import { getSiteLocalEnvironment } from "./site-target.mjs";
 
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -44,8 +45,10 @@ const skipLocal = hasArg("--skip-local");
 const includeRemote = hasArg("--remote");
 const skipRemote = hasArg("--skip-remote") || !includeRemote;
 let persistTo;
+let target;
 try {
-  persistTo = parsePersistToOption(args);
+  target = resolveLocalD1Options(args);
+  persistTo = target.persistTo;
 } catch (error) {
   console.error(`[d1:doctor] ${error.message}`);
   process.exit(2);
@@ -70,7 +73,8 @@ Environment:
 }
 
 const explicitBaseUrl = getArgValue("--url", null);
-const baseUrl = (explicitBaseUrl ?? getLocalDevOrigin()).replace(/\/$/, "");
+const baseUrl = (explicitBaseUrl ?? getLocalDevOrigin(getSiteLocalEnvironment(target.siteId), target.siteId)).replace(/\/$/, "");
+if (includeRemote && target.siteId === "luvdia") throw new Error("LuvDia remote D1 checks require provisioned resources and deployment guards.");
 
 const stripAnsi = (value) =>
   value.replace(
@@ -101,7 +105,7 @@ const run = async (command, commandArgs, options = {}) => {
 };
 
 const runWrangler = (commandArgs, options) =>
-  run(process.execPath, [wranglerEntry, ...commandArgs], options);
+  run(process.execPath, [wranglerEntry, ...commandArgs, "--config", target.configPath], options);
 
 const extractJsonArray = (text) => {
   for (let index = text.indexOf("["); index >= 0; index = text.indexOf("[", index + 1)) {
@@ -150,7 +154,7 @@ const checkMigrations = async (scope) => {
     "d1",
     "migrations",
     "list",
-    "otw-db",
+    "otw_db",
     ...buildD1LocationArgs(scope, persistTo),
   ]);
 
@@ -166,7 +170,7 @@ const readTableColumns = async (scope, tableName) => {
   const result = await runWrangler([
     "d1",
     "execute",
-    "otw-db",
+    "otw_db",
     ...buildD1LocationArgs(scope, persistTo),
     "--command",
     `PRAGMA table_info(${tableName});`,
@@ -222,7 +226,7 @@ const checkCatalogMeta = async (scope) => {
   const result = await runWrangler([
     "d1",
     "execute",
-    "otw-db",
+    "otw_db",
     ...buildD1LocationArgs(scope, persistTo),
     "--command",
     `SELECT id, revision, public_read_enabled, navigation_visible, updated_at,
@@ -258,7 +262,7 @@ const runReadModelDiagnostic = async (scope, label, sql, getStatus) => {
   const result = await runWrangler([
     "d1",
     "execute",
-    "otw-db",
+    "otw_db",
     ...buildD1LocationArgs(scope, persistTo),
     "--command",
     sql,
@@ -364,7 +368,7 @@ const checkOtwPlaySubmissionDailyLimit = (scope) =>
   );
 
 const hasRemoteD1Binding = () => {
-  const configPath = join(rootDir, "wrangler.jsonc");
+  const configPath = join(rootDir, target.configPath);
   if (!existsSync(configPath)) return false;
   const config = readFileSync(configPath, "utf8");
   const d1Block = config.match(
