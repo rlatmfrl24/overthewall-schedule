@@ -1,6 +1,6 @@
 import type { AiBatchDraft, AiBatchItem, AiBatchSelection, AiBatchSummary } from "@contracts/otw-play-ai-batch";
 import type { AiReviewResult } from "@contracts/otw-play-ai-review";
-import type { AiBatchRepository, AiBatchWork } from "../application/ports/ai-batch";
+import type { AiBatchRepository, AiBatchRetryCommand, AiBatchWork } from "../application/ports/ai-batch";
 import { AiReviewError } from "../application/ports/ai-review";
 
 type Row = Record<string, string | number | null>;
@@ -133,15 +133,20 @@ export class D1AiBatchRepository implements AiBatchRepository {
     return Boolean(await this.db.prepare(`SELECT id FROM music_ai_review_batch_items WHERE status IN ${pending}
       AND (lease_until IS NULL OR lease_until<=?) AND (dispatch_until IS NULL OR dispatch_until<=?) LIMIT 1`).bind(now, now).first());
   }
-  async retry(id: string, now: number, candidateIds?: readonly string[]) {
+  async retry(id: string, now: number, candidateIds?: readonly string[], command?: AiBatchRetryCommand) {
     await this.summary(id);
-    await this.db.prepare(`UPDATE music_ai_review_batch_items AS i SET status='changed',error_message='후보가 변경되었습니다. 최신 내용을 확인하세요.',updated_at=?
-      WHERE batch_id=? AND status='failed' AND NOT EXISTS (SELECT 1 FROM music_ingestion_candidates c WHERE c.id=i.candidate_id AND ${current})`).bind(now, id).run();
-    await this.db.prepare(`UPDATE music_ai_review_batch_items AS i SET status=CASE WHEN result_json IS NULL THEN 'queued' ELSE 'saving' END,
+    const receiptId=command ? `ai-batch-retry:${command.actorUserId}:${command.idempotencyKey}` : null;
+    const receiptGuard=receiptId ? "AND NOT EXISTS(SELECT 1 FROM music_catalog_events WHERE id=?)" : "";
+    const statements=[this.db.prepare(`UPDATE music_ai_review_batch_items AS i SET status='changed',error_message='후보가 변경되었습니다. 최신 내용을 확인하세요.',updated_at=?
+      WHERE batch_id=? AND status='failed' AND NOT EXISTS (SELECT 1 FROM music_ingestion_candidates c WHERE c.id=i.candidate_id AND ${current}) ${receiptGuard}`).bind(now, id,...(receiptId ? [receiptId] : [])),
+    this.db.prepare(`UPDATE music_ai_review_batch_items AS i SET status=CASE WHEN result_json IS NULL THEN 'queued' ELSE 'saving' END,
       review_id=CASE WHEN result_json IS NULL THEN NULL ELSE review_id END,generation=generation+1,error_message=NULL,dispatch_until=NULL,updated_at=?
       WHERE batch_id=? AND status='failed' AND EXISTS (SELECT 1 FROM music_ingestion_candidates c WHERE c.id=i.candidate_id AND ${current})
       AND NOT EXISTS (SELECT 1 FROM music_ai_review_batch_items other WHERE other.candidate_id=i.candidate_id AND other.status IN ${pending})
-      ${candidateIds ? "AND i.candidate_id IN (SELECT value FROM json_each(?))" : ""}`).bind(now, id, ...(candidateIds ? [JSON.stringify(candidateIds)] : [])).run();
+      ${candidateIds ? "AND i.candidate_id IN (SELECT value FROM json_each(?))" : ""} ${receiptGuard}`).bind(now, id, ...(candidateIds ? [JSON.stringify(candidateIds)] : []),...(receiptId ? [receiptId] : []))];
+    if(command)statements.push(this.db.prepare(`INSERT OR IGNORE INTO music_catalog_events(id,aggregate_type,aggregate_id,event_type,actor_kind,actor_user_id,detail_json,created_at)
+      VALUES(?,'ai_review_batch',?,'ai_batch.retry','admin',?,'{}',?)`).bind(receiptId,id,command.actorUserId,now));
+    await this.db.batch(statements);
   }
   async dead(id: string, generation: number, now: number) {
     await this.db.prepare(`UPDATE music_ai_review_batch_items SET status='failed',error_message='큐 처리를 완료하지 못했습니다. 다시 시도하세요.',updated_at=?

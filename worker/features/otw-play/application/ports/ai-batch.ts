@@ -7,6 +7,7 @@ export interface AiBatchWork extends AiBatchItem {
   generation: number;
   result: AiReviewResult | null;
 }
+export interface AiBatchRetryCommand { idempotencyKey: string; actorUserId: string }
 export interface AiBatchRepository {
   preview(selection: AiBatchSelection): Promise<number>;
   create(id: string, actor: string, key: string, selection: AiBatchSelection, now: number): Promise<AiBatchSummary>;
@@ -20,6 +21,6 @@ export interface AiBatchRepository {
   finish(id: string, token: string, status: AiBatchItem["status"], message: string | null, now: number): Promise<void>;
   release(id: string, token: string, now: number): Promise<void>;
   pending(now: number, batchId?: string): Promise<{ id: string; generation: number }[]>;
-  retry(id: string, now: number, candidateIds?: readonly string[]): Promise<void>;
+  retry(id: string, now: number, candidateIds?: readonly string[], command?: AiBatchRetryCommand): Promise<void>;
   dead(id: string, generation: number, now: number): Promise<void>;
 }

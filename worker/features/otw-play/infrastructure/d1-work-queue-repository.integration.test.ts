@@ -26,7 +26,7 @@ const service=new WorkQueueService(repo,imports,ingestion,ai,reader as unknown a
 beforeEach(async()=>{
   await applyD1Migrations(db,(env as unknown as {OTW_PLAY_INGESTION_MIGRATIONS:D1Migration[]}).OTW_PLAY_INGESTION_MIGRATIONS);
   await db.batch([
-    db.prepare("DELETE FROM music_catalog_events WHERE aggregate_type IN ('playlist_work_queue','playlist_work_batch')"),
+    db.prepare("DELETE FROM music_catalog_events WHERE aggregate_type IN ('playlist_work_queue','playlist_work_batch') OR event_type='ai_batch.retry'"),
     db.prepare("DELETE FROM music_playlist_work_items"),db.prepare("DELETE FROM music_playlist_work_batches"),db.prepare("DELETE FROM music_playlist_work_queues"),db.prepare("DELETE FROM music_ai_review_batches"),
     db.prepare("DELETE FROM music_ingestion_events"),db.prepare("DELETE FROM music_ingestion_candidate_origins"),db.prepare("DELETE FROM music_ingestion_messages"),db.prepare("DELETE FROM music_ingestion_candidates"),db.prepare("DELETE FROM music_ingestion_jobs"),
     db.prepare("DELETE FROM music_performances WHERE id LIKE 'work-id-%'"),db.prepare("DELETE FROM music_media_sources WHERE id LIKE 'work-id-%'"),db.prepare("DELETE FROM music_songs WHERE id LIKE 'work-id-%'"),
@@ -289,13 +289,23 @@ it("recovers a lost batch retry response without incrementing versions or AI ret
   const b=await prepared(),actor={userId:"admin",displayName:null,ipAddress:null};
   await db.prepare("UPDATE music_ai_review_batch_items SET status='failed' WHERE batch_id=?").bind(b.ai!.id).run();
   const command={expectedVersion:b.version,idempotencyKey:"batch-retry-response-lost"};
+  await repo.retryBatch(b.id,command,actor.userId,now);
   await Promise.all([service.retry(b.id,command,actor),service.retry(b.id,command,actor)]);
   const accepted=await service.batch(b.id);
   await service.retry(b.id,command,actor);
   expect((await service.batch(b.id)).version).toBe(accepted.version);
   expect(await db.prepare("SELECT MIN(generation) AS minimum,MAX(generation) AS maximum FROM music_ai_review_batch_items WHERE batch_id=?").bind(b.ai!.id).first()).toEqual({minimum:1,maximum:1});
+  await db.prepare("UPDATE music_ai_review_batch_items SET status='failed' WHERE batch_id=?").bind(b.ai!.id).run();
+  await service.retry(b.id,command,actor);
+  expect(await db.prepare("SELECT MIN(generation) AS minimum,MAX(generation) AS maximum FROM music_ai_review_batch_items WHERE batch_id=?").bind(b.ai!.id).first()).toEqual({minimum:1,maximum:1});
+  await service.retry(b.id,{expectedVersion:accepted.version,idempotencyKey:"newer-batch-retry"},actor);
+  const dispatched=sent.length;
+  await service.retry(b.id,command,actor);
+  expect(sent).toHaveLength(dispatched);
   await expect(service.retry(b.id,{...command,expectedVersion:command.expectedVersion+1},actor)).rejects.toMatchObject({code:"idempotency_conflict"});
-  expect(await db.prepare("SELECT COUNT(*) AS count FROM music_catalog_events WHERE aggregate_type='playlist_work_batch'").first()).toEqual({count:1});
+  expect(await db.prepare("SELECT MIN(generation) AS minimum,MAX(generation) AS maximum FROM music_ai_review_batch_items WHERE batch_id=?").bind(b.ai!.id).first()).toEqual({minimum:2,maximum:2});
+  expect(await db.prepare("SELECT COUNT(*) AS count FROM music_catalog_events WHERE aggregate_type='playlist_work_batch'").first()).toEqual({count:2});
+  expect(await db.prepare("SELECT COUNT(*) AS count FROM music_catalog_events WHERE event_type='ai_batch.retry'").first()).toEqual({count:2});
 });
 it("starts a new scan after metadata expiration without accumulating previous scan slots",async()=>{
   const b=await prepared();

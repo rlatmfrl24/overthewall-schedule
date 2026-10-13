@@ -81,9 +81,10 @@ export class WorkQueueService {
   async retry(id: string, command: PlayWorkCommand, actor: AdminCatalogActor) {
     const b = await this.repo.record(id);
     await this.repo.retryBatch(id,command,actor.userId,this.clock());
+    if(b.version>command.expectedVersion+1)return this.batch(id);
     if (b.status === "review" && b.aiBatchId) {
       const ids=(await this.repo.items(b.id)).filter(i=>i.outcome === "pending" && i.aiStatus === "failed").flatMap(i=>i.candidateId ? [i.candidateId] : []);
-      if (ids.length) await this.ai.retry(b.aiBatchId,ids);
+      if(ids.length)await this.ai.retry(b.aiBatchId,ids,{idempotencyKey:command.idempotencyKey,actorUserId:actor.userId});
     }
     try { await this.ingestion.retryJob(b.jobId,actor); } catch(error) { if (!(error instanceof IngestionRepositoryError && error.code === "not_found")) throw error; }
     await this.dispatch({kind:"otw_play_work_queue",schemaVersion:1,target:"batch",id});
