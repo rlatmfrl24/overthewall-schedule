@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { shouldBlockDestructiveLocalReset } from "./d1-reset-guard.mjs";
 import { resolveLocalD1Options } from "./d1-local-options.mjs";
 import ts from "typescript";
+import { assertLocalPersistenceIsolation } from "./site-target.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -75,14 +76,15 @@ if (unknownArgs.length > 0) {
 const validateOnly = args.includes("--validate-only");
 const force = args.includes("--force");
 
-const ensureInsideStateDir = (target) => {
-  const relative = target.slice(wranglerStateDir.length);
+const ensureInsideStateDir = (mutationPath) => {
+  assertLocalPersistenceIsolation(target.siteId, process.env, rootDir, target.persistTo);
+  const relative = mutationPath.slice(wranglerStateDir.length);
   if (
-    target === wranglerStateDir ||
-    !target.startsWith(wranglerStateDir) ||
+    mutationPath === wranglerStateDir ||
+    !mutationPath.startsWith(wranglerStateDir) ||
     (!relative.startsWith("\\") && !relative.startsWith("/"))
   ) {
-    throw new Error(`Refusing to modify path outside .wrangler/state: ${target}`);
+    throw new Error(`Refusing to modify path outside .wrangler/state: ${mutationPath}`);
   }
 };
 
@@ -353,16 +355,24 @@ const promoteResetDatabase = async (sourceD1Dir) => {
     ensureInsideStateDir(target);
   }
 
+  ensureInsideStateDir(stateV3Dir);
   await mkdir(stateV3Dir, { recursive: true });
+  ensureInsideStateDir(readyDir);
   await rm(readyDir, { recursive: true, force: true });
+  ensureInsideStateDir(backupDir);
   await rm(backupDir, { recursive: true, force: true });
+  ensureInsideStateDir(readyDir);
   await cp(sourceD1Dir, readyDir, { recursive: true });
 
   const hadCurrentDatabase = await pathExists(localD1Dir);
   try {
     if (hadCurrentDatabase) {
+      ensureInsideStateDir(localD1Dir);
+      ensureInsideStateDir(backupDir);
       await rename(localD1Dir, backupDir);
     }
+    ensureInsideStateDir(readyDir);
+    ensureInsideStateDir(localD1Dir);
     await rename(readyDir, localD1Dir);
   } catch (error) {
     if (
@@ -370,15 +380,19 @@ const promoteResetDatabase = async (sourceD1Dir) => {
       !(await pathExists(localD1Dir)) &&
       (await pathExists(backupDir))
     ) {
+      ensureInsideStateDir(backupDir);
+      ensureInsideStateDir(localD1Dir);
       await rename(backupDir, localD1Dir);
     }
     throw error;
   } finally {
+    ensureInsideStateDir(readyDir);
     await rm(readyDir, { recursive: true, force: true });
   }
 
   for (const staleDir of [legacyLocalD1Dir, backupDir]) {
     try {
+      ensureInsideStateDir(staleDir);
       await rm(staleDir, { recursive: true, force: true });
     } catch (error) {
       console.warn(

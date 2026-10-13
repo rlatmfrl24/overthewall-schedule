@@ -30,7 +30,7 @@ export const parseLocalDevPort = (value, source = "port") => {
   return port;
 };
 
-import { getSiteTarget } from "./site-target.mjs";
+import { getSiteTarget, assertLocalPersistenceIsolation } from "./site-target.mjs";
 
 export const resolveLocalDevPort = (environment = process.env, siteId = "otw") => {
   getSiteTarget(siteId);
@@ -51,9 +51,7 @@ export const getLocalDevOrigin = (environment = process.env, siteId = "otw") =>
   `http://${LOCAL_DEV_HOST}:${resolveLocalDevPort(environment, siteId)}`;
 
 export const resolveLocalD1PersistState = (environment = process.env, siteId = "otw") => {
-  const target = getSiteTarget(siteId);
-  const configuredPath = environment[`${siteId.toUpperCase()}_D1_PERSIST_TO`]?.trim();
-  return { path: configuredPath || target.localPersistTo };
+  return { path: assertLocalPersistenceIsolation(siteId, environment) };
 };
 
 export const rewriteLocalSpaRequest = (request) => {

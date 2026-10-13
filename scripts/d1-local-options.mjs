@@ -1,14 +1,9 @@
 const PERSIST_TO_PREFIX = "--persist-to=";
-import { getSiteTarget, parseSiteArgument, getSiteLocalEnvironment } from "./site-target.mjs";
-import { resolveLocalD1PersistState } from "./local-dev-config.mjs";
-import { resolve } from "node:path";
+import { getSiteTarget, parseSiteArgument, assertLocalPersistenceIsolation } from "./site-target.mjs";
 
 export const resolveLocalD1Options = (args, environment = process.env) => {
   const siteId = parseSiteArgument(args);
-  const persistTo = parsePersistToOption(args) ?? resolveLocalD1PersistState(getSiteLocalEnvironment(siteId, environment), siteId).path;
-  const otherSite = siteId === "otw" ? "luvdia" : "otw";
-  const otherPersistTo = resolveLocalD1PersistState(getSiteLocalEnvironment(otherSite, environment), otherSite).path;
-  if (resolve(persistTo) === resolve(otherPersistTo)) throw new Error("Local sites must use different persistence paths.");
+  const persistTo = assertLocalPersistenceIsolation(siteId, environment, process.cwd(), parsePersistToOption(args) ?? undefined);
   return { ...getSiteTarget(siteId), persistTo };
 };
 

@@ -6,3 +6,4 @@ export function getSiteEnvDirectory(siteId: SiteId): string;
 export function loadSiteEnvironment(siteId: SiteId, mode: string, environment?: Record<string, string | undefined>, root?: string): Record<string, string>;
 export function resolveSiteOrigin(siteId: SiteId, environment: Record<string, string | undefined>): string;
 export function getSiteLocalEnvironment(siteId: SiteId, environment?: Record<string, string | undefined>, root?: string): Record<string, string | undefined>;
+export function assertLocalPersistenceIsolation(siteId: SiteId, environment?: Record<string, string | undefined>, root?: string, override?: string): string;

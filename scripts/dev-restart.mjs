@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { LOCAL_DEV_HOST, parseLocalDevPort, resolveLocalDevPort } from "./local-dev-config.mjs";
-import { parseSiteArgument, getSiteLocalEnvironment } from "./site-target.mjs";
+import { parseSiteArgument, getSiteLocalEnvironment, assertLocalPersistenceIsolation } from "./site-target.mjs";
 import { matchesSiteViteProcess } from "./dev-process.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -16,6 +16,7 @@ if (args.includes("--help") || args.includes("-h")) {
 const siteId = parseSiteArgument(args);
 const portArg = args.find(arg => arg.startsWith("--port="));
 const localEnvironment = getSiteLocalEnvironment(siteId);
+assertLocalPersistenceIsolation(siteId, localEnvironment);
 const port = portArg ? parseLocalDevPort(portArg.slice(7), "--port") : resolveLocalDevPort(localEnvironment, siteId);
 const otherSite = siteId === "otw" ? "luvdia" : "otw";
 if (port === resolveLocalDevPort(getSiteLocalEnvironment(otherSite), otherSite)) throw new Error("Local sites must use different ports.");
