@@ -40,6 +40,8 @@
 | [X 비용](operations/x-api-cost-minimization-design.md) | 신규행 수집·cache·비용 추적 종료 기록 |
 | [X 이력·보관](operations/x-member-history-and-archive-design.md) · [게시물 저장](operations/member-post-storage-policy.md) | 보관·redaction·공개 읽기 |
 | [계정 이전](cloudflare-production-account-migration.md) | runtime 통합·남은 provisioning/cutover |
+| [Search Console 색인 점검](operations/search-console-indexing-2026-10-12.md) | 실제 대상 URL·재제출·수정 검증 접수·사이트맵 미해결·10/13 예약 점검 삭제 |
+| [AEO·SEO 최종 평가](operations/aeo-seo-final-evaluation-2026-10-13.md) | 10/13 운영 HTML·색인·웹 검색 및 생성형 AI 노출·잔여 한계 |
 | [편성 자동갱신](auto-update.md) · [YouTube](youtube-optimization.md) · [Cache](cache-policy.md) | 기능별 운영·캐시 |
 
 ## 증거와 유지보수
