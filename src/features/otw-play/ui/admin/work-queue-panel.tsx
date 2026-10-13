@@ -39,6 +39,7 @@ export function WorkQueuePanel({active=true,catalog=null,onManageChannel,onPropo
   const [search,navigate]=useConsoleSearch();
   const location=useRef(search);location.current=search;
   const [addOpen,setAddOpen]=useState(false),[urls,setUrls]=useState("");
+  const addTrigger=useRef<HTMLButtonElement>(null);
   const [busy,setBusy]=useState(false),[error,setError]=useState<string|null>(null);
   const [addResults,setAddResults]=useState<{input:string;queueId:string|null;errorMessage:string|null}[]>([]);
   const [decision,setDecision]=useState<{item:PlayWorkItem;disposition:"deferred"|"excluded";advance:boolean}|null>(null);
@@ -153,7 +154,7 @@ export function WorkQueuePanel({active=true,catalog=null,onManageChannel,onPropo
     {(error || query.isError || batchQuery.isError) && <p role="alert" className="text-sm text-destructive">{error ?? "작업 상태를 불러오지 못했습니다. 최신 상태 확인으로 다시 시도하세요."}</p>}
     {budgetBlocked && (batch?.status === "preparing" || data?.queues.some(q=>q.status === "checking")) && <p role="status" className="rounded-lg border p-3 text-sm">읽기 예산 대기 · {new Date(budgetQuery.data!.resetAt).toLocaleString("ko-KR")} 초기화 후 대기 작업을 복구합니다. 저장된 초안 검수와 비공개 등록은 계속할 수 있습니다.</p>}
     <div hidden={workspace || deferredView} className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-semibold">플레이리스트 작업</h2><p className="mt-1 text-sm text-muted-foreground">50개씩 초안을 준비하고 한 곡씩 확인합니다. 완료한 묶음은 비공개로 등록합니다.</p></div><Button onClick={()=>setAddOpen(true)}>플레이리스트 추가</Button></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-semibold">플레이리스트 작업</h2><p className="mt-1 text-sm text-muted-foreground">50개씩 초안을 준비하고 한 곡씩 확인합니다. 완료한 묶음은 비공개로 등록합니다.</p></div><Button ref={addTrigger} onClick={()=>setAddOpen(true)}>플레이리스트 추가</Button></div>
       {query.isLoading && <p role="status">플레이리스트를 불러오는 중입니다.</p>}
       {qOrder.map(q=><article key={q.id} className="space-y-4 rounded-lg border p-4">
         <div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold">{q.title ?? q.playlistId}</h3><p className="mt-1 text-xs text-muted-foreground">{data?.activeBatch?.queueId === q.id ? "진행 중인 작업" : queueLabels[q.status]}</p></div>
@@ -200,7 +201,7 @@ export function WorkQueuePanel({active=true,catalog=null,onManageChannel,onPropo
         onDefer={current ? ()=>beginDecision(current,"deferred",true) : undefined} onExclude={current ? ()=>beginDecision(current,"excluded",true) : undefined}
         onManageChannel={e.channelId && onManageChannel ? ()=>onManageChannel(e.channelId!,e.candidateKind) : undefined}/>
     </div>)}
-    <Dialog open={addOpen} onOpenChange={open=>{if(!busy)setAddOpen(open);}}><DialogContent><DialogHeader><DialogTitle>플레이리스트 추가</DialogTitle><DialogDescription>공개·일부 공개 노래 클립 플레이리스트를 줄마다 하나씩 입력하세요. 우선 정보만 저장합니다.</DialogDescription></DialogHeader>
+    <Dialog open={addOpen} onOpenChange={open=>{if(!busy)setAddOpen(open);}}><DialogContent onCloseAutoFocus={event=>{event.preventDefault();addTrigger.current?.focus();}}><DialogHeader><DialogTitle>플레이리스트 추가</DialogTitle><DialogDescription>공개·일부 공개 노래 클립 플레이리스트를 줄마다 하나씩 입력하세요. 우선 정보만 저장합니다.</DialogDescription></DialogHeader>
       <label htmlFor="play-work-urls">플레이리스트 URL 목록</label><Textarea id="play-work-urls" value={urls} onChange={e=>setUrls(e.target.value)} disabled={busy} placeholder="https://www.youtube.com/playlist?list=…"/>
       {addResults.map((r,n)=><p key={n} role={r.errorMessage ? "alert" : "status"} className="break-all text-xs">{r.input} · {r.errorMessage ?? "저장됨"}</p>)}
       <DialogFooter><Button variant="outline" disabled={busy} onClick={()=>setAddOpen(false)}>닫기</Button><Button disabled={busy || !urls.trim()} onClick={()=>void run(async()=>{const lines=urls.split(/\r?\n/).map(s=>s.trim()).filter(Boolean),results=[];for(let n=0;n<lines.length;n+=100)results.push(...(await addWorkQueues(lines.slice(n,n+100))).data);setAddResults(results);if(!results.some(r=>r.errorMessage)){setUrls("");setAddOpen(false);}})}>플레이리스트 저장</Button></DialogFooter>

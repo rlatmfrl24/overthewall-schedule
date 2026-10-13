@@ -36,6 +36,15 @@ it("shows playlist lookup failures on the affected queue row",async()=>{
   render(createElement(WorkQueuePanel),{wrapper:createQueryWrapper()});
   expect(await screen.findByRole("alert")).toHaveProperty("textContent","플레이리스트를 불러올 수 없습니다.");
 });
+it("returns focus to Add after the playlist dialog is closed with Escape",async()=>{
+  render(createElement(WorkQueuePanel),{wrapper:createQueryWrapper()});
+  const trigger=await screen.findByRole("button",{name:"플레이리스트 추가"});
+  trigger.focus();fireEvent.click(trigger);
+  const dialog=await screen.findByRole("dialog",{name:"플레이리스트 추가"});
+  fireEvent.keyDown(dialog,{key:"Escape"});
+  await waitFor(()=>expect(screen.queryByRole("dialog")).toBeNull());
+  await waitFor(()=>expect(document.activeElement).toBe(trigger));
+});
 it("explains the budget wait while collection is paused without starting analysis",async()=>{
   const batch={id:"batch",queueId:"queue",jobId:"job",status:"preparing",errorMessage:null,ai:null,items:[]};
   mocks.fetchBatch.mockResolvedValue({data:batch});
