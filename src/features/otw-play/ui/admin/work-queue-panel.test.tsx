@@ -1,0 +1,164 @@
+// @vitest-environment jsdom
+import { createElement } from "react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { createQueryWrapper } from "@/test/query-client";
+import { WorkQueuePanel } from "./work-queue-panel";
+import { ApiError } from "@/shared/api/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { queryKeys } from "@/shared/query/query-keys";
+import { ConsoleSearchContext } from "@/shared/lib/admin-console-search";
+import type { OtwPlayAdminCatalogDto } from "@contracts/otw-play";
+const mocks=vi.hoisted(()=>({fetch:vi.fn(),fetchBatch:vi.fn(),add:vi.fn(),command:vi.fn(),complete:vi.fn(),retry:vi.fn(),update:vi.fn(),fetchReview:vi.fn(),refreshMetadata:vi.fn(),budget:vi.fn(),formProps:{} as {onReviewNext?:()=>Promise<void>}}));
+vi.mock("../../api/work-queue",()=>({workQueueQueryKey:["otw-play-work-queues"],fetchWorkBatch:mocks.fetchBatch,fetchWorkQueues:mocks.fetch,addWorkQueues:mocks.add,commandWorkQueue:mocks.command,completeWorkBatch:mocks.complete,retryWorkBatch:mocks.retry,updateWorkItem:mocks.update}));
+vi.mock("@/shared/lib/confirmation",()=>({useConfirmation:()=>async()=>true}));
+vi.mock("@/shared/ui/toast",()=>({useToast:()=>({toast:vi.fn()})}));
+vi.mock("../../api/admin",()=>({fetchOtwPlayReviewItems:mocks.fetchReview,convertOtwPlayImportCandidate:vi.fn(),updateOtwPlayImportCandidate:mocks.refreshMetadata,fetchOtwPlayIngestionBudget:mocks.budget}));
+vi.mock("./singing-clip-review-dialog",()=>({SingingClipReviewDialog:(props:{onReviewNext:()=>Promise<void>})=>{mocks.formProps=props;return createElement("p",null,"검수 폼");}}));
+const queue={id:"queue",playlistId:"PL1234567890",url:"https://youtube.com/playlist?list=PL1234567890",title:"2000개 노래 클립",itemCount:2000,status:"waiting",version:1,createdAt:1,errorMessage:null,counts:{registered:0,excluded:0,deferred:0,inspected:0},progress:{scanGeneration:1,total:2000,checkedAt:1,registered:0,excluded:0,deferred:0,ready:0,inspected:0,completed:0,remaining:2000,uncertain:false}};
+const workspace=()=>createElement(ConsoleSearchContext.Provider,{value:[{workBatch:"batch",workQueue:"queue",view:"work-summary"},vi.fn()]},createElement(WorkQueuePanel));
+beforeEach(()=>{
+  vi.clearAllMocks(); mocks.fetch.mockResolvedValue({data:{queues:[queue],activeBatch:null,deferred:[],deferredCursor:null}});
+  mocks.budget.mockResolvedValue({status:"available",measuredAt:new Date().toISOString(),resetAt:new Date(Date.now()+3600000).toISOString(),rowsRead:0,dailyTarget:4000000});
+  mocks.fetchBatch.mockImplementation(async()=>({data:(await mocks.fetch()).data.activeBatch}));
+  mocks.add.mockResolvedValue({data:[]}); mocks.command.mockResolvedValue({data:{id:"batch"}}); mocks.complete.mockResolvedValue({data:{id:"batch"}});
+});
+it("prioritizes continuing review and hides playlist URL inputs until Add is chosen",async()=>{
+  render(createElement(WorkQueuePanel),{wrapper:createQueryWrapper()});
+  await screen.findByText("2000개 노래 클립");
+  expect(screen.queryByLabelText("플레이리스트 URL 목록")).toBeNull();
+  expect(screen.getByRole("progressbar",{name:"2000개 노래 클립 전체 처리율"})).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:"플레이리스트 추가"}));
+  expect(await screen.findByLabelText("플레이리스트 URL 목록")).toBeTruthy();
+});
+it("shows playlist lookup failures on the affected queue row",async()=>{
+  mocks.fetch.mockResolvedValue({data:{queues:[{...queue,status:"failed",errorMessage:"플레이리스트를 불러올 수 없습니다."}],activeBatch:null,deferred:[],deferredCursor:null}});
+  render(createElement(WorkQueuePanel),{wrapper:createQueryWrapper()});
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent","플레이리스트를 불러올 수 없습니다.");
+});
+it("explains the budget wait while collection is paused without starting analysis",async()=>{
+  const batch={id:"batch",queueId:"queue",jobId:"job",status:"preparing",errorMessage:null,ai:null,items:[]};
+  mocks.fetchBatch.mockResolvedValue({data:batch});
+  mocks.budget.mockResolvedValue({status:"blocked",measuredAt:new Date().toISOString(),resetAt:new Date(Date.now()+3600000).toISOString(),rowsRead:4000000,dailyTarget:4000000});
+  render(workspace(),{wrapper:createQueryWrapper()});
+  expect(await screen.findByText(/읽기 예산 대기/)).toBeTruthy();
+  expect(mocks.command).not.toHaveBeenCalled();expect(mocks.complete).not.toHaveBeenCalled();
+});
+it("a definite version conflict retries with the refreshed version and a new intent",async()=>{
+  mocks.command.mockRejectedValueOnce(new ApiError("changed",409,{code:"stale_write"})).mockResolvedValueOnce({data:null});
+  render(createElement(WorkQueuePanel),{wrapper:createQueryWrapper()});
+  const button=await screen.findByRole("button",{name:"50개 초안 준비"});
+  mocks.fetch.mockResolvedValue({data:{queues:[{...queue,version:2}],activeBatch:null,deferred:[],deferredCursor:null}});
+  fireEvent.click(button);await screen.findByRole("alert");
+  await waitFor(()=>expect(button.hasAttribute("disabled")).toBe(false));
+  fireEvent.click(button);await waitFor(()=>expect(mocks.command).toHaveBeenCalledTimes(2));
+  expect(mocks.command.mock.calls[1][2].expectedVersion).toBe(2);
+  expect(mocks.command.mock.calls[0][2].idempotencyKey).not.toBe(mocks.command.mock.calls[1][2].idempotencyKey);
+});
+it("refreshes the current settled batch after review is saved in another tab",async()=>{
+  const batch={id:"batch",queueId:"queue",jobId:"job",status:"review",errorMessage:null,version:4,canComplete:false,hasMore:true,ai:null,items:[]};
+  mocks.fetch.mockResolvedValue({data:{queues:[queue],activeBatch:batch,deferred:[],deferredCursor:null}});
+  mocks.fetchBatch.mockResolvedValue({data:batch});
+  render(workspace(),{wrapper:createQueryWrapper()});
+  const button=await screen.findByRole("button",{name:"비공개 등록하고 쉬기"});
+  await waitFor(()=>expect(mocks.fetchBatch).toHaveBeenCalledTimes(1));
+  const saved={...batch,canComplete:true,version:5};
+  mocks.fetchBatch.mockResolvedValue({data:saved});mocks.fetch.mockResolvedValue({data:{queues:[queue],activeBatch:saved,deferred:[],deferredCursor:null}});
+  fireEvent.click(screen.getByRole("button",{name:"최신 상태 확인"}));
+  await waitFor(()=>expect(button.hasAttribute("disabled")).toBe(false));
+});
+afterEach(cleanup);
+it("does not reopen a paused workspace when expired metadata finishes refreshing",async()=>{
+  const navigate=vi.fn();let finish:()=>void=()=>{};
+  mocks.refreshMetadata.mockImplementation(()=>new Promise<void>(resolve=>{finish=resolve;}));
+  const row={id:"item",batchId:"batch",queueId:"queue",jobId:"job",candidateId:"candidate",candidateVersion:1,outcome:"pending",metadataExpiresAt:0};
+  const batch={id:"batch",queueId:"queue",jobId:"job",status:"review",errorMessage:null,ai:null,items:[row]};
+  mocks.fetchBatch.mockResolvedValue({data:batch});mocks.fetch.mockResolvedValue({data:{queues:[queue],activeBatch:batch,deferred:[],deferredCursor:null}});
+  const view=(paused=false)=>createElement(ConsoleSearchContext.Provider,{value:[paused ? {view:"work-queue",workQueue:"queue"} : {workBatch:"batch",workQueue:"queue",view:"work-queue"},navigate]},createElement(WorkQueuePanel));
+  const page=render(view(),{wrapper:createQueryWrapper()});
+  await waitFor(()=>expect(mocks.refreshMetadata).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole("button",{name:"나중에 이어하기"}));page.rerender(view(true));navigate.mockClear();finish();
+  await waitFor(()=>expect(screen.getByRole("button",{name:"최신 상태 확인"}).hasAttribute("disabled")).toBe(false));
+  expect(navigate).not.toHaveBeenCalled();
+});
+it("allows an explicit defer from the item list when metadata refresh fails",async()=>{
+  const row={id:"item",batchId:"batch",queueId:"queue",jobId:"job",candidateId:"candidate",candidateVersion:1,version:2,outcome:"pending",metadataExpiresAt:0,title:"정보 갱신 실패 영상"};
+  const batch={id:"batch",queueId:"queue",jobId:"job",status:"review",errorMessage:null,ai:null,items:[row]};
+  mocks.refreshMetadata.mockRejectedValue(new Error("정보 갱신 실패"));mocks.fetchBatch.mockResolvedValue({data:batch});mocks.update.mockResolvedValue({data:{id:row.id}});
+  render(createElement(ConsoleSearchContext.Provider,{value:[{workBatch:"batch",workQueue:"queue",view:"work-queue"},vi.fn()]},createElement(WorkQueuePanel)),{wrapper:createQueryWrapper()});
+  await screen.findByText("정보 갱신 실패");fireEvent.click(screen.getByRole("button",{name:"이번 묶음 목록"}));
+  fireEvent.keyDown(screen.getByRole("button",{name:"정보 갱신 실패 영상 항목 작업"}),{key:"Enter"});fireEvent.click(await screen.findByRole("menuitem",{name:"보류"}));
+  fireEvent.click(screen.getByRole("button",{name:"사유 저장"}));
+  await waitFor(()=>expect(mocks.update).toHaveBeenCalledWith("item",2,"deferred","곡 정보 확인"));
+});
+it("uses the opened batch's persisted continuation after completing a different batch",async()=>{
+  const navigate=vi.fn();
+  const first={id:"batch",queueId:"queue",jobId:"job",status:"review",version:4,canComplete:true,hasMore:true,errorMessage:null,ai:null,items:[]};
+  mocks.fetchBatch.mockResolvedValue({data:first});
+  const view=(workBatch="batch")=>createElement(ConsoleSearchContext.Provider,{value:[{workBatch,workQueue:"queue",view:"work-summary"},navigate]},createElement(WorkQueuePanel));
+  const page=render(view(),{wrapper:createQueryWrapper()});
+  fireEvent.click(await screen.findByRole("button",{name:"비공개 등록하고 다음 50개"}));
+  await waitFor(()=>expect(mocks.complete).toHaveBeenCalled());
+  await waitFor(()=>expect(screen.getByRole("button",{name:"비공개 등록하고 다음 50개"}).hasAttribute("disabled")).toBe(false));
+  mocks.fetchBatch.mockResolvedValue({data:{...first,id:"other",status:"completed",canComplete:false,continuation:{requested:false,nextBatchId:null}}});
+  page.rerender(view("other"));
+  await waitFor(()=>expect(navigate).toHaveBeenCalledWith(expect.objectContaining({view:"work-queue",workBatch:undefined}),true));
+});
+it("keeps deferred review from a completed historical batch open",async()=>{
+  const navigate=vi.fn();
+  const row={id:"historical",batchId:"batch",queueId:"queue",candidateId:null,playlistPosition:3,outcome:"deferred",candidateStatus:"unavailable"};
+  const batch={id:"batch",queueId:"queue",jobId:"job",status:"completed",errorMessage:null,version:4,canComplete:false,hasMore:true,continuation:{requested:false,nextBatchId:null},ai:null,items:[row]};
+  mocks.fetchBatch.mockResolvedValue({data:batch});
+  render(createElement(ConsoleSearchContext.Provider,{value:[{workBatch:"batch",workQueue:"queue",view:"review",selected:"historical",workItem:"historical",state:"deferred"},navigate]},createElement(WorkQueuePanel)),{wrapper:createQueryWrapper()});
+  await screen.findByText("접근할 수 없는 영상");
+  await waitFor(()=>expect(mocks.fetch.mock.calls.length).toBeGreaterThanOrEqual(2));
+  expect(navigate).not.toHaveBeenCalled();
+  expect(screen.queryByRole("heading",{name:"이번 묶음 검수 결과"})).toBeNull();
+});
+it("does not reopen review when saving finishes after the operator has paused",async()=>{
+  const navigate=vi.fn(),catalog={} as OtwPlayAdminCatalogDto;
+  const row={id:"item",candidateId:"candidate",candidateStatus:"needs_input",outcome:"pending"};
+  const batch={id:"batch",queueId:"queue",jobId:"job",status:"review",items:[row],ai:null,errorMessage:null};
+  mocks.fetchBatch.mockResolvedValue({data:batch});
+  mocks.fetchReview.mockResolvedValue({items:[{id:"candidate",candidate:{}}],nextCursor:null});
+  const view=(paused=false)=>createElement(ConsoleSearchContext.Provider,{value:[paused ? {view:"work-queue",workQueue:"queue"} : {workBatch:"batch",workQueue:"queue",workItem:"item",view:"review",selected:"candidate"},navigate]},createElement(WorkQueuePanel,{catalog}));
+  const page=render(view(),{wrapper:createQueryWrapper()});
+  await screen.findByText("검수 폼");
+  const saved=mocks.formProps.onReviewNext!;
+  page.rerender(view(true));
+  await saved();
+  expect(navigate).not.toHaveBeenCalled();
+});
+it("reads newly registered performances when opening a recently cached catalog after completion",async()=>{
+  const client=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:60000}}});
+  const key=queryKeys.otwPlay.adminCatalog();
+  client.setQueryData(key,{performances:[]});
+  mocks.fetch.mockResolvedValue({data:{queues:[queue],activeBatch:{id:"batch",status:"completed",items:[],ai:null},deferred:[],deferredCursor:null}});
+  render(createElement(QueryClientProvider,{client},workspace()));
+  await screen.findByText("이번 묶음 · 0개");
+  await waitFor(()=>expect(mocks.fetch.mock.calls.length).toBeGreaterThanOrEqual(2));
+  const catalog=await client.fetchQuery({queryKey:key,queryFn:async()=>({performances:[{id:"registered",publicationStatus:"draft"}]})});
+  expect(catalog.performances).toEqual([{id:"registered",publicationStatus:"draft"}]);
+});
+it("opening a large playlist only reads progress; adding URLs does not start analysis",async()=>{
+  render(createElement(WorkQueuePanel),{wrapper:createQueryWrapper()});
+  expect(await screen.findByText("2000개 노래 클립")).toBeTruthy();
+  expect(mocks.command).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button",{name:"플레이리스트 추가"}));
+  fireEvent.change(screen.getByLabelText("플레이리스트 URL 목록"),{target:{value:"https://youtube.com/playlist?list=PL1234567890\ninvalid"}});
+  fireEvent.click(screen.getByRole("button",{name:"플레이리스트 저장"}));
+  await waitFor(()=>expect(mocks.add).toHaveBeenCalledWith(["https://youtube.com/playlist?list=PL1234567890","invalid"]));
+  expect(mocks.command).not.toHaveBeenCalled();
+});
+it("uses explicit server completion and preserves the request key when its response is lost",async()=>{
+  mocks.fetch.mockResolvedValue({data:{queues:[queue],activeBatch:{id:"batch",queueId:"queue",jobId:"job",status:"review",errorMessage:null,version:4,canComplete:true,hasMore:true,ai:null,items:[]},deferred:[],deferredCursor:null}});
+  mocks.complete.mockRejectedValueOnce(new Error("lost")).mockResolvedValueOnce({data:{id:"batch"}});
+  render(workspace(),{wrapper:createQueryWrapper()});
+  const button=await screen.findByRole("button",{name:"비공개 등록하고 다음 50개"});
+  fireEvent.click(button);
+  await screen.findByRole("alert");
+  fireEvent.click(button);
+  await waitFor(()=>expect(mocks.complete).toHaveBeenCalledTimes(2));
+  expect(mocks.complete.mock.calls[0]).toEqual(mocks.complete.mock.calls[1]);
+  expect(mocks.complete.mock.calls[0][1]).toMatchObject({expectedVersion:4,startNext:true});
+});

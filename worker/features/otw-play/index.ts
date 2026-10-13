@@ -100,3 +100,7 @@ export { D1DefaultPlaylistSettingsRepository } from "./infrastructure/d1-default
 export { AiReviewBroadcastMetadataReader } from "./infrastructure/ai-review-broadcast-reader";
 
 export { CloudflareIngestionReadBudget } from "./infrastructure/cloudflare-ingestion-read-budget";
+export { WorkQueueService } from "./application/work-queue-service";
+export type { WorkQueueMessage } from "./application/ports/work-queue";
+export { D1WorkQueueRepository } from "./infrastructure/d1-work-queue-repository";
+export { createWorkQueueHandler } from "./http/work-queue-handler";

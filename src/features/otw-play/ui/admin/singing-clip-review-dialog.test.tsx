@@ -85,6 +85,39 @@ const reviewFixture = () => {
 };
 
 describe("SingingClipReviewDialog", () => {
+  it("renders only the active fast review while retaining unsaved input on return",async()=>{
+    const {candidate,catalog}=reviewFixture();
+    const view=(active:boolean)=>createElement(SingingClipReviewDialog,{candidate,catalog,presentation:"page",fastReview:true,active,reviewOnly:true,onOpenChange:vi.fn(),onConverted:vi.fn(),onReviewStateChanged:async()=>{}});
+    const page=render(view(true),{wrapper:createQueryWrapper()});
+    fireEvent.click(await screen.findByText("추가 분류·검수 메모"));
+    fireEvent.change(screen.getByLabelText("검수 메모"),{target:{value:"작성 중인 메모"}});
+    page.rerender(view(false));
+    expect(screen.queryByRole("region",{name:"노래 클립 검수 화면"})).toBeNull();
+    page.rerender(view(true));
+    fireEvent.click(await screen.findByText("추가 분류·검수 메모"));
+    expect(screen.getByLabelText("검수 메모")).toHaveProperty("value","작성 중인 메모");
+    expect(updateCandidateMock).not.toHaveBeenCalled();
+  });
+  it("retains a successful review save when loading the next work item fails",async()=>{
+    const {candidate,catalog,reviewInput}=reviewFixture();
+    updateCandidateMock.mockResolvedValue({version:4,status:"ready",reviewInput});
+    render(createElement(SingingClipReviewDialog,{candidate,catalog,presentation:"page",fastReview:true,reviewOnly:true,onOpenChange:vi.fn(),onConverted:vi.fn(),onReviewNext:async()=>{throw new Error("next response lost");},onReviewStateChanged:async()=>{}}),{wrapper:createQueryWrapper()});
+    const button=await screen.findByRole("button",{name:"확인하고 다음"});await waitFor(()=>expect(button.hasAttribute("disabled")).toBe(false));fireEvent.click(button);
+    expect(await screen.findByText("검수 저장 완료 · 다음 항목을 불러오지 못했습니다. 다시 시도해 주세요.")).toBeTruthy();
+    expect(convertCandidateMock).not.toHaveBeenCalled();
+  });
+  it("fast review shows summaries and one primary confirmation while editing details stay collapsed",async()=>{
+    const {candidate,catalog}=reviewFixture();
+    render(createElement(SingingClipReviewDialog,{candidate,catalog,presentation:"page",fastReview:true,reviewOnly:true,onOpenChange:vi.fn(),onConverted:vi.fn(),onReviewNext:vi.fn(),onReviewStateChanged:async()=>{}}),{wrapper:createQueryWrapper()});
+    await screen.findByRole("button",{name:"확인하고 다음"});
+    expect(screen.getByRole("button",{name:"지정 구간 재생"})).toBeTruthy();
+    expect(screen.queryByRole("combobox",{name:"연결할 곡"})).toBeNull();
+    expect(screen.queryByRole("button",{name:"재분석"})).toBeNull();
+    expect(screen.getByText("Existing Song")).toBeTruthy();
+    fireEvent.click(screen.getByText("곡 정보 수정"));
+    expect(await screen.findByRole("combobox",{name:"기존 곡 검색"})).toBeTruthy();
+    expect(screen.queryByRole("combobox",{name:"연결할 곡"})).toBeNull();
+  });
   it.each([null, "from_video"])("does not protect untouched %s review defaults", (songKind) => {
     const { candidate, catalog, reviewInput } = reviewFixture();
     render(createElement(SingingClipReviewDialog, { candidate: { ...candidate,

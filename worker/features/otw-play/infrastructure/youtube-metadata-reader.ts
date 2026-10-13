@@ -77,6 +77,7 @@ type PlaylistItemsResponse = {
     contentDetails?: { videoId?: string };
   }>;
   nextPageToken?: string;
+  pageInfo?: { totalResults?: number };
 };
 type YouTubeErrorResponse = {
   error?: { errors?: Array<{ reason?: string }>; message?: string };
@@ -468,23 +469,31 @@ export class YouTubeOtwPlayMetadataReader
         true,
       );
     }
+    const unavailableItems: {playlistItemId:string;position:number}[]=[];
+    let incomplete=false;
     const items = data.items.flatMap((item) => {
       const playlistItemId = item.id?.trim();
       const videoId = item.contentDetails?.videoId?.trim();
       const position = item.snippet?.position;
       if (
         !playlistItemId ||
-        !videoId ||
-        !/^[A-Za-z0-9_-]{11}$/.test(videoId) ||
         !Number.isSafeInteger(position) ||
         Number(position) < 0
       ) {
+        incomplete=true;
+        return [];
+      }
+      if (!videoId || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+        unavailableItems.push({playlistItemId,position:Number(position)});
         return [];
       }
       return [{ playlistItemId, videoId, position: Number(position) }];
     });
     return {
       items,
+      unavailableItems,
+      incomplete,
+      totalResults:Number.isSafeInteger(data.pageInfo?.totalResults) ? data.pageInfo!.totalResults : undefined,
       nextPageToken: data.nextPageToken?.trim() || null,
     };
   }

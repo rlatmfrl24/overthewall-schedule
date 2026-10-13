@@ -16,6 +16,10 @@
 
 ## 가져오기부터 등록까지
 
+### 플레이리스트 작업 큐
+
+`가져오기/검수`의 기본 플레이리스트 작업에서 정보만 일괄 등록하고, 최대 50개씩 초안을 준비해 같은 화면에서 한 곡씩 검수한다. `확인하고 다음`으로 저장한 뒤 묶음 결과에서 `비공개 등록하고 다음 50개` 또는 `비공개 등록하고 쉬기`를 선택한다. 보류·제외와 수동 신규 항목 확인을 지원하며 게시는 카탈로그의 별도 단계다. 현재 화면·진행률·복구 계약은 [가져오기·검수 재개편](otw-play-import-review-redesign.md), 초기 수집 구조와 구현 기록은 [작업 큐 문서](otw-play-playlist-work-queue.md)를 따른다.
+
 ### Batch AI review drafts (SUL-35)
 
 The import inbox supports explicit candidate selection and all eligible candidates matching the current filter, including unloaded pages. The preview reports the eligible count; acceptance atomically snapshots candidate IDs and versions. Completed reviews, unavailable videos, and candidates with pending user proposals are excluded.

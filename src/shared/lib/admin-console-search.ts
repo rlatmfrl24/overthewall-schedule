@@ -1,6 +1,9 @@
 import { createContext, useCallback, useContext, useState } from "react";
 
 export interface ConsoleSearch {
+  workBatch?: string;
+  workQueue?: string;
+  workItem?: string;
   channel?: string;
   channelKind?: "official_video" | "singing_clip";
   kind?: "official" | "broadcast" | "all";
@@ -25,7 +28,7 @@ export interface ConsoleSearch {
 
 export function validateConsoleSearch(search: Record<string, unknown>): ConsoleSearch {
   const result: ConsoleSearch = {};
-  for (const key of ["channel", "view", "sort", "tab", "source", "q", "state", "category", "selected", "proposal", "from", "until", "date"] as const) {
+  for (const key of ["workBatch", "workQueue", "workItem", "channel", "view", "sort", "tab", "source", "q", "state", "category", "selected", "proposal", "from", "until", "date"] as const) {
     if (typeof search[key] === "string" && search[key]) result[key] = search[key].slice(0, 200);
   }
   if (["official", "broadcast", "all"].includes(String(search.kind))) result.kind = search.kind as ConsoleSearch["kind"];

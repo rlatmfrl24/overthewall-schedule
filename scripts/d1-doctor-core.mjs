@@ -1,4 +1,7 @@
 export const REQUIRED_D1_COLUMNS = {
+  music_playlist_work_queues: ["id", "playlist_id", "page_token", "status", "version", "metadata_checked_at", "scan_generation", "scan_item_count", "scan_checked_at", "progress_uncertain"],
+  music_playlist_work_batches: ["id", "queue_id", "job_id", "ai_batch_id", "page_recorded", "next_page_token", "completion_key", "start_next", "next_batch_id", "scan_generation"],
+  music_playlist_work_items: ["id", "batch_id", "candidate_id", "disposition", "reason", "version", "playlist_item_id", "playlist_position"],
   schedule_day_assessments: ["member_uid", "date", "channel_id", "checked_at", "range_start", "range_end", "scan_status", "broadcast_seen", "decision", "decided_at", "decided_by", "rejection_reason"],
   music_playlists: ["id", "owner_user_id", "title", "description", "version", "representative_performance_id", "origin_default_id", "create_request_id", "create_payload", "write_token", "created_at", "updated_at"],
   music_playlist_items: ["playlist_id", "performance_id", "position"],

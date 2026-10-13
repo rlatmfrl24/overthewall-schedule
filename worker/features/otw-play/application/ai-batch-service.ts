@@ -35,9 +35,9 @@ export class AiBatchService {
     await this.recover(batch.id);
     return batch;
   }
-  async retry(id: string) {
+  async retry(id: string, candidateIds?: readonly string[]) {
     if (!this.enabled) throw new AiReviewError("ai_unconfigured", "AI 자동 채우기가 설정되지 않았습니다.", 503);
-    await this.repository.retry(id, this.clock());
+    await this.repository.retry(id, this.clock(), candidateIds);
     await this.recover(id);
     return this.get(id);
   }

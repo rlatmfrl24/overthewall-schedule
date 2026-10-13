@@ -53,6 +53,7 @@ vi.mock("../../api/ai-review", () => ({
   getAiReview: vi.fn(),
   startAiReview: vi.fn(),
 }));
+vi.mock("../../api/work-queue",()=>({workQueueQueryKey:["otw-play-work-queues"],fetchWorkQueues:async()=>({data:{queues:[],activeBatch:null,deferred:[],deferredCursor:null}}),fetchWorkBatch:vi.fn()}));
 
 vi.mock("../../api/admin", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../api/admin")>();
@@ -104,6 +105,10 @@ const linkedPerformance = {
 };
 
 const selectOption = async (label: string, option: string | RegExp) => {
+  if(label === "검수 출처" && !screen.queryByRole("combobox",{name:label})) {
+    fireEvent.keyDown(await screen.findByRole("button",{name:"기타 검수·관리"}),{key:"Enter"});
+    fireEvent.click(await screen.findByRole("menuitem",{name:option === "사용자 제안" ? "사용자 제안" : option === "자동 수집" ? "자동 수집 후보" : "기존 가져오기 검수"}));
+  }
   fireEvent.click(await screen.findByRole("combobox", { name: label }));
   fireEvent.click(await screen.findByRole("option", { name: option }));
 };
@@ -2620,6 +2625,13 @@ describe("OtwPlayCatalogManager", () => {
     await selectOption("검수 출처", "플레이리스트");
     expect(source.textContent).toBe("플레이리스트");
   });
+  it("shows an empty automatic inbox without AI or bulk registration tools",async()=>{
+    reviewRowsMock.mockResolvedValue({items:[],nextCursor:null});
+    render(createElement<NonNullable<Parameters<typeof OtwPlayCatalogManager>[0]>>(OtwPlayCatalogManager,{activeSection:"automatic-review"}),{wrapper:createQueryWrapper()});
+    await screen.findByText("해당 조건의 검수 항목이 없습니다.");
+    expect(screen.queryByRole("region",{name:"검수 후 등록"})).toBeNull();
+    expect(screen.queryByRole("button",{name:/AI 초안 요청/})).toBeNull();
+  });
 
   it("deletes a channel directly from its row after confirmation and refreshes the list", async () => {
     const channel = { id: "delete-channel", provider: "youtube", externalChannelId: `UC${"D".repeat(22)}`, displayName: "삭제 대상", channelRole: "approved_kirinuki", verificationStatus: "pending", active: false, entityIds: [], version: 3 };
@@ -2647,8 +2659,9 @@ describe("OtwPlayCatalogManager", () => {
   it("unifies review and channel navigation and separates people from channels", async () => {
     renderCatalogManager();
     fireEvent.click(await screen.findByRole("tab", { name: "가져오기/검수" }));
-    expect(await screen.findByRole("region", { name: "통합 검수 목록" })).toBeTruthy();
-    expect(screen.getByLabelText("검수 출처")).toBeTruthy();
+    expect(await screen.findByRole("region", { name: "플레이리스트 작업 큐" })).toBeTruthy();
+    expect(screen.getByRole("button",{name:"플레이리스트 추가"})).toBeTruthy();
+    expect(screen.queryByRole("combobox",{name:"검수 출처"})).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "채널" }));
     expect(await screen.findByRole("heading", { name: "Play 채널" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "외부 인물·그룹" })).toBeNull();

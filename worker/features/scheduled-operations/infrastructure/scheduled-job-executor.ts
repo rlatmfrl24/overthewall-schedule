@@ -27,6 +27,7 @@ import type { Env } from "../../../platform/types";
 import { createOtwPlayChannelMonitorService } from "../../../app/channel-monitors";
 import { createOtwPlayIngestionService } from "../../../app/ingestion";
 import { createOtwPlayAiReviewService, createOtwPlayAiBatchService } from "../../../app/ai-review";
+import { createOtwPlayWorkQueueService } from "../../../app/work-queue";
 import type {
   D1ScheduledJobRepository,
   ScheduledJobItemRecord,
@@ -444,11 +445,15 @@ export class ScheduledJobExecutor {
         }
         const service = createOtwPlayIngestionService(this.env);
         if (item.phase === "cleanup") {
+          await createOtwPlayWorkQueueService(this.env).clearExpired();
           return succeeded({ cleared: await service.clearExpiredApiData(20), aiCleared: await createOtwPlayAiReviewService(this.env).clearExpired() });
         }
         if (item.phase === "requeue") {
           const ai = await createOtwPlayAiReviewService(this.env).recover();
           const batches = await createOtwPlayAiBatchService(this.env).recover();
+          const work = await createOtwPlayWorkQueueService(this.env).recover();
+          ai.queued += work.queued;
+          ai.failed += work.failed;
           ai.queued += batches.queued;
           ai.failed += batches.failed;
           const result = await service.requeuePendingWithOutcome(

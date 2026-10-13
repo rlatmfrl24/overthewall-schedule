@@ -414,7 +414,7 @@ export function IngestionSection({ active = true }: { active?: boolean }) {
                   <div className="flex flex-wrap gap-2">
                     <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void refreshAuthority()}><RefreshCw /> 상태 새로고침</Button>
                     {job.status === "partial" && <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void retryFailedMessages(job.id)}>실패 항목 재시도</Button>}
-                    <Button size="sm" onClick={() => updateSearch({ view: "inbox", source: "playlist", kind: job.candidateKind === "singing_clip" ? "broadcast" : "official", state: "pending", selected: undefined, proposal: undefined }, false)}>검수 목록으로 이동</Button>
+                    <Button size="sm" onClick={() => updateSearch({ view: job.workBatchId ? "work-queue" : "inbox",workBatch:job.workBatchId, source: "playlist", kind: job.candidateKind === "singing_clip" ? "broadcast" : "official", state: "pending", selected: undefined, proposal: undefined }, false)}>{job.workBatchId ? "플레이리스트 작업으로" : "검수 목록으로 이동"}</Button>
                   </div>
                 </>
               ) : <p role="status" className="text-muted-foreground">수집 작업 상태를 불러오는 중입니다.</p>}
