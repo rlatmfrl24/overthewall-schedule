@@ -124,6 +124,64 @@ function interleave(db:D1Database,match:string|"batch",competing:()=>Promise<unk
 }
 
 describe("real D1 transition control", () => {
+  it("fix2 admits a known nonselected schedule into scope and transfers only its selected committed image",async()=>{
+    for(const db of [sourceDb,targetDb]) await db.prepare("DELETE FROM content_transitions").run();
+    const mapped={...plan,members:plan.members.map(member=>({...member,targetUid:member.uid+10}))};
+    await source.prepare(mapped);await target.prepare(mapped);
+    await sourceDb.batch([
+      sourceDb.prepare("INSERT INTO members(uid,code,name) VALUES(90,'unrelated','Unrelated private member')"),
+      sourceDb.prepare("INSERT INTO schedules(id,member_uid,date,title,status) VALUES(7,90,'2026-10-14','Private prior title','방송')"),
+    ]);
+    await ready();
+    const requested={...admission("scope-entry"),subject:{table:"schedules",key:"[7]"},payload:{...admission("unused").payload,id:7,title:"Selected correction"}};
+    const accepted=await source.admit(requested);
+    expect(accepted.expectedState).toBeNull();
+    expect(JSON.stringify(accepted)).not.toContain("Private prior title");
+    expect(JSON.stringify(accepted)).not.toContain("sourceExpectedState");
+    expect(accepted.payload.member_uid).toBe(11);
+    const localState=await sourceDb.prepare("SELECT json_extract(envelope_json,'$.sourceExpectedState.member_uid') member_uid,json_extract(envelope_json,'$.sourceExpectedState.title') title FROM content_transition_operations WHERE operation_id='scope-entry'").first();
+    expect(localState).toEqual({member_uid:90,title:"Private prior title"});
+    const command=await source.readExecutableCommand(plan.id,"scope-entry");
+    await source.commit(plan.id,"scope-entry",1,[sourceDb.prepare("UPDATE schedules SET member_uid=?,title=? WHERE id=?").bind(command.payload.member_uid,command.payload.title,command.payload.id)]);
+    expect(await sourceDb.prepare("SELECT member_uid,title FROM schedules WHERE id=7").first()).toEqual({member_uid:1,title:"Selected correction"});
+    await transferAndActivate();
+    expect(await targetDb.prepare("SELECT member_uid,title FROM schedules WHERE id=7").first()).toEqual({member_uid:11,title:"Selected correction"});
+    expect((await targetDb.prepare("SELECT uid FROM members ORDER BY uid").all()).results).toEqual([{uid:11},{uid:12},{uid:13}]);
+    expect(JSON.stringify(await target.exportOperation(plan.id,"scope-entry"))).not.toContain("Private prior title");
+  });
+  it("fix2 preserves held scope-entry absence across source progress and conflicts with a newer native target edit",async()=>{
+    for(const db of [sourceDb,targetDb]) await db.prepare("DELETE FROM content_transitions").run();
+    const mapped={...plan,members:plan.members.map(member=>({...member,targetUid:member.uid+10}))};
+    await source.prepare(mapped);await target.prepare(mapped);
+    await sourceDb.batch([
+      sourceDb.prepare("INSERT INTO members(uid,code,name) VALUES(90,'unrelated','Unrelated')"),
+      sourceDb.prepare("INSERT INTO schedules(id,member_uid,date,title,status) VALUES(7,90,'2026-10-14','Outside scope','방송')"),
+    ]);
+    await ready();
+    const held={...admission("held-entry"),subject:{table:"schedules",key:"[7]"},payload:{...admission("unused").payload,id:7,title:"Held correction"}};
+    const original=await source.admit(held);
+    await source.admit({...held,operationId:"source-entry",idempotencyKey:"source-entry",payload:{...held.payload,title:"Source correction"}});
+    await source.commit(plan.id,"source-entry",1,[sourceDb.prepare("UPDATE schedules SET member_uid=1,title='Source correction' WHERE id=7")]);
+    expect(await source.admit(held)).toEqual(original);
+    await transferAndActivate();
+    const current={...held,operationId:"native-edit",idempotencyKey:"native-edit",payload:{...held.payload,member_uid:11,title:"New target edit"}};
+    const native=await target.admit(current);
+    expect(native.expectedState).toMatchObject({member_uid:11,title:"Source correction"});
+    await target.commit(plan.id,"native-edit",2,[targetDb.prepare("UPDATE schedules SET title='New target edit' WHERE id=7")]);
+    const executable=await target.readExecutableCommand(plan.id,"held-entry");
+    await expect(target.commit(plan.id,"held-entry",2,[targetDb.prepare("UPDATE schedules SET member_uid=?,title=? WHERE id=?").bind(executable.payload.member_uid,executable.payload.title,executable.payload.id)])).rejects.toThrow(/Expected/);
+    expect(await targetDb.prepare("SELECT member_uid,title FROM schedules WHERE id=7").first()).toEqual({member_uid:11,title:"New target edit"});
+    expect((await target.exportOperation(plan.id,"held-entry")).expectedState).toBeNull();
+    expect((await target.exportOperation(plan.id,"held-entry")).outcome?.outcome).toBe("conflicted");
+    expect(await targetDb.prepare("SELECT count(*) FROM members").first("count(*)")).toBe(3);
+  });
+  it.each(["unknown-member","unsupported-image"] as const)("fix2 never interprets %s as valid prior absence",async(kind)=>{
+    if(kind==="unsupported-image") await sourceDb.prepare("INSERT INTO members(uid,code,name) VALUES(90,'unrelated','Unrelated')").run();
+    await sourceDb.prepare("INSERT INTO schedules(id,member_uid,date,title,status) VALUES(7,90,'2026-10-14',?,'방송')").bind(kind==="unsupported-image"?new Uint8Array([0,1]).buffer:"Valid text").run();
+    await ready();
+    await expect(source.admit({...admission("invalid-entry"),subject:{table:"schedules",key:"[7]"},payload:{...admission("unused").payload,id:7}})).rejects.toThrow();
+    expect(await source.readOperation(plan.id,"invalid-entry")).toBeNull();
+  });
   it("fix1 merges source progress after early operation and file reception without re-execution",async()=>{
     await ready();
     await source.admit(admission("early"));

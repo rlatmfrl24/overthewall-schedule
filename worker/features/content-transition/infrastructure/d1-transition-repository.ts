@@ -19,10 +19,10 @@ import { ownedRootTables, matchKey } from "./capture-graph";
 import { D1BaselineStore,digestText, type BaselineHeader, type BaselinePage } from "./d1-baseline-store";
 import { manifestResolvedSql,validateClassifications } from "./manifest-statements";
 import {sourceJsonValidSql} from "./source-json-validation";
-import {parseTransitionCommand,assertOperationMetadata,assertOperationEvidence,type TransitionCommand} from "./command-codecs";
+import {parseTransitionCommand,assertOperationMetadata,assertOperationEvidence,assertScheduleExpectedState,type TransitionCommand} from "./command-codecs";
 import {readProjectionContext} from "./d1-projection-context";
 import {identityProjectionValidSql,validateIdentityProjection} from "./identity-projection";
-import {projectCapturedRecord} from "../domain/projected-content";
+import {projectCapturedRecord,type ProjectionContext} from "../domain/projected-content";
 
 type Row = {
   id: string; source_site: SiteId; target_site: SiteId; source_resource: string; target_resource: string;
@@ -214,7 +214,18 @@ export class D1TransitionRepository implements TransitionControlPort {
     const sourceCommand=this.side(row)==="source"?await parseTransitionCommand(operation,{...context,entities:[],members:context.members.map(member=>({...member,targetUid:member.uid}))},"source"):null;
     const prior=await this.readOperation(row.id,operation.operationId);
     const sourceExpectedState=!prior && operation.codec.id==="schedules.save"?await this.db.prepare(`SELECT ${contentDispositionRegistry.schedules.values.join(",")} FROM schedules WHERE id=?`).bind(command.payload.id).first<Record<string,string|number|null>>():null;
-    const projected=sourceExpectedState?await projectCapturedRecord("schedules",operation.subject.key,sourceExpectedState,context):null;
+    let expectedContext:ProjectionContext=context;
+    if(sourceExpectedState) {
+      assertScheduleExpectedState(sourceExpectedState,command.payload.id);
+      if(this.side(row)==="source" && !context.members.some(member=>member.uid===sourceExpectedState.member_uid)) {
+        const member=await this.db.prepare("SELECT uid,name FROM members WHERE uid=?").bind(sourceExpectedState.member_uid).first<{uid:number;name:string}>();
+        if(!member) throw new Error("Unknown original schedule member");
+        // An existing nonselected source row has no prior target image. Let the
+        // same projector decide exclusion; no projection exception is absence.
+        expectedContext={...context,members:[...context.members,{...member,targetUid:null,externalEntityId:null}]};
+      }
+    }
+    const projected=sourceExpectedState?await projectCapturedRecord("schedules",operation.subject.key,sourceExpectedState,expectedContext):null;
     const expectedState=prior?prior.expectedState:projected?Object.fromEntries(contentDispositionRegistry.schedules.values.map(key=>[key,projected.value[key]])) as AcceptedOperation["expectedState"]:null;
     operation={transitionId:operation.transitionId,operationId:operation.operationId,idempotencyKey:operation.idempotencyKey,kind:operation.kind,subject:{table:operation.subject.table,key:operation.subject.key},expectedVersion:operation.expectedVersion,expectedState,validation:{contract:operation.validation.contract,validatedAt:operation.validation.validatedAt},admittedAt:operation.admittedAt,...command,payloadHash:await digestText(JSON.stringify({...command,expectedState}))};
     assertOperationMetadata(operation);

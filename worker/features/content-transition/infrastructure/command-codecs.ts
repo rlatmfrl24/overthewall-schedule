@@ -44,6 +44,9 @@ export async function parseTransitionCommand(raw:unknown,context:ProjectionConte
 const keys=(value:unknown,allowed:string)=>!!value && typeof value==="object" && !Array.isArray(value) && Object.keys(value).sort().join(",")===allowed;
 const text=(value:unknown)=>typeof value==="string" && value.length>0;
 const time=(value:unknown)=>Number.isSafeInteger(value) && Number(value)>=0;
+export function assertScheduleExpectedState(state:NonNullable<AcceptedOperation["expectedState"]>,id:unknown):void {
+  if(!keys(state,"created_at,date,id,member_uid,start_time,status,title") || !parseScheduleInput(state,{requireId:true}) || state.id!==id || typeof state.member_uid!=="number" || !["string","number"].includes(typeof state.created_at) && state.created_at!==null) throw new Error("Schedule expected state allowlist mismatch");
+}
 export function assertOperationMetadata(operation:AcceptedOperation):void {
   if(!text(operation.transitionId) || !text(operation.operationId) || !text(operation.idempotencyKey) || !time(operation.admittedAt) || !time(operation.validation?.validatedAt) || operation.validation?.contract!==1 || !keys(operation.validation,"contract,validatedAt") || !keys(operation.subject,"key,table") || !(operation.expectedVersion===null || time(operation.expectedVersion))) throw new Error("Invalid operation metadata allowlist");
   let key:unknown;
@@ -51,8 +54,7 @@ export function assertOperationMetadata(operation:AcceptedOperation):void {
   if(!Array.isArray(key) || key.length!==1) throw new Error("Invalid command subject");
   if(operation.codec.id==="schedules.save" && (operation.kind!=="content_edit" || operation.subject.table!=="schedules" || key[0]!==operation.payload.id || operation.expectedVersion!==null)) throw new Error("Schedule command subject/version mismatch");
   if(operation.codec.id==="schedules.save" && operation.expectedState!==null) {
-    const state=operation.expectedState;
-    if(!keys(state,"created_at,date,id,member_uid,start_time,status,title") || !parseScheduleInput(state,{requireId:true}) || state.id!==operation.payload.id || typeof state.member_uid!=="number" || !["string","number"].includes(typeof state.created_at) && state.created_at!==null) throw new Error("Schedule expected state allowlist mismatch");
+    assertScheduleExpectedState(operation.expectedState,operation.payload.id);
   } else if(operation.expectedState!==null) throw new Error("Unexpected command expected state");
   if(operation.codec.id==="otw-play.song.update" && (operation.kind!=="content_edit" || operation.subject.table!=="music_songs" || !text(key[0]) || key[0]!==operation.payload.id || operation.expectedVersion!==operation.payload.expectedVersion)) throw new Error("Song command subject/version mismatch");
   if(operation.codec.id==="source.checkpoint_due" && (operation.kind!=="collection_due" || operation.subject.table!=="source_checkpoints" || key[0]!==operation.payload.sourceKey || operation.expectedVersion!==null)) throw new Error("Checkpoint command subject/version mismatch");
