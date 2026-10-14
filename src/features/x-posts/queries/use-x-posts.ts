@@ -1,4 +1,4 @@
-import { MEMBER_POSTS_QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
+import { CONTENT_READ_QUERY_OPTIONS, currentContentQuery } from "@/shared/query/content-read-policy";
 import { queryKeys } from "@/shared/query/query-keys";
 import type { MemberDto } from "@contracts/members";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -43,12 +43,12 @@ export function useXPosts(
     [admin, members, maxResults],
   );
 
-  const query = useQuery({
+  const query = currentContentQuery(useQuery({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey,
     queryFn: () => fetchPosts(false),
     enabled: queryEnabled,
-    staleTime: MEMBER_POSTS_QUERY_STALE_TIME_MS,
-  });
+
+  }));
   const reloadMutation = useMutation({
     mutationFn: () => fetchPosts(true),
     onSuccess: (response) => {

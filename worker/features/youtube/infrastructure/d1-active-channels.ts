@@ -1,10 +1,6 @@
 import { YOUTUBE_CHANNEL_ID_PATTERN } from "../domain/channel-targets";
 
-const ACTIVE_CHANNELS_TTL_MS = 5 * 60_000;
 
-let activeChannelsCache:
-  | { database: D1Database; fetchedAt: number; channelIds: ReadonlySet<string> }
-  | undefined;
 
 const getD1Results = <T>(value: unknown): T[] => {
   if (Array.isArray(value)) return value as T[];
@@ -23,13 +19,6 @@ export class YouTubeAllowlistUnavailableError extends Error {
 export const readActiveYouTubeChannels = async (
   database: D1Database,
 ): Promise<ReadonlySet<string>> => {
-  const now = Date.now();
-  if (
-    activeChannelsCache?.database === database &&
-    now - activeChannelsCache.fetchedAt < ACTIVE_CHANNELS_TTL_MS
-  ) {
-    return activeChannelsCache.channelIds;
-  }
 
   try {
     const statement = database.prepare(
@@ -37,6 +26,7 @@ export const readActiveYouTubeChannels = async (
          FROM members
          WHERE youtube_channel_id IS NOT NULL
            AND TRIM(youtube_channel_id) <> ''
+           AND content_access = 'normal'
            AND (is_deprecated IS NULL OR is_deprecated != 1)`,
     );
     const executable =
@@ -55,7 +45,6 @@ export const readActiveYouTubeChannels = async (
         channelIds.add(channelId);
       }
     }
-    activeChannelsCache = { database, fetchedAt: now, channelIds };
     return channelIds;
   } catch (error) {
     throw new YouTubeAllowlistUnavailableError({ cause: error });
@@ -63,5 +52,5 @@ export const readActiveYouTubeChannels = async (
 };
 
 export const clearActiveYouTubeChannelsCacheForTests = () => {
-  activeChannelsCache = undefined;
+  // The access allowlist is read fresh before every provider/cache lookup.
 };

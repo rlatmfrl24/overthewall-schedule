@@ -431,8 +431,9 @@ const ProfileAiImageNotice = ({ className }: { className?: string }) => {
   );
 };
 
-export function MemberProfilePage({ code, renderPlayLink }: {
+export function MemberProfilePage({ code, renderPlayLink, includeArchived = false }: {
   code: string;
+  includeArchived?: boolean;
   renderPlayLink?: (memberUid: number) => ReactNode;
 }) {
   const { enabled } = useAnimations();
@@ -454,12 +455,12 @@ export function MemberProfilePage({ code, renderPlayLink }: {
   const canRenderProfileBackground = useMediaQuery(
     PROFILE_BACKGROUND_MEDIA_QUERY,
   );
-  const memberQuery = useMemberProfile(code);
+  const memberQuery = useMemberProfile(code, includeArchived);
   const member = memberQuery.isError ? null : memberQuery.data ?? null;
   const missingMember = memberQuery.error instanceof ApiError && memberQuery.error.status === 404;
   const profileSeo = useMemo(
-    () => member ? buildProfileSiteSeo(member, site) : missingMember ? buildNotFoundSiteSeo(`/profile/${encodeURIComponent(code)}`, site) : null,
-    [member, missingMember, code],
+    () => includeArchived ? null : member ? buildProfileSiteSeo(member, site) : missingMember ? buildNotFoundSiteSeo(`/profile/${encodeURIComponent(code)}`, site) : null,
+    [member, missingMember, code, includeArchived],
   );
   useSiteSeo(profileSeo);
   const loading = memberQuery.isLoading;

@@ -1,3 +1,4 @@
+import { isArchivedYouTubeVideo } from "../../content-transition";
 import type {
   OtwPlaySubmissionArtistDto,
   OtwPlayCreateSubmissionRequest,
@@ -18,6 +19,7 @@ import {
 } from "../application/ports/member-submission-repository";
 
 type ProposalRow = {
+  content_access: "normal" | "admin_archive";
   id: string;
   idempotency_key: string;
   submitted_url: string;
@@ -91,7 +93,7 @@ const groupChildren = (rows: ChildRow[]) => {
   return map;
 };
 
-const proposalSelect = `SELECT proposal.id, proposal.idempotency_key,
+const proposalSelect = `SELECT proposal.content_access, proposal.id, proposal.idempotency_key,
   proposal.submitted_url, proposal.youtube_video_id, proposal.submitted_title,
   proposal.submission_kind, proposal.submitted_broadcast_json,
   proposal.submitted_tags_json, proposal.suggested_song_id, proposal.submitted_note, proposal.status,
@@ -115,7 +117,7 @@ const proposalSelect = `SELECT proposal.id, proposal.idempotency_key,
   meta.public_read_enabled
 FROM music_cover_proposals AS proposal
 LEFT JOIN music_performances AS approved_performance
-  ON approved_performance.id = proposal.approved_performance_id
+  ON approved_performance.id = proposal.approved_performance_id AND approved_performance.content_access = 'normal'
 LEFT JOIN music_songs AS song ON song.id = approved_performance.song_id
 LEFT JOIN music_catalog_meta AS meta ON meta.id = 1`;
 
@@ -133,6 +135,9 @@ export class D1MemberSubmissionRepository
     videoId: string,
     title: string | null,
   ) {
+    if (await isArchivedYouTubeVideo(this.database, videoId)) {
+      throw new MemberSubmissionRepositoryError("not_found", "Video not found");
+    }
     const duplicate = await this.database
       .prepare(
         `SELECT CASE
@@ -169,7 +174,7 @@ export class D1MemberSubmissionRepository
         WHERE song.archived_at IS NULL AND song.merged_into_song_id IS NULL
           AND EXISTS (
             SELECT 1 FROM music_performances AS performance
-            WHERE performance.song_id = song.id
+            WHERE performance.song_id = song.id AND performance.content_access = 'normal'
               AND performance.publication_status = 'published'
               AND performance.release_type IN ('official_mv', 'official_video')
           )
@@ -222,7 +227,7 @@ export class D1MemberSubmissionRepository
       FROM music_entities AS entity
       LEFT JOIN members AS member ON member.uid = entity.member_uid
       WHERE entity.archived_at IS NULL
-        AND (entity.member_uid IS NULL OR (member.uid IS NOT NULL AND coalesce(member.is_deprecated, 0) = 0))
+        AND (entity.member_uid IS NULL OR (member.uid IS NOT NULL AND coalesce(member.is_deprecated, 0) = 0 AND member.content_access = 'normal'))
         AND (instr(entity.normalized_name, ?) > 0 OR EXISTS (
           SELECT 1 FROM music_entity_aliases alias
           WHERE alias.entity_id = entity.id AND instr(alias.normalized_alias, ?) > 0
@@ -256,7 +261,7 @@ export class D1MemberSubmissionRepository
           LEFT JOIN music_entities AS entity
             ON entity.member_uid = member.uid AND entity.archived_at IS NULL
           WHERE member.uid IN (${placeholders(memberUids.length)})
-            AND (member.is_deprecated IS NULL OR member.is_deprecated = 0)`,
+            AND member.content_access = 'normal' AND (member.is_deprecated IS NULL OR member.is_deprecated = 0)`,
         )
         .bind(...memberUids)
         .all<{ uid: number; name: string; entity_id: string | null }>();
@@ -393,6 +398,7 @@ export class D1MemberSubmissionRepository
       )
       .bind(userId, key)
       .first<ProposalRow>();
+    if (row?.content_access === "admin_archive") throw new MemberSubmissionRepositoryError("not_found", "Submission not found");
     return row ? (await this.hydrate([row]))[0] ?? null : null;
   }
 
@@ -457,6 +463,7 @@ export class D1MemberSubmissionRepository
 
   async create(command: CreateMemberSubmissionCommand) {
     const { userId, input, canonicalUrl, videoId, now, dayStart, dayEnd } = command;
+    const existing = await this.readByIdempotency(userId, input.clientRequestId);
     const [resolvedParticipants, artists] = await Promise.all([
       this.resolveSubjects(input.participants),
       this.resolveSubjects(input.originalArtists),
@@ -467,7 +474,6 @@ export class D1MemberSubmissionRepository
         participantRole: input.participants[index]?.participantRole ?? "vocal",
       }),
     );
-    const existing = await this.readByIdempotency(userId, input.clientRequestId);
     if (existing) {
       if (await this.samePayload(existing, input, canonicalUrl, participants, artists)) {
         return { data: existing, idempotentReplay: true };
@@ -567,7 +573,7 @@ export class D1MemberSubmissionRepository
         dailyLimit,
       );
     const childGuard = `SELECT ?, ?, ?, ?, ?, ? WHERE EXISTS (
-      SELECT 1 FROM music_cover_proposals WHERE id = ? AND submitted_by_user_id = ?
+      SELECT 1 FROM music_cover_proposals WHERE content_access = 'normal' AND id = ? AND submitted_by_user_id = ?
     )`;
     try {
       await this.database.batch([
@@ -598,7 +604,7 @@ export class D1MemberSubmissionRepository
                (proposal_id, credit_order, resolved_entity_id,
                 submitted_member_uid, submitted_name_snapshot)
                SELECT ?, ?, ?, ?, ? WHERE EXISTS (
-                 SELECT 1 FROM music_cover_proposals WHERE id = ? AND submitted_by_user_id = ?
+                 SELECT 1 FROM music_cover_proposals WHERE content_access = 'normal' AND id = ? AND submitted_by_user_id = ?
                )`,
             )
             .bind(
@@ -657,6 +663,8 @@ export class D1MemberSubmissionRepository
     input: OtwPlayCreateSubmissionRequest,
     canonicalUrl: string,
   ) {
+    const existing = await this.readByIdempotency(userId, input.clientRequestId);
+    if (!existing) return null;
     const [resolvedParticipants, artists] = await Promise.all([
       this.resolveSubjects(input.participants),
       this.resolveSubjects(input.originalArtists),
@@ -667,8 +675,6 @@ export class D1MemberSubmissionRepository
         participantRole: input.participants[index]?.participantRole ?? "vocal",
       }),
     );
-    const existing = await this.readByIdempotency(userId, input.clientRequestId);
-    if (!existing) return null;
     if (await this.samePayload(existing, input, canonicalUrl, participants, artists)) {
       return { data: existing, idempotentReplay: true as const };
     }
@@ -688,7 +694,7 @@ export class D1MemberSubmissionRepository
       : "";
     const statement = this.database.prepare(
       `${proposalSelect}
-       WHERE proposal.submitted_by_user_id = ?
+       WHERE proposal.content_access = 'normal' AND proposal.submitted_by_user_id = ?
          AND proposal.status IN ('pending_review', 'approved', 'rejected', 'withdrawn')
          ${cursorSql}
        ORDER BY proposal.created_at DESC, proposal.id DESC
@@ -710,7 +716,7 @@ export class D1MemberSubmissionRepository
     const row = await this.database
       .prepare(
         `${proposalSelect}
-         WHERE proposal.id = ? AND proposal.submitted_by_user_id = ?
+         WHERE proposal.content_access = 'normal' AND proposal.id = ? AND proposal.submitted_by_user_id = ?
            AND proposal.status IN ('pending_review', 'approved', 'rejected', 'withdrawn')`,
       )
       .bind(proposalId, userId)
@@ -817,7 +823,7 @@ export class D1MemberSubmissionRepository
              submission_kind = ?, submitted_broadcast_json = ?,
              submitted_tags_json = ?, suggested_song_id = ?, submitted_note = ?, version = version + 1,
              updated_at = ?
-         WHERE id = ? AND submitted_by_user_id = ?
+         WHERE content_access = 'normal' AND id = ? AND submitted_by_user_id = ?
            AND status = 'pending_review' AND version = ?
            AND NOT EXISTS (
              SELECT 1 FROM music_media_sources
@@ -970,7 +976,7 @@ export class D1MemberSubmissionRepository
         .prepare(
           `UPDATE music_cover_proposals
            SET status = 'withdrawn', version = version + 1, updated_at = ?
-           WHERE id = ? AND submitted_by_user_id = ?
+           WHERE content_access = 'normal' AND id = ? AND submitted_by_user_id = ?
              AND status = 'pending_review' AND version = ?`,
         )
         .bind(

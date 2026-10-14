@@ -242,6 +242,7 @@ export interface OtwPlayChannelMonitorDto {
 }
 
 export interface OtwPlayChannelMonitorCandidateDto {
+  contentAccess?: import("./content-transition").ContentAccess;
   historicalMaterials?: import("./content-transition").HistoricalContentMaterial[];
   candidateId: string;
   candidateVersion: number;
@@ -320,6 +321,7 @@ export interface OtwPlayChannelMonitorReconcileDto {
 }
 
 export interface OtwPlayIngestionCandidateItemDto {
+  contentAccess?: import("./content-transition").ContentAccess;
   historicalMaterials?: import("./content-transition").HistoricalContentMaterial[];
   candidateKind?: OtwPlayIngestionCandidateKind;
   originId: string;
@@ -351,6 +353,7 @@ export interface OtwPlayIngestionCandidateItemDto {
 }
 
 export interface OtwPlayIngestionReviewCandidateDto {
+  contentAccess?: import("./content-transition").ContentAccess;
   historicalMaterials?: import("./content-transition").HistoricalContentMaterial[];
   catalogChanges?: Pick<OtwPlayAdminCatalogDto, "songs" | "entities" | "revision">;
   id: string;
@@ -1209,6 +1212,7 @@ export type OtwPlayAdminSourceRecheckResponse =
   };
 
 export interface OtwPlayAdminPerformanceDto {
+  contentAccess?: import("./content-transition").ContentAccess;
   broadcast?: OtwPlayBroadcastMetadata | null;
   id: string;
   songId: string;
@@ -1239,6 +1243,7 @@ export interface OtwPlayAdminPerformanceDto {
 }
 
 export interface OtwPlayAdminProposalDto {
+  contentAccess?: import("./content-transition").ContentAccess;
   historicalMaterials?: import("./content-transition").HistoricalContentMaterial[];
   submissionKind?: OtwPlaySubmissionKind;
   broadcast?: OtwPlayBroadcastMetadata | null;
@@ -1554,6 +1559,7 @@ export interface OtwPlayReviewFilters {
   cursor?: string;
 }
 export interface OtwPlayReviewItemDto {
+  contentAccess?: import("./content-transition").ContentAccess;
   workBatchId?: string;
   id: string;
   kind: "candidate" | "proposal";

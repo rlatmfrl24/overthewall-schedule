@@ -14,7 +14,7 @@ import {
 } from "../application/x-posts-service";
 
 const X_POSTS_CACHE_CONTROL =
-  "public, max-age=300, s-maxage=1800, stale-while-revalidate=3600";
+  "no-store";
 const X_AUTHENTICATED_POSTS_CACHE_CONTROL = "no-store";
 const X_POST_ID_PATTERN = /^[1-9]\d{4,24}$/;
 type XPostsVisibility = "public" | "members" | "private";

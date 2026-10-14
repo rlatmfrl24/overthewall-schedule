@@ -111,6 +111,7 @@ export interface XPostsConfigResponseDto {
 export type XHistoryPostStatus = "visible" | "redacted";
 
 export interface XHistoryPostDto {
+  contentAccess?: import("./content-transition").ContentAccess;
   postId: string;
   memberUid: number;
   memberName: string;

@@ -311,7 +311,7 @@ export function SingingClipReviewDialog({
     (durationSeconds === null || parsedEnd === null || parsedEnd <= durationSeconds);
   const songValid = songId !== "__new" ||
     (songTitle.trim().length > 0 && originalArtists.length > 0);
-  const canSave = candidate !== null &&
+  const canSave = candidate !== null && candidate.contentAccess !== "admin_archive" &&
     !["converted", "ignored"].includes(candidate.status) &&
     candidate.availabilityStatus === "playable" &&
     candidate.catalogChannelId !== null &&
@@ -501,13 +501,14 @@ export function SingingClipReviewDialog({
             {onManageChannel && (!fastReview || candidate.catalogChannelId === null) && <Button variant="outline" disabled={saving} onClick={onManageChannel}>채널 승인·수집 설정</Button>}
             {batchDraft && <p role="status" className="text-sm">AI 초안이 저장되어 있습니다. {batchDraft.candidateVersion !== candidate.candidateVersion || batchDraft.candidateKind !== candidateKind ? "후보가 변경되어 자동 적용하지 않았습니다. 최신 내용과 비교해 주세요." : batchDraft.result.songs.length !== 1 ? "적용할 곡과 구간을 선택해 주세요." : "내용을 확인한 뒤 검수 저장을 진행하세요."} 기존 검수값·작성 중인 입력은 보존합니다.</p>}
             {batchDraftQuery.isError && <p role="alert">저장된 AI 초안을 불러오지 못했습니다. <Button variant="link" onClick={() => void batchDraftQuery.refetch()}>초안 다시 불러오기</Button></p>}
+            {candidate.contentAccess === "admin_archive" && <p role="status">관리자 보관 · 읽기 전용</p>}
             <HistoricalMaterials materials={candidate.historicalMaterials ?? []}/>
             <ReviewFieldSection fast={fastReview} title="상세 도구·AI 근거" summary={batchDraft ? "저장된 초안과 추정 근거 확인" : "필요할 때 AI 분석 또는 수동 입력"} required={Boolean(batchDraft && (batchDraft.result.songs.length!==1 || batchDraft.candidateVersion!==candidate.candidateVersion))}>
-              <AiReviewPanel compact={presentation === "dialog"} storedDraft={batchDraft} segmentEnabled={segmentEnabled} key={`${candidate.candidateId}:${candidateKind}`} target={{candidateId:candidate.candidateId}} videoId={candidate.videoId} candidateKind={candidateKind} durationSeconds={durationSeconds} initialRange={parsedEnd!==null?{startSeconds:parsedStart,endSeconds:parsedEnd}:null} form={ai} disabled={saving || !active || ["converted","ignored"].includes(candidate.status)} onSeek={presentation==="page"?setPreviewSeconds:undefined} />
+              <AiReviewPanel compact={presentation === "dialog"} storedDraft={batchDraft} segmentEnabled={segmentEnabled} key={`${candidate.candidateId}:${candidateKind}`} target={{candidateId:candidate.candidateId}} videoId={candidate.videoId} candidateKind={candidateKind} durationSeconds={durationSeconds} initialRange={parsedEnd!==null?{startSeconds:parsedStart,endSeconds:parsedEnd}:null} form={ai} disabled={candidate.contentAccess === "admin_archive" || saving || !active || ["converted","ignored"].includes(candidate.status)} onSeek={presentation==="page"?setPreviewSeconds:undefined} />
               {fastReview && onManageChannel && candidate.catalogChannelId !== null && <Button variant="outline" disabled={saving} onClick={onManageChannel}>채널 승인·수집 설정</Button>}
             </ReviewFieldSection>
             </aside>
-            <fieldset disabled={saving} className="min-w-0 space-y-6">
+            <fieldset disabled={saving || candidate.contentAccess === "admin_archive"} className="min-w-0 space-y-6">
             <ReviewFieldSection fast={fastReview} title="곡 정보 수정" summary={`${(selectedExistingSong?.title ?? songTitle) || '곡 선택 필요'} · ${selectedExistingSong ? (selectedExistingSong.originalArtists ?? []).map(a=>a.displayName).join(', ') || '원곡 가수 미확인' : originalArtists.map(a=>a.label).join(', ') || '원곡 가수 미확인'}`} required={!songValid} className="grid gap-3 sm:grid-cols-2">
               {!fastReview && <h3 className="text-base font-semibold sm:col-span-2">1. 곡 연결·원곡 정보</h3>}
               <div role="group" aria-label="곡 연결" className="min-w-0 space-y-3 rounded-lg border bg-muted/10 p-3 sm:col-span-2">
@@ -685,8 +686,8 @@ export function SingingClipReviewDialog({
         <Footer className="flex flex-wrap items-center justify-end gap-2 border-t bg-background py-3">
           {presentation === "page" && <p className="mr-auto text-xs text-muted-foreground">{dirty ? "작성 중인 내용은 목록으로 돌아가도 유지됩니다." : "공개는 카탈로그에서 별도로 진행합니다."}</p>}
           {fastReview ? <>
-            <Button variant="ghost" disabled={saving} onClick={onExclude}>제외</Button>
-            <Button variant="outline" disabled={saving} onClick={onDefer}>보류하고 다음</Button>
+            <Button variant="ghost" disabled={saving || candidate?.contentAccess === "admin_archive"} onClick={onExclude}>제외</Button>
+            <Button variant="outline" disabled={saving || candidate?.contentAccess === "admin_archive"} onClick={onDefer}>보류하고 다음</Button>
             <Button className="min-h-11" disabled={!canSave} onClick={()=>void save(true)}>{saving ? "저장 중…" : "확인하고 다음"}</Button>
           </> : <><Button variant="outline" disabled={saving} onClick={async () => { if (presentation === "page" || await canDiscard()) onOpenChange(false); }}>{presentation === "page" ? "목록으로" : "취소"}</Button>
           <Button disabled={!canSave} onClick={() => void save()}>

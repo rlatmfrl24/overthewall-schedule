@@ -5,9 +5,10 @@ import {
   readMemberProfile,
 } from "../application/read-members";
 import type { MemberReader } from "../application/ports/member-reader";
+import { requireAdminUser } from "../../../platform/auth";
 
 const MEMBERS_CACHE_CONTROL =
-  "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
+  "no-store";
 const MEMBER_PROFILE_CACHE_CONTROL = "no-store";
 const MEMBER_CODE_PATTERN = /^[a-z0-9_-]{1,64}$/i;
 
@@ -22,7 +23,7 @@ const decodeMemberCode = (rawCode: string) => {
   }
 };
 
-export type MemberReaderResolver = (env: Env) => MemberReader;
+export type MemberReaderResolver = (env: Env, includeArchived: boolean) => MemberReader;
 
 export const createHandleMembers =
   (resolveReader: MemberReaderResolver) =>
@@ -43,7 +44,12 @@ export const createHandleMembers =
     const code = rawCode ? decodeMemberCode(rawCode) : "";
     if (rawCode && !code) return memberNotFound();
 
-    const reader = resolveReader(env);
+    const includeArchived = url.searchParams.get("archive") === "1";
+    if (includeArchived) {
+      const admin = await requireAdminUser(request, env);
+      if (!admin.ok) return admin.response;
+    }
+    const reader = resolveReader(env, includeArchived);
     if (code) {
       const profile = await readMemberProfile(reader, code);
       if (!profile) return memberNotFound();

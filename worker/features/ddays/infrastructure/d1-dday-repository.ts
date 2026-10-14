@@ -10,8 +10,11 @@ import type {
 export class D1DDayRepository implements DDayRepository {
   private readonly db: DbInstance;
 
-  constructor(db: DbInstance) {
+  private readonly includeArchived: boolean;
+
+  constructor(db: DbInstance, includeArchived = false) {
     this.db = db;
+    this.includeArchived = includeArchived;
   }
 
   async list(): Promise<DDayDto[]> {
@@ -20,7 +23,7 @@ export class D1DDayRepository implements DDayRepository {
       // Qualify the required column: SQLite can interpret an unknown quoted
       // unqualified identifier as a string instead of rejecting old schemas.
       type: sql<DDayDto["type"]>`ddays.type`,
-    }).from(ddays).orderBy(ddays.date) as DDayDto[];
+    }).from(ddays).where(this.includeArchived ? undefined : eq(ddays.content_access, "normal")).orderBy(ddays.date) as DDayDto[];
   }
 
   async create(input: DDayWriteInput): Promise<boolean> {

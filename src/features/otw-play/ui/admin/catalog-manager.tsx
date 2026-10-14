@@ -807,6 +807,17 @@ function ProposalSection({
     if (approved) { setProposalBaseline(proposalSnapshot); setApprovalPreflight(null); setSingingCreditConfirmed(false); onClose(); }
   };
   if (loading) return <Loader2 className="mx-auto h-7 w-7 animate-spin" />;
+  if (selected?.contentAccess === "admin_archive") return <Card><CardContent className="space-y-3">
+    <Button variant="outline" onClick={onClose}>검수 목록으로</Button>
+    <h2 className="text-xl font-semibold">{selected.submittedTitle}</h2>
+    <p>관리자 보관 · 읽기 전용</p>
+    <p>참여자: {selected.participants.map(person => person.submittedNameSnapshot).join(", ")}</p>
+    <p>원곡 가수: {selected.originalArtists.map(person => person.submittedNameSnapshot).join(", ")}</p>
+    <p>{selected.submittedNote}</p><p>{selected.reviewNote}</p>
+    {selected.historicalProvenance && <p>{selected.historicalProvenance.sourceSite} 이전 자료 · {selected.historicalProvenance.sourceRecordId}</p>}
+    <HistoricalMaterials materials={selected.historicalMaterials ?? []} />
+    <a href={selected.submittedUrl} target="_blank" rel="noreferrer">제출 영상 확인</a>
+  </CardContent></Card>;
   if (selected && selected.status !== "pending_review" && !proposalDirty) return <Card><CardContent className="space-y-4">
     <Button variant="outline" onClick={onClose}>검수 목록으로</Button>
     <h2 className="text-xl font-semibold">{selected.submittedTitle}</h2>

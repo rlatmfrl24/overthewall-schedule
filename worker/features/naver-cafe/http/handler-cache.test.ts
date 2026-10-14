@@ -74,7 +74,7 @@ const makeEnv = (): Env =>
     SITE_ID: "otw",
     YOUTUBE_API_KEY: "",
     X_BEARER_TOKEN: "token",
-    otw_db: {} as D1Database,
+    otw_db: { prepare: vi.fn(() => ({ first: vi.fn(async () => 0) })) } as unknown as D1Database,
   }) as Env;
 
 const makeDb = () => ({
@@ -230,6 +230,7 @@ describe("naver cafe posts route cache", () => {
     expect(readStoredNaverCafePostsForSourcesMock).toHaveBeenCalledWith([source], {
       cacheDb: env.otw_db,
       size: 10,
+      includeArchived: true,
     });
     expect(collectNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
   });

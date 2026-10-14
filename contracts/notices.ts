@@ -9,6 +9,7 @@ export interface NoticeLinkDto {
 }
 
 export interface NoticeDto {
+  content_access?: "normal" | "admin_archive";
   id: number;
   content: string;
   links: NoticeLinkDto[];

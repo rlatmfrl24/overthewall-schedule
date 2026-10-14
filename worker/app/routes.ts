@@ -144,9 +144,9 @@ const PUBLIC_MEDIA_CACHE =
   "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
 
 const handleScheduleRequest = createScheduleRequestHandler(
-  (env) =>
+  (env, includeArchived) =>
     new ScheduleService(
-      new D1ScheduleQueryRepository(env.otw_db),
+      new D1ScheduleQueryRepository(env.otw_db, includeArchived),
       new D1ScheduleWriteRepository(env.otw_db),
       new PublicScheduleWritePolicy(),
     ),
@@ -195,10 +195,10 @@ const handleAdminAuditLogs = createHandleAdminAuditLogs(
   (env) => new D1AdminAuditLogReader(getDb(env)),
 );
 const handleDDays = createHandleDDays(
-  (env) => new D1DDayRepository(getDb(env)),
+  (env, includeArchived) => new D1DDayRepository(getDb(env), includeArchived),
 );
 const handleMembers = createHandleMembers(
-  (env) => new D1MemberReader(getDb(env), env.ASSET_BUCKET),
+  (env, includeArchived) => new D1MemberReader(getDb(env), env.ASSET_BUCKET, includeArchived),
 );
 const handleOtwPlayPlaylists = createPlaylistHandler(env => {
   const reader = new D1PublicCatalogReader(env.otw_db);
@@ -284,13 +284,13 @@ const handleOtwPlayWebsubAdmin = withPlayOperationsTelemetry(
   resolvePlayTelemetry,
 );
 const handleNotices = createHandleNotices(
-  (env) =>
+  (env, includeArchived) =>
     new NoticeUseCases(
-      new D1NoticeGateway(getDb(env), env.ASSET_BUCKET),
+      new D1NoticeGateway(getDb(env), env.ASSET_BUCKET, includeArchived),
     ),
 );
 const handleScheduleBoard = createHandleScheduleBoard(
-  (env) => new D1ScheduleBoardReader(getDb(env)),
+  (env, includeArchived) => new D1ScheduleBoardReader(getDb(env), includeArchived),
 );
 const handleNaverCafe = createNaverCafeHandler({
   getApplication: createD1NaverCafeApplication,

@@ -9,21 +9,22 @@ export type ScheduleDateQuery = {
 export const readSchedulesByDate = async (
   database: D1Database,
   query: ScheduleDateQuery,
+  includeArchived = false,
 ) => {
   const statement =
     query.startDate && query.endDate
       ? database
           .prepare(
-            `SELECT id, member_uid, date, start_time, title, status, created_at
+            `SELECT id, member_uid, date, start_time, title, status, created_at, content_access
              FROM schedules
-             WHERE date BETWEEN ? AND ?`,
+             WHERE date BETWEEN ? AND ? ${includeArchived ? "" : "AND content_access = 'normal'"}`,
           )
           .bind(query.startDate, query.endDate)
       : database
           .prepare(
-            `SELECT id, member_uid, date, start_time, title, status, created_at
+            `SELECT id, member_uid, date, start_time, title, status, created_at, content_access
              FROM schedules
-             WHERE date = ?`,
+             WHERE date = ? ${includeArchived ? "" : "AND content_access = 'normal'"}`,
           )
           .bind(query.date);
 

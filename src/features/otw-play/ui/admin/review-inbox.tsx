@@ -63,7 +63,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   }, [active, batchState, client]);
   const query = useInfiniteQuery({ enabled: active && (source !== "playlist" || Boolean(jobId)), queryKey: ["otw-play-review-inbox", filters], queryFn: ({ pageParam }) => fetchOtwPlayReviewItems({ ...filters, cursor: pageParam ?? undefined }), initialPageParam: null as string | null, getNextPageParam: page => page.nextCursor, refetchOnWindowFocus: false, refetchOnReconnect: false, staleTime: Infinity });
   const rows = query.data?.pages.flatMap(page => page.items) ?? [];
-  const selectableRows = rows.filter(row => row.kind === "candidate" && row.status === "ready" && !row.pendingProposalId && !row.workBatchId);
+  const selectableRows = rows.filter(row => row.contentAccess !== "admin_archive" && row.kind === "candidate" && row.status === "ready" && !row.pendingProposalId && !row.workBatchId);
   const conflicts = useQuery({
     queryKey: ["otw-play-review-kind-conflicts", jobId, selectedJob?.candidateKind],
     staleTime: 60_000, refetchOnWindowFocus: false,
@@ -75,7 +75,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
         const page = await fetchOtwPlayReviewItems({ source: "playlist", jobId,
           candidateKind: selectedJob!.candidateKind === "singing_clip" ? "official_video" : "singing_clip",
           status: "pending", cursor });
-        items.push(...page.items.filter(row => row.kind === "candidate" && row.candidateKind !== selectedJob!.candidateKind && !row.candidate?.linkedPerformanceId));
+        items.push(...page.items.filter(row => row.contentAccess !== "admin_archive" && row.kind === "candidate" && row.candidateKind !== selectedJob!.candidateKind && !row.candidate?.linkedPerformanceId));
         cursor = page.nextCursor ?? undefined;
       } while (cursor);
       return items;
@@ -85,7 +85,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   const [aiSelection, setAiSelection] = useState<{ scope: string; all: boolean; ids: Record<string, number> }>({ scope: "", all: false, ids: {} });
   const aiSelected = aiSelection.scope === scope ? aiSelection.ids : {};
   const aiAll = aiSelection.scope === scope && aiSelection.all;
-  const aiEligible = (row: OtwPlayReviewItemDto) => !row.workBatchId && row.kind === "candidate" && ["discovered", "needs_input", "blocked"].includes(row.status) && !row.pendingProposalId && row.candidate?.availabilityStatus === "playable" && (!search.workBatch || workScope.data?.data.items.some(i => i.candidateId === row.id && i.disposition === "pending"));
+  const aiEligible = (row: OtwPlayReviewItemDto) => row.contentAccess !== "admin_archive" && !row.workBatchId && row.kind === "candidate" && ["discovered", "needs_input", "blocked"].includes(row.status) && !row.pendingProposalId && row.candidate?.availabilityStatus === "playable" && (!search.workBatch || workScope.data?.data.items.some(i => i.candidateId === row.id && i.disposition === "pending"));
   const [selectionState, setSelectionState] = useState<Record<string, Record<string, number>>>({});
   const selected = selectionState[scope] ?? {};
   const setSelected = (next: Record<string, number> | ((current: Record<string, number>) => Record<string, number>)) => setSelectionState(current => ({ ...current, [scope]: typeof next === "function" ? next(current[scope] ?? {}) : next }));
@@ -306,7 +306,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
         if (checked) ids[row.id] = row.version; else delete ids[row.id];
         return { scope, all: false, ids };
       })} />}
-      {row.kind === "candidate" && !aiEligible(row) && !row.workBatchId && <Checkbox className="!min-h-4" aria-label={`${row.title ?? row.id} 선택`} checked={selected[row.id] !== undefined} disabled={busy || row.status !== "ready" || Boolean(row.pendingProposalId)} onCheckedChange={checked => setSelected(current => { const next = { ...current }; if (checked) next[row.id] = row.version; else delete next[row.id]; return next; })} />}
+      {row.kind === "candidate" && !aiEligible(row) && !row.workBatchId && <Checkbox className="!min-h-4" aria-label={`${row.title ?? row.id} 선택`} checked={selected[row.id] !== undefined} disabled={row.contentAccess === "admin_archive" || busy || row.status !== "ready" || Boolean(row.pendingProposalId)} onCheckedChange={checked => setSelected(current => { const next = { ...current }; if (checked) next[row.id] = row.version; else delete next[row.id]; return next; })} />}
       </label>
       <div className="col-start-2 min-w-0 space-y-1">
         <p className="break-words text-sm font-medium leading-6">{row.title ?? "제목 미확인"}</p>
@@ -321,8 +321,8 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
       </div>
       <div className="col-start-2 flex flex-wrap items-center gap-2 xl:col-start-4">
       <Button size="sm" variant="outline" className="h-11 flex-1 xl:h-9" disabled={busy || aiBusy} onClick={event => { if(row.workBatchId)update({view:"review",workBatch:row.workBatchId,workQueue:undefined,workItem:undefined,selected:row.id},false);else if (row.pendingProposalId) onProposal(row.pendingProposalId); else if (row.kind === "proposal") onProposal(row.id); else { returnFocus.current = event.currentTarget; update({ view: "review", selected: row.id }, false); } }}>{row.workBatchId ? "플레이리스트 작업에서 검수" : row.pendingProposalId ? "연결된 제안 검수" : row.kind === "proposal" && row.status !== "pending_review" ? "처리 내역" : row.aiDraft && ["saved", "needs_selection", "changed"].includes(row.aiDraft.status) ? "초안 검수" : "검수 열기"}</Button>
-      {row.kind === "candidate" && !row.workBatchId && !["converted", "ignored"].includes(row.status) && <Button size="sm" variant="ghost" className="h-11 xl:h-9" disabled={busy} onClick={() => void changeKind(row)}>{row.candidateKind === "official_video" ? "노래 클립으로 정정" : "공식 영상으로 정정"}</Button>}
-      {!row.workBatchId && <Button size="sm" variant="ghost" className="h-11 text-destructive hover:text-destructive xl:h-9" aria-label={`${row.title ?? row.id} 삭제`} disabled={busy || aiBusy || Boolean(row.pendingProposalId) || (row.kind === "proposal" && row.status === "pending_review")} onClick={() => void deleteItem(row)}>삭제</Button>}
+      {row.kind === "candidate" && !row.workBatchId && !["converted", "ignored"].includes(row.status) && <Button size="sm" variant="ghost" className="h-11 xl:h-9" disabled={busy || row.contentAccess === "admin_archive"} onClick={() => void changeKind(row)}>{row.candidateKind === "official_video" ? "노래 클립으로 정정" : "공식 영상으로 정정"}</Button>}
+      {!row.workBatchId && <Button size="sm" variant="ghost" className="h-11 text-destructive hover:text-destructive xl:h-9" aria-label={`${row.title ?? row.id} 삭제`} disabled={row.contentAccess === "admin_archive" || busy || aiBusy || Boolean(row.pendingProposalId) || (row.kind === "proposal" && row.status === "pending_review")} onClick={() => void deleteItem(row)}>삭제</Button>}
       </div>
       {row.aiDraft?.errorMessage && <p className="col-start-2 -col-end-1 break-words text-xs leading-5 text-destructive">AI · {row.aiDraft.errorMessage}</p>}
       {row.pendingProposalId && <p className="col-start-2 -col-end-1 text-xs leading-5 text-muted-foreground">같은 영상의 사용자 제안이 검수 대기 중입니다. 연결된 제안을 먼저 처리하면 이 이력에서 후속 검수를 진행할 수 있습니다.</p>}

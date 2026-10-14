@@ -1,6 +1,7 @@
 export type DDayType = "debut" | "birthday" | "event" | string;
 
 export interface DDayDto {
+  content_access?: "normal" | "admin_archive";
   id: number;
   title: string;
   date: string;

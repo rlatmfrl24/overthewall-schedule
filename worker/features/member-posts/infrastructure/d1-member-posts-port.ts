@@ -88,7 +88,7 @@ export class D1MemberPostsPort implements MemberPostsPort {
       .select()
       .from(members)
       .where(
-        sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0`,
+        sql`${members.content_access} = 'normal' AND (${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0)`,
       )
       .orderBy(asc(members.uid));
   }
@@ -97,6 +97,7 @@ export class D1MemberPostsPort implements MemberPostsPort {
     return this.db
       .select()
       .from(naverCafeSources)
+      .where(sql`NOT EXISTS (SELECT 1 FROM members archive_member WHERE archive_member.uid = ${naverCafeSources.member_uid} AND archive_member.content_access = 'admin_archive')`)
       .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));
   }
 

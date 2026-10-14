@@ -81,11 +81,15 @@ export class D1NoticeGateway implements NoticeGateway {
   private readonly db: DbInstance;
   private readonly bucket?: R2Bucket;
 
+  private readonly includeArchived: boolean;
+
   constructor(
     db: DbInstance,
     bucket?: R2Bucket,
+    includeArchived = false,
   ) {
     this.db = db;
+    this.includeArchived = includeArchived;
     this.bucket = bucket;
   }
 
@@ -98,7 +102,7 @@ export class D1NoticeGateway implements NoticeGateway {
     type: "notice" | "event" | null;
     today: string;
   }): Promise<NoticeDto[]> {
-    const filters: SQL[] = [];
+    const filters: SQL[] = this.includeArchived ? [] : [eq(notices.content_access, "normal")];
     if (!input.includeInactive) {
       filters.push(eq(notices.is_active, true));
       filters.push(

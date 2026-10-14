@@ -2,11 +2,12 @@ import { badRequest, json, methodNotAllowed } from "../../../platform/http-helpe
 import type { Env } from "../../../platform/types";
 import { readScheduleBoard } from "../application/read-schedule-board";
 import type { ScheduleBoardReader } from "../application/ports/schedule-board-reader";
+import { requireAdminUser } from "../../../platform/auth";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const SCHEDULE_BOARD_CACHE_CONTROL = "no-store";
 
-export type ScheduleBoardReaderResolver = (env: Env) => ScheduleBoardReader;
+export type ScheduleBoardReaderResolver = (env: Env, includeArchived: boolean) => ScheduleBoardReader;
 
 export const createHandleScheduleBoard =
   (resolveReader: ScheduleBoardReaderResolver) =>
@@ -26,8 +27,13 @@ export const createHandleScheduleBoard =
       return badRequest("startDate must be before or equal to endDate");
     }
 
+    const includeArchived = url.searchParams.get("archive") === "1";
+    if (includeArchived) {
+      const admin = await requireAdminUser(request, env);
+      if (!admin.ok) return admin.response;
+    }
     const board = await readScheduleBoard(
-      resolveReader(env),
+      resolveReader(env, includeArchived),
       startDate,
       endDate,
     );

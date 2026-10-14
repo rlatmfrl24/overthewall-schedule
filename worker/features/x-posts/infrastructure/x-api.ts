@@ -10,7 +10,7 @@ import {
   enrichLinksWithPreviews,
 } from "./link-preview";
 import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
-import { readStoredXPreview } from "./x-reference-store";
+import { filterArchivedXReferences, readStoredXPreview } from "./x-reference-store";
 import { connectStoredReplyReferences } from "./x-reply-reference";
 import { prepareXReferenceRedaction } from "./x-reference-redaction";
 import { reserveXReferenceBudget, XReferenceBudgetError } from "./x-reference-budget";
@@ -1167,7 +1167,7 @@ export const readStoredXReplyReference = async (
       .prepare(
         `SELECT id, handle, user_id, username, value, created_at, fetched_at, hidden_at
          FROM x_posts
-         WHERE id = ? AND hidden_at IS NULL`,
+         WHERE id = ? AND hidden_at IS NULL AND content_access = 'normal'`,
       )
       .bind(sourcePostId)
       .first<XStoredPostRow>();
@@ -1306,7 +1306,7 @@ const readStoredPostsForHandles = async (
            FROM requested CROSS JOIN x_posts AS post
            WHERE post.id IN (
              SELECT candidate.id FROM x_posts AS candidate
-             WHERE candidate.handle = requested.handle AND candidate.hidden_at IS NULL
+             WHERE candidate.handle = requested.handle AND candidate.hidden_at IS NULL AND candidate.content_access = 'normal'
              ${page?.cursor ? "AND candidate.created_at <= ? AND (candidate.created_at < ? OR ('x:' || candidate.id) < ?)" : ""}
              ORDER BY candidate.created_at DESC, candidate.id DESC LIMIT ?
            )
@@ -1321,9 +1321,14 @@ const readStoredPostsForHandles = async (
         posts.set(row.handle, group);
       }
       for (const handle of chunk) {
-        entries.set(handle, storedPostsEntry(
-          sources.get(handle) ?? null, posts.get(handle) ?? [], richXLinkPreviewEnabled,
-        ));
+        const entry = storedPostsEntry(sources.get(handle) ?? null, posts.get(handle) ?? [], richXLinkPreviewEnabled);
+        entries.set(handle, entry);
+      }
+      const filtered = new Map((await filterArchivedXReferences(cacheDb,
+        chunk.flatMap(handle => entries.get(handle)?.posts ?? []))).map(post => [post.id, post]));
+      for (const handle of chunk) {
+        const entry = entries.get(handle);
+        if (entry) entry.posts = entry.posts.flatMap(post => filtered.get(post.id) ?? []);
       }
     } catch (error) {
       if (page) throw error;

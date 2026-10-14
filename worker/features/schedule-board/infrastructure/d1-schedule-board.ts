@@ -57,23 +57,25 @@ export const getScheduleBoard = async (
   db: DbInstance,
   startDate: string,
   endDate: string,
+  includeArchived = false,
 ): Promise<ScheduleBoardResponse> => {
   const today = getTodayKstDateString();
-  const activeMembersCondition = sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0`;
+  const activeMembersCondition = sql`(${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0)`;
 
   const [memberRows, ddayRows, noticeRows, scheduleRows, latestUpdateRows] =
     await Promise.all([
       db
         .select()
         .from(members)
-        .where(activeMembersCondition)
+        .where(includeArchived ? undefined : and(activeMembersCondition, eq(members.content_access, "normal")))
         .orderBy(asc(members.uid)),
-      db.select().from(ddays).orderBy(asc(ddays.date), asc(ddays.id)),
+      db.select().from(ddays).where(includeArchived ? undefined : eq(ddays.content_access, "normal")).orderBy(asc(ddays.date), asc(ddays.id)),
       db
         .select()
         .from(notices)
         .where(
           and(
+            includeArchived ? undefined : eq(notices.content_access, "normal"),
             eq(notices.is_active, true),
             sql`(${notices.started_at} IS NULL OR ${notices.started_at} <= ${today})`,
             sql`(${notices.ended_at} IS NULL OR ${notices.ended_at} >= ${today})`,
@@ -83,7 +85,7 @@ export const getScheduleBoard = async (
       db
         .select()
         .from(schedules)
-        .where(between(schedules.date, startDate, endDate))
+        .where(and(between(schedules.date, startDate, endDate), includeArchived ? undefined : eq(schedules.content_access, "normal")))
         .orderBy(
           asc(schedules.date),
           asc(schedules.member_uid),
@@ -97,6 +99,7 @@ export const getScheduleBoard = async (
           and(
             between(updateLogs.schedule_date, startDate, endDate),
             inArray(updateLogs.action, [...SCHEDULE_CHANGE_ACTIONS]),
+            includeArchived ? undefined : sql`NOT EXISTS (SELECT 1 FROM members archive_member WHERE archive_member.uid = ${updateLogs.member_uid} AND archive_member.content_access = 'admin_archive') AND NOT EXISTS (SELECT 1 FROM schedules archive_schedule WHERE archive_schedule.id = ${updateLogs.schedule_id} AND archive_schedule.content_access = 'admin_archive')`,
           ),
         )
         .orderBy(desc(updateLogs.created_at), desc(updateLogs.id))
@@ -122,11 +125,14 @@ export const getScheduleBoard = async (
 export class D1ScheduleBoardReader implements ScheduleBoardReader {
   private readonly db: DbInstance;
 
-  constructor(db: DbInstance) {
+  private readonly includeArchived: boolean;
+
+  constructor(db: DbInstance, includeArchived = false) {
     this.db = db;
+    this.includeArchived = includeArchived;
   }
 
   read(startDate: string, endDate: string) {
-    return getScheduleBoard(this.db, startDate, endDate);
+    return getScheduleBoard(this.db, startDate, endDate, this.includeArchived);
   }
 }

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PiArchiveBold as Archive, PiCaretDownBold as ChevronDown, PiArrowSquareOutBold as ExternalLink, PiSpinnerGapBold as Loader2, PiArrowsClockwiseBold as RefreshCw, PiShieldWarningBold as ShieldX } from "react-icons/pi";
 import type { XHistoryPostDto, XHistoryPostStatus } from "@contracts/x-posts";
-import { fetchActiveMembers } from "@/features/members";
+import { fetchAdminMembers } from "@/features/members";
 import { queryKeys } from "@/shared/query/query-keys";
 import {
   AlertDialog,
@@ -68,8 +68,8 @@ export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
   }), [cursor, from, memberUid, status, to]);
 
   const membersQuery = useQuery({
-    queryKey: queryKeys.members.active(),
-    queryFn: fetchActiveMembers,
+    queryKey: queryKeys.members.admin(),
+    queryFn: fetchAdminMembers,
     staleTime: 5 * 60_000,
   });
   const historyQuery = useQuery({
@@ -152,6 +152,7 @@ export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
                         <strong>{item.memberName}</strong>
+                        {item.contentAccess === "admin_archive" && <Badge variant="outline">관리자 보관 · 읽기 전용</Badge>}
                         <Badge variant="outline">{postKindLabel[item.postType]}</Badge>
                         <Badge variant={item.status === "visible" ? "default" : "secondary"}>{item.status === "visible" ? "표시 중" : "원문 제거됨"}</Badge>
                       </div>

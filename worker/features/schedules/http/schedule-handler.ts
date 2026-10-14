@@ -2,7 +2,7 @@ import {isIsoDate,parseScheduleInput} from "../domain/schedule-input";
 import type {
   SchedulePayload,
 } from "../../../../contracts/schedules";
-import { authenticateOptionalRequest } from "../../../platform/auth";
+import { authenticateOptionalRequest, requireAdminUser } from "../../../platform/auth";
 import type { Env } from "../../../platform/types";
 import { badRequest, getActorInfo, parseNumericId } from "../../../platform/http-helpers";
 import type { ScheduleWriteOperation } from "../application/ports/schedule-write-authorization-policy";
@@ -12,7 +12,7 @@ import {
 } from "../domain/schedule";
 
 const SCHEDULE_READ_CACHE_CONTROL = "no-store";
-export type ResolveScheduleService = (env: Env) => ScheduleService;
+export type ResolveScheduleService = (env: Env, includeArchived: boolean) => ScheduleService;
 
 const parseJson = async (request: Request): Promise<unknown | null> => {
   try {
@@ -38,7 +38,12 @@ export const createScheduleRequestHandler =
   (resolveService: ResolveScheduleService) =>
   async (request: Request, env: Env) => {
   const url = new URL(request.url);
-  const service = resolveService(env);
+  const includeArchived = request.method === "GET" && url.searchParams.get("archive") === "1";
+  if (includeArchived) {
+    const admin = await requireAdminUser(request, env);
+    if (!admin.ok) return admin.response;
+  }
+  const service = resolveService(env, includeArchived);
 
   if (url.pathname === "/api/schedules/save") {
     if (request.method !== "POST") {

@@ -1,6 +1,7 @@
 export type ScheduleStatus = "방송" | "휴방" | "게릴라" | "미정";
 
 export interface ScheduleDto {
+  content_access?: "normal" | "admin_archive";
   id: number;
   member_uid: number;
   date: string;

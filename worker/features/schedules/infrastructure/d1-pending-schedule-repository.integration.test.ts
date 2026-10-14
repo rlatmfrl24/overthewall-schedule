@@ -1,3 +1,4 @@
+import transitionSchema from "../../../../drizzle/0102_content_transition_foundation.sql?raw";
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { PendingApprovalOptions } from "../../../../contracts/pending-schedules";
@@ -207,7 +208,7 @@ const readTransactionState = async () => {
 describe("D1 pending schedule transaction", () => {
   beforeEach(async () => {
     await env.otw_db.batch(
-      TEST_SCHEMA.map((statement) => env.otw_db.prepare(statement)),
+      [...TEST_SCHEMA, transitionSchema.split("--> statement-breakpoint").map(sql => sql.trim()).find(sql => sql.startsWith("ALTER TABLE `pending_schedules` ADD COLUMN `content_access`"))!].map((statement) => env.otw_db.prepare(statement)),
     );
     await env.otw_db
       .prepare("INSERT INTO members (uid, name) VALUES (10, '테스트 멤버')")

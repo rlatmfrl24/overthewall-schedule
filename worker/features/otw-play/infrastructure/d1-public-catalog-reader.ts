@@ -1,4 +1,6 @@
+import { isArchivedYouTubeVideo } from "../../content-transition";
 import { readBroadcastMetadata } from "../domain/broadcast-metadata";
+import { CONTENT_ACCESS_REVISION_SQL } from "../../content-transition";
 import type { OtwPlayMemberSummary } from "@contracts/otw-play-members";
 import type { PlayDefaultPlaylist } from "@contracts/otw-play-playlists";
 import type { PlaylistPerformanceQuery } from "../application/ports/playlist-repository";
@@ -139,10 +141,11 @@ type ContainsSearchPlan = {
 const CONTAINS_DENSE_SONG_THRESHOLD = 256;
 
 const PUBLIC_PERFORMANCE_PREDICATE = `
-  performance.publication_status = 'published'
+  performance.content_access = 'normal'
+  AND performance.publication_status = 'published'
   AND performance.release_type IN ('official_mv', 'official_video')`;
 
-const BROADCAST_PERFORMANCE_PREDICATE = `performance.publication_status = 'published'
+const BROADCAST_PERFORMANCE_PREDICATE = `performance.content_access = 'normal' AND performance.publication_status = 'published'
   AND performance.release_type = 'broadcast'
   AND json_extract(performance.broadcast_metadata, '$.extent') IN ('full', 'partial')
   AND EXISTS (SELECT 1 FROM music_performance_sources clip_link
@@ -181,6 +184,14 @@ const PUBLIC_PERFORMANCE_ORDER = `
 const placeholders = (count: number) =>
   Array.from({ length: count }, () => "?").join(", ");
 
+const visibleSearchTerm = (alias: string) => `(${alias}.term_kind <> 'participant' OR EXISTS (
+  SELECT 1 FROM music_performances AS performance
+  JOIN music_performance_participants participant ON participant.performance_id = performance.id
+  JOIN music_entities entity ON entity.id = participant.entity_id
+  WHERE performance.song_id = ${alias}.song_id AND (${performancePredicate("all")})
+    AND entity.normalized_name = ${alias}.normalized_term
+))`;
+
 const indexedSearchSql = (query: string): SearchSql => {
   const prefix = `${query}*`;
   return {
@@ -203,13 +214,13 @@ const indexedSearchSql = (query: string): SearchSql => {
         SELECT term.song_id,
                CASE WHEN term.term_kind = 'original_artist' THEN 3 ELSE 5 END
         FROM music_search_terms AS term
-        WHERE term.term_kind IN ('original_artist', 'participant')
+        WHERE term.term_kind IN ('original_artist', 'participant') AND ${visibleSearchTerm("term")}
           AND term.normalized_term = ?
         UNION ALL
         SELECT term.song_id,
                CASE WHEN term.term_kind = 'original_artist' THEN 4 ELSE 6 END
         FROM music_search_terms AS term
-        WHERE term.term_kind IN ('original_artist', 'participant')
+        WHERE term.term_kind IN ('original_artist', 'participant') AND ${visibleSearchTerm("term")}
           AND term.normalized_term GLOB ?
           AND term.normalized_term <> ?
       ),
@@ -293,7 +304,7 @@ const containsSearchSql = (
           OR EXISTS (
             SELECT 1
             FROM music_search_terms AS term
-            WHERE term.song_id = gram.song_id
+            WHERE term.song_id = gram.song_id AND ${visibleSearchTerm("term")}
               AND instr(term.normalized_term, ?) > 0
           )
         )`;
@@ -410,7 +421,7 @@ const buildPerformanceFilters = (
         WHERE member_participant.performance_id = performance.id
           AND member_entity.member_uid IN (${memberPlaceholders})
           ${query.participantRole === null ? "AND member_participant.participant_role IN ('vocal', 'featured_vocal')" : "AND member_participant.participant_role = ?"}
-          AND (selected_member.is_deprecated IS NULL OR selected_member.is_deprecated = 0)
+          AND selected_member.content_access = 'normal' AND (selected_member.is_deprecated IS NULL OR selected_member.is_deprecated = 0)
       ) = ?`);
       binds.push(...query.memberUids);
       if (query.participantRole !== null) binds.push(query.participantRole);
@@ -426,7 +437,7 @@ const buildPerformanceFilters = (
         WHERE member_participant.performance_id = performance.id
           AND member_entity.member_uid IN (${memberPlaceholders})
           ${query.participantRole === null ? "AND member_participant.participant_role IN ('vocal', 'featured_vocal')" : "AND member_participant.participant_role = ?"}
-          AND (selected_member.is_deprecated IS NULL OR selected_member.is_deprecated = 0)
+          AND selected_member.content_access = 'normal' AND (selected_member.is_deprecated IS NULL OR selected_member.is_deprecated = 0)
       )`);
       binds.push(...query.memberUids);
       if (query.participantRole !== null) binds.push(query.participantRole);
@@ -457,7 +468,7 @@ const buildPerformanceFilters = (
       WHERE unit_participant.performance_id = performance.id
         AND unit_member.unit_name = ?
         ${query.participantRole === null ? "AND unit_participant.participant_role IN ('vocal', 'featured_vocal')" : "AND unit_participant.participant_role = ?"}
-        AND (unit_member.is_deprecated IS NULL OR unit_member.is_deprecated = 0)
+        AND unit_member.content_access = 'normal' AND (unit_member.is_deprecated IS NULL OR unit_member.is_deprecated = 0)
     )`);
     binds.push(query.group.unitName);
     if (query.participantRole !== null) binds.push(query.participantRole);
@@ -649,7 +660,7 @@ const denseContainsMatch = (
       OR EXISTS (
         SELECT 1
         FROM music_search_terms AS contains_term
-        WHERE contains_term.song_id = ${songAlias}.id
+        WHERE contains_term.song_id = ${songAlias}.id AND ${visibleSearchTerm("contains_term")}
           AND instr(contains_term.normalized_term, ?) > 0
       )
     )`
@@ -1316,7 +1327,7 @@ const participantQueryForPerformanceIds = (
       member.is_deprecated AS member_is_deprecated
     FROM music_performance_participants AS participant
     JOIN music_entities AS entity ON entity.id = participant.entity_id
-    LEFT JOIN members AS member ON member.uid = entity.member_uid
+    LEFT JOIN members AS member ON member.uid = entity.member_uid AND member.content_access = 'normal'
     WHERE participant.performance_id IN (${placeholders(performanceIds.length)})
     ORDER BY participant.performance_id, participant.credit_order, entity.id`,
   binds: [...performanceIds],
@@ -1450,7 +1461,7 @@ const catalogHydrationQuery = (
                  member.is_deprecated AS member_is_deprecated
           FROM music_performance_participants AS participant
           JOIN music_entities AS entity ON entity.id = participant.entity_id
-          LEFT JOIN members AS member ON member.uid = entity.member_uid
+          LEFT JOIN members AS member ON member.uid = entity.member_uid AND member.content_access = 'normal'
           WHERE participant.performance_id = requested.performance_id
           ORDER BY participant.credit_order, entity.id
         ) AS participant_row
@@ -1719,8 +1730,8 @@ export class D1PublicCatalogReader
       navigation_visible: number;
       updated_at: number;
     }>(`
-      SELECT catalog.revision,
-             read_model.revision AS read_model_revision,
+      SELECT catalog.revision + ${CONTENT_ACCESS_REVISION_SQL} AS revision,
+             read_model.revision + ${CONTENT_ACCESS_REVISION_SQL} AS read_model_revision,
              catalog.public_read_enabled,
              catalog.navigation_visible,
              catalog.updated_at
@@ -1748,6 +1759,7 @@ export class D1PublicCatalogReader
       SELECT performance.relation_type AS relation, COUNT(DISTINCT song.id) AS songs, COUNT(*) AS performances
       FROM music_performances AS performance JOIN music_songs AS song ON song.id = performance.song_id
       WHERE ${PUBLIC_PERFORMANCE_PREDICATE} AND ${PUBLIC_SONG_PREDICATE} GROUP BY performance.relation_type`);
+    const curatedArtworkAvailable = !await isArchivedYouTubeVideo(this.db, "PFcPopYxft4");
     const defaults: PlayDefaultPlaylist[] = [];
     for (const relation of ["original", "cover"] as const) {
       const count = totals.find(row => row.relation === relation);
@@ -1755,8 +1767,7 @@ export class D1PublicCatalogReader
       defaults.push({ id: relation, version: 1, title: relation === "original" ? "오리지널 모음" : "커버곡 모음",
         description: relation === "original" ? "우리의 목소리로 시작된 노래" : "익숙한 노래, 새로운 목소리",
         representativePerformanceId: null,
-        // Curated artwork: STARDAYS — 마음의 상호작용 (Interaction), official MV.
-        imageUrl: relation === "original"
+        imageUrl: relation === "original" && curatedArtworkAvailable
           ? "https://i.ytimg.com/vi/PFcPopYxft4/hqdefault.jpg"
           : first[0]?.performance.sources[0]?.thumbnailUrl ?? null,
         songCount: Number(count?.songs ?? 0), performanceCount: Number(count?.performances ?? 0), query: { relation } });
@@ -1781,7 +1792,7 @@ export class D1PublicCatalogReader
         JOIN music_entities AS entity ON entity.id = participant.entity_id
         JOIN members AS member ON member.uid = entity.member_uid
         WHERE participant.performance_id = performance.id AND entity.archived_at IS NULL
-          AND COALESCE(member.is_deprecated, 0) = 0 AND entity.member_uid = ?
+          AND member.content_access = 'normal' AND COALESCE(member.is_deprecated, 0) = 0 AND entity.member_uid = ?
           AND participant.participant_role IN ('vocal', 'featured_vocal'))`);
       binds.push(query.member);
     }
@@ -1857,7 +1868,7 @@ export class D1PublicCatalogReader
         COALESCE(totals.song_count, 0) AS song_count,
         COALESCE(totals.performance_count, 0) AS performance_count
       FROM members AS member LEFT JOIN totals ON totals.member_uid = member.uid
-      WHERE member.is_deprecated IS NULL OR member.is_deprecated = 0
+      WHERE member.content_access = 'normal' AND (member.is_deprecated IS NULL OR member.is_deprecated = 0)
       ORDER BY member.uid`);
     return rows.map(row => ({
       uid: row.uid, code: row.code, name: row.name, oshiMark: row.oshi_mark,
@@ -2014,7 +2025,7 @@ export class D1PublicCatalogReader
             JOIN members AS member ON member.uid = entity.member_uid
             WHERE ${PUBLIC_PERFORMANCE_PREDICATE}
               AND ${PUBLIC_SONG_PREDICATE}
-              AND (member.is_deprecated IS NULL OR member.is_deprecated = 0)
+              AND member.content_access = 'normal' AND (member.is_deprecated IS NULL OR member.is_deprecated = 0)
             ORDER BY member.name, member.uid`,
           binds: [],
         },
@@ -2046,7 +2057,7 @@ export class D1PublicCatalogReader
               AND ${PUBLIC_SONG_PREDICATE}
               AND member.unit_name IS NOT NULL
               AND length(trim(member.unit_name)) > 0
-              AND (member.is_deprecated IS NULL OR member.is_deprecated = 0)
+              AND member.content_access = 'normal' AND (member.is_deprecated IS NULL OR member.is_deprecated = 0)
             ORDER BY member.unit_name`,
           binds: [],
         },

@@ -89,7 +89,7 @@ describe("members route", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe(
-      "public, max-age=60, s-maxage=300, stale-while-revalidate=600",
+      "no-store",
     );
     await expect(response.json()).resolves.toEqual([member]);
   });

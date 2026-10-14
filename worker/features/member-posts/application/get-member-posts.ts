@@ -29,7 +29,7 @@ type SourcePolicy = {
 const PUBLIC_PATH = "/feed";
 const MONITOR_PATH = "/admin/member-posts";
 const PUBLIC_CACHE =
-  "public, max-age=300, s-maxage=900, stale-while-revalidate=1800";
+  "no-store";
 const PRIVATE_CACHE = "no-store";
 
 const createXPolicy = (

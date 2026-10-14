@@ -166,6 +166,7 @@ export const createChzzkApplication = (ports: ChzzkApplicationPorts) => {
   };
 
   return {
+    assertAuthorized,
     fetchLiveStatuses,
 
     async fetchVideos(channelIds: string[], page: number, size: number) {

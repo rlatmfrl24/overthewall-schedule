@@ -20,7 +20,7 @@ const PROFILE_BACKGROUND_KEY =
 type MemberRow = typeof members.$inferSelect;
 
 const activeCondition =
-  sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0`;
+  sql`(${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0)`;
 
 const toProfileImage = (
   row: typeof memberProfileImages.$inferSelect,
@@ -45,11 +45,15 @@ export class D1MemberReader implements MemberReader {
   private readonly db: DbInstance;
   private readonly assetBucket?: R2Bucket;
 
+  private readonly includeArchived: boolean;
+
   constructor(
     db: DbInstance,
     assetBucket?: R2Bucket,
+    includeArchived = false,
   ) {
     this.db = db;
+    this.includeArchived = includeArchived;
     this.assetBucket = assetBucket;
   }
 
@@ -57,7 +61,7 @@ export class D1MemberReader implements MemberReader {
     return this.db
       .select()
       .from(members)
-      .where(activeCondition) as Promise<MemberDto[]>;
+      .where(this.includeArchived ? undefined : and(activeCondition, eq(members.content_access, "normal"))) as Promise<MemberDto[]>;
   }
 
   async findProfileByCode(code: string): Promise<MemberProfileDto | null> {
@@ -65,7 +69,7 @@ export class D1MemberReader implements MemberReader {
     const data = await this.db
       .select()
       .from(members)
-      .where(and(eq(members.code, code), activeCondition))
+      .where(and(eq(members.code, code), this.includeArchived ? undefined : and(activeCondition, eq(members.content_access, "normal"))))
       .limit(1);
 
     let member: MemberRow | undefined = data[0];
@@ -73,7 +77,7 @@ export class D1MemberReader implements MemberReader {
       const allMembers = await this.db
         .select()
         .from(members)
-        .where(activeCondition);
+        .where(this.includeArchived ? undefined : and(activeCondition, eq(members.content_access, "normal")));
       member = allMembers.find(
         (candidate) =>
           candidate.code?.trim().toLowerCase() === normalizedCode,

@@ -1,10 +1,10 @@
+import { CONTENT_READ_QUERY_OPTIONS, currentContentQuery } from "@/shared/query/content-read-policy";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   fetchLiveStatusesForMembers,
   type ChzzkLiveStatusMap,
 } from "@/features/chzzk";
-import { MEDIA_QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 import { queryKeys } from "@/shared/query/query-keys";
 import type { Member } from "@/features/members";
 import { extractMultiviewChzzkChannelId } from "../model/multiview-utils";
@@ -64,14 +64,14 @@ export function useMultiviewSources(members: Member[]) {
     [membersWithChzzk],
   );
 
-  const query = useQuery<ChzzkLiveStatusMap>({
+  const query = currentContentQuery(useQuery<ChzzkLiveStatusMap>({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey: queryKeys.liveStatus.statuses(channelIdsKey, "multiview"),
     queryFn: () => fetchLiveStatusesForMembers(membersWithChzzk),
     enabled: membersWithChzzk.length > 0,
     refetchInterval: MULTIVIEW_LIVE_STATUS_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
-    staleTime: MEDIA_QUERY_STALE_TIME_MS,
-  });
+
+  }));
 
   const sources = useMemo(() => {
     const liveStatuses = query.data ?? {};

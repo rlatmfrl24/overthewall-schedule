@@ -17,6 +17,7 @@ const setup = (requiresMembership: boolean | undefined = true) => {
     findPublishedPlaySongBySlug: vi.fn(async () => ({ slug: "song", title: "공개 곡", originalArtistNames: [], mainVocalNames: [], thumbnailUrl: null })),
   };
   const reader: SiteContentReader = {
+    readAccessRevision: vi.fn(async () => 0),
     readSchedule: vi.fn(async (startDate, endDate) => ({ startDate, endDate, updatedAt: "2026-09-22T00:00:00Z", members: [{ uid: 1, name: "멤버", code: "member" } as MemberDto], ddays: [], notices: [], schedules: [] })),
     readNotices: vi.fn(async () => []), readVideos: vi.fn(async () => []),
     readFeed: vi.fn(async () => [{ id: "x", title: "공개 X", status: "available" as const, updatedAt: null, items: [{ title: "공개 게시글" }] }]),
@@ -48,7 +49,7 @@ describe("public site content", () => {
     expect(content.sections[0].items).toHaveLength(7);
     expect(content.sections[0].items[0].text).toBe("일정 미등록");
     expect(content.expiresAt).toBe("2026-09-22T15:00:00.000Z");
-    expect(siteContentCacheControl(content, now)).toContain("s-maxage=30");
+    expect(siteContentCacheControl(content, now)).toBe("no-store");
     expect(scheduleRange("/weekly", "2026-01-01")).toEqual({ start: "2025-12-29", end: "2026-01-04" });
   });
 
@@ -60,7 +61,7 @@ describe("public site content", () => {
     vi.mocked(reader.readSchedule).mockClear();
     const hit = (await cachedService.read("/", undefined, now + 10_000))!;
     expect(hit.generatedAt).toBe(cached.generatedAt);
-    expect(siteContentCacheControl(hit, now + 10_000)).toContain("s-maxage=20");
+    expect(siteContentCacheControl(hit, now + 10_000)).toBe("no-store");
     expect(reader.readSchedule).not.toHaveBeenCalled();
     await cachedService.read("/", undefined, now + 40_000);
     expect(reader.readSchedule).toHaveBeenCalledWith("2026-09-23", "2026-09-23");
@@ -75,7 +76,7 @@ describe("public site content", () => {
     const content = (await new SiteContentService(seo, reader, luvdia, cache).read("/", undefined, now))!;
     expect(content.metadata.canonical).toBe("http://localhost:5174/");
     expect(reader.readSchedule).toHaveBeenCalled();
-    expect(cache.put).toHaveBeenCalledWith(content);
+    expect(cache.put).toHaveBeenCalledWith(content, 0);
   });
 
   it.each([true, undefined])("does not disclose Play when membership policy is %s", async requiresMembership => {

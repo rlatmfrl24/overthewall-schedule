@@ -77,6 +77,14 @@ export default defineConfig({
       const migrations = await readD1Migrations(
         path.resolve(__dirname, "./drizzle"),
       );
+      // Small feature fixtures consume the exact canonical access DDL for their tables.
+      // Stable per-table migration names let combined fixtures deduplicate members.
+      const accessMigrations = (tables: string[]) => tables.map(table => ({
+        name: `0102_content_transition_foundation.sql:${table}`,
+        queries: migrations.find(migration => migration.name === "0102_content_transition_foundation.sql")!.queries
+          .filter(query => query.startsWith(`ALTER TABLE \`${table}\` ADD COLUMN \`content_access\``) ||
+            (table === "content_transitions" && query.startsWith("CREATE TABLE `content_transitions`"))),
+      }));
       const otwPlayCatalogMigrations = migrations.filter(({ name }) =>
         name.startsWith(OTW_PLAY_CATALOG_MIGRATION_PREFIX),
       );
@@ -93,7 +101,10 @@ export default defineConfig({
           const migration = migrationsByName.get(name);
           return migration ? [migration.name === "0102_content_transition_foundation.sql" ? {
             ...migration,
-            queries: migration.queries.filter(query => !/^\s*ALTER TABLE `(?!members`|music_|__new_music_)/.test(query)),
+            queries: [
+              ...migrationsByName.get("0071_gifted_romulus.sql")!.queries.filter(query => /^\s*CREATE (?:TABLE|(?:UNIQUE )?INDEX) `(?:youtube_feed_|u?idx_youtube_feed_)/.test(query)),
+              ...migration.queries.filter(query => !/^\s*ALTER TABLE `(?!members`|music_|__new_music_|youtube_feed_videos`)/.test(query)),
+            ],
           } : migration] : [];
         });
       const otwPlayIngestionMigrations =
@@ -101,7 +112,10 @@ export default defineConfig({
           const migration = migrationsByName.get(name);
           return migration ? [migration.name === "0102_content_transition_foundation.sql" ? {
             ...migration,
-            queries: migration.queries.filter(query => !/^\s*ALTER TABLE `(?!members`|music_|__new_music_)/.test(query)),
+            queries: [
+              ...migrationsByName.get("0071_gifted_romulus.sql")!.queries.filter(query => /^\s*CREATE (?:TABLE|(?:UNIQUE )?INDEX) `(?:youtube_feed_|u?idx_youtube_feed_)/.test(query)),
+              ...migration.queries.filter(query => !/^\s*ALTER TABLE `(?!members`|music_|__new_music_|youtube_feed_videos`)/.test(query)),
+            ],
           } : migration] : [];
         });
       const otwPlayPreHardeningMigrations = otwPlayIngestionMigrations.filter(
@@ -229,8 +243,8 @@ export default defineConfig({
             SCHEDULE_DAY_MIGRATION_SQL: readFileSync(path.resolve(__dirname, "drizzle/0096_unknown_hex.sql"), "utf8"),
             OTW_PLAY_SEARCH_INTEGRITY_SQL: readFileSync(path.resolve(__dirname, "scripts/otw-play-search-integrity.sql"), "utf8"),
             OTW_PLAY_SEARCH_BACKFILL_MIGRATIONS: migrations.filter(({ name }) => name === "0095_otw-play-ready-search-backfill.sql"),
-            MEMBER_POSTS_CAFE_MIGRATIONS: migrations.filter(({ name }) => /^(0024_|0036_|0039_)/.test(name))
-              .map(migration => ({ ...migration, queries: migration.queries.filter(query => !/^\s*CREATE INDEX `idx_x_/.test(query)) })),
+            MEMBER_POSTS_CAFE_MIGRATIONS: [...migrations.filter(({ name }) => /^(0024_|0036_|0039_)/.test(name))
+              .map(migration => ({ ...migration, queries: migration.queries.filter(query => !/^\s*CREATE INDEX `idx_x_/.test(query)) })), ...accessMigrations(["naver_cafe_posts"])],
             OTW_PLAY_PLAYLIST_MIGRATIONS: migrations.filter(({ name }) => ["0038_misty_speed_demon.sql", "0087_burly_midnight.sql", "0088_friendly_photon.sql"].includes(name)),
             SETTINGS_MIGRATIONS: migrations.filter(({ name }) =>
               /^(0011_|0038_|0086_)/.test(name)
@@ -238,21 +252,21 @@ export default defineConfig({
             YOUTUBE_QUOTA_MIGRATIONS: migrations.filter(({ name }) =>
               name === "0086_canonical-youtube-quota.sql"
             ),
-            DDAY_SCHEMA_MIGRATIONS: migrations.filter(({ name }) =>
+            DDAY_SCHEMA_MIGRATIONS: [...migrations.filter(({ name }) =>
               /^(0004_|0005_)/.test(name)
-            ),
-            YOUTUBE_FEED_MIGRATIONS: migrations.filter(({ name }) =>
+            ), ...accessMigrations(["ddays"])],
+            YOUTUBE_FEED_MIGRATIONS: [...migrations.filter(({ name }) =>
               /^(0000_|0009_|0011_|0017_|0027_|0035_|0037_|0068_|0069_|0071_|0082_|0086_)/.test(name)
             ).map(migration => migration.name.startsWith("0071_")
               ? { ...migration, queries: migration.queries.filter(query =>
                   /^\s*CREATE (?:TABLE|(?:UNIQUE )?INDEX) `(?:youtube_feed_|u?idx_youtube_feed_)/.test(query)
                 ) }
-              : migration),
-            X_REFERENCE_MIGRATIONS: migrations.filter(({ name }) =>
+              : migration), ...accessMigrations(["members", "youtube_feed_videos", "content_transitions"])],
+            X_REFERENCE_MIGRATIONS: [...migrations.filter(({ name }) =>
               /^(0000_|0011_|0023_|0025_|0026_|0068_|0071_|0072_|0075_|0077_|0078_|0079_|0083_|0084_)/.test(name)
             ).map(migration => /^(0071_|0072_)/.test(migration.name)
               ? { ...migration, queries: migration.queries.filter(query => /^\s*ALTER TABLE `x_/.test(query)) }
-              : migration),
+              : migration), ...accessMigrations(["members", "x_posts", "x_post_facts"])],
             OTW_PLAY_CHANNEL_SEPARATION_MIGRATIONS: migrations.filter(({ name }) => name === "0017_short_satana.sql"),
             OTW_PLAY_CATALOG_MIGRATIONS: otwPlayCatalogMigrations,
             OTW_PLAY_PROPOSAL_SEARCH_MIGRATIONS:

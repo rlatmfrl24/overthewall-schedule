@@ -142,7 +142,7 @@ describe("OTW Play public catalog service", () => {
       allowSharedCache: true,
     });
 
-    expect(order).toEqual(["meta", "cache"]);
+    expect(order).toEqual(["meta", "cache", "meta"]);
     expect(result).toMatchObject({
       status: "ok",
       cacheStatus: "hit",

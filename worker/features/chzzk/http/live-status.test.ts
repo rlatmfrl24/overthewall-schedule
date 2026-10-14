@@ -171,7 +171,7 @@ describe("live status route", () => {
 
     expect(revalidatedResponse.status).toBe(200);
     expect(revalidatedResponse.headers.get("Cache-Control")).toBe(
-      "public, max-age=0, s-maxage=45, must-revalidate",
+      "no-store",
     );
     expect(body.items).toEqual([{ channelId, content: liveContent }]);
     expect(fetchChzzkLiveStatusMock).toHaveBeenCalledOnce();

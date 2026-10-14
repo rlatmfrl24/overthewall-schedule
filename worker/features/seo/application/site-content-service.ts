@@ -22,6 +22,7 @@ export class SiteContentService {
   }
 
   async read(path: string, date?: string, now = Date.now()): Promise<SitePublicContent | null> {
+    const accessRevision = await this.reader.readAccessRevision();
     const seo = new SiteSeoService(this.seoReader, this.site);
     let metadata = resolveSiteSeo(path, this.site);
     let sections: SiteContentSection[] = [];
@@ -29,8 +30,11 @@ export class SiteContentService {
     const today = kstDate(now);
     const selectedDate = path === "/" || path === "/weekly" ? date ?? today : null;
     if (selectedDate) {
-      const cached = await this.cache?.get(path, selectedDate);
-      if (cached && cached.metadata.canonical === metadata.canonical && Date.parse(cached.expiresAt) > now) return cached;
+      const cached = await this.cache?.get(path, selectedDate, accessRevision);
+      if (cached && cached.metadata.canonical === metadata.canonical && Date.parse(cached.expiresAt) > now) {
+        if (await this.reader.readAccessRevision() !== accessRevision) throw new Error("Content access changed");
+        return cached;
+      }
       const { start, end } = scheduleRange(path, selectedDate);
       const board = await this.reader.readSchedule(start, end);
       const items: SiteContentSection["items"] = [];
@@ -99,7 +103,8 @@ export class SiteContentService {
       ],
     };
     const content = { path: metadata.path, date: selectedDate, metadata, generatedAt: new Date(now).toISOString(), expiresAt, sections, structuredData };
-    if (selectedDate) await this.cache?.put(content);
+    if (await this.reader.readAccessRevision() !== accessRevision) throw new Error("Content access changed");
+    if (selectedDate) await this.cache?.put(content, accessRevision);
     return content;
   }
 }

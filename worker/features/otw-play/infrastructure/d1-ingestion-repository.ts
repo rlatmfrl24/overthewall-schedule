@@ -597,7 +597,7 @@ export class D1IngestionRepository implements IngestionRepository {
         values.push(filters.jobId);
       } else if (filters.source === "playlist") where.push(candidateOrigins);
       if (filters.source === "automatic") where.push(automaticOrigins);
-      branches.push(`SELECT 'c:' || c.id AS sort_id, c.id, 'candidate' AS kind, c.candidate_kind, c.title, c.status, c.version, c.first_discovered_at AS created_at
+      branches.push(`SELECT 'c:' || c.id AS sort_id, c.id, 'candidate' AS kind, c.candidate_kind, c.title, c.status, c.version, c.first_discovered_at AS created_at, c.content_access
         FROM music_ingestion_candidates c WHERE ${where.join(" AND ")}`);
     }
     if (!filters.jobId && (!filters.source || filters.source === "user")) {
@@ -606,11 +606,11 @@ export class D1IngestionRepository implements IngestionRepository {
         SELECT 1 FROM music_ingestion_candidates c WHERE c.provider = 'youtube' AND c.external_video_id = p.youtube_video_id
         AND c.status NOT IN ('converted', 'ignored')))`);
       branches.push(`SELECT 'p:' || p.id, p.id, 'proposal', CASE WHEN p.submission_kind = 'singing_clip' THEN 'singing_clip' ELSE 'official_video' END,
-        p.submitted_title, p.status, p.version, p.created_at FROM music_cover_proposals p WHERE ${where.join(" AND ")}`);
+        p.submitted_title, p.status, p.version, p.created_at, p.content_access FROM music_cover_proposals p WHERE ${where.join(" AND ")}`);
     }
     // User proposals do not belong to playlist import histories.
     if (branches.length === 0) return { items: [], nextCursor: null };
-    const rows = resultsOf(await this.database.prepare(`WITH review_candidates(sort_id, id, kind, candidate_kind, title, status, version, created_at) AS (${branches.join(" UNION ALL ")}), review AS MATERIALIZED (
+    const rows = resultsOf(await this.database.prepare(`WITH review_candidates(sort_id, id, kind, candidate_kind, title, status, version, created_at, content_access) AS (${branches.join(" UNION ALL ")}), review AS MATERIALIZED (
       SELECT *, CASE WHEN status = 'ready' THEN 1 ELSE 0 END AS ready_rank FROM review_candidates
       WHERE (? IS NULL OR (CASE WHEN status = 'ready' THEN 1 ELSE 0 END) > ?
         OR ((CASE WHEN status = 'ready' THEN 1 ELSE 0 END) = ? AND (created_at < ? OR (created_at = ? AND sort_id < ?))))
@@ -636,7 +636,7 @@ export class D1IngestionRepository implements IngestionRepository {
       ORDER BY review.ready_rank ASC, review.created_at DESC, review.sort_id DESC`)
       .bind(...values, position?.ready ?? null, position?.ready ?? null, position?.ready ?? null,
         position?.at ?? null, position?.at ?? null, position?.id ?? null)
-      .all<{ work_batch_id:string|null;ai_draft: string | null; candidate_data: string | null; ready_rank: number; sort_id: string; id: string; kind: "candidate" | "proposal"; candidate_kind: "official_video" | "singing_clip"; title: string | null; status: string; version: number; created_at: number; playlist: number; automatic: number; user: number; pending_proposal_id: string | null }>());
+      .all<{ content_access: "normal" | "admin_archive"; work_batch_id:string|null;ai_draft: string | null; candidate_data: string | null; ready_rank: number; sort_id: string; id: string; kind: "candidate" | "proposal"; candidate_kind: "official_video" | "singing_clip"; title: string | null; status: string; version: number; created_at: number; playlist: number; automatic: number; user: number; pending_proposal_id: string | null }>());
     const history = await this.readHistoricalMaterials(rows.slice(0,50).filter(row=>row.kind==="candidate").map(row=>row.id));
     const items: import("@contracts/otw-play").OtwPlayReviewItemDto[] = [];
     for (const row of rows.slice(0, 50)) {
@@ -646,14 +646,14 @@ export class D1IngestionRepository implements IngestionRepository {
         const detail = JSON.parse(row.candidate_data!) as Record<string, unknown>;
         const review = { version: row.version, videoId: String(detail.external_video_id), status: row.status as OtwPlayIngestionCandidateItemDto["status"], classification: detail.classification as OtwPlayIngestionClassification, catalogChannelId: detail.catalog_channel_id as string | null, reviewInput: parseReviewInput(detail.review_input_json as string | null), linkedPerformanceId: detail.linked_performance_id as string | null };
         channelId = detail.channel_id as string | null;
-        candidate = { candidateId: row.id, candidateVersion: review.version, videoId: review.videoId, title: row.title, historicalMaterials:history.get(row.id) ?? [],
+        candidate = { contentAccess: row.content_access, candidateId: row.id, candidateVersion: review.version, videoId: review.videoId, title: row.title, historicalMaterials:history.get(row.id) ?? [],
           channelTitle: detail.channel_title as string | null, thumbnailUrl: detail.thumbnail_url as string | null,
           durationSeconds: detail.duration_seconds as number | null, publishedAt: detail.provider_published_at as number | null,
           availabilityStatus: detail.availability_status as OtwPlaySourceAvailabilityStatus, status: review.status, classification: review.classification,
           exclusionReason: detail.exclusion_reason as string | null, catalogChannelId: review.catalogChannelId, reviewInput: review.reviewInput,
           linkedPerformanceId: review.linkedPerformanceId, discoveredAt: row.created_at, monitorGeneration: 0, retentionExpiresAt: Number(detail.retention_expires_at) };
       }
-      items.push({ id: row.id, kind: row.kind, candidateKind: row.candidate_kind, title: row.title, status: row.status, version: row.version, createdAt: row.created_at, channelId, candidate, pendingProposalId: row.pending_proposal_id,
+      items.push({ contentAccess: row.content_access, id: row.id, kind: row.kind, candidateKind: row.candidate_kind, title: row.title, status: row.status, version: row.version, createdAt: row.created_at, channelId, candidate, pendingProposalId: row.pending_proposal_id,
         ...(row.work_batch_id ? {workBatchId:row.work_batch_id} : {}),
         aiDraft: row.ai_draft ? JSON.parse(row.ai_draft) : null,
         sources: [...(row.playlist ? ["playlist" as const] : []), ...(row.automatic ? ["automatic" as const] : []), ...(row.user ? ["user" as const] : [])] });
@@ -688,7 +688,7 @@ export class D1IngestionRepository implements IngestionRepository {
       : "";
     const statement = this.database.prepare(
       `SELECT origin.id AS origin_id, candidate.id AS candidate_id,
-        candidate.version AS candidate_version, candidate.candidate_kind, origin.playlist_position,
+        candidate.version AS candidate_version, candidate.content_access, candidate.candidate_kind, origin.playlist_position,
         origin.playlist_item_id, candidate.external_video_id,
         candidate.status, ${itemClassificationSql} AS item_classification,
         ${effectiveCandidateClassificationSql} AS candidate_classification,
@@ -725,7 +725,8 @@ export class D1IngestionRepository implements IngestionRepository {
     const result = await statement.bind(...bindings).all<{
           origin_id: string;
           candidate_id: string;
-          candidate_version: number;
+          content_access: "normal" | "admin_archive";
+        candidate_version: number;
           candidate_kind: "official_video" | "singing_clip";
           playlist_position: number;
           playlist_item_id: string;
@@ -756,6 +757,7 @@ export class D1IngestionRepository implements IngestionRepository {
       const row = value as unknown as {
         origin_id: string;
         candidate_id: string;
+        content_access: "normal" | "admin_archive";
         candidate_version: number;
           candidate_kind: "official_video" | "singing_clip";
         playlist_position: number;
@@ -785,6 +787,7 @@ export class D1IngestionRepository implements IngestionRepository {
       return {
         originId: row.origin_id,
         candidateId: row.candidate_id,
+        contentAccess: row.content_access,
         candidateKind: row.candidate_kind,
         candidateVersion: Number(row.candidate_version),
         playlistPosition: Number(row.playlist_position),
@@ -1434,7 +1437,7 @@ export class D1IngestionRepository implements IngestionRepository {
   ): Promise<IngestionReviewCandidate> {
     const row = await this.database.prepare(
       `SELECT candidate.id, candidate.version, candidate.external_video_id,
-        candidate.candidate_kind,
+        candidate.candidate_kind, candidate.content_access,
         candidate.status,
         ${effectiveCandidateClassificationSql} AS classification,
         (SELECT channel.id FROM music_channels AS channel
@@ -1457,6 +1460,7 @@ export class D1IngestionRepository implements IngestionRepository {
       id: string;
       version: number;
       external_video_id: string;
+      content_access: "normal" | "admin_archive";
       candidate_kind: IngestionReviewCandidate["candidateKind"];
       status: IngestionReviewCandidate["status"];
       classification: IngestionReviewCandidate["classification"];
@@ -1475,6 +1479,7 @@ export class D1IngestionRepository implements IngestionRepository {
       version: Number(row.version),
       videoId: row.external_video_id,
       candidateKind: row.candidate_kind,
+      contentAccess: row.content_access,
       status: row.status,
       classification: row.classification,
       catalogChannelId: row.catalog_channel_id,

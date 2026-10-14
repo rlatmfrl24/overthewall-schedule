@@ -1,3 +1,4 @@
+import { CONTENT_READ_QUERY_OPTIONS, currentContentQuery } from "@/shared/query/content-read-policy";
 import { useCallback, useMemo } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRoutes, withRouteSearch } from "@contracts/api-routes";
@@ -6,7 +7,6 @@ import {
   type MemberPostSourcePolicy,
   type MemberPostsAggregateResponse,
 } from "../api/member-posts-api";
-import { MEMBER_POSTS_QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 import { queryKeys } from "@/shared/query/query-keys";
 
 const createEmptyPolicy = (
@@ -100,13 +100,13 @@ export function useMemberPosts(
     [admin, includeNaverCafe, includeX, maxResults, size, paginated, memberUid],
   );
 
-  const singleQuery = useQuery({
+  const singleQuery = currentContentQuery(useQuery({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey,
     queryFn: () => fetchPosts(false),
     enabled: enabled && !paginated,
-    staleTime: MEMBER_POSTS_QUERY_STALE_TIME_MS,
-  });
-  const pageQuery = useInfiniteQuery({
+
+  }));
+  const pageQuery = currentContentQuery(useInfiniteQuery({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey: pageQueryKey,
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam, signal }) => {
@@ -118,9 +118,9 @@ export function useMemberPosts(
     },
     getNextPageParam: page => page.nextCursor ?? undefined,
     enabled: enabled && paginated,
-    staleTime: MEMBER_POSTS_QUERY_STALE_TIME_MS,
+
     retry: false,
-  });
+  }));
   const pageData = useMemo(() => {
     const pages = pageQuery.data?.pages;
     if (!pages?.length) return undefined;

@@ -197,7 +197,7 @@ export function WorkflowCatalog({
   const activeSongIds = new Set(activeSongs.map((song) => song.id));
   const draftPerformances = scopedPerformances.filter(
     (performance) =>
-      performance.publicationStatus === "draft" &&
+      performance.contentAccess !== "admin_archive" && performance.publicationStatus === "draft" &&
       (performance.releaseType !== "broadcast" || Boolean(performance.broadcast?.extent)) &&
       activeSongIds.has(performance.songId),
   );
@@ -206,7 +206,8 @@ export function WorkflowCatalog({
   ).size;
   const publishingDrafts = saving?.startsWith("미게시 가창 게시") ?? false;
 
-  const performanceActions = (performance: OtwPlayAdminPerformanceDto) => (
+  const performanceActions = (performance: OtwPlayAdminPerformanceDto) => performance.contentAccess === "admin_archive"
+    ? <Badge variant="outline">관리자 보관 · 읽기 전용</Badge> : (
     <div className="flex items-center justify-end gap-1">
       <Button size="sm" variant="ghost" onClick={() => setEditPerformance(performance)} disabled={performance.publicationStatus === "withdrawn"}>
         <Pencil className="h-3.5 w-3.5" /> 수정
@@ -274,7 +275,7 @@ export function WorkflowCatalog({
   ) => {
     const performances = catalog.performances.filter((item) => item.songId === song.id);
     const canDelete = performances.every(
-      (performance) => performance.publicationStatus !== "published",
+      (performance) => performance.contentAccess !== "admin_archive" && performance.publicationStatus !== "published",
     );
     const withdrawnCount = performances.filter(
       (performance) => performance.publicationStatus === "withdrawn",

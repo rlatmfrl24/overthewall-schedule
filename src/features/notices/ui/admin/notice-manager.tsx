@@ -5,7 +5,7 @@ import { Input } from "@/shared/ui/input";
 import { QueryReadback } from "@/shared/ui/query-readback";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchActiveMembers, type Member } from "@/features/members";
+import { fetchAdminMembers, type Member } from "@/features/members";
 import type { Notice } from "../../model/types";
 import { PiSpinnerGapBold as Loader2, PiPlusCircleBold as PlusCircle, PiPencilSimpleBold as Pencil, PiTrashBold as Trash2, PiArrowsClockwiseBold as RefreshCw, PiHardDriveBold as HardDrive, PiImageBrokenBold as ImageOff, PiTrashBold as Trash, PiStarBold as Star } from "react-icons/pi";
 import { Button } from "@/shared/ui/button";
@@ -137,8 +137,8 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
     staleTime: QUERY_STALE_TIME_MS,
   });
   const membersQuery = useQuery<Member[]>({
-    queryKey: queryKeys.members.active(),
-    queryFn: fetchActiveMembers,
+    queryKey: queryKeys.members.admin(),
+    queryFn: fetchAdminMembers,
     staleTime: QUERY_STALE_TIME_MS,
   });
   const thumbnailStatusQuery = useQuery<NoticeThumbnailStatusResponse>({
@@ -637,13 +637,13 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1">이미지 {renderThumbnailBadge(notice)}</span><span>링크 {getNoticeLinks(notice).length}개</span></div>
                 </div>
                 <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2 text-xs">{renderNoticePublicationStatus(notice)}<span>{noticeTypeConfigs[notice.type as NoticeTypeKey]?.label ?? notice.type}</span></div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs">{notice.content_access === "admin_archive" && <span>관리자 보관 · 읽기 전용</span>}{renderNoticePublicationStatus(notice)}<span>{noticeTypeConfigs[notice.type as NoticeTypeKey]?.label ?? notice.type}</span></div>
                   <p className="text-xs leading-5 text-muted-foreground tabular-nums">{formatPeriod(notice)}</p>
                 </div>
                 <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-1 lg:w-64">
-                  <Button size="sm" variant={notice.id === featuredNoticeId ? "default" : "outline"} aria-pressed={notice.id === featuredNoticeId} disabled={featuringNoticeId !== null || getNoticePublicationStatus(notice) !== "published"} onClick={() => void handleSetFeaturedNotice(notice)}><Star className="size-3.5"/>{notice.id === featuredNoticeId ? "대표 공지" : "대표로 선택"}</Button>
-                  <Button size="sm" variant="ghost" onClick={() => handleOpenEdit(notice)} aria-label={`${notice.content} 수정`}><Pencil className="size-3.5"/>수정</Button>
-                  <SecondaryAction size="sm" variant="ghost" className="text-destructive" onClick={() => setDeletingNotice(notice)} aria-label={`${notice.content} 삭제`}><Trash2 className="size-3.5"/>삭제</SecondaryAction>
+                  <Button size="sm" variant={notice.id === featuredNoticeId ? "default" : "outline"} aria-pressed={notice.id === featuredNoticeId} disabled={notice.content_access === "admin_archive" || featuringNoticeId !== null || getNoticePublicationStatus(notice) !== "published"} onClick={() => void handleSetFeaturedNotice(notice)}><Star className="size-3.5"/>{notice.id === featuredNoticeId ? "대표 공지" : "대표로 선택"}</Button>
+                  <Button size="sm" variant="ghost" disabled={notice.content_access === "admin_archive"} onClick={() => handleOpenEdit(notice)} aria-label={`${notice.content} 수정`}><Pencil className="size-3.5"/>수정</Button>
+                  <SecondaryAction size="sm" variant="ghost" className="text-destructive" disabled={notice.content_access === "admin_archive"} onClick={() => setDeletingNotice(notice)} aria-label={`${notice.content} 삭제`}><Trash2 className="size-3.5"/>삭제</SecondaryAction>
                 </div>
               </article>
             ))}

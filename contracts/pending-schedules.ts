@@ -80,6 +80,7 @@ export interface PendingRankedScheduleDto
 }
 
 export interface PendingScheduleDto {
+  content_access?: "normal" | "admin_archive";
   id: number;
   member_uid: number;
   member_name: string;

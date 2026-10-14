@@ -33,11 +33,12 @@ const fakeState = vi.hoisted(() => ({
 const fakeDb = vi.hoisted(() => ({
   select() {
     return {
-      from() {
+      from(table: { [key: symbol]: unknown }) {
+        const rows = table[Symbol.for("drizzle:Name")] === "members" ? fakeState.members : fakeState.cafeSources;
         return {
           where() {
             return {
-              orderBy: () => fakeState.members,
+              orderBy: () => rows,
             };
           },
           orderBy: () => fakeState.cafeSources,
@@ -257,7 +258,7 @@ describe("member-posts aggregate worker route", () => {
     };
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toContain("max-age=300");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(fetchXPostsForHandlesMock).toHaveBeenCalledWith(["otw_member"], {
       bearerToken: "token",
       cacheDb: env.otw_db,
@@ -430,7 +431,7 @@ describe("member-posts aggregate worker route", () => {
       richXLinkPreviewEnabled: true,
       usageSource: "member-posts",
     });
-    expect(response.headers.get("Cache-Control")).toContain("max-age=300");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 
   it("관리자 cache-buster GET도 X 수집을 강제하지 않는다", async () => {

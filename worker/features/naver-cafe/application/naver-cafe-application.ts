@@ -45,7 +45,8 @@ export interface NaverCafeApplication {
     enabled: boolean;
     visibility: NaverCafeVisibility;
   }>;
-  listSources(): Promise<NaverCafeSourceRecord[]>;
+  readAccessRevision(): Promise<number>;
+  listSources(includeArchived?: boolean): Promise<NaverCafeSourceRecord[]>;
   createSource(payload: NaverCafeSourcePayload): Promise<boolean>;
   updateSource(id: number, payload: NaverCafeSourcePayload): Promise<boolean>;
   deleteSource(id: number): Promise<boolean>;
@@ -53,5 +54,6 @@ export interface NaverCafeApplication {
   readStoredPosts(
     sources: NaverCafeSourceRecord[],
     size: number,
+    includeArchived?: boolean,
   ): Promise<NaverCafePostsContent>;
 }

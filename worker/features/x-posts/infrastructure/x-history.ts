@@ -13,6 +13,7 @@ type D1 = Pick<D1Database, "prepare">;
 
 type MemberRow = { uid: number | string; name: string; url_twitter: string | null };
 type FactRow = {
+  content_access: "normal" | "admin_archive";
   post_id: string;
   member_uid: number | string;
   member_name_snapshot: string;
@@ -90,6 +91,7 @@ const toHistoryPost = (row: FactRow): XHistoryPostDto => {
   const status: XHistoryPostStatus = hiddenAtValue === null ? "visible" : "redacted";
   return {
     postId: row.post_id,
+    contentAccess: row.content_access,
     memberUid: asNumber(row.member_uid),
     memberName: row.member_name_snapshot,
     postType: row.post_type,
@@ -241,7 +243,7 @@ export const readXHistoryPosts = async (
     bindings.push(options.cursor.createdAt, options.cursor.createdAt, options.cursor.postId);
   }
   const rows = await db.prepare(
-    `SELECT f.post_id, f.member_uid, f.member_name_snapshot, f.post_type,
+    `SELECT f.post_id, f.content_access, f.member_uid, f.member_name_snapshot, f.post_type,
             f.created_at, f.first_seen_at, f.media_count, f.link_count,
             f.hidden_at, f.hidden_reason, p.hidden_at AS stored_hidden_at,
             p.hidden_reason AS stored_hidden_reason, p.value

@@ -23,7 +23,7 @@ describe("YouTube storage-only routes", () => {
     const { request, readStoredFeed } = setup();
     const fresh = await request(`videos?channelIds=${channel}`);
     expect(fresh.status).toBe(200);
-    expect(fresh.headers.get("Cache-Control")).toContain("public");
+    expect(fresh.headers.get("Cache-Control")).toBe("no-store");
     expect(await fresh.json()).toMatchObject({ videos: [video], cache: { state: "fresh", revalidateAfterMs: null } });
     readStoredFeed.mockResolvedValueOnce({ videos: [video], shorts: [], oldestRetainedAt: new Date(Date.now() - 86_400_001).toISOString() });
     const stale = await request(`videos?channelIds=${channel}`);
@@ -74,7 +74,7 @@ describe("YouTube storage-only routes", () => {
     const { request, readShorts } = setup();
     const response = await request(`shorts?channelIds=${channel}&cursor=next&limit=5`);
     expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toContain("public");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(readShorts).toHaveBeenCalledWith([channel], 5, "next", undefined);
   });
 });

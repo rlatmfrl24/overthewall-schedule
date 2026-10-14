@@ -13,7 +13,7 @@ import {
 export type BuildChzzkMediaApplication = (env: Env) => ChzzkApplication;
 
 const MEDIA_CACHE_CONTROL =
-  "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
+  "no-store";
 const CHZZK_MAX_PAGE = 100;
 const CHZZK_MAX_SIZE = 50;
 

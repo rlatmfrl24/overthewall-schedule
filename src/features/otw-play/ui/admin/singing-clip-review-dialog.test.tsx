@@ -534,3 +534,11 @@ it("reconciles materialized references before reopening a saved review", async (
   await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledTimes(2));
   expect(updateCandidateMock.mock.calls[1]![1].input).toMatchObject({ song: savedInput.song, participants: savedInput.participants, internalNote: "updated note" });
 });
+
+it("shows an archived candidate and its historical evidence without allowing review writes", async () => {
+  const {candidate,catalog}=reviewFixture();
+  render(createElement(SingingClipReviewDialog,{ candidate:{...candidate,contentAccess:"admin_archive"},catalog,presentation:"page",reviewOnly:true,onOpenChange:vi.fn(),onConverted:vi.fn(),onReviewStateChanged:async()=>{} }),{wrapper:createQueryWrapper()});
+  expect(await screen.findByText("관리자 보관 · 읽기 전용")).toBeTruthy();
+  expect(screen.getByRole("button",{name:"검수 저장 · 등록 준비 완료"}).hasAttribute("disabled")).toBe(true);
+  expect(updateCandidateMock).not.toHaveBeenCalled();
+});

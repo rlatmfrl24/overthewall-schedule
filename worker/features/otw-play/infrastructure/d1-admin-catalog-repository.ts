@@ -109,6 +109,7 @@ type ChannelRow = {
 };
 type ChannelEntityRow = { channel_id: string; entity_id: string };
 type PerformanceRow = {
+  content_access: "normal" | "admin_archive";
   id: string;
   song_id: string;
   relation_type: OtwPlayAdminPerformanceDto["relationType"];
@@ -367,7 +368,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         FROM music_channels ORDER BY display_name, id`, "channels", "id"),
       select(`SELECT channel_id, entity_id FROM music_channel_entities
         ORDER BY channel_id, entity_id`, "channels", "channel_id"),
-      select(`SELECT id, song_id, relation_type, release_type,
+      select(`SELECT id, content_access, song_id, relation_type, release_type,
         participation_type, publication_status, quality_status, released_at, broadcast_metadata,
         internal_note, version FROM music_performances ORDER BY created_at DESC, id`, "performances", "id"),
       select(`SELECT performance_id, tag_key, display_name
@@ -501,6 +502,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         releaseType: row.release_type,
         ...(row.release_type === "broadcast" ? { broadcast: readBroadcastMetadata(row.broadcast_metadata) } : {}),
         participationType: row.participation_type,
+        contentAccess: row.content_access,
         publicationStatus: row.publication_status,
         qualityStatus: row.quality_status,
         releasedAt: row.released_at,
@@ -654,7 +656,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       );
     }
     const where = status ? "WHERE proposal.status = ?" : "";
-    const statement = this.database.prepare(`SELECT proposal.id,
+    const statement = this.database.prepare(`SELECT proposal.id, proposal.content_access,
       proposal.submitted_by_user_id, proposal.historical_source_site, proposal.historical_source_record_id,
       proposal.historical_review, proposal.submitted_url, proposal.youtube_video_id,
       proposal.segment_start_seconds, proposal.submitted_title, proposal.suggested_song_id,
@@ -681,6 +683,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       OtwPlayAdminProposalDto,
       "participants" | "originalArtists" | "tags"
     > & {
+      content_access: "normal" | "admin_archive";
       submitted_by_user_id: string | null;
       historical_source_site: "otw" | "luvdia" | null;
       historical_source_record_id: string | null;
@@ -723,6 +726,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     const history=await readHistoricalMaterials(this.database,"music_cover_proposals",proposalRows.map(row=>row.id));
     return proposalRows.map((row) => ({
       id: row.id,
+      contentAccess: row.content_access,
       submittedByUserId: row.submitted_by_user_id,
       historicalProvenance: row.historical_source_site && row.historical_source_record_id
         ? { sourceSite: row.historical_source_site, sourceRecordId: row.historical_source_record_id }

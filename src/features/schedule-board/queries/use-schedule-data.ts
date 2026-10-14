@@ -1,22 +1,22 @@
+import { CONTENT_READ_QUERY_OPTIONS, currentContentQuery } from "@/shared/query/content-read-policy";
 import { useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchDDays, type DDayItem } from "@/features/ddays";
 import { fetchActiveMembers, type Member } from "@/features/members";
-import { QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 import { queryKeys } from "@/shared/query/query-keys";
 
 export function useScheduleData() {
   const queryClient = useQueryClient();
-  const membersQuery = useQuery<Member[]>({
+  const membersQuery = currentContentQuery(useQuery<Member[]>({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey: queryKeys.members.active(),
     queryFn: fetchActiveMembers,
-    staleTime: QUERY_STALE_TIME_MS,
-  });
-  const ddaysQuery = useQuery<DDayItem[]>({
+
+  }));
+  const ddaysQuery = currentContentQuery(useQuery<DDayItem[]>({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey: queryKeys.ddays.list(),
     queryFn: () => fetchDDays(),
-    staleTime: QUERY_STALE_TIME_MS,
-  });
+
+  }));
 
   const reloadMembers = useCallback(async () => {
     await membersQuery.refetch();
@@ -28,15 +28,15 @@ export function useScheduleData() {
 
   const reloadAll = useCallback(async () => {
     await Promise.all([
-      queryClient.ensureQueryData({
+      queryClient.fetchQuery({
         queryKey: queryKeys.members.active(),
         queryFn: fetchActiveMembers,
-        staleTime: QUERY_STALE_TIME_MS,
+        staleTime: 0,
       }),
-      queryClient.ensureQueryData({
+      queryClient.fetchQuery({
         queryKey: queryKeys.ddays.list(),
         queryFn: () => fetchDDays(),
-        staleTime: QUERY_STALE_TIME_MS,
+        staleTime: 0,
       }),
     ]);
   }, [queryClient]);

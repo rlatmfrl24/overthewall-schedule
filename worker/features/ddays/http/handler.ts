@@ -19,9 +19,9 @@ import type {
 } from "../application/ports/dday-repository";
 
 const DDAYS_CACHE_CONTROL =
-  "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
+  "no-store";
 
-export type DDayRepositoryResolver = (env: Env) => DDayRepository;
+export type DDayRepositoryResolver = (env: Env, includeArchived: boolean) => DDayRepository;
 
 const parseWriteInput = (body: DDayPayload): DDayWriteInput | null => {
   if (!body.title?.trim() || !body.date?.trim()) return null;
@@ -38,16 +38,17 @@ export const createHandleDDays =
   (resolveRepository: DDayRepositoryResolver) =>
   async (request: Request, env: Env): Promise<Response> => {
     const url = new URL(request.url);
+    const includeArchived = url.searchParams.get("archive") === "1";
     if (
       request.method === "POST" ||
       request.method === "PUT" ||
-      request.method === "DELETE"
+      request.method === "DELETE" || includeArchived
     ) {
       const admin = await requireAdminUser(request, env);
       if (!admin.ok) return admin.response;
     }
 
-    const repository = resolveRepository(env);
+    const repository = resolveRepository(env, includeArchived);
     if (request.method === "GET") {
       const noCache = url.searchParams.get("noCache") === "1";
       return json(await listDDays(repository), 200, {

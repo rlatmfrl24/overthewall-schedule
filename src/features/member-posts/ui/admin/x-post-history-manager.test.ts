@@ -5,13 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
 import { XPostHistoryManager } from "./x-post-history-manager";
 
-const fetchActiveMembersMock = vi.hoisted(() => vi.fn());
+const fetchAdminMembersMock = vi.hoisted(() => vi.fn());
 const fetchXHistoryPostsMock = vi.hoisted(() => vi.fn());
 const redactXHistoryPostMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/features/members", () => ({
-  fetchActiveMembers: fetchActiveMembersMock,
+  fetchAdminMembers: fetchAdminMembersMock,
 }));
 
 vi.mock("../../api/x-history-api", () => ({
@@ -25,7 +25,7 @@ vi.mock("@/shared/ui/toast", () => ({
 
 describe("XPostHistoryManager", () => {
   beforeEach(() => {
-    fetchActiveMembersMock.mockResolvedValue([]);
+    fetchAdminMembersMock.mockResolvedValue([]);
     fetchXHistoryPostsMock.mockResolvedValue({
       posts: [{
         postId: "2092687186093388108",

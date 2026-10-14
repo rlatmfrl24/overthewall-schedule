@@ -77,7 +77,7 @@ export function DDayManager() {
 
   const ddaysQuery = useQuery<DDay[]>({
     queryKey: queryKeys.ddays.admin(),
-    queryFn: () => fetchDDays({ noCache: true }),
+    queryFn: () => fetchDDays({ noCache: true, includeArchived: true }),
     staleTime: QUERY_STALE_TIME_MS,
   });
   const ddays = useMemo(() => ddaysQuery.data ?? [], [ddaysQuery.data]);
@@ -280,7 +280,7 @@ export function DDayManager() {
                         style={swatchStyle}
                       />
                     </TableCell>
-                    <TableCell className="font-medium">{dday.title}</TableCell>
+                    <TableCell className="font-medium">{dday.title}{dday.content_access === "admin_archive" && <Badge variant="outline">관리자 보관 · 읽기 전용</Badge>}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       <span className="inline-flex items-center gap-1">
                         <Calendar className="h-3.5 w-3.5" />
@@ -298,6 +298,7 @@ export function DDayManager() {
                         <Button
                           variant="ghost"
                           size="icon-sm"
+                          disabled={dday.content_access === "admin_archive"}
                           onClick={() => handleOpenEdit(dday)}
                           title="수정"
                         >
@@ -307,6 +308,7 @@ export function DDayManager() {
                           variant="ghost"
                           size="icon-sm"
                           className="text-destructive hover:text-destructive"
+                          disabled={dday.content_access === "admin_archive"}
                           onClick={() => setDeletingDDay(dday)}
                           title="삭제"
                         >

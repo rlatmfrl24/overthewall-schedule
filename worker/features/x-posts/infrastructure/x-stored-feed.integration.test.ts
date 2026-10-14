@@ -40,7 +40,7 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("X stored public feed batching", () => {
-  it("reads eight handles in two queries with independent limits, tie order, and source freshness", async () => {
+  it("reads eight handles in three bounded queries with independent limits, tie order, and source freshness", async () => {
     const timestamp = Date.now();
     for (const [memberIndex, handle] of handles.entries()) {
       await database.prepare(
@@ -68,7 +68,7 @@ describe("X stored public feed batching", () => {
       expect(result.userId).toBe(`user-${memberIndex}`);
       expect(result.stale).toBe(memberIndex === 0);
     }
-    expect(observed.statements).toHaveLength(2);
+    expect(observed.statements).toHaveLength(3);
     expect(observed.statements.every((sql) => /^\s*(SELECT|WITH)\b/.test(sql))).toBe(true);
     const postsSql = observed.statements.find((sql) => sql.includes("WITH requested(handle)"))!;
     const plan = await database.prepare(`EXPLAIN QUERY PLAN ${postsSql}`).bind(JSON.stringify(handles), 5)

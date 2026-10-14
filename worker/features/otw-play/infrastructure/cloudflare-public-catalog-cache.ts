@@ -6,7 +6,7 @@ import type {
   PublicCatalogCacheResource,
 } from "../application/ports/public-catalog-cache";
 
-const PUBLIC_CATALOG_CACHE_PREFIX = "/cache/play/v2";
+const PUBLIC_CATALOG_CACHE_PREFIX = "/cache/play/v3";
 const PUBLIC_CATALOG_BROWSER_MAX_AGE_SECONDS = 60;
 
 const PUBLIC_CATALOG_CACHE_RESOURCES = new Set<PublicCatalogCacheResource>([

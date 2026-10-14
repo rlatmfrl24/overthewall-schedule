@@ -41,9 +41,9 @@ describe("useScheduleData", () => {
     fetchDDaysMock.mockReset();
   });
 
-  it("초기 로드 후 fresh cache이면 reloadAll에서 API를 재호출하지 않는다", async () => {
-    fetchActiveMembersMock.mockResolvedValueOnce([makeMember(1)]);
-    fetchDDaysMock.mockResolvedValueOnce([makeDday(1)]);
+  it("reloadAll은 현재 접근 정책을 다시 읽고 이전 공개 항목을 제거한다", async () => {
+    fetchActiveMembersMock.mockResolvedValueOnce([makeMember(1)]).mockResolvedValueOnce([]);
+    fetchDDaysMock.mockResolvedValueOnce([makeDday(1)]).mockResolvedValueOnce([]);
 
     const { useScheduleData } = await import("./use-schedule-data");
     const { result } = renderHook(() => useScheduleData(), {
@@ -60,8 +60,10 @@ describe("useScheduleData", () => {
       await result.current.reloadAll();
     });
 
-    expect(fetchActiveMembersMock).toHaveBeenCalledTimes(1);
-    expect(fetchDDaysMock).toHaveBeenCalledTimes(1);
+    expect(fetchActiveMembersMock).toHaveBeenCalledTimes(2);
+    expect(fetchDDaysMock).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(result.current.members).toEqual([]));
+    expect(result.current.ddays).toEqual([]);
   });
 
   it("reloadMembers/reloadDDays는 최신 데이터를 갱신한다", async () => {

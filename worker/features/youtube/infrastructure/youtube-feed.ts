@@ -944,7 +944,7 @@ const readStoredKind = async (
        FROM youtube_feed_videos video
        JOIN youtube_feed_sources source ON source.id = video.source_id
        WHERE source.source_kind = ? AND source.enabled = 1
-         AND video.available = 1 AND video.is_short = ?
+         AND video.content_access = 'normal' AND video.available = 1 AND video.is_short = ?
          AND source.youtube_channel_id IN (${placeholders})
        ORDER BY video.published_at DESC, video.video_id ASC LIMIT ?`,
     )
@@ -1002,7 +1002,7 @@ const readShortsPageRows = async (
        FROM youtube_feed_videos video
        JOIN youtube_feed_sources source ON source.id = video.source_id
        WHERE source.source_kind = 'official' AND source.enabled = 1
-         AND video.available = 1 AND video.is_short = 1
+         AND video.content_access = 'normal' AND video.available = 1 AND video.is_short = 1
          AND source.youtube_channel_id IN (${placeholders})${keyset}
        ORDER BY video.published_at DESC, video.video_id ASC LIMIT ?`,
     )

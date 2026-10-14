@@ -1,3 +1,4 @@
+import { CONTENT_READ_QUERY_OPTIONS, currentContentQuery } from "@/shared/query/content-read-policy";
 import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@clerk/clerk-react";
@@ -9,15 +10,15 @@ import { useOtwPlayPlayer } from "../player/play-player-context";
 
 export function usePlaylistDefaults() {
   const request = usePublicRequestOptions();
-  return useQuery({ queryKey: ["otw-play", "playlist-defaults", request.audience],
-    queryFn: ({ signal }) => fetchDefaultPlaylists({ ...request, signal }) });
+  return currentContentQuery(useQuery({ ...CONTENT_READ_QUERY_OPTIONS, queryKey: ["otw-play", "playlist-defaults", request.audience],
+    queryFn: ({ signal }) => fetchDefaultPlaylists({ ...request, signal }) }));
 }
 export function usePlaylistPerformances(query: PlayPerformanceQuery, enabled = true) {
   const request = usePublicRequestOptions();
-  return useInfiniteQuery({ queryKey: ["otw-play", "playlist-performances", request.audience, query],
+  return currentContentQuery(useInfiniteQuery({ ...CONTENT_READ_QUERY_OPTIONS, queryKey: ["otw-play", "playlist-performances", request.audience, query],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam, signal }) => fetchPlaylistPerformances({ ...query, cursor: pageParam }, { ...request, signal }),
-    getNextPageParam: page => page.nextCursor ?? undefined, enabled });
+    getNextPageParam: page => page.nextCursor ?? undefined, enabled }));
 }
 export function usePlaylistOwner() {
   const { user } = useUser();
@@ -33,18 +34,18 @@ export function usePlaylistOwner() {
 }
 export function useMyPlaylists() {
   const owner = usePlaylistOwner(), request = usePublicRequestOptions();
-  return useQuery({ queryKey: ["otw-play-private", owner, request.audience, "playlists"],
-    queryFn: ({ signal }) => fetchMyPlaylists({ ...request, signal }), enabled: Boolean(owner), staleTime: 0 });
+  return currentContentQuery(useQuery({ ...CONTENT_READ_QUERY_OPTIONS, queryKey: ["otw-play-private", owner, request.audience, "playlists"],
+    queryFn: ({ signal }) => fetchMyPlaylists({ ...request, signal }), enabled: Boolean(owner),  }));
 }
 export function useMyPlaylist(id: string | undefined) {
   const owner = usePlaylistOwner(), request = usePublicRequestOptions();
-  return useQuery({ queryKey: ["otw-play-private", owner, request.audience, "playlist", id],
-    queryFn: ({ signal }) => fetchMyPlaylist(id!, { ...request, signal }), enabled: Boolean(owner && id), staleTime: 0 });
+  return currentContentQuery(useQuery({ ...CONTENT_READ_QUERY_OPTIONS, queryKey: ["otw-play-private", owner, request.audience, "playlist", id],
+    queryFn: ({ signal }) => fetchMyPlaylist(id!, { ...request, signal }), enabled: Boolean(owner && id),  }));
 }
 export function useResolvedPlaylist(ids: string[] | undefined) {
   const owner = usePlaylistOwner(), request = usePublicRequestOptions();
-  return useQuery({ queryKey: ["otw-play-private", owner, request.audience, "resolved", ids],
-    queryFn: ({ signal }) => collectPlaylist(ids!, { ...request, signal }), enabled: Boolean(owner && ids) });
+  return currentContentQuery(useQuery({ ...CONTENT_READ_QUERY_OPTIONS, queryKey: ["otw-play-private", owner, request.audience, "resolved", ids],
+    queryFn: ({ signal }) => collectPlaylist(ids!, { ...request, signal }), enabled: Boolean(owner && ids) }));
 }
 
 export function usePlaylistActions() {

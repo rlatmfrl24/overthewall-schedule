@@ -1,9 +1,9 @@
+import { CONTENT_READ_QUERY_OPTIONS, currentContentQuery } from "@/shared/query/content-read-policy";
 import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { MemberDto } from "@contracts/members";
 import { fetchMembersYouTubeVideos } from "../api/youtube";
 import type { YouTubeVideo, YouTubeVideosResponse } from "../model/types";
-import { MEDIA_QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 import { queryKeys } from "@/shared/query/query-keys";
 
 interface UseYouTubeVideosReturn {
@@ -47,15 +47,15 @@ export function useYouTubeVideos(
   );
   const enabled = membersWithYouTube.length > 0;
 
-  const query = useQuery({
+  const query = currentContentQuery(useQuery({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey: queryKeys.media.youtube(channelIdsKey, maxResults),
     queryFn: async () =>
       (await fetchMembersYouTubeVideos(membersWithYouTube, {
         maxResults,
       })) ?? EMPTY_YOUTUBE_RESPONSE,
     enabled,
-    staleTime: MEDIA_QUERY_STALE_TIME_MS,
-  });
+
+  }));
 
 
   const reload = useCallback(async () => {

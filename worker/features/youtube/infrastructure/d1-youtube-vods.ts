@@ -11,7 +11,7 @@ const readLinks = async (db: D1Database) => (await db.prepare(`
   LEFT JOIN youtube_feed_sources source ON source.youtube_channel_id = link.youtube_channel_id
     AND source.source_kind = 'official' AND source.enabled = 1
   WHERE link.type = 'youtube_vod' AND link.enabled = 1
-    AND (member.is_deprecated IS NULL OR member.is_deprecated != 1)
+    AND member.content_access = 'normal' AND (member.is_deprecated IS NULL OR member.is_deprecated != 1)
   ORDER BY member.uid, link.sort_order, link.id
 `).all<LinkRow>()).results ?? [];
 
@@ -36,7 +36,7 @@ export const readYouTubeVods = async (env: Env, input: YouTubeVodsRequest): Prom
     JOIN youtube_feed_sources source ON source.id = video.source_id
     WHERE source.source_kind = 'official' AND source.enabled = 1
       AND source.youtube_channel_id IN (SELECT value FROM json_each(?))
-      AND video.available = 1 AND video.is_short = 0
+      AND video.content_access = 'normal' AND video.available = 1 AND video.is_short = 0
       ${cursor ? "AND (video.published_at < ? OR (video.published_at = ? AND video.video_id > ?))" : ""}
     ORDER BY video.published_at DESC, video.video_id ASC LIMIT ?
   `).bind(JSON.stringify(channels), ...(cursor ? [cursor.publishedAt, cursor.publishedAt, cursor.videoId] : []), input.limit + 1).all<{

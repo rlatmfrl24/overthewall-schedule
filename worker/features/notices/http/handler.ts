@@ -266,7 +266,7 @@ const getNoticeThumbnailUploadFile = async (request: Request) => {
   };
 };
 
-export type NoticeUseCasesResolver = (env: Env) => NoticeUseCases;
+export type NoticeUseCasesResolver = (env: Env, includeArchived: boolean) => NoticeUseCases;
 
 export const createHandleNotices =
   (resolveUseCases: NoticeUseCasesResolver) =>
@@ -288,7 +288,7 @@ export const createHandleNotices =
       if (!admin.ok) return admin.response;
     }
 
-    const useCases = resolveUseCases(env);
+    const useCases = resolveUseCases(env, requiresAdmin);
     if (url.pathname === "/api/notices/thumbnail") {
       if (request.method === "POST") {
         if (!useCases.isThumbnailStorageConfigured()) {

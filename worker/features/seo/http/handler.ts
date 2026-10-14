@@ -378,7 +378,7 @@ export const createSiteSeoHandler = (
     }
     const asset = await env.ASSETS!.fetch(assetRequest(request, "/"));
     const response = rewriteHtml(asset, metadata);
-    response.headers.set("Cache-Control", "public, max-age=60, s-maxage=300");
+    response.headers.set("Cache-Control", "no-store");
     return toHeadResponse(request, response);
   } catch (error) {
     console.error("[seo] failed to render profile", { code, error });

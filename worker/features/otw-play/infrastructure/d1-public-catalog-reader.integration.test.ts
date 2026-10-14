@@ -44,6 +44,7 @@ const PUBLIC_MIGRATION_NAMES = [
   "0093_omniscient_sunset_bain.sql",
   "0094_reflective_spirit.sql",
   "0097_fine_agent_zero.sql",
+  "0102_content_transition_foundation.sql",
 ] as const;
 
 type PublicCatalogTestEnv = Env & {

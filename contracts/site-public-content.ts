@@ -64,8 +64,9 @@ export const safeSiteContentUrl = (value: string | null | undefined, site: SiteD
   } catch { return undefined; }
 };
 
-export const siteContentCacheControl = (content: SitePublicContent, now = Date.now()): string => {
-  if (content.path === "/feed" || content.path.startsWith("/play")) return "no-store";
-  const seconds = Math.max(0, Math.min(300, Math.floor((Date.parse(content.expiresAt) - now) / 1000)));
-  return `public, max-age=0, s-maxage=${seconds}, must-revalidate`;
+// Shared edge/browser responses must return through the current D1 access boundary.
+// The Worker-owned cache is separately keyed by the atomic source archive receipt.
+export const siteContentCacheControl = (_content: SitePublicContent, _now?: number): string => {
+  void _now;
+  return "no-store";
 };

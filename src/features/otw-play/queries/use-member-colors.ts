@@ -1,13 +1,13 @@
+import { CONTENT_READ_QUERY_OPTIONS, currentContentQuery } from "@/shared/query/content-read-policy";
 import { useQuery } from "@tanstack/react-query";
 import { fetchActiveMembers } from "@/features/members";
 import { queryKeys } from "@/shared/query/query-keys";
-import { QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 
 export function useOtwPlayMemberColors() {
-  return useQuery({
+  return currentContentQuery(useQuery({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey: queryKeys.members.active(),
     queryFn: fetchActiveMembers,
-    staleTime: QUERY_STALE_TIME_MS,
+
     select: members => new Map(members.map(member => [member.uid, member.main_color])),
-  });
+  }));
 }

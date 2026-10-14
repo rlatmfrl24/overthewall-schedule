@@ -253,7 +253,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
              AND current_origin.candidate_id = origin.candidate_id
          )`;
     const statement = this.database.prepare(
-      `SELECT candidate.id AS candidate_id, candidate.version AS candidate_version,
+      `SELECT candidate.id AS candidate_id, candidate.version AS candidate_version, candidate.content_access,
         candidate.external_video_id, candidate.title, candidate.channel_title,
         candidate.thumbnail_url, candidate.duration_seconds,
         candidate.provider_published_at, candidate.availability_status,
@@ -283,6 +283,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
     const result = await statement.bind(...bindings).all<{
       candidate_id: string;
       candidate_version: number;
+      content_access: "normal" | "admin_archive";
       external_video_id: string;
       title: string | null;
       channel_title: string | null;
@@ -303,6 +304,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
     const rows = resultsOf(result);
     const items = rows.slice(0, limit).map((row) => ({
       candidateId: row.candidate_id,
+      contentAccess: row.content_access,
       candidateVersion: Number(row.candidate_version),
       videoId: row.external_video_id,
       title: row.title,

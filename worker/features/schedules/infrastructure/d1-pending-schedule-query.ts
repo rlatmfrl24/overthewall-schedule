@@ -16,6 +16,7 @@ import {
 } from "../domain/auto-update-matcher";
 
 type PendingScheduleQueryRow = {
+  content_access: "normal" | "admin_archive";
   id: number;
   member_uid: number;
   member_name: string;
@@ -54,6 +55,7 @@ type ScheduleSummary = {
 };
 
 const PENDING_COLUMNS = `
+  content_access,
   id,
   member_uid,
   member_name,

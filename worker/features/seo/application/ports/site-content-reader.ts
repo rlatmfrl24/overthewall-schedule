@@ -4,6 +4,7 @@ import type { SiteContentSection } from "@contracts/site-public-content";
 import type { FeedSeoState } from "./site-seo-reader";
 
 export interface SiteContentReader {
+  readAccessRevision(): Promise<number>;
   readSchedule(start: string, end: string): Promise<ScheduleBoardResponse>;
   readNotices(today: string): Promise<NoticeDto[]>;
   readFeed(state: FeedSeoState): Promise<SiteContentSection[]>;

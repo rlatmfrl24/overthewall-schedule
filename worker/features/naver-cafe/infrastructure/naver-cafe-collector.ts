@@ -30,6 +30,7 @@ export type NaverCafeSourceInput = Pick<
 >>;
 
 export type NaverCafePostItem = {
+  contentAccess?: "normal" | "admin_archive";
   id: string;
   articleId: number;
   cafeId: string;
@@ -122,6 +123,7 @@ type NaverCafeBoardListResponse = {
 };
 
 type NaverCafePostRow = {
+  content_access?: "normal" | "admin_archive";
   id: string;
   article_id: number | string;
   source_id: number;
@@ -689,6 +691,7 @@ export const fetchNaverCafePostsForSources = async (
 };
 
 const rowToPost = (row: NaverCafePostRow): NaverCafePostItem => ({
+  contentAccess: row.content_access,
   id: row.id,
   articleId: toFiniteNumber(row.article_id),
   cafeId: row.cafe_id,
@@ -753,6 +756,7 @@ const readStoredPostsForSources = async (
   sources: NaverCafeSourceInput[],
   size: number,
   page?: import("@contracts/member-posts").MemberPostsPageRequest,
+  includeArchived = false,
 ) => {
   if (!cacheDb) return [];
   const sourceIds = sources
@@ -763,12 +767,12 @@ const readStoredPostsForSources = async (
   const rows = getD1Results<NaverCafePostRow>(
     await cacheDb
       .prepare(
-        `SELECT id, article_id, source_id, source_name, cafe_id, menu_id,
+        `SELECT id, content_access, article_id, source_id, source_name, cafe_id, menu_id,
                 member_uid, title, summary, created_at, url, thumbnail_url,
                 comment_count, read_count, like_count, is_new, fetched_at,
                 hidden_at
          FROM naver_cafe_posts
-         WHERE source_id IN (${sourceIds.map(() => "?").join(", ")})
+         WHERE ${includeArchived ? "1" : "content_access = 'normal'"} AND source_id IN (${sourceIds.map(() => "?").join(", ")})
            AND hidden_at IS NULL
            ${page?.memberUid !== undefined ? "AND member_uid = ?" : ""}
            ${page?.cursor ? "AND created_at <= ? AND (created_at < ? OR ('cafe:' || id) < ?)" : ""}
@@ -818,12 +822,13 @@ export const readStoredNaverCafePostsForSources = async (
     cacheDb?: D1Database;
     size?: number;
     page?: import("@contracts/member-posts").MemberPostsPageRequest;
+    includeArchived?: boolean;
   } = {},
 ): Promise<NaverCafePostsResult> => {
   const size = clampMaxResults(options.size);
   const sourceIds = sources.map((source) => source.id);
   const latestChecks = await readLatestSourceChecks(options.cacheDb, sourceIds);
-  const posts = await readStoredPostsForSources(options.cacheDb, sources, size, options.page);
+  const posts = await readStoredPostsForSources(options.cacheDb, sources, size, options.page, options.includeArchived);
   const sourceIdByBoard = new Map(
     sources.map((source) => [`${source.cafe_id}:${source.menu_id}`, source.id]),
   );

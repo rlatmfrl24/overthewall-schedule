@@ -1,6 +1,7 @@
 import type { Env } from "../platform/types";
 import { normalizeAdminSettings } from "@contracts/configuration";
 import { D1MemberReader } from "../features/members";
+import { readContentAccessRevision } from "../features/content-transition";
 import {
   SiteSeoService,
   type SiteSeoReader,
@@ -58,6 +59,7 @@ export const createSiteSeoDependencies = (env: Env) => {
   const board = new D1ScheduleBoardReader(db);
   const notices = new D1NoticeGateway(db, env.ASSET_BUCKET);
   const contentReader: SiteContentReader = {
+    readAccessRevision: () => readContentAccessRevision(env.otw_db),
     readSchedule: (start, end) => board.read(start, end),
     readNotices: today => notices.list({ includeInactive: false, type: null, today }),
     readFeed: state => readSiteContentFeed(env.otw_db, state),

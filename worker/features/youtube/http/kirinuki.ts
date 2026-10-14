@@ -13,7 +13,7 @@ import {
 import type { YouTubeApplication } from "../application/youtube-service";
 
 const KIRINUKI_VIDEOS_CACHE_CONTROL =
-  "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
+  "no-store";
 
 export type BuildKirinukiApplication = (env: Env) => YouTubeApplication;
 
