@@ -15,7 +15,7 @@ import {
   D1AdminAuditLogReader,
 } from "../features/audit";
 import {
-  buildChzzkApplication,
+  buildChzzkApplication, createChzzkHistoryHandler, D1AdminChzzkHistoryReader,
   createChzzkMediaHandler,
   createLiveScheduleAutoFillHandler,
   createLiveStatusHandler,
@@ -107,7 +107,7 @@ import {
   xPostFeedService,
 } from "../features/x-posts";
 import {
-  buildYouTubeApplication,
+  buildYouTubeApplication, createYouTubeHistoryHandler, D1AdminYouTubeHistoryReader,
   createKirinukiHandler,
   createYouTubeHandler,
 } from "../features/youtube";
@@ -352,6 +352,8 @@ const handleLiveStatus = createLiveStatusHandler(
 const handleLiveScheduleAutoFill =
   createLiveScheduleAutoFillHandler(buildChzzkRouteApplication);
 const handleVods = createChzzkMediaHandler(buildChzzkRouteApplication);
+const handleYouTubeHistory = createYouTubeHistoryHandler(env => new D1AdminYouTubeHistoryReader(env.otw_db));
+const handleChzzkHistory = createChzzkHistoryHandler(env => new D1AdminChzzkHistoryReader(env.otw_db));
 const handleYouTube = createYouTubeHandler(buildYouTubeApplication);
 const handleKirinuki = createKirinukiHandler(buildYouTubeApplication);
 
@@ -439,6 +441,12 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
       get({ auth: "public", cache: PUBLIC_MEDIA_CACHE, successStatus: 200 }),
     ),
     handler: handleVods,
+  },
+  {
+    id: "youtube.history", owner: "youtube", path: apiRoutes.youtube.history.pattern, methods: methods(get(ADMIN_NO_STORE)), handler: handleYouTubeHistory,
+  },
+  {
+    id: "chzzk.history", owner: "chzzk", path: apiRoutes.chzzk.history.pattern, methods: methods(get(ADMIN_NO_STORE)), handler: handleChzzkHistory,
   },
   {
     id: "youtube.vods",

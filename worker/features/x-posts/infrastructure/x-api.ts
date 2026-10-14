@@ -1320,15 +1320,16 @@ const readStoredPostsForHandles = async (
         group.push(row);
         posts.set(row.handle, group);
       }
+      const staged = new Map<string, StoredXPostsEntry | null>();
       for (const handle of chunk) {
-        const entry = storedPostsEntry(sources.get(handle) ?? null, posts.get(handle) ?? [], richXLinkPreviewEnabled);
-        entries.set(handle, entry);
+        staged.set(handle, storedPostsEntry(sources.get(handle) ?? null, posts.get(handle) ?? [], richXLinkPreviewEnabled));
       }
       const filtered = new Map((await filterArchivedXReferences(cacheDb,
-        chunk.flatMap(handle => entries.get(handle)?.posts ?? []))).map(post => [post.id, post]));
-      for (const handle of chunk) {
-        const entry = entries.get(handle);
-        if (entry) entry.posts = entry.posts.flatMap(post => filtered.get(post.id) ?? []);
+        [...staged.values()].flatMap(entry => entry?.posts ?? []))).map(post => [post.id, post]));
+      // Publish the chunk only after its policy read succeeds. Other verified
+      // chunks remain usable if this chunk fails in the non-paginated feed.
+      for (const [handle, entry] of staged) {
+        entries.set(handle, entry ? { ...entry, posts: entry.posts.flatMap(post => filtered.get(post.id) ?? []) } : null);
       }
     } catch (error) {
       if (page) throw error;

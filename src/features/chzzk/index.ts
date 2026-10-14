@@ -25,3 +25,5 @@ export { useAllMembersClips } from "./queries/use-chzzk-clips";
 export { useAllMembersVods } from "./queries/use-chzzk-vods";
 export { ChzzkClipsPlaylist } from "./ui/chzzk-clips-playlist";
 export { ChzzkVodsPlaylist } from "./ui/chzzk-vods-playlist";
+
+export { ChzzkHistory } from "./ui/chzzk-history";

@@ -24,3 +24,6 @@ export {
   YouTubeQuotaConfigurationError, reserveYouTubeQuota, type YouTubeQuotaPriority
 } from "./infrastructure/youtube-quota";
 export { readSiteContentYouTube } from "./infrastructure/site-content-videos";
+
+export { createYouTubeHistoryHandler } from "./http/history";
+export { D1AdminYouTubeHistoryReader } from "./infrastructure/d1-history-reader";

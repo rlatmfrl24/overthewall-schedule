@@ -128,3 +128,9 @@ export interface ChzzkClipsBatchResponseDto {
     content: ChzzkClipsResponseDto | null;
   }>;
 }
+
+export interface ChzzkHistoryDto {
+  nextCursor: string | null;
+  channels: Array<{ channelId: string; name: string; contentAccess: "normal" | "admin_archive" | null }>;
+  snapshots: Array<{ key: string; type: "vods" | "clips"; storedAt: string; contentAccess: "normal" | "admin_archive" | null; content: ChzzkVideosResponseDto | ChzzkClipsResponseDto }>;
+}

@@ -20,13 +20,13 @@ let keys: CryptoKeyPair;
 let jwk: JsonWebKey;
 const encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 const part = (value: unknown) => encode(new TextEncoder().encode(JSON.stringify(value)));
-async function request(path: string, user?: string, init: RequestInit = {}) {
+async function request(path: string, user?: string, init: RequestInit = {}, requestRuntime = runtime) {
   const headers = new Headers(init.headers);
   if (user) {
     const input = `${part({ alg: "RS256", kid: "archive-key" })}.${part({ iss: issuer, azp: origin, sub: user, exp: Math.floor(Date.now() / 1000) + 3600 })}`;
     headers.set("Authorization", `Bearer ${input}.${encode(new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", keys.privateKey, new TextEncoder().encode(input))))}`);
   }
-  return handleWorkerFetch(new Request(`${origin}${path}`, { ...init, headers }), runtime);
+  return handleWorkerFetch(new Request(`${origin}${path}`, { ...init, headers }), requestRuntime);
 }
 beforeAll(async () => {
   for (const migration of bindings.CONTENT_TRANSITION_MIGRATIONS) {
@@ -46,10 +46,10 @@ beforeEach(async () => {
   await db.batch([
     db.prepare("DELETE FROM content_transitions"), db.prepare("DELETE FROM music_playlists"),
     db.prepare("DELETE FROM x_posts"), db.prepare("DELETE FROM x_post_sources"), db.prepare("DELETE FROM naver_cafe_posts"), db.prepare("DELETE FROM naver_cafe_sources"),
-    db.prepare("DELETE FROM youtube_feed_sources"),
+    db.prepare("DELETE FROM youtube_feed_sources"), db.prepare("DELETE FROM chzzk_api_cache"),
     db.prepare("DELETE FROM music_cover_proposals"), db.prepare("DELETE FROM music_performances"),
     db.prepare("DELETE FROM music_media_sources"), db.prepare("DELETE FROM music_channels"),
-    db.prepare("DELETE FROM music_songs"), db.prepare("DELETE FROM music_entities"),
+    db.prepare("DELETE FROM music_songs"), db.prepare("DELETE FROM music_search_gram_stats"), db.prepare("DELETE FROM music_entities"),
     db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_posts_visibility','public')"), db.prepare("DELETE FROM schedules"), db.prepare("DELETE FROM notices"), db.prepare("DELETE FROM ddays"), db.prepare("DELETE FROM members"),
     db.prepare("INSERT INTO members(uid,code,name,content_access,youtube_channel_id,url_chzzk,url_twitter) VALUES(1,'bing_hayu','Archived Person','admin_archive','UCaaaaaaaaaaaaaaaaaaaaaa','https://chzzk.naver.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','https://x.com/archived'),(2,'other','Public Person','normal','UCbbbbbbbbbbbbbbbbbbbbbb','https://chzzk.naver.com/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','https://x.com/public')"),
     db.prepare("INSERT INTO schedules(id,member_uid,date,title,status,content_access) VALUES(1,1,'2026-10-14','Archived schedule','방송','admin_archive'),(2,2,'2026-10-14','Public schedule','방송','normal')"),
@@ -88,6 +88,7 @@ async function archiveCatalog() {
 it("uses current root access for catalog/detail/search/facets and shared-song ranking", async () => {
   await catalog();
   await archiveCatalog();
+  const telemetry = vi.spyOn(console, "warn").mockImplementation(() => {});
   for (const path of ["/api/play/catalog", "/api/play/songs/shared-song", "/api/play/facets", "/api/play/members"]) {
     const response = await request(path, "member");
     expect(response.status, path).toBe(200);
@@ -98,6 +99,8 @@ it("uses current root access for catalog/detail/search/facets and shared-song ra
   expect((await request("/api/play/performances/archived-performance", "member")).status).toBe(404);
   expect((await request("/api/play/songs/archived-song", "member")).status).toBe(404);
   expect((await new D1PublicCatalogReader(db).readSongBySlug("shared-song"))?.performances.map(p => p.id)).toEqual(["public-performance"]);
+  expect(telemetry).toHaveBeenCalledTimes(2);
+  for (const [event] of telemetry.mock.calls) expect(event).toMatchObject({ event: "play.catalog.read", status: 404, errorCode: "PLAY_NOT_FOUND" });
 });
 
 it("keeps personal playlist references but resolves archived representatives/fallbacks as unavailable", async () => {
@@ -117,6 +120,7 @@ it("keeps personal playlist references but resolves archived representatives/fal
 });
 
 it("blocks the original submitter list/detail/withdraw and successful old idempotency replay", async () => {
+  const telemetry = vi.spyOn(console, "warn").mockImplementation(() => {});
   await catalog();
   await archiveCatalog();
   const mine = await request("/api/play/submissions/mine", "original-submitter");
@@ -131,6 +135,8 @@ it("blocks the original submitter list/detail/withdraw and successful old idempo
   expect(replay.status).toBe(404);
   const preflight = await request("/api/play/submissions/preflight", "original-submitter", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ youtubeUrl: "https://www.youtube.com/watch?v=aaaaaaaaaa0", title: "Archived proposal" }) });
   expect(preflight.status).toBe(404);
+  expect(telemetry).toHaveBeenCalledTimes(4);
+  for (const [event] of telemetry.mock.calls) expect(event).toMatchObject({ event: "play.request.failed", status: 404, errorCode: "PLAY_SUBMISSION_NOT_FOUND" });
 });
 
 it("changes read/cache revision only from local source archive receipts", async () => {
@@ -177,7 +183,7 @@ it("applies Cafe and YouTube root policy even when the provider source is shared
     expect(body, path).not.toContain("Archived");
   }
 });
-afterEach(() => { vi.unstubAllGlobals(); clearAuthCachesForTests(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); clearAuthCachesForTests(); });
 
 it.each([undefined, "member", "original-submitter"])("hides every independent board root and direct profile for %s", async user => {
   for (const path of ["/api/members", "/api/schedule-board?startDate=2026-10-14&endDate=2026-10-14", "/api/schedules?date=2026-10-14", "/api/notices", "/api/ddays"]) {
@@ -255,6 +261,7 @@ it("revalidates cached same-site schedule HTML, bootstrap, JSON-LD, profiles and
 });
 
 it("keeps legitimate shared curated artwork but hides it and preflight metadata for a known archived feed video", async () => {
+  const telemetry = vi.spyOn(console, "warn").mockImplementation(() => {});
   await catalog();
   const reader = new D1PublicCatalogReader(db);
   expect((await request("/api/play/submissions/preflight", "member", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ youtubeUrl: "https://www.youtube.com/watch?v=PFcPopYxft4", title: "Public title" }) })).status).toBe(200);
@@ -269,4 +276,123 @@ it("keeps legitimate shared curated artwork but hides it and preflight metadata 
   expect(vi.mocked(fetch).mock.calls.every(([url]) => String(url).endsWith("/.well-known/jwks.json"))).toBe(true);
   await db.prepare("UPDATE music_media_sources SET external_id='PFcPopYxft4' WHERE id='source-1'").run();
   expect((await reader.readPlaylistDefaults()).find(row => row.id === "original")?.imageUrl).toContain("PFcPopYxft4");
+  expect(telemetry).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ event: "play.request.failed", status: 404, errorCode: "PLAY_SUBMISSION_NOT_FOUND" }));
+});
+
+
+it.each([false, true])("validates short Korean contains origins with dense=%s", async dense => {
+  await catalog();
+  await db.prepare("UPDATE music_entities SET normalized_name='빙하유',display_name='빙하유' WHERE id='archived-singer'").run();
+  await db.prepare("UPDATE music_entities SET normalized_name='정상가수',display_name='정상가수' WHERE id='public-singer'").run();
+  await db.batch([...projectionStatements(db, "shared"), ...projectionStatements(db, "secret")]);
+  if (dense) {
+    // Real indexed matching songs cross the dense planner threshold.
+    for (let i = 0; i < 257; i++) {
+      await db.batch([
+        db.prepare("INSERT INTO music_songs(id,title,normalized_title,slug,dedupe_key,is_otw_original,original_release_precision,version,created_at,updated_at) VALUES(?, '앞빙하유뒤', '앞빙하유뒤', ?, ?,0,'unknown',0,100,100)").bind(`dense-${i}`,`dense-${i}`,`dense-${i}`),
+        ...projectionStatements(db, `dense-${i}`),
+      ]);
+    }
+  }
+  await archiveCatalog();
+  for (const sort of ["recent", "title", "participant"]) for (const term of ["하유", "빙하유"]) {
+    const response = await request(`/api/play/catalog?q=${encodeURIComponent(term)}&sort=${sort}`, "member");
+    expect(response.status).toBe(200);
+    const payload = await response.text();
+    expect(payload, term).not.toContain("shared-song");
+  }
+  const visible = await request(`/api/play/catalog?q=${encodeURIComponent("상가수")}`, "member");
+  expect(visible.status).toBe(200);
+  expect(await visible.text()).toContain("shared-song");
+});
+
+it("discards unverified stored X snapshots when archive policy lookup fails", async () => {
+  const hidden = { id: "101000000000000011", text: "ARCHIVED QUOTE REPLY LINK", username: "archived", createdAt: "2026-10-14T00:00:00Z", url: "https://x.com/archived/status/101000000000000011", media: [], links: [], metrics: { likeCount: 0, retweetCount: 0, replyCount: 0, quoteCount: 0 } };
+  const visible = { ...hidden, id: "101000000000000012", username: "public", text: "Normal root", quote: { postId: hidden.id, post: hidden }, reply: { postId: hidden.id, post: hidden, targetUsername: "archived" }, links: [{ url: hidden.url, title: hidden.text, linkedPost: hidden }] };
+  await db.batch([
+    db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_rich_link_preview_enabled','true')"),
+    db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,fetched_at,content_access) VALUES(?,'public','public',?,'2026-10-14T00:00:00Z',100,'normal')").bind(visible.id, JSON.stringify(visible)),
+  ]);
+  const failure = new Error("archive policy read unavailable");
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const failingDb = new Proxy(db, { get(target, name) {
+    if (name === "prepare") return (sql: string) => {
+      if (sql.includes("SELECT id, NULL AS handle FROM x_posts")) throw failure;
+      return target.prepare(sql);
+    };
+    const value = Reflect.get(target, name);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
+  const response = await request("/api/x/posts?handles=public", undefined, {}, { ...runtime, otw_db: failingDb });
+  expect(response.status).toBe(200);
+  expect(await response.text()).not.toContain("ARCHIVED QUOTE REPLY LINK");
+  expect(warn).toHaveBeenCalledWith("Failed to read stored X posts", failure);
+  expect(warn).toHaveBeenCalledTimes(1);
+  warn.mockRestore();
+});
+
+
+it("makes retained non-Play YouTube official, Shorts and VOD history reachable only to admins", async () => {
+  await db.batch([
+    db.prepare("INSERT INTO member_links(member_uid,type,label,url,youtube_channel_id,enabled,sort_order) VALUES(1,'youtube_vod','Archived VOD','https://youtube.com/channel/UCcccccccccccccccccccccc','UCcccccccccccccccccccccc',1,0)"),
+    ...[[1,1,"UCaaaaaaaaaaaaaaaaaaaaaa"],[2,1,"UCcccccccccccccccccccccc"],[3,2,"UCbbbbbbbbbbbbbbbbbbbbbb"]].map(([id,uid,channel]) => db.prepare("INSERT INTO youtube_feed_sources(id,source_kind,member_uid,youtube_channel_id,collection_started_at,created_at,updated_at) VALUES(?,'official',?,?,100,100,100)").bind(id,uid,channel)),
+    ...[["heldfeed001",1,0,"Archived official","admin_archive"],["heldshort01",1,1,"Archived Shorts","admin_archive"],["heldvod0001",2,0,"Archived VOD","admin_archive"],["normalvid01",3,0,"Normal retained video","normal"]].map(([id,source,short,title,access]) => db.prepare("INSERT INTO youtube_feed_videos(video_id,source_id,title,published_at,fetched_at,is_short,content_access) VALUES(?,?,?,100,100,?,?)").bind(id,source,title,short,access)),
+  ]);
+  const path = "/api/youtube/feed/history";
+  expect((await request(path)).status).toBe(401);
+  expect((await request(path,"member")).status).toBe(403);
+  const result = await request(path,"archive-admin");
+  expect(result.status).toBe(200);
+  expect(result.headers.get("Cache-Control")).toBe("no-store");
+  const text = await result.text();
+  for (const title of ["Archived official","Archived Shorts","Archived VOD","Normal retained video"]) expect(text).toContain(title);
+  expect(text).toContain('"contentAccess":"admin_archive"');
+  const ids: string[] = [];
+  let cursor: string | null = null;
+  do {
+    const page: {items:{videoId:string}[];nextCursor:string|null} = await (await request(`${path}?limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,"archive-admin")).json<{items:{videoId:string}[];nextCursor:string|null}>();
+    ids.push(...page.items.map(item => item.videoId)); cursor = page.nextCursor;
+  } while (cursor);
+  expect(ids).toEqual(["heldfeed001", "heldshort01", "heldvod0001", "normalvid01"]);
+  const filtered = await request(`${path}?channelId=UCcccccccccccccccccccccc&limit=1`, "archive-admin");
+  expect(await filtered.text()).toContain("Archived VOD");
+  expect((await request(`${path}?limit=21`,"archive-admin")).status).toBe(400);
+  expect((await request("/api/youtube/videos?channelIds=UCaaaaaaaaaaaaaaaaaaaaaa")).status).toBe(400);
+  expect((await request("/api/youtube/shorts?channelIds=UCaaaaaaaaaaaaaaaaaaaaaa")).status).toBe(400);
+  expect(await (await request("/api/youtube/vods?memberUids=1")).text()).not.toContain("Archived VOD");
+  expect(await (await request("/api/youtube/videos?channelIds=UCbbbbbbbbbbbbbbbbbbbbbb")).text()).toContain("Normal retained video");
+  expect(vi.mocked(fetch).mock.calls.every(([url]) => String(url).endsWith("/.well-known/jwks.json"))).toBe(true);
+});
+
+it("reads held CHZZK VOD and clip cache metadata for admins without a provider refresh", async () => {
+  const channel = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  await db.batch([
+    db.prepare("INSERT OR REPLACE INTO chzzk_api_cache(key,type,value,fetched_at,expires_at,stale_until) VALUES(?,'vods',?,100,200,300)").bind(`vods:v1:${channel}:0:5`,JSON.stringify({data:[{videoNo:123,videoTitle:"Held archived CHZZK VOD",publishDate:"2026-10-14",channel:{channelId:channel,channelName:"Archived Person"}}]})),
+    db.prepare("INSERT OR REPLACE INTO chzzk_api_cache(key,type,value,fetched_at,expires_at,stale_until) VALUES(?,'clips',?,100,200,300)").bind(`clips:v1:${channel}:10`,JSON.stringify({data:[{clipUID:"abc",clipTitle:"Held archived CHZZK clip",ownerChannelId:channel}]})),
+  ]);
+  const path = `/api/chzzk/history?channelId=${channel}`;
+  expect((await request(path)).status).toBe(401);
+  expect((await request(path,"member")).status).toBe(403);
+  const response = await request(path,"archive-admin");
+  expect(response.status).toBe(200);
+  expect(response.headers.get("Cache-Control")).toBe("no-store");
+  const text = await response.text();
+  expect(text).toContain("Held archived CHZZK VOD");
+  expect(text).toContain("Held archived CHZZK clip");
+  expect(text).toContain('"contentAccess":"admin_archive"');
+  expect((await request(`/api/vods/chzzk?channelId=${channel}`)).status).toBe(400);
+  expect((await request(`/api/clips/chzzk?channelId=${channel}`)).status).toBe(400);
+  expect((await request(`${path}&cursor=invalid`,"archive-admin")).status).toBe(400);
+  const normalChannel = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const orphanChannel = "cccccccccccccccccccccccccccccccc";
+  await db.batch([normalChannel, orphanChannel].map(id => db.prepare("INSERT INTO chzzk_api_cache(key,type,value,fetched_at,expires_at,stale_until) VALUES(?,'vods',?,100,200,300)").bind(`vods:v1:${id}:0:5`,JSON.stringify({data:[{videoNo:456,videoTitle:"Normal retained CHZZK",channel:{channelId:id}}]}))));
+  for (const id of [normalChannel, orphanChannel]) expect(await (await request(`/api/chzzk/history?channelId=${id}`,"archive-admin")).text()).toContain("Normal retained CHZZK");
+  for (let i=1;i<=21;i++) await db.prepare("INSERT INTO chzzk_api_cache(key,type,value,fetched_at,expires_at,stale_until) VALUES(?,'vods','{\"data\":[]}',100,200,300)").bind(`vods:v1:${channel}:${i}:5`).run();
+  const first = await (await request(path,"archive-admin")).json<{snapshots:{key:string}[];nextCursor:string}>();
+  const second = await (await request(`${path}&cursor=${encodeURIComponent(first.nextCursor)}`,"archive-admin")).json<{snapshots:{key:string}[];nextCursor:string|null}>();
+  expect(first.snapshots).toHaveLength(20);
+  expect(second.snapshots).toHaveLength(3);
+  expect(new Set([...first.snapshots,...second.snapshots].map(row => row.key)).size).toBe(23);
+  expect(second.nextCursor).toBeNull();
+  expect(vi.mocked(fetch).mock.calls.every(([url]) => String(url).endsWith("/.well-known/jwks.json"))).toBe(true);
 });

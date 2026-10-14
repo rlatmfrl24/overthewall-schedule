@@ -44,6 +44,7 @@ export const apiRoutes = {
     adminLogs: staticRoute("/api/settings/audit-logs"),
   },
   chzzk: {
+    history: staticRoute("/api/chzzk/history"),
     liveStatus: staticRoute("/api/live-status"),
     vods: staticRoute("/api/vods/chzzk"),
     clips: staticRoute("/api/clips/chzzk"),
@@ -362,6 +363,7 @@ export const apiRoutes = {
     runCollectionNow: staticRoute("/api/settings/x-collection/run-now"),
   },
   youtube: {
+    history: staticRoute("/api/youtube/feed/history"),
     vods: staticRoute("/api/youtube/vods"),
     videos: staticRoute("/api/youtube/videos"),
     shorts: staticRoute("/api/youtube/shorts"),

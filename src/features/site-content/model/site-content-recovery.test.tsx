@@ -77,3 +77,27 @@ it("preserves the healthy profile metadata when only the AEO request fails", asy
 });
 
 const site = getSiteDefinition("otw");
+
+
+it("does not reinstall a previous route's cached title or JSON-LD while current access is pending or denied", async () => {
+  const client = createClient();
+  const path = "/profile/member";
+  const old = { ...data(path), metadata: { ...data(path).metadata, title: "Archived profile title" }, structuredData: { name: "Archived profile JSON-LD" }, expiresAt: new Date(Date.now() + 300_000).toISOString() };
+  vi.mocked(fetchSiteContent).mockResolvedValueOnce(old);
+  const tree = (route: string) => <QueryClientProvider client={client}><SiteSeoProvider pathname={route}><SiteContentMetadata path={route} /></SiteSeoProvider></QueryClientProvider>;
+  const view = render(tree(path));
+  await waitFor(() => expect(document.title).toBe("Archived profile title"));
+  view.rerender(tree("/multiview"));
+  expect(document.getElementById("site-content-jsonld")).toBeNull();
+  // Simulate another observer retaining the old DTO after the route leaves.
+  client.setQueryData(siteContentQueryKey(path), old);
+  let reject!: (error: Error) => void;
+  vi.mocked(fetchSiteContent).mockImplementation(() => new Promise((_resolve, fail) => { reject = fail; }));
+  view.rerender(tree(path));
+  expect(document.title).not.toBe("Archived profile title");
+  expect(document.getElementById("site-content-jsonld")).toBeNull();
+  await waitFor(() => expect(fetchSiteContent).toHaveBeenCalledTimes(2));
+  await act(async () => reject(new Error("404")));
+  expect(document.title).not.toBe("Archived profile title");
+  expect(document.getElementById("site-content-jsonld")).toBeNull();
+});

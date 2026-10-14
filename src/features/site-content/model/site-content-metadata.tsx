@@ -1,6 +1,8 @@
-import { useContext, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useContext, useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isSiteContentPath, siteContentQueryKey } from "@contracts/site-public-content";
+import { CONTENT_READ_QUERY_OPTIONS, currentContentQuery } from "@/shared/query/content-read-policy";
+import { readDocumentBootstrap, releaseDocumentBootstrap } from "./bootstrap";
 import { useSiteSeo } from "@/shared/seo/use-site-seo";
 import { fetchSiteContent } from "../api/site-content";
 import { SiteContentSelectedDateContext } from "./date-context";
@@ -9,15 +11,21 @@ import { SiteContentSelectedDateContext } from "./date-context";
 // Keep public metadata fresh without adding a second content surface to the UI.
 export function SiteContentMetadata({ path }: { path: string }) {
   const date = useContext(SiteContentSelectedDateContext);
+  return <CurrentSiteContentMetadata key={`${path}:${date ?? ""}`} path={path} date={date} />;
+}
+
+function CurrentSiteContentMetadata({ path, date }: { path: string; date?: string }) {
+  const client = useQueryClient();
+  const [bootstrap] = useState(() => readDocumentBootstrap(client, path, date));
+  useEffect(() => { releaseDocumentBootstrap(client); }, [client]);
   const enabled = isSiteContentPath(path);
   const query = useQuery({
     queryKey: siteContentQueryKey(path, date), queryFn: () => fetchSiteContent(path, date), enabled,
-    staleTime: path === "/feed" || path.startsWith("/play") ? 0 : query => Math.max(0, Date.parse(query.state.data?.expiresAt ?? "") - query.state.dataUpdatedAt) || 0,
-    refetchOnWindowFocus: true,
+    ...CONTENT_READ_QUERY_OPTIONS,
     refetchInterval: query => query.state.status === "error" ? 60_000 : query.state.data ? Math.max(1000, Math.min(300_000, Date.parse(query.state.data.expiresAt) - Date.now())) : false,
     retry: false,
   });
-  const content = enabled && !query.isError ? query.data : undefined;
+  const content = enabled && !query.isError ? currentContentQuery(query).data ?? (!query.isFetchedAfterMount ? bootstrap : undefined) : undefined;
   useSiteSeo(content?.metadata ?? null, 1);
   useEffect(() => {
     document.getElementById("site-content-jsonld")?.remove();

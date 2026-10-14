@@ -8,7 +8,8 @@ import { OtwPlayCatalogManager, OtwPlayDefaultPlaylistManager } from "@/features
 import { OperationsDashboard } from "@/features/operations";
 import { NoticeManager } from "@/features/notices";
 import { DDayManager } from "@/features/ddays";
-import { YouTubeFeedManager, KirinukiChannelManager } from "@/features/youtube";
+import { ChzzkHistory } from "@/features/chzzk";
+import { YouTubeHistory, YouTubeFeedManager, KirinukiChannelManager } from "@/features/youtube";
 import { AutoUpdateLogsManager } from "@/features/audit";
 import { ScheduleArchiveManager, SnapshotPreviewManager } from "@/features/schedule-board";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
@@ -20,7 +21,7 @@ const tabs: Record<ConsoleArea, readonly (readonly [string, string])[]> = {
   content: [["schedules", "일정 보관"], ["notices", "공지"], ["ddays", "D-Day"], ["snapshot", "스냅샷"]],
   "otw-play": [["catalog", "카탈로그"], ["import", "가져오기/검수"], ["channels", "채널"], ["playlists", "기본 플레이리스트"], ["operations", "운영"]],
   resources: [["usage", "사용량·한도"], ["media", "이미지 정리"]],
-  history: [["runs", "작업 실행"], ["schedule", "일정 변경"], ["audit", "관리자 감사"]],
+  history: [["runs", "작업 실행"], ["schedule", "일정 변경"], ["audit", "관리자 감사"], ["youtube", "YouTube 저장 이력"], ["chzzk", "CHZZK 저장 이력"]],
 };
 
 export function ConsoleScreen({ area }: { area: ConsoleArea }) {
@@ -45,7 +46,7 @@ export function ConsoleScreen({ area }: { area: ConsoleArea }) {
   } else if (area === "otw-play") {
     content = tab === "playlists" ? <OtwPlayDefaultPlaylistManager /> : <OtwPlayCatalogManager activeSection={tab as "clips" | "clip-channels" | "catalog" | "automatic-review" | "review" | "import" | "requests" | "channels" | "source-health" | "operations"} onSectionChange={select} />;
   } else if (area === "history") {
-    content = tab === "runs" ? <OperationsDashboard view="history" /> : <AutoUpdateLogsManager view={tab === "audit" ? "audit" : "schedule"} />;
+    content = tab === "youtube" ? <YouTubeHistory /> : tab === "chzzk" ? <ChzzkHistory /> : tab === "runs" ? <OperationsDashboard view="history" /> : <AutoUpdateLogsManager view={tab === "audit" ? "audit" : "schedule"} />;
   } else {
     content = tab === "media" ? <NoticeManager view="resources" /> : <OperationsDashboard view="resources" />;
   }

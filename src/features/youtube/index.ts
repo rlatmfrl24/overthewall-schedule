@@ -28,3 +28,5 @@ export { KirinukiChannelManager } from "./ui/admin/kirinuki-channel-manager";
 export { YouTubeFeedManager } from "./ui/admin/youtube-feed-manager";
 
 export { YouTubeVodsSection } from "./ui/youtube-vods-section";
+
+export { YouTubeHistory } from "./ui/admin/youtube-history";

@@ -44,6 +44,8 @@ const expectedPolicies = [
   { method: "GET", auth: "admin", successStatus: 200,
     cache: "no-store", paths: [
     "/api/youtube/feed/status",
+    "/api/youtube/feed/history",
+    "/api/chzzk/history",
     "/api/kirinuki/channels",
     "/api/play/admin/playlists/defaults",
     "/api/play/admin/playlists/defaults/:playlistKey",

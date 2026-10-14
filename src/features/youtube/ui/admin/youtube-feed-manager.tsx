@@ -134,6 +134,7 @@ export function YouTubeFeedManager() {
   }) : [];
 
   return <section className="youtube-collection-dashboard min-w-0 space-y-3" aria-label="YouTube 수집 대시보드">
+    <Button variant="outline" asChild><a href="/admin/history?tab=youtube">저장 영상 이력 · 관리자 보관</a></Button>
     <header className="feed-toolbar">
       <div className="flex min-w-0 flex-wrap items-center gap-2"><h1 className="mr-1 text-xl font-semibold tracking-tight">YouTube 수집</h1>{import.meta.env.DEV && <Badge variant="outline" title="운영 DB와 별도의 로컬 저장 데이터입니다.">로컬 데이터</Badge>}{data && <><Badge variant="outline">{data.automaticEnabled ? "자동 수집 켜짐" : "자동 수집 중지"}</Badge><Badge variant={data.apiConfigured ? "secondary" : "destructive"}>{data.apiConfigured ? "API 연결 설정됨" : "API 키 미설정"}</Badge></>}</div>
       <div className="feed-toolbar-actions"><SelectField aria-label="사용량·실행 조회 기간" value={String(hours)} onValueChange={(value) => setHours(value === "168" ? 168 : 24)} options={[{ value: "24", label: "최근 24시간" }, { value: "168", label: "최근 7일" }]} /><Button variant="outline" onClick={refresh} disabled={status.isFetching}><PiArrowsClockwiseBold />상태 새로고침</Button><Button ref={executeButton} onClick={() => setConfirmation(true)} disabled={running || !data?.apiConfigured}>대기 작업 실행<PiArrowRightBold /></Button></div>
