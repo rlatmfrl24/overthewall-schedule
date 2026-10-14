@@ -5,4 +5,6 @@ export { D1TransitionRepository } from "./infrastructure/d1-transition-repositor
 export type { CommittedFileAvailability, FileAvailabilityContext } from "./application/ports/file-availability";
 export {currentFileIndexSql,currentRowFileIndexSql,fileOriginSql,filePathSql} from "./infrastructure/file-reference-index";
 export {selectedFileRowSql} from "./infrastructure/file-reference-integrity";
+export {inventoryReferencesMatchSql} from "./infrastructure/file-inventory-statements";
+export {readFileInventoryHeader} from "./infrastructure/file-inventory-header";
 export {fileProtectedSql,liveFileReferencesSql,historicalFileReferencesSql,recoveryFileHeldSql,fileReferenceGuardTriggers,releaseLegacyFileSql} from "./infrastructure/file-retention";

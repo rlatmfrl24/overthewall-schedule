@@ -1,5 +1,5 @@
-import { parseSiteStorageResources } from "@contracts/site-definition";
-import { createHandleR2Asset, D1AssetAccessReader, R2AssetReader, D1R2FileStore, D1TransitionFileWriter, D1FileAvailability } from "../features/assets";
+import { parseSiteStorageResources,getSiteDefinition } from "@contracts/site-definition";
+import { createHandleR2Asset,createHandleProtectedAssetReference,D1ProtectedAssetReferenceResolver, D1AssetAccessReader, R2AssetReader, D1R2FileStore, D1TransitionFileWriter, D1FileAvailability } from "../features/assets";
 import type { Env } from "../platform/types";
 import { D1TransitionRepository } from "../features/content-transition";
 import {getWorkerSiteDefinition} from "../platform/site";
@@ -24,3 +24,8 @@ export const handleAsset = createHandleR2Asset(
   env => env.ASSET_BUCKET ? new R2AssetReader(env.ASSET_BUCKET,env.otw_db) : null,
   env => new D1AssetAccessReader(env.otw_db,getWorkerSiteDefinition(env).publicOrigin),
 );
+export const handleProtectedAssetReference=createHandleProtectedAssetReference(env=>{
+  const {site,bucket}=parseSiteStorageResources(env);
+  const origins=[getSiteDefinition(site).publicOrigin,getWorkerSiteDefinition(env).publicOrigin].filter((origin):origin is string=>!!origin);
+  return new D1ProtectedAssetReferenceResolver(env.otw_db,site,bucket,origins);
+});

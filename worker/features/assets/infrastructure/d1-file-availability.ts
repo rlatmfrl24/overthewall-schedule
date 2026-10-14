@@ -1,9 +1,10 @@
 import type { SiteId } from "@contracts/site-definition";
-import type { FileObservation, StaticFileObservation, CommittedR2Observation } from "@contracts/content-transition";
+import type { FileObservation, StaticFileObservation, CommittedR2Observation,BaselineFileInventoryPage,LegacyR2Observation } from "@contracts/content-transition";
 import type { CommittedFileAvailability, FileAvailabilityContext } from "../../content-transition";
 import { isStaticProfileAsset } from "../domain/asset-key-policy";
 import { hashFileBytes } from "./d1-r2-file-store";
 import {classifyFileReference} from "../domain/file-reference";
+import {D1FileInventory} from "./d1-file-inventory";
 
 const manifestPath="/profile/__artifact.json";
 type StaticEntry={path:string;hash:string;size:number};
@@ -17,9 +18,18 @@ export class D1FileAvailability implements CommittedFileAvailability {
   private readonly assets:Fetcher;
   private readonly site:SiteId;
   private readonly resource:string;
+  private readonly inventory:D1FileInventory;
   constructor(db:D1Database,bucket:R2Bucket,assets:Fetcher,site:SiteId,resource:string) {
     this.db=db;this.bucket=bucket;this.assets=assets;this.site=site;this.resource=resource;
+    this.inventory=new D1FileInventory(db,bucket,site,resource);
     if(!resource.startsWith(`${site}-`)) throw new Error("File availability resource/site mismatch");
+  }
+  observeArmedInventory(id:string,inventoryId:string) {return this.inventory.observe(id,inventoryId);}
+  async exportInventoryPage(context:FileAvailabilityContext,offset=0) {
+    await this.validateContext(context);const page=await this.inventory.exportPage(context,offset);await this.validateContext(context);return page;
+  }
+  async receiveInventoryPage(context:FileAvailabilityContext,page:BaselineFileInventoryPage) {
+    await this.validateContext(context);await this.inventory.receivePage(context,page);await this.validateContext(context);
   }
   private async validateContext(context:FileAvailabilityContext) {
     const row=await this.db.prepare("SELECT local_site,manifest_digest,manifest_revision,generation,fence_json,plan_json FROM content_transitions WHERE id=?").bind(context.plan.id)
@@ -82,7 +92,7 @@ export class D1FileAvailability implements CommittedFileAvailability {
     await this.validateContext(context);
     return observations;
   }
-  private async storeStatic(observation:StaticFileObservation|CommittedR2Observation) {
+  private async storeStatic(observation:StaticFileObservation|CommittedR2Observation|LegacyR2Observation) {
     await this.db.prepare("INSERT OR IGNORE INTO content_transition_file_availability_evidence(transition_id,evidence_id,observation_json) VALUES(?,?,?)").bind(observation.transitionId,observation.evidenceId,JSON.stringify(observation)).run();
     const stored=await this.db.prepare("SELECT observation_json FROM content_transition_file_availability_evidence WHERE transition_id=? AND evidence_id=?").bind(observation.transitionId,observation.evidenceId).first<string>("observation_json");
     if(stored!==JSON.stringify(observation)) throw new Error("Static observation identity conflict");
@@ -124,6 +134,14 @@ export class D1FileAvailability implements CommittedFileAvailability {
     await this.validateContext(context);
     if(this.site!==context.plan.targetSite) throw new Error("Only target verifies committed availability");
     const requirements=await this.requirements(context);
+    if(!context.plan.assetBuckets) throw new Error("Missing approved bucket inventory resources");
+    const legacy=await this.inventory.objects(context);
+    for(const expected of legacy.objects) {
+      const actual=await this.inventory.readObject(expected.logicalKey);
+      if(actual.hash!==expected.hash || actual.size!==expected.size) throw new Error("Legacy inventory target body/hash/size mismatch");
+      const observation:LegacyR2Observation={kind:"legacy_r2",evidenceId:await hashFileBytes(new TextEncoder().encode(JSON.stringify([legacy.inventoryId,this.site,this.resource,context.fence,actual]))),inventoryId:legacy.inventoryId,transitionId:context.plan.id,generation:context.plan.generation,manifestDigest:context.plan.manifestDigest,manifestRevision:context.manifestRevision,fence:context.fence,site:this.site,resource:this.resource,...actual};
+      await this.storeStatic(observation);
+    }
     const local=await this.observeStatic(context);
     const source=(await this.db.prepare("SELECT observation_json FROM content_transition_file_availability_evidence WHERE transition_id=?").bind(context.plan.id).all<{observation_json:string}>()).results.map(row=>JSON.parse(row.observation_json) as StaticFileObservation|CommittedR2Observation);
     for(const observation of local) {
@@ -131,6 +149,10 @@ export class D1FileAvailability implements CommittedFileAvailability {
     }
     for(const path of requirements.filter(path=>path.startsWith("/r2-assets/"))) {
       const key=path.slice("/r2-assets/".length);
+      if(!await this.db.prepare("SELECT 1 FROM asset_file_references WHERE logical_key=?").bind(key).first()) {
+        if(!legacy.objects.some(object=>object.logicalKey===key)) throw new Error("Missing sealed legacy file inventory reference");
+        continue;
+      }
       const reference=await this.reference(context,key);
       const proofs=(await this.db.prepare(`SELECT e.observation_json FROM content_transition_file_intents i JOIN content_transition_file_evidence e ON e.transition_id=i.transition_id AND e.intent_id=i.intent_id WHERE i.transition_id=? AND i.version_key=? AND i.generation=? AND json_extract(i.envelope_json,'$.logicalKey')=? AND json_extract(i.envelope_json,'$.hash')=? AND json_extract(i.envelope_json,'$.size')=?`)
         .bind(context.plan.id,reference.version_key,context.plan.generation-1,key,reference.hash,reference.size).all<{observation_json:string}>()).results.map(row=>JSON.parse(row.observation_json) as FileObservation);

@@ -1,6 +1,7 @@
 import type { Env } from "../../../platform/types";
+import type {ProtectedAssetReferenceResponse} from "@contracts/assets";
 import { readAsset } from "../application/read-asset";
-import type { AssetAccessReader, AssetReader } from "../application/ports/asset-reader";
+import type { AssetAccessReader, AssetReader,ProtectedAssetReferenceResolver } from "../application/ports/asset-reader";
 import { requireAdminUser } from "../../../platform/auth";
 import {
   getAssetContentType,
@@ -8,6 +9,16 @@ import {
 } from "../domain/asset-key-policy";
 
 export type AssetReaderResolver = (env: Env) => AssetReader | null;
+export const createHandleProtectedAssetReference=(resolve:(env:Env)=>ProtectedAssetReferenceResolver)=>async(request:Request,env:Env):Promise<Response>=>{
+  const headers={"Cache-Control":"private, no-store"};
+  if(request.method!=="GET") return new Response(null,{status:405,headers});
+  const auth=await requireAdminUser(request,env);
+  if(!auth.ok) return new Response(auth.response.body,{status:auth.response.status,headers});
+  const raw=new URL(request.url).searchParams.get("url");
+  if(!raw || raw.length>4096) return new Response("Invalid asset reference",{status:400,headers});
+  try {return Response.json({path:await resolve(env).resolve(raw)} satisfies ProtectedAssetReferenceResponse,{headers});}
+  catch {return new Response("Unresolved asset reference",{status:400,headers});}
+};
 
 export const createHandleR2Asset =
   (resolveReader: AssetReaderResolver, resolveAccess: (env: Env) => AssetAccessReader) =>

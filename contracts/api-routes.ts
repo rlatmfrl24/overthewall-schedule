@@ -35,6 +35,7 @@ export const apiRoutes = {
     adminStatus: staticRoute("/api/auth/admin-status"),
   },
   assets: {
+    protectedReference: staticRoute("/api/assets/protected-reference"),
     object: dynamicRoute(
       "/r2-assets/*key",
       (key: string) => `/r2-assets/${encodeAssetKey(key)}` as const,

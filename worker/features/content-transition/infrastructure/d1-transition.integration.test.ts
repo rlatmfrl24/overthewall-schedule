@@ -17,14 +17,14 @@ const targetDb = bindings.transition_target_db;
 const fixtureClassifications: Array<TransitionPlan["classifications"][number]>=[];
 const plan = {
   id: "move", sourceSite: "otw", targetSite: "luvdia", sourceResource: "source-db", targetResource: "target-db",
-  generation: 2, protocol: 1, manifestDigest: "reviewed-manifest", members: [
+  generation: 2, protocol: 1, manifestDigest: "reviewed-manifest",assetBuckets:{source:"otw-bucket",target:"luvdia-bucket"}, members: [
     { code: "bing_hayu", uid: 1, targetUid:1 }, { code: "u_lili", uid: 2, targetUid:2 }, { code: "yang_mei", uid: 3, targetUid:3 },
   ], classifications: fixtureClassifications,
 } as const;
 const sourceAvailability=new D1FileAvailability(sourceDb,bindings.ASSET_BUCKET,bindings.SOURCE_ASSETS,"otw","otw-bucket");
 const targetAvailability=new D1FileAvailability(targetDb,bindings.TRANSITION_TARGET_BUCKET,bindings.TARGET_ASSETS,"luvdia","luvdia-bucket");
-const source = new D1TransitionRepository(sourceDb, "otw", "source-db","source-bucket",sourceAvailability);
-const target = new D1TransitionRepository(targetDb, "luvdia", "target-db","target-bucket",targetAvailability);
+const source = new D1TransitionRepository(sourceDb, "otw", "source-db","otw-bucket",sourceAvailability);
+const target = new D1TransitionRepository(targetDb, "luvdia", "target-db","luvdia-bucket",targetAvailability);
 const now = 100;
 const admission = (id: string, hash = id) => ({
   codec:{id:"schedules.save",version:1},
@@ -117,11 +117,45 @@ it("projects an approved absolute asset origin into target-relative references w
 });
 
 async function capturing() {
-  const cost=await source.protect(plan.id, { receiptId: "protection", protocol: 1, manifestDigest: plan.manifestDigest });
+  await source.armFileInventory(plan.id,"files");await sourceAvailability.observeArmedInventory(plan.id,"files");
+  const cost=await source.protect(plan.id, { receiptId: "protection", protocol: 1, manifestDigest: plan.manifestDigest,inventoryId:"files" });
   await source.beginCopy(plan.id);
   await source.beginReplay(plan.id);
   return cost;
 }
+it.each(["correct","delete"])("fix1 rejects unresolved sealed file history after current notice %s and replays the same history after origin approval",async(mode)=>{
+  await sourceDb.prepare("INSERT INTO notices(id,content,related_member_uids,image_urls) VALUES(905,'history','[1]','[\"/profile/bing_hayu.webp\"]')").run();
+  await ready();
+  const header=await source.describeBaseline(plan.id);
+  await source.admit(admission("history-unknown"));
+  await source.commit(plan.id,"history-unknown",1,[sourceDb.prepare("UPDATE notices SET image_urls='[\"https://history.example/profile/bing_hayu.webp\"]' WHERE id=905")]);
+  await source.admit(admission("history-fix"));
+  await source.commit(plan.id,"history-fix",1,[sourceDb.prepare(mode==="delete"?"DELETE FROM notices WHERE id=905":"UPDATE notices SET image_urls='[\"/profile/bing_hayu.webp\"]' WHERE id=905")]);
+  const sealed=await sourceDb.prepare("SELECT before_json,after_json FROM content_transition_journal WHERE row_table='notices' AND row_key='[905]' ORDER BY seq").all();
+  await expect(source.freeze(plan.id,now)).rejects.toThrow(/manifest/);
+  await expect(source.exportProjectedCommits(plan.id,header.boundary)).rejects.toThrow(/classification/);
+  const revision=await source.appendClassifications(plan.id,{revision:0,digest:plan.manifestDigest},[],"history-approved",{receiptId:"history-reviewed",protocol:1,manifestDigest:"history-approved"},[{kind:"external",origin:"https://history.example",reason:"Approved external-only original history"}]);
+  await target.acceptManifestRevision(revision);
+  await source.acknowledgeIngress(await target.openIngress(plan.id,"history-ready",2000),now);
+  await target.installFence(await source.freeze(plan.id,now));
+  await target.beginBaseline(header);
+  let cursor:Awaited<ReturnType<typeof source.exportBaselinePage>>["next"]|0=0;
+  do{const page=await source.exportBaselinePage(header,cursor);await target.stageBaselinePage(page);cursor=page.next;}while(cursor.ordinal<header.rows);
+  while(await target.materializeBaselinePage(plan.id)){ /* actual bounded installer */ }
+  await target.finalizeBaseline(plan.id);
+  expect((await source.describeBaseline(plan.id)).fileInventory).toEqual(header.fileInventory);
+  await transferStaticProof();
+  expect(await targetDb.prepare("SELECT plan_json,manifest_revision,expected_digest FROM content_transition_file_inventories WHERE transition_id=? AND state='received'").bind(plan.id).first()).toEqual({plan_json:JSON.stringify(header.fileInventory!.plan),manifest_revision:header.fileInventory!.manifestRevision,expected_digest:header.fileInventory!.digest});
+  for(const commit of await source.exportProjectedCommits(plan.id,header.boundary)) await target.installProjectedCommit(commit);
+  expect(await targetDb.prepare("SELECT image_urls FROM notices WHERE id=905").first("image_urls")).toBe(mode==="delete"?null:'["/profile/bing_hayu.webp"]');
+  expect((await sourceDb.prepare("SELECT before_json,after_json FROM content_transition_journal WHERE row_table='notices' AND row_key='[905]' ORDER BY seq").all()).results).toEqual(sealed.results);
+});
+it.each(["/profile//bing_hayu.webp","/profile/bing_hayu.webp/","/r2-assets/notices//thumbnails/a.webp"])("fix1 rejects noncanonical slash path at the actual final fence: %s",async(raw)=>{
+  await ready();
+  await source.admit(admission("slash"));
+  await source.commit(plan.id,"slash",1,[sourceDb.prepare("INSERT INTO notices(id,content,related_member_uids,image_urls) VALUES(906,'slash','[1]',?)").bind(JSON.stringify([raw]))]);
+  await expect(source.freeze(plan.id,now)).rejects.toThrow(/manifest/);
+});
 async function ready() {
   await capturing();
   const receipt = await target.openIngress(plan.id, "ingress-1", 1000);
@@ -144,6 +178,7 @@ async function transferStaticProof() {
   const row=(await sourceDb.prepare("SELECT plan_json,manifest_revision,fence_json FROM content_transitions WHERE id=?").bind(plan.id).first<{plan_json:string;manifest_revision:number;fence_json:string}>())!;
   if(!row.fence_json) return; // Copy/replay may precede the final availability fence.
   const context:FileAvailabilityContext={plan:JSON.parse(row.plan_json),manifestRevision:row.manifest_revision,fence:JSON.parse(row.fence_json)};
+  for(let offset=0;;) {const page=await sourceAvailability.exportInventoryPage(context,offset);await targetAvailability.receiveInventoryPage(context,page);offset=page.next.ordinal;if(offset===page.header.rows) break;}
   for(const observation of await sourceAvailability.observeStatic(context)) await targetAvailability.receiveSourceStatic(context,observation);
 }
 async function transferAndActivate() {
@@ -161,18 +196,35 @@ async function transferAndActivate() {
  * still run through the actual repository and D1 runtime. */
 function interleave(db:D1Database,match:string|"batch",competing:()=>Promise<unknown>):D1Database {
   let fired=false;
+  const sqlByStatement=new WeakMap<D1PreparedStatement,string>();
   const before=async(sql:string)=>{if(!fired && (match==="batch" || sql.includes(match))) {fired=true;await competing();}};
-  const statement=(value:D1PreparedStatement,sql:string):D1PreparedStatement=>new Proxy(value,{get(target,key){
+  const statement=(value:D1PreparedStatement,sql:string):D1PreparedStatement=>{const wrapped=new Proxy(value,{get(target,key){
     if(key==="bind") return (...args:unknown[])=>statement(target.bind(...args),sql);
     if(key==="run") return async()=>{await before(sql);return target.run();};
     const member=Reflect.get(target,key);return typeof member==="function"?member.bind(target):member;
-  }});
+  }});sqlByStatement.set(wrapped,sql);return wrapped;};
   return new Proxy(db,{get(target,key){
     if(key==="prepare") return (sql:string)=>statement(target.prepare(sql),sql);
-    if(key==="batch") return async(values:D1PreparedStatement[])=>{if(match==="batch") await before("");return target.batch(values);};
+    if(key==="batch") return async(values:D1PreparedStatement[])=>{if(match==="batch") await before("");else for(const value of values) await before(sqlByStatement.get(value)??"");return target.batch(values);};
     const member=Reflect.get(target,key);return typeof member==="function"?member.bind(target):member;
   }});
 }
+
+it("fix1 reads late sealed file history inside the fence batch and rolls back all fence state",async()=>{
+  await ready();
+  const before=await sourceDb.prepare("SELECT phase,fence_json,manifest_revision,manifest_digest,readiness_json,checkpoint_revision FROM content_transitions WHERE id=?").bind(plan.id).first();
+  const raced=new D1TransitionRepository(interleave(sourceDb,"batch",async()=>{
+    await source.admit(admission("late-file"));
+    await source.commit(plan.id,"late-file",1,[sourceDb.prepare("INSERT INTO notices(id,content,related_member_uids,image_urls) VALUES(907,'late history','[1]','[\"https://late.example/profile/bing_hayu.webp\"]')")]);
+    await source.admit(admission("late-correction"));
+    await source.commit(plan.id,"late-correction",1,[sourceDb.prepare("DELETE FROM notices WHERE id=907")]);
+  }),"otw","source-db");
+  await expect(raced.freeze(plan.id,now)).rejects.toThrow(/manifest/);
+  expect(await sourceDb.prepare("SELECT phase,fence_json,manifest_revision,manifest_digest,readiness_json,checkpoint_revision FROM content_transitions WHERE id=?").bind(plan.id).first()).toEqual(before);
+  expect(await sourceDb.prepare("SELECT count(*) n FROM content_transition_operations WHERE generation=1 AND outcome_json IS NOT NULL").first("n")).toBe(2);
+  await source.admit(admission("ordinary-after-file-conflict"));
+  await source.commit(plan.id,"ordinary-after-file-conflict",1,[sourceDb.prepare("INSERT INTO schedules(id,member_uid,date,status) VALUES(1,1,'2026-10-14','방송')")]);
+});
 
 describe("real D1 transition control", () => {
   it("fix2 admits a known nonselected schedule into scope and transfers only its selected committed image",async()=>{
@@ -240,7 +292,7 @@ describe("real D1 transition control", () => {
     const early=await source.exportOperation(plan.id,"early"),earlyFile=await source.exportFileIntent(plan.id,"early-file");
     await target.receiveOperation(early);await target.receiveFileIntent(earlyFile);
     await source.recordAttempt(plan.id,"early",{identity:"provider-early",status:"completed"});
-    await source.recordFileObservation(plan.id,"early-file",{transitionId:plan.id,intentId:"early-file",generation:1,site:"otw",resource:"source-bucket",objectVersion:null,copiedFromEvidenceId:null,evidenceId:"absent",versionKey:"v/file",result:"absent",hash:null,size:null,observedAt:101});
+    await source.recordFileObservation(plan.id,"early-file",{transitionId:plan.id,intentId:"early-file",generation:1,site:"otw",resource:"otw-bucket",objectVersion:null,copiedFromEvidenceId:null,evidenceId:"absent",versionKey:"v/file",result:"absent",hash:null,size:null,observedAt:101});
     await source.recordFileOutcome(plan.id,"early-file","absent","failed","Upload was absent");
     await source.commit(plan.id,"early",1,[sourceDb.prepare("INSERT INTO schedules(id,member_uid,date,title,status) VALUES(1,1,'2026-10-14','Completed on source','방송')")]);
     await transferAndActivate();
@@ -288,7 +340,7 @@ describe("real D1 transition control", () => {
     await expect(target.receiveFileIntent({...sealed,sourceFence:{...fence,boundary:fence.boundary+1}})).rejects.toThrow(/fence/);
     expect(await targetDb.prepare("SELECT transferred FROM content_transition_file_intents WHERE intent_id='sealed-file'").first("transferred")).toBe(0);
     await target.receiveFileIntent(sealed);await target.activate(plan.id);
-    await target.recordFileObservation(plan.id,"sealed-file",{transitionId:plan.id,intentId:"sealed-file",generation:1,site:"luvdia",resource:"target-bucket",objectVersion:null,copiedFromEvidenceId:null,evidenceId:"target-absent",versionKey:"version/image",result:"absent",hash:null,size:null,observedAt:101});
+    await target.recordFileObservation(plan.id,"sealed-file",{transitionId:plan.id,intentId:"sealed-file",generation:1,site:"luvdia",resource:"luvdia-bucket",objectVersion:null,copiedFromEvidenceId:null,evidenceId:"target-absent",versionKey:"version/image",result:"absent",hash:null,size:null,observedAt:101});
     await target.recordFileOutcome(plan.id,"sealed-file","target-absent","failed","Target confirmed absent");
     await target.receiveFileIntent(early);await target.receiveFileIntent(sealed);
     expect((await target.exportFileIntent(plan.id,"sealed-file")).outcome).toEqual({outcome:"failed",detail:"Target confirmed absent",sideEffectReconciled:true});
@@ -621,7 +673,7 @@ describe("real D1 transition control", () => {
     await target.stageBaselinePage(first);
     await expect(target.finalizeBaseline(plan.id)).rejects.toThrow(/incomplete/);
     await expect(target.installCommittedState(plan.id)).rejects.toThrow(/tail/);
-    const resumed=new D1TransitionRepository(targetDb,"luvdia","target-db","target-bucket",targetAvailability);
+    const resumed=new D1TransitionRepository(targetDb,"luvdia","target-db","luvdia-bucket",targetAvailability);
     for(let cursor=first.next;cursor.ordinal<header.rows;) {
       const page=await source.exportBaselinePage(header,cursor);
       await resumed.stageBaselinePage(page);
@@ -853,13 +905,13 @@ describe("real D1 transition control", () => {
     const write=targetDb.prepare("INSERT INTO schedules(id,member_uid,date,title,status) VALUES(1,1,'2026-10-14','reference committed','방송')");
     await expect(target.commit(plan.id,"file-save",2,[write],reference)).rejects.toThrow();
     expect(await targetDb.prepare("SELECT id FROM schedules WHERE id=1").first()).toBeNull();
-    const observation={transitionId:plan.id,intentId:"file",generation:1,site:"otw" as const,resource:"source-bucket",objectVersion:"source-upload-random-version",copiedFromEvidenceId:null,evidenceId:"put-observed",versionKey:envelope.versionKey,result:"present" as const,hash:"a".repeat(64),size:24,observedAt:now+1};
+    const observation={transitionId:plan.id,intentId:"file",generation:1,site:"otw" as const,resource:"otw-bucket",objectVersion:"source-upload-random-version",copiedFromEvidenceId:null,evidenceId:"put-observed",versionKey:envelope.versionKey,result:"present" as const,hash:"a".repeat(64),size:24,observedAt:now+1};
     await expect(target.recordFileObservation(plan.id,"file",{...observation,generation:2})).rejects.toThrow(/identity/);
     await expect(target.recordFileObservation(plan.id,"file",{...observation,versionKey:"wrong-version"})).rejects.toThrow(/identity/);
     await source.recordFileObservation(plan.id,"file",observation);
     await target.recordFileObservation(plan.id,"file",observation);
     await expect(target.commit(plan.id,"file-save",2,[write],reference)).rejects.toThrow();
-    const targetObservation={...observation,evidenceId:"target-observed",site:"luvdia" as const,resource:"target-bucket",objectVersion:"different-target-upload-version",copiedFromEvidenceId:observation.evidenceId};
+    const targetObservation={...observation,evidenceId:"target-observed",site:"luvdia" as const,resource:"luvdia-bucket",objectVersion:"different-target-upload-version",copiedFromEvidenceId:observation.evidenceId};
     await expect(target.recordFileObservation(plan.id,"file",{...targetObservation,size:25})).rejects.toThrow(/byte identity/);
     await target.recordFileObservation(plan.id,"file",targetObservation);
     reference[0].evidenceId="target-observed";

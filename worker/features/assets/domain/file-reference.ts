@@ -34,15 +34,21 @@ export function classifyFileReference(raw:string,plan:TransitionPlan):{kind:"own
   const value=raw.trim();
   const relative=value.startsWith("/")&&!value.startsWith("//");
   const url=new URL(value,"https://selected-assets.invalid");
+  if(relative && url.origin!=="https://selected-assets.invalid") throw new Error("Ambiguous file path authority");
   const entry=relative?null:plan.fileOrigins?.find(entry=>entry.origin===url.origin);
   if(!relative && (!entry || !value.startsWith(`${url.origin}/`) || url.username || url.password)) throw new Error("Missing canonical file origin classification");
   if(entry?.kind==="external") return {kind:"external",url:raw};
-  const decoded=decodeURIComponent(url.pathname).replaceAll("\\","/");
-  if(decoded.startsWith("//")) throw new Error("Ambiguous file path authority");
-  let path=new URL(decoded,"https://selected-assets.invalid").pathname;
-  if(entry?.kind==="r2") path=`/r2-assets${path}`;
+  const path=normalizeOwnedFilePath(url.pathname,entry?.kind==="r2");
   const site=entry?.site??plan.sourceSite;
   const resource=isStaticProfileAsset(path)?`${site}:ASSETS`:plan.assetBuckets?.[site===plan.sourceSite?"source":"target"];
-  if(!isStaticProfileAsset(path) && (!path.startsWith("/r2-assets/") || !getAssetContentType(path.slice("/r2-assets/".length))) || !resource) throw new Error("Unresolved owned file reference");
+  if(!resource) throw new Error("Unresolved owned file reference");
   return {kind:"owned",path,site,resource};
+}
+export function normalizeOwnedFilePath(pathname:string,bucketOrigin=false):string {
+  const decoded=decodeURIComponent(pathname).replaceAll("\\","/");
+  if(decoded.startsWith("//")) throw new Error("Ambiguous file path authority");
+  let path=new URL(decoded,"https://selected-assets.invalid").pathname;
+  if(bucketOrigin) path=`/r2-assets${path}`;
+  if(!isStaticProfileAsset(path) && (!path.startsWith("/r2-assets/") || !getAssetContentType(path.slice("/r2-assets/".length)))) throw new Error("Unresolved owned file reference");
+  return path;
 }

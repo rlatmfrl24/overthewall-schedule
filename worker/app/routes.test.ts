@@ -5,6 +5,7 @@ import { workerRouteManifest, workerRouteRegistry } from "./routes";
 const env = {} as Env;
 // Independent security/cache contracts, grouped to avoid a second route registry.
 const expectedPolicies = [
+  {method:"GET",auth:"admin",successStatus:200,cache:"no-store",paths:["/api/assets/protected-reference"]},
   { method: "GET", auth: "public", successStatus: 200,
     cache: "route-policy", paths: ["/api/site-content"] },
   { method: "GET", auth: "optional", successStatus: 200,
@@ -12,11 +13,11 @@ const expectedPolicies = [
     "/api/auth/admin-status",
   ] },
   { method: "GET", auth: "public", successStatus: 200,
-    cache: "public, max-age=31536000, immutable", paths: [
+    cache: "no-store", paths: [
     "/r2-assets/*key",
   ] },
   { method: "HEAD", auth: "public", successStatus: 200,
-    cache: "public, max-age=31536000, immutable", paths: [
+    cache: "no-store", paths: [
     "/r2-assets/*key",
   ] },
   { method: "GET", auth: "public", successStatus: 200,

@@ -1,12 +1,13 @@
-import type { TransitionIdentity, TransitionPlan } from "../../../../contracts/content-transition";
+import type { BaselineFileInventoryHeader, ManifestRevision, TransitionIdentity, TransitionPlan } from "../../../../contracts/content-transition";
 import { assertSameTransition } from "../domain/transition";
 import { assertProjectedRecord, decodeProjectedRecord, projectCapturedRecord, type ProjectedRecord, type ProjectionContext } from "../domain/projected-content";
 import { contentDispositionRegistry } from "../domain/disposition-registry";
 import { projectedStatements } from "./projected-statements";
 import {assertD1Row} from "./d1-size-bounds";
 import {fileReferenceProjection} from "./file-reference-projection";
+import {readFileInventoryHeader} from "./file-inventory-header";
 
-export interface BaselineHeader { identity:TransitionIdentity; boundary:number; rows:number; digest:string }
+export interface BaselineHeader { identity:TransitionIdentity; boundary:number; rows:number; digest:string; fileInventory?:BaselineFileInventoryHeader }
 interface Cursor { sequence:number; ordinal:number; digest:string }
 export interface BaselinePage { header:BaselineHeader; start:Cursor; next:Cursor; records:readonly ProjectedRecord[] }
 type Stored={ordinal:number;row_digest:string;record_json:string};
@@ -28,8 +29,9 @@ export class D1BaselineStore {
   private db:D1Database;
   private identity:TransitionIdentity;
   private context:ProjectionContext;
+  private plan:TransitionPlan;
   constructor(db:D1Database,identity:TransitionIdentity,plan:TransitionPlan) {
-    this.db=db;this.identity=identity;
+    this.db=db;this.identity=identity;this.plan=plan;
     this.context={sourceSite:identity.sourceSite,classifications:plan.classifications,files:fileReferenceProjection(plan),members:plan.members.map(member=>({uid:member.targetUid,targetUid:member.targetUid,name:member.code,externalEntityId:null}))};
   }
   private async acceptedIdentity(other:TransitionIdentity):Promise<void> {
@@ -42,7 +44,9 @@ export class D1BaselineStore {
     const boundary=await this.db.prepare("SELECT seq FROM content_transition_commits WHERE transition_id=? AND operation_id='baseline' AND sealed=1").bind(this.identity.id).first<number>("seq");
     if(!boundary) throw new Error("Missing sealed baseline");
     const originalDigest=await this.db.prepare("SELECT parent_digest FROM content_transition_manifest_revisions WHERE transition_id=? ORDER BY revision LIMIT 1").bind(this.identity.id).first<string>("parent_digest");
-    const header={identity:{...this.identity,manifestDigest:originalDigest??this.identity.manifestDigest},boundary,rows:0,digest:"0"};
+    const fileInventory=await readFileInventoryHeader(this.db,this.identity.id,"sealed");
+    if(this.plan.assetBuckets && !fileInventory) throw new Error("Missing original baseline inventory seal");
+    const header:BaselineHeader={identity:{...this.identity,manifestDigest:originalDigest??this.identity.manifestDigest},boundary,rows:0,digest:"0",...(fileInventory?{fileInventory}:{})};
     let cursor=zero;
     for(;;) {
       const page=await this.exportPage(header,cursor,context);
@@ -53,6 +57,7 @@ export class D1BaselineStore {
   }
   async exportPage(header:BaselineHeader,cursor:Cursor|0,context:ProjectionContext):Promise<BaselinePage> {
     await this.acceptedIdentity(header.identity);
+    if(JSON.stringify(header.fileInventory??null)!==JSON.stringify(await readFileInventoryHeader(this.db,this.identity.id,"sealed"))) throw new Error("Baseline inventory seal mismatch");
     const start=cursor===0?zero:cursor;
     const rows=(await this.db.prepare("SELECT seq,row_table,row_key,after_json FROM content_transition_journal WHERE transition_id=? AND commit_seq=? AND seq>? ORDER BY seq LIMIT 15").bind(this.identity.id,header.boundary,start.sequence).all<{seq:number;row_table:string;row_key:string;after_json:string}>()).results;
     const records:ProjectedRecord[]=[];
@@ -66,7 +71,24 @@ export class D1BaselineStore {
   async begin(header:BaselineHeader):Promise<void> {
     await this.acceptedIdentity(header.identity);
     if(!Number.isSafeInteger(header.rows) || header.rows<0 || !Number.isSafeInteger(header.boundary) || header.boundary<1) throw new Error("Invalid baseline header");
-    await this.db.prepare("INSERT OR IGNORE INTO content_transition_baselines(transition_id,manifest_digest,source_boundary,expected_rows,expected_digest) SELECT id,?,?,?,? FROM content_transitions WHERE id=? AND local_site=target_site AND phase IN ('target_ingress_ready','source_fenced')").bind(header.identity.manifestDigest,header.boundary,header.rows,header.digest,this.identity.id).run();
+    const inventory=header.fileInventory;
+    if(this.plan.assetBuckets && !inventory) throw new Error("Missing original baseline inventory seal");
+    if(inventory) {
+      await this.acceptedIdentity(inventory.plan);
+      if(inventory.sourceBoundary!==header.boundary || !inventory.inventoryId || !Number.isSafeInteger(inventory.manifestRevision) || inventory.manifestRevision<0 || !Number.isSafeInteger(inventory.rows) || inventory.rows<3 || !/^[a-f0-9]{64}$/.test(inventory.digest) || JSON.stringify(inventory.plan.members)!==JSON.stringify(this.plan.members) || JSON.stringify(inventory.plan.assetBuckets)!==JSON.stringify(this.plan.assetBuckets) || JSON.stringify(inventory.coverage)!==JSON.stringify(this.plan.members.map(member=>`members/${member.code}/backgrounds/`).sort())) throw new Error("Invalid original baseline inventory seal");
+      const revision=await this.db.prepare("SELECT manifest_revision FROM content_transitions WHERE id=?").bind(this.identity.id).first<number>("manifest_revision");
+      const receipt=inventory.manifestRevision>0?await this.db.prepare("SELECT receipt_json FROM content_transition_manifest_revisions WHERE transition_id=? AND revision=?").bind(this.identity.id,inventory.manifestRevision).first<string>("receipt_json"):null;
+      const approved=inventory.manifestRevision===revision?this.plan:receipt?(JSON.parse(receipt) as ManifestRevision).plan:null;
+      if(inventory.manifestRevision>revision! || approved && JSON.stringify(approved)!==JSON.stringify(inventory.plan) || !approved && (inventory.manifestRevision!==0 || JSON.stringify(this.plan.classifications.slice(0,inventory.plan.classifications.length))!==JSON.stringify(inventory.plan.classifications) || JSON.stringify((this.plan.fileOrigins??[]).slice(0,inventory.plan.fileOrigins?.length??0))!==JSON.stringify(inventory.plan.fileOrigins??[]))) throw new Error("Inventory manifest revision/plan conflict");
+    }
+    const existing=await this.db.prepare("SELECT 1 FROM content_transition_baselines WHERE transition_id=?").bind(this.identity.id).first();
+    if(existing && JSON.stringify(inventory??null)!==JSON.stringify(await readFileInventoryHeader(this.db,this.identity.id,"target"))) throw new Error("Conflicting original baseline inventory seal");
+    try { await this.db.batch([
+      this.db.prepare(`SELECT iif(NOT EXISTS(SELECT 1 FROM content_transition_baselines WHERE transition_id=?) OR EXISTS(SELECT 1 FROM content_transition_baselines b WHERE b.transition_id=? AND b.manifest_digest=? AND b.source_boundary=? AND b.expected_rows=? AND b.expected_digest=? AND (? IS NULL AND NOT EXISTS(SELECT 1 FROM content_transition_file_inventories i WHERE i.transition_id=b.transition_id) OR EXISTS(SELECT 1 FROM content_transition_file_inventories i WHERE i.transition_id=b.transition_id AND i.inventory_id=json_extract(?,'$.inventoryId') AND i.plan_json=json_extract(?,'$.plan') AND i.manifest_revision=json_extract(?,'$.manifestRevision') AND i.source_boundary=b.source_boundary AND i.coverage_json=json_extract(?,'$.coverage') AND i.expected_rows=json_extract(?,'$.rows') AND i.expected_digest=json_extract(?,'$.digest')))),1,json('baseline_inventory_header_conflict'))`).bind(this.identity.id,this.identity.id,header.identity.manifestDigest,header.boundary,header.rows,header.digest,...Array.from({length:7},()=>inventory?JSON.stringify(inventory):null)),
+      this.db.prepare("INSERT OR IGNORE INTO content_transition_baselines(transition_id,manifest_digest,source_boundary,expected_rows,expected_digest) SELECT id,?,?,?,? FROM content_transitions WHERE id=? AND local_site=target_site AND phase IN ('target_ingress_ready','source_fenced')").bind(header.identity.manifestDigest,header.boundary,header.rows,header.digest,this.identity.id),
+      ...(inventory?[this.db.prepare("INSERT OR IGNORE INTO content_transition_file_inventories(transition_id,inventory_id,plan_json,manifest_revision,state,coverage_json,source_boundary,expected_rows,expected_digest) SELECT ?,?,?,?,'receiving',?,?,?,? WHERE EXISTS(SELECT 1 FROM content_transition_baselines WHERE transition_id=?)").bind(this.identity.id,inventory.inventoryId,JSON.stringify(inventory.plan),inventory.manifestRevision,JSON.stringify(inventory.coverage),inventory.sourceBoundary,inventory.rows,inventory.digest,this.identity.id)]:[]),
+    ]); } catch(error) {throw new Error("Baseline identity conflict",{cause:error});}
+    if(JSON.stringify(inventory??null)!==JSON.stringify(await readFileInventoryHeader(this.db,this.identity.id,"target"))) throw new Error("Conflicting original baseline inventory seal");
     const actual=await this.db.prepare("SELECT manifest_digest,source_boundary,expected_rows,expected_digest FROM content_transition_baselines WHERE transition_id=?").bind(this.identity.id).first<{manifest_digest:string;source_boundary:number;expected_rows:number;expected_digest:string}>();
     if(!actual || actual.manifest_digest!==header.identity.manifestDigest || actual.source_boundary!==header.boundary || actual.expected_rows!==header.rows || actual.expected_digest!==header.digest) throw new Error("Baseline identity conflict");
   }

@@ -42,7 +42,11 @@ it("preserves populated raw references during incremental migration and rolls ba
 });
 it("keeps SQL URL identity equal to the owning parser for encoded path delimiters",async()=>{
   const plan={sourceSite:"otw",targetSite:"luvdia",assetBuckets:{source:"otw-schedule",target:"luvdia-schedule"}} as Parameters<typeof classifyFileReference>[1];
-  for(const raw of ["/r2-assets/notices/thumbnails/recover.webp%23ignored","/r2-assets/notices%5Cthumbnails/recover.webp","/r2-assets/notices/thumbnails/recover.webp%3Fcache=1","/r2-assets/notices/old/%2e%2e/thumbnails/%72ecover.webp?cache=1#fragment"]) {
+  for(const raw of ["/profile//bing_hayu.webp","/profile/bing_hayu.webp/","/r2-assets/notices//thumbnails/a.webp","/r2-assets/notices/thumbnails/recover.webp%23ignored","/r2-assets/notices%5Cthumbnails/recover.webp","/r2-assets/notices/thumbnails/recover.webp%3Fcache=1","/r2-assets/notices/old/%2e%2e/thumbnails/%72ecover.webp?cache=1#fragment"]) {
+    let accepted=true;try{classifyFileReference(raw,plan);}catch{accepted=false;}
+    const sqlPath=await db.prepare(`WITH input AS (SELECT ? raw) SELECT ${filePathSql("raw")} path FROM input`).bind(raw).first<string>("path");
+    expect(await db.prepare(`SELECT ${ownedFilePathSql("?")} ok`).bind(sqlPath).first("ok"),raw).toBe(accepted?1:0);
+    if(!accepted) continue;
     const parsed=classifyFileReference(raw,plan);
     const sql=await db.prepare(`WITH input AS (SELECT ? raw) SELECT ${filePathSql("raw")} path,${fileOriginSql("raw")} origin FROM input`).bind(raw).first();
     expect(sql).toEqual({path:parsed.kind==="owned"?parsed.path:null,origin:null});

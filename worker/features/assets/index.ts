@@ -1,4 +1,5 @@
-export { createHandleR2Asset } from "./http/handler";
+export { createHandleR2Asset,createHandleProtectedAssetReference } from "./http/handler";
+export {D1ProtectedAssetReferenceResolver} from "./infrastructure/d1-protected-asset-reference-resolver";
 export { R2AssetReader } from "./infrastructure/r2-asset-reader";
 export { D1AssetAccessReader } from "./infrastructure/d1-asset-access-reader";
 export type { AssetObject, AssetReader } from "./application/ports/asset-reader";

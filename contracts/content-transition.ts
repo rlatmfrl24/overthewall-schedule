@@ -152,3 +152,17 @@ export interface CommittedR2Observation {
   hash: string;
   size: number;
 }
+export interface BaselineFileInventoryRow {kind:"reference"|"object";identity:string;value:string}
+export interface BaselineFileInventoryHeader {
+  inventoryId:string;plan:TransitionPlan;manifestRevision:number;sourceBoundary:number;
+  coverage:readonly string[];rows:number;digest:string;
+}
+export interface BaselineFileInventoryPage {
+  header:BaselineFileInventoryHeader;start:{ordinal:number;digest:string};
+  next:{ordinal:number;digest:string};records:readonly BaselineFileInventoryRow[];
+}
+export interface LegacyR2Observation {
+  kind:"legacy_r2";evidenceId:string;inventoryId:string;transitionId:string;
+  generation:number;manifestDigest:string;manifestRevision:number;fence:SourceFence;
+  site:SiteId;resource:string;logicalKey:string;objectVersion:string;hash:string;size:number;
+}

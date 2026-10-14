@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { apiFetchBlob } from "@/shared/api/client";
+import { apiFetch,apiFetchBlob } from "@/shared/api/client";
+import {apiRoutes} from "@contracts/api-routes";
+import type {ProtectedAssetReferenceResponse} from "@contracts/assets";
+const resolvable=(src:string)=>src.trim().startsWith("/") || src.trim().startsWith("\\") || /^https?:/i.test(src.trim());
 
 export function useAuthenticatedImages(sources: readonly string[], protectedImage: boolean) {
   const key = JSON.stringify(sources);
@@ -9,17 +12,25 @@ export function useAuthenticatedImages(sources: readonly string[], protectedImag
     if (!identity.protectedImage) return;
     const controller = new AbortController();
     const urls: Record<string, string> = {};
+    const objectUrls:string[]=[];
     for (const src of new Set(JSON.parse(identity.key) as string[])) {
-      if (!src.startsWith("/") || src.startsWith("//")) continue;
-      void apiFetchBlob(`${src}${src.includes("?") ? "&" : "?"}archive=1`, { signal: controller.signal }).then(blob => {
+      if(!resolvable(src)) continue;
+      void (async()=>{
+        const value=src.trim();
+        const path=value.startsWith("/")&&!value.startsWith("//")?value:(await apiFetch<ProtectedAssetReferenceResponse>(`${apiRoutes.assets.protectedReference.build()}?url=${encodeURIComponent(src)}`,{signal:controller.signal})).path;
+        if(controller.signal.aborted) return;
+        if(path===null) {urls[src]=src;setLoaded({identity,urls:{...urls}});return;}
+        if(!path.startsWith("/") || path.startsWith("//") || new URL(path,window.location.origin).origin!==window.location.origin) throw new Error("Protected image requires a same-site path");
+        const blob=await apiFetchBlob(`${path}${path.includes("?") ? "&" : "?"}archive=1`, { signal: controller.signal,redirect:"error" });
         if (controller.signal.aborted) return;
         urls[src] = URL.createObjectURL(blob);
+        objectUrls.push(urls[src]);
         setLoaded({ identity, urls: { ...urls } });
-      }).catch(() => { /* Failed protected bytes remain unavailable. */ });
+      })().catch(() => { /* Failed protected bytes remain unavailable. */ });
     }
-    return () => { controller.abort(); Object.values(urls).forEach(url => URL.revokeObjectURL(url)); };
+    return () => { controller.abort(); objectUrls.forEach(url => URL.revokeObjectURL(url)); };
   }, [identity]);
-  return (src: string | undefined) => protectedImage && src?.startsWith("/") && !src.startsWith("//")
+  return (src: string | undefined) => protectedImage && src && resolvable(src)
     ? loaded?.identity === identity ? loaded.urls[src] : undefined : src;
 }
 

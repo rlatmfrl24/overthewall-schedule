@@ -11,3 +11,6 @@ export interface AssetReader {
 export interface AssetAccessReader {
   readAccess(path: string): Promise<{ restricted: boolean; revision: number }>;
 }
+export interface ProtectedAssetReferenceResolver {
+  resolve(raw:string):Promise<string|null>;
+}

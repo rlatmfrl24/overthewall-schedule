@@ -9,6 +9,7 @@ it("projects approved owning URLs into canonical relative paths without changing
   expect(classifyFileReference("https://media.example.com/profile/bing_hayu.webp",plan)).toEqual({kind:"external",url:"https://media.example.com/profile/bing_hayu.webp"});
 });
 it("rejects missing origin classification and conflicting resource mappings",()=>{
+  expect(()=>classifyFileReference("/\\foreign.example/profile/bing_hayu.webp",plan)).toThrow(/authority/);
   expect(()=>classifyFileReference("https://unknown.example.com/profile/bing_hayu.webp",plan)).toThrow(/classification/);
   expect(()=>classifyFileReference("https://unknown.example.com/r2-assets/notices/thumbnails/a.webp",plan)).toThrow(/classification/);
   expect(()=>validateFileOrigins({...plan,fileOrigins:[{kind:"r2",site:"otw",origin:"https://bucket.example.com",resource:"luvdia-schedule"}]})).toThrow(/resource/);

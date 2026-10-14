@@ -5,6 +5,35 @@ import { afterEach, expect, it, vi } from "vitest";
 import { AuthenticatedImage } from "./authenticated-image";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+it("rejects relative authority tricks and an unclassified absolute origin without issuing a remote bearer request",async()=>{
+  vi.stubGlobal("window",Object.assign(window,{Clerk:{session:{getToken:async()=>"session"}}}));
+  const fetcher=vi.fn<typeof fetch>(async(input)=>{expect(String(input).startsWith("/api/assets/protected-reference?")).toBe(true);return new Response("Unresolved asset reference",{status:400});});
+  vi.stubGlobal("fetch",fetcher);
+  const view=render(<><AuthenticatedImage src="/\\foreign.example/profile/a.webp" alt="authority trick"/><AuthenticatedImage src="https://unknown.example/profile/a.webp" alt="unknown origin"/></>);
+  await waitFor(()=>expect(fetcher).toHaveBeenCalledTimes(1));
+  expect(view.getByAltText("authority trick").getAttribute("src")).toBeNull();
+  expect(view.getByAltText("unknown origin").getAttribute("src")).toBeNull();
+});
+it("resolves stored own absolute references on the same site and never sends bearer to external image origins",async()=>{
+  vi.stubGlobal("window",Object.assign(window,{Clerk:{session:{getToken:async()=>"session"}}}));
+  URL.createObjectURL=()=>"blob:own-absolute";URL.revokeObjectURL=()=>{};
+  const own=" https://otw-schedule.info/profile/bing_hayu.webp ",external="https://external.example/profile/bing_hayu.webp";
+  const fetcher=vi.fn<typeof fetch>(async(input,init)=>{
+    const path=String(input);
+    expect(path.startsWith("/")).toBe(true);
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer session");
+    if(path.startsWith("/api/assets/protected-reference?")) return Response.json({path:path.includes(encodeURIComponent(own))?"/profile/bing_hayu.webp":null});
+    expect(path).toBe("/profile/bing_hayu.webp?archive=1");
+    return new Response(new Uint8Array([1,2,3]));
+  });
+  vi.stubGlobal("fetch",fetcher);
+  const view=render(<><AuthenticatedImage src={own} alt="own absolute"/><AuthenticatedImage src={external} alt="external"/></>);
+  expect(view.getByAltText("own absolute").getAttribute("src")).toBeNull();
+  await waitFor(()=>expect(view.getByAltText("own absolute").getAttribute("src")).toBe("blob:own-absolute"));
+  await waitFor(()=>expect(view.getByAltText("external").getAttribute("src")).toBe(external));
+  expect(fetcher.mock.calls).toHaveLength(3);
+  expect(fetcher.mock.calls.every(([url])=>String(url).startsWith("/"))).toBe(true);
+});
 it("keeps protected originals out of img requests and revokes Blob URLs on replacement and unmount", async () => {
   vi.stubGlobal("window", Object.assign(window, { Clerk: { session: { getToken: async () => "session" } } }));
   let finish: ((response: Response) => void) | undefined;

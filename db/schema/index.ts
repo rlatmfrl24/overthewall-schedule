@@ -375,6 +375,23 @@ export const musicAiReviewRequests = sqliteTable("music_ai_review_requests", {
   review_id: text().notNull().references(() => musicAiReviews.id, { onDelete: "cascade" }),
   created_at: integer().notNull(),
 });
+
+export const contentTransitionFileInventories=sqliteTable("content_transition_file_inventories",{
+  transition_id:text().notNull().references(()=>contentTransitions.id,{onDelete:"cascade"}),inventory_id:text().notNull(),
+  plan_json:text().notNull(),manifest_revision:integer().notNull(),state:text().notNull().default("armed"),
+  coverage_json:text(),source_boundary:integer(),expected_rows:integer(),expected_digest:text(),
+  staged_rows:integer().notNull().default(0),staged_digest:text().notNull().default("0"),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.inventory_id]}),
+  check("content_file_inventory_state",sql`${table.state} IN ('armed','observed','sealed','receiving','received') AND json_valid(${table.plan_json}) AND ${table.manifest_revision}>=0 AND ${table.staged_rows}>=0`),
+]);
+export const contentTransitionFileInventoryRows=sqliteTable("content_transition_file_inventory_rows",{
+  transition_id:text().notNull(),inventory_id:text().notNull(),kind:text().notNull(),identity:text().notNull(),value_json:text().notNull(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.inventory_id,table.kind,table.identity]}),
+  foreignKey({columns:[table.transition_id,table.inventory_id],foreignColumns:[contentTransitionFileInventories.transition_id,contentTransitionFileInventories.inventory_id]}).onDelete("cascade"),
+  check("content_file_inventory_row",sql`${table.kind} IN ('reference','object') AND json_valid(${table.value_json})`),
+]);
 export const contentTransitionMaterializedRows=sqliteTable("content_transition_materialized_rows",{
   transition_id:text().notNull().references(()=>contentTransitions.id,{onDelete:"cascade"}),
   row_table:text().notNull(),row_key:text().notNull(),

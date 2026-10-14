@@ -22,6 +22,7 @@ export const historicalFileReferencesSql=(key:string)=>`(
   EXISTS(SELECT 1 FROM content_historical_records h,json_tree(h.record_json) image WHERE (image.atom=${key} OR ${candidatePathSql(filePathSql("image.atom"),key)}))
 )`;
 export const recoveryFileHeldSql=(key:string)=>`(
+  EXISTS(SELECT 1 FROM content_transition_file_inventories i WHERE EXISTS(SELECT 1 FROM content_transition_file_inventory_rows r WHERE r.transition_id=i.transition_id AND r.inventory_id=i.inventory_id AND (r.kind='object' AND r.identity=${key} OR r.kind='reference' AND json_extract(r.value_json,'$.logicalKey')=${key})) OR EXISTS(SELECT 1 FROM json_each(i.plan_json,'$.members') m WHERE ${key} LIKE 'members/'||json_extract(m.value,'$.code')||'/backgrounds/%')) OR
   EXISTS(SELECT 1 FROM asset_file_versions v WHERE v.logical_key=${key} AND (v.acknowledged_at IS NULL OR v.reference_committed_at IS NULL)) OR
   EXISTS(SELECT 1 FROM content_transition_file_intents i JOIN content_transitions t ON t.id=i.transition_id WHERE json_extract(i.envelope_json,'$.logicalKey')=${key} AND (t.phase<>'complete' OR i.outcome_acknowledged=0 OR i.outcome_json IS NULL OR json_extract(i.outcome_json,'$.sideEffectReconciled')<>1))
 )`;

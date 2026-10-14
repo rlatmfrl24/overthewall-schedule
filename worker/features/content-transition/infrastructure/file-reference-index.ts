@@ -48,3 +48,20 @@ export function fileReferencesResolvedSql(plan="t.plan_json") {
   const external=`EXISTS(SELECT 1 FROM json_each(${plan},'$.fileOrigins') origin WHERE json_extract(origin.value,'$.origin')=f.origin AND json_extract(origin.value,'$.kind')='external')`;
   return `NOT EXISTS(SELECT 1 FROM asset_file_reference_inputs raw LEFT JOIN asset_file_reference_paths f ON f.row_table=raw.row_table AND f.row_key=raw.row_key AND f.field=raw.field WHERE ${owner} AND NOT ${classified("exclude")} AND (f.raw_url IS NOT raw.raw_url OR NOT (${external} OR ${originMatchesPlanSql("f",plan)} AND ${ownedFilePathSql(resolvedFilePathSql("f",plan))})))`;
 }
+
+/** The same final manifest revision must describe every image replay will parse,
+ * including an old URL subsequently corrected or deleted from current rows. */
+export function sealedFileReferencesResolvedSql(plan="t.plan_json",transition="t.id") {
+  const selected=(uid:string)=>`EXISTS(SELECT 1 FROM json_each(${plan},'$.members') member WHERE json_extract(member.value,'$.uid')=${uid})`;
+  const classified=(disposition:string)=>`EXISTS(SELECT 1 FROM json_each(${plan},'$.classifications') decision WHERE json_extract(decision.value,'$.table')=i.row_table AND json_extract(decision.value,'$.key')=i.row_key AND json_extract(decision.value,'$.disposition')='${disposition}')`;
+  const owner=`(${classified("include")} OR i.row_table IN ('member_profile_images','naver_cafe_posts') AND ${selected("json_extract(i.image_json,'$.member_uid')")} OR i.row_table='notices' AND (${selected("json_extract(i.image_json,'$.publisher_member_uid')")} OR EXISTS(SELECT 1 FROM json_each(json_extract(i.image_json,'$.related_member_uids')) related WHERE ${selected("related.value")})))`;
+  const external=`EXISTS(SELECT 1 FROM json_each(${plan},'$.fileOrigins') origin WHERE json_extract(origin.value,'$.origin')=f.origin AND json_extract(origin.value,'$.kind')='external')`;
+  return `NOT EXISTS(WITH images AS MATERIALIZED(
+    SELECT j.row_table,j.row_key,j.before_json image_json FROM content_transition_journal j JOIN content_transition_commits c ON c.seq=j.commit_seq WHERE j.transition_id=${transition} AND c.sealed=1 AND j.before_json IS NOT NULL AND j.row_table IN ('notices','member_profile_images','naver_cafe_posts')
+    UNION ALL SELECT j.row_table,j.row_key,j.after_json FROM content_transition_journal j JOIN content_transition_commits c ON c.seq=j.commit_seq WHERE j.transition_id=${transition} AND c.sealed=1 AND j.after_json IS NOT NULL AND j.row_table IN ('notices','member_profile_images','naver_cafe_posts')),
+    selected_images AS MATERIALIZED(SELECT * FROM images i WHERE ${owner} AND NOT ${classified("exclude")}),
+    raw AS MATERIALIZED(SELECT image.value raw_url FROM selected_images i,json_each(json_array(json_extract(i.image_json,'$.image_url'),json_extract(i.image_json,'$.thumbnail_url'))) image WHERE image.type='text' AND trim(image.value)<>''
+      UNION ALL SELECT image.value FROM selected_images i,json_each(json_extract(i.image_json,'$.image_urls')) image WHERE image.type='text' AND trim(image.value)<>''),
+    files AS MATERIALIZED(SELECT raw_url,${fileOriginSql("raw_url")} origin,${filePathSql("raw_url")} path FROM raw)
+    SELECT 1 FROM files f WHERE NOT coalesce((${external} OR ${originMatchesPlanSql("f",plan)} AND ${ownedFilePathSql(resolvedFilePathSql("f",plan))}),0))`;
+}

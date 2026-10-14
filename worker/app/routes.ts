@@ -6,7 +6,7 @@ import { createAiReviewHandler, createAiBatchHandler, createWorkQueueHandler } f
 import { createOtwPlayWorkQueueService } from "./work-queue";
 import { createOtwPlayAiReviewService, createOtwPlayAiBatchService } from "./ai-review";
 import { createAuthStatusHandler } from "../features/auth";
-import { handleAsset, buildAssetFileStore } from "./assets";
+import { handleAsset,handleProtectedAssetReference, buildAssetFileStore } from "./assets";
 import {
   createHandleAdminAuditLogs,
   D1AdminAuditLogReader,
@@ -388,6 +388,13 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
       successStatus: 200,
     })),
     handler: handleAuthStatus,
+  },
+  {
+    id: "assets.protected-reference",
+    owner: "assets",
+    path: apiRoutes.assets.protectedReference.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleProtectedAssetReference,
   },
   {
     id: "assets.get",

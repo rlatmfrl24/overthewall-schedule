@@ -58,6 +58,33 @@ beforeEach(async () => {
   ]);
 });
 
+it("fix1 resolves archived stored own absolute URLs through the authenticated same-site route with exact row-bound origins",async()=>{
+  const key="notices/thumbnails/absolute-archive.webp",own=`https://otw-schedule.info/r2-assets/${key}`;
+  await bindings.ASSET_BUCKET!.put(key,"actual archived absolute bytes");
+  await db.prepare("UPDATE notices SET image_urls=? WHERE id=1").bind(JSON.stringify([own])).run();
+  const resolve=(raw:string,user?:string,env=runtime)=>request(`/api/assets/protected-reference?url=${encodeURIComponent(raw)}`,user,{},env);
+  const untouched={...runtime,otw_db:{prepare:()=>{throw new Error("Unauthorized metadata access");}}} as unknown as Env;
+  expect((await resolve(own,undefined,untouched)).status).toBe(401);
+  expect((await resolve(own,"member",untouched)).status).toBe(403);
+  const response=await resolve(own,"archive-admin");
+  expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+  expect(await response.json()).toEqual({path:`/r2-assets/${key}`});
+  expect((await request(`/r2-assets/${key}`)).status).toBe(401);
+  expect(await (await request(`/r2-assets/${key}?archive=1`,"archive-admin")).text()).toBe("actual archived absolute bytes");
+  expect(await db.prepare("SELECT image_urls FROM notices WHERE id=1").first("image_urls")).toBe(JSON.stringify([own]));
+  const approved="https://approved-source.example",external="https://external.example",cross="https://other-site.example";
+  const plan={id:"resolver",sourceSite:"otw",targetSite:"luvdia",sourceResource:"otw-db",targetResource:"luvdia-db",generation:2,protocol:1,manifestDigest:"approved-resolver",members:[{uid:1,targetUid:11,code:"bing_hayu"}],classifications:[],assetBuckets:{source:"otw-schedule",target:"luvdia-schedule"},fileOrigins:[{kind:"r2",site:"otw",resource:"otw-schedule",origin:approved},{kind:"external",origin:external,reason:"Approved external image"},{kind:"site",site:"luvdia",origin:cross}]};
+  await db.prepare("INSERT INTO content_transitions(id,source_site,target_site,source_resource,target_resource,local_site,local_resource,generation,protocol,manifest_digest,plan_json) VALUES('resolver','otw','luvdia','otw-db','luvdia-db','otw','otw-db',2,1,'approved-resolver',?)").bind(JSON.stringify(plan)).run();
+  const urls=[`${approved}/${key}`,`${external}/profile/bing_hayu.webp`,`${cross}/profile/bing_hayu.webp`];
+  await db.prepare("UPDATE notices SET related_member_uids='[1]',image_urls=? WHERE id=1").bind(JSON.stringify(urls)).run();
+  expect(await (await resolve(urls[0],"archive-admin")).json()).toEqual({path:`/r2-assets/${key}`});
+  expect(await (await resolve(urls[1],"archive-admin")).json()).toEqual({path:null});
+  for(const raw of [urls[2],"https://unknown.example/profile/bing_hayu.webp",`${approved}/notices/thumbnails/never-stored.webp`]) expect((await resolve(raw,"archive-admin")).status).toBe(400);
+  await db.prepare("UPDATE notices SET related_member_uids='[]' WHERE id=1").run();
+  expect((await resolve(urls[0],"archive-admin")).status).toBe(400);
+  expect(vi.mocked(fetch).mock.calls.every(([input])=>String(input)===`${issuer}/.well-known/jwks.json`)).toBe(true);
+});
+
 it("authorizes archive-only asset bytes before GET HEAD and conditional metadata, preserving shared public bytes", async () => {
   const key = "notices/thumbnails/archive-only.webp";
   const shared = "notices/thumbnails/shared.webp";

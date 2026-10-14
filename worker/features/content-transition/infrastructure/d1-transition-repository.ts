@@ -24,7 +24,8 @@ import {readProjectionContext} from "./d1-projection-context";
 import {identityProjectionValidSql,validateIdentityProjection} from "./identity-projection";
 import {projectCapturedRecord,type ProjectionContext} from "../domain/projected-content";
 import type { CommittedFileAvailability } from "../application/ports/file-availability";
-import {currentFileIndexSql} from "./file-reference-index";
+import {currentFileIndexSql,sealedFileReferencesResolvedSql} from "./file-reference-index";
+import {inventoryReferencesSql,inventorySealValidSql} from "./file-inventory-statements";
 
 type Row = {
   id: string; source_site: SiteId; target_site: SiteId; source_resource: string; target_resource: string;
@@ -180,19 +181,36 @@ export class D1TransitionRepository implements TransitionControlPort {
     const readback=await this.db.prepare("SELECT receipt_json FROM content_transition_manifest_revisions WHERE transition_id=? AND revision=?").bind(row.id,revision.revision).first<string>("receipt_json");
     if(readback!==JSON.stringify(revision)) throw new Error("Manifest revision readback mismatch");
   }
-  async protect(id: string, receipt: { receiptId: string; protocol: number; manifestDigest: string }) {
+  async armFileInventory(id:string,inventoryId:string):Promise<void> {
+    const row=await this.row(id);
+    const plan:TransitionPlan=JSON.parse(row.plan_json);
+    if(this.side(row)!=="source" || row.phase!=="prepared" || !inventoryId || !plan.assetBuckets || plan.assetBuckets.source!==this.fileResource) throw new Error("Inventory arm requires prepared selected source/bucket");
+    const existing=await this.db.prepare("SELECT plan_json,manifest_revision FROM content_transition_file_inventories WHERE transition_id=? AND inventory_id=?").bind(id,inventoryId).first<{plan_json:string;manifest_revision:number}>();
+    if(existing) {if(existing.plan_json!==row.plan_json || existing.manifest_revision!==row.manifest_revision) throw new Error("Conflicting inventory arm");return;}
+    try { await this.db.batch([
+      this.db.prepare(`WITH guard AS MATERIALIZED(SELECT ${manifestResolvedSql()} valid FROM content_transitions t WHERE id=? AND phase='prepared' AND plan_json=? AND manifest_revision=? AND local_site=? AND local_resource=?) SELECT iif(coalesce((SELECT valid FROM guard),0),1,json('inventory_arm_conflict'))`).bind(id,row.plan_json,row.manifest_revision,this.site,this.resource),
+      this.db.prepare("INSERT INTO content_transition_file_inventories(transition_id,inventory_id,plan_json,manifest_revision) VALUES(?,?,?,?)").bind(id,inventoryId,row.plan_json,row.manifest_revision),
+      this.db.prepare(`INSERT INTO content_transition_file_inventory_rows(transition_id,inventory_id,kind,identity,value_json) SELECT ?,?,'reference',identity,value_json FROM (${inventoryReferencesSql("?")})`).bind(id,inventoryId,...Array.from({length:(inventoryReferencesSql("?").match(/\?/g)??[]).length},()=>row.plan_json)),
+      this.db.prepare(`SELECT iif(NOT EXISTS(SELECT 1 FROM asset_file_cleanup c WHERE NOT EXISTS(SELECT 1 FROM asset_file_references safe WHERE safe.logical_key=c.logical_key AND safe.version_key<>c.object_key) AND (EXISTS(SELECT 1 FROM content_transition_file_inventory_rows r WHERE r.transition_id=? AND r.inventory_id=? AND json_extract(r.value_json,'$.logicalKey')=c.object_key) OR EXISTS(SELECT 1 FROM json_each(?,'$.members') m WHERE c.object_key LIKE 'members/'||json_extract(m.value,'$.code')||'/backgrounds/%'))),1,json('inventory_cleanup_conflict'))`).bind(id,inventoryId,row.plan_json),
+    ]); } catch(error) {throw new Error("Inventory arm manifest/reference/cleanup conflict",{cause:error});}
+  }
+  async protect(id: string, receipt: { receiptId: string; protocol: number; manifestDigest: string; inventoryId?:string }) {
     const row = await this.row(id);
     if (this.side(row) !== "source" || receipt.protocol !== row.protocol || receipt.manifestDigest !== row.manifest_digest || !receipt.receiptId) throw new Error("Invalid protection receipt");
     if (row.protection_receipt_json === JSON.stringify(receipt) && row.phase !== "prepared") return;
     if (row.phase !== "prepared") throw new Error("Protection cannot replace an active transition");
+    const needsInventory=!!(JSON.parse(row.plan_json) as TransitionPlan).assetBuckets;
+    if(needsInventory && !receipt.inventoryId) throw new Error("Explicit observed file inventory required before baseline protection");
     let result:D1Result[];
     try { result=await this.db.batch([
+      ...(needsInventory?[this.db.prepare(`SELECT iif(coalesce((SELECT ${inventorySealValidSql("?")} FROM content_transitions t WHERE id=? AND local_site=? AND local_resource=? AND phase='prepared'),0),1,json('inventory_seal_conflict'))`).bind(receipt.inventoryId!,id,this.site,this.resource)]:[]),
       this.db.prepare("UPDATE content_transitions SET phase='protected',protection_receipt_json=? WHERE id=? AND phase='prepared'").bind(JSON.stringify(receipt), id),
       this.db.prepare("INSERT INTO content_transition_commits(transition_id,operation_id) VALUES(?,'baseline')").bind(id),
       this.db.prepare(`INSERT INTO content_transition_permits(id,transition_id,operation_id,generation,version_matches,commit_seq) SELECT 1,id,'baseline',generation-1,(phase='protected' AND ${manifestResolvedSql()}),(SELECT seq FROM content_transition_commits WHERE transition_id=? AND operation_id='baseline') FROM content_transitions t WHERE id=?`).bind(id, id),
       ...seedScopeStatements(this.db, id), ...captureStatements(this.db, id),
       this.db.prepare(`UPDATE content_transition_permits SET version_matches=${sourceJsonValidSql("content_transition_permits.transition_id")} WHERE transition_id=?`).bind(id),
       this.db.prepare("UPDATE content_transition_commits SET sealed=1 WHERE transition_id=? AND operation_id='baseline'").bind(id),
+      ...(needsInventory?[this.db.prepare("UPDATE content_transition_file_inventories SET state='sealed',source_boundary=(SELECT seq FROM content_transition_commits WHERE transition_id=? AND operation_id='baseline' AND sealed=1) WHERE transition_id=? AND inventory_id=? AND state='observed'").bind(id,id,receipt.inventoryId!)]:[]),
       this.db.prepare("DELETE FROM content_transition_permits WHERE transition_id=?").bind(id),
     ]); } catch(error) { throw new Error("Protection failed; verify current manifest classification and source state",{cause:error}); }
     return {statements:result.length,rowsRead:result.reduce((n,r)=>n+r.meta.rows_read,0),rowsWritten:result.reduce((n,r)=>n+r.meta.rows_written,0),duration:result.reduce((n,r)=>n+r.meta.duration,0)};
@@ -445,7 +463,12 @@ export class D1TransitionRepository implements TransitionControlPort {
     const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(row.checkpoints_json));
     const digest = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2,"0")).join("");
     let changed=0;
-    try { const result = await this.db.prepare(`UPDATE content_transitions AS t SET phase=iif((${identityProjectionValidSql()}),'source_fenced',NULL),manifest_revision=iif(${manifestResolvedSql()},manifest_revision,NULL),fence_json=json_patch(?,json_object(
+    try { const results = await this.db.batch([
+      // A read-only guard in the same D1 transaction avoids compiling the
+      // recursive sealed-file parser into the already large final CAS program.
+      // Invalid JSON deliberately aborts the whole batch; there is no guard write.
+      this.db.prepare(`SELECT iif(coalesce((SELECT ${sealedFileReferencesResolvedSql()} FROM content_transitions t WHERE id=? AND local_site=? AND local_resource=? AND generation=? AND protocol=? AND manifest_revision=? AND manifest_digest=?),0),1,json('content_transition_sealed_file_manifest_conflict'))`).bind(id,this.site,this.resource,row.generation,row.protocol,row.manifest_revision,row.manifest_digest),
+      this.db.prepare(`UPDATE content_transitions AS t SET phase=iif((${identityProjectionValidSql()}),'source_fenced',NULL),manifest_revision=iif(${manifestResolvedSql()},manifest_revision,NULL),fence_json=json_patch(?,json_object(
       'boundary',coalesce((SELECT max(seq) FROM content_transition_commits WHERE transition_id=? AND sealed=1),0),
       'checkpointDigest',?,'checkpoints',json(checkpoints_json),
       'operationBoundary',(SELECT coalesce(max(seq),0) FROM content_transition_operations WHERE transition_id=?),
@@ -453,9 +476,9 @@ export class D1TransitionRepository implements TransitionControlPort {
       'fileIntentBoundary',(SELECT coalesce(max(seq),0) FROM content_transition_file_intents WHERE transition_id=?),
       'fileIntentCount',(SELECT count(*) FROM content_transition_file_intents WHERE transition_id=?)))
       WHERE id=? AND phase='target_ingress_ready' AND fence_json IS NULL AND readiness_expires_at>? AND checkpoint_revision=? AND manifest_digest=? AND manifest_revision=? AND readiness_json=?`)
-      .bind(JSON.stringify(identity(row)), id, digest, id,id,id,id,id, now, row.checkpoint_revision,row.manifest_digest,row.manifest_revision,row.readiness_json).run();
-      changed=result.meta.changes;
-    } catch(error) { if(!/NOT NULL constraint failed: content_transitions\.(phase|manifest_revision)/.test(String(error))) throw error; }
+      .bind(JSON.stringify(identity(row)), id, digest, id,id,id,id,id, now, row.checkpoint_revision,row.manifest_digest,row.manifest_revision,row.readiness_json)]);
+      changed=results[1].meta.changes;
+    } catch(error) { if(!/NOT NULL constraint failed: content_transitions\.(phase|manifest_revision)|malformed JSON/.test(String(error))) throw error; }
     if (changed !== 1) {
       const invalid=await this.db.prepare("SELECT commit_seq,row_table,row_key,column_name,reason FROM content_transition_invalid_json WHERE transition_id=? ORDER BY commit_seq LIMIT 1").bind(id).first();
       if(invalid) throw new Error(`Manifest immutable JSON conflict: ${JSON.stringify(invalid)}`);
