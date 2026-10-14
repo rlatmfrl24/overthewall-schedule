@@ -103,3 +103,5 @@ export { WorkQueueService } from "./application/work-queue-service";
 export type { WorkQueueMessage } from "./application/ports/work-queue";
 export { D1WorkQueueRepository } from "./infrastructure/d1-work-queue-repository";
 export { createWorkQueueHandler } from "./http/work-queue-handler";
+
+export {parseUpdateSong} from "./domain/admin-catalog-input";

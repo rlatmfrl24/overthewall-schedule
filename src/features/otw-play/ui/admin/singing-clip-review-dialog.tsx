@@ -55,6 +55,7 @@ import {
   type SelectedSubject,
 } from "./catalog-entry-dialog";
 import { SongTagPicker } from "../song-tag-picker";
+import { HistoricalMaterials } from "./historical-materials";
 
 type SelectedParticipant = SelectedSubject & {
   participantRole: OtwPlayParticipantRole;
@@ -500,6 +501,7 @@ export function SingingClipReviewDialog({
             {onManageChannel && (!fastReview || candidate.catalogChannelId === null) && <Button variant="outline" disabled={saving} onClick={onManageChannel}>채널 승인·수집 설정</Button>}
             {batchDraft && <p role="status" className="text-sm">AI 초안이 저장되어 있습니다. {batchDraft.candidateVersion !== candidate.candidateVersion || batchDraft.candidateKind !== candidateKind ? "후보가 변경되어 자동 적용하지 않았습니다. 최신 내용과 비교해 주세요." : batchDraft.result.songs.length !== 1 ? "적용할 곡과 구간을 선택해 주세요." : "내용을 확인한 뒤 검수 저장을 진행하세요."} 기존 검수값·작성 중인 입력은 보존합니다.</p>}
             {batchDraftQuery.isError && <p role="alert">저장된 AI 초안을 불러오지 못했습니다. <Button variant="link" onClick={() => void batchDraftQuery.refetch()}>초안 다시 불러오기</Button></p>}
+            <HistoricalMaterials materials={candidate.historicalMaterials ?? []}/>
             <ReviewFieldSection fast={fastReview} title="상세 도구·AI 근거" summary={batchDraft ? "저장된 초안과 추정 근거 확인" : "필요할 때 AI 분석 또는 수동 입력"} required={Boolean(batchDraft && (batchDraft.result.songs.length!==1 || batchDraft.candidateVersion!==candidate.candidateVersion))}>
               <AiReviewPanel compact={presentation === "dialog"} storedDraft={batchDraft} segmentEnabled={segmentEnabled} key={`${candidate.candidateId}:${candidateKind}`} target={{candidateId:candidate.candidateId}} videoId={candidate.videoId} candidateKind={candidateKind} durationSeconds={durationSeconds} initialRange={parsedEnd!==null?{startSeconds:parsedStart,endSeconds:parsedEnd}:null} form={ai} disabled={saving || !active || ["converted","ignored"].includes(candidate.status)} onSeek={presentation==="page"?setPreviewSeconds:undefined} />
               {fastReview && onManageChannel && candidate.catalogChannelId !== null && <Button variant="outline" disabled={saving} onClick={onManageChannel}>채널 승인·수집 설정</Button>}

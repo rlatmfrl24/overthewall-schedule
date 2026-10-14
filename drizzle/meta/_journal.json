@@ -708,6 +708,20 @@
       "when": 1791855019671,
       "tag": "0101_playlist_work_progress_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "6",
+      "when": 1791953303241,
+      "tag": "0102_content_transition_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "6",
+      "when": 1791953305061,
+      "tag": "0103_content_transition_capture",
+      "breakpoints": true
     }
   ]
 }

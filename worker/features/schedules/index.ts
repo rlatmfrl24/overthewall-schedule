@@ -28,3 +28,5 @@ export { D1ScheduleQueryRepository } from "./infrastructure/d1-schedule-query-re
 export { D1ScheduleWriteRepository } from "./infrastructure/d1-schedule-write-repository";
 export { DrizzleUpdateLogRepository } from "./infrastructure/update-log-repository";
 export { PublicScheduleWritePolicy } from "./infrastructure/public-schedule-write-policy";
+
+export {parseScheduleInput} from "./domain/schedule-input";

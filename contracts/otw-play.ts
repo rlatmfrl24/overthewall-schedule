@@ -242,6 +242,7 @@ export interface OtwPlayChannelMonitorDto {
 }
 
 export interface OtwPlayChannelMonitorCandidateDto {
+  historicalMaterials?: import("./content-transition").HistoricalContentMaterial[];
   candidateId: string;
   candidateVersion: number;
   videoId: string;
@@ -319,6 +320,7 @@ export interface OtwPlayChannelMonitorReconcileDto {
 }
 
 export interface OtwPlayIngestionCandidateItemDto {
+  historicalMaterials?: import("./content-transition").HistoricalContentMaterial[];
   candidateKind?: OtwPlayIngestionCandidateKind;
   originId: string;
   candidateId: string;
@@ -349,6 +351,7 @@ export interface OtwPlayIngestionCandidateItemDto {
 }
 
 export interface OtwPlayIngestionReviewCandidateDto {
+  historicalMaterials?: import("./content-transition").HistoricalContentMaterial[];
   catalogChanges?: Pick<OtwPlayAdminCatalogDto, "songs" | "entities" | "revision">;
   id: string;
   version: number;
@@ -1236,10 +1239,13 @@ export interface OtwPlayAdminPerformanceDto {
 }
 
 export interface OtwPlayAdminProposalDto {
+  historicalMaterials?: import("./content-transition").HistoricalContentMaterial[];
   submissionKind?: OtwPlaySubmissionKind;
   broadcast?: OtwPlayBroadcastMetadata | null;
   id: string;
-  submittedByUserId: string;
+  submittedByUserId: string | null;
+  historicalProvenance: import("./content-transition").HistoricalContentProvenance | null;
+  historicalReview: boolean;
   submittedUrl: string;
   youtubeVideoId: string;
   segmentStartSeconds: number;

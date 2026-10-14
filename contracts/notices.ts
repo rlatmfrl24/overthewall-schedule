@@ -14,6 +14,7 @@ export interface NoticeDto {
   links: NoticeLinkDto[];
   image_urls: string[];
   related_member_uids: number[];
+  historical_related_people?: import("./content-transition").HistoricalPersonCredit[];
   /** @deprecated Use links. */
   url: string | null;
   /** @deprecated Use image_urls. */

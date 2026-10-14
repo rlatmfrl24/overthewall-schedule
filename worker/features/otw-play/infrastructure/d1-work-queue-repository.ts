@@ -1,5 +1,6 @@
 import type { PlayWorkCommand, PlayWorkDisposition, PlayWorkItem, PlayWorkQueue, PlayWorkQueueAction } from "@contracts/otw-play-work-queue";
 import type { OtwPlayYouTubePlaylistSummary } from "../application/ports/youtube-metadata";
+import { historicalReviewDeletedSql } from "./historical-review-sql";
 import { WorkQueueError, type WorkQueueBatchRecord, type WorkQueueMessage, type WorkQueueRepository, type WorkQueueSource } from "../application/ports/work-queue";
 
 type Row = Record<string, string | number | null>;
@@ -159,7 +160,7 @@ export class D1WorkQueueRepository implements WorkQueueRepository {
   async snapshot(id: string, now: number) {
     await this.db.prepare(`INSERT OR IGNORE INTO music_playlist_work_items(id,batch_id,candidate_id,playlist_item_id,playlist_position,disposition,reason,created_at,updated_at)
       SELECT o.id,b.id,o.candidate_id,o.playlist_item_id,o.playlist_position,
-        CASE WHEN o.is_playlist_duplicate=1 OR c.classification='existing_catalog' OR EXISTS(SELECT 1 FROM music_catalog_events e WHERE e.aggregate_type='review_candidate' AND e.aggregate_id=c.id AND e.event_type='review_item.deleted') THEN 'duplicate'
+        CASE WHEN o.is_playlist_duplicate=1 OR c.classification='existing_catalog' OR EXISTS(SELECT 1 FROM music_catalog_events e WHERE e.aggregate_type='review_candidate' AND e.aggregate_id=c.id AND e.event_type='review_item.deleted') OR ${historicalReviewDeletedSql("review_candidate","c.id")} THEN 'duplicate'
           ELSE COALESCE((SELECT prior.disposition FROM music_playlist_work_items prior WHERE prior.candidate_id=c.id AND prior.batch_id!=b.id AND prior.disposition!='duplicate' ORDER BY prior.updated_at DESC,prior.rowid DESC LIMIT 1),'pending') END,
         CASE WHEN o.is_playlist_duplicate=1 THEN '플레이리스트 내 중복' WHEN c.classification='existing_catalog' THEN '기존 카탈로그'
           ELSE (SELECT prior.reason FROM music_playlist_work_items prior WHERE prior.candidate_id=c.id AND prior.batch_id!=b.id AND prior.disposition!='duplicate' ORDER BY prior.updated_at DESC,prior.rowid DESC LIMIT 1) END,?,?

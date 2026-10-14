@@ -447,6 +447,14 @@ export function NoticeFormDialog({
               <h3 className="text-sm font-semibold">관련 멤버</h3>
               <p className="mt-1 text-xs text-muted-foreground">공동 게시자가 아닌 분류 태그입니다. 미선택 시 OTW 단독 공지입니다.</p>
             </div>
+            {!!initialValues?.historical_related_people?.length && (
+              <div className="space-y-1 text-sm">
+                <p className="text-muted-foreground">이전 자료에 기록된 인물</p>
+                {initialValues.historical_related_people.map(person => (
+                  <p key={`${person.sourceSite}:${person.sourceRecordId}`}>{person.name} · {person.sourceSite} 기록</p>
+                ))}
+              </div>
+            )}
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {members.map((member) => {
                 const checked = relatedMemberUids.includes(member.uid);

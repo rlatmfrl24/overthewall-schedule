@@ -1,4 +1,5 @@
 import { decrementGramStatsStatements, projectionStatements } from "./d1-catalog-projection";
+import { readHistoricalMaterials } from "./read-historical-materials";
 import { readBroadcastMetadata } from "../domain/broadcast-metadata";
 import type {
   OtwPlayAdminCatalogDto,
@@ -654,7 +655,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     }
     const where = status ? "WHERE proposal.status = ?" : "";
     const statement = this.database.prepare(`SELECT proposal.id,
-      proposal.submitted_by_user_id, proposal.submitted_url, proposal.youtube_video_id,
+      proposal.submitted_by_user_id, proposal.historical_source_site, proposal.historical_source_record_id,
+      proposal.historical_review, proposal.submitted_url, proposal.youtube_video_id,
       proposal.segment_start_seconds, proposal.submitted_title, proposal.suggested_song_id,
       proposal.submitted_tags_json, proposal.submitted_note, proposal.status, proposal.version,
       proposal.submission_kind, proposal.submitted_broadcast_json,
@@ -679,7 +681,10 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       OtwPlayAdminProposalDto,
       "participants" | "originalArtists" | "tags"
     > & {
-      submitted_by_user_id: string;
+      submitted_by_user_id: string | null;
+      historical_source_site: "otw" | "luvdia" | null;
+      historical_source_record_id: string | null;
+      historical_review: number;
       submitted_url: string;
       youtube_video_id: string;
       segment_start_seconds: number;
@@ -714,9 +719,16 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       resultsOf(artistResult as D1Result<ProposalArtistRow>),
       (row) => row.proposal_id,
     );
-    return resultsOf(proposalResult as D1Result<ProposalRow>).map((row) => ({
+    const proposalRows=resultsOf(proposalResult as D1Result<ProposalRow>);
+    const history=await readHistoricalMaterials(this.database,"music_cover_proposals",proposalRows.map(row=>row.id));
+    return proposalRows.map((row) => ({
       id: row.id,
       submittedByUserId: row.submitted_by_user_id,
+      historicalProvenance: row.historical_source_site && row.historical_source_record_id
+        ? { sourceSite: row.historical_source_site, sourceRecordId: row.historical_source_record_id }
+        : null,
+      historicalReview: row.historical_review === 1,
+      historicalMaterials:history.get(row.id)??[],
       submittedUrl: row.submitted_url,
       youtubeVideoId: row.youtube_video_id,
       segmentStartSeconds: Number(row.segment_start_seconds),
@@ -2416,7 +2428,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         this.database
           .prepare(
             `UPDATE music_cover_proposals
-             SET status = 'approved', reviewed_by_user_id = ?, reviewed_at = ?,
+             SET status = 'approved', historical_review = 0, reviewed_by_user_id = ?, reviewed_at = ?,
                approved_performance_id = ?, review_lock_token = NULL,
                review_lock_expires_at = NULL, version = version + 1, updated_at = ?
              WHERE id = ? AND status = 'pending_review' AND version = ?
@@ -3491,7 +3503,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       this.database
         .prepare(
           `UPDATE music_cover_proposals SET status = 'rejected',
-        reviewed_by_user_id = ?, reviewed_at = ?, review_result_code = ?, review_note = ?,
+        historical_review = 0, reviewed_by_user_id = ?, reviewed_at = ?, review_result_code = ?, review_note = ?,
         review_lock_token = NULL, review_lock_expires_at = NULL,
         version = version + 1, updated_at = ?
         WHERE id = ? AND status = 'pending_review' AND version = ?`,

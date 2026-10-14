@@ -1,4 +1,5 @@
 import { site } from "@/shared/config/site";
+import { HistoricalMaterials } from "./historical-materials";
 import { SecondaryAction } from "@/shared/ui/secondary-action";
 import { PlaySubmissionLimit } from "./play-submission-limit";
 import { preservesPlayReview } from "./review-navigation";
@@ -852,8 +853,12 @@ function ProposalSection({
               <div className="font-semibold">{selected.submittedTitle}</div>
               <div>
                 제출자{" "}
-                <span className="font-mono">{selected.submittedByUserId}</span>
+                <span className="font-mono">{selected.historicalProvenance
+                  ? `${selected.historicalProvenance.sourceSite} 이전 자료 · ${selected.historicalProvenance.sourceRecordId}`
+                  : selected.submittedByUserId}</span>
+                {selected.historicalReview && <span>이전 사이트의 검수 이력</span>}
               </div>
+              <HistoricalMaterials materials={selected.historicalMaterials??[]} />
               <div>
                 원곡 가수:{" "}
                 {selected.originalArtists

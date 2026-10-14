@@ -50,6 +50,7 @@ const OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES = [
   "0093_omniscient_sunset_bain.sql",
   "0094_reflective_spirit.sql",
   "0097_fine_agent_zero.sql",
+  "0102_content_transition_foundation.sql",
 ] as const;
 const OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES = [
   ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.slice(0, 4),
@@ -90,12 +91,18 @@ export default defineConfig({
       const otwPlayPublicCatalogMigrations =
         OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.flatMap((name) => {
           const migration = migrationsByName.get(name);
-          return migration ? [migration] : [];
+          return migration ? [migration.name === "0102_content_transition_foundation.sql" ? {
+            ...migration,
+            queries: migration.queries.filter(query => !/^\s*ALTER TABLE `(?!members`|music_|__new_music_)/.test(query)),
+          } : migration] : [];
         });
       const otwPlayIngestionMigrations =
         OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES.flatMap((name) => {
           const migration = migrationsByName.get(name);
-          return migration ? [migration] : [];
+          return migration ? [migration.name === "0102_content_transition_foundation.sql" ? {
+            ...migration,
+            queries: migration.queries.filter(query => !/^\s*ALTER TABLE `(?!members`|music_|__new_music_)/.test(query)),
+          } : migration] : [];
         });
       const otwPlayPreHardeningMigrations = otwPlayIngestionMigrations.filter(
         ({ name }) =>
@@ -216,8 +223,9 @@ export default defineConfig({
         miniflare: {
           compatibilityDate: "2025-11-25",
           compatibilityFlags: ["nodejs_compat"],
-          d1Databases: ["otw_db"],
+          d1Databases: ["otw_db", "transition_target_db"],
           bindings: {
+            CONTENT_TRANSITION_MIGRATIONS: migrations,
             SCHEDULE_DAY_MIGRATION_SQL: readFileSync(path.resolve(__dirname, "drizzle/0096_unknown_hex.sql"), "utf8"),
             OTW_PLAY_SEARCH_INTEGRITY_SQL: readFileSync(path.resolve(__dirname, "scripts/otw-play-search-integrity.sql"), "utf8"),
             OTW_PLAY_SEARCH_BACKFILL_MIGRATIONS: migrations.filter(({ name }) => name === "0095_otw-play-ready-search-backfill.sql"),

@@ -116,6 +116,8 @@ const selectOption = async (label: string, option: string | RegExp) => {
 const proposal = {
   id: "proposal-1",
   submittedByUserId: "member-1",
+  historicalProvenance: null,
+  historicalReview: false,
   submittedUrl: "https://youtu.be/dQw4w9WgXcQ",
   youtubeVideoId: "dQw4w9WgXcQ",
   segmentStartSeconds: 0,

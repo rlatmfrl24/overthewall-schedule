@@ -1,4 +1,6 @@
 import { D1AdminCatalogRepository } from "./d1-admin-catalog-repository";
+import { historicalReviewDeletedSql } from "./historical-review-sql";
+import { readHistoricalMaterials } from "./read-historical-materials";
 import { projectionStatements } from "./d1-catalog-projection";
 import type {
   OtwPlayAdminCatalogSubjectInput,
@@ -545,7 +547,8 @@ export class D1IngestionRepository implements IngestionRepository {
           (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, before_json, detail_json, created_at)
         SELECT ?, ?, item.id, 'review_item.deleted', 'admin', ?, json_object('status', item.status, 'version', item.version), '{}', ?
         FROM ${table} item WHERE item.id = ? AND item.version = ? AND ${guard}
-          AND NOT EXISTS (SELECT 1 FROM music_catalog_events e WHERE e.aggregate_type = ? AND e.aggregate_id = item.id AND e.event_type = 'review_item.deleted')`)
+          AND NOT EXISTS (SELECT 1 FROM music_catalog_events e WHERE e.aggregate_type = ? AND e.aggregate_id = item.id AND e.event_type = 'review_item.deleted')
+          AND NOT ${historicalReviewDeletedSql(aggregate,"item.id")}`)
         .bind(command.eventId, aggregate, command.actorUserId, command.now, command.id, command.expectedVersion, aggregate),
       this.database.prepare(`UPDATE ${table} SET ${candidate ? "status = CASE WHEN status = 'converted' THEN status ELSE 'ignored' END," : ""}
         version = version + 1, updated_at = ? WHERE id = ? AND version = ?
@@ -565,7 +568,9 @@ export class D1IngestionRepository implements IngestionRepository {
         position = decoded;
       } catch { throw new IngestionRepositoryError("validation_failed", "Invalid review cursor"); }
     }
-    const candidateOrigins = `(EXISTS (SELECT 1 FROM music_ingestion_candidate_origins o WHERE o.candidate_id = c.id))`;
+    const candidateOrigins = `(EXISTS (SELECT 1 FROM music_ingestion_candidate_origins o WHERE o.candidate_id = c.id)
+      OR EXISTS (SELECT 1 FROM content_historical_links h WHERE h.subject_table='music_ingestion_candidates'
+        AND h.subject_key=json_array(c.id) AND h.source_table='music_ingestion_candidate_origins'))`;
     const automaticOrigins = `(EXISTS (SELECT 1 FROM music_channel_upload_candidate_origins o WHERE o.candidate_id = c.id))`;
     const pendingProposal = `(SELECT p.id FROM music_cover_proposals p WHERE p.youtube_video_id = c.external_video_id
       AND p.status = 'pending_review' AND p.segment_start_seconds = 0
@@ -573,7 +578,8 @@ export class D1IngestionRepository implements IngestionRepository {
     const values: Array<string | number | null> = [];
     const conditions = (alias: "c" | "p") => {
       const clauses: string[] = [`NOT EXISTS (SELECT 1 FROM music_catalog_events deleted
-        WHERE deleted.aggregate_type = '${alias === "c" ? "review_candidate" : "review_proposal"}' AND deleted.aggregate_id = ${alias}.id AND deleted.event_type = 'review_item.deleted')`];
+        WHERE deleted.aggregate_type = '${alias === "c" ? "review_candidate" : "review_proposal"}' AND deleted.aggregate_id = ${alias}.id AND deleted.event_type = 'review_item.deleted')`,
+        `NOT ${historicalReviewDeletedSql(alias === "c" ? "review_candidate" : "review_proposal",`${alias}.id`)}`];
       if (filters.candidateKind) {
         clauses.push(`${alias === "c" ? "c.candidate_kind" : "CASE WHEN p.submission_kind = 'singing_clip' THEN 'singing_clip' ELSE 'official_video' END"} = ?`);
         values.push(filters.candidateKind);
@@ -631,6 +637,7 @@ export class D1IngestionRepository implements IngestionRepository {
       .bind(...values, position?.ready ?? null, position?.ready ?? null, position?.ready ?? null,
         position?.at ?? null, position?.at ?? null, position?.id ?? null)
       .all<{ work_batch_id:string|null;ai_draft: string | null; candidate_data: string | null; ready_rank: number; sort_id: string; id: string; kind: "candidate" | "proposal"; candidate_kind: "official_video" | "singing_clip"; title: string | null; status: string; version: number; created_at: number; playlist: number; automatic: number; user: number; pending_proposal_id: string | null }>());
+    const history = await this.readHistoricalMaterials(rows.slice(0,50).filter(row=>row.kind==="candidate").map(row=>row.id));
     const items: import("@contracts/otw-play").OtwPlayReviewItemDto[] = [];
     for (const row of rows.slice(0, 50)) {
       let candidate: import("@contracts/otw-play").OtwPlayChannelMonitorCandidateDto | null = null;
@@ -639,7 +646,7 @@ export class D1IngestionRepository implements IngestionRepository {
         const detail = JSON.parse(row.candidate_data!) as Record<string, unknown>;
         const review = { version: row.version, videoId: String(detail.external_video_id), status: row.status as OtwPlayIngestionCandidateItemDto["status"], classification: detail.classification as OtwPlayIngestionClassification, catalogChannelId: detail.catalog_channel_id as string | null, reviewInput: parseReviewInput(detail.review_input_json as string | null), linkedPerformanceId: detail.linked_performance_id as string | null };
         channelId = detail.channel_id as string | null;
-        candidate = { candidateId: row.id, candidateVersion: review.version, videoId: review.videoId, title: row.title,
+        candidate = { candidateId: row.id, candidateVersion: review.version, videoId: review.videoId, title: row.title, historicalMaterials:history.get(row.id) ?? [],
           channelTitle: detail.channel_title as string | null, thumbnailUrl: detail.thumbnail_url as string | null,
           durationSeconds: detail.duration_seconds as number | null, publishedAt: detail.provider_published_at as number | null,
           availabilityStatus: detail.availability_status as OtwPlaySourceAvailabilityStatus, status: review.status, classification: review.classification,
@@ -1417,6 +1424,10 @@ export class D1IngestionRepository implements IngestionRepository {
     return cleared;
   }
 
+  private async readHistoricalMaterials(candidateIds: string[]): Promise<Map<string,import("@contracts/content-transition").HistoricalContentMaterial[]>> {
+    return readHistoricalMaterials(this.database,"music_ingestion_candidates",candidateIds);
+  }
+
   private async readReviewCandidateById(
     candidateIdValue: string,
     jobId?: string,
@@ -1437,6 +1448,7 @@ export class D1IngestionRepository implements IngestionRepository {
        WHERE candidate.id = ?
          AND NOT EXISTS (SELECT 1 FROM music_catalog_events deleted WHERE deleted.aggregate_type = 'review_candidate'
            AND deleted.aggregate_id = candidate.id AND deleted.event_type = 'review_item.deleted')
+         AND NOT ${historicalReviewDeletedSql("review_candidate","candidate.id")}
          ${jobId ? `AND EXISTS (
            SELECT 1 FROM music_ingestion_candidate_origins AS origin
            WHERE origin.candidate_id = candidate.id AND origin.job_id = ?
@@ -1468,6 +1480,7 @@ export class D1IngestionRepository implements IngestionRepository {
       catalogChannelId: row.catalog_channel_id,
       reviewInput: parseReviewInput(row.review_input_json),
       linkedPerformanceId: row.linked_performance_id,
+      historicalMaterials:(await this.readHistoricalMaterials([row.id])).get(row.id) ?? [],
     };
   }
 
