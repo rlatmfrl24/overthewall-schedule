@@ -297,3 +297,142 @@ Owned paths in code commit:
 - `wrangler.luvdia.jsonc`
 
 Owned evidence files in the subsequent documentation commit are this report and `task-4-3-incident.md` only. Root docs/reports/sul-36, root SUL plan/spec, unrelated AI docs, all .tmp/.wrangler/private inputs remain excluded. Handoff: controller review may begin; do not activate or start Task4.4 from this report.
+
+## Fix round 1/5 — 2026-10-14
+
+FIX_BASE `9d990e419bfaf54e0626b2e62c9e20bbf575840e`. 코드 commit `55a5e3fa13a3e0653367661891447d823bbdb9b4` (`fix: seal legacy file inventory and resolve protected absolute images`), 소유 코드/테스트/schema/migration 37개 파일 및 `9bd630cf4346f1d11275d8d5b168028c0e86cbb7` (`fix: copy sealed file inventory before source fence`), 초기 전달 포트·테스트 5개 파일 보완(두 commit의 코드 파일 합집합 38개). I1–I4를 실제 owning 경계에서 수정했다. 아래 증거는 로컬 구현 완료와 재리뷰 인계이며 전체 Task4, 운영 이관, 운영 사고 종결을 의미하지 않는다. Controller ruling49–51 및 후속 same-batch guard/original seal/old-page resume/pre-fence copy 결정을 적용했다. Helper/reviewer/subagent, 의존성 설치, remote IO, push/PR/Linear, 4.4 작업은 하지 않았다.
+
+### I1: 기존 unmanaged R2와 명시적인 baseline 보호·inventory
+
+신설 0113은 `content_transition_file_inventories`와 `content_transition_file_inventory_rows` 두 control table만 추가한다. Canonical registry는 두 표의 모든 열/JSON/FK를 `source_only`로 분류한다. Business content 복사나 가짜 upload/admission/actor가 아니다. 0114는 기존 owning URL index/retention/capture generator와 최소 inventory immutability trigger를 설치하고 파생 URL index만 재구축한다. Source raw, 기존 managed version/reference, FileIntent/FileObservation의 의미는 유지한다.
+
+4.5가 소비할 최종 공개 경로는 다음과 같다.
+
+1. 기존 `D1TransitionRepository.prepare(plan)` 후 **명시적으로** `armFileInventory(transitionId, inventoryId)`를 호출한다. prepare/import 자체는 arm하지 않는다. Prepared source의 정확한 site/D1 resource/bucket, 세 code–UID, plan/revision, owning 현재 raw reference와 managed reference의 version/hash/size를 같은 D1 batch에서 고정한다. 이미 진행 중이거나 충돌하는 해당 legacy object cleanup claim은 arm 전체를 rollback한다. 다른 안전한 immutable version 및 무관한 일반 작업은 계속된다.
+2. App의 기존 `buildFileAvailability(env)`가 반환하는 `D1FileAvailability.observeArmedInventory(id, inventoryId)`는 승인된 raw 참조 및 정확히 세 `members/<code>/backgrounds/` prefix를 실제 R2에서 pagination한다. Managed reference가 없는 논리 key를 실제 `get`하여 body SHA-256/size/own upload-version을 기록한다. 목록을 다시 읽어 key/version 변동을 거부하고 현재 D1 raw/ref/member와 원래 arm을 재검증한다. ETag나 listing metadata는 body proof가 아니다. 같은 observation retry는 기존 immutable fact와 같아야 한다.
+3. 기존 `protect(id, {receiptId, protocol, manifestDigest, inventoryId})`는 assetBuckets가 있는 실제 파일 전환에서 observed inventory를 필수로 요구한다. 같은 **D1 transaction** 안에서 current raw/ref/member, exact plan/revision, 전체 세 prefix coverage, 필요한 object rows/count, cleanup claim을 재검증한 뒤 baseline commit과 inventory `sealed`/`source_boundary`를 함께 확정한다. Stale inventory는 baseline marker를 만들지 못한다. R2 read와 D1 seal이 분산 원자적이라는 주장은 하지 않는다. 정상 owning writer는 immutable version에 쓰고 cleanup은 durable arm/claim을 소비하며, 원래 논리 key를 임의로 덮어쓰는 외부 작업은 이 계약의 정상 writer가 아니다.
+4. 기존 `describeBaseline`/`exportBaselinePage`의 `BaselineHeader.fileInventory`는 source의 실제 sealed header만 포함한다. Header에는 inventory id, 원래 plan/revision, baseline boundary, coverage, row count/digest가 있다. Target `beginBaseline`은 baseline 저장과 **같은 batch**에서 기존 0113의 `receiving` header를 최초 고정한다. 현재 또는 승인된 append-only revision 계보, member/resource, exact header를 확인한다. 새 schema 0115는 필요하지 않았다. 이미 적용된 0113/0114를 수정하지 않았다.
+5. 초기 복사는 `exportBaselineInventoryPage({plan, manifestRevision}, offset)` / `receiveBaselineInventoryPage(context, page)` / `verifyBaselineInventory(context)`를 사용한다. 실제 source fence가 없는 copy/replay 단계에서 원래 source seal과 target에 이미 저장된 baseline/header 및 승인 lineage에 묶는다. Source는 원래 object version/body/hash를 다시 읽고, target은 새 header를 만들어 수용하지 않고 **저장된 원래 baseline seal**과 비교한다. 15행의 고정 bounded page, predecessor/total digest, object identity/version/hash/size를 검증한다. Missing/changed seal, 다른 inventory, stale revision/resource, coverage 누락을 거부한다. Current target listing으로 원래 목록을 재구성하지 않는다. 기존 `exportInventoryPage` / `receiveInventoryPage`와 final availability는 `FileAvailabilityContext {plan, manifestRevision, fence}`의 exact persisted fence를 계속 요구한다. 초기 readback은 final receipt나 installation을 생성하지 않는다.
+6. 정상 재시작은 첫 page부터 다시 보내도 된다. 이미 전진한 page는 저장된 전체 prefix의 hash와 해당 page의 모든 row/kind/identity/value를 읽어 검증한다. 정확한 old page retry는 **D1 mutation/batch 0**, R2 side effect 0이며 cursor/count/digest를 되돌리지 않는다. Partial/conflicting/future page는 거부한다. Final availability는 저장된 전체 row count/digest를 다시 확인한다.
+7. 기존 `installCommittedState`→`CommittedFileAvailability.assertAvailable`는 모든 원래 legacy object의 **target 실제 body**를 읽고 source seal의 hash/size와 비교한다. `LegacyR2Observation`은 `kind:legacy_r2`, inventory/site/resource/generation/manifest/fence 및 target 자신의 actual upload-version을 기록한다. Source와 target upload-version은 서로 같을 필요가 없다. 기존 managed immutable R2 proof 및 static ASSETS artifact proof와 구별한다. Intent/admission을 꾸며내지 않는다. 실제 기존 `R2AssetReader` fallback과 `D1MemberReader.findProfileByCode`의 background listing에서도 복사된 논리 key가 정상 반환된다.
+
+보호는 durable arm부터 시작한다. Pending/unknown/unacknowledged와 오래된 미완료 arm을 시간으로 해제하지 않는다. 실패한 stale arm도 보관 사실로 남는다. 기존 15분 cleanup 자격·참조/역사/ACK/last-release 정책을 넓히지 않는다. 미완료 hold의 보관량·비용 확인 및 운영자 orchestration은 운영 활성화 전 gate다. Initial inventory 관찰은 arm/observe, 초기 복사는 baseline inventory 포트, 최종 fence-bound evidence는 기존 final 포트로 구분한다. 실제 운영 arm/inventory/copy는 실행하지 않았다.
+
+Actual regression은 `store.put()`을 먼저 부르지 않은 unmanaged notice와 implicit background를 사용했다. Notice는 16개의 추가 실제 reference를 넣어 15행을 넘는 inventory 전송/재시작도 검증했다. Source logical bytes→arm/observe→protect/seal→baseline→target 누락 거부→잘못된 bytes 거부→실제 copy/readback→installation 성공을 수행했다. 원래 source 객체를 같은 bytes로 새 version에 덮어쓴 test-only 변경도 export에서 거부했다. Claim 충돌의 arm rollback, protect 직전 current reference 경쟁의 전체 rollback, 일반 upload 계속, 24시간 후에도 legacy cleanup 보호, 새 arm 재시도, old arm 보존을 확인했다.
+
+### I2: 원문 절대 URL과 정상 관리자 Blob 경로
+
+공유 계약 `GET /api/assets/protected-reference?url=<raw>` / `ProtectedAssetReferenceResponse {path:string|null}`를 추가했다. Exact route는 admin/no-store이고 owning handler의 verified-admin 판정 **이후**에 resolver와 D1 metadata에 접근한다. 401/403/400과 `private, no-store`를 유지한다. 외부 fetch/redirect는 없다.
+
+App composition은 검증된 선택 site의 canonical/configured origin과 실제 row에 묶인 approved origin/resource를 `D1ProtectedAssetReferenceResolver`에 공급한다. Host나 client origin은 tenant authority가 아니다. 원래 business raw와 exact derived index의 일치 및 owning selected row를 확인한다. Cross-site/resource, forged/nonowning row, unclassified origin은 external fallback으로 숨기지 않는다. 승인된 external-only 판정만 `path:null`이다. LuvDia domain/alias는 추측하지 않았다.
+
+기존 notice manager/form, `AuthenticatedImage`, member profile에서 공통 `useAuthenticatedImages`를 계속 소비한다. Hook은 자체 API resolver와 검증된 같은-site 상대 Blob path에만 Bearer를 보내고 redirects를 거부한다. Relative authority trick 및 공백을 포함한 canonical raw URL도 처리한다. Raw DTO/source/sealed URL은 바꾸지 않는다. 실제 external 판정은 원래 img URL을 유지한다. Blob abort/revoke 동작도 유지한다. Owning classifier는 backslash로 authority를 바꾸는 상대 URL을 추가로 거부한다.
+
+Genuine UI 증거: 기존 task UI fixture `.tmp/sul36-task42-ui-otw`에 0113/0114만 incremental apply 했다. 기존 Vite session `91626`, PID `31120`→parent `50900` run-site dev, localhost:5173 및 같은 Chrome profile의 실제 관리자 session을 확인했다. 오래된 탭은 없어 새 task tab `2007445036`에서 `/admin`→콘텐츠→공지로 진입했다. 로그인/token을 만들거나 추출하지 않았다.
+
+로컬 fixture setup `.tmp/sul36-fix1-ui-fixture.mjs`는 explicit OTW config/persist, `remoteBindings:false`, `envFiles:[]`로 기존 테스트 upload의 실제 bytes를 새 독립 logical key에 넣고 archived 공지 id5를 준비했다. 이는 기존 stored absolute URL 상황을 만드는 **setup**이며 정상 UI create/upload 증거라고 주장하지 않는다. 원래 notice4/upload와 source/legacy/private inputs는 유지했다.
+
+- Raw URL: `https://otw-schedule.info/r2-assets/notices/thumbnails/task43-fix1-archive-absolute.webp`.
+- 정상 `공지 이미지 보기` 클릭 후 `blob:http://localhost:5173/1c13061b-7026-41b3-a781-fab0380c72b2`, `complete:true`, 실제 `480×479` decode 및 전체 화면 screenshot 관찰.
+- D1 id5 `content_access=admin_archive`, `image_urls`와 index `raw_url`의 절대 원문 보존, origin `https://otw-schedule.info`, path `/r2-assets/notices/thumbnails/task43-fix1-archive-absolute.webp`.
+- 실제 로컬 R2: **31,446 bytes**, SHA-256 `3632eaf65e4cf69538e614d2939a4b4724c610af3544e33471ec0be49d4ad10d`, upload-version `40d86c4a175f7a62ee301e7d8d39b0c4`.
+- 같은 로컬 asset의 비인증 직접 GET: **401**, `Cache-Control: private, no-store`, body `Login required`.
+- 증거: `.tmp/sul36-4-3-fix1-ui-readback.json`, `...ui-browser-observation.json`, `...ui-fixture.log`, `...ui-public-denial.log`. Screenshot은 CUA 관찰에 출력되었으며 파일로 export했다고 주장하지 않는다.
+
+Controlled route integration의 actual D1/R2/admin/member/JWKS fixture 및 unit external zero-Bearer는 보조 증거다. Genuine UI 증거와 구분한다. 외부 provider에 실제 요청하지 않았고 actual LuvDia login도 하지 않았다. 종전 정상 upload→Blob→save 증거는 원래 보고대로 유지되며 이번 UI 증거는 **stored own absolute archived image open/read**를 검증한다.
+
+### I3/I4: sealed history 최종 fence와 SQL/parser 일치
+
+`sealedFileReferencesResolvedSql`은 현재 행과 별도로 sealed journal의 required baseline/replay before/after 이미지에서 notice JSON image URLs, thumbnail, member profile image, Naver thumbnail을 읽는다. Approved member/classification scope 및 exclusions를 유지한다. 현재 notice를 고치거나 삭제해도 과거 미분류 URL은 지워지지 않는다.
+
+처음에는 이 predicate를 큰 기존 CAS UPDATE에 결합했으나 실제 D1이 `SQLITE_NOMEM`을 냈다. 같은 predicate의 독립 SELECT(7,116 bytes)는 valid=1이었다. Controller 승인대로 **같은 `db.batch`**의 read-only guard SELECT 뒤 기존 exact CAS UPDATE로 분리했다. Missing/NULL/invalid는 coalesce→의도적 JSON 오류로 batch를 abort한다. Guard는 exact transition/site/resource/generation/protocol/revision/digest를 검사하고 기존 UPDATE의 readiness/phase/fence/checkpoint/manifest CAS와 최종 rowcount/readback은 유지한다. 별도 pre-read 이후 mutation으로 transaction을 끊거나 관측용 쓰기/새 permission을 만들지 않았다. 내부 SQL 오류는 기존 manifest/conflict 진단으로 변환한다.
+
+Actual D1: 미분류 URL의 정상 저장→정상 수정 또는 삭제→fence 거부→승인된 append-only origin 추가→**같은 baseline/header와 원래 sealed journal** export/replay 성공. Source raw/history readback 동일, target 실제 최종행 일치. Fence batch 직전 competing normal commit이 잘못된 URL을 저장하고 삭제하는 late-history race도 guard가 발견한다. Fence/frozen control은 rollback하고 이미 완료된 정상 competing outcomes는 보존하며 이후 일반 source write도 계속된다. 기존 stale-readiness/checkpoint/revision/fence 경쟁 회귀도 통과했다. Inventory 원래 seal은 이후 append-only revision을 수용해도 바뀌지 않고 target의 같은 seal로 receipt를 받는다.
+
+SQL `urlPathSql`은 빈 segment와 trailing slash를 보존하고 dot segment/1회 decode/query·fragment 제거를 owning parser와 맞춘다. `/profile//bing_hayu.webp`, `/profile/bing_hayu.webp/`, `/r2-assets/notices//thumbnails/a.webp`는 actual final fence에서 거부된다. Valid encoded/dot/query URL은 actual D1 index와 owning parser가 같은 path를 낸다. Allowlist/auth를 넓혀 SQL을 통과시키지 않았다. 적용된 0000–0112는 불변이며 새 0114의 rebuild/capture/retention/final consumers가 같은 helper를 사용한다.
+
+### 실행 증거 — 실제 RED, 원래 오류, GREEN
+
+아래 모든 Node/pnpm 실행은 먼저 `$env:PATH="$PWD/.tmp/node-runtime/node-v24.20.0-win-x64;$env:PATH"`를 설정했다. 편의상 `CT=worker/features/content-transition/infrastructure/d1-transition.integration.test.ts`, `AV=worker/features/assets/infrastructure/file-availability.integration.test.ts`, `FR=worker/features/assets/infrastructure/file-recovery.integration.test.ts`, `AA=worker/app/archive-access.integration.test.ts`로 표기한다. 표의 해당 이름은 실제 명령에서 전체 path로 전달했다. 로그는 `.tmp/sul36-4-3-fix1-<이름>.log`다. 서로 다른 회차를 하나의 전체 suite PASS로 합산하지 않는다.
+
+| 실제 명령/경계 | 결과·exit | 로그 |
+| --- | --- | --- |
+| `pnpm exec vitest run --config vitest.worker.config.ts CT FR -t 'fix1 rejects unresolved sealed\|fix1 rejects noncanonical slash\|SQL URL identity'` | 의도된 RED **6 FAIL/65 skip**, exit1: history2, slash3, SQL parity1 | `history-path-red` |
+| `pnpm exec vitest run src/shared/ui/authenticated-image.test.tsx -t 'stored own absolute'` | 의도된 RED **1 FAIL/1 skip**, exit1: raw absolute src가 그대로 노출 | `absolute-blob-red` |
+| `pnpm exec vitest run --config vitest.worker.config.ts AV -t 'real unmanaged'` 초기 회차 | alias `t.id`, 뒤의 두 NOMEM 실패는 setup/SQL 구현 오류이며 I1 intended RED가 아님 | `unmanaged-red`, `unmanaged-red-corrected`, `unmanaged-red-corrected2`, `sealed-diagnostic` |
+| 같은 unmanaged 회귀, SQL guard 분리 후 | 의도된 RED **2 FAIL/1 skip**, exit1: notice `Missing committed captured file reference`, implicit background target 미존재인데 installation 성공 | `unmanaged-red-corrected3` |
+| 새 inventory 첫 실행 | depth100 arm guard 실패; MATERIALIZED row guard로 수정. 다음 회차 실제 성공의 void 반환을 `toBeDefined`로 검사한 fixture 오류를 `toBeUndefined`+installation readback으로 수정 | `unmanaged-green-attempt1`, `unmanaged-green-attempt2`, 각 exit1 |
+| boundary scoped run(AV/CT/FR의 해당 fix1/SQL case) | **8 PASS/66 skip**, exit0 | `boundaries-attempt1` |
+| `pnpm exec vitest run --config vitest.worker.config.ts AA -t 'absolute'`의 resolver case | actual D1/R2 **1 PASS/21 skip**, exit0 | `resolver-d1` |
+| inventory/history/fence 첫 조합 | **4 FAIL/18 PASS/36 skip**, exit1. release boolean 의미 오해, old fixture bucket 두 건, `.run`→`.batch` 변경 후 race matcher 미주입을 수정 | `inventory-history` |
+| 수정한 같은 조합 | **23 PASS/36 skip**, exit0 | `inventory-history2` |
+| `pnpm exec vitest run --config vitest.worker.config.ts AV FR CT AA` | **96 PASS/2 FAIL**, exit1. 두 실패는 guard의 malformedJSON을 기존 manifest/conflict 진단으로 반환하지 않은 문제; owning catch 수정 | `d1-final` |
+| `pnpm exec vitest run --config vitest.worker.config.ts AV CT worker/features/content-transition/infrastructure/file-inventory-schema.integration.test.ts` | **60 PASS**, exit0. CT 전체, inventory, populated apply/rollback | `d1-final2` |
+| `pnpm exec vitest run --config vitest.worker.config.ts AV CT -t 'fix1'` | 최종 baseline seal/plan/revision/append-lineage 및 history guard **21 PASS/38 skip**, exit0 | `seal-final` |
+| `pnpm exec vitest run --config vitest.worker.config.ts AV -t 'real unmanaged'` | 추가 실제 기존 reader/listing **2 PASS/2 skip**, exit0 | `legacy-readers` |
+| `pnpm exec vitest run --config vitest.worker.config.ts AV -t 'real unmanaged notice'` | 15행 초과의 old page 재전송 intended RED **1 FAIL/3 skip**, exit1: `Inventory page predecessor mismatch` | `inventory-resume-red` |
+| `pnpm exec vitest run --config vitest.worker.config.ts AV` | old-page zero-write, missing/conflicting/future/partial, 정상 readback 포함 최종 **4 PASS**, exit0 | `inventory-resume-green` |
+| `pnpm exec vitest run --config vitest.worker.config.ts worker/features/content-transition/infrastructure/retention.integration.test.ts` | **5 PASS**, exit0 | `retention` |
+| `pnpm exec vitest run src/shared/ui/authenticated-image.test.tsx worker/features/assets/domain/file-reference.test.ts worker/app/routes.test.ts worker/features/content-transition/domain/disposition-registry.test.ts` | **23 PASS**, exit0. 이전 route fixture의 새 endpoint 누락/기존 stale immutable-cache 기대 실패는 `unit-final`(exit1,1FAIL28PASS)에 보존 | `unit-final2` |
+| `pnpm exec vitest run worker/features/assets/domain/file-reference.test.ts worker/features/content-transition/infrastructure/file-inventory-statements.test.ts` | **3 PASS**, exit0; 0114 generator byte parity/100KB guard | `parity` |
+| `pnpm exec vitest run src/shared/ui/authenticated-image.test.tsx` | trimmed raw/own absolute/external zeroBearer/authority trick/Blob cleanup **3 PASS**, exit0 | `blob-final` |
+
+일부 Worker 회차에 pool worker 종료 timeout warning과 binary fixture의 `.text()` warning이 출력됐다. 위 실제 exit/test verdict를 그대로 기록하며 warning을 runtime/운영 성공 증거로 해석하지 않는다. 마지막 inventory 회차는 4 PASS/exit0이며 R2 body는 arrayBuffer SHA readback으로 확인했다. 초기 TS1294(parameter property)와 존재하지 않는 cleanup method fixture 오류는 `types-attempt1/2` exit1에 보존했고 수정했다. 초기 lint의 test `do…while(true)` 한 건도 `lint` exit1에 남기고 정상 `for` 루프로 수정했다.
+
+### Migration·정적 검사·보존·비용
+
+- `pnpm drizzle:generate` → 0113, `pnpm drizzle:generate:custom --name asset_file_inventory_guards` → 0114, 각각 exit0(`generate`, `generate-custom`). Canonical generator로 0114를 작성했다. 이후 적용본 수정 없음.
+- `node scripts/d1-reset-local.mjs --site=otw --persist-to=.tmp/sul36-task43-fix1-chain-otw --validate-only` 및 `--site=luvdia --persist-to=.tmp/sul36-task43-fix1-chain-luvdia --validate-only`: 각각 실제 임시 D1 전체 **114 migrations**, exit0(`chain-otw`, `chain-luvdia`). Existing source/legacy reset 없음.
+- `node scripts/d1-migrate-local.mjs --site=otw --persist-to=.tmp/sul36-task42-ui-otw`: 기존 UI fixture에 pending **0113/0114만** apply, exit0(`ui-migrate`). Selected local `otw_db`/config/persist 로그 보존. Populated ordinary notice 원문 보존, 고의 실패시 whole migration batch rollback, 재적용 후 raw 보존/index parser 갱신/FK check는 actual D1 `file-inventory-schema.integration`에서 PASS.
+- `node scripts/d1-doctor.mjs --site=otw --persist-to=.tmp/sul36-task42-ui-otw --skip-api --skip-remote`: exit0(`ui-doctor`), blocking failure 없음.
+- 최종 `pnpm drizzle:generate`: `No schema changes, nothing to migrate`, exit0(`nodiff`). `_journal`/113·114 snapshots 포함. 0000–0112 SQL/snapshot의 normalized Git blob **223/223 동일**: `.tmp/sul36-4-3-fix1-migration-preservation.json`.
+- 0114 owning generator parity **241 statements**, 최대 **94,554 bytes**, 100KB 이하. 적용 SQL을 cosmetic 편집하지 않았다.
+- `pnpm architecture:check`: exit0(`architecture-final`). `pnpm typecheck:test`: exit0(`types-closeout`); 마지막 Worker seal/resume 변경 후 `pnpm exec tsc -p tsconfig.worker.json --noEmit`도 각각 exit0(`seal-types`, `resume-types`). Changed `.ts/.tsx`만 `pnpm exec eslint <명시 소유 목록>` exit0(`lint-final`); 이후 변경 파일 targeted lint도 exit0(`seal-lint`, `resume-lint`). Canonical rule/sync 입력은 이번 fix에서 바꾸지 않았으므로 이전 sync PASS를 반복하지 않았다. Common suite/preflight, unchanged blocked production build도 반복하지 않았다.
+- 기존 4 legacy files SHA/size **모두 동일**: `.tmp/sul36-4-3-fix1-legacy-final.json`. Main 16,019,456 bytes `b26320f8…e281`, metadata 4,096 bytes `4c34b48e…b9d`, shm 32,768 bytes `ef7eb207…18d5`, wal 12,392 bytes `cabcfbef…e3f`. 이것은 원격 R2 무변경 증거가 아니다.
+- Actual protect fixture: **18 statements, 4,264 rows read, 72 rows written**. Earlier 4,263 결과와 구분한다. 정상 capture의 small/1,000 unrelated 비교는 둘 다 **88 reads/17 writes**. File-index ordinary query는 **256→260 reads/1 write**. Selected 1,000-row baseline 및 큰 fanout의 기존 영향 검사도 로그에 그대로 있다. 전체 snapshot 재구축·관측 heartbeat write를 ordinary writer에 추가하지 않았다. Production inventory 크기·총 hold 보관량·Worker/R2/D1 quota와 비용 판정은 운영 gate로 남는다.
+
+### Self-review, concerns, handoff
+
+Self-review에서 current-row/history 불일치, arm/claim 경쟁, original baseline seal을 target header가 대체할 가능성, append-lineage, 오래된 page retry, 실제 implicit background reader, admin-before-metadata, arbitrary-origin Bearer 차단, SQL/parser strictness, source-only registry/capture exclusion, old migration/legacy 보존을 직접 추적했다. 같은 D1 transaction 및 authoritative R2 body/readback으로 경계를 확인했다. Fixture를 통과시키려고 정상 writer를 중지하거나 source raw/authority를 바꾸지 않았다.
+
+`git diff --cached --check`의 최종 실제 결과는 **exit2**다. 새 적용 `0114_asset_file_inventory_guards.sql:523,553` 두 줄(각 네 공백)이 기존 generator에서 재현됐다. 최초 check의 source `.ts` EOF blank는 제거했지만 적용 SQL byte parity는 유지했다. Controller가 보존을 지시한 기존 `0112:513,542` M1도 그대로 남는다. **Pristine diff-check PASS라고 보고하지 않는다.** 두 migration의 cosmetic 재작성/추가 cosmetic migration은 하지 않았다. 실행/데이터 의미 위험은 낮으며 fix 재리뷰와 전체 리뷰에 전달한다.
+
+Production build는 종전 Clerk key/issuer identity 불일치로 artifact 생성 전 exit1인 상태이며 이번에 입력을 바꾸거나 우회하지 않았다. Actual LuvDia login/domain, production resource/binding/deployment identity, provider/account/quota/CDN/direct bucket closure, 전체 writer/ingress(4.4)와 operator orchestration(4.5)은 검증·구현 완료로 주장하지 않는다.
+
+운영 upload 사고는 별도 미해결이다. 이번 writer fix round의 후속 remote IO는 0이다. Root가 별도 사용자 허가로 수행한 7 GET은 현재 200/총14,215,562 bytes/사고 input hash-size 일치이며 마지막 저장 시각은 중단 기록 뒤였다. 이는 사고 전 bytes/version, 실제 upload-version(GET에 없음), CDN/사용자 영향을 증명하지 않는다. 새 local PASS·import guard로 사고를 상쇄하거나 종결하지 않는다. Root의 incident/ruling/ledger 문서는 이 commit에 포함하지 않았다.
+
+첫 코드 commit의 exact owned list는 `.tmp/sul36-4-3-fix1-owned-code.txt`와 `git show --name-only 55a5e3f`다. `contracts` 3, `db/schema/index.ts`, 새 SQL 2/snapshot 2/journal, hook/Blob test, app routes/composition/auth integration, assets owning resolver/inventory/availability/handler/tests, transition baseline/repository/index/registry/retention/history/generator/tests, URL SQL helper를 포함한다. 후속 `9bd630c`는 assets의 availability/inventory/integration test 및 content-transition의 file-availability port/index 5개만 포함한다. Root SUL 문서/ledger와 unrelated AI 문서, private inputs, `.tmp`/`.wrangler`는 staging에서 제외했다. 이 보고서만 별도 evidence commit으로 추가한다.
+
+### 최종 포트 보완: source fence 이전의 실제 복사
+
+Controller의 마지막 caller audit에서 `55a5e3f`의 inventory export/receive가 final `fence_json`을 필수로 요구해 최초 파일 복사를 source fence 이후에만 허용한다는 공백을 확인했다. 그 commit만으로 I1의 전체 최종 포트가 완성됐다는 초안 판단을 정정한다. 초기 복사에 미래/가짜 fence를 넣거나 고정 4.1의 prepared target 권한을 넓히지 않았다. 새 wire/schema/permission/owner/actor도 추가하지 않았다.
+
+최종 `BaselineFileInventoryContext {plan, manifestRevision}`는 content-transition 내부 port 타입이며 기존 `FileAvailabilityContext`는 여기에 실제 `SourceFence`를 필수로 추가한다. App의 기존 `buildFileAvailability`가 반환하는 동일 owning adapter에 위 세 초기 메서드를 공개했다. 초기 entry는 현재 D1의 exact local site/resource/plan/revision, source protected/copying/replaying/target_ingress_ready 또는 target target_ingress_ready, **fence_json IS NULL**을 확인한다. Inventory engine은 source의 original sealed baseline commit 또는 target의 실제 저장된 baseline boundary/header 및 승인 lineage를 검증한다. 수신 시 현재 plan/revision/resource/fence와 page predecessor는 row insert/progress update와 **같은 D1 batch**에서 검사한다. JSON guard 오류는 `Inventory page context/predecessor conflict`로 전달되고 batch 전체가 rollback한다. Old exact page retry는 기존 read-only 검증을 유지한다.
+
+실제 순서는 다음과 같다.
+
+1. Source prepare→explicit arm→실제 unmanaged notice+implicit background body/hash/upload-version 관찰→protect와 원래 baseline/seal을 같은 transaction에서 확정→beginCopy.
+2. Target `openIngress`로 durable receiving만 준비한다. 이는 target 최종 business 실행이나 source fence 허가가 아니다. Source는 ACK/fence 전까지 final writer다.
+3. Source 원래 baseline header와 early inventory page를 export한다. Target `beginBaseline`으로 원래 header를 고정한 뒤 page를 수신하고, page의 실제 source R2 body를 target local bucket에 복사한다. Target own body/hash/size를 early verifier로 읽는다. 누락·wrong bytes는 거부한다. 초기 검증은 **final evidence 0건**, installation 없음이다.
+4. Inactive baseline을 기존 stage/materialize/finalize 포트로 설치하고 source beginReplay 후 실제 `schedules.save` codec admission→readExecutableCommand→같은 source final-owner commit을 수행한다. 이를 기존 exportProjectedCommits→installProjectedCommit으로 replay하며 target UID 11과 원래 title을 읽는다. 이 시점 양쪽 `fence_json`은 NULL이다.
+5. 최신 승인 revision의 compatible/미만료 target readiness를 기존 openIngress renewal로 얻고 source acknowledgeIngress→freeze→target installFence를 수행한다. 그 뒤 exact fence의 source static body proof와 target final legacy/managed/static verifier를 소비하는 installCommittedState가 성공한다. 새 early port는 fence 후 거부된다. 기존 최종 tail/checkpoint/frozen TRANSFER/activation 의미를 바꾸지 않았다.
+
+실제 경쟁은 target page batch 직전에 정상 `acceptManifestRevision`을 실행했다. 이전 context의 read 검증 뒤라도 row insert/cursor 진행이 전부 rollback했고 `staged_rows=0`, inventory row count=0을 읽었다. 새 approved origin revision context에서 같은 원래 header/page를 재전송하자 통과했으며 source describeBaseline 및 원래 inventory header는 변하지 않았다. Missing target baseline, forged inventory id, stale revision, 다른 bucket도 거부했다. Source/target upload-version은 별개이고 기존 body hash/size 계약은 같다. D1/R2 분산 원자성이나 현재 target listing이 원본 승인이라는 주장은 하지 않는다.
+
+검사 환경은 동일한 pinned Node24.20.0 + 실제 local D1/R2 Worker runtime이다. 다음 로그는 `.tmp/sul36-4-3-fix1-<suffix>.log`이며 원래 오류를 보존했다.
+
+| 명령/회차 | 실제 결과 | suffix |
+| --- | --- | --- |
+| `pnpm exec vitest run --config vitest.worker.config.ts worker/features/assets/infrastructure/file-availability.integration.test.ts -t "before source fence"` | **RED**, exit1,1FAIL4skip: `exportBaselineInventoryPage is not a function`; 실제 missing port | `early-red` |
+| 같은 focused 명령, 첫 구현 | exit1,1FAIL4skip: fixture 직접 notice UPDATE가 `content_transition_final_owner_required`에 거부됨. Guard는 그대로 두고 실제 schedules.save admission/command/final commit으로 수정 | `early-green-attempt1` |
+| 위 파일 전체 | exit1,**4PASS1FAIL**: early flow는 PASS, 다음 기존 test에 새 schedule이 남아 baseline version conflict. Task-owned test DB의 beforeEach cleanup에 schedules를 추가 | `early-green` |
+| 위 파일 전체, fixture 교정 | exit0,**5PASS** | `early-final` |
+| 위 파일 전체, same-batch approved revision 경쟁/원래 seal resume 추가 후 | exit0,**5PASS**, 최종 코드. Protect cost 18 statements/4,264 reads/72 writes는 동일 | `early-race-final` |
+| `pnpm typecheck:test` | exit0 | `early-types` |
+| `pnpm exec tsc -p tsconfig.worker.json --noEmit` (마지막 race test/catch 변경 후) | exit0 | `early-race-types` |
+| 명시된 5개 변경 코드 `pnpm exec eslint ...`; 마지막 변경 inventory/test 두 파일만 재검사 | 각각 exit0 | `early-lint`, `early-race-lint` |
+| `pnpm architecture:check` | exit0 | `early-architecture` |
+
+후속 5파일의 staged diff check는 exit0이며 이전 0112/0114 적용 SQL의 전체 범위 diff-check exit2를 해소했다는 뜻은 아니다. 이 보완은 schema/migration/config/UI를 바꾸지 않았으므로 이미 끝난 양쪽 chain/no-diff/실제 absolute-image UI와 독립 검사를 반복하지 않았다. 실제 production build, LuvDia auth, 운영 사고의 현재/과거 확인 한계는 위에 적은 그대로다. 코드 self-review는 초기/최종 포트 분리, 실제 source live writer, target 수신 준비와 final ownership 구분, same-batch revision 경쟁, original seal/old-page idempotency, final fence 불변을 확인했다.
+
+**DONE: Task4.3 fix round1 구현·로컬 증거 인계. Controller 재리뷰 대기; Task4 전체 미완료, 4.4 시작 금지.**
