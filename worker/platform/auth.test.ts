@@ -34,6 +34,7 @@ const makeEnv = (overrides: Partial<Env> = {}): Env =>
     CLERK_ISSUER: ISSUER,
     CLERK_JWKS_URL: JWKS_URL,
     CLERK_ADMIN_IDS: "user_admin",
+    CLERK_AUTHORIZED_PARTIES: "https://example.com",
     otw_db: {} as D1Database,
     ...overrides,
   }) as Env;
@@ -86,6 +87,7 @@ describe("worker auth", () => {
     const payload = base64UrlEncode(
       JSON.stringify({
         iss: ISSUER,
+        azp: "https://example.com",
         sub: "user_admin",
         sid: "session_1",
         name: "Admin User",
@@ -175,7 +177,7 @@ describe("worker auth", () => {
   });
 
   it.each([
-    ["missing", {}],
+    ["missing", { azp: undefined }],
     ["foreign", { azp: "https://attacker.example.com" }],
   ])("rejects a token with a %s authorized party", async (_case, claims) => {
     const token = await signToken(claims);
@@ -189,6 +191,19 @@ describe("worker auth", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.response.status).toBe(401);
+    }
+  });
+
+  it.each([undefined, "", " \t "])("fails closed without a usable authorized-party configuration: %j", async parties => {
+    for (const azp of [undefined, "https://attacker.example.com"]) {
+      const bearer = await signToken({ azp });
+      const request = new Request("https://example.com/api/settings", { headers: { Authorization: `Bearer ${bearer}` } });
+      const env = makeEnv({ CLERK_AUTHORIZED_PARTIES: parties });
+      const result = await authenticateRequest(request, env);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.response.status).toBe(500);
+      expect(await authenticateOptionalRequest(request, env)).toBeNull();
+      expect(fetch).not.toHaveBeenCalled();
     }
   });
 

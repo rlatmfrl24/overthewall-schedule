@@ -3,7 +3,7 @@ import { workerRouteRegistry } from "./routes";
 import { createSiteSeoHandler, rewriteSiteContent, siteContentUnavailable } from "../features/seo";
 import { isSiteContentPath } from "@contracts/site-public-content";
 import { createSiteSeoDependencies } from "./site-seo";
-import { getWorkerSiteDefinition } from "../platform/site";
+import { getWorkerSiteResources } from "../platform/site";
 
 const handleSiteSeo = createSiteSeoHandler(env => createSiteSeoDependencies(env).seo);
 
@@ -77,6 +77,7 @@ export const handleWorkerFetch = async (
   const url = new URL(request.url);
 
   try {
+    const { site } = getWorkerSiteResources(env);
     const seoResponse = await handleSiteSeo(request, env);
     const contentPath = url.pathname.replace(/\/+$/, "") || "/";
     if (isSiteContentPath(contentPath) && (!seoResponse || seoResponse.status === 200)) {
@@ -89,7 +90,7 @@ export const handleWorkerFetch = async (
           const source = request.method === "HEAD" && seoResponse ? await handleSiteSeo(assetRequest, env) : seoResponse;
           const asset = source ?? await env.ASSETS!.fetch(new Request(new URL("/", request.url), { method: "GET" }));
           if (asset.status !== 200) return asset;
-          const response = rewriteSiteContent(asset, content, getWorkerSiteDefinition(env));
+          const response = rewriteSiteContent(asset, content, site);
           return request.method === "HEAD" ? new Response(null, response) : response;
         }
       } catch (error) { console.error("[site-content] HTML failed", error); const response = siteContentUnavailable(); return request.method === "HEAD" ? new Response(null, response) : response; }

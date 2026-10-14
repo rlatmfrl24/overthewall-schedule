@@ -165,7 +165,7 @@ const getAuthConfig = (env: Env) => {
     ? parseAuthorizedParties(configuredAuthorizedParties)
     : null;
 
-  if (!jwksUrl || !issuer || (configuredAuthorizedParties && !authorizedParties)) {
+  if (!jwksUrl || !issuer || !authorizedParties) {
     return null;
   }
 
@@ -254,9 +254,8 @@ const verifyAudience = (claim: unknown, expectedAudience: string | null) => {
 
 const verifyAuthorizedParty = (
   claim: unknown,
-  authorizedParties: string[] | null,
+  authorizedParties: string[],
 ) => {
-  if (!authorizedParties) return true;
   const party = getStringClaim(claim);
   if (!party) return false;
   const normalized = normalizeAuthorizedParty(party);

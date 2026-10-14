@@ -444,6 +444,7 @@ describe("x worker service", () => {
     const payload = base64UrlEncode(
       JSON.stringify({
         iss: AUTH_ISSUER,
+        azp: "https://example.com",
         sub: "user_admin",
         sid: "session_1",
         name: "Admin User",
@@ -476,6 +477,7 @@ describe("x worker service", () => {
       CLERK_ISSUER: AUTH_ISSUER,
       CLERK_JWKS_URL: AUTH_JWKS_URL,
       CLERK_ADMIN_IDS: "user_admin",
+      CLERK_AUTHORIZED_PARTIES: "https://example.com",
       otw_db: db,
       ...overrides,
     }) as Parameters<typeof handleXPosts>[1];
