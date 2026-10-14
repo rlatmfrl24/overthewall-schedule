@@ -4,6 +4,8 @@
 
 사용자가 허용한 범위는 공통 코드·사이트별 분리 구현과 로컬 검증이다. 도메인 의존 작업, 운영 데이터 이관, Cloudflare/Clerk 자원 생성, 배포·push·PR·merge는 실행하지 않는다. 별도 LuvDia Clerk development 앱은 없으며 실제 로그인 검증은 설정 준비 뒤로 미뤘다.
 
+**허용 범위 위반 사고:** Task4.3의 CLI 테스트 import가 기존 최상위 원격 업로드를 실행했다. 로컬 로그에서 운영 `otw-schedule` R2 업로드 완료 6개·완료 여부 미확인 1개를 확인하고 실행을 중단했다. LuvDia 대상 밖의 경로도 포함됐다. 이후 사용자가 허용한 7개 경로의 읽기 전용 GET에서 모두 현재 크기·hash가 입력과 일치했고 마지막 파일도18:55:28 수정 시각을 확인했다. [경로·해시·중단·읽기 결과·미확인 영향](operational-upload-incident.md)을 별도로 기록했다. 추가 업로드·복구·삭제는 하지 않았다. 실제 업로드 version과 사고 전 파일·이용자 영향은 미확인이다. 아래 코드·로컬 검사나 현재 입력 일치가 사고 전 파일 보존·무해함의 증거는 아니다.
+
 설계와 전체 작업 범위는 [확정 설계](../../superpowers/specs/2026-10-13-luvdia-independent-deployments-design.md)와 [구현 계획](../../superpowers/plans/2026-10-13-luvdia-independent-deployments.md)을 따른다. 아래 커밋은 완료된 검증의 코드 범위를 식별하며, 이후 미완료 변경의 검증을 대신하지 않는다.
 
 ## 완료된 코드 범위
@@ -37,7 +39,7 @@
 
 ## 진행 중인 범위
 
-Task4는 ① schema·출처·원자적 포착과 인계 기반, ② 관리자 보관의 전체 reader 경계, ③ 보존·파일, ④ 모든 저장·수집 경로와 무중단 인계, ⑤ 도구·통합 검증으로 나눠 순서대로 구현·리뷰한다. ①은 `944d9f73..1e886c86`, ②는 `e2a6b2f4..50ea41a9`의 코드·영향 범위 검증·독립 리뷰를 완료했다. ③–⑤는 남아 있으므로 Task4 전체는 미완료다.
+Task4는 ① schema·출처·원자적 포착과 인계 기반, ② 관리자 보관의 전체 reader 경계, ③ 보존·파일, ④ 모든 저장·수집 경로와 무중단 인계, ⑤ 도구·통합 검증으로 나눠 순서대로 구현·리뷰한다. ①은 `944d9f73..1e886c86`, ②는 `e2a6b2f4..50ea41a9`의 코드·영향 범위 검증·독립 리뷰를 완료했다. ③은 첫 독립 리뷰의 중요4건을 `9d990e41..f37b966b`의 두 코드 커밋과 보고서로 수정·검증한 뒤 첫 재리뷰 중이다. ③의 재리뷰와 ④–⑤가 남아 있으므로 Task4 전체는 미완료다.
 
 ①은 빈 대상 DB의 준비→세 사람의 baseline 생성, 같은 batch의 변경 포착·재생·실패 rollback, 미소유 대상 행의 충돌 거부, 부분 page 재개, 출처 자료의 기존 관리자 DTO 열람을 연결했다. source의 보관 접근 정책은 business 복제에서 제외하고 target은 원래 공개·회원·관리자 제한을 유지한다. 다른 멤버는 새 roster에 추가하지 않고 봉인한 원본 사실에서 과거 크레딧을 보존한다. 이관 접수 ACK와 최종 저장 결과, 양쪽의 파일 관측은 각각 구분한다.
 
@@ -65,13 +67,37 @@ Task4는 ① schema·출처·원자적 포착과 인계 기반, ② 관리자 �
 
 ②의 정상 화면 확인은 실제 기존 OTW Clerk 세션을 사용했다. 새 사이트별 임시 상태 `.tmp/sul36-task42-ui-otw`에서 103개 migration을 재생한 뒤 `/admin/content`로 진입해 보관 일정·프로필 조회, 보관 D-Day의 수정·삭제 비활성화, 일반 D-Day 수정 저장을 확인했다. 실제 해당 D1 읽기에서 일반 항목의 새 제목·`normal`과 보관 항목의 원문·`admin_archive`가 유지됐고 공개 홈에는 일반 항목만 표시됐다. 인증 fixture 결과와 별도로 기록하며 기존 source·legacy 상태나 실제 LuvDia 로그인 검증으로 확대하지 않는다.
 
-Task5의 사이트별 배포/CI guard·schema 호환·유지보수 절차와 최종 공통 검사·전체 변경 독립 리뷰도 남아 있다. 운영 명령은 실행하지 않는다.
+③은 immutable 파일 version·참조·ACK·미확정 작업 복구와 cleanup claim, 기존15분 해제 유예, 보관 자료의 expiry/registry 보호, 승인 origin·파생 참조 index, 인증 자산 접근을 연결했다. 양 사이트의 실제 numbered migration112개 전체 적용과 지원 증분 적용, 기존6개 business table·legacy4파일의 보존을 확인했다. 최종 schema에서 실제 기존 OTW Clerk 관리자 공지 업로드→draft/saved Blob480×479→공지4 저장→D1/index/ACK→로컬R2 본문31,446bytes·SHA-256 일치까지 도달했다. 이는 새 LuvDia 로그인이나 운영 파일 복사의 증거가 아니다.
+
+③의 영향 범위 검사는 조합 증거다. 파일 복구 실제D1/R2 15건, 최종 projection·image11건, D1 baseline/replay/origin5건과 availability1건, 타입·lint·architecture·sync·양 사이트doctor/typegen을 통과했다. CT/retention/availability 회차는54PASS/1fixture SQL matcher 불일치였고 수정된 관련 race2건이 별도로 통과했다. 원래55건 전체가 한 번에 통과했다고 표시하지 않는다. 독립 ASSETS 증거는 별도3runtime의 실제 body 검증이며 공유 storage 회차의 독립 binding 판정은 철회했다. 실제 runtime·fixture·genuine UI 범위를 구분해 독립 리뷰한다.
+
+③의 production build는 기존 Clerk key·issuer 불일치 guard에서exit1로 종료했고 산출물은 생성되지 않았다. 최종 staged diff 검사도 적용된0112 SQL의 공백 전용513/542행으로exit2였다. 적용된 migration·generator 동일성은 보존했으며 전체 검사가 pristine이라고 표시하지 않는다. 운영 사고는 위 별도 기록대로 미해결이다. 추가 운영 명령은 실행하지 않는다.
+
+③의 첫 독립 리뷰는 spec·quality 모두 수정 필요로 판정했다. 중요 문제는 새 managed reference가 없는 기존R2 파일의 가용성·암묵적 background 목록, 승인된 own 절대URL의 관리자 Blob 경로, 현재 행 수정으로 사라지지 않는 과거 봉인 파일URL의 최종 검증, SQL과 owning parser의 중복·마지막 slash 해석 차이다. 기존의 새 파일·상대URL 긍정 검사만으로 이 범위를 충족했다고 처리하지 않으며 네 건을 수정·실제 검증한 뒤 재리뷰한다. 적용된0112 공백 두 줄은 별도 Minor로 전체 리뷰에 전달한다.
+
+③ 첫 수정은 source의 명시적인 prepared 파일 보호·실제 원래 목록 관찰과 같은 protect transaction의 baseline/inventory seal, target 저장 baseline의 원래 seal 대조를 연결했다. 기존 unmanaged notice·암묵적 background를 새 업로드로 만들지 않고 검증하며15행 초과 목록의 이전 page 재전송은 전체 원본·hash가 같을 때 읽기만 수행한다. 초기 파일 복사는 target의 로컬 수신 준비 뒤 원래 seal 기반 port로 진행한다. source의 정상 일정 저장·live replay를 계속하고 최신 readiness ACK·실제 fence 뒤에만 최종 body 증거·installation을 만든 흐름을 확인했다. 실제 가용성 최종5건과 revision 경합의 행/cursor 전체 rollback이 통과했으며 최종 실행 권한을 초기 복사 단계로 앞당기지 않았다.
+
+③ 첫 수정의 실제 기존 OTW 관리자 화면에서는 보관 공지5의 own 절대URL을 정상 이미지 열기로 진입해 Blob480×479 표시를 확인했다. 해당 D1/index의 raw 절대URL을 유지했고 실제 로컬R2의31,446bytes·SHA-256·own upload-version 및 비인증401/private,no-store를 확인했다. 공지·파일 준비는 로컬 fixture setup이며 UI 저장으로 표현하지 않는다. 외부URL Bearer 미전송·row/resource 거부는 별도 보조 검사이고 실제 LuvDia 로그인을 증명하지 않는다.
+
+③ 첫 수정은 두 사이트의114개 migration 전체 적용, 기존223개 적용 artifact·legacy4파일 보존, no-diff·타입·변경 lint·architecture도 확인했다. 원래98건 회차의96PASS/2진단 오류와 이후 관련60건·seal21건·최신 가용성5건 등은 조합 증거이며 단일98건 모두 PASS로 합산하지 않는다. 적용0114의 공백 전용523/553행도 기록하며, 기존0112 두 줄과 함께 전체 diff-check exit2가 남는다. production build·운영 사고·외부 gate의 기존 미완료 상태는 유지한다.
+
+③ 첫 수정 범위 `9d990e41..f37b966b`의 재검토는 중요3건을 해결로 판정했으나 spec·fix quality 모두 수정 필요였다. `/\\foreign.example/../../profile/bing_hayu.webp`를 owning parser는 외부 authority로 거부하는 반면 SQL은 허용하는 잔여 불일치와, 전환 밖 일반 공지의 외부 이미지까지 manifest를 요구한 새 표시 회귀가 남았다. 경로 반례는 실제 함수와 메모리 SQLite의 보조 진단이며 실제 D1 fence 실패 증거로 확대하지 않는다. 기존 전체 기능과 이동·보관 파일의 권한 경계를 함께 유지하도록 두 번째 수정·실제 검증을 진행한다. binary body를 text로 읽은 테스트 경고도 수정 범위에 포함하고 적용 SQL 공백은 낮은 위험의 별도 Minor로 남긴다.
+
+③ 두 번째 수정 코드는 `0d527b33`, 정정 보고서를 포함한 최종 HEAD는 `a1395bf6`다. SQL이 첫 URL 처리→한 번의 decode→authority·잘못된 escape/UTF-8 거부→두 번째 경로 처리를 owning parser와 맞추도록 새0115–0117을 정상 생성했다. 이미 적용한 이전 SQL을 고치지 않았고, 작은 raw/decoded scalar만 고정 계산하여 실제 저장의 NOMEM도 해결했다. 최종 실제 D1 관련6파일122건, 소비자22건, 현재117 생성 SQL 일치1건과 양쪽 지원 CLI의117개 전체 적용이 통과했다. 기존227개 SQL/snapshot·legacy4파일 보존, no-diff·타입·lint·architecture를 확인했다. 앞선118건과 후속 검사를 새로운 고유 건수로 합산하지 않는다.
+
+③ 두 번째 수정의 실제 기존 OTW 관리자 흐름에서는 전환 기록 없이 새 공지 작성→일반 외부URL 미리보기→정상 저장→목록 열기에 도달했다. 최종117 적용 뒤 일반 공지와 보관 own 절대URL의 Blob이 모두480×479로 표시됐고, D1의 raw URL·참조 index와 보관 파일의 R2본문·hash·size·own version을 확인했다. 통제된 로컬 이미지 서버의19개 요청에 Bearer가 없었다. 설정·fixture 준비는 UI 저장 증거와 구분하며 실제 외부 provider·LuvDia 로그인·운영 bucket 검증으로 확대하지 않는다.
+
+③ 두 번째 수정 중 잘못된 fixture·splitter·NOMEM·타입/lint·읽기 보조 오류, 두 CLI bad-port 실패와 첫 UI 저장의 busy snapshot은 원래 기록을 보존했다. 최종117 UI 저장은 첫 시도에 성공했으나 초기 port·lock의 정확한 원인을 격리한 것은 아니다. 최종 staged diff-check만exit0이며 적용0112/0114의 네 공백과 이전 전체 exit2는 그대로 남는다. 같은 리뷰어의 `f37b966b..a1395bf6` 재검토는 spec·fix quality 승인, 잔여3항목 해결·새 중요 문제0이었다. 낮은 위험의 적용 SQL 공백 두 건과 도구·실제 환경의 열린 gate는 유지한다.
+
+최종117 doctor는 **exit1**이다. 성공 줄만 읽고 작성한 최초 PASS 요약을 철회했다. 실패했던5개 PRAGMA를 동일한 선택 config·persist의 실제 CLI로 실행하여 exit0·필수 열 누락0을 확인했지만 전체 doctor 통과의 증거는 아니다. 기존 진단이 child exit·signal·stderr 대신 stdout 배너만 보여 줬고 최초 실행 실패의 원인은 미확정이다. 실제 schema 차이는 관찰되지 않았으며 이 진단 개선과 실제 전체 doctor gate를 Task5에 연결한다. 진단 보완만으로 실패를 해결로 처리하지 않는다.
+
+③의 코드·허용된 로컬 파일 경계는 검토 완료다. ④ 저장·수집 소유권과⑤ 도구·통합 검증, Task5의 사이트별 배포/CI guard·schema 호환·유지보수 절차, 최종 공통 검사·전체 변경 독립 리뷰는 남아 있다. 부분 완료를 전체 Task4·공개 준비 완료로 표시하지 않는다.
 
 ## 종료 때 확인할 항목
 
 - 각 코드 범위의 최종 commit·독립 리뷰·영향 범위 검증 결과와 미해결 사항.
 - 임시 D1에서 두 사이트의 실제 numbered migration 전체 재생, 이관·변경분·권한·파일의 최종 readback.
-- 기존 local DB와 source의 보존, 의도하지 않은 외부 호출·쓰기·배포가 없다는 실행 범위.
+- 기존 local DB와 source의 보존, 실제 실행 범위와 위 운영 R2 사고의 원인 수정·영향 확인·미해결 사항. 외부 쓰기가 없었다고 표시하지 않는다.
 - 마지막 공통 타입·lint·unit/Worker·architecture 검사. PR merge용 preflight는 이번 검증 범위와 구분한다.
 - 실제 LuvDia Clerk 로그인·도메인·격리 자원·운영 규모/한도·실제 Cron/Queue·운영 이관·배포·공개 readback의 미실행 상태.
 

@@ -176,6 +176,10 @@ OTW의 세 사람 관련 보관 자료에는 **관리자 전용 접근 경계**�
 
 원본 쓰기 권한을 닫기 전에 목적지가 해당 전환·다음 소유권 세대·schema/protocol에 맞는 요청을 영속 접수할 준비가 됐다는 증거를 확인한다. 원본 권한 전환은 최종 커밋·checkpoint와 전환 전 접수/파일 의도 집합을 원자적으로 고정한다. 목적지는 이 기준점·필수 파일·미완료 요청의 **책임 인수 확인** 뒤 업무 쓰기를 열며 이전 외부 작업의 **최종 결과 확인**을 기다리지 않는다. 늦게 도착한 원본 결과는 변경 불가능한 실행 증거로 받으며 새 목적지 편집은 버전 검사로 보호한다. 완료는 전환 전 고정 집합만 확인하고 계속 늘어나는 신규 목적지 작업을 기다리지 않는다.
 
+필수 파일의 가용성은 승인된 초기 자료·manifest·포착 참조와 exact transition·generation·fence를 기준으로 실제 내용을 확인한다. 전환 전에 저장된 R2 파일에는 가짜 접수 작업을 만들지 않고 별도의 최소 committed-file 증거를 사용한다. 양 bucket의 실제 업로드 version은 각각 확인하고 bytes의 hash·size로 복사 동일성을 확인한다. 정적 profile·signature는 R2 upload-version과 구분하여 실제 선택된 자산 manifest와 `ASSETS` body의 hash·size를 대조한다. manifest hash·ETag·존재 여부만으로 실제 제공·복사 증거를 대신하지 않는다. 운영 deployment·binding identity 관측은 별도 검증 대상이다. 이 기준은 구현 계약이며 현재 파일 단계의 완료 증거는 아니다.
+
+절대 자산 URL은 승인 plan의 실제 site·bucket origin mapping으로 분류하고 source의 own 참조는 target의 상대 경로로 투영한다. 도메인·별칭을 추측하거나 다른 host의 같은 path를 own으로 바꾸지 않는다. 새 분류의 누락은 전환 진행을 막되 source 정상 저장·수집은 유지한다. 원문이 권한이며 `asset_file_reference_paths`는 인코딩·query·fragment를 해석한 참조 검색 보조다. 같은 business transaction의 명시된 순서로 유지하고 final 참조·삭제 claim·access·fence는 현재 원문과 승인 권한을 확인한다. target에서는 파생 index를 복제하지 않고 재구축하며 봉인한 원본 image·hash는 유지한다. 실제 D1 한도·정합성·비용 검증은 구현·리뷰에서 확인한다.
+
 Clerk development·검증 자원은 해당 검증 전에 준비한다. 실제 Cron/Queue rehearsal은 운영과 격리된 자원을 사용하고, LuvDia production은 실제 도메인·alias·asset 접근을 통제한 상태에서 검증한다. preview URL이나 noindex만으로 실행 격리·비공개를 보장하지 않는다. DNS/TLS·Cron 설정은 사전 준비하고 공개 순간에는 검증된 인계/접근 상태를 전환한다.
 
 2026-10-14 현재 별도 LuvDia Clerk development 앱은 없으며 사용자는 실제 로그인 검증을 설정 준비 뒤로 미뤘다. 코드·로컬 DB 검증은 계속하며 합성 인증 fixture를 실제 로그인 증거로 표시하지 않는다. 도메인은 사용자가 등록 뒤 전달한다.

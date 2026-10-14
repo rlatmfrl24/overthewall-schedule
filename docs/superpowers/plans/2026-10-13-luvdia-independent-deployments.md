@@ -123,7 +123,7 @@ development/검증 자원 준비를 production provisioning 완료의 뒤로 미
 
 ## Task 4: 안전한 DB 구축·선택 이관·도구 대상 일치
 
-**코드·로컬 검증 진행 기록:** 전체 이관 범위는 유지하며, ① schema·출처·원자적 변경 포착, ② 관리자 보관 접근 경계, ③ 보존·파일, ④ 저장·수집 소유권 인계, ⑤ 도구·통합 검증 순서로 구현하고 각각 리뷰한다. ①은 `944d9f73..1e886c86`의 코드·영향 범위 검증과 독립 리뷰를 완료했고, ②–⑤는 남아 있으므로 Task 4 전체 완료 상태가 아니다. 대상의 영속 접수 준비를 원본 쓰기 권한 전환보다 먼저 확인하고, 이전 접수 건의 최종 결과를 기다리는 동안에도 새 대상 작업을 접수·처리하는 계약을 확정했다. 현재 실제 증거와 실패·재검사는 [로컬 검증 기록](../../reports/sul-36/local-implementation-verification.md)에서 갱신한다. 도메인·실제 LuvDia 로그인과 운영 이관·배포는 별도로 보류한다.
+**코드·로컬 검증 진행 기록:** 전체 이관 범위는 유지하며, ① schema·출처·원자적 변경 포착, ② 관리자 보관 접근 경계, ③ 보존·파일, ④ 저장·수집 소유권 인계, ⑤ 도구·통합 검증 순서로 구현하고 각각 리뷰한다. ①은 `944d9f73..1e886c86`, ②는 `e2a6b2f4..50ea41a9`, ③은 `e8ef5aaa..a1395bf6`의 코드·허용된 로컬 검증과 독립 리뷰를 완료했다. ③은 최초 중요4건과 수정 중 잔여·새 회귀를 실제 검증으로 해결했다. 최종 관련122건·양쪽117개 적용과 실제 OTW 화면·저장·파일 읽기를 확인했지만 전체 doctor exit1은 Task5의 열린 gate다. ④–⑤도 남아 있으므로 Task 4 전체 완료 상태가 아니다. 대상의 영속 접수 준비를 원본 쓰기 권한 전환보다 먼저 확인하고, 이전 접수 건의 최종 결과를 기다리는 동안에도 새 대상 작업을 접수·처리하는 계약을 확정했다. 현재 실제 증거와 실패·재검사는 [로컬 검증 기록](../../reports/sul-36/local-implementation-verification.md)에서 갱신한다. 도메인·실제 LuvDia 로그인과 운영 이관·배포는 별도로 보류한다.
 
 **Files:** `scripts/d1-reset-local.mjs`, `d1-doctor.mjs`, `d1-seed-local.mjs`, `d1-local-options.mjs`, `upload-profile-backgrounds-to-r2.mjs`, `package.json`, `drizzle.config.ts`; 관리자 보관을 위한 canonical schema·DTO·해당 reader/API/정적 asset 경계·새 migration; 신규 prepare/import script와 migration tests, 기존 reset/seed guard·doctor tests. 무중단 변경 포착의 추가 경로는 쓰기 목록 조사 후 확정한다. 이관 manifest·검증 SQL은 구현 시 `docs/reports/sul-36/`에 보존한다.
 
