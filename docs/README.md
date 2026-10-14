@@ -46,6 +46,17 @@
 
 ## 증거와 유지보수
 
+[러브다이아 사이트 운영 분리 기술 검토](reports/sul-36/README.md)는 SUL-36의
+공통 코드·독립 배포 선택과 2026-10-13 조사 근거를 정리한다.
+[상세 설계·확정 결정표](superpowers/specs/2026-10-13-luvdia-independent-deployments-design.md)와
+[구현 계획](superpowers/plans/2026-10-13-luvdia-independent-deployments.md)은
+전체 기능 유지·로그인 분리를 반영한 확정 정책과 실행 계획이다.
+승인된 코드·로컬 검증은 진행 중이며, 완료 범위와 남은 검증은
+[로컬 검증 기록](reports/sul-36/local-implementation-verification.md)에 갱신한다.
+운영 데이터 이관·배포는 실행하지 않았다.
+[실행 전 결정·고려사항 점검](reports/sul-36/pre-implementation-review.md)은
+2026-10-14 코드 대조에서 확인한 무중단 이관·보관·환경·배포의 선행 설계와 실제 입력을 정리한다.
+
 [아카이브](archive/README.md)는 과거 계획·조사·검증과 정리 전 원문을 제공한다.
 [이번 closeout](archive/documentation-closeout-2026-09-17.md)은 수정·검사·인계를 기록한다.
 [포스터 디자인 QA](archive/snapshot-poster-design-qa-2026-09.md)는 날짜가 있는 UI 증거이며 현행 계약은 `Design.md`다.
