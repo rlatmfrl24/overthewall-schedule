@@ -1,6 +1,6 @@
 import type { SiteId } from "@contracts/site-definition";
 import type { FileObservation, StaticFileObservation, CommittedR2Observation,BaselineFileInventoryPage,LegacyR2Observation } from "@contracts/content-transition";
-import type { CommittedFileAvailability, FileAvailabilityContext } from "../../content-transition";
+import type { CommittedFileAvailability, FileAvailabilityContext, BaselineFileInventoryContext } from "../../content-transition";
 import { isStaticProfileAsset } from "../domain/asset-key-policy";
 import { hashFileBytes } from "./d1-r2-file-store";
 import {classifyFileReference} from "../domain/file-reference";
@@ -25,6 +25,31 @@ export class D1FileAvailability implements CommittedFileAvailability {
     if(!resource.startsWith(`${site}-`)) throw new Error("File availability resource/site mismatch");
   }
   observeArmedInventory(id:string,inventoryId:string) {return this.inventory.observe(id,inventoryId);}
+  /** Initial copy consumes the original seal, before source ownership is fenced.
+   * It neither creates fence receipts nor marks committed state installed. */
+  async exportBaselineInventoryPage(context:BaselineFileInventoryContext,offset=0) {
+    await this.validateBaselineContext(context);const page=await this.inventory.exportPage(context,offset);await this.validateBaselineContext(context);return page;
+  }
+  async receiveBaselineInventoryPage(context:BaselineFileInventoryContext,page:BaselineFileInventoryPage) {
+    await this.validateBaselineContext(context);await this.inventory.receivePage(context,page);await this.validateBaselineContext(context);
+  }
+  async verifyBaselineInventory(context:BaselineFileInventoryContext) {
+    await this.validateBaselineContext(context);
+    if(this.site!==context.plan.targetSite) throw new Error("Only target verifies baseline copy");
+    for(const expected of (await this.inventory.objects(context)).objects) {
+      const actual=await this.inventory.readObject(expected.logicalKey);
+      if(actual.hash!==expected.hash || actual.size!==expected.size) throw new Error("Legacy inventory target body/hash/size mismatch");
+    }
+    await this.validateBaselineContext(context);
+  }
+  private async validateBaselineContext(context:BaselineFileInventoryContext) {
+    const row=await this.db.prepare("SELECT local_site,local_resource,plan_json,manifest_revision,phase,fence_json FROM content_transitions WHERE id=?").bind(context.plan.id)
+      .first<{local_site:string;local_resource:string;plan_json:string;manifest_revision:number;phase:string;fence_json:string|null}>();
+    const side=this.site===context.plan.sourceSite?"source":this.site===context.plan.targetSite?"target":null;
+    if(!row || !side || row.local_site!==this.site || row.local_resource!==(side==="source"?context.plan.sourceResource:context.plan.targetResource) || row.plan_json!==JSON.stringify(context.plan) || row.manifest_revision!==context.manifestRevision) throw new Error("Stale baseline inventory transition/manifest/resource");
+    if(row.fence_json!==null || !(side==="source"?["protected","copying","replaying","target_ingress_ready"]:["target_ingress_ready"]).includes(row.phase)) throw new Error("Baseline inventory is not in an unfenced copy phase");
+    if(!context.plan.assetBuckets || context.plan.assetBuckets[side]!==this.resource) throw new Error("Baseline inventory bucket differs from approved manifest resource");
+  }
   async exportInventoryPage(context:FileAvailabilityContext,offset=0) {
     await this.validateContext(context);const page=await this.inventory.exportPage(context,offset);await this.validateContext(context);return page;
   }

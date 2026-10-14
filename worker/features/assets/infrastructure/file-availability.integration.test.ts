@@ -29,7 +29,7 @@ beforeAll(async()=>{
   }
 },120000);
 beforeEach(async()=>{
-  for(const db of [sourceDb,targetDb]) await db.batch([db.prepare("DELETE FROM content_transitions"),db.prepare("DELETE FROM notices"),db.prepare("DELETE FROM member_profile_images"),db.prepare("DELETE FROM asset_file_references"),db.prepare("DELETE FROM asset_file_versions"),db.prepare("DELETE FROM asset_file_cleanup"),db.prepare("DELETE FROM members")]);
+  for(const db of [sourceDb,targetDb]) await db.batch([db.prepare("DELETE FROM content_transitions"),db.prepare("DELETE FROM schedules"),db.prepare("DELETE FROM notices"),db.prepare("DELETE FROM member_profile_images"),db.prepare("DELETE FROM asset_file_references"),db.prepare("DELETE FROM asset_file_versions"),db.prepare("DELETE FROM asset_file_cleanup"),db.prepare("DELETE FROM members")]);
   for(const bucket of [runtime.ASSET_BUCKET,runtime.TRANSITION_TARGET_BUCKET]) {const page=await bucket.list();if(page.objects.length) await bucket.delete(page.objects.map(object=>object.key));}
 });
 
@@ -155,6 +155,81 @@ it.each(["notice","implicit background"])("fix1 covers a real unmanaged %s from 
   expect(await sourceDb.prepare("SELECT count(*) n FROM asset_file_references").first("n")).toBe(0);
   await runtime.ASSET_BUCKET.put(key,bytes);
   await expect(sourceAvailability.exportInventoryPage(context)).rejects.toThrow(/version/);
+},120000);
+
+it("copies the sealed legacy inventory and live replay before source fence through the baseline file ports",async()=>{
+  const members=[{code:"bing_hayu",uid:1,targetUid:11},{code:"u_lili",uid:2,targetUid:12},{code:"yang_mei",uid:3,targetUid:13}];
+  await sourceDb.batch(members.map(member=>sourceDb.prepare("INSERT INTO members(uid,code,name) VALUES(?,?,?)").bind(member.uid,member.code,member.code)));
+  const keys=["notices/thumbnails/early.webp","members/bing_hayu/backgrounds/early/original.webp"];
+  for(const key of keys) await runtime.ASSET_BUCKET.put(key,new TextEncoder().encode(`original ${key}`));
+  await sourceDb.prepare("INSERT INTO notices(id,content,related_member_uids,image_urls) VALUES(99,'before copy','[1]',?)").bind(JSON.stringify([`/r2-assets/${keys[0]}`])).run();
+  const classifications:TransitionPlan["classifications"][number][]=[];
+  for(const table of classifiedTables) for(const row of (await sourceDb.prepare(`SELECT ${keySql(table,"a")} identity FROM "${table}" a`).all<{identity:string}>()).results) if(table!=="notices") classifications.push({table,key:row.identity,disposition:"exclude",reason:"Unrelated fixture configuration"});
+  const plan:TransitionPlan={id:"early-inventory",sourceSite:"otw",targetSite:"luvdia",sourceResource:"otw-db",targetResource:"luvdia-db",generation:2,protocol:1,manifestDigest:"reviewed-early",assetBuckets:{source:"otw-schedule",target:"luvdia-schedule"},members,classifications};
+  let early={plan,manifestRevision:0};
+  await source.prepare(plan);await target.prepare(plan);
+  await source.armFileInventory(plan.id,"early-original");await sourceAvailability.observeArmedInventory(plan.id,"early-original");
+  await source.protect(plan.id,{receiptId:"hold",protocol:1,manifestDigest:plan.manifestDigest,inventoryId:"early-original"});
+  await source.beginCopy(plan.id);
+  await target.openIngress(plan.id,"early-ready",Date.now()+60000);
+  const header=await source.describeBaseline(plan.id);
+  const page=await sourceAvailability.exportBaselineInventoryPage(early);
+  await expect(targetAvailability.receiveBaselineInventoryPage(early,page)).rejects.toThrow(/baseline/);
+  await target.beginBaseline(header);
+  await expect(targetAvailability.receiveBaselineInventoryPage(early,{...page,header:{...page.header,inventoryId:"forged"}})).rejects.toThrow(/seal/);
+  await expect(targetAvailability.receiveBaselineInventoryPage({...early,manifestRevision:1},page)).rejects.toThrow(/Stale/);
+  await expect(new D1FileAvailability(targetDb,runtime.TRANSITION_TARGET_BUCKET,runtime.TARGET_ASSETS,"luvdia","luvdia-other").receiveBaselineInventoryPage(early,page)).rejects.toThrow(/resource/);
+  const revision=await source.appendClassifications(plan.id,{revision:0,digest:plan.manifestDigest},[],"reviewed-early-v2",{receiptId:"early-v2",protocol:1,manifestDigest:"reviewed-early-v2"},[{kind:"external",origin:"https://approved-external.example",reason:"Approved additional origin"}]);
+  let raced=false;
+  const concurrent=new Proxy(targetDb,{get(db,property){
+    if(property==="batch") return async(statements:D1PreparedStatement[])=>{if(!raced){raced=true;await target.acceptManifestRevision(revision);}return db.batch(statements);};
+    const value=Reflect.get(db,property);return typeof value==="function"?value.bind(db):value;
+  }});
+  await expect(new D1FileAvailability(concurrent,runtime.TRANSITION_TARGET_BUCKET,runtime.TARGET_ASSETS,"luvdia","luvdia-schedule").receiveBaselineInventoryPage(early,page)).rejects.toThrow(/context/);
+  expect(await targetDb.prepare("SELECT staged_rows FROM content_transition_file_inventories WHERE transition_id=?").bind(plan.id).first("staged_rows")).toBe(0);
+  expect(await targetDb.prepare("SELECT count(*) n FROM content_transition_file_inventory_rows WHERE transition_id=?").bind(plan.id).first("n")).toBe(0);
+  await expect(sourceAvailability.exportBaselineInventoryPage(early)).rejects.toThrow(/Stale/);
+  early={plan:revision.plan,manifestRevision:revision.revision};
+  expect(await source.describeBaseline(plan.id)).toEqual(header);
+  expect((await sourceAvailability.exportBaselineInventoryPage(early)).header).toEqual(page.header);
+  await target.beginBaseline(header);
+  await targetAvailability.receiveBaselineInventoryPage(early,page);
+  await targetAvailability.receiveBaselineInventoryPage(early,page);
+  await expect(targetAvailability.verifyBaselineInventory(early)).rejects.toThrow(/Missing inventory R2 body/);
+  for(const record of page.records.filter(record=>record.kind==="object")) {
+    const object=await runtime.ASSET_BUCKET.get(record.identity);
+    await runtime.TRANSITION_TARGET_BUCKET.put(record.identity,await object!.arrayBuffer());
+  }
+  await targetAvailability.verifyBaselineInventory(early);
+  await runtime.TRANSITION_TARGET_BUCKET.put(keys[0],new Uint8Array([0]));
+  await expect(targetAvailability.verifyBaselineInventory(early)).rejects.toThrow(/hash\/size/);
+  await runtime.TRANSITION_TARGET_BUCKET.put(keys[0],await (await runtime.ASSET_BUCKET.get(keys[0]))!.arrayBuffer());
+  let cursor:Awaited<ReturnType<typeof source.exportBaselinePage>>["next"]|0=0;
+  do{const baselinePage=await source.exportBaselinePage(header,cursor);await target.stageBaselinePage(baselinePage);cursor=baselinePage.next;}while(cursor.ordinal<header.rows);
+  while(await target.materializeBaselinePage(plan.id)){ /* normal inactive baseline installer */ }
+  await target.finalizeBaseline(plan.id);
+  await source.beginReplay(plan.id);
+  await source.admit({transitionId:plan.id,operationId:"early-live",idempotencyKey:"early-live",codec:{id:"schedules.save",version:1},kind:"content_edit",subject:{table:"schedules",key:"[200]"},expectedVersion:null,validation:{contract:1,validatedAt:Date.now()},admittedAt:Date.now(),payload:{id:200,member_uid:1,date:"2026-10-14",start_time:null,title:"ordinary live edit during copy",status:"방송"}});
+  const command=await source.readExecutableCommand(plan.id,"early-live");
+  await source.commit(plan.id,"early-live",1,[sourceDb.prepare("INSERT INTO schedules(id,member_uid,date,start_time,title,status) VALUES(?,?,?,?,?,?)").bind(command.payload.id,command.payload.member_uid,command.payload.date,command.payload.start_time,command.payload.title,command.payload.status)]);
+  for(const commit of await source.exportProjectedCommits(plan.id,header.boundary)) await target.installProjectedCommit(commit);
+  expect(await targetDb.prepare("SELECT title,member_uid FROM schedules WHERE id=200").first()).toEqual({title:"ordinary live edit during copy",member_uid:11});
+  for(const db of [sourceDb,targetDb]) expect(await db.prepare("SELECT fence_json FROM content_transitions WHERE id=?").bind(plan.id).first("fence_json")).toBeNull();
+  await targetAvailability.verifyBaselineInventory(early);
+  await expect(target.installCommittedState(plan.id)).rejects.toThrow(/fence/);
+  expect(await targetDb.prepare("SELECT count(*) n FROM content_transition_file_availability_evidence").first("n")).toBe(0);
+  await source.acknowledgeIngress(await target.openIngress(plan.id,"early-v2-ready",Date.now()+60000),Date.now());
+  const fence=await source.freeze(plan.id,Date.now());await target.installFence(fence);
+  const context={...early,fence};
+  await expect(sourceAvailability.exportBaselineInventoryPage(early)).rejects.toThrow(/fenced/);
+  await expect(targetAvailability.receiveBaselineInventoryPage(early,page)).rejects.toThrow(/fenced/);
+  for(const proof of await sourceAvailability.observeStatic(context)) await targetAvailability.receiveSourceStatic(context,proof);
+  await target.installCommittedState(plan.id);
+  for(const key of keys) {
+    const actual=await new R2AssetReader(runtime.TRANSITION_TARGET_BUCKET,targetDb).read(key);
+    expect(await new Response(actual!.body).text()).toBe(`original ${key}`);
+  }
+  expect(await targetDb.prepare("SELECT installation_json FROM content_transitions WHERE id=?").bind(plan.id).first("installation_json")).toContain('"committedFilesAvailable":true');
 },120000);
 
 it("installs pre-transition immutable bytes and real source/target static ASSETS only with captured reference and exact body/resource/fence proof",async()=>{

@@ -2,7 +2,7 @@ export { CONTENT_ACCESS_REVISION_SQL, readContentAccessRevision } from "./infras
 export { isArchivedYouTubeVideo } from "./infrastructure/archived-youtube-video";
 export { contentRowHeldSql, contentRowMovedSql } from "./infrastructure/content-retention";
 export { D1TransitionRepository } from "./infrastructure/d1-transition-repository";
-export type { CommittedFileAvailability, FileAvailabilityContext } from "./application/ports/file-availability";
+export type { CommittedFileAvailability, FileAvailabilityContext, BaselineFileInventoryContext } from "./application/ports/file-availability";
 export {currentFileIndexSql,currentRowFileIndexSql,fileOriginSql,filePathSql} from "./infrastructure/file-reference-index";
 export {selectedFileRowSql} from "./infrastructure/file-reference-integrity";
 export {inventoryReferencesMatchSql} from "./infrastructure/file-inventory-statements";

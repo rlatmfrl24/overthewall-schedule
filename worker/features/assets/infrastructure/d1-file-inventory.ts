@@ -1,6 +1,6 @@
 import type {BaselineFileInventoryHeader,BaselineFileInventoryPage,BaselineFileInventoryRow,TransitionPlan} from "@contracts/content-transition";
 import type {SiteId} from "@contracts/site-definition";
-import {inventoryReferencesMatchSql,readFileInventoryHeader,type FileAvailabilityContext} from "../../content-transition";
+import {inventoryReferencesMatchSql,readFileInventoryHeader,type FileAvailabilityContext,type BaselineFileInventoryContext} from "../../content-transition";
 import {classifyFileReference} from "../domain/file-reference";
 import {getAssetContentType} from "../domain/asset-key-policy";
 import {hashFileBytes} from "./d1-r2-file-store";
@@ -9,6 +9,7 @@ type Inventory={plan_json:string;manifest_revision:number;state:string;coverage_
 export type LegacyObject={logicalKey:string;objectVersion:string;hash:string;size:number};
 const digest=(value:string)=>hashFileBytes(new TextEncoder().encode(value));
 const rowDigest=async(previous:string,row:BaselineFileInventoryRow)=>digest(previous+await digest(JSON.stringify(row)));
+type InventoryContext=BaselineFileInventoryContext|FileAvailabilityContext;
 
 /** Explicit pre-baseline protection is owned by the transition repository. This
  * adapter observes real selected R2 bytes and transports the sealed inventory. */
@@ -87,7 +88,7 @@ export class D1FileInventory {
     if(rows.length!==1) throw new Error("Missing or conflicting sealed file inventory");
     return {inventoryId:rows[0].inventory_id,row:await this.row(id,rows[0].inventory_id)};
   }
-  async exportPage(context:FileAvailabilityContext,offset=0):Promise<BaselineFileInventoryPage> {
+  async exportPage(context:InventoryContext,offset=0):Promise<BaselineFileInventoryPage> {
     if(this.site!==context.plan.sourceSite) throw new Error("Only source exports original inventory");
     const {inventoryId,row}=await this.sealed(context.plan.id);
     if(!Number.isSafeInteger(offset) || offset<0 || offset%15!==0 || offset>=row.expected_rows!) throw new Error("Invalid inventory cursor");
@@ -99,16 +100,16 @@ export class D1FileInventory {
     for(const record of records) {if(record.kind==="object") await this.readObject(record.identity,JSON.parse(record.value));hash=await rowDigest(hash,record);ordinal++;}
     return {header,start,next:{ordinal,digest:hash},records};
   }
-  private async validateHeader(context:FileAvailabilityContext,header:BaselineFileInventoryHeader,target:boolean) {
+  private async validateHeader(context:InventoryContext,header:BaselineFileInventoryHeader,target:boolean) {
     const original=header.plan,current=context.plan;
-    if(!header.inventoryId || !Number.isSafeInteger(header.rows) || header.rows<3 || !Number.isSafeInteger(header.sourceBoundary) || header.sourceBoundary<1 || header.sourceBoundary>context.fence.boundary || !/^[a-f0-9]{64}$/.test(header.digest) || JSON.stringify(header.coverage)!==JSON.stringify(original.members.map(member=>`members/${member.code}/backgrounds/`).sort())) throw new Error("Invalid inventory header/coverage");
+    if(!header.inventoryId || !Number.isSafeInteger(header.rows) || header.rows<3 || !Number.isSafeInteger(header.sourceBoundary) || header.sourceBoundary<1 || "fence" in context && header.sourceBoundary>context.fence.boundary || !/^[a-f0-9]{64}$/.test(header.digest) || JSON.stringify(header.coverage)!==JSON.stringify(original.members.map(member=>`members/${member.code}/backgrounds/`).sort())) throw new Error("Invalid inventory header/coverage");
     if(original.id!==current.id || original.sourceSite!==current.sourceSite || original.targetSite!==current.targetSite || original.sourceResource!==current.sourceResource || original.targetResource!==current.targetResource || original.generation!==current.generation || original.protocol!==current.protocol || JSON.stringify(original.members)!==JSON.stringify(current.members) || JSON.stringify(original.assetBuckets)!==JSON.stringify(current.assetBuckets) || original.assetBuckets?.[target?"target":"source"]!==this.resource) throw new Error("Inventory transition/resource identity mismatch");
     if(original.manifestDigest!==current.manifestDigest && !await this.db.prepare("SELECT 1 FROM content_transition_manifest_revisions WHERE transition_id=? AND (parent_digest=? OR manifest_digest=?)").bind(current.id,original.manifestDigest,original.manifestDigest).first()) throw new Error("Unapproved inventory manifest lineage");
     const boundary=target?await this.db.prepare("SELECT source_boundary FROM content_transition_baselines WHERE transition_id=?").bind(current.id).first<number>("source_boundary"):await this.db.prepare("SELECT seq FROM content_transition_commits WHERE transition_id=? AND operation_id='baseline' AND sealed=1").bind(current.id).first<number>("seq");
     if(boundary!==header.sourceBoundary) throw new Error("Inventory differs from original baseline");
     if(JSON.stringify(header)!==JSON.stringify(await readFileInventoryHeader(this.db,current.id,target?"target":"sealed"))) throw new Error("Inventory differs from original baseline seal");
   }
-  async receivePage(context:FileAvailabilityContext,page:BaselineFileInventoryPage) {
+  async receivePage(context:InventoryContext,page:BaselineFileInventoryPage) {
     if(this.site!==context.plan.targetSite) throw new Error("Only target receives inventory");
     await this.validateHeader(context,page.header,true);
     const h=page.header;
@@ -138,13 +139,17 @@ export class D1FileInventory {
       return;
     }
     if(stored.state!=="receiving" || stored.staged_rows!==page.start.ordinal || stored.staged_digest!==page.start.digest) throw new Error("Inventory page predecessor mismatch");
-    await this.db.batch([
+    try { await this.db.batch([
+      // The manifest/phase/fence check shares the transaction with page writes.
+      // A pre-read followed by a revision or fence race cannot install a page.
+      this.db.prepare("SELECT iif(coalesce((SELECT local_site=? AND local_resource=? AND plan_json=? AND manifest_revision=? AND fence_json IS ? AND phase IN ('target_ingress_ready','source_fenced') FROM content_transitions WHERE id=?),0),1,json('inventory_context_conflict'))")
+        .bind(this.site,context.plan.targetResource,JSON.stringify(context.plan),context.manifestRevision,"fence" in context?JSON.stringify(context.fence):null,context.plan.id),
       this.db.prepare("SELECT iif(coalesce((SELECT state='receiving' AND staged_rows=? AND staged_digest=? FROM content_transition_file_inventories WHERE transition_id=? AND inventory_id=?),0),1,json('inventory_page_predecessor_conflict'))").bind(page.start.ordinal,page.start.digest,h.plan.id,h.inventoryId),
       ...page.records.map(record=>this.db.prepare("INSERT INTO content_transition_file_inventory_rows(transition_id,inventory_id,kind,identity,value_json) VALUES(?,?,?,?,?)").bind(h.plan.id,h.inventoryId,record.kind,record.identity,record.value)),
       this.db.prepare("UPDATE content_transition_file_inventories SET staged_rows=?,staged_digest=?,state=iif(?=expected_rows,'received','receiving') WHERE transition_id=? AND inventory_id=? AND staged_rows=? AND staged_digest=?").bind(page.next.ordinal,page.next.digest,page.next.ordinal,h.plan.id,h.inventoryId,page.start.ordinal,page.start.digest),
-    ]);
+    ]); } catch(error) {throw new Error("Inventory page context/predecessor conflict",{cause:error});}
   }
-  async objects(context:FileAvailabilityContext):Promise<{inventoryId:string;objects:LegacyObject[]}> {
+  async objects(context:InventoryContext):Promise<{inventoryId:string;objects:LegacyObject[]}> {
     const {inventoryId,row}=await this.sealed(context.plan.id);
     await this.validateHeader(context,{inventoryId,plan:JSON.parse(row.plan_json),manifestRevision:row.manifest_revision,sourceBoundary:row.source_boundary!,coverage:JSON.parse(row.coverage_json!),rows:row.expected_rows!,digest:row.expected_digest!},this.site===context.plan.targetSite);
     const objects:LegacyObject[]=[];let ordinal=0,hash="0";
