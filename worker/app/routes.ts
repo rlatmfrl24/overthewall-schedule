@@ -6,10 +6,7 @@ import { createAiReviewHandler, createAiBatchHandler, createWorkQueueHandler } f
 import { createOtwPlayWorkQueueService } from "./work-queue";
 import { createOtwPlayAiReviewService, createOtwPlayAiBatchService } from "./ai-review";
 import { createAuthStatusHandler } from "../features/auth";
-import {
-  createHandleR2Asset,
-  R2AssetReader,
-} from "../features/assets";
+import { handleAsset, buildAssetFileStore } from "./assets";
 import {
   createHandleAdminAuditLogs,
   D1AdminAuditLogReader,
@@ -187,9 +184,6 @@ const handleAdminSettings = createAdminSettingsHandler(
       new DrizzleSettingsAudit(getDb(env)),
     ),
 );
-const handleR2Asset = createHandleR2Asset((env) =>
-  env.ASSET_BUCKET ? new R2AssetReader(env.ASSET_BUCKET) : null,
-);
 const handleAuthStatus = createAuthStatusHandler();
 const handleAdminAuditLogs = createHandleAdminAuditLogs(
   (env) => new D1AdminAuditLogReader(getDb(env)),
@@ -286,7 +280,7 @@ const handleOtwPlayWebsubAdmin = withPlayOperationsTelemetry(
 const handleNotices = createHandleNotices(
   (env, includeArchived) =>
     new NoticeUseCases(
-      new D1NoticeGateway(getDb(env), env.ASSET_BUCKET, includeArchived),
+      new D1NoticeGateway(getDb(env), env.ASSET_BUCKET, includeArchived, env.ASSET_BUCKET?buildAssetFileStore(env):undefined),
     ),
 );
 const handleScheduleBoard = createHandleScheduleBoard(
@@ -303,7 +297,7 @@ const handleOperations = createOperationsHandler({
       collectNaverCafePostsForSources,
     ),
 });
-const handleXPosts = createXPostsHandler(buildXPostsApplication);
+const handleXPosts = createXPostsHandler(buildOwnedXPostsApplication);
 const handleManualXCollection = createManualXCollectionHandler(
   buildXPostsApplication,
   (env, actor, idempotencyKey) =>
@@ -402,16 +396,16 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     methods: methods(
       get({
         auth: "public",
-        cache: "public, max-age=31536000, immutable",
+        cache: "no-store",
         successStatus: 200,
       }),
       head({
         auth: "public",
-        cache: "public, max-age=31536000, immutable",
+        cache: "no-store",
         successStatus: 200,
       }),
     ),
-    handler: handleR2Asset,
+    handler: handleAsset,
   },
   {
     id: "chzzk.live-status",
@@ -1455,3 +1449,4 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
 
 export const workerRouteRegistry = createRouteRegistry(routeDefinitions);
 export const workerRouteManifest = workerRouteRegistry.manifest;
+import { buildOwnedXPostsApplication } from "./x-posts";

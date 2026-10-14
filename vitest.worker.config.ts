@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdirSync, cpSync, writeFileSync } from "node:fs";
+import { writeStaticAssetManifest } from "./scripts/static-asset-manifest.mjs";
 import {
   cloudflareTest,
   readD1Migrations,
@@ -83,7 +84,7 @@ export default defineConfig({
         name: `0102_content_transition_foundation.sql:${table}`,
         queries: migrations.find(migration => migration.name === "0102_content_transition_foundation.sql")!.queries
           .filter(query => query.startsWith(`ALTER TABLE \`${table}\` ADD COLUMN \`content_access\``) ||
-            (table === "content_transitions" && query.startsWith("CREATE TABLE `content_transitions`"))),
+            (table === "content_transitions" && (query.startsWith("CREATE TABLE `content_transitions`") || query.startsWith("CREATE TABLE `content_transition_membership`")))),
       }));
       const otwPlayCatalogMigrations = migrations.filter(({ name }) =>
         name.startsWith(OTW_PLAY_CATALOG_MIGRATION_PREFIX),
@@ -235,9 +236,25 @@ export default defineConfig({
 
       return {
         miniflare: {
+          // Miniflare's assets:storage service is global within one runtime.
+          // Select distinct actual artifact directories through one real ASSETS
+          // binding; no synthetic bytes or ETag/version substitutions.
+          workers: [{name:"file-asset-storage",modules:true,script:"export default {fetch(request,env){return env.ASSETS.fetch(request)}}",compatibilityDate:"2025-11-25",assets:{binding:"ASSETS",directory:(()=>{
+            const root=path.resolve(__dirname,".tmp/sul36-file-assets-bundle");
+            for(const side of ["source","target","changed-body","missing-manifest"]) {
+              const directory=path.join(root,side);
+              mkdirSync(directory,{recursive:true});
+              cpSync(path.resolve(__dirname,"public/profile"),path.join(directory,"profile"),{recursive:true});
+              if(side!=="missing-manifest") writeStaticAssetManifest(directory);
+              if(side==="changed-body") writeFileSync(path.join(directory,"profile/bing_hayu.webp"),"changed actual static body after manifest");
+            }
+            return root;
+          })()}},...["source","target","changed-body","missing-manifest"].map(side=>({name:`file-assets-${side}`,modules:true,script:`export default {fetch(request,env){const url=new URL(request.url);url.pathname='/${side}'+url.pathname;return env.FILES.fetch(new Request(url,request));}}`,compatibilityDate:"2025-11-25",serviceBindings:{FILES:"file-asset-storage"}}))],
+          serviceBindings: { SOURCE_ASSETS:"file-assets-source",TARGET_ASSETS:"file-assets-target",CHANGED_ASSETS:"file-assets-changed-body",MISSING_MANIFEST_ASSETS:"file-assets-missing-manifest" },
           compatibilityDate: "2025-11-25",
           compatibilityFlags: ["nodejs_compat"],
           d1Databases: ["otw_db", "transition_target_db"],
+          r2Buckets: ["ASSET_BUCKET", "TRANSITION_TARGET_BUCKET"],
           bindings: {
             CONTENT_TRANSITION_MIGRATIONS: migrations,
             SCHEDULE_DAY_MIGRATION_SQL: readFileSync(path.resolve(__dirname, "drizzle/0096_unknown_hex.sql"), "utf8"),

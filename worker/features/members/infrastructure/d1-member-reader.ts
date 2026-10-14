@@ -3,6 +3,7 @@ import {
   memberLinks,
   memberProfileImages,
   members,
+  assetFileReferences,
   naverCafeSources,
 } from "@db/schema";
 import type {
@@ -203,7 +204,10 @@ export class D1MemberReader implements MemberReader {
       string,
       { variants: Set<string>; versionParts: string[] }
     >();
-    for (const object of listed.objects) {
+    const references=await this.db.select().from(assetFileReferences).where(sql`${assetFileReferences.logical_key} LIKE ${`${prefix}%`}`);
+    const managedKeys=new Set(references.map(reference=>reference.logical_key));
+    const objects=[...listed.objects.filter(object=>!managedKeys.has(object.key)),...references.map(reference=>({key:reference.logical_key,etag:reference.hash,uploaded:new Date(reference.updated_at)}))];
+    for (const object of objects) {
       const match = object.key.match(PROFILE_BACKGROUND_KEY);
       const backgroundId = match?.[1];
       const variant = match?.[2];

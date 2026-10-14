@@ -58,11 +58,28 @@ function shapeFor(name:string,row:Record<string,unknown>):Shape {
   if(!shape) throw new Error(`Unresolved known JSON shape: ${name}/${String(row.type)}`);
   return shape;
 }
+/** Runtime-only collaboration with the owning file classifier, bound to the
+ * approved manifest by infrastructure. Never part of a projected envelope. */
+export interface FileReferenceProjection {
+  projectReference(raw:string):string;
+}
 export interface ProjectionContext {
   sourceSite: SiteId;
   members: readonly { uid:number; targetUid:number|null; name:string; externalEntityId:string|null;firstCommit?:number;canonicalPresent?:boolean;present?:boolean;entityIds?:readonly string[] }[];
   entities?:readonly {sourceId:string;targetId:string}[];
   classifications?:TransitionPlan["classifications"];
+  files?:FileReferenceProjection;
+}
+function projectFileReferences(table:string,value:Record<string,JsonValue>,context:ProjectionContext):void {
+  if(!["notices","member_profile_images","naver_cafe_posts"].includes(table)) return;
+  const projectUrl=(raw:JsonValue):JsonValue=>{
+    if(typeof raw!=="string" || !raw.trim()) return raw;
+    if(!context.files) throw new Error("Missing owning file projection port");
+    return context.files.projectReference(raw);
+  };
+  for(const field of ["image_url","thumbnail_url"]) if(value[field]!==undefined) value[field]=projectUrl(value[field]);
+  if(Array.isArray(value.image_urls)) value.image_urls=value.image_urls.map(projectUrl);
+  else if(typeof value.image_urls==="string") value.image_urls=JSON.stringify((JSON.parse(value.image_urls) as JsonValue[]).map(projectUrl));
 }
 function classification(table:string,key:string,value:Record<string,unknown>,context:ProjectionContext):"include"|"exclude" {
   const decisions=context.classifications?.filter(item=>item.table===table && item.key===key)??[];
@@ -161,6 +178,9 @@ export function decodeProjectedRecord(raw:unknown,context:ProjectionContext):Pro
     if(JSON.stringify(parsed)!==JSON.stringify(item)) throw new Error(`Unprojected nested data at ${envelope.table}.${column}`);
     if(item!==null && Object.hasOwn(historicalReferences[envelope.table]??{},column) && (typeof item!=="string" || !/^[a-f0-9]{64}$/.test(item))) throw new Error("Unprojected historical execution reference");
   }
+  const fileProjection={...value};
+  projectFileReferences(envelope.table,fileProjection,context);
+  if(JSON.stringify(fileProjection)!==JSON.stringify(value)) throw new Error("Unprojected file reference");
   freezeJson(value);
   const record=Object.freeze({...envelope,value}) as unknown as ProjectedRecord;
   projected.add(record);
@@ -255,6 +275,7 @@ export async function projectCapturedRecord(table: keyof typeof contentDispositi
     value[column]=member.targetUid;
   }
   if ((registry.excluded as readonly string[]).includes("content_access")) value.content_access="normal";
+  projectFileReferences(table,value,context);
   if (table==="music_cover_proposals") Object.assign(value,{submitted_by_user_id:null,reviewed_by_user_id:null,idempotency_key:origin,review_lock_token:null,review_lock_expires_at:null,historical_source_site:context.sourceSite,historical_source_record_id:origin,historical_review:["approved","rejected"].includes(String(value.status))?1:0});
   freezeJson(value);
   const mappedKey=JSON.stringify(registry.primaryKey.map(column=>value[column] ?? source[column]));

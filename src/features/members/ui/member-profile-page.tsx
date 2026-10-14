@@ -17,6 +17,7 @@ import { useMemberProfile } from "../queries/use-member-profile";
 import { buildNotFoundSiteSeo, buildProfileSiteSeo } from "@contracts/site-seo";
 import { useSiteSeo } from "@/shared/seo";
 import { Button } from "@/shared/ui/button";
+import { useAuthenticatedImage, useAuthenticatedImages } from "@/shared/hooks/use-authenticated-image";
 import {
   ArrowLeft,
   Cake,
@@ -121,20 +122,19 @@ const ProfileSignatureImage = ({
   memberCode,
   memberName,
   className,
+  protectedImage = false,
 }: {
   memberCode: string;
   memberName: string;
   className?: string;
+  protectedImage?: boolean;
 }) => {
   const { enabled } = useAnimations();
-  const signatureSrc = useMemo(
-    () => getProfileSignatureImageSrc(memberCode),
-    [memberCode],
-  );
+  const signatureSrc = useAuthenticatedImage(getProfileSignatureImageSrc(memberCode), protectedImage);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (typeof window === "undefined" || !signatureSrc) {
       return;
     }
 
@@ -496,26 +496,30 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
     [member],
   );
 
-  const activeImage = profileImages[0];
+  const activeImageUrl = useAuthenticatedImage(profileImages[0]?.imageUrl, includeArchived);
+  const activeImage = activeImageUrl && profileImages[0] ? { ...profileImages[0], imageUrl: activeImageUrl } : null;
   const profileBackgroundSourceSets = useMemo(
     () =>
       member
         ? buildProfileBackgroundImageSourceSets(
           member.code,
           member.backgroundImages,
+          includeArchived ? "/r2-assets" : undefined,
         ).filter((background) => !failedProfileBackgroundIds.includes(background.id))
         : [],
-    [failedProfileBackgroundIds, member],
+    [failedProfileBackgroundIds, member, includeArchived],
   );
+  const authenticatedBackground = useAuthenticatedImages(profileBackgroundSourceSets.flatMap(background => [background.sources.src, background.sources.fallbackSrc]), includeArchived);
   const resolvedProfileBackgroundSourceSets = useMemo(
     () =>
       profileBackgroundSourceSets.map((background) => {
         const usesOptimized =
           !failedOptimizedProfileBackgroundIds.includes(background.id);
-        const src = usesOptimized
+        const source = usesOptimized
           ? background.sources.src
           : background.sources.fallbackSrc;
-        const srcSet = usesOptimized ? background.sources.srcSet : undefined;
+        const src = authenticatedBackground(source);
+        const srcSet = usesOptimized && !includeArchived ? background.sources.srcSet : undefined;
         const sizes = usesOptimized ? background.sources.sizes : undefined;
 
         return {
@@ -528,8 +532,8 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
           loadKey: `${background.id}:${src}:${srcSet ?? ""}`,
           usesOptimized,
         };
-      }),
-    [failedOptimizedProfileBackgroundIds, profileBackgroundSourceSets],
+      }).filter((background): background is typeof background & {image: {src:string}} => Boolean(background.image.src)),
+    [failedOptimizedProfileBackgroundIds, profileBackgroundSourceSets, authenticatedBackground, includeArchived],
   );
   const loadedProfileBackgroundSourceSets = useMemo(
     () =>
@@ -964,6 +968,7 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
 
       {canRenderProfileBackground && (
         <ProfileSignatureImage
+          protectedImage={includeArchived}
           memberCode={member.code}
           memberName={member.name}
           className="absolute left-[clamp(14rem,18.5vw,21rem)] top-[clamp(18.5rem,44dvh,22rem)] z-10 hidden [@media_(min-width:1180px)_and_(min-height:680px)]:block"

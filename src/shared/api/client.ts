@@ -94,7 +94,7 @@ const parseApiError = async (response: Response) => {
   return new ApiError(raw || "API request failed", response.status);
 };
 
-export async function apiFetch<T>(path: string, options: ApiOptions = {}) {
+async function apiRequest(path: string, options: ApiOptions = {}) {
   const { json, headers, auth = "optional", ...rest } = options;
   const callerHeaders = new Headers(headers);
   const authHeaders = auth === "omit" ? {} : await getAuthHeaders();
@@ -132,6 +132,15 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}) {
   if (!res.ok) {
     throw await parseApiError(res);
   }
+  return res;
+}
+
+export async function apiFetchBlob(path: string, options: ApiOptions = {}) {
+  return (await apiRequest(path, { ...options, auth: "required", cache: "no-store" })).blob();
+}
+
+export async function apiFetch<T>(path: string, options: ApiOptions = {}) {
+  const res = await apiRequest(path, options);
   const contentType = res.headers.get("content-type");
   const raw = await res.text();
 

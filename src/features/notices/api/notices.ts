@@ -58,9 +58,13 @@ export async function setFeaturedNotice(id: number) {
   });
 }
 
+const uploadIdentities=new WeakMap<File,string>();
 export async function uploadNoticeThumbnail(file: File) {
+  const operationId=uploadIdentities.get(file)??crypto.randomUUID();
+  uploadIdentities.set(file,operationId);
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("operationId",operationId);
   return apiFetch<NoticeThumbnailUploadResponse>(
     apiRoutes.notices.thumbnail.build(),
     {

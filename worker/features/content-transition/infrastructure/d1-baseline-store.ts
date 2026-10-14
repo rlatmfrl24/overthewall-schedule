@@ -4,6 +4,7 @@ import { assertProjectedRecord, decodeProjectedRecord, projectCapturedRecord, ty
 import { contentDispositionRegistry } from "../domain/disposition-registry";
 import { projectedStatements } from "./projected-statements";
 import {assertD1Row} from "./d1-size-bounds";
+import {fileReferenceProjection} from "./file-reference-projection";
 
 export interface BaselineHeader { identity:TransitionIdentity; boundary:number; rows:number; digest:string }
 interface Cursor { sequence:number; ordinal:number; digest:string }
@@ -29,7 +30,7 @@ export class D1BaselineStore {
   private context:ProjectionContext;
   constructor(db:D1Database,identity:TransitionIdentity,plan:TransitionPlan) {
     this.db=db;this.identity=identity;
-    this.context={sourceSite:identity.sourceSite,classifications:plan.classifications,members:plan.members.map(member=>({uid:member.targetUid,targetUid:member.targetUid,name:member.code,externalEntityId:null}))};
+    this.context={sourceSite:identity.sourceSite,classifications:plan.classifications,files:fileReferenceProjection(plan),members:plan.members.map(member=>({uid:member.targetUid,targetUid:member.targetUid,name:member.code,externalEntityId:null}))};
   }
   private async acceptedIdentity(other:TransitionIdentity):Promise<void> {
     assertSameTransition(this.identity,{...other,manifestDigest:this.identity.manifestDigest});

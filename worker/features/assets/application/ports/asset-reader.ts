@@ -7,3 +7,7 @@ export interface AssetObject {
 export interface AssetReader {
   read(key: string): Promise<AssetObject | null>;
 }
+
+export interface AssetAccessReader {
+  readAccess(path: string): Promise<{ restricted: boolean; revision: number }>;
+}

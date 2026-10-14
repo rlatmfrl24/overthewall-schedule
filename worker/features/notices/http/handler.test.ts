@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../../platform/types";
+import type {D1R2FileStore} from "../../assets";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const requireAdminUserMock = vi.hoisted(() => vi.fn());
+const fileStore={put:vi.fn<D1R2FileStore["put"]>(),releaseNoticeReference:vi.fn(async()=>true),cleanupNoticeObject:vi.fn(async()=>true),listNoticeObjects:vi.fn<D1R2FileStore["listNoticeObjects"]>()};
 
 vi.mock("../../../platform/db", () => ({
   getDb: getDbMock,
@@ -21,7 +23,7 @@ import {
 const handleNotices = createHandleNotices(
   (env) =>
     new NoticeUseCases(
-      new D1NoticeGateway(getDbMock(), env.ASSET_BUCKET),
+      new D1NoticeGateway(getDbMock(), env.ASSET_BUCKET,false,env.ASSET_BUCKET?fileStore:undefined),
     ),
 );
 
@@ -159,6 +161,8 @@ const makeR2Object = (key: string, size: number, uploadedAt: number) =>
 
 describe("notices route thumbnail handling", () => {
   beforeEach(() => {
+    for(const mock of Object.values(fileStore)) mock.mockClear();
+    fileStore.listNoticeObjects.mockResolvedValue([]);
     getDbMock.mockReset();
     requireAdminUserMock.mockReset();
     requireAdminUserMock.mockResolvedValue({
@@ -185,16 +189,14 @@ describe("notices route thumbnail handling", () => {
       }),
     );
     const body = (await response.json()) as { thumbnail_url: string };
-    const [key, value, options] = put.mock.calls[0];
+    const [input] = fileStore.put.mock.calls[0];
 
     expect(response.status).toBe(201);
-    expect(key).toMatch(/^notices\/thumbnails\/\d+-[-a-f0-9]+\.png$/);
-    expect(value.type).toBe("image/png");
-    expect(options.httpMetadata).toEqual({
-      contentType: "image/png",
-      cacheControl: "public, max-age=31536000, immutable",
-    });
-    expect(body.thumbnail_url).toBe(`/r2-assets/${key}`);
+    expect(input.logicalKey).toBe(`notices/thumbnails/${input.operationId}.png`);
+    expect(input.contentType).toBe("image/png");
+    expect(new TextDecoder().decode(input.bytes)).toBe("image");
+    expect(put).not.toHaveBeenCalled();
+    expect(body.thumbnail_url).toBe(`/r2-assets/${input.logicalKey}`);
   });
 
   it("returns no-store headers for public notice reads", async () => {
@@ -381,7 +383,7 @@ describe("notices route thumbnail handling", () => {
     expect(put).not.toHaveBeenCalled();
   });
 
-  it("deletes an owned R2 thumbnail when a notice is deleted", async () => {
+  it("releases the owned reference for recovery grace when a notice is deleted", async () => {
     const deleteObject = vi.fn(async () => undefined);
     getDbMock.mockReturnValue(
       makeDeleteDb("/r2-assets/notices/thumbnails/owned.webp"),
@@ -398,7 +400,8 @@ describe("notices route thumbnail handling", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(deleteObject).toHaveBeenCalledWith("notices/thumbnails/owned.webp");
+    expect(fileStore.releaseNoticeReference).toHaveBeenCalledWith("notices/thumbnails/owned.webp");
+    expect(deleteObject).not.toHaveBeenCalled();
   });
 
   it("does not delete an owned thumbnail that another notice still references", async () => {
@@ -459,9 +462,10 @@ describe("notices route thumbnail handling", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(deleteObject).toHaveBeenCalledTimes(2);
-    expect(deleteObject).toHaveBeenCalledWith("notices/thumbnails/one.webp");
-    expect(deleteObject).toHaveBeenCalledWith("notices/thumbnails/two.webp");
+    expect(fileStore.releaseNoticeReference).toHaveBeenCalledTimes(2);
+    expect(fileStore.releaseNoticeReference).toHaveBeenCalledWith("notices/thumbnails/one.webp");
+    expect(fileStore.releaseNoticeReference).toHaveBeenCalledWith("notices/thumbnails/two.webp");
+    expect(deleteObject).not.toHaveBeenCalled();
   });
 
   it("cleans up the old owned thumbnail when it is replaced", async () => {
@@ -492,10 +496,12 @@ describe("notices route thumbnail handling", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(deleteObject).toHaveBeenCalledWith("notices/thumbnails/old.jpg");
+    expect(fileStore.releaseNoticeReference).toHaveBeenCalledWith("notices/thumbnails/old.jpg");
+    expect(deleteObject).not.toHaveBeenCalled();
   });
 
-  it("deletes an uploaded thumbnail cleanup request when it is unused", async () => {
+  it("retains a newly released upload until its owning recovery grace permits deletion", async () => {
+    fileStore.listNoticeObjects.mockResolvedValue([{key:"notices/thumbnails/uploaded.png",objectKey:"_versions/otw/uploaded.png",size:5,uploadedAt:Date.now(),graceStart:Date.now(),recoveryHeld:false,cleanupEligible:false}]);
     const deleteObject = vi.fn(async () => undefined);
     getDbMock.mockReturnValue({
       select: vi.fn(() => selectThumbnailReferencesQuery([])),
@@ -510,10 +516,9 @@ describe("notices route thumbnail handling", () => {
       }),
     );
 
-    await expect(response.json()).resolves.toEqual({ deleted: true });
-    expect(deleteObject).toHaveBeenCalledWith(
-      "notices/thumbnails/uploaded.png",
-    );
+    await expect(response.json()).resolves.toEqual({ deleted: false,reason:"retained" });
+    expect(fileStore.releaseNoticeReference).toHaveBeenCalledWith("notices/thumbnails/uploaded.png");
+    expect(deleteObject).not.toHaveBeenCalled();
   });
 
   it("keeps an uploaded thumbnail cleanup request when a notice references it", async () => {
@@ -546,6 +551,10 @@ describe("notices route thumbnail handling", () => {
 
   it("reports R2 thumbnail status with unused and missing objects", async () => {
     const now = Date.now();
+    fileStore.listNoticeObjects.mockResolvedValue([
+      {key:"notices/thumbnails/used.webp",objectKey:"notices/thumbnails/used.webp",size:1200,uploadedAt:now-1000,graceStart:now-1000,recoveryHeld:true,cleanupEligible:false},
+      {key:"notices/thumbnails/unused.png",objectKey:"notices/thumbnails/unused.png",size:2400,uploadedAt:now-20*60000,graceStart:now-20*60000,recoveryHeld:false,cleanupEligible:true},
+    ]);
     const list = vi.fn(async () => ({
       objects: [
         makeR2Object("notices/thumbnails/used.webp", 1200, now - 1000),
@@ -628,6 +637,11 @@ describe("notices route thumbnail handling", () => {
 
   it("deletes only unused R2 thumbnails during cleanup", async () => {
     const now = Date.now();
+    fileStore.listNoticeObjects.mockResolvedValue([
+      {key:"notices/thumbnails/used.webp",objectKey:"notices/thumbnails/used.webp",size:1200,uploadedAt:now-1000,graceStart:now-1000,recoveryHeld:true,cleanupEligible:false},
+      {key:"notices/thumbnails/unused.png",objectKey:"notices/thumbnails/unused.png",size:2400,uploadedAt:now-20*60000,graceStart:now-20*60000,recoveryHeld:false,cleanupEligible:true},
+      {key:"notices/thumbnails/recent.png",objectKey:"notices/thumbnails/recent.png",size:3600,uploadedAt:now,graceStart:now,recoveryHeld:false,cleanupEligible:false},
+    ]);
     const deleteObject = vi.fn(async () => undefined);
     const list = vi.fn(async () => ({
       objects: [
@@ -674,7 +688,8 @@ describe("notices route thumbnail handling", () => {
       failedCount: 0,
       deleted: ["notices/thumbnails/unused.png"],
     });
-    expect(deleteObject).toHaveBeenCalledTimes(1);
-    expect(deleteObject).toHaveBeenCalledWith("notices/thumbnails/unused.png");
+    expect(fileStore.cleanupNoticeObject).toHaveBeenCalledTimes(1);
+    expect(fileStore.cleanupNoticeObject).toHaveBeenCalledWith("notices/thumbnails/unused.png","notices/thumbnails/unused.png");
+    expect(deleteObject).not.toHaveBeenCalled();
   });
 });

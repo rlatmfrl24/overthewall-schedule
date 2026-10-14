@@ -58,6 +58,39 @@ beforeEach(async () => {
   ]);
 });
 
+it("authorizes archive-only asset bytes before GET HEAD and conditional metadata, preserving shared public bytes", async () => {
+  const key = "notices/thumbnails/archive-only.webp";
+  const shared = "notices/thumbnails/shared.webp";
+  await bindings.ASSET_BUCKET!.put(key, "private-image-bytes");
+  await bindings.ASSET_BUCKET!.put(shared, "shared-image-bytes");
+  await db.batch([
+    db.prepare("UPDATE notices SET image_urls=? WHERE id=1").bind(JSON.stringify([`/r2-assets/${key}`, `/r2-assets/${shared}`])),
+    db.prepare("UPDATE notices SET image_urls=? WHERE id=2").bind(JSON.stringify([`/r2-assets/${shared}`])),
+  ]);
+  for (const path of [`/r2-assets/${key}`, "/profile/bing_hayu.webp", "/profile/signatures/bing_hayu.png", "/profile/%62ing_hayu.webp", "/%70rofile/signatures/bing_hayu.png", "/profile%2Fbing_hayu.webp"]) {
+    for (const user of [undefined, "member"]) for (const method of ["GET", "HEAD"]) {
+      const response = await request(path, user, { method, headers: { "If-None-Match": "*" } });
+      expect(response.status, `${method} ${path} ${user}`).toBe(user ? 403 : 401);
+      expect(response.headers.get("ETag")).toBeNull();
+      expect(response.headers.get("Last-Modified")).toBeNull();
+      expect(await response.text()).not.toContain("image-bytes");
+    }
+  }
+  const admin = await request(`/r2-assets/${key}`, "archive-admin");
+  expect(admin.status).toBe(200);
+  expect(admin.headers.get("Cache-Control")).toBe("private, no-store");
+  expect(await (await admin.blob()).text()).toBe("private-image-bytes");
+  const publicImage = await request(`/r2-assets/${shared}`);
+  expect(publicImage.status).toBe(200);
+  expect(await publicImage.text()).toBe("shared-image-bytes");
+  expect((await request("/profile/other.webp")).status).toBe(200);
+  for(const path of ["/profile/__artifact.json","/profile/%5F%5Fartifact.json","/%70rofile%2F__artifact.json"]) for(const user of [undefined,"member","archive-admin"]) {
+    const response=await request(path,user);
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+  }
+});
+
 async function catalog() {
   await db.batch([
     db.prepare("UPDATE music_catalog_meta SET revision=7,public_read_enabled=1,updated_at=100 WHERE id=1"),

@@ -9,6 +9,7 @@
     "html_handling": "drop-trailing-slash",
     "not_found_handling": "404-page",
     "run_worker_first": [
+      "/*%*",
       "/api/*",
       "/",
       "/weekly",
@@ -25,8 +26,6 @@
       "/play",
       "/play/*",
       "/profile/*",
-      "!/profile/*.webp",
-      "!/profile/signatures/*",
       "/sitemap.xml"
     ]
   },
@@ -42,6 +41,8 @@
     "SITE_DEAD_LETTER_QUEUE_NAME": "luvdia-dead-letter",
     "PLAY_ANALYTICS_DATASET": "luvdia_play_events",
     "SITE_ID": "luvdia",
+    "SITE_D1_DATABASE_NAME": "luvdia-db",
+    "SITE_ASSET_BUCKET_NAME": "luvdia-schedule",
     "SITE_RESOURCES_PROVISIONED": "false",
     "OTW_PLAY_AI_REVIEW_ENABLED": "false"
   },

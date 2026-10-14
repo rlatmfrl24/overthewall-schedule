@@ -13,6 +13,7 @@ const makeR2Object = () =>
 
 const makeEnv = (get = vi.fn()) =>
   ({
+    SITE_ID:"otw",
     ASSET_BUCKET: {
       get,
     },
@@ -20,10 +21,17 @@ const makeEnv = (get = vi.fn()) =>
 
 const handleR2Asset = createHandleR2Asset((env) =>
   env.ASSET_BUCKET ? new R2AssetReader(env.ASSET_BUCKET) : null,
+  () => ({ readAccess: async () => ({ restricted: false, revision: 0 }) }),
 );
 
 describe("r2 asset route", () => {
-  it("serves profile background assets from R2 with long-lived cache headers", async () => {
+  it("scopes static ETag to site and current policy revision",async()=>{
+    const handler=createHandleR2Asset(()=>null,()=>({readAccess:async()=>({restricted:false,revision:7})}));
+    const response=await handler(new Request("https://otw-schedule.info/profile/bing_hayu.webp",{headers:{"If-None-Match":'"old"'}}),{...makeEnv(),ASSETS:{fetch:async()=>new Response("body",{headers:{ETag:'"static"'}})}} as unknown as Env);
+    expect(response.headers.get("ETag")).toBe('"otw:7:static"');
+    expect(response.status).toBe(200);
+  });
+  it("serves public profile background assets after current policy without retaining stale public bytes", async () => {
     const get = vi.fn(async () => makeR2Object());
     const response = await handleR2Asset(
       new Request(
@@ -39,9 +47,9 @@ describe("r2 asset route", () => {
     expect(response.headers.get("Content-Type")).toBe("image/webp");
     expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(response.headers.get("Cache-Control")).toBe(
-      "public, max-age=31536000, immutable",
+      "no-store",
     );
-    expect(response.headers.get("ETag")).toBe('"asset-etag"');
+    expect(response.headers.get("ETag")).toBe('"otw:0:asset-etag"');
     await expect(response.text()).resolves.toBe("asset-body");
   });
 

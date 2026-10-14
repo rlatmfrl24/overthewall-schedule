@@ -7,6 +7,8 @@ import type { ScheduledOperationsWorkflowParams } from "@contracts/scheduled-ope
 
 export interface Env {
   SITE_ID?: string;
+  SITE_D1_DATABASE_NAME?: string;
+  SITE_ASSET_BUCKET_NAME?: string;
   SITE_PUBLIC_ORIGIN?: string;
   SITE_CONTROL_QUEUE_NAME?: string;
   SITE_CRITICAL_QUEUE_NAME?: string;

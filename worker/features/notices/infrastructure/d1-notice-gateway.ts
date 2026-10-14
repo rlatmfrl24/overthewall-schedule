@@ -9,6 +9,7 @@ import {
   getOwnedNoticeThumbnailKey,
   NOTICE_THUMBNAIL_KEY_PREFIX,
   NOTICE_THUMBNAIL_MAX_BYTES,
+  type D1R2FileStore,
 } from "../../assets";
 import type { DbInstance } from "../../../platform/db";
 import type {
@@ -20,9 +21,6 @@ import type {
   NoticeWriteInput,
 } from "../application/ports/notice-gateway";
 
-const NOTICE_THUMBNAIL_CACHE_CONTROL =
-  "public, max-age=31536000, immutable";
-const NOTICE_THUMBNAIL_CLEANUP_GRACE_MS = 15 * 60_000;
 
 type NoticeThumbnailReference = {
   key: string;
@@ -31,6 +29,7 @@ type NoticeThumbnailReference = {
 };
 
 type NoticeRow = typeof notices.$inferSelect;
+type NoticeFileStore = Pick<D1R2FileStore,"put"|"releaseNoticeReference"|"listNoticeObjects"|"cleanupNoticeObject">;
 
 const getNoticeLinks = (row: NoticeRow) => {
   if (Array.isArray(row.links) && row.links.length > 0) {
@@ -82,19 +81,22 @@ export class D1NoticeGateway implements NoticeGateway {
   private readonly bucket?: R2Bucket;
 
   private readonly includeArchived: boolean;
+  private readonly fileStore?:NoticeFileStore;
 
   constructor(
     db: DbInstance,
     bucket?: R2Bucket,
     includeArchived = false,
+    fileStore?:NoticeFileStore,
   ) {
     this.db = db;
     this.includeArchived = includeArchived;
     this.bucket = bucket;
+    this.fileStore=fileStore;
   }
 
   isThumbnailStorageConfigured() {
-    return Boolean(this.bucket);
+    return Boolean(this.bucket && this.fileStore);
   }
 
   async list(input: {
@@ -222,16 +224,11 @@ export class D1NoticeGateway implements NoticeGateway {
   async uploadThumbnail(
     input: NoticeThumbnailUploadInput,
   ): Promise<string | null> {
-    if (!this.bucket) return null;
-    const key = `${NOTICE_THUMBNAIL_KEY_PREFIX}${Date.now()}-${crypto.randomUUID()}.${
+    if (!this.bucket || !this.fileStore) return null;
+    const key = `${NOTICE_THUMBNAIL_KEY_PREFIX}${input.operationId}.${
       input.extension
     }`;
-    await this.bucket.put(key, input.file, {
-      httpMetadata: {
-        contentType: input.contentType,
-        cacheControl: NOTICE_THUMBNAIL_CACHE_CONTROL,
-      },
-    });
+    await this.fileStore.put({operationId:input.operationId,logicalKey:key,contentType:input.contentType,bytes:new Uint8Array(await input.file.arrayBuffer())});
     return buildNoticeThumbnailAssetUrl(key);
   }
 
@@ -239,11 +236,14 @@ export class D1NoticeGateway implements NoticeGateway {
     if (await this.hasThumbnailReference(key)) {
       return { status: "referenced" };
     }
-    if (!this.bucket) return { status: "unavailable" };
+    if (!this.bucket || !this.fileStore) return { status: "unavailable" };
 
     try {
-      await this.bucket.delete(key);
-      return { status: "deleted" };
+      await this.fileStore.releaseNoticeReference(key);
+      const objects=(await this.fileStore.listNoticeObjects()).filter(object=>object.key===key);
+      if(objects.some(object=>!object.cleanupEligible)) return {status:"retained"};
+      for(const object of objects) if(!await this.fileStore.cleanupNoticeObject(key,object.objectKey)) return {status:"retained"};
+      return {status:"deleted"};
     } catch (error) {
       console.warn("[notices] Failed to delete unused notice thumbnail", {
         key,
@@ -258,7 +258,9 @@ export class D1NoticeGateway implements NoticeGateway {
   }
 
   async cleanupThumbnails(): Promise<NoticeThumbnailCleanupResult> {
-    if (!this.bucket) return { status: "unavailable" };
+    if (!this.bucket || !this.fileStore) return { status: "unavailable" };
+
+    for(const key of new Set((await this.fileStore.listNoticeObjects()).map(object=>object.key))) await this.fileStore.releaseNoticeReference(key);
 
     const status = await this.buildThumbnailStatus();
     const candidates = status.objects.filter(
@@ -269,8 +271,7 @@ export class D1NoticeGateway implements NoticeGateway {
 
     for (const asset of candidates) {
       try {
-        await this.bucket.delete(asset.key);
-        deleted.push(asset.key);
+        if(await this.fileStore.cleanupNoticeObject(asset.key,asset.objectKey??asset.key)) deleted.push(asset.objectKey??asset.key);
       } catch (error) {
         failed.push({
           key: asset.key,
@@ -373,14 +374,13 @@ export class D1NoticeGateway implements NoticeGateway {
       };
     }
 
-    const objects = await this.listThumbnailObjects();
-    const now = Date.now();
+    const objects = this.fileStore?await this.fileStore.listNoticeObjects():await this.listThumbnailObjects();
     const objectKeys = new Set(objects.map((object) => object.key));
     const assets = objects
       .map((object) => {
         const referenceCount =
           references.get(object.key)?.referenceCount ?? 0;
-        const uploadedAt = getR2ObjectUploadedAt(object);
+        const uploadedAt = "uploadedAt" in object?object.uploadedAt:getR2ObjectUploadedAt(object);
         return {
           key: object.key,
           url: buildNoticeThumbnailAssetUrl(object.key),
@@ -388,10 +388,8 @@ export class D1NoticeGateway implements NoticeGateway {
           uploadedAt,
           referenced: referenceCount > 0,
           referenceCount,
-          cleanupEligible:
-            referenceCount === 0 &&
-            uploadedAt !== null &&
-            now - uploadedAt >= NOTICE_THUMBNAIL_CLEANUP_GRACE_MS,
+          ...("objectKey" in object?{objectKey:object.objectKey,recoveryHeld:object.recoveryHeld,graceStart:object.graceStart}:{}),
+          cleanupEligible:"cleanupEligible" in object?object.cleanupEligible:false,
         };
       })
       .sort((a, b) => (b.uploadedAt ?? 0) - (a.uploadedAt ?? 0));
@@ -455,7 +453,7 @@ export class D1NoticeGateway implements NoticeGateway {
         return;
       }
       try {
-        await this.bucket.delete(key);
+        await this.fileStore?.releaseNoticeReference(key);
       } catch (error) {
         console.warn("[notices] Failed to delete notice thumbnail", {
           key,

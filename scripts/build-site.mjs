@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { getSiteTarget, parseSiteArgument, loadSiteEnvironment, resolveSiteOrigin } from "./site-target.mjs";
 import { assertClerkDeploymentConfig } from "./clerk-environment.mjs";
 import { writeSiteBuildManifest } from "./site-build-manifest.mjs";
+import { writeStaticAssetManifest } from "./static-asset-manifest.mjs";
 
 const siteId = parseSiteArgument();
 const environment = loadSiteEnvironment(siteId, "production");
@@ -24,5 +25,6 @@ for (const [script, ...args] of [
   const result = spawnSync(process.execPath, [resolve(script), ...args], { stdio: "inherit", env });
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
+writeStaticAssetManifest(resolve(getSiteTarget(siteId).outputRoot,"client"));
 writeSiteBuildManifest(siteId, environment);
 console.log(`[build] Verified artifact manifest for ${siteId}.`);

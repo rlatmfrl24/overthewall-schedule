@@ -1491,13 +1491,15 @@ const writeStoredPosts = async (
 export const redactStoredXPosts = async (
   cacheDb: Pick<D1Database, "prepare" | "batch">,
   postIds: readonly string[],
+  commit?: (postId:string,statements:D1PreparedStatement[])=>Promise<D1Result[]>,
 ) => {
   const uniqueIds = [...new Set(postIds.filter(Boolean))];
   const redactedAt = Date.now();
   let found = 0;
   let redacted = 0;
-  for (let index = 0; index < uniqueIds.length; index += 50) {
-    const chunk = uniqueIds.slice(index, index + 50);
+  const chunkSize=commit?1:50;
+  for (let index = 0; index < uniqueIds.length; index += chunkSize) {
+    const chunk = uniqueIds.slice(index, index + chunkSize);
     const existing = await cacheDb.prepare(
       `SELECT id FROM x_posts
        WHERE id IN (${chunk.map(() => "?").join(", ")})`,
@@ -1505,7 +1507,7 @@ export const redactStoredXPosts = async (
     const ids = existing.results.map(row => row.id);
     found += ids.length;
     if (!ids.length) continue;
-    const results = await cacheDb.batch([
+    const statements = [
       cacheDb.prepare(
        `UPDATE x_posts
         SET value = '{}', hidden_at = ?, hidden_reason = 'admin', content_removed_at = ?
@@ -1517,7 +1519,8 @@ export const redactStoredXPosts = async (
          WHERE post_id IN (${ids.map(() => "?").join(", ")})`,
       ).bind(redactedAt, redactedAt, ...ids),
       ...prepareXReferenceRedaction(cacheDb, ids, redactedAt),
-    ]);
+    ];
+    const results=commit?await commit(ids[0]!,statements):await cacheDb.batch(statements);
     redacted += Number(results[0].meta?.changes ?? 0) || 0;
     invalidateXPostMemoryCache();
   }

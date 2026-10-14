@@ -16,7 +16,7 @@ import {
 const X_POSTS_CACHE_CONTROL =
   "no-store";
 const X_AUTHENTICATED_POSTS_CACHE_CONTROL = "no-store";
-const X_POST_ID_PATTERN = /^[1-9]\d{4,24}$/;
+import { isXPostId } from "../domain/post-identity";
 type XPostsVisibility = "public" | "members" | "private";
 
 export type BuildXPostsApplication = (env: Env) => XPostsApplication;
@@ -155,7 +155,7 @@ export const createXPostsHandler =
     const admin = await requireAdminUser(request, env);
     if (!admin.ok) return admin.response;
     const postId = postMatch[1] ?? "";
-    if (!X_POST_ID_PATTERN.test(postId)) {
+    if (!isXPostId(postId)) {
       return badRequest("id must be a numeric X post id");
     }
     const redacted = await application.redactPost(
@@ -182,7 +182,7 @@ export const createXPostsHandler =
 
   if (contextMatch) {
     const sourcePostId = contextMatch[1] ?? "";
-    if (!X_POST_ID_PATTERN.test(sourcePostId)) {
+    if (!isXPostId(sourcePostId)) {
       return badRequest("id must be a numeric X post id");
     }
 

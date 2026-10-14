@@ -1,5 +1,7 @@
-import {parseScheduleInput} from "../../schedules";
-import {parseUpdateSong} from "../../otw-play";
+import {parseScheduleInput} from "../../schedules/commands";
+import {parseUpdateSong} from "../../otw-play/commands";
+import {parseFileReplacement} from "../../assets/commands";
+import {parseXRedaction} from "../../x-posts/commands";
 import {projectCapturedRecord,projectBusinessJson,type ProjectionContext,type JsonValue} from "../domain/projected-content";
 import type {AcceptedOperation,OperationEnvelope} from "../../../../contracts/content-transition";
 
@@ -13,6 +15,20 @@ export async function parseTransitionCommand(raw:unknown,context:ProjectionConte
   if(side==="target" && Object.keys(command.codec).sort().join(",")!=="id,version") throw new Error("Target codec must match the positive allowlist");
   let payload:Record<string,unknown>;
   switch(command.codec.id) {
+    case "x-posts.redact": {
+      const parsed=parseXRedaction(command.payload);
+      if(!parsed) throw new Error("Invalid X redaction command");
+      payload=parsed;
+      break;
+    }
+    case "assets.replace": {
+      const parsed=parseFileReplacement(command.payload);
+      if(!parsed) throw new Error("Invalid file replacement command");
+      const member=parsed.memberUid===null?null:context.members.find(member=>member.uid===parsed.memberUid);
+      if(parsed.memberUid!==null && !member?.targetUid) throw new Error("Unapproved file member");
+      payload={...parsed,memberUid:member?.targetUid??null};
+      break;
+    }
     case "schedules.save": {
       const input=parseScheduleInput(command.payload,{requireId:true});
       if(!input) throw new Error("Invalid schedule command");
@@ -52,6 +68,8 @@ export function assertOperationMetadata(operation:AcceptedOperation):void {
   let key:unknown;
   try { key=JSON.parse(operation.subject.key); } catch { throw new Error("Invalid command subject"); }
   if(!Array.isArray(key) || key.length!==1) throw new Error("Invalid command subject");
+  if(operation.codec.id==="x-posts.redact" && (operation.kind!=="redaction" || operation.subject.table!=="x_posts" || key[0]!==operation.payload.postId || operation.expectedVersion!==null)) throw new Error("Redaction command subject/version mismatch");
+  if(operation.codec.id==="assets.replace" && (operation.kind!=="content_edit" || operation.subject.table!=="asset_file_references" || key[0]!==operation.payload.logicalKey || operation.expectedVersion!==null)) throw new Error("File command subject/version mismatch");
   if(operation.codec.id==="schedules.save" && (operation.kind!=="content_edit" || operation.subject.table!=="schedules" || key[0]!==operation.payload.id || operation.expectedVersion!==null)) throw new Error("Schedule command subject/version mismatch");
   if(operation.codec.id==="schedules.save" && operation.expectedState!==null) {
     assertScheduleExpectedState(operation.expectedState,operation.payload.id);

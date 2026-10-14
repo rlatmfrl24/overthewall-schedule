@@ -2,6 +2,8 @@ import type { Env } from "../platform/types";
 
 export const siteEnv = (site: "otw" | "luvdia" = "otw"): Partial<Env> => ({
   SITE_ID: site,
+  SITE_D1_DATABASE_NAME: `${site}-db`,
+  SITE_ASSET_BUCKET_NAME: `${site}-schedule`,
   SITE_PUBLIC_ORIGIN: site === "otw" ? "https://otw-schedule.info" : "http://localhost:5174",
   SITE_CONTROL_QUEUE_NAME: `${site}-ops-control`,
   SITE_CRITICAL_QUEUE_NAME: `${site}-ops-critical`,

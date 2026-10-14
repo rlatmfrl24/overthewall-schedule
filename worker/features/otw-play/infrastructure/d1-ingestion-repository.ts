@@ -1,4 +1,5 @@
 import { D1AdminCatalogRepository } from "./d1-admin-catalog-repository";
+import { contentRowHeldSql } from "../../content-transition";
 import { historicalReviewDeletedSql } from "./historical-review-sql";
 import { readHistoricalMaterials } from "./read-historical-materials";
 import { projectionStatements } from "./d1-catalog-projection";
@@ -1349,7 +1350,7 @@ export class D1IngestionRepository implements IngestionRepository {
     return resultsOf(await this.database.prepare(
       `SELECT id FROM music_ingestion_candidates
        WHERE metadata_checked_at IS NOT NULL
-         AND (metadata_checked_at <= ? OR retention_expires_at <= ?)
+         AND (metadata_checked_at <= ? OR retention_expires_at <= ?) AND NOT ${contentRowHeldSql("music_ingestion_candidates")}
        ORDER BY metadata_checked_at, id LIMIT ?`,
     ).bind(now - API_DATA_RETENTION_MS, now, limit).all<{ id: string }>());
   }
@@ -1358,7 +1359,7 @@ export class D1IngestionRepository implements IngestionRepository {
     return resultsOf(await this.database.prepare(
       `SELECT id FROM music_ingestion_jobs
        WHERE source_metadata_checked_at IS NOT NULL
-         AND source_metadata_checked_at <= ?
+         AND source_metadata_checked_at <= ? AND NOT ${contentRowHeldSql("music_ingestion_jobs")}
        ORDER BY source_metadata_checked_at, id LIMIT ?`,
     ).bind(now - API_DATA_RETENTION_MS, limit).all<{ id: string }>());
   }
@@ -1384,7 +1385,7 @@ export class D1IngestionRepository implements IngestionRepository {
              availability_status = 'unknown', metadata_checked_at = NULL,
              version = version + 1, updated_at = ?
            WHERE id = ? AND metadata_checked_at IS NOT NULL
-             AND (metadata_checked_at <= ? OR retention_expires_at <= ?)`,
+             AND (metadata_checked_at <= ? OR retention_expires_at <= ?) AND NOT ${contentRowHeldSql("music_ingestion_candidates")} RETURNING id`,
         ).bind(
           now,
           candidate.id,
@@ -1405,7 +1406,7 @@ export class D1IngestionRepository implements IngestionRepository {
       ]);
       const results = await this.database.batch(statements);
       for (let index = 0; index < results.length; index += 2) {
-        cleared += Number(results[index]?.meta.changes ?? 0);
+        cleared += results[index]?.results.length ?? 0;
       }
     }
     const jobs = await this.listExpiredJobApiData(now, limit);
@@ -1416,11 +1417,11 @@ export class D1IngestionRepository implements IngestionRepository {
            SET source_title = NULL, owner_channel_title = NULL,
              source_metadata_checked_at = NULL, updated_at = ?
            WHERE id = ? AND source_metadata_checked_at IS NOT NULL
-             AND source_metadata_checked_at <= ?`,
+             AND source_metadata_checked_at <= ? AND NOT ${contentRowHeldSql("music_ingestion_jobs")} RETURNING id`,
         ).bind(now, job.id, now - API_DATA_RETENTION_MS),
       ));
       cleared += results.reduce(
-        (count, result) => count + Number(result.meta.changes ?? 0),
+        (count, result) => count + result.results.length,
         0,
       );
     }

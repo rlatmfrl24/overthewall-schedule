@@ -8,8 +8,10 @@ import { D1IngestionRepository } from "../../otw-play/infrastructure/d1-ingestio
 import { classifiedTables } from "./manifest-statements";
 import { keySql } from "./capture-graph";
 import type { TransitionPlan } from "../../../../contracts/content-transition";
+import {D1FileAvailability} from "../../assets/infrastructure/d1-file-availability";
+import type {FileAvailabilityContext} from "../application/ports/file-availability";
 
-const bindings = env as typeof env & { transition_target_db: D1Database; CONTENT_TRANSITION_MIGRATIONS: D1Migration[] };
+const bindings = env as typeof env & { transition_target_db: D1Database; CONTENT_TRANSITION_MIGRATIONS: D1Migration[]; ASSET_BUCKET:R2Bucket;TRANSITION_TARGET_BUCKET:R2Bucket;SOURCE_ASSETS:Fetcher;TARGET_ASSETS:Fetcher };
 const sourceDb = bindings.otw_db;
 const targetDb = bindings.transition_target_db;
 const fixtureClassifications: Array<TransitionPlan["classifications"][number]>=[];
@@ -19,8 +21,10 @@ const plan = {
     { code: "bing_hayu", uid: 1, targetUid:1 }, { code: "u_lili", uid: 2, targetUid:2 }, { code: "yang_mei", uid: 3, targetUid:3 },
   ], classifications: fixtureClassifications,
 } as const;
-const source = new D1TransitionRepository(sourceDb, "otw", "source-db","source-bucket");
-const target = new D1TransitionRepository(targetDb, "luvdia", "target-db","target-bucket");
+const sourceAvailability=new D1FileAvailability(sourceDb,bindings.ASSET_BUCKET,bindings.SOURCE_ASSETS,"otw","otw-bucket");
+const targetAvailability=new D1FileAvailability(targetDb,bindings.TRANSITION_TARGET_BUCKET,bindings.TARGET_ASSETS,"luvdia","luvdia-bucket");
+const source = new D1TransitionRepository(sourceDb, "otw", "source-db","source-bucket",sourceAvailability);
+const target = new D1TransitionRepository(targetDb, "luvdia", "target-db","target-bucket",targetAvailability);
 const now = 100;
 const admission = (id: string, hash = id) => ({
   codec:{id:"schedules.save",version:1},
@@ -57,6 +61,7 @@ beforeEach(async () => {
       db.prepare("DELETE FROM content_transitions"),
       db.prepare("DELETE FROM content_historical_relations"),
       db.prepare("DELETE FROM content_historical_records"),
+      db.prepare("DELETE FROM notices"),db.prepare("DELETE FROM member_profile_images"),
       db.prepare("DELETE FROM schedules"),
       db.prepare("DELETE FROM ddays WHERE id=900"),
       db.prepare("DELETE FROM music_ingestion_candidates"),
@@ -70,6 +75,45 @@ beforeEach(async () => {
   }
   await source.prepare(plan);
   await target.prepare(plan);
+});
+
+it("projects an approved absolute asset origin into target-relative references while preserving sealed source bytes",async()=>{
+  await sourceDb.prepare("DELETE FROM content_transitions").run();await targetDb.prepare("DELETE FROM content_transitions").run();
+  const raw="https://otw-schedule.info/profile/%62ing_hayu.webp?revision=1#image";
+  await sourceDb.prepare("INSERT INTO notices(id,content,related_member_uids,image_urls) VALUES(901,'origin reference','[1]',?)").bind(JSON.stringify([raw])).run();
+  await expect(source.prepare(plan)).rejects.toThrow(/classification/);
+  const ownPlan:TransitionPlan={...plan,fileOrigins:[{kind:"site",origin:"https://otw-schedule.info",site:"otw"}]};
+  await source.prepare(ownPlan);await target.prepare(ownPlan);
+  await ready();
+  const header=await source.describeBaseline(plan.id);await target.beginBaseline(header);
+  let cursor:Awaited<ReturnType<typeof source.exportBaselinePage>>["next"]|0=0;
+  do {const page=await source.exportBaselinePage(header,cursor);await target.stageBaselinePage(page);cursor=page.next;}while(cursor.ordinal<header.rows);
+  while(await target.materializeBaselinePage(plan.id)){ /* normal bounded installer */ }
+  await target.finalizeBaseline(plan.id);
+  expect(await targetDb.prepare("SELECT image_urls FROM notices WHERE id=901").first("image_urls")).toBe('["/profile/bing_hayu.webp"]');
+  expect(await targetDb.prepare("SELECT raw_url FROM asset_file_reference_paths WHERE row_table='notices' AND row_key='[901]'").first("raw_url")).toBe("/profile/bing_hayu.webp");
+  const sealed=await sourceDb.prepare("SELECT image_json FROM content_transition_images WHERE row_table='notices' AND row_key='[901]'").first<string>("image_json");
+  expect(sealed).toContain(raw);
+  expect(await sourceDb.prepare("SELECT image_urls FROM notices WHERE id=901").first("image_urls")).toBe(JSON.stringify([raw]));
+  const beforeHeader=await source.describeBaseline(plan.id);
+  await source.admit(admission("unknown-origin"));
+  await source.commit(plan.id,"unknown-origin",1,[sourceDb.prepare("UPDATE notices SET image_urls=? WHERE id=901").bind('["https://new-origin.example/profile/bing_hayu.webp"]')]);
+  expect(await sourceDb.prepare("SELECT image_urls FROM notices WHERE id=901").first("image_urls")).toContain("new-origin.example");
+  await expect(source.freeze(plan.id,now)).rejects.toThrow(/manifest/);
+  await expect(source.exportProjectedCommits(plan.id,header.boundary)).rejects.toThrow(/classification/);
+  const parent={revision:0,digest:plan.manifestDigest},protection={receiptId:"origin-review",protocol:1,manifestDigest:"origin-v2"};
+  const originAddition=[{kind:"external" as const,origin:"https://new-origin.example",reason:"Reviewed remote external-only reference"}];
+  const revision=await source.appendClassifications(plan.id,parent,[],"origin-v2",protection,originAddition);
+  expect(await source.appendClassifications(plan.id,parent,[],"origin-v2",protection,originAddition)).toEqual(revision);
+  await expect(source.appendClassifications(plan.id,parent,[],"origin-v2",protection,[{...originAddition[0],reason:"different"}])).rejects.toThrow(/conflict/i);
+  await target.acceptManifestRevision(revision);
+  await expect(target.acceptManifestRevision({...revision,plan:{...revision.plan,fileOrigins:[{kind:"site",site:"otw",origin:"https://foreign.example"},...originAddition]}})).rejects.toThrow(/conflict/i);
+  expect(await source.describeBaseline(plan.id)).toEqual(beforeHeader);
+  await source.acknowledgeIngress(await target.openIngress(plan.id,"origin-v2-ready",1000),now);
+  const fence=await source.freeze(plan.id,now);await target.installFence(fence);
+  for(const commit of await source.exportProjectedCommits(plan.id,header.boundary)) await target.installProjectedCommit(commit);
+  expect(await targetDb.prepare("SELECT image_urls FROM notices WHERE id=901").first("image_urls")).toBe('["https://new-origin.example/profile/bing_hayu.webp"]');
+  await expect(source.appendClassifications(plan.id,{revision:1,digest:"origin-v2"},[],"origin-v3",{...protection,manifestDigest:"origin-v3"},[{kind:"external",origin:"https://later.example",reason:"late"}])).rejects.toThrow(/frozen/);
 });
 
 async function capturing() {
@@ -93,7 +137,14 @@ async function installTail() {
   await target.finalizeBaseline(plan.id);
   const costs=[];
   for(const commit of await source.exportProjectedCommits(plan.id,header.boundary)) costs.push(await target.installProjectedCommit(commit));
+  await transferStaticProof();
   return costs;
+}
+async function transferStaticProof() {
+  const row=(await sourceDb.prepare("SELECT plan_json,manifest_revision,fence_json FROM content_transitions WHERE id=?").bind(plan.id).first<{plan_json:string;manifest_revision:number;fence_json:string}>())!;
+  if(!row.fence_json) return; // Copy/replay may precede the final availability fence.
+  const context:FileAvailabilityContext={plan:JSON.parse(row.plan_json),manifestRevision:row.manifest_revision,fence:JSON.parse(row.fence_json)};
+  for(const observation of await sourceAvailability.observeStatic(context)) await targetAvailability.receiveSourceStatic(context,observation);
 }
 async function transferAndActivate() {
   const fence = await source.freeze(plan.id, now);
@@ -264,7 +315,7 @@ describe("real D1 transition control", () => {
     };
     // For ACK, renew the old manifest receipt so this is a real replacement.
     const receipt=action==="ack"?await target.openIngress(plan.id,"old-renewal",1500):old;
-    const raced=new D1TransitionRepository(interleave(sourceDb,action==="ack"?"SET phase='target_ingress_ready'":"SET phase='source_fenced'",concurrent),"otw","source-db");
+    const raced=new D1TransitionRepository(interleave(sourceDb,action==="ack"?"SET phase='target_ingress_ready'":"SET phase=iif",concurrent),"otw","source-db");
     await expect(action==="ack"?raced.acknowledgeIngress(receipt,now):raced.freeze(plan.id,now)).rejects.toThrow();
     expect(await sourceDb.prepare("SELECT fence_json FROM content_transitions WHERE id='move'").first("fence_json")).toBeNull();
     expect((await source.readTransition(plan.id)).manifestDigest).toBe("next-manifest");
@@ -570,7 +621,7 @@ describe("real D1 transition control", () => {
     await target.stageBaselinePage(first);
     await expect(target.finalizeBaseline(plan.id)).rejects.toThrow(/incomplete/);
     await expect(target.installCommittedState(plan.id)).rejects.toThrow(/tail/);
-    const resumed=new D1TransitionRepository(targetDb,"luvdia","target-db");
+    const resumed=new D1TransitionRepository(targetDb,"luvdia","target-db","target-bucket",targetAvailability);
     for(let cursor=first.next;cursor.ordinal<header.rows;) {
       const page=await source.exportBaselinePage(header,cursor);
       await resumed.stageBaselinePage(page);
@@ -583,6 +634,7 @@ describe("real D1 transition control", () => {
     const receipt=await resumed.finalizeBaseline(plan.id);
     expect(receipt.rows).toBe(header.rows);
     expect(await targetDb.prepare("SELECT count(*) n FROM schedules").first("n")).toBe(60);
+    await transferStaticProof();
     await resumed.installCommittedState(plan.id);
     await resumed.activate(plan.id);
     console.info("actual selected baseline",JSON.stringify({rows:header.rows,batches,receipt,sourceCost}));

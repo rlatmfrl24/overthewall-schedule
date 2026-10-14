@@ -4,6 +4,7 @@ import { createSiteSeoHandler, rewriteSiteContent, siteContentUnavailable } from
 import { isSiteContentPath } from "@contracts/site-public-content";
 import { createSiteSeoDependencies } from "./site-seo";
 import { getWorkerSiteResources } from "../platform/site";
+import { handleAsset } from "./assets";
 
 const handleSiteSeo = createSiteSeoHandler(env => createSiteSeoDependencies(env).seo);
 
@@ -77,7 +78,12 @@ export const handleWorkerFetch = async (
   const url = new URL(request.url);
 
   try {
+    let assetPath: string;
+    try { assetPath=new URL(decodeURIComponent(url.pathname),url.origin).pathname; }
+    catch { return new Response(null,{status:404,headers:{"Cache-Control":"private, no-store"}}); }
+    if(assetPath==="/profile/__artifact.json") return new Response(null,{status:404,headers:{"Cache-Control":"private, no-store"}});
     const { site } = getWorkerSiteResources(env);
+    if (assetPath.startsWith("/profile/") && /\.[a-z0-9]+$/i.test(assetPath) || assetPath.startsWith("/r2-assets/")) return handleAsset(request, env);
     const seoResponse = await handleSiteSeo(request, env);
     const contentPath = url.pathname.replace(/\/+$/, "") || "/";
     if (isSiteContentPath(contentPath) && (!seoResponse || seoResponse.status === 200)) {

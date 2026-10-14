@@ -1,4 +1,5 @@
 import { OFFICIAL_CHANNEL_TARGETS_SQL } from "./official-channel-targets";
+import { contentRowHeldSql, contentRowMovedSql } from "../../content-transition";
 import type {
   YouTubeShortsResponseDto,
   YouTubeVideoDto,
@@ -153,7 +154,7 @@ const syncSourceRegistry = async (env: Env, timestamp: number) => {
   await env.otw_db
     .prepare(
       `DELETE FROM youtube_feed_sources
-       WHERE source_kind = 'official' AND NOT EXISTS (
+       WHERE source_kind = 'official' AND NOT ${contentRowHeldSql("youtube_feed_sources")} AND NOT EXISTS (
          SELECT 1 FROM (${OFFICIAL_CHANNEL_TARGETS_SQL}) target
          WHERE target.youtube_channel_id = youtube_feed_sources.youtube_channel_id
        )`,
@@ -162,7 +163,7 @@ const syncSourceRegistry = async (env: Env, timestamp: number) => {
   await env.otw_db
     .prepare(
       `DELETE FROM youtube_feed_sources
-       WHERE source_kind = 'kirinuki' AND NOT EXISTS (
+       WHERE source_kind = 'kirinuki' AND NOT ${contentRowHeldSql("youtube_feed_sources")} AND NOT EXISTS (
          SELECT 1 FROM kirinuki_channels channel
          WHERE channel.id = youtube_feed_sources.kirinuki_channel_id
            AND channel.youtube_channel_id = youtube_feed_sources.youtube_channel_id
@@ -179,9 +180,9 @@ const syncSourceRegistry = async (env: Env, timestamp: number) => {
        ON CONFLICT(youtube_channel_id, source_kind) DO UPDATE SET
          member_uid = excluded.member_uid, enabled = 1, deactivated_at = NULL,
          updated_at = excluded.updated_at
-       WHERE youtube_feed_sources.member_uid IS NOT excluded.member_uid
+       WHERE NOT ${contentRowMovedSql("youtube_feed_sources")} AND (youtube_feed_sources.member_uid IS NOT excluded.member_uid
           OR youtube_feed_sources.enabled != 1
-          OR youtube_feed_sources.deactivated_at IS NOT NULL`,
+          OR youtube_feed_sources.deactivated_at IS NOT NULL)`,
     )
     .bind(timestamp, timestamp, timestamp, timestamp)
     .run();
@@ -196,7 +197,7 @@ const syncSourceRegistry = async (env: Env, timestamp: number) => {
        ON CONFLICT(youtube_channel_id, source_kind) DO UPDATE SET
          kirinuki_channel_id = excluded.kirinuki_channel_id,
          updated_at = excluded.updated_at
-       WHERE youtube_feed_sources.kirinuki_channel_id IS NOT
+       WHERE NOT ${contentRowMovedSql("youtube_feed_sources")} AND youtube_feed_sources.kirinuki_channel_id IS NOT
          excluded.kirinuki_channel_id`,
     )
     .bind(timestamp, timestamp, timestamp, timestamp)
@@ -220,7 +221,7 @@ const readSources = async (
          backfill_frontier_published_at, backfill_exhausted_at,
          backfill_lease_until, backfill_retry_after, consecutive_failures
        FROM youtube_feed_sources
-       WHERE source_kind = ? AND enabled = 1${channelClause}
+       WHERE source_kind = ? AND enabled = 1${channelClause} AND NOT ${contentRowMovedSql("youtube_feed_sources")}
          ${mainChannelsOnly ? "AND youtube_channel_id IN (SELECT youtube_channel_id FROM members WHERE is_deprecated IS NULL OR is_deprecated != 1)" : ""}
        ORDER BY id`,
     )
@@ -251,9 +252,9 @@ const prepareMissingOfficialSources = async (
      ON CONFLICT(youtube_channel_id, source_kind) DO UPDATE SET
        member_uid = excluded.member_uid, enabled = 1, deactivated_at = NULL,
        updated_at = excluded.updated_at
-     WHERE youtube_feed_sources.member_uid IS NOT excluded.member_uid
+     WHERE NOT ${contentRowMovedSql("youtube_feed_sources")} AND (youtube_feed_sources.member_uid IS NOT excluded.member_uid
         OR youtube_feed_sources.enabled != 1
-        OR youtube_feed_sources.deactivated_at IS NOT NULL`,
+        OR youtube_feed_sources.deactivated_at IS NOT NULL)`,
   ).bind(timestamp, timestamp, timestamp, timestamp, JSON.stringify(missing)).run();
   return readSources(env, channelIds);
 };
@@ -540,6 +541,7 @@ const acquireBackfillLease = async (
     .prepare(
       `UPDATE youtube_feed_sources SET backfill_lease_until = ?, updated_at = ?
        WHERE id = ? AND backfill_exhausted_at IS NULL
+         AND NOT ${contentRowMovedSql("youtube_feed_sources")}
          AND (backfill_lease_until IS NULL OR backfill_lease_until <= ?)
          AND (backfill_retry_after IS NULL OR backfill_retry_after <= ?)
        RETURNING id`,
@@ -699,6 +701,7 @@ const refreshStaleMetadata = async (env: Env, timestamp: number, origin: YouTube
       `SELECT video.video_id, video.source_id FROM youtube_feed_videos video
        JOIN youtube_feed_sources source ON source.id = video.source_id
        WHERE video.available = 1 AND source.enabled = 1 AND video.fetched_at <= ?
+         AND NOT ${contentRowMovedSql("youtube_feed_sources","source")}
        ORDER BY video.fetched_at, video.video_id LIMIT ?`,
     )
     .bind(timestamp - METADATA_REFRESH_AGE_MS, PAGE_SIZE * MAX_METADATA_REFRESH_BATCHES)
@@ -759,7 +762,7 @@ export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) =
     `SELECT
        (
          EXISTS (
-           SELECT 1 FROM youtube_feed_sources WHERE enabled = 1 AND (
+           SELECT 1 FROM youtube_feed_sources WHERE enabled = 1 AND NOT ${contentRowMovedSql("youtube_feed_sources")} AND (
              ((next_check_at IS NULL OR next_check_at <= ?)
               AND (source_kind != 'official'
                    OR (initialization_completed_at IS NOT NULL
@@ -776,29 +779,30 @@ export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) =
            SELECT 1 FROM youtube_feed_videos video
            JOIN youtube_feed_sources source ON source.id = video.source_id
            WHERE video.available = 1 AND source.enabled = 1 AND video.fetched_at <= ?
+             AND NOT ${contentRowMovedSql("youtube_feed_sources","source")}
          )
          OR EXISTS (
            SELECT 1 FROM (${OFFICIAL_CHANNEL_TARGETS_SQL}) target
            LEFT JOIN youtube_feed_sources source
              ON source.youtube_channel_id = target.youtube_channel_id AND source.source_kind = 'official'
-           WHERE source.id IS NULL OR source.member_uid IS NOT target.member_uid
-             OR source.enabled != 1 OR source.deactivated_at IS NOT NULL
+           WHERE (source.id IS NULL OR source.member_uid IS NOT target.member_uid
+             OR source.enabled != 1 OR source.deactivated_at IS NOT NULL) AND NOT ${contentRowMovedSql("youtube_feed_sources","source")}
          )
          OR EXISTS (
            SELECT 1 FROM kirinuki_channels channel
            LEFT JOIN youtube_feed_sources source
              ON source.youtube_channel_id = channel.youtube_channel_id AND source.source_kind = 'kirinuki'
-           WHERE source.id IS NULL OR source.kirinuki_channel_id IS NOT channel.id
+           WHERE (source.id IS NULL OR source.kirinuki_channel_id IS NOT channel.id) AND NOT ${contentRowMovedSql("youtube_feed_sources","source")}
          )
          OR EXISTS (
-           SELECT 1 FROM youtube_feed_sources source WHERE
+           SELECT 1 FROM youtube_feed_sources source WHERE NOT ${contentRowHeldSql("youtube_feed_sources","source")} AND (
              (source.source_kind = 'official' AND NOT EXISTS (
                SELECT 1 FROM (${OFFICIAL_CHANNEL_TARGETS_SQL}) target
                WHERE target.youtube_channel_id = source.youtube_channel_id
              )) OR (source.source_kind = 'kirinuki' AND NOT EXISTS (
                SELECT 1 FROM kirinuki_channels channel WHERE channel.id = source.kirinuki_channel_id
                  AND channel.youtube_channel_id = source.youtube_channel_id
-             ))
+             )))
          )
        ) AS has_work`,
   ).bind(
@@ -836,7 +840,7 @@ export const runScheduledYouTubeFeedCollection = async (env: Env, origin: "manua
          backfill_frontier_published_at, backfill_exhausted_at,
          backfill_lease_until, backfill_retry_after, consecutive_failures
        FROM youtube_feed_sources
-       WHERE enabled = 1 AND (
+       WHERE enabled = 1 AND NOT ${contentRowMovedSql("youtube_feed_sources")} AND (
          next_check_at IS NULL OR next_check_at <= ? OR
          (source_kind = 'official' AND backfill_page_token IS NULL
           AND backfill_exhausted_at IS NULL)

@@ -1,4 +1,4 @@
-import { parseSiteId } from "../contracts/site-definition.ts";
+import { parseSiteId, parseSiteStorageResources } from "../contracts/site-definition.ts";
 
 const roles = [
   ["SITE_CONTROL_QUEUE_NAME", "OTW_OPS_CONTROL_QUEUE"],
@@ -13,6 +13,15 @@ export const assertSiteResourceConfig = (config, siteId) => {
   parseSiteId(siteId);
   const vars = config.vars ?? {};
   if (vars.SITE_ID !== siteId) throw new Error("Resource config site identity mismatch.");
+  parseSiteStorageResources(vars);
+  for (const [variable, inventory, binding, field] of [
+    ["SITE_D1_DATABASE_NAME", "d1_databases", "otw_db", "database_name"],
+    ["SITE_ASSET_BUCKET_NAME", "r2_buckets", "ASSET_BUCKET", "bucket_name"],
+  ]) {
+    const name=vars[variable];
+    const entries=config[inventory]?.filter(entry=>entry.binding===binding)??[];
+    if(typeof name!=="string" || !name.startsWith(`${siteId}-`) || entries.length!==1 || entries[0][field]!==name) throw new Error(`Site resource binding does not match ${variable}.`);
+  }
   const names = roles.map(([variable]) => vars[variable]);
   if (names.some(name => typeof name !== "string" || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || !name.startsWith(`${siteId}-`)) || new Set(names).size !== 6) throw new Error("Site Queue variables must name six distinct site-owned queues.");
   const producers = config.queues?.producers ?? [];

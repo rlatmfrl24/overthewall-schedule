@@ -1,5 +1,6 @@
 import type {TransitionPlan} from "../../../../contracts/content-transition";
 import {historicalRecordId,type ProjectionContext} from "../domain/projected-content";
+import {fileReferenceProjection} from "./file-reference-projection";
 type Fact={row_table:string;row_key:string;commit_seq:number;seq:number;value:string|null};
 /** Reads only sealed member/entity identity facts through the requested boundary.
  * No current business table or caller-supplied name/entity mapping is authority. */
@@ -45,7 +46,7 @@ export async function readProjectionContext(db:D1Database,plan:TransitionPlan,bo
     }
   }
   await sealBindings();
-  return {sourceSite:plan.sourceSite,classifications:plan.classifications,
+  return {sourceSite:plan.sourceSite,classifications:plan.classifications,files:fileReferenceProjection(plan),
     members:[...lastMembers.values()].map(member=>({uid:member.uid,name:member.name,present:currentMembers.has(member.uid),targetUid:plan.members.find(approved=>approved.uid===member.uid)?.targetUid??null,externalEntityId:bindings.get(member.uid)??null,firstCommit:firstMembers.get(member.uid)!,canonicalPresent:[...currentEntities.values()].includes(member.uid),entityIds:[...entityHistory].filter(([,uid])=>uid===member.uid).map(([id])=>id)})),
     entities:[...entityHistory].flatMap(([id,uid])=>bindings.has(uid)?[{sourceId:id,targetId:bindings.get(uid)!}]:[]),
   };

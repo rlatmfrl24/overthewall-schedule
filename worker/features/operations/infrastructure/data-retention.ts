@@ -1,4 +1,5 @@
 import { type Env } from "../../../platform/types";
+import { contentRowHeldSql } from "../../content-transition";
 
 const DAY_MS = 24 * 60 * 60_000;
 const RETENTION_LAST_PRUNE_SETTING_KEY = "data_retention_last_prune";
@@ -261,9 +262,12 @@ const getPolicyWhereClause = (policy: RetentionPolicy) => {
   const timestampClause = policy.timestampKind === "sqlite_datetime"
     ? `${policy.timestampColumn} IS NOT NULL AND ${policy.timestampColumn} < ?`
     : `${policy.timestampColumn} < ?`;
-  return policy.extraWhere
+  const expiry = policy.extraWhere
     ? `(${policy.extraWhere}) AND (${timestampClause})`
     : timestampClause;
+  return ["youtube_feed_videos", "x_api_cache", "update_logs"].includes(policy.table)
+    ? `(${expiry}) AND NOT ${contentRowHeldSql(policy.table as "youtube_feed_videos" | "x_api_cache" | "update_logs")}`
+    : expiry;
 };
 
 const getPolicyBindValue = (policy: RetentionPolicy, cutoff: number) => {
@@ -296,11 +300,12 @@ const deletePrunableRows = async (
   policy: RetentionPolicy,
   cutoff: number,
 ) => {
-  const result = await env.otw_db
-    .prepare(`DELETE FROM ${policy.table} WHERE ${getPolicyWhereClause(policy)}`)
-    .bind(getPolicyBindValue(policy, cutoff))
-    .run();
-  return Number(result.meta?.changes ?? 0) || 0;
+  const results = await env.otw_db.batch<{ deleted: number }>([
+    env.otw_db.prepare(`DELETE FROM ${policy.table} WHERE ${getPolicyWhereClause(policy)}`)
+      .bind(getPolicyBindValue(policy, cutoff)),
+    env.otw_db.prepare("SELECT changes() AS deleted"),
+  ]);
+  return Number(results[1].results[0]?.deleted ?? 0);
 };
 
 export const runDataRetentionPolicyPrune = async (
@@ -319,14 +324,14 @@ export const runDataRetentionPolicyPrune = async (
        WHERE ${getPolicyWhereClause(policy)}
        ORDER BY ${policy.timestampColumn}
        LIMIT ?
-     )`,
-  ).bind(getPolicyBindValue(policy, cutoff), limit).run();
-  const deletedRows = Number(result.meta?.changes ?? 0) || 0;
+     ) RETURNING rowid`,
+  ).bind(getPolicyBindValue(policy, cutoff), limit).all();
+  const deletedRows = result.results.length;
   return {
     policyId,
     cutoff,
     deletedRows,
-    hasMore: deletedRows >= limit,
+    hasMore: deletedRows >= limit && await readPrunableCount(env, policy, cutoff) > 0,
   };
 };
 

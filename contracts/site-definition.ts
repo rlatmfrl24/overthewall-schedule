@@ -31,6 +31,14 @@ export function parseSiteId(value: string | undefined): SiteId {
   return value;
 }
 
+/** Declared binding names; deployed IDs and actual bindings need separate runtime evidence. */
+export function parseSiteStorageResources(value:{SITE_ID?:string;SITE_D1_DATABASE_NAME?:string;SITE_ASSET_BUCKET_NAME?:string}) {
+  const site=parseSiteId(value.SITE_ID);
+  const database=value.SITE_D1_DATABASE_NAME,bucket=value.SITE_ASSET_BUCKET_NAME;
+  for(const name of [database,bucket]) if(typeof name!=="string" || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || !name.startsWith(`${site}-`)) throw new Error("Explicit site-owned D1/R2 binding names required.");
+  return {site,database:database!,bucket:bucket!};
+}
+
 export function getSiteDefinition(siteId: SiteId): SiteDefinition {
   return definitions[parseSiteId(siteId)];
 }

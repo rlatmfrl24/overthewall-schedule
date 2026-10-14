@@ -59,6 +59,31 @@ afterEach(() => {
   }
 });
 
+describe("declared Worker command entries", () => {
+  it.each(["schedules", "otw-play", "assets", "x-posts"])("allows only the declared %s pure command entry", (capability) => {
+    const root = createFilesFixture(new Map([
+      [`worker/features/${capability}/commands.ts`, 'export { parse } from "./domain/input";'],
+      [`worker/features/${capability}/domain/input.ts`, "export const parse = () => null;"],
+      ["worker/features/content-transition/infrastructure/commands.ts", `import { parse } from "../../${capability}/commands"; void parse;`],
+    ]));
+    expect(runArchitectureCheck(root).status).toBe(0);
+  });
+  it.each(["other/commands", "assets/domain/input"])("rejects undeclared entry %s", (entry) => {
+    const root = createFilesFixture(new Map([
+      [`worker/features/${entry}.ts`, "export const parse = () => null;"],
+      ["worker/features/content-transition/infrastructure/commands.ts", `import { parse } from "../../${entry}"; void parse;`],
+    ]));
+    expect(runArchitectureCheck(root).status).toBe(1);
+  });
+  it("rejects a command entry that reexports infrastructure", () => {
+    const root = createFilesFixture(new Map([
+      ["worker/features/assets/commands.ts", 'export { parse } from "./infrastructure/input";'],
+      ["worker/features/assets/infrastructure/input.ts", "export const parse = () => null;"],
+    ]));
+    expect(runArchitectureCheck(root).status).toBe(1);
+  });
+});
+
 describe("architecture-check frontend composition boundaries", () => {
   it.each(["src/routes/profile.ts", "src/app/layout/navigation.ts"])(
     "rejects a feature deep import from %s",

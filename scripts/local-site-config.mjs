@@ -26,7 +26,7 @@ export const writeLocalSiteConfig = (siteId, environment, root = process.cwd()) 
   const config = createLocalSiteConfig(parsed.config, siteId, root);
   config.vars.SITE_PUBLIC_ORIGIN = getLocalDevOrigin({ [`${siteId.toUpperCase()}_DEV_PORT`]: environment.DEV_PORT || environment[`${siteId.toUpperCase()}_DEV_PORT`] }, siteId);
   for (const [name, value] of Object.entries(environment)) {
-    if ((name === "SITE_ID" || name === "SITE_PUBLIC_ORIGIN" || name.endsWith("_QUEUE_NAME") || name === "PLAY_ANALYTICS_DATASET") && value !== config.vars[name]) throw new Error(`Private input conflicts with configured ${name}.`);
+    if ((name === "SITE_ID" || name === "SITE_PUBLIC_ORIGIN" || name === "SITE_D1_DATABASE_NAME" || name === "SITE_ASSET_BUCKET_NAME" || name.endsWith("_QUEUE_NAME") || name === "PLAY_ANALYTICS_DATASET") && value !== config.vars[name]) throw new Error(`Private input conflicts with configured ${name}.`);
   }
   writeFileSync(path, JSON.stringify(config, null, 2));
   const privateVars = Object.entries(environment).filter(([name]) => !name.startsWith("VITE_") && name !== "PUBLIC_ORIGIN");

@@ -24,9 +24,17 @@ export interface TransitionIdentity {
   manifestDigest: string;
 }
 export interface TransitionPlan extends TransitionIdentity {
+  /** Reviewed storage declarations, required for committed baseline R2 proof. */
+  assetBuckets?: { source: string; target: string };
+  fileOrigins?: readonly FileOriginClassification[];
   members: readonly { code: string; uid: number; targetUid: number }[];
   classifications: readonly { table: string; key: string; disposition: "include" | "exclude"; reason: string }[];
 }
+/** Reviewed absolute file URL authority. Relative owned URLs need no origin. */
+export type FileOriginClassification =
+  | {kind:"site";origin:string;site:SiteId}
+  | {kind:"r2";origin:string;site:SiteId;resource:string}
+  | {kind:"external";origin:string;reason:string};
 export interface IngressReadiness extends TransitionIdentity { receiptId: string; expiresAt: number }
 export interface SourceArchiveReceipt extends TransitionIdentity { boundary:number; archivedRoots:number }
 export interface SourceCheckpoint {
@@ -112,3 +120,35 @@ export interface FileObservation {
   hash:string|null; size:number|null; observedAt:number;
 }
 export interface FileReferenceCommit { intentId:string; evidenceId:string }
+/** Static ASSETS artifact evidence is deliberately not an R2 upload version. */
+export interface StaticFileObservation {
+  kind: "static";
+  evidenceId: string;
+  transitionId: string;
+  generation: number;
+  manifestDigest: string;
+  manifestRevision: number;
+  fence: SourceFence;
+  site: SiteId;
+  resource: string;
+  artifactHash: string;
+  path: string;
+  hash: string;
+  size: number;
+}
+export interface CommittedR2Observation {
+  kind: "committed_r2";
+  evidenceId: string;
+  transitionId: string;
+  generation: number;
+  manifestDigest: string;
+  manifestRevision: number;
+  fence: SourceFence;
+  site: SiteId;
+  resource: string;
+  logicalKey: string;
+  versionKey: string;
+  objectVersion: string;
+  hash: string;
+  size: number;
+}

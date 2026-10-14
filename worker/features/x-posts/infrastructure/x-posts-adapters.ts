@@ -24,7 +24,7 @@ import {
   readXHistoryPosts,
 } from "./x-history";
 
-export const buildXPostsApplication = (env: Env) => {
+export const buildXPostsApplication = (env: Env, redact?: (postId:string)=>Promise<{found:boolean;changed:boolean}>) => {
   const db = getDb(env);
 
   const mapApiError = (error: unknown) => {
@@ -79,6 +79,7 @@ export const buildXPostsApplication = (env: Env) => {
       }
     },
     redactStoredPost: async (postId) => {
+      if(redact) return redact(postId);
       const result = await redactStoredXPosts(env.otw_db, [postId]);
       return { found: result.found > 0, changed: result.redacted > 0 };
     },

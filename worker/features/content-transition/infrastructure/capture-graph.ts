@@ -1,3 +1,4 @@
+import {currentRowFileIndexSql} from "./file-reference-index";
 import { contentDispositionRegistry } from "../domain/disposition-registry";
 import { contentJsonReferences } from "../domain/content-references";
 import {jsonReferencePaths,jsonReferenceQuery} from "../domain/json-reference-paths";
@@ -68,6 +69,9 @@ for(const table of capturedTables) {
   if(lookups.length) captureEdges.push(edge(table,"members",`(${lookups.join(" OR ")})`));
 }
 owned("members","music_entities","uid","member_uid");
+captureEdges.push(edge("members","asset_file_references","b.logical_key LIKE 'members/'||a.code||'/backgrounds/%' OR b.logical_key='profile/'||a.code||'.webp' OR b.logical_key='profile/signatures/'||a.code||'.png'"));
+const fileReferenceEdge=(table:string,alias:string,key:string,transition="t.id")=>`EXISTS(WITH f AS MATERIALIZED(SELECT * FROM content_transition_file_paths WHERE transition_id=${transition} AND row_table='${table}' AND row_key=json_array(${alias}.id)) SELECT 1 FROM f WHERE (${currentRowFileIndexSql("f",table,alias)}) AND f.path IN ('/r2-assets/'||${key},'/'||${key}))`;
+for(const table of ["member_profile_images","notices","naver_cafe_posts"] as const) captureEdges.push(edge(table,"asset_file_references",fileReferenceEdge(table,"a","b.logical_key","c.transition_id")));
 
 export const keySql = (table: ContentTable, alias: string) => `json_array(${contentDispositionRegistry[table].primaryKey.map(key => `${alias}."${key}"`).join(",")})`;
 export const matchKey = (table: ContentTable, alias: string, expression: string) => contentDispositionRegistry[table].primaryKey
@@ -85,6 +89,7 @@ const selectedHandle = (expression:string) => {
 // Ambiguous/global rows only enter through a persisted, reviewed classification.
 // The manifest validator must reject unresolved rows, including unknown JSON.
 export const rootPredicates: Partial<Record<ContentTable, string>> = {
+  asset_file_references: `EXISTS(SELECT 1 FROM members m WHERE ${selectedUid("m.uid")} AND (a.logical_key LIKE 'members/'||m.code||'/backgrounds/%' OR a.logical_key='profile/'||m.code||'.webp' OR a.logical_key='profile/signatures/'||m.code||'.png' OR EXISTS(SELECT 1 FROM member_profile_images image WHERE image.member_uid=m.uid AND ${fileReferenceEdge("member_profile_images","image","a.logical_key")}))) OR EXISTS(SELECT 1 FROM notices n WHERE ${fileReferenceEdge("notices","n","a.logical_key")} AND (${selectedUid("n.publisher_member_uid")} OR EXISTS(SELECT 1 FROM json_each(n.related_member_uids) member WHERE ${selectedUid("member.value")}))) OR EXISTS(SELECT 1 FROM naver_cafe_posts p WHERE ${fileReferenceEdge("naver_cafe_posts","p","a.logical_key")} AND ${selectedUid("p.member_uid")})`,
   members: selectedUid("a.uid"),
   schedules: selectedUid("a.member_uid"), pending_schedules: selectedUid("a.member_uid"),
   schedule_broadcast_observations: selectedUid("a.member_uid"), schedule_candidate_rejections: selectedUid("a.member_uid"),
@@ -119,7 +124,7 @@ export const ownershipParents: Partial<Record<ContentTable,{table:ContentTable;c
   music_playlist_work_items:{table:"music_ingestion_candidates",column:"candidate_id"},
   x_post_references:{table:"x_posts",column:"source_post_id"},
 };
-export const ownedRootTables = capturedTables.filter(table=>(contentDispositionRegistry[table].excluded as readonly string[]).includes("content_access") || ["naver_cafe_sources","youtube_feed_sources","music_channel_upload_monitors","x_post_sources","update_logs"].includes(table));
+export const ownedRootTables = capturedTables.filter(table=>(contentDispositionRegistry[table].excluded as readonly string[]).includes("content_access") || ["naver_cafe_sources","youtube_feed_sources","music_channel_upload_monitors","x_post_sources","update_logs","asset_file_references"].includes(table));
 
 export const structuralColumns = (table: ContentTable): string[] => {
   const registry = contentDispositionRegistry[table];
@@ -128,7 +133,7 @@ export const structuralColumns = (table: ContentTable): string[] => {
   for(const reference of contentJsonReferences) if(reference.table===table) for(const column of reference.columns) columns.add(column);
   // These selectors/references do not have database FKs. Other values may use
   // the single-image path without walking every root sharing the row.
-  for (const column of ["member_uid", "submitted_member_uid", "resolved_entity_id", "publisher_member_uid", "related_member_uids", "review_input_json", "ranked_schedule_ids", "representative_performance_id", "url_twitter", "edit_root_post_id", "superseded_by_post_id", "channel_id", "youtube_channel_id", "external_channel_id", "handle", "post_id", "referenced_post_id", "performance_id", "candidate_id", "review_id", "job_id", "ai_batch_id", "aggregate_type", "aggregate_id", "existing_schedule_id", "schedule_id"]) {
+  for (const column of ["code","image_url","image_urls","thumbnail_url","member_uid", "submitted_member_uid", "resolved_entity_id", "publisher_member_uid", "related_member_uids", "review_input_json", "ranked_schedule_ids", "representative_performance_id", "url_twitter", "edit_root_post_id", "superseded_by_post_id", "channel_id", "youtube_channel_id", "external_channel_id", "handle", "post_id", "referenced_post_id", "performance_id", "candidate_id", "review_id", "job_id", "ai_batch_id", "aggregate_type", "aggregate_id", "existing_schedule_id", "schedule_id"]) {
     if ([...registry.values, ...registry.excluded, ...Object.keys(registry.json)].includes(column as never)) columns.add(column);
   }
   return [...columns];

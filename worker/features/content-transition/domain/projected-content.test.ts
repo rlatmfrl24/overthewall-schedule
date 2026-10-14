@@ -3,6 +3,17 @@ import { assertProjectedRecord, decodeProjectedRecord, historicalRecordId, proje
 
 const context = { sourceSite: "otw" as const, members: [{ uid: 1, targetUid: 10, name: "Bing", externalEntityId: null }, { uid: 90, targetUid: null, name: "Other", externalEntityId: "external-other" }] };
 describe("the versioned content projection boundary", () => {
+  it("requires the owning file projection port for source and decoded file references", async () => {
+    const source={id:2,publisher_member_uid:1,thumbnail_url:"https://source.example/profile/bing.webp"};
+    await expect(projectCapturedRecord("notices","[2]",source,context)).rejects.toThrow(/file projection port/i);
+    const files={projectReference:()=>"/profile/bing.webp"};
+    const record=await projectCapturedRecord("notices","[2]",source,{...context,files});
+    expect(record?.value.thumbnail_url).toBe("/profile/bing.webp");
+    const target={...context,members:[{uid:10,targetUid:10,name:"Bing",externalEntityId:null}]};
+    expect(()=>decodeProjectedRecord(record,target)).toThrow(/file projection port/i);
+    expect(()=>decodeProjectedRecord(record,{...target,files})).not.toThrow();
+    expect(()=>decodeProjectedRecord({...record,value:{...record?.value,thumbnail_url:source.thumbnail_url}},{...target,files})).toThrow(/unprojected file/i);
+  });
   it("preserves local evidence but excludes authenticating actors and source archive control from target content", async () => {
     const source = { id:"p", submitted_by_user_id:"source-clerk", reviewed_by_user_id:"source-admin", content_access:"admin_archive", review_lock_token:"source-lease", idempotency_key:"actor:request", status:"approved", reviewed_at:42,
       approved_performance_snapshot_json:JSON.stringify({ performanceId:"perf", songTitle:"Song", publicationStatus:"members", deletedAt:40, deletedBy:"source-admin", sources:[] }) };

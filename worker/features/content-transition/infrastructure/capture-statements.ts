@@ -1,6 +1,7 @@
 import { contentDispositionRegistry } from "../domain/disposition-registry";
 import {sourceJsonValidationStatements} from "./source-json-validation";
 import {identityProjectionStatements} from "./identity-projection";
+import {fileReferenceProjectionSql,indexedFileTables} from "./file-reference-index";
 import { captureEdges, capturedTables, keySql, matchKey, ownedRootTables, ownershipParents, rootPredicates, structuralColumns, type ContentTable } from "./capture-graph";
 
 const q = (value: string) => `'${value.replaceAll("'", "''")}'`;
@@ -105,16 +106,20 @@ export function captureMigrationStatements(): string[] {
       }).join(" OR ");
       const structural = action==="UPDATE" ? `iif(${structuralColumns(table).map(column => `OLD."${column}" IS NOT NEW."${column}"`).join(" OR ")},1,0)` : "1";
       const dirty = refs.map(ref => `INSERT INTO content_transition_dirty_rows(transition_id,row_table,row_key,structural) SELECT id,${q(table)},${keySql(table,ref)},${structural} FROM content_transitions WHERE phase<>'prepared' ON CONFLICT(transition_id,row_table,row_key) DO UPDATE SET structural=max(content_transition_dirty_rows.structural,excluded.structural);`).join("\n");
-      statements.push(`CREATE TRIGGER ct_${table}_${action.toLowerCase()} AFTER ${action} ON ${named(table)} WHEN ${active}${action==="UPDATE" && hasAccess ? ` AND NOT (${archiveOnly})` : ""} BEGIN
+      const pathProjection=fileReferenceProjectionSql(table,action);
+      const activeCondition=(indexedFileTables as readonly string[]).includes(table)?"1":active;
+      statements.push(`CREATE TRIGGER ct_${table}_${action.toLowerCase()} AFTER ${action} ON ${named(table)} WHEN ${activeCondition}${action==="UPDATE" && hasAccess ? ` AND NOT (${archiveOnly})` : ""} BEGIN
+        ${pathProjection}
         SELECT RAISE(ABORT,'content_transition_source_root_fenced') WHERE EXISTS(SELECT 1 FROM content_transitions t WHERE t.local_site=t.source_site AND t.phase IN ('source_fenced','target_owned','complete') AND (${owns}));
         ${dirty}
-        SELECT RAISE(ABORT,'content_transition_final_owner_required') WHERE EXISTS(SELECT 1 FROM content_transitions t WHERE (t.local_site=t.target_site OR t.phase IN ('protected','copying','replaying','target_ingress_ready')) AND NOT EXISTS(SELECT 1 FROM content_transition_permits p WHERE p.transition_id=t.id AND p.mode IN ('baseline','business') AND ((t.local_site=t.source_site AND t.phase IN ('protected','copying','replaying','target_ingress_ready') AND p.generation=t.generation-1) OR (t.local_site=t.target_site AND p.generation=t.generation AND (t.phase IN ('target_owned','complete') OR (p.mode='baseline' AND t.phase IN ('target_ingress_ready','source_fenced')))))) AND EXISTS(SELECT 1 FROM content_transition_affected_roots r WHERE r.transition_id=t.id));
+        SELECT RAISE(ABORT,'content_transition_final_owner_required') WHERE EXISTS(SELECT 1 FROM content_transition_affected_roots r JOIN content_transitions t ON t.id=r.transition_id WHERE (t.local_site=t.target_site OR t.phase IN ('protected','copying','replaying','target_ingress_ready')) AND NOT EXISTS(SELECT 1 FROM content_transition_permits p WHERE p.transition_id=t.id AND p.mode IN ('baseline','business') AND p.generation=iif(t.local_site=t.source_site,t.generation-1,t.generation) AND (t.local_site=t.source_site AND t.phase IN ('protected','copying','replaying','target_ingress_ready') OR t.local_site=t.target_site AND t.phase IN ('target_owned','complete') OR t.local_site=t.target_site AND p.mode='baseline' AND t.phase IN ('target_ingress_ready','source_fenced'))));
         DELETE FROM content_transition_dirty_rows WHERE NOT EXISTS(SELECT 1 FROM content_transition_permits p WHERE p.transition_id=content_transition_dirty_rows.transition_id);
       END`);
     }
   }
-  for (const statement of statements) if (new TextEncoder().encode(statement).length > 100_000) throw new Error("Capture statement exceeds D1 SQL limit");
-  return statements;
+  const compact=statements.map(statement=>statement.replace(/\s+/g," "));
+  for (const statement of compact) if (new TextEncoder().encode(statement).length > 100_000) throw new Error("Capture statement exceeds D1 SQL limit");
+  return compact;
 }
 
 export function seedScopeStatements(db: D1Database, id: string): D1PreparedStatement[] {

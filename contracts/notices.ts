@@ -58,7 +58,7 @@ export interface NoticeThumbnailUploadResponse {
 
 export interface NoticeThumbnailDeleteResponse {
   deleted: boolean;
-  reason?: "referenced";
+  reason?: "referenced" | "retained";
 }
 
 export interface NoticeThumbnailAssetStatus {
@@ -69,6 +69,9 @@ export interface NoticeThumbnailAssetStatus {
   referenced: boolean;
   referenceCount: number;
   cleanupEligible: boolean;
+  objectKey?: string;
+  recoveryHeld?: boolean;
+  graceStart?: number;
 }
 
 export interface NoticeThumbnailReferenceStatus {

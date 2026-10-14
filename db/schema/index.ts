@@ -11,6 +11,35 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+export const assetFileReferences = sqliteTable("asset_file_references", {
+  logical_key: text().primaryKey(), version_key: text().notNull(), hash: text().notNull(), size: integer().notNull(),
+  content_type: text().notNull(), updated_at: integer().notNull(),
+}, table => [check("asset_reference_bytes", sql`length(${table.hash})=64 AND ${table.size}>=0 AND length(${table.version_key})>0`)]);
+
+export const assetFileReferencePaths=sqliteTable("asset_file_reference_paths",{
+  row_table:text().notNull(),row_key:text().notNull(),field:text().notNull(),raw_url:text().notNull(),origin:text(),path:text().notNull(),
+},table=>[
+  primaryKey({columns:[table.row_table,table.row_key,table.field]}),
+  index("idx_asset_file_reference_path").on(table.path,table.origin),
+]);
+
+export const assetFileRetentionReleases=sqliteTable("asset_file_retention_releases",{
+  logical_key:text().primaryKey(),released_at:integer().notNull().default(0),held:integer().notNull().default(1),
+},table=>[check("asset_retention_release_state",sql`${table.logical_key} LIKE 'notices/thumbnails/%' AND ${table.released_at}>=0 AND ${table.held} IN (0,1) AND (${table.held}=1 OR ${table.released_at}>0)`) ]);
+
+export const assetFileVersions = sqliteTable("asset_file_versions", {
+  version_key: text().primaryKey(), operation_id: text().notNull().unique(), logical_key: text().notNull(),
+  site_id: text().notNull(), generation: integer().notNull(), resource: text().notNull(),
+  previous_version: text(), hash: text().notNull(), size: integer().notNull(), content_type: text().notNull(),
+  member_uid:integer(),member_code:text(),
+  transition_id: text(), transition_operation_id: text(), created_at: integer().notNull(), attempted_at: integer(),
+  object_version: text(), verified_at: integer(), reference_committed_at: integer(), acknowledged_at: integer(), released_at: integer(),
+}, table => [
+  index("idx_asset_file_logical").on(table.logical_key),
+  check("asset_file_identity", sql`${table.site_id} IN ('otw','luvdia') AND ${table.generation}>0 AND length(${table.hash})=64 AND ${table.size}>=0 AND length(${table.logical_key})>0 AND length(${table.operation_id})>0 AND length(${table.resource})>0`),
+  check("asset_file_progress", sql`(${table.object_version} IS NULL)=(${table.verified_at} IS NULL) AND (${table.reference_committed_at} IS NULL OR ${table.verified_at} IS NOT NULL) AND (${table.acknowledged_at} IS NULL OR ${table.reference_committed_at} IS NOT NULL) AND (${table.transition_id} IS NULL)=(${table.transition_operation_id} IS NULL)`),
+]);
+
 export const contentTransitions = sqliteTable("content_transitions", {
   id: text().primaryKey(),
   source_site: text().notNull(), target_site: text().notNull(),
@@ -168,6 +197,21 @@ export const musicAiReviewBatches = sqliteTable("music_ai_review_batches", {
   selection_json: text().notNull(),
   created_at: integer().notNull(),
 });
+
+export const assetFileCleanup = sqliteTable("asset_file_cleanup", {
+  object_key:text().primaryKey(),logical_key:text().notNull(),site_id:text().notNull(),resource:text().notNull(),
+  object_version:text().notNull(),hash:text().notNull(),size:integer().notNull(),generation:integer().notNull().default(1),claimed_at:integer().notNull(),deleted_at:integer(),
+},table=>[
+  index("idx_asset_file_cleanup_logical").on(table.logical_key),
+  check("asset_cleanup_identity",sql`${table.site_id} IN ('otw','luvdia') AND length(${table.resource})>0 AND length(${table.object_version})>0 AND length(${table.hash})=64 AND ${table.size}>=0 AND ${table.claimed_at}>=0 AND (${table.deleted_at} IS NULL OR ${table.deleted_at}>=${table.claimed_at})`),
+]);
+export const contentTransitionFileAvailabilityEvidence=sqliteTable("content_transition_file_availability_evidence",{
+  transition_id:text().notNull().references(()=>contentTransitions.id,{onDelete:"cascade"}),
+  evidence_id:text().notNull(),observation_json:text().notNull(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.evidence_id]}),
+  check("content_file_availability_observation",sql`json_valid(${table.observation_json}) AND json_type(${table.observation_json})='object'`),
+]);
 export const contentTransitionManifestRevisions=sqliteTable("content_transition_manifest_revisions",{
   transition_id:text().notNull().references(()=>contentTransitions.id,{onDelete:"cascade"}),
   revision:integer().notNull(),parent_digest:text().notNull(),manifest_digest:text().notNull(),receipt_json:text().notNull(),

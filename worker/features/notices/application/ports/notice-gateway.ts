@@ -24,6 +24,7 @@ export type NoticeMutationResult =
 export type NoticeThumbnailDeleteResult =
   | { status: "deleted" }
   | { status: "referenced" }
+  | { status: "retained" }
   | { status: "unavailable" }
   | { status: "failed" };
 
@@ -35,6 +36,7 @@ export type NoticeThumbnailCleanupResult =
     };
 
 export interface NoticeThumbnailUploadInput {
+  operationId: string;
   file: Blob;
   extension: string;
   contentType: string;

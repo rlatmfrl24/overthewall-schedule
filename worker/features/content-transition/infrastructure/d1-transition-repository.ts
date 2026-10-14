@@ -23,6 +23,8 @@ import {parseTransitionCommand,assertOperationMetadata,assertOperationEvidence,a
 import {readProjectionContext} from "./d1-projection-context";
 import {identityProjectionValidSql,validateIdentityProjection} from "./identity-projection";
 import {projectCapturedRecord,type ProjectionContext} from "../domain/projected-content";
+import type { CommittedFileAvailability } from "../application/ports/file-availability";
+import {currentFileIndexSql} from "./file-reference-index";
 
 type Row = {
   id: string; source_site: SiteId; target_site: SiteId; source_resource: string; target_resource: string;
@@ -66,7 +68,8 @@ export class D1TransitionRepository implements TransitionControlPort {
   private readonly site: SiteId;
   private readonly resource: string;
   private readonly fileResource:string|null;
-  constructor(db: D1Database, site: SiteId, resource: string, fileResource:string|null=null) { this.db=db; this.site=site; this.resource=resource; this.fileResource=fileResource; }
+  private readonly fileAvailability:CommittedFileAvailability|null;
+  constructor(db: D1Database, site: SiteId, resource: string, fileResource:string|null=null,fileAvailability:CommittedFileAvailability|null=null) { this.db=db; this.site=site; this.resource=resource; this.fileResource=fileResource;this.fileAvailability=fileAvailability; }
 
   private async row(id: string): Promise<Row> {
     const row = await this.db.prepare("SELECT * FROM content_transitions WHERE id=? AND local_site=? AND local_resource=?").bind(id, this.site, this.resource).first<Row>();
@@ -75,8 +78,33 @@ export class D1TransitionRepository implements TransitionControlPort {
   }
   private side(row: Row) { return row.source_site === this.site ? "source" : "target"; }
   async readTransition(id: string) { const row = await this.row(id); return { ...identity(row), phase: row.phase }; }
+  async findFileTransition(logicalKey:string) {
+    const rows=await this.db.prepare(`SELECT DISTINCT t.id FROM content_transitions t
+      WHERE t.local_site=? AND t.local_resource=? AND t.phase<>'prepared' AND (
+        EXISTS(SELECT 1 FROM content_transition_membership m WHERE m.transition_id=t.id AND m.row_table='asset_file_references' AND m.row_key=json_array(?)) OR
+        EXISTS(SELECT 1 FROM members member JOIN json_each(t.plan_json,'$.members') selected
+          ON member.uid=json_extract(selected.value,CASE WHEN t.local_site=t.source_site THEN '$.uid' ELSE '$.targetUid' END)
+          AND member.code=json_extract(selected.value,'$.code')
+          WHERE ? LIKE 'members/'||member.code||'/backgrounds/%' OR ?='profile/'||member.code||'.webp' OR ?='profile/signatures/'||member.code||'.png') OR
+        EXISTS(SELECT 1 FROM content_transition_file_paths f JOIN content_transition_membership m ON m.transition_id=t.id AND m.row_table=f.row_table AND m.row_key=f.row_key
+          WHERE f.transition_id=t.id AND f.path IN ('/r2-assets/'||?,'/'||?) AND ${currentFileIndexSql("f")})
+      )`).bind(this.site,this.resource,logicalKey,logicalKey,logicalKey,logicalKey,logicalKey,logicalKey).all<{id:string}>();
+    if(rows.results.length>1) throw new Error("File has conflicting transition owners");
+    return rows.results[0]?this.readTransition(rows.results[0].id):null;
+  }
+  async findRedactionTransition(postId:string) {
+    const rows=await this.db.prepare(`SELECT DISTINCT t.id FROM content_transitions t JOIN content_transition_membership m ON m.transition_id=t.id
+      WHERE t.local_site=? AND t.local_resource=? AND (
+        m.row_table='x_posts' AND EXISTS(SELECT 1 FROM x_posts p WHERE m.row_key=json_array(p.id) AND (p.id=? OR json_extract(p.value,'$.reply.post.id')=? OR json_extract(p.value,'$.quote.post.id')=? OR EXISTS(SELECT 1 FROM json_each(p.value,'$.links') link WHERE json_extract(link.value,'$.linkedPost.id')=?))) OR
+        m.row_table='x_post_references' AND EXISTS(SELECT 1 FROM x_post_references r WHERE m.row_key=json_array(r.source_post_id,r.relation_type) AND r.referenced_post_id=?) OR
+        m.row_table='x_api_cache' AND EXISTS(SELECT 1 FROM x_api_cache c WHERE m.row_key=json_array(c.key) AND (c.type='posts' OR c.key='x:linked-post:v1:'||?))
+      )`).bind(this.site,this.resource,postId,postId,postId,postId,postId,postId).all<{id:string}>();
+    if(rows.results.length>1) throw new Error("Redaction crosses conflicting transition owners");
+    return rows.results[0]?this.readTransition(rows.results[0].id):null;
+  }
   async prepare(plan: TransitionPlan): Promise<void> {
     validateClassifications(plan);
+    if(plan.assetBuckets && plan.assetBuckets[this.site===plan.sourceSite?"source":"target"]!==this.fileResource) throw new Error("Selected bucket differs from approved transition file resource");
     const members = resolveManagedMembers(plan.members);
     if (!plan.id || !plan.manifestDigest || plan.protocol !== 1 || plan.generation < 2 || !Number.isSafeInteger(plan.generation)) throw new Error("Invalid transition plan");
     resolveManagedMembers(plan.members.map(member=>({code:member.code,uid:member.targetUid})));
@@ -96,19 +124,19 @@ export class D1TransitionRepository implements TransitionControlPort {
     assertSameTransition(plan, identity(row));
     if (row.plan_json !== JSON.stringify(plan)) throw new Error("Existing transition needs explicit repair");
   }
-  async appendClassifications(id:string,parent:ManifestRevision["parent"],additions:TransitionPlan["classifications"],digest:string,protection:ManifestRevision["protection"]):Promise<ManifestRevision> {
+  async appendClassifications(id:string,parent:ManifestRevision["parent"],additions:TransitionPlan["classifications"],digest:string,protection:ManifestRevision["protection"],originAdditions:NonNullable<TransitionPlan["fileOrigins"]>=[]):Promise<ManifestRevision> {
     const row=await this.row(id);
     if(this.side(row)!=="source") throw new Error("Only source proposes a manifest revision");
     const duplicate=await this.db.prepare("SELECT receipt_json FROM content_transition_manifest_revisions WHERE transition_id=? AND revision=?").bind(id,parent.revision+1).first<string>("receipt_json");
     if(duplicate) {
       const existing:ManifestRevision=JSON.parse(duplicate);
       const priorCount=existing.plan.classifications.length-additions.length;
-      if(existing.parent.digest!==parent.digest || existing.plan.manifestDigest!==digest || JSON.stringify(existing.plan.classifications.slice(priorCount))!==JSON.stringify(additions) || JSON.stringify(existing.protection)!==JSON.stringify(protection)) throw new Error("Conflicting manifest revision");
+      if(existing.parent.digest!==parent.digest || existing.plan.manifestDigest!==digest || JSON.stringify(existing.plan.classifications.slice(priorCount))!==JSON.stringify(additions) || JSON.stringify((existing.plan.fileOrigins??[]).slice((existing.plan.fileOrigins?.length??0)-originAdditions.length))!==JSON.stringify(originAdditions) || JSON.stringify(existing.protection)!==JSON.stringify(protection)) throw new Error("Conflicting manifest revision");
       if(row.fence_json) throw new Error("Manifest is frozen");
       return existing;
     }
     const plan:TransitionPlan=JSON.parse(row.plan_json);
-    const revision:ManifestRevision={plan:{...plan,manifestDigest:digest,classifications:[...plan.classifications,...additions]},parent,revision:parent.revision+1,protection};
+    const revision:ManifestRevision={plan:{...plan,manifestDigest:digest,classifications:[...plan.classifications,...additions],...(originAdditions.length?{fileOrigins:[...plan.fileOrigins??[],...originAdditions]}:{})},parent,revision:parent.revision+1,protection};
     await this.persistManifestRevision(revision);
     return revision;
   }
@@ -124,9 +152,10 @@ export class D1TransitionRepository implements TransitionControlPort {
     if(existing) { if(existing!==JSON.stringify(revision)) throw new Error("Conflicting manifest revision"); return; }
     assertSameTransition(identity(row),{...revision.plan,manifestDigest:row.manifest_digest});
     validateClassifications(revision.plan);
-    if(revision.parent.revision!==row.manifest_revision || revision.parent.digest!==row.manifest_digest || revision.revision!==row.manifest_revision+1 || !revision.plan.manifestDigest || revision.plan.manifestDigest===row.manifest_digest || JSON.stringify(revision.plan.members)!==JSON.stringify(plan.members) || JSON.stringify(revision.plan.classifications.slice(0,plan.classifications.length))!==JSON.stringify(plan.classifications) || revision.plan.classifications.length<=plan.classifications.length) throw new Error("Manifest parent or append-only classification conflict");
+      if(revision.parent.revision!==row.manifest_revision || revision.parent.digest!==row.manifest_digest || revision.revision!==row.manifest_revision+1 || !revision.plan.manifestDigest || revision.plan.manifestDigest===row.manifest_digest || JSON.stringify(revision.plan.members)!==JSON.stringify(plan.members) || JSON.stringify(revision.plan.assetBuckets)!==JSON.stringify(plan.assetBuckets) || JSON.stringify(revision.plan.classifications.slice(0,plan.classifications.length))!==JSON.stringify(plan.classifications) || JSON.stringify((revision.plan.fileOrigins??[]).slice(0,plan.fileOrigins?.length??0))!==JSON.stringify(plan.fileOrigins??[]) || revision.plan.classifications.length===plan.classifications.length && (revision.plan.fileOrigins?.length??0)<=(plan.fileOrigins?.length??0)) throw new Error("Manifest parent or append-only classification conflict");
     if(!revision.protection.receiptId || revision.protection.protocol!==row.protocol || revision.protection.manifestDigest!==revision.plan.manifestDigest) throw new Error("Manifest protection receipt mismatch");
     const additions=revision.plan.classifications.slice(plan.classifications.length);
+    const originAdditions=(revision.plan.fileOrigins??[]).slice(plan.fileOrigins?.length??0);
     for(const entry of additions) {
       const captured=await this.db.prepare("SELECT EXISTS(SELECT 1 FROM content_transition_images WHERE transition_id=? AND row_table=? AND row_key=?) OR EXISTS(SELECT 1 FROM content_transition_baseline_rows WHERE transition_id=? AND row_table=? AND row_key=?) captured").bind(row.id,entry.table,entry.key,row.id,entry.table,entry.key).first<number>("captured");
       if(captured) throw new Error("Revision cannot reinterpret already captured or staged baseline rows");
@@ -140,6 +169,7 @@ export class D1TransitionRepository implements TransitionControlPort {
       this.db.prepare("INSERT INTO content_transition_commits(transition_id,operation_id) VALUES(?,?)").bind(row.id,op),
       this.db.prepare(`INSERT INTO content_transition_permits(id,transition_id,operation_id,generation,version_matches,commit_seq) SELECT 1,id,?,generation-1,(${manifestResolvedSql()}),(SELECT seq FROM content_transition_commits WHERE transition_id=? AND operation_id=?) FROM content_transitions t WHERE id=?`).bind(op,row.id,op,row.id),
       this.db.prepare("INSERT OR IGNORE INTO content_transition_dirty_roots(transition_id,root_table,root_key) SELECT ?,json_extract(value,'$.table'),json_extract(value,'$.key') FROM json_each(?) WHERE json_extract(value,'$.disposition')='include'").bind(row.id,JSON.stringify(additions)),
+      this.db.prepare("INSERT OR IGNORE INTO content_transition_dirty_roots SELECT m.transition_id,m.root_table,m.root_key FROM content_transition_membership m JOIN asset_file_reference_paths f ON f.row_table=m.row_table AND f.row_key=m.row_key JOIN json_each(?) o ON json_extract(o.value,'$.origin')=f.origin WHERE m.transition_id=?").bind(JSON.stringify(originAdditions),row.id),
       ...captureStatements(this.db,row.id),
       this.db.prepare(`UPDATE content_transition_permits SET version_matches=${sourceJsonValidSql("content_transition_permits.transition_id")} WHERE transition_id=?`).bind(row.id),
       this.db.prepare("UPDATE content_transition_commits SET sealed=1 WHERE transition_id=? AND operation_id=?").bind(row.id,op),
@@ -205,6 +235,8 @@ export class D1TransitionRepository implements TransitionControlPort {
   async admit(input: Omit<AcceptedOperation,"payloadHash"|"expectedState">): Promise<OperationEnvelope> {
     let operation:AcceptedOperation={...input,payloadHash:"",expectedState:null};
     const row = await this.row(operation.transitionId);
+    if(operation.codec.id==="x-posts.redact" && (await this.findRedactionTransition(String(operation.payload.postId)))?.id!==row.id) throw new Error("Redaction command is outside actual owning references");
+    if(operation.codec.id==="assets.replace" && (await this.findFileTransition(String(operation.payload.logicalKey)))?.id!==row.id) throw new Error("File command is outside the actual owning references");
     if (!canAdmit(this.side(row), row.phase)) throw new Error("Admission moved to the target site");
     if (!operation.operationId || !operation.idempotencyKey || operation.validation.contract !== row.protocol) throw new Error("Invalid admitted operation");
     const plan:TransitionPlan=JSON.parse(row.plan_json);
@@ -412,16 +444,19 @@ export class D1TransitionRepository implements TransitionControlPort {
     assertReadiness(identity(row), row.readiness_json ? JSON.parse(row.readiness_json) : null, now);
     const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(row.checkpoints_json));
     const digest = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2,"0")).join("");
-    const result = await this.db.prepare(`UPDATE content_transitions SET phase='source_fenced',fence_json=json_patch(?,json_object(
+    let changed=0;
+    try { const result = await this.db.prepare(`UPDATE content_transitions AS t SET phase=iif((${identityProjectionValidSql()}),'source_fenced',NULL),manifest_revision=iif(${manifestResolvedSql()},manifest_revision,NULL),fence_json=json_patch(?,json_object(
       'boundary',coalesce((SELECT max(seq) FROM content_transition_commits WHERE transition_id=? AND sealed=1),0),
       'checkpointDigest',?,'checkpoints',json(checkpoints_json),
       'operationBoundary',(SELECT coalesce(max(seq),0) FROM content_transition_operations WHERE transition_id=?),
       'operationCount',(SELECT count(*) FROM content_transition_operations WHERE transition_id=?),
       'fileIntentBoundary',(SELECT coalesce(max(seq),0) FROM content_transition_file_intents WHERE transition_id=?),
       'fileIntentCount',(SELECT count(*) FROM content_transition_file_intents WHERE transition_id=?)))
-      WHERE id=? AND phase='target_ingress_ready' AND fence_json IS NULL AND readiness_expires_at>? AND checkpoint_revision=? AND manifest_digest=? AND manifest_revision=? AND readiness_json=? AND ${manifestResolvedSql()} AND ${identityProjectionValidSql()}`.replace("UPDATE content_transitions SET","UPDATE content_transitions AS t SET"))
+      WHERE id=? AND phase='target_ingress_ready' AND fence_json IS NULL AND readiness_expires_at>? AND checkpoint_revision=? AND manifest_digest=? AND manifest_revision=? AND readiness_json=?`)
       .bind(JSON.stringify(identity(row)), id, digest, id,id,id,id,id, now, row.checkpoint_revision,row.manifest_digest,row.manifest_revision,row.readiness_json).run();
-    if (result.meta.changes !== 1) {
+      changed=result.meta.changes;
+    } catch(error) { if(!/NOT NULL constraint failed: content_transitions\.(phase|manifest_revision)/.test(String(error))) throw error; }
+    if (changed !== 1) {
       const invalid=await this.db.prepare("SELECT commit_seq,row_table,row_key,column_name,reason FROM content_transition_invalid_json WHERE transition_id=? ORDER BY commit_seq LIMIT 1").bind(id).first();
       if(invalid) throw new Error(`Manifest immutable JSON conflict: ${JSON.stringify(invalid)}`);
       const identityConflict=await this.db.prepare("SELECT commit_seq,row_key,reason FROM content_transition_identity_conflicts WHERE transition_id=? ORDER BY commit_seq LIMIT 1").bind(id).first();
@@ -518,12 +553,10 @@ export class D1TransitionRepository implements TransitionControlPort {
     if(tail!==fence.boundary) throw new Error("Incomplete committed tail");
     const hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(row.checkpoints_json)))].map(byte=>byte.toString(16).padStart(2,"0")).join("");
     if(hash!==fence.checkpointDigest) throw new Error("Checkpoint installation mismatch");
-    // File-owning adapter is connected in 4.3. Until its immutable version/hash
-    // readback exists, file-bearing manifests cannot claim readiness.
-    const files=await this.db.prepare("SELECT (SELECT count(*) FROM content_transition_materialized_rows WHERE transition_id=? AND row_table IN ('member_profile_images','naver_cafe_posts','notices'))+(SELECT count(*) FROM content_transition_baseline_rows WHERE transition_id=? AND row_table IN ('member_profile_images','naver_cafe_posts','notices')) n").bind(id,id).first<number>("n");
-    if(files) throw new Error("Required committed-file availability adapter is not connected");
+    if(!this.fileAvailability) throw new Error("Required committed-file availability adapter is not connected");
+    await this.fileAvailability.assertAvailable({plan:JSON.parse(row.plan_json),manifestRevision:row.manifest_revision,fence});
     const installation:CommittedStateInstallation={boundary:tail!,checkpointDigest:hash,committedFilesAvailable:true};
-    await this.db.prepare("UPDATE content_transitions SET installation_json=? WHERE id=? AND phase='source_fenced'").bind(JSON.stringify(installation), id).run();
+    await this.db.prepare("UPDATE content_transitions SET installation_json=? WHERE id=? AND phase='source_fenced' AND fence_json=? AND manifest_revision=?").bind(JSON.stringify(installation), id,row.fence_json,row.manifest_revision).run();
   }
   async activate(id: string): Promise<void> {
     const row = await this.row(id);
@@ -544,7 +577,11 @@ export class D1TransitionRepository implements TransitionControlPort {
     const phases = this.side(row) === "source" ? "'protected','copying','replaying','target_ingress_ready'" : "'target_owned','complete'";
     let versionSql="1";
     const versionBinds:Array<string|number|null>=[];
-    if(operation.codec.id==="schedules.save") {
+    if(operation.codec.id==="assets.replace") {
+      const command=await this.readExecutableCommand(id,operationId);
+      versionSql="(SELECT version_key FROM asset_file_references WHERE logical_key=?) IS ? AND (? IS NULL OR EXISTS(SELECT 1 FROM members WHERE uid=? AND code=? AND content_access='normal'))";
+      versionBinds.push(command.payload.logicalKey as string,command.payload.previousVersion as string|null,command.payload.memberUid as number|null,command.payload.memberUid as number|null,command.payload.memberCode as string|null);
+    } else if(operation.codec.id==="schedules.save") {
       const expected=this.side(row)==="source"?JSON.parse((await this.db.prepare("SELECT envelope_json FROM content_transition_operations WHERE transition_id=? AND operation_id=?").bind(id,operationId).first<string>("envelope_json"))!).sourceExpectedState as AcceptedOperation["expectedState"]:operation.expectedState;
       versionSql=expected?`EXISTS(SELECT 1 FROM schedules WHERE ${contentDispositionRegistry.schedules.values.map(key=>`"${key}" IS ?`).join(" AND ")})`:"NOT EXISTS(SELECT 1 FROM schedules WHERE id=?)";
       versionBinds.push(...(expected?contentDispositionRegistry.schedules.values.map(key=>expected[key]):[operation.payload.id as number]));
@@ -566,7 +603,7 @@ export class D1TransitionRepository implements TransitionControlPort {
         ${versionSql} AND EXISTS(SELECT 1 FROM content_transition_operations WHERE transition_id=? AND operation_id=? AND outcome_json IS NULL),
         (SELECT seq FROM content_transition_commits WHERE transition_id=? AND operation_id=?) FROM content_transitions WHERE id=?`)
         .bind(operationId, generation, generation, ...versionBinds,id,operationId,id, operationId, id),
-      ...fileReferences.map(file=>this.db.prepare(`UPDATE content_transition_permits SET version_matches=EXISTS(
+      ...fileReferences.map(file=>this.db.prepare(`UPDATE content_transition_permits SET version_matches=version_matches AND EXISTS(
         SELECT 1 FROM content_transition_file_intents i JOIN content_transition_file_evidence e ON e.transition_id=i.transition_id AND e.intent_id=i.intent_id
         WHERE i.transition_id=? AND i.operation_id=? AND i.intent_id=? AND i.outcome_json IS NULL AND e.evidence_id=?
           AND json_extract(e.observation_json,'$.transitionId')=i.transition_id AND json_extract(e.observation_json,'$.intentId')=i.intent_id
@@ -589,7 +626,7 @@ export class D1TransitionRepository implements TransitionControlPort {
       }
       throw error;
     }
-    return { statements: result.length, rowsRead: result.reduce((n,r)=>n+r.meta.rows_read,0), rowsWritten: result.reduce((n,r)=>n+r.meta.rows_written,0), duration: result.reduce((n,r)=>n+r.meta.duration,0) };
+    return { businessResults:result.slice(2+fileReferences.length,2+fileReferences.length+statements.length), statements: result.length, rowsRead: result.reduce((n,r)=>n+r.meta.rows_read,0), rowsWritten: result.reduce((n,r)=>n+r.meta.rows_written,0), duration: result.reduce((n,r)=>n+r.meta.duration,0) };
   }
   async readJournal(id: string) {
     await this.row(id);

@@ -231,6 +231,8 @@ const getNoticeThumbnailUploadFile = async (request: Request) => {
   }
 
   const formData = await request.formData();
+  const operationId=formData.get("operationId")??crypto.randomUUID();
+  if(typeof operationId!=="string" || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(operationId)) return {ok:false as const,response:badRequest("Invalid upload operation id")};
   const file = formData.get("file");
   if (!(file instanceof File)) {
     return {
@@ -261,6 +263,7 @@ const getNoticeThumbnailUploadFile = async (request: Request) => {
   return {
     ok: true as const,
     file,
+    operationId,
     extension,
     contentType: file.type,
   };
@@ -299,6 +302,7 @@ export const createHandleNotices =
         const upload = await getNoticeThumbnailUploadFile(request);
         if (!upload.ok) return upload.response;
         const thumbnailUrl = await useCases.uploadThumbnail({
+          operationId: upload.operationId,
           file: upload.file,
           extension: upload.extension,
           contentType: upload.contentType,
@@ -334,6 +338,7 @@ export const createHandleNotices =
             headers: NO_STORE_HEADERS,
           });
         }
+        if (result.status === "retained") return json({deleted:false,reason:"retained"},200,{headers:NO_STORE_HEADERS});
         if (result.status === "unavailable") {
           return new Response("R2 asset bucket is not configured", {
             status: 503,
