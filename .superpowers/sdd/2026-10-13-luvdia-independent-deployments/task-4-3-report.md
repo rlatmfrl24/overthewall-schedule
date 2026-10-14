@@ -436,3 +436,135 @@ Controller의 마지막 caller audit에서 `55a5e3f`의 inventory export/receive
 후속 5파일의 staged diff check는 exit0이며 이전 0112/0114 적용 SQL의 전체 범위 diff-check exit2를 해소했다는 뜻은 아니다. 이 보완은 schema/migration/config/UI를 바꾸지 않았으므로 이미 끝난 양쪽 chain/no-diff/실제 absolute-image UI와 독립 검사를 반복하지 않았다. 실제 production build, LuvDia auth, 운영 사고의 현재/과거 확인 한계는 위에 적은 그대로다. 코드 self-review는 초기/최종 포트 분리, 실제 source live writer, target 수신 준비와 final ownership 구분, same-batch revision 경쟁, original seal/old-page idempotency, final fence 불변을 확인했다.
 
 **DONE: Task4.3 fix round1 구현·로컬 증거 인계. Controller 재리뷰 대기; Task4 전체 미완료, 4.4 시작 금지.**
+
+## Task4.3 fix round2/5 — I4, N1, N3 (2026-10-14 23:39–2026-10-15 KST)
+
+FIX_BASE는 `f37b966bb921a0122d2c1f71f79e8970189c80f2`다. 전체 fix1 review와 fix2 brief, ruling53 및 controller의 trusted notice/draft 문맥 승인을 읽고 I4/N1/N3만 수정했다. I1–I3의 original seal/early inventory copy/final fence, source final writer 및 같은-batch sealed history guard는 유지했다. Canonical db-migration/worker-api-change와 자체 code-review 절차를 사용했다. Sole writer이며 helper agent/reviewer, remote IO, Task4.4 작업은 없었다. 아래 local 결과는 운영 사고, production build, 실제 LuvDia 인증의 미확인 상태를 해소하지 않는다.
+
+### 최종 owning 경계와 호출자
+
+**I4:** `worker/platform/url-path-sql.ts`에서 raw relative authority를 dot 정규화 전에 거부한다. 자체 검토로 TAB/LF/CR 및 encoded slash/backslash와 encoded dot/slash 조합도 같은 결함임을 확인했다. 최종 SQL은 URL의 raw separator/control 처리와 첫 dot 처리 → 한 번의 percent decode → decoded authority 거부 → 두 번째 path 처리 순서다. `/\\foreign.example/../../profile/bing_hayu.webp`를 포함한 여섯 거부 사례와 `/%5cforeign.example/../../profile/bing_hayu.webp`처럼 첫 URL 단계에서 dot가 먼저 소거되어 실제 owning parser가 허용하는 사례를 구분한다. 정상 control 제거와 기존 duplicate/trailing slash, query/fragment, encoded delimiter의 parser/SQL 결과를 비교했다. Owning TypeScript classifier를 완화하지 않았다.
+
+공유 helper의 실제 소비자는 `file-reference-index`의 current index/projection, `file-reference-integrity`의 exact raw 검증, `fileReferencesResolvedSql`, `sealedFileReferencesResolvedSql`, retention/access/inventory/capture generator다. 새 `0115_asset_file_path_authority.sql`을 정상 custom migration으로 생성하고 UI fixture에 적용한 뒤 추가 반례가 확인되어, 그 적용본은 그대로 두고 `0116_asset_file_url_parse_order.sql`을 정상 생성했다. 새 migration은 기존 view/trigger를 owning generator로 교체하고 **derived index만** 재구축한다. Business raw, source sealed image/hash, 승인 plan/actor/fence/권한은 바꾸지 않는다. Final generator는 241 create statements, 최대 94,554 bytes로 100KB guard 안이다. 실제 current/history 각각 여섯 케이스에서 freeze가 거부되고 control row 전체와 원래 journal rows가 그대로이며, 이후 기존 `schedules.save` admission → readExecutableCommand → final-owner source commit은 성공한다. 테스트의 notice mutation은 기존 fixed-port capture fixture이며 전체 notice writer/ingress 4.4 완료 주장이 아니다.
+
+**N1:** shared `ProtectedAssetReferenceContext`는 `{kind:'notice', id:number}` 또는 `{kind:'notice-draft', id?:number, relatedMemberUids:number[]}`다. 기존 `GET /api/assets/protected-reference?url=...`에 선택 JSON `context` query를 추가했다. Handler는 verified admin을 먼저 확인하고 각 입력을 4,096자 이내로 제한하며 positive safe-integer/중복 없는 UID/정확한 key 형태를 파싱한다. `normal`, `access` 같은 caller bool은 받지 않는다. 모든 응답은 private/no-store이고 invalid/unresolved는 400이다.
+
+`D1ProtectedAssetReferenceResolver.resolve(raw, context?)`는 실제 notice 존재와 open의 raw 관계, draft existing row의 normal/editable 상태, 기존 owning `D1NoticeGateway.areRelatedMembersValid`를 통한 actual UID 유효성을 검증한다. Gateway의 기존 validator를 공개하고 app composition이 좁은 `NoticeImageMemberValidator` port로 공급한다. Assets domain에 다른 capability validator를 복제/이동하거나 새 authority를 만들지 않았다. Strict 범위는 실제 archive/selected/membership/moved 및 해당 raw의 current/sealed/baseline/inventory/history 사실에서 도출한다. 세 UID 자체만으로 전환 없는 일반 공지를 제한하지 않는다. Raw URL 조회는 business raw view를 사용하며 derived index만을 권한으로 삼지 않는다. 실제 index 삭제 시도는 기존 guard가 거부하므로 테스트도 그 거부를 확인한다. ID 생략, UID 축소, unrelated row 대입으로 실제 보호 raw를 external로 바꿀 수 없다. Serialized `image_urls`는 `json_each(json_extract(...))`로 풀어 현재 행에서 사라진 역사 이미지도 확인한다.
+
+검증된 일반 row/draft이며 보호 사실/관련 전환이 없는 외부 HTTP(S)는 `path:null`로 원래 img 의미를 유지한다. 일반 external의 대문자 scheme/host 및 default port 표기는 owning notice 입력에서 유효하므로 그 normal 판정 전에 transition의 canonical-prefix 제약을 적용하지 않는다. Own configured origin 및 protected transition reference에는 기존 canonical/origin/resource 제약을 유지한다. Profile의 context 없는 strict 경로도 유지한다. Resolver는 외부 fetch/redirect를 하지 않는다. Raw DTO/source/seal은 변경하지 않는다.
+
+`useAuthenticatedImages`/`useAuthenticatedImage`와 `AuthenticatedImage`에 선택 context를 전달한다. Notice form은 현재 draft id/선택 UID, notice manager의 `공지 이미지 보기`는 실제 row id를 넘긴다. Context가 바뀌면 같은 URL이라도 기존 resolution을 즉시 숨기고 abort/revoke 후 재검증한다. Bearer는 same-site resolver 및 검증된 relative Blob path에만 보내며 resolver 오류를 external로 바꾸는 fallback은 없다. 모든 공유 소비자를 확인했다: member profile/signature/background는 context 없이 기존 strict 경로, public `protectedImage=false`는 기존 동작이다.
+
+**N3:** 새 own-absolute route 회귀의 image/webp body를 `.text()` 대신 `arrayBuffer()`/`Uint8Array` expected-byte 비교로 검증한다. 다른 기존 text/fixture warning과 과거 실패 기록을 pristine으로 바꾸지 않았다.
+
+### 실제 RED/GREEN 및 검사 이력
+
+모든 실행은 repo cwd에서 `$env:PATH="$PWD/.tmp/node-runtime/node-v24.20.0-win-x64;$env:PATH"`를 먼저 설정했다. 아래 로그 prefix는 `.tmp/sul36-4-3-fix2-`, 시간은 KST다. `CT=worker/features/content-transition/infrastructure/d1-transition.integration.test.ts`, `FR=worker/features/assets/infrastructure/file-recovery.integration.test.ts`, `AV=worker/features/assets/infrastructure/file-availability.integration.test.ts`, `SC=worker/features/content-transition/infrastructure/file-inventory-schema.integration.test.ts`, `RT=worker/features/content-transition/infrastructure/retention.integration.test.ts`, `AA=worker/app/archive-access.integration.test.ts`다. 경로 약자는 표의 명령에서 해당 전체 경로로 확장한 실제 호출이다.
+
+| 시각/명령 | 결과와 원래 오류 | 로그 suffix |
+| --- | --- | --- |
+| 10/14 23:39 `pnpm exec vitest run --config vitest.worker.config.ts CT FR -t "fix2 rejects an authority\|SQL URL identity"` | exit1, 3 FAIL/71 skip. Parity는 intended RED(allow=1 대 reject=0); D1 두 개는 잘못 가정한 `frozen_operations` column 때문에 fixture 실패 | `authority-red.log` |
+| 23:39 같은 CT만 `-t "fix2 rejects an authority"` | 실제 control row `SELECT *`로 fixture 교정 후 exit1, **2 intended FAIL/55 skip**, current/history 모두 freeze가 성공해 버림 | `authority-red-corrected.log` |
+| 23:43 최초 CT+FR focused 명령 | 0115 후 exit0, **3 PASS/71 skip** | `authority-green.log` |
+| 23:46/23:47 `pnpm exec vitest run --config vitest.worker.config.ts AA -t "fix2 preserves normal"` | 첫 exit1은 400 text를 JSON으로 읽은 assertion 실패; status로 교정한 두 번째는 **400 대 200 intended RED**, 1 FAIL/22 skip | `notice-red.log`, `notice-red-status.log` |
+| 23:49 AA `-t "fix2 preserves normal\|fix1 resolves archived"` | 첫 owning-context 구현 exit0, **2 PASS/21 skip** | `notice-green-attempt1.log` |
+| 23:54–23:56 unit consumer 명령(아래) | 처음 8 FAIL/14 PASS: stale `fetchActiveMembers` mock 6개, raw img 기대값 2개. Admin member mock/Blob fixture로 고친 뒤 2 FAIL/20 PASS 두 회차(첫 mock Response 재사용을 교정했으나 required test auth도 누락). 실제 test token/새 Response를 공급한 최종 **22 PASS**, exit0. 제품 auth를 우회하지 않음 | `consumers.log`, `consumers-corrected.log`, `consumers-final.log`, `consumers-auth-corrected.log` |
+| 10/15 00:00 `pnpm exec vitest run --config vitest.worker.config.ts CT SC FR AV AA` | exit1, **102 PASS/2 fixture FAIL**. Current derived index 직접 삭제는 `asset_file_index_current_reference`; 추가 migration test가 같은 DB의 bootstrap UID를 중복 삽입. Guard를 그대로 assertion하고 같은 test에서 0114→새 migration 경계를 순차 검증하도록 교정 | `d1-final.log` |
+| 00:03/00:04 pinned Node `--no-warnings --input-type=module`, actual helper/parser transpile + `node:sqlite :memory:` 비교 | 첫 supporting 진단은 반복 `?` bind 누락으로 모두 `/`를 반환하여 무효. `WITH input AS (SELECT ? raw)`로 교정한 결과 TAB/LF/CR 3개 및 encoded authority 2개 모두 parser reject/SQL allow=1. 운영/D1 전체 proof로 쓰지 않음 | `authority-diagnostic.log`, `authority-diagnostic-corrected.log` |
+| 00:05 `pnpm exec vitest run --config vitest.worker.config.ts FR -t "SQL URL identity"` | actual D1 **intended RED**, exit1, 1 FAIL/16 skip; TAB authority allow=1 | `authority-extended-red.log` |
+| 00:06 같은 명령, 0116 | exit0, **1 PASS/16 skip**, 확장 배열의 allow/reject 및 허용 경로 exact equality | `authority-extended-green.log` |
+| 00:07–00:08 `pnpm exec vitest run --config vitest.worker.config.ts CT SC FR AV RT AA` | exit0, **6 files/118 PASS**. I4 current/history 12 cases, ordinary/active capture, cleanup race/unknown recovery, original seal/early copy/final availability, retention 및 populated rollback 포함. Worker-pool termination timeout warnings 3건은 남음; assertion FAIL 없음 | `d1-final116.log` |
+| 00:09 unit consumer 명령 | exit0, **4 files/22 PASS**, final 0116 generator parity 포함 | `consumers116.log` |
+| 00:14 AA `-t "fix2 preserves normal"` | 일반 `HTTPS://ORDINARY-MEDIA.EXAMPLE:443/image.webp`의 **400 대 200 intended RED**, exit1, 1 FAIL/22 skip | `normal-spelling-red.log` |
+| 00:15 AA `-t "fix2 preserves normal\|fix1 resolves archived"` | normal owning context 뒤 protected canonical gate 순서로 수정; exit0, **2 PASS/21 skip** | `normal-spelling-green.log` |
+| 00:17 같은 AA normal focused | actual historical record의 JSON-string `image_urls`가 **200 대 400 intended RED**, exit1, 1 FAIL/22 skip | `historical-json-red.log` |
+| 00:18 AA 두 resolver tests | actual JSON value를 먼저 꺼내 array 순회하도록 교정; exit0, **2 PASS/21 skip**. 최종 resolver 코드 증거 | `historical-json-green.log` |
+
+Unit consumer 실제 명령은 `pnpm exec vitest run src/features/notices/ui/admin/notice-form-dialog.test.ts src/features/notices/ui/admin/notice-manager.test.ts src/shared/ui/authenticated-image.test.tsx worker/features/content-transition/infrastructure/file-inventory-statements.test.ts`다. New draft preview와 실제 notice id open, context 변경 후 old-src 숨김/거부 시 fallback 없음, foreign Bearer 없음, 기존 Blob revoke 및 generator parity를 확인한다. API regression은 normal/no-transition/UID1-no-transition/unrelated-row positive와 missing id, raw mismatch, archived draft, invalid/deprecated/duplicate UID, forged normal bool, protected raw의 id 생략·UID 축소·unrelated-id 대입, selected unresolved/cross-site, historical raw를 거부한다. Actual route/D1/R2이지만 route auth는 로컬 signed test JWT fixture이고 아래 genuine browser auth와 구분한다.
+
+마지막 수정은 resolver의 normal 판정 순서와 JSON 읽기 및 해당 route assertion만 바꿨으므로 이미 통과한 나머지 116 code/migration covering tests를 반복하지 않았다. 118 PASS와 그 뒤 최종 resolver의 2 PASS를 합산한 새 unique test 수로 과장하지 않는다.
+
+### 실제 OTW 관리자 흐름과 authoritative readback
+
+기존 task Vite session `91626`을 재사용했다. 최신 CIM에서 Node24.20.0 `run-site.mjs dev --site=otw` parent PID50900→Vite PID31120, parent PowerShell47468과 `.tmp/sul36-task42-ui-otw` 설정을 확인했다. 기존 Chrome tab은 없어 같은 Chrome profile의 새 tab `2007445279`, `http://localhost:5173/admin/content?tab=notices`로 들어갔으며 **기존 genuine Clerk 관리자 세션이 유지**됐다. Token/cookie를 읽거나 새 login/auth bypass를 만들지 않았다.
+
+통제된 이미지 서버는 `.tmp/sul36-fix2-external-image-server.mjs`, session68014/PID52460, `http://127.0.0.1:5189/notice.webp`다. 127.0.0.1에만 bind하고 기존 task 이미지 파일 31,446 bytes를 반환하며 Authorization의 존재 여부만 기록한다. 외부 provider를 호출하지 않는다. 이 서버 준비 및 기존 archived id5 fixture는 setup이다. **새 notice id6 생성과 URL 입력/preview/save는 전부 정상 UI action**이다.
+
+- 10/14 23:55 지원 entry `node scripts/d1-migrate-local.mjs --site=otw --persist-to=.tmp/sul36-task42-ui-otw`로 0115만 485 commands/exit0 증분 적용했다(`ui-migrate.log`). 23:57 `새 공지`→내용/URL→`추가`→preview complete=true, 480×479→`공지 등록`→목록 열기 성공. Source raw URL은 `http://127.0.0.1:5189/notice.webp`다.
+- 10/15 00:10 같은 지원 entry로 0116만 485 commands/exit0 적용했다(`ui-migrate116.log`). Reload→id6 수정 dialog의 동일 외부 preview→일반 멤버 UID9102 선택→`수정 저장`을 수행했다. 첫 PUT은 `SQLITE_BUSY_SNAPSHOT`으로 실패하고 UI가 입력을 유지했다. 같은 정상 저장 버튼 재시도는 00:12:16 성공했다. 직전 같은 task DB의 migration/doctor 실행과 겹친 local lock이며 정확한 lock 원인은 별도로 격리하지 않았다. 구현 변경/DB 강제 reset/guard 우회는 없었다. 원래 실패는 `ui116-first-save-error.log`, Vite session91626 output에 남겼다.
+- 최종 00:16 관찰에서 id6 external img와 기존 id5 own-absolute archive img가 모두 complete=true, 480×479였다. id5는 `blob:http://localhost:5173/aed89eac-7055-4096-8a1b-e84f2196a95e`, 원래 absolute raw는 D1에 그대로다. `ui116-browser.json`, `ui116.jpg` 및 이전 `ui.jpg`에 보존했다.
+- `node .tmp/sul36-fix2-ui116-readback.mjs`는 기존 selected config validator + `getPlatformProxy({configPath:'wrangler.jsonc',envFiles:[],remoteBindings:false,persist:{path:.../v3}})`의 로컬 D1/R2만 읽었다. `ui116-readback.json/log`: migration0116, id6 normal/[9102]/raw URL 및 image_urls.0·thumbnail_url 두 index 행, id5 admin_archive/raw/index 보존, **content_transitions count=0**. 따라서 정상 외부 preview/open/save를 위해 전환을 만들지 않았다.
+- 기존 id5 R2 key `notices/thumbnails/task43-fix1-archive-absolute.webp`: 31,446 bytes, SHA-256 `3632eaf65e4cf69538e614d2939a4b4724c610af3544e33471ec0be49d4ad10d`, actual local upload-version `40d86c4a175f7a62ee301e7d8d39b0c4`로 fix1 값과 같다. Controlled external server도 같은 body/hash를 제공했으며 최종 readback 당시 기록된 10개 GET 모두 `authorizationPresent:false`. UI URL 및 local body proof이며 production bucket/version/CDN proof가 아니다.
+
+![최종 일반 외부 이미지와 보관 Blob 표시](../../../.tmp/sul36-4-3-fix2-ui116.jpg)
+
+### Migration, 보존, 최종 영향 검사
+
+| 명령 | 실제 결과 / 로그 suffix |
+| --- | --- |
+| `pnpm drizzle:generate:custom --name asset_file_path_authority`; `node node_modules/tsx/dist/cli.mjs --tsconfig tsconfig.worker.json .tmp/sul36-fix2-authority-capture.ts` | 각 exit0, 정상 0115 SQL/snapshot/journal 생성. `generate.log`, `generate-sql.log` |
+| `pnpm drizzle:generate:custom --name asset_file_url_parse_order`; 같은 tsx entry `.tmp/sul36-fix2-url-capture.ts` | 각 exit0, 정상 0116 생성. 0115 적용 bytes 유지. `generate116.log`, `generate116-sql.log` |
+| `node scripts/d1-reset-local.mjs --site=<otw\|luvdia> --persist-to=.tmp/sul36-task43-fix2-chain-<site> --validate-only` | 양쪽 exit0, 당시 115 migrations 실제 적용/검증, 기존 DB 교체 없음. `chain-otw.log`, `chain-luvdia.log` |
+| 같은 명령, `--persist-to=.tmp/sul36-task43-fix2-chain116-<site>` | 양쪽 exit0, **최종116 migrations** 실제 적용/FK/빈 bootstrap 정리 검증, 기존 DB 교체 없음. `chain116-otw.log`, `chain116-luvdia.log` |
+| `pnpm drizzle:generate` | exit0, **No schema changes**. `no-diff.log` |
+| `node scripts/d1-doctor.mjs --site=otw --persist-to=.tmp/sul36-task42-ui-otw --skip-api --skip-remote` | exit0, blocking failure 없음. `ui-doctor116.log` |
+| `pnpm typecheck:test` | 첫 test의 Testing Library `exact` 옵션 TS2769/exit2 (`types.log`), 옵션 제거 후 exit0 (`types-final.log`), 0116 후 exit0 (`types116.log`), 마지막 normal URL 순서 수정 후 exit0 (`types-final-spelling.log`). 마지막 history 수정은 SQL literal/assertion만 변경 |
+| `pnpm architecture:check` | exit0 (`architecture.log`), 신규 port/app composition 경계 허용, checker/rule 예외 추가 없음 |
+| changed TS/TSX 파일의 `pnpm exec eslint $owned` | 첫 Windows wrapper가 전체 array를 한 pattern으로 합쳐 exit2; 검사 수행 아님 (`lint.log`). `node node_modules/eslint/bin/eslint.js @taskOwned`로 같은 명시 파일을 검사하여 exit0 (`lint-corrected.log`). 마지막 resolver/AA 두 파일 각각 재검사 exit0 (`lint-final-spelling.log`, `lint-final-history.log`) |
+
+Validate-only의 selected persist 절대 경로가 repo `.tmp/` 안임을 확인했다. Script가 생성한 `%TEMP%/otw-d1-reset-*`의 자체 temp state만 정리하며 기존 task UI/source/legacy DB를 reset/move하지 않는다. Populated regression은 0112→0113/114와 별도 populated0114→0115/116 경계를 한 test에서 실제 D1로 적용했다. 끝의 의도적 invalid SELECT가 whole migration batch를 rollback하여 old raw/index를 보존했고, 성공 apply 후 raw 전체 row가 같고 authority index만 `/`로 거부 표현이 되며 FK 위반은 0이었다.
+
+`preservation.json`/`preservation-corrected.log`는 FIX_BASE의 기존 drizzle SQL/snapshot **227개가 Git canonical bytes 기준 동일**함과 legacy4 실제 size/SHA 동일을 기록한다. 첫 readback helper의 `git show` 기본 1MiB buffer가 0112에서 ENOBUFS/exit1이었고 16MiB read-only buffer로 교정 후 exit0였다(`preservation.log` 원래 오류 유지). 기존0000–0114 SQL/snapshot을 수정하지 않았다. Journal만115/116 append다. Legacy hashes는 위 fix1의 네 값 그대로다. Private config/env/source data에 쓰지 않았다.
+
+Final116 actual file-index ordinary write cost는 unrelated0/1000에서 reads **296/300**, writes **1/1**이었다. 0115 회차의256/260에서 고정40 reads가 증가했다. 같은 active value edit는 15 statements/88 reads/17 writes로 unchanged이며, 실제 SQL compile/normal DELETE/active capture/cleanup 및 fence cases가 통과했다. 보관량/Worker 호출/D1 quota·운영 비용 gate는 미해결 운영 준비 항목이다. 관측용 추가 DB write나 site/key 전체 pause를 넣지 않았다.
+
+### Self-review와 남은 한계
+
+현재 소스에서 accepted authority → same-site admin route → trusted row/draft → final classifier/Blob 또는 normal external → 실제 UI/readback을 다시 추적했다. I4는 current와 sealed history의 공통 정규화, canonical generated SQL, exact raw/index, freeze rollback 및 source 정상 작업을 함께 확인했다. N1은 실제 UID validator를 재사용했고 id/raw mismatch, draft ownership 변경, archived/history raw, caller bool, cross-site resource, foreign Bearer 경계를 확인했다. Self-review 중 발견한 normal URL spelling과 serialized historical JSON 결함은 위 실제 RED/GREEN으로 수정했다. 증거에 맞춰 fixture를 교정했으며 fixture를 새 권한으로 삼지 않았다.
+
+이번 fix2의 소유 코드 27개를 명시적으로 staging한 뒤 `git diff --cached --check`는 exit0(`staged-check.log`)지만 **전체 Task4.3 pristine 의미가 아니다**. 기존 적용0112:513/542(M1), 0114:523/553(N2)의 네 공백 줄은 그대로 남고 이전 전체 범위 exit2도 유지된다. 새115/116 generator 출력의 trailing whitespace만 생성 시 제거하여 기존 적용본을 고치지 않았다. Pool teardown timeout 경고, local busy snapshot 첫 UI 실패, 중간 setup/type/lint/readback helper 오류는 위에 따로 보존했다.
+
+Production build는 기존 Clerk public key/issuer identity 불일치로 artifact 생성 전 실패한 상태 그대로이며 다시 실행하거나 private 입력을 수정하지 않았다. 실제 LuvDia app/domain/login, production identity/body/binding/cache/account/quotas, 운영 이관·activation은 미실행이다. FullTask4 및4.4/4.5는 미완료다.
+
+운영 upload 사고는 별도 미해결이다. 이 writer의 fix2 remote IO는0이며 root의 이전 승인7 GET 외 새 권한은 사용하지 않았다. 그 GET은 현재 input hash/size 일치와 마지막 저장 시각만 확인했고 사고 전 bytes/version, GET에 없는 upload-version, 실제 CDN/사용자 영향은 unknown이다. Local PASS로 사고를 종결하지 않는다. Root SUL/incident/ledger 및 unrelated AI docs는 staging에서 제외한다.
+
+### 최종 자체 검토 보완 — decode 오류 소거 (10/15 00:26 이후)
+
+종료 전 두 반례 `/%GG%2f..%2fprofile/bing_hayu.webp`, `/%ff%2f..%2fprofile/bing_hayu.webp`를 발견했다. Owning `decodeURIComponent`는 `URI malformed`로 거부하지만 0116 SQL은 잘못된 escape/UTF-8 상태를 잃고 뒤의 dot 처리에서 `/profile/bing_hayu.webp`로 만들었다. Memory SQLite 비교는 supporting(`final-decode-diagnostic.log`)이며, 실제 D1 parity에서 00:27:19 **1 FAIL/16 skip/exit1**, allow1 대 reject0의 intended RED를 따로 확보했다(`final-decode-red.log`). Controller는 같은 I4 current/history 권한 일관성 범위임을 확인했다.
+
+최종 helper는 decode CTE에 UTF-8 상태를 유지한다. 작은 상수 CTE의 16개 byte-range 전이로 정상 ASCII/2·3·4-byte sequence, E0/ED/F0/F4의 범위 제약을 구분하고 malformed escape, overlong/surrogate/out-of-range/incomplete sequence는 최종 path 단계에 도달하지 못한다. 새 business table/manifest/authority는 없다. 첫 URL parse에서 이미 제거된 malformed segment와 정상 UTF-8가 두 번째 dot 처리에서 제거되는 경우는 owning parser처럼 허용한다. 원래 raw, 승인 plan/receipt, source 작업 권한은 유지한다.
+
+단일 raw 및 decoded scalar를 담는 `p`/`e` CTE에만 `AS MATERIALIZED`를 사용한다. 이 두 경계는 UPDATE의 old/new trigger 확장 때 같은 작은 식이 반복 inline되는 것을 막는다. 전체 business snapshot을 materialize하거나 관측 write를 추가하지 않는다. 적용된0115/0116은 그대로 두고 정상 `pnpm drizzle:generate:custom --name asset_file_decode_validity` 및 `.tmp/sul36-fix2-decode-capture.ts` owning generator로 **0117**을 생성했다. UI/selected-chain에 적용되기 전 unshared0117 초안만 수정했다.
+
+원래 실패도 보존한다. 첫 CASE 버전은 `,CASE` 앞 whitespace가 없어 Wrangler splitter가 CASE 시작을 인식하지 못하고 END만 세어 **562 queries**로 잘랐다. `decode-green.log`와 `decode-green-corrected.log` 각각 두 suite 실패/88 skip/exit1, `d1-final117.log`는 6 files 실패/1 test FAIL/121 skip/exit1이다. 후자는 앞 focused 결과를 확인하기 전에 시작한 불필요한 회차였으며 제품 PASS가 아니다. 실제 분할된 전체 SQL은 `.tmp/sul36-fix2-split117.json`에 보존했다. 공백 수정 뒤 정상 분할은484 SQL statements(지원 apply는 migration bookkeeping 포함485)였다.
+
+그 다음 큰 CASE와 작은 lookup 각각은 SQL/parity/current test는 통과했으나 corrected-history의 정상 notice UPDATE가 `SQLITE_NOMEM`으로 실패했다. 두 회차 각각 **9 PASS/8 FAIL/71 skip/exit1**, `decode-green-final.log`(00:32:32), `decode-lookup.log`(00:34:27)이다. 실패한 lookup 전체 SQL은 동일 generator 출력에서 위 두 materialization keyword만 되돌려 `.tmp/sul36-4-3-fix2-0117-lookup-nomem.sql`로 재구성해 남겼다. 이를 원래 실행 파일의 독립 byte snapshot이라고 주장하지 않는다. 최종 두 scalar 경계 후 실제 owning source UPDATE와 fence 경로가 함께 통과했다.
+
+| 실제 명령/회차 | 최종 결과 / prefix `.tmp/sul36-4-3-fix2-` 로그 |
+| --- | --- |
+| `pnpm exec vitest run --config vitest.worker.config.ts FR CT -t "SQL URL identity\|fix2 rejects an authority"` | 00:35:18 **17 PASS/71 skip/exit0**, `decode-materialized.log`. Current/history 각8입력의 원래 journal/control rollback 및 다음 정상 source commit 포함. Supporting parity만으로 대체하지 않음 |
+| `pnpm exec vitest run --config vitest.worker.config.ts CT SC FR AV RT AA` | 00:36:31 **6 files/122 PASS/exit0**,131.10s, `d1-final117-corrected.log`. 새로운 populated0116→117 실패 batch rollback/성공 raw 보존, ordinary UPDATE/DELETE/cleanup, baseline/early copy/final proof 포함. Pool teardown timeout 경고3개 유지 |
+| `pnpm exec vitest run worker/features/content-transition/infrastructure/file-inventory-statements.test.ts` | 최종 lookup/materialization generator parity **1 PASS/exit0**, `parity117-final.log`;241 create statements, max94,554bytes |
+| `pnpm typecheck:test` | exit0, `types117.log`. 이후 변경은 같은 typed SQL string 안의 lookup/materialization이며 포트/type 변동 없음 |
+| `node node_modules/eslint/bin/eslint.js worker/platform/url-path-sql.ts FR CT SC worker/features/content-transition/infrastructure/file-inventory-statements.test.ts` | 최종 5파일 exit0, `lint117-final.log` |
+| `pnpm drizzle:generate` | 새117 후 No schema changes/exit0, `no-diff117.log` |
+
+위 표의 FR/CT/SC/AV/RT/AA는 앞 절의 동일 전체 경로다. Supporting parity 배열은 valid UTF-8 각 boundary와 malformed/overlong/surrogate/out-of-range/incomplete, 첫 parse에서 제거되는 malformed segment, 기존 encoded authority/control/path cases를 포함한다. 최종 ordinary index 비용은 unrelated0/1000에서 **304/308 reads,1/1 writes**(116보다 고정8reads 추가), active value edit는 여전히15 statements/88reads/17writes, protect18 statements/4,264reads/72writes다. 운영 비용 gate는 유지한다. UI/타입/API 등 변경 없는 broad 영역은 다시 반복하지 않았다.
+
+지원 CLI는 actual Worker tests와 별도로 검증했다. `node scripts/d1-reset-local.mjs --site=<otw|luvdia> --persist-to=.tmp/sul36-task43-fix2-chain117-<site> --validate-only`의 첫 OTW 시도는0062에서, 두 번째는0005에서 Wrangler `bad port`/exit1로 중단됐다(`chain117-otw.log`, `chain117-retry-otw.log`); LuvDia는 그 두 회차에서 시작하지 않았다. 원래 Wrangler 로그는 `wrangler-2026-10-14_15-36-47_308.log`, `wrangler-2026-10-14_15-38-13_626.log`다. Stack은 Wrangler migration handler `cli.js:225890:19`에서 errorNotes를 전달했고 실제 실패 URL/port는 로그에 없었다. 이를 새117 SQL 오류나 통과로 단정하지 않았다.
+
+진행 중 Vitest가 종료된 뒤 같은 지원 entry의 마지막 순차 실행은 **OTW/LuvDia 각각117 migrations 실제 apply/검증, exit0**였다(`chain117-final-otw.log`, `chain117-final-luvdia.log`). 마지막 실행은 process-local `WRANGLER_SEND_METRICS=false`도 지정했다. 이 설정이 bad-port 원인을 고쳤다고 주장하지 않으며 정확한 초기 port 원인은 미격리다. 세 번째 실행 이후 추가 재시도나 기존 private/config/Vite 변경은 없었다. Validate-only 자체 temp DB만 사용하고 source/legacy/UI reset은 하지 않았다.
+
+`node scripts/d1-migrate-local.mjs --site=otw --persist-to=.tmp/sul36-task42-ui-otw`는 기존 UI fixture에117만 **485 commands/exit0**로 적용했다(`ui-migrate117.log`). 같은 genuine Chrome tab/profile에서 reload→id6 정상 수정→external preview complete480×479→`수정 저장`을 수행했고 00:43:55에 성공했다. 이번117 저장은 첫 시도에 성공했다. 목록에서 id6 external과 id5 archive Blob을 함께 열어 둘 다 complete480×479를 확인했다. 최초 automation의 `getByLabel`은 summary의 실제 label 속성이 없어 no-match였고 DOM을 읽어 실제 visible summary text로 클릭했다. 제품/인증 실패나 fallback은 없었다.
+
+`node .tmp/sul36-fix2-ui117-readback.mjs`는 위와 같은 validated selected-local/remoteBindings:false D1/R2 읽기만 수행했다(exit0). `ui117-readback.json/log`에서 migration117, id6 normal/[9102]/raw/index, id5 archive/raw/index, transition0과 원래 R2 bytes31,446/SHA`3632eaf6…ad10d`/version`40d86c4a175f7a62ee301e7d8d39b0c4`를 재확인했다. Controlled external 요청은 최종19건 모두 Authorization 없음. 실제 browser 관찰은 `ui117-browser.json`/`ui117.jpg`이며 SVG icon처럼 이미지 body가 없는 role=img 항목은 성공 이미지 수에 포함하지 않았다. Fixture용 Vite91626과 localhost5189 image server68014/PID52460은 reviewer가 같은 정상 흐름을 열 수 있도록 유지했다. 다른 process/private 입력은 건드리지 않았다.
+
+![0117 이후 정상 저장과 두 이미지 표시](../../../.tmp/sul36-4-3-fix2-ui117.jpg)
+
+보존 재확인 첫 helper는 이전 proof의 **raw SHA**에 LF-normalized bytes를 잘못 비교하여178개 false-negative/exit1이었다(`preservation-final117.log`). 파일을 바꾸지 않고 raw-to-raw 비교로 교정한 `preservation-final117-corrected.json/log`는 **227개 기존 SQL/snapshot 실제 bytes 동일, legacy4 실제 size/SHA 동일, exit0**다. 이전 FIX_BASE canonical equality 증거와 함께 유지한다. 0115/0116의 마지막 쓰기 시각은 각각10/14 23:42:00,10/15 00:06:29 KST 그대로이며 이후 재작성하지 않았다. Final117의 own generated SQL/snapshot/journal만 추가됐다.
+
+최종 코드 commit은 **`0d527b338905c18232328048cb35bcc5a108845c`**다. `.tmp/sul36-4-3-fix2-owned-code.txt`의27개 파일을 명시 staging하고 실제 staged 목록과 exact 비교했다. Shared contract1, 새SQL3/snapshot3/journal1, notice form/manager 각코드·test, hook/sharedimage·test, app composition/route regression, assets port/context parser/handler/resolver/recovery test, transition current-history/populated/generator tests, existing notice UID validator, shared SQL helper만 포함한다. Root SUL/incident/ledger/plan/spec 및 unrelated AI docs, private/.tmp/.wrangler는 포함하지 않았다. Staged diff-check는 exit0이고 이전 적용0112/0114 whitespace concern은 여전히 별개다.
+
+최종117 UI fixture의 `node scripts/d1-doctor.mjs --site=otw --persist-to=.tmp/sul36-task42-ui-otw --skip-api --skip-remote`도 exit0, blocking failure 없음(`ui-doctor117.log`). 최종 자체 검토는 새 decode 전이/단일 scalar 경계, raw·current/history·final fence 일관성, trusted notice/draft와 기존 strict profile 소비자, Bearer 목적지, UI save/readback, migration bytes 및 explicit staging을 확인했다. 이 보고서만 별도 evidence commit으로 인계한다. 추가 remote 운영 IO·Task4.4·새 reviewer는 실행하지 않았다. 기존 운영 사고/production build/실제 LuvDia 인증 미확인과 applied whitespace, 초기 bad-port 원인 미격리는 위 기록대로 남는다.
+
+**DONE: Task4.3 fix round2 구현 및 실제 로컬 증거 인계. Controller 재리뷰 대기이며 전체 Task4는 미완료다.**
