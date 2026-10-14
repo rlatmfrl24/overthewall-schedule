@@ -3,6 +3,7 @@ import type {ProtectedAssetReferenceResponse} from "@contracts/assets";
 import { readAsset } from "../application/read-asset";
 import type { AssetAccessReader, AssetReader,ProtectedAssetReferenceResolver } from "../application/ports/asset-reader";
 import { requireAdminUser } from "../../../platform/auth";
+import {parseProtectedReferenceContext} from "../domain/protected-reference-context";
 import {
   getAssetContentType,
   isStaticProfileAsset,
@@ -16,7 +17,12 @@ export const createHandleProtectedAssetReference=(resolve:(env:Env)=>ProtectedAs
   if(!auth.ok) return new Response(auth.response.body,{status:auth.response.status,headers});
   const raw=new URL(request.url).searchParams.get("url");
   if(!raw || raw.length>4096) return new Response("Invalid asset reference",{status:400,headers});
-  try {return Response.json({path:await resolve(env).resolve(raw)} satisfies ProtectedAssetReferenceResponse,{headers});}
+  try {
+    const encoded=new URL(request.url).searchParams.get("context");
+    if(encoded && encoded.length>4096) throw new Error("Invalid image context");
+    const context=encoded===null?undefined:parseProtectedReferenceContext(JSON.parse(encoded));
+    return Response.json({path:await resolve(env).resolve(raw,context)} satisfies ProtectedAssetReferenceResponse,{headers});
+  }
   catch {return new Response("Unresolved asset reference",{status:400,headers});}
 };
 

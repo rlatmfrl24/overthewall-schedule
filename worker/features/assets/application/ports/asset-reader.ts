@@ -1,3 +1,5 @@
+import type {ProtectedAssetReferenceContext} from "@contracts/assets";
+
 export interface AssetObject {
   body: ReadableStream<Uint8Array> | null;
   etag: string;
@@ -12,5 +14,8 @@ export interface AssetAccessReader {
   readAccess(path: string): Promise<{ restricted: boolean; revision: number }>;
 }
 export interface ProtectedAssetReferenceResolver {
-  resolve(raw:string):Promise<string|null>;
+  resolve(raw:string,context?:ProtectedAssetReferenceContext):Promise<string|null>;
+}
+export interface NoticeImageMemberValidator {
+  areRelatedMembersValid(memberUids:number[]):Promise<boolean>;
 }

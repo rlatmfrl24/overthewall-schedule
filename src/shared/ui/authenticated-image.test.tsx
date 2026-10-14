@@ -5,6 +5,23 @@ import { afterEach, expect, it, vi } from "vitest";
 import { AuthenticatedImage } from "./authenticated-image";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+it("rechecks the same external URL when its owning notice context changes and never falls back after rejection", async () => {
+  vi.stubGlobal("window", Object.assign(window, { Clerk: { session: { getToken: async () => "session" } } }));
+  const raw = "https://external.example/notice.webp";
+  const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+    expect(String(input).startsWith("/api/assets/protected-reference?")).toBe(true);
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer session");
+    const context = JSON.parse(new URL(String(input), window.location.origin).searchParams.get("context")!);
+    return context.relatedMemberUids.length ? new Response("Unresolved", { status: 400 }) : Response.json({ path: null });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(<AuthenticatedImage src={raw} alt="draft" referenceContext={{ kind: "notice-draft", relatedMemberUids: [] }} />);
+  await waitFor(() => expect(view.getByAltText("draft").getAttribute("src")).toBe(raw));
+  view.rerender(<AuthenticatedImage src={raw} alt="draft" referenceContext={{ kind: "notice-draft", relatedMemberUids: [1] }} />);
+  expect(view.getByAltText("draft").getAttribute("src")).toBeNull();
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  expect(view.getByAltText("draft").getAttribute("src")).toBeNull();
+});
 it("rejects relative authority tricks and an unclassified absolute origin without issuing a remote bearer request",async()=>{
   vi.stubGlobal("window",Object.assign(window,{Clerk:{session:{getToken:async()=>"session"}}}));
   const fetcher=vi.fn<typeof fetch>(async(input)=>{expect(String(input).startsWith("/api/assets/protected-reference?")).toBe(true);return new Response("Unresolved asset reference",{status:400});});

@@ -44,7 +44,7 @@ beforeEach(async () => {
     throw new Error(`Unexpected provider access: ${String(input)}`);
   }));
   await db.batch([
-    db.prepare("DELETE FROM content_transitions"), db.prepare("DELETE FROM music_playlists"),
+    db.prepare("DELETE FROM content_transitions"), db.prepare("DELETE FROM content_historical_records"), db.prepare("DELETE FROM music_playlists"),
     db.prepare("DELETE FROM x_posts"), db.prepare("DELETE FROM x_post_sources"), db.prepare("DELETE FROM naver_cafe_posts"), db.prepare("DELETE FROM naver_cafe_sources"),
     db.prepare("DELETE FROM youtube_feed_sources"), db.prepare("DELETE FROM chzzk_api_cache"),
     db.prepare("DELETE FROM music_cover_proposals"), db.prepare("DELETE FROM music_performances"),
@@ -56,6 +56,42 @@ beforeEach(async () => {
     db.prepare("INSERT INTO notices(id,content,is_active,content_access) VALUES(1,'Archived notice',1,'admin_archive'),(2,'Public notice',1,'normal')"),
     db.prepare("INSERT INTO ddays(id,title,date,content_access) VALUES(1,'Archived day','2026-10-14','admin_archive'),(2,'Public day','2026-10-14','normal')"),
   ]);
+});
+
+it("fix2 preserves normal notice and draft external images without transition authority and rejects protected-context substitution",async()=>{
+  const external="https://ordinary-media.example/image.webp",protectedRaw="https://unresolved-protected.example/image.webp";
+  await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
+  await db.prepare("UPDATE notices SET image_urls=?,related_member_uids='[2]' WHERE id=2").bind(JSON.stringify([external])).run();
+  const resolve=(raw:string,context:unknown)=>request(`/api/assets/protected-reference?url=${encodeURIComponent(raw)}&context=${encodeURIComponent(JSON.stringify(context))}`,"archive-admin");
+  const normal=await resolve(external,{kind:"notice",id:2});
+  expect(normal.status).toBe(200);
+  expect(await normal.json()).toEqual({path:null});
+  expect(await (await resolve(external,{kind:"notice-draft",relatedMemberUids:[]})).json()).toEqual({path:null});
+  expect(await (await resolve(external,{kind:"notice-draft",relatedMemberUids:[1]})).json()).toEqual({path:null});
+  const ordinaryVariant="HTTPS://ORDINARY-MEDIA.EXAMPLE:443/image.webp";
+  expect((await resolve(ordinaryVariant,{kind:"notice-draft",relatedMemberUids:[]})).status).toBe(200);
+  for(const context of [{kind:"notice",id:999},{kind:"notice",id:1},{kind:"notice-draft",id:1,relatedMemberUids:[]},{kind:"notice-draft",id:999,relatedMemberUids:[]},{kind:"notice-draft",relatedMemberUids:[999]},{kind:"notice-draft",relatedMemberUids:[2,2]},{kind:"notice",id:2,normal:true}]) expect((await resolve(external,context)).status).toBe(400);
+  expect((await resolve("https://not-stored.example/image.webp",{kind:"notice",id:2})).status).toBe(400);
+  const archivedRaw="https://archived-unknown.example/image.webp";
+  await db.prepare("UPDATE notices SET image_urls=? WHERE id=1").bind(JSON.stringify([archivedRaw])).run();
+  expect((await resolve(archivedRaw,{kind:"notice-draft",relatedMemberUids:[]})).status).toBe(400);
+  expect((await resolve(archivedRaw,{kind:"notice-draft",id:2,relatedMemberUids:[2]})).status).toBe(400);
+  const historicalRaw="https://historical-unknown.example/image.webp";
+  await db.prepare("INSERT INTO content_historical_records(source_site,source_table,source_key,record_json,protocol) VALUES('otw','notices','[99]',?,1)").bind(JSON.stringify({id:99,content:"Historical notice",image_urls:JSON.stringify([historicalRaw]),thumbnail_url:null})).run();
+  expect((await resolve(historicalRaw,{kind:"notice-draft",relatedMemberUids:[]})).status).toBe(400);
+  await db.prepare("INSERT INTO members(uid,code,name,is_deprecated) VALUES(9,'retired','Retired',1)").run();
+  expect((await resolve(external,{kind:"notice-draft",relatedMemberUids:[9]})).status).toBe(400);
+  const plan={id:"normal-resolver",sourceSite:"otw",targetSite:"luvdia",sourceResource:"otw-db",targetResource:"luvdia-db",generation:2,protocol:1,manifestDigest:"normal-resolver",members:[{uid:1,targetUid:11,code:"bing_hayu"}],classifications:[],assetBuckets:{source:"otw-schedule",target:"luvdia-schedule"},fileOrigins:[{kind:"site",site:"luvdia",origin:"https://other-site.example"}]};
+  await db.prepare("INSERT INTO content_transitions(id,source_site,target_site,source_resource,target_resource,local_site,local_resource,generation,protocol,manifest_digest,plan_json) VALUES('normal-resolver','otw','luvdia','otw-db','luvdia-db','otw','otw-db',2,1,'normal-resolver',?)").bind(JSON.stringify(plan)).run();
+  await db.prepare("INSERT INTO notices(id,content,image_urls,related_member_uids) VALUES(3,'Selected normal',?,'[1]')").bind(JSON.stringify([protectedRaw,"https://other-site.example/profile/bing_hayu.webp"])).run();
+  expect(await (await resolve(external,{kind:"notice",id:2})).json()).toEqual({path:null});
+  expect(await (await resolve(external,{kind:"notice-draft",id:2,relatedMemberUids:[2]})).json()).toEqual({path:null});
+  for(const context of [{kind:"notice",id:3},{kind:"notice-draft",relatedMemberUids:[]},{kind:"notice-draft",id:2,relatedMemberUids:[2]},{kind:"notice-draft",id:3,relatedMemberUids:[]}]) expect((await resolve(protectedRaw,context)).status).toBe(400);
+  expect((await resolve(external,{kind:"notice-draft",relatedMemberUids:[1]})).status).toBe(400);
+  expect((await resolve("https://other-site.example/profile/bing_hayu.webp",{kind:"notice",id:3})).status).toBe(400);
+  await expect(db.prepare("DELETE FROM asset_file_reference_paths WHERE row_table='notices' AND row_key='[3]'").run()).rejects.toThrow(/index_current_reference/);
+  expect((await resolve(protectedRaw,{kind:"notice-draft",relatedMemberUids:[]})).status).toBe(400);
+  expect(vi.mocked(fetch).mock.calls.every(([input])=>String(input)===`${issuer}/.well-known/jwks.json`)).toBe(true);
 });
 
 it("fix1 resolves archived stored own absolute URLs through the authenticated same-site route with exact row-bound origins",async()=>{
@@ -70,7 +106,7 @@ it("fix1 resolves archived stored own absolute URLs through the authenticated sa
   expect(response.headers.get("Cache-Control")).toBe("private, no-store");
   expect(await response.json()).toEqual({path:`/r2-assets/${key}`});
   expect((await request(`/r2-assets/${key}`)).status).toBe(401);
-  expect(await (await request(`/r2-assets/${key}?archive=1`,"archive-admin")).text()).toBe("actual archived absolute bytes");
+  expect(new Uint8Array(await (await request(`/r2-assets/${key}?archive=1`,"archive-admin")).arrayBuffer())).toEqual(new TextEncoder().encode("actual archived absolute bytes"));
   expect(await db.prepare("SELECT image_urls FROM notices WHERE id=1").first("image_urls")).toBe(JSON.stringify([own]));
   const approved="https://approved-source.example",external="https://external.example",cross="https://other-site.example";
   const plan={id:"resolver",sourceSite:"otw",targetSite:"luvdia",sourceResource:"otw-db",targetResource:"luvdia-db",generation:2,protocol:1,manifestDigest:"approved-resolver",members:[{uid:1,targetUid:11,code:"bing_hayu"}],classifications:[],assetBuckets:{source:"otw-schedule",target:"luvdia-schedule"},fileOrigins:[{kind:"r2",site:"otw",resource:"otw-schedule",origin:approved},{kind:"external",origin:external,reason:"Approved external image"},{kind:"site",site:"luvdia",origin:cross}]};

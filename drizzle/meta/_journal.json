@@ -799,6 +799,27 @@
       "when": 1791983671497,
       "tag": "0114_asset_file_inventory_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "6",
+      "when": 1791988860782,
+      "tag": "0115_asset_file_path_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "6",
+      "when": 1791990369737,
+      "tag": "0116_asset_file_url_parse_order",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "6",
+      "when": 1791991752419,
+      "tag": "0117_asset_file_decode_validity",
+      "breakpoints": true
     }
   ]
 }

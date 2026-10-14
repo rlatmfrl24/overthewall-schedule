@@ -3,6 +3,8 @@ import { createHandleR2Asset,createHandleProtectedAssetReference,D1ProtectedAsse
 import type { Env } from "../platform/types";
 import { D1TransitionRepository } from "../features/content-transition";
 import {getWorkerSiteDefinition} from "../platform/site";
+import {D1NoticeGateway} from "../features/notices";
+import {getDb} from "../platform/db";
 
 export const buildAssetFileStore = (env:Env) => {
   const {site,database,bucket}=parseSiteStorageResources(env);
@@ -27,5 +29,5 @@ export const handleAsset = createHandleR2Asset(
 export const handleProtectedAssetReference=createHandleProtectedAssetReference(env=>{
   const {site,bucket}=parseSiteStorageResources(env);
   const origins=[getSiteDefinition(site).publicOrigin,getWorkerSiteDefinition(env).publicOrigin].filter((origin):origin is string=>!!origin);
-  return new D1ProtectedAssetReferenceResolver(env.otw_db,site,bucket,origins);
+  return new D1ProtectedAssetReferenceResolver(env.otw_db,site,bucket,origins,new D1NoticeGateway(getDb(env)));
 });

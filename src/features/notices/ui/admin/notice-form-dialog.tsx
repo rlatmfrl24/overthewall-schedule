@@ -429,7 +429,7 @@ export function NoticeFormDialog({
               <div className="grid gap-3 sm:grid-cols-2">
                 {imageUrls.map((url, index) => (
                   <div key={`${url}-${index}`} className="overflow-hidden rounded-md border bg-muted/20">
-                    <div className="aspect-[16/9] bg-background"><AuthenticatedImage src={url} alt={`공지 이미지 ${index + 1}`} className="h-full w-full object-cover" /></div>
+                    <div className="aspect-[16/9] bg-background"><AuthenticatedImage src={url} referenceContext={{kind:"notice-draft",...(initialValues?.id?{id:initialValues.id}:{}),relatedMemberUids}} alt={`공지 이미지 ${index + 1}`} className="h-full w-full object-cover" /></div>
                     <div className="flex min-w-0 items-center gap-1 p-2">
                       <Badge variant="outline">{index + 1}</Badge>
                       <span className="min-w-0 flex-1 truncate text-xs" title={url}>{url}</span>

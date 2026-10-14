@@ -162,6 +162,24 @@ async function ready() {
   await source.acknowledgeIngress(receipt, now);
   return receipt;
 }
+it.each(["/%GG%2f..%2fprofile/bing_hayu.webp","/%ff%2f..%2fprofile/bing_hayu.webp","/\\foreign.example/../../profile/bing_hayu.webp","/\t\\foreign.example/../../profile/bing_hayu.webp","/\n\\foreign.example/../../profile/bing_hayu.webp","/\r\\foreign.example/../../profile/bing_hayu.webp","/%5cforeign.example%2F..%2F..%2Fprofile/bing_hayu.webp","/%2fforeign.example%2F..%2F..%2Fprofile/bing_hayu.webp"].flatMap(raw=>["current","corrected history"].map(mode=>({raw,mode}))))("fix2 rejects an authority-changing path in actual D1 $mode $raw while source work continues",async({mode,raw})=>{
+  await ready();
+  await source.admit(admission("authority-path"));
+  await source.commit(plan.id,"authority-path",1,[sourceDb.prepare("INSERT INTO notices(id,content,related_member_uids,image_urls) VALUES(908,'authority','[1]',?)").bind(JSON.stringify([raw]))]);
+  if(mode==="corrected history") {
+    await source.admit(admission("authority-correction"));
+    await source.commit(plan.id,"authority-correction",1,[sourceDb.prepare("UPDATE notices SET image_urls='[]' WHERE id=908")]);
+  }
+  const original=(await sourceDb.prepare("SELECT * FROM content_transition_journal WHERE row_table='notices' AND row_key='[908]' ORDER BY seq").all()).results;
+  const before=await sourceDb.prepare("SELECT * FROM content_transitions WHERE id=?").bind(plan.id).first();
+  await expect(source.freeze(plan.id,now)).rejects.toThrow(/manifest/);
+  expect(await sourceDb.prepare("SELECT * FROM content_transitions WHERE id=?").bind(plan.id).first()).toEqual(before);
+  await source.admit(admission("ordinary-after-authority"));
+  const command=await source.readExecutableCommand(plan.id,"ordinary-after-authority");
+  await source.commit(plan.id,"ordinary-after-authority",1,[sourceDb.prepare("INSERT INTO schedules(id,member_uid,date,start_time,title,status) VALUES(?,?,?,?,?,?)").bind(command.payload.id,command.payload.member_uid,command.payload.date,command.payload.start_time,command.payload.title,command.payload.status)]);
+  expect(await sourceDb.prepare("SELECT title FROM schedules WHERE id=1").first("title")).toBe("accepted edit");
+  expect((await sourceDb.prepare("SELECT * FROM content_transition_journal WHERE row_table='notices' AND row_key='[908]' ORDER BY seq").all()).results).toEqual(original);
+});
 async function installTail() {
   const header=await source.describeBaseline(plan.id);
   await target.beginBaseline(header);

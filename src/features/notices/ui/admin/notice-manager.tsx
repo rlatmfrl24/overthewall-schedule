@@ -635,7 +635,7 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
                 <div className="min-w-0 space-y-1">
                   <h3 className="whitespace-pre-wrap break-words font-semibold leading-relaxed [overflow-wrap:anywhere]">{notice.content}</h3>
                   <p className="break-words text-xs leading-5 text-muted-foreground">{getRelatedMemberLabel(notice, memberMap)}</p>
-                  {getNoticeImageUrls(notice).length > 0 && <details><summary className="cursor-pointer text-sm">공지 이미지 보기</summary><div className="mt-2 grid gap-2">{getNoticeImageUrls(notice).map((url, index) => <AuthenticatedImage key={url} src={url} alt={`${notice.content} 이미지 ${index + 1}`} className="max-h-80 max-w-full object-contain" />)}</div></details>}
+                  {getNoticeImageUrls(notice).length > 0 && <details><summary className="cursor-pointer text-sm">공지 이미지 보기</summary><div className="mt-2 grid gap-2">{getNoticeImageUrls(notice).map((url, index) => <AuthenticatedImage key={url} src={url} referenceContext={{kind:"notice",id:notice.id}} alt={`${notice.content} 이미지 ${index + 1}`} className="max-h-80 max-w-full object-contain" />)}</div></details>}
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1">이미지 {renderThumbnailBadge(notice)}</span><span>링크 {getNoticeLinks(notice).length}개</span></div>
                 </div>
                 <div className="space-y-1">

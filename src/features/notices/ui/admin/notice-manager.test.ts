@@ -18,7 +18,7 @@ const createNoticeMock = vi.hoisted(() => vi.fn());
 const updateNoticeMock = vi.hoisted(() => vi.fn());
 const deleteNoticeMock = vi.hoisted(() => vi.fn());
 const setFeaturedNoticeMock = vi.hoisted(() => vi.fn());
-const fetchActiveMembersMock = vi.hoisted(() => vi.fn());
+const fetchAdminMembersMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../api/notices", () => ({
@@ -32,7 +32,7 @@ vi.mock("../../api/notices", () => ({
 }));
 
 vi.mock("@/features/members", () => ({
-  fetchActiveMembers: fetchActiveMembersMock,
+  fetchAdminMembers: fetchAdminMembersMock,
 }));
 
 vi.mock("@/shared/ui/toast", () => ({
@@ -70,8 +70,9 @@ const makeThumbnailStatus = () => ({
 
 describe("NoticeManager", () => {
   beforeEach(() => {
+    Object.assign(window, { Clerk: { session: { getToken: async () => "test-session" } } });
     fetchNoticesMock.mockResolvedValue([]);
-    fetchActiveMembersMock.mockResolvedValue([]);
+    fetchAdminMembersMock.mockResolvedValue([]);
     fetchNoticeThumbnailStatusMock.mockResolvedValue(makeThumbnailStatus());
     cleanupUnusedNoticeThumbnailsMock.mockResolvedValue({
       success: true,
@@ -87,6 +88,8 @@ describe("NoticeManager", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.restoreAllMocks();
+    Reflect.deleteProperty(window, "Clerk");
   });
 
   it("미사용 R2 썸네일 정리는 확인 전까지 삭제 API를 호출하지 않는다", async () => {
@@ -113,6 +116,23 @@ describe("NoticeManager", () => {
     await waitFor(() =>
       expect(cleanupUnusedNoticeThumbnailsMock).toHaveBeenCalledTimes(1),
     );
+  });
+
+  it("opens an ordinary external notice image with its actual notice identity", async () => {
+    const raw = "https://external.example/notice.webp";
+    fetchNoticesMock.mockResolvedValue([{ id: 2, content: "일반 외부 이미지", image_urls: [raw], related_member_uids: [], links: [], url: null, thumbnail_url: raw, type: "notice", publisher_type: "otw", publisher_member_uid: null, is_active: true, is_featured: false, started_at: null, ended_at: null, created_at: "2026-10-14T00:00:00.000Z" }]);
+    const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
+      const request = new URL(String(input), window.location.origin);
+      expect(request.pathname).toBe("/api/assets/protected-reference");
+      expect(request.searchParams.get("url")).toBe(raw);
+      expect(JSON.parse(request.searchParams.get("context")!)).toEqual({ kind: "notice", id: 2 });
+      return Response.json({ path: null });
+    });
+    render(createElement(NoticeManager), { wrapper: createQueryWrapper() });
+    fireEvent.click(await screen.findByText("공지 이미지 보기"));
+    await waitFor(() => expect(screen.getByRole("img", { name: "일반 외부 이미지 이미지 1" }).getAttribute("src")).toBe(raw));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    fetcher.mockRestore();
   });
 
   it("공지 테이블에서 대표 공지를 하나만 선택한다", async () => {
@@ -204,7 +224,7 @@ describe("NoticeManager", () => {
   });
 
   it("관리자 목록에 관련 멤버와 이미지·링크 개수를 요약한다", async () => {
-    fetchActiveMembersMock.mockResolvedValue([
+    fetchAdminMembersMock.mockResolvedValue([
       { uid: 1, name: "하나", code: "one", oshi_mark: "🌙" },
       { uid: 2, name: "둘", code: "two", oshi_mark: null },
     ]);

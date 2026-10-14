@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch,apiFetchBlob } from "@/shared/api/client";
 import {apiRoutes} from "@contracts/api-routes";
-import type {ProtectedAssetReferenceResponse} from "@contracts/assets";
+import type {ProtectedAssetReferenceResponse,ProtectedAssetReferenceContext} from "@contracts/assets";
 const resolvable=(src:string)=>src.trim().startsWith("/") || src.trim().startsWith("\\") || /^https?:/i.test(src.trim());
 
-export function useAuthenticatedImages(sources: readonly string[], protectedImage: boolean) {
+export function useAuthenticatedImages(sources: readonly string[], protectedImage: boolean,context?:ProtectedAssetReferenceContext) {
   const key = JSON.stringify(sources);
-  const identity = useMemo(() => ({ key, protectedImage }), [key, protectedImage]);
+  const contextKey=JSON.stringify(context??null);
+  const identity = useMemo(() => ({ key, protectedImage,contextKey }), [key, protectedImage,contextKey]);
   const [loaded, setLoaded] = useState<{ identity: typeof identity; urls: Record<string, string> } | null>(null);
   useEffect(() => {
     if (!identity.protectedImage) return;
@@ -17,7 +18,7 @@ export function useAuthenticatedImages(sources: readonly string[], protectedImag
       if(!resolvable(src)) continue;
       void (async()=>{
         const value=src.trim();
-        const path=value.startsWith("/")&&!value.startsWith("//")?value:(await apiFetch<ProtectedAssetReferenceResponse>(`${apiRoutes.assets.protectedReference.build()}?url=${encodeURIComponent(src)}`,{signal:controller.signal})).path;
+        const path=value.startsWith("/")&&!value.startsWith("//")?value:(await apiFetch<ProtectedAssetReferenceResponse>(`${apiRoutes.assets.protectedReference.build()}?url=${encodeURIComponent(src)}${identity.contextKey==="null"?"":`&context=${encodeURIComponent(identity.contextKey)}`}`,{signal:controller.signal})).path;
         if(controller.signal.aborted) return;
         if(path===null) {urls[src]=src;setLoaded({identity,urls:{...urls}});return;}
         if(!path.startsWith("/") || path.startsWith("//") || new URL(path,window.location.origin).origin!==window.location.origin) throw new Error("Protected image requires a same-site path");
@@ -34,4 +35,4 @@ export function useAuthenticatedImages(sources: readonly string[], protectedImag
     ? loaded?.identity === identity ? loaded.urls[src] : undefined : src;
 }
 
-export const useAuthenticatedImage = (src: string | undefined, protectedImage: boolean) => useAuthenticatedImages(src ? [src] : [], protectedImage)(src);
+export const useAuthenticatedImage = (src: string | undefined, protectedImage: boolean,context?:ProtectedAssetReferenceContext) => useAuthenticatedImages(src ? [src] : [], protectedImage,context)(src);

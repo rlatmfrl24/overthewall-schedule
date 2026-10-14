@@ -293,7 +293,7 @@ export class D1NoticeGateway implements NoticeGateway {
     };
   }
 
-  private async areRelatedMembersValid(memberUids: number[]) {
+  async areRelatedMembersValid(memberUids: number[]) {
     if (memberUids.length === 0) return true;
     const rows = await this.db
       .select({ uid: members.uid })

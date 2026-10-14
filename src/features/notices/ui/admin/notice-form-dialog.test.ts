@@ -38,6 +38,10 @@ describe("NoticeFormDialog", () => {
   });
 
   beforeEach(() => {
+    Object.assign(window, { Clerk: { session: { getToken: async () => "test-session" } } });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(new Uint8Array([1, 2, 3])));
+    URL.createObjectURL = () => "blob:notice-preview";
+    URL.revokeObjectURL = () => {};
     uploadNoticeThumbnailMock.mockResolvedValue({
       thumbnail_url: "/r2-assets/notices/thumbnails/uploaded.webp",
     });
@@ -47,6 +51,8 @@ describe("NoticeFormDialog", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.restoreAllMocks();
+    Reflect.deleteProperty(window, "Clerk");
   });
 
   it("shows multi-link, multi-image, and related-member controls", () => {
@@ -59,6 +65,26 @@ describe("NoticeFormDialog", () => {
     const fileInput = screen.getByLabelText("공지 이미지 파일") as HTMLInputElement;
     expect(fileInput.multiple).toBe(true);
     expect(fileInput.accept).toBe(NOTICE_THUMBNAIL_ACCEPT);
+  });
+
+  it("previews a new external image with the current draft members and never fetches the raw URL with bearer", async () => {
+    const raw = "https://external.example/notice.webp";
+    const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const request = new URL(String(input), window.location.origin);
+      expect(request.pathname).toBe("/api/assets/protected-reference");
+      expect(request.searchParams.get("url")).toBe(raw);
+      return Response.json({ path: null });
+    });
+    render(createElement(NoticeFormDialog, { open: true, onOpenChange: vi.fn(), onSubmit: vi.fn(), members }));
+    fireEvent.change(screen.getByLabelText("이미지 URL"), { target: { value: raw } });
+    fireEvent.click(screen.getByRole("button", { name: "추가" }));
+    await waitFor(() => expect(screen.getByRole("img", { name: "공지 이미지 1" }).getAttribute("src")).toBe(raw));
+    expect(JSON.parse(new URL(String(fetcher.mock.calls[0][0]), window.location.origin).searchParams.get("context")!)).toEqual({ kind: "notice-draft", relatedMemberUids: [] });
+    fireEvent.click(screen.getByText("🌙 멤버 하나"));
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(new URL(String(fetcher.mock.calls[1][0]), window.location.origin).searchParams.get("context")!)).toEqual({ kind: "notice-draft", relatedMemberUids: [1] });
+    expect(fetcher.mock.calls.every(([input]) => String(input).startsWith("/api/assets/protected-reference?"))).toBe(true);
+    fetcher.mockRestore();
   });
 
   it("필수 입력 오류를 해당 입력의 접근성 설명과 연결하고 저장을 차단한다", async () => {
@@ -157,8 +183,10 @@ describe("NoticeFormDialog", () => {
     fireEvent.change(screen.getByLabelText("공지 이미지 파일"), { target: { files } });
 
     await waitFor(() => expect(uploadNoticeThumbnailMock).toHaveBeenCalledTimes(3));
-    expect(screen.getByRole("img", { name: "공지 이미지 1" }).getAttribute("src")).toBe("/one.webp");
-    expect(screen.getByRole("img", { name: "공지 이미지 2" }).getAttribute("src")).toBe("/three.webp");
+    await waitFor(() => expect(screen.getByRole("img", { name: "공지 이미지 1" }).getAttribute("src")).toBe("blob:notice-preview"));
+    await waitFor(() => expect(screen.getByRole("img", { name: "공지 이미지 2" }).getAttribute("src")).toBe("blob:notice-preview"));
+    expect(fetch).toHaveBeenCalledWith("/one.webp?archive=1", expect.anything());
+    expect(fetch).toHaveBeenCalledWith("/three.webp?archive=1", expect.anything());
     expect(screen.getByRole("status").textContent).toContain("2개 업로드 완료");
     expect(screen.getByRole("status").textContent).toContain("two.png");
   });
@@ -210,9 +238,10 @@ describe("NoticeFormDialog", () => {
     await waitFor(() =>
       expect(uploadNoticeThumbnailMock).toHaveBeenCalledTimes(1),
     );
-    expect(
+    await waitFor(() => expect(
       screen.getByRole("img", { name: "공지 이미지 10" }).getAttribute("src"),
-    ).toBe("/tenth.webp");
+    ).toBe("blob:notice-preview"));
+    expect(fetch).toHaveBeenCalledWith("/tenth.webp?archive=1", expect.anything());
     expect(screen.getByRole("status").textContent).toContain("invalid.gif");
     expect(screen.getByRole("status").textContent).not.toContain(
       "최대 개수를 초과",
