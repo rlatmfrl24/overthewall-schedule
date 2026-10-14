@@ -64,6 +64,8 @@ export interface AcceptedOperation {
   kind: "content_edit" | "collection_due" | "intentional_removal" | "redaction";
   subject: { table: string; key: string };
   expectedVersion: number | null;
+  /** Internally captured schedule business state; null means absent at admission. */
+  expectedState: Readonly<Record<string, string | number | null>> | null;
   validation: { contract: number; validatedAt: number };
   payload: Readonly<Record<string, unknown>>;
   admittedAt: number;
@@ -81,6 +83,8 @@ export interface OperationEnvelope extends AcceptedOperation {
   sourceSequence:number|null;
   attempt: SideEffectAttempt | null;
   outcome: OperationOutcome | null;
+  /** Exported only from the persisted source fence; early ingress has no seal. */
+  sourceFence: SourceFence | null;
 }
 export interface FileIntent {
   intentId: string;
@@ -97,6 +101,7 @@ export interface FileIntentEnvelope extends FileIntent {
   generation: number;
   sourceSequence:number|null;
   outcome: OperationOutcome | null;
+  sourceFence: SourceFence | null;
 }
 /** Emitted by the owning R2/version verifier, never by transport delivery. */
 export interface FileObservation {

@@ -50,6 +50,10 @@ export function assertOperationMetadata(operation:AcceptedOperation):void {
   try { key=JSON.parse(operation.subject.key); } catch { throw new Error("Invalid command subject"); }
   if(!Array.isArray(key) || key.length!==1) throw new Error("Invalid command subject");
   if(operation.codec.id==="schedules.save" && (operation.kind!=="content_edit" || operation.subject.table!=="schedules" || key[0]!==operation.payload.id || operation.expectedVersion!==null)) throw new Error("Schedule command subject/version mismatch");
+  if(operation.codec.id==="schedules.save" && operation.expectedState!==null) {
+    const state=operation.expectedState;
+    if(!keys(state,"created_at,date,id,member_uid,start_time,status,title") || !parseScheduleInput(state,{requireId:true}) || state.id!==operation.payload.id || typeof state.member_uid!=="number" || !["string","number"].includes(typeof state.created_at) && state.created_at!==null) throw new Error("Schedule expected state allowlist mismatch");
+  } else if(operation.expectedState!==null) throw new Error("Unexpected command expected state");
   if(operation.codec.id==="otw-play.song.update" && (operation.kind!=="content_edit" || operation.subject.table!=="music_songs" || !text(key[0]) || key[0]!==operation.payload.id || operation.expectedVersion!==operation.payload.expectedVersion)) throw new Error("Song command subject/version mismatch");
   if(operation.codec.id==="source.checkpoint_due" && (operation.kind!=="collection_due" || operation.subject.table!=="source_checkpoints" || key[0]!==operation.payload.sourceKey || operation.expectedVersion!==null)) throw new Error("Checkpoint command subject/version mismatch");
 }

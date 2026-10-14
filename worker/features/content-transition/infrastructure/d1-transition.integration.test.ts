@@ -106,7 +106,147 @@ async function transferAndActivate() {
   return fence;
 }
 
+/** Delay only the indicated real D1 write; all reads and both competing writes
+ * still run through the actual repository and D1 runtime. */
+function interleave(db:D1Database,match:string|"batch",competing:()=>Promise<unknown>):D1Database {
+  let fired=false;
+  const before=async(sql:string)=>{if(!fired && (match==="batch" || sql.includes(match))) {fired=true;await competing();}};
+  const statement=(value:D1PreparedStatement,sql:string):D1PreparedStatement=>new Proxy(value,{get(target,key){
+    if(key==="bind") return (...args:unknown[])=>statement(target.bind(...args),sql);
+    if(key==="run") return async()=>{await before(sql);return target.run();};
+    const member=Reflect.get(target,key);return typeof member==="function"?member.bind(target):member;
+  }});
+  return new Proxy(db,{get(target,key){
+    if(key==="prepare") return (sql:string)=>statement(target.prepare(sql),sql);
+    if(key==="batch") return async(values:D1PreparedStatement[])=>{if(match==="batch") await before("");return target.batch(values);};
+    const member=Reflect.get(target,key);return typeof member==="function"?member.bind(target):member;
+  }});
+}
+
 describe("real D1 transition control", () => {
+  it("fix1 merges source progress after early operation and file reception without re-execution",async()=>{
+    await ready();
+    await source.admit(admission("early"));
+    await source.recordFileIntent(plan.id,"early",{intentId:"early-file",logicalKey:"file",versionKey:"v/file",previousVersion:null,hash:null,size:null,status:"unknown"});
+    const early=await source.exportOperation(plan.id,"early"),earlyFile=await source.exportFileIntent(plan.id,"early-file");
+    await target.receiveOperation(early);await target.receiveFileIntent(earlyFile);
+    await source.recordAttempt(plan.id,"early",{identity:"provider-early",status:"completed"});
+    await source.recordFileObservation(plan.id,"early-file",{transitionId:plan.id,intentId:"early-file",generation:1,site:"otw",resource:"source-bucket",objectVersion:null,copiedFromEvidenceId:null,evidenceId:"absent",versionKey:"v/file",result:"absent",hash:null,size:null,observedAt:101});
+    await source.recordFileOutcome(plan.id,"early-file","absent","failed","Upload was absent");
+    await source.commit(plan.id,"early",1,[sourceDb.prepare("INSERT INTO schedules(id,member_uid,date,title,status) VALUES(1,1,'2026-10-14','Completed on source','방송')")]);
+    await transferAndActivate();
+    expect((await target.exportOperation(plan.id,"early")).attempt).toEqual({identity:"provider-early",status:"completed"});
+    expect((await target.exportOperation(plan.id,"early")).outcome).toMatchObject({outcome:"committed",sideEffectReconciled:true});
+    expect((await target.exportFileIntent(plan.id,"early-file")).outcome).toEqual({outcome:"failed",detail:"Upload was absent",sideEffectReconciled:true});
+    await target.receiveOperation(early);await target.receiveFileIntent(earlyFile);
+    await expect(target.readExecutableCommand(plan.id,"early")).rejects.toThrow(/terminal/);
+    expect(await targetDb.prepare("SELECT title FROM schedules WHERE id=1").first("title")).toBe("Completed on source");
+  });
+  it("fix1 requires a frozen source export after an early transfer before activating",async()=>{
+    await ready();await source.admit(admission("early-pending"));
+    const early=await source.exportOperation(plan.id,"early-pending");await target.receiveOperation(early);
+    await target.installFence(await source.freeze(plan.id,now));await installTail();await target.installCommittedState(plan.id);
+    await target.receiveOperation(early);
+    await expect(target.activate(plan.id)).rejects.toThrow(/transferred/);
+    await target.receiveOperation(await source.exportOperation(plan.id,"early-pending"));await target.activate(plan.id);
+    await target.recordAttempt(plan.id,"early-pending",{identity:"target-attempt",status:"completed"});
+    await target.recordOutcome(plan.id,"early-pending",{outcome:"failed",detail:"Target handled",sideEffectReconciled:true});
+    await target.receiveOperation(early);
+    expect((await target.exportOperation(plan.id,"early-pending")).attempt?.identity).toBe("target-attempt");
+    expect((await target.exportOperation(plan.id,"early-pending")).outcome?.detail).toBe("Target handled");
+  });
+  it("fix1 preserves a schedule save expected state across handoff and rejects a late overwrite",async()=>{
+    await sourceDb.prepare("INSERT INTO schedules(id,member_uid,date,title,status) VALUES(1,1,'2026-10-14','Original','방송')").run();
+    await ready();await source.admit(admission("held-schedule"));await transferAndActivate();
+    await target.admit({...admission("new-schedule"),payload:{...admission("x").payload,title:"New edit"}});
+    await target.commit(plan.id,"new-schedule",2,[targetDb.prepare("UPDATE schedules SET title='New edit' WHERE id=1")]);
+    const accepted=await target.exportOperation(plan.id,"new-schedule");
+    expect(await target.admit({...admission("new-schedule"),payload:{...admission("x").payload,title:"New edit"}})).toEqual(accepted);
+    await expect(target.commit(plan.id,"held-schedule",2,[targetDb.prepare("UPDATE schedules SET title='Old held save' WHERE id=1")])).rejects.toThrow(/Expected/);
+    expect(await targetDb.prepare("SELECT title FROM schedules WHERE id=1").first("title")).toBe("New edit");
+    expect((await target.exportOperation(plan.id,"held-schedule")).outcome?.outcome).toBe("conflicted");
+  });
+  it("fix1 requires a final file seal and preserves target outcome against stale file retransmission",async()=>{
+    await ready();await source.admit(admission("file-seal"));
+    await source.recordFileIntent(plan.id,"file-seal",{intentId:"sealed-file",logicalKey:"image",versionKey:"version/image",previousVersion:null,hash:null,size:null,status:"unknown"});
+    await target.receiveOperation(await source.exportOperation(plan.id,"file-seal"));
+    const early=await source.exportFileIntent(plan.id,"sealed-file");await target.receiveFileIntent(early);
+    const fence=await source.freeze(plan.id,now);await target.installFence(fence);
+    await target.receiveOperation(await source.exportOperation(plan.id,"file-seal"));
+    await installTail();await target.installCommittedState(plan.id);
+    await expect(target.activate(plan.id)).rejects.toThrow(/transferred/);
+    const sealed=await source.exportFileIntent(plan.id,"sealed-file");
+    await expect(target.receiveFileIntent({...sealed,sourceFence:{...fence,boundary:fence.boundary+1}})).rejects.toThrow(/fence/);
+    expect(await targetDb.prepare("SELECT transferred FROM content_transition_file_intents WHERE intent_id='sealed-file'").first("transferred")).toBe(0);
+    await target.receiveFileIntent(sealed);await target.activate(plan.id);
+    await target.recordFileObservation(plan.id,"sealed-file",{transitionId:plan.id,intentId:"sealed-file",generation:1,site:"luvdia",resource:"target-bucket",objectVersion:null,copiedFromEvidenceId:null,evidenceId:"target-absent",versionKey:"version/image",result:"absent",hash:null,size:null,observedAt:101});
+    await target.recordFileOutcome(plan.id,"sealed-file","target-absent","failed","Target confirmed absent");
+    await target.receiveFileIntent(early);await target.receiveFileIntent(sealed);
+    expect((await target.exportFileIntent(plan.id,"sealed-file")).outcome).toEqual({outcome:"failed",detail:"Target confirmed absent",sideEffectReconciled:true});
+  });
+  it.each([false,true])("fix1 renews expired readiness with prior source ACK=%s",async(acknowledged)=>{
+    await capturing();const old=await target.openIngress(plan.id,"expiring",101);
+    if(acknowledged) await source.acknowledgeIngress(old,100);
+    await expect(source.acknowledgeIngress(old,102)).rejects.toThrow(/expired/);
+    const renewed=await target.openIngress(plan.id,"renewed",1000);
+    expect(renewed.receiptId).toBe("renewed");
+    expect(await target.openIngress(plan.id,"renewed",1000)).toEqual(renewed);
+    await source.acknowledgeIngress(renewed,102);
+    expect(await source.readReadiness(plan.id)).toEqual(renewed);
+    await expect(source.acknowledgeIngress(old,100)).rejects.toThrow();
+    expect((await source.freeze(plan.id,102)).manifestDigest).toBe(plan.manifestDigest);
+  });
+  it.each(["ack","freeze"] as const)("fix1 rejects stale %s after a classification revision without fencing source",async(action)=>{
+    const old=await ready();
+    await sourceDb.prepare("INSERT INTO ddays(id,title,date) VALUES(900,'Ambiguous','2026-10-14')").run();
+    const concurrent=async()=>{
+      const revision=await source.appendClassifications(plan.id,{revision:0,digest:plan.manifestDigest},[{table:"ddays",key:"[900]",disposition:"exclude",reason:"Reviewed unrelated"}],"next-manifest",{receiptId:"next-protection",protocol:1,manifestDigest:"next-manifest"});
+      await target.acceptManifestRevision(revision);
+      if(action==="freeze") await source.acknowledgeIngress(await target.openIngress(plan.id,"next-ready",2000),now);
+    };
+    // For ACK, renew the old manifest receipt so this is a real replacement.
+    const receipt=action==="ack"?await target.openIngress(plan.id,"old-renewal",1500):old;
+    const raced=new D1TransitionRepository(interleave(sourceDb,action==="ack"?"SET phase='target_ingress_ready'":"SET phase='source_fenced'",concurrent),"otw","source-db");
+    await expect(action==="ack"?raced.acknowledgeIngress(receipt,now):raced.freeze(plan.id,now)).rejects.toThrow();
+    expect(await sourceDb.prepare("SELECT fence_json FROM content_transitions WHERE id='move'").first("fence_json")).toBeNull();
+    expect((await source.readTransition(plan.id)).manifestDigest).toBe("next-manifest");
+    await source.admit(admission("after-race"));await source.commit(plan.id,"after-race",1,[sourceDb.prepare("INSERT INTO schedules(id,member_uid,date,status) VALUES(1,1,'2026-10-14','방송')")]);
+    await source.acknowledgeIngress(await target.openIngress(plan.id,"next-ready",2000),now);
+    const fence=await source.freeze(plan.id,now);expect(fence.manifestDigest).toBe("next-manifest");await target.installFence(fence);
+  });
+  it("fix1 rejects target renewal when a classification revision wins the write race",async()=>{
+    await ready();await target.admit(admission("target-accepted"));
+    await sourceDb.prepare("INSERT INTO ddays(id,title,date) VALUES(900,'Ambiguous','2026-10-14')").run();
+    const revision=await source.appendClassifications(plan.id,{revision:0,digest:plan.manifestDigest},[{table:"ddays",key:"[900]",disposition:"exclude",reason:"Reviewed unrelated"}],"renewal-revision",{receiptId:"renewal-protection",protocol:1,manifestDigest:"renewal-revision"});
+    const raced=new D1TransitionRepository(interleave(targetDb,"SET phase='target_ingress_ready'",()=>target.acceptManifestRevision(revision)),"luvdia","target-db");
+    await expect(raced.openIngress(plan.id,"stale-renewal",1500)).rejects.toThrow(/race/);
+    expect(await target.readReadiness(plan.id)).toBeNull();
+    expect((await target.exportOperation(plan.id,"target-accepted")).outcome).toBeNull();
+    const fresh=await target.openIngress(plan.id,"fresh-revision",2000);await source.acknowledgeIngress(fresh,now);
+    expect((await source.freeze(plan.id,now)).manifestDigest).toBe("renewal-revision");
+  });
+  it("fix1 retains terminal attempt state when a stale callback writes after completion",async()=>{
+    await ready();await source.admit(admission("attempt-race"));
+    await source.recordAttempt(plan.id,"attempt-race",{identity:"same",status:"unknown"});
+    const raced=new D1TransitionRepository(interleave(sourceDb,"SET attempt_json=?",()=>source.recordAttempt(plan.id,"attempt-race",{identity:"same",status:"completed"})),"otw","source-db");
+    await expect(raced.recordAttempt(plan.id,"attempt-race",{identity:"same",status:"unknown"})).rejects.toThrow();
+    expect((await source.exportOperation(plan.id,"attempt-race")).attempt?.status).toBe("completed");
+  });
+  it("fix1 derives committed reconciliation from the attempt in the actual business transaction",async()=>{
+    await ready();await source.admit(admission("commit-race"));
+    const raced=new D1TransitionRepository(interleave(sourceDb,"batch",()=>source.recordAttempt(plan.id,"commit-race",{identity:"arriving",status:"unknown"})),"otw","source-db");
+    await raced.commit(plan.id,"commit-race",1,[sourceDb.prepare("INSERT INTO schedules(id,member_uid,date,status) VALUES(1,1,'2026-10-14','방송')")]);
+    const actual=await source.exportOperation(plan.id,"commit-race");
+    expect(actual.attempt?.status).toBe("unknown");expect(actual.outcome?.sideEffectReconciled).toBe(false);
+    await transferAndActivate();await expect(target.readOutcomeReceipt(plan.id,"operation","commit-race")).rejects.toThrow(/reconciled/);
+    await expect(target.complete(plan.id)).rejects.toThrow();
+  });
+  it("fix1 refuses reconciled disposition when an unknown attempt arrives before its write",async()=>{
+    await ready();await source.admit(admission("outcome-race"));
+    const raced=new D1TransitionRepository(interleave(sourceDb,"SET outcome_json=?",()=>source.recordAttempt(plan.id,"outcome-race",{identity:"arriving",status:"unknown"})),"otw","source-db");
+    await expect(raced.recordOutcome(plan.id,"outcome-race",{outcome:"failed",detail:"No effect",sideEffectReconciled:true})).rejects.toThrow();
+    expect((await source.exportOperation(plan.id,"outcome-race")).outcome).toBeNull();
+  });
   it("keeps sanitized source command coordinates local and executes the projected command only under target ownership",async()=>{
     for(const db of [sourceDb,targetDb]) await db.prepare("DELETE FROM content_transitions").run();
     const mapped={...plan,members:plan.members.map(member=>({...member,targetUid:member.uid+10}))};

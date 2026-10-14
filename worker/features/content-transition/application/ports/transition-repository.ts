@@ -9,7 +9,7 @@ export interface TransitionControlPort {
   acknowledgeIngress(receipt: IngressReadiness, now: number): Promise<void>;
   freeze(transitionId: string, now: number): Promise<SourceFence>;
   installFence(receipt: SourceFence): Promise<void>;
-  admit(operation: Omit<AcceptedOperation,"payloadHash">): Promise<OperationEnvelope>;
+  admit(operation: Omit<AcceptedOperation,"payloadHash"|"expectedState">): Promise<OperationEnvelope>;
   readExecutableCommand(transitionId:string,operationId:string):Promise<Pick<AcceptedOperation,"codec"|"payload">>;
   receiveOperation(envelope: OperationEnvelope): Promise<{ operationId: string; payloadHash: string }>;
   receiveFileIntent(envelope: FileIntentEnvelope): Promise<{ intentId: string; versionKey: string }>;

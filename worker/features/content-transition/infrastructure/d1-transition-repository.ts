@@ -22,6 +22,7 @@ import {sourceJsonValidSql} from "./source-json-validation";
 import {parseTransitionCommand,assertOperationMetadata,assertOperationEvidence,type TransitionCommand} from "./command-codecs";
 import {readProjectionContext} from "./d1-projection-context";
 import {identityProjectionValidSql,validateIdentityProjection} from "./identity-projection";
+import {projectCapturedRecord} from "../domain/projected-content";
 
 type Row = {
   id: string; source_site: SiteId; target_site: SiteId; source_resource: string; target_resource: string;
@@ -32,11 +33,33 @@ type Row = {
 };
 type OperationRow = { seq:number;source_seq:number|null; envelope_json: string; generation: number; attempt_json: string | null; outcome_json: string | null };
 const identity = (row: Row): TransitionIdentity => ({ id: row.id, sourceSite: row.source_site, targetSite: row.target_site, sourceResource: row.source_resource, targetResource: row.target_resource, generation: row.generation, protocol: row.protocol, manifestDigest: row.manifest_digest });
-const decodeOperation = (row: OperationRow,source:boolean): OperationEnvelope => {
+const decodeOperation = (row: OperationRow,source:boolean,fence:string|null=null): OperationEnvelope => {
   const wire=JSON.parse(row.envelope_json);
   delete wire.sourceCommand;
-  return {...wire,generation:row.generation,sourceSequence:source?row.seq:row.source_seq,attempt:row.attempt_json?JSON.parse(row.attempt_json):null,outcome:row.outcome_json?JSON.parse(row.outcome_json):null};
+  delete wire.sourceExpectedState;
+  return {...wire,sourceFence:source?(fence?JSON.parse(fence):null):(wire.sourceFence??null),generation:row.generation,sourceSequence:source?row.seq:row.source_seq,attempt:row.attempt_json?JSON.parse(row.attempt_json):null,outcome:row.outcome_json?JSON.parse(row.outcome_json):null};
 };
+const encoded=(value:unknown)=>value===null?null:JSON.stringify(value);
+function mergeProgress(current:Pick<OperationEnvelope,"attempt"|"outcome">,incoming:Pick<OperationEnvelope,"attempt"|"outcome">) {
+  let attempt=current.attempt??incoming.attempt,outcome=current.outcome??incoming.outcome;
+  if(current.attempt && incoming.attempt) {
+    if(current.attempt.identity!==incoming.attempt.identity) throw new Error("Conflicting transfer attempt identity");
+    const rank={attempted:0,unknown:1,completed:2,failed:2};
+    if(rank[current.attempt.status]===2 && rank[incoming.attempt.status]===2 && current.attempt.status!==incoming.attempt.status) throw new Error("Conflicting terminal attempt");
+    if(rank[incoming.attempt.status]>rank[current.attempt.status]) attempt=incoming.attempt;
+  }
+  if(current.outcome && incoming.outcome) {
+    if(current.outcome.outcome!==incoming.outcome.outcome || current.outcome.detail!==incoming.outcome.detail) throw new Error("Conflicting terminal outcome");
+    if(incoming.outcome.sideEffectReconciled) outcome=incoming.outcome;
+  }
+  if(outcome?.sideEffectReconciled && attempt && !["completed","failed"].includes(attempt.status)) throw new Error("Transferred outcome has an uncertain attempt");
+  return {attempt,outcome};
+}
+function finalTransfer(row:Row,fence:SourceFence|null,sequence:number|null,kind:"operation"|"file") {
+  if(fence===null) return false;
+  if(!row.fence_json || JSON.stringify(fence)!==row.fence_json || !sequence || sequence>(kind==="operation"?fence.operationBoundary:fence.fileIntentBoundary)) throw new Error("Transfer does not match the persisted source fence");
+  return true;
+}
 
 export class D1TransitionRepository implements TransitionControlPort {
   private readonly db: D1Database;
@@ -155,23 +178,32 @@ export class D1TransitionRepository implements TransitionControlPort {
   async openIngress(id: string, receiptId: string, expiresAt: number): Promise<IngressReadiness> {
     const row = await this.row(id);
     if (this.side(row) !== "target" || !receiptId || !Number.isSafeInteger(expiresAt)) throw new Error("Invalid target ingress");
-    if (row.readiness_json) return JSON.parse(row.readiness_json);
     const receipt = { ...identity(row), receiptId, expiresAt };
-    const result = await this.db.prepare("UPDATE content_transitions SET phase='target_ingress_ready',readiness_json=?,readiness_expires_at=? WHERE id=? AND phase IN ('prepared','target_ingress_ready') AND readiness_json IS NULL AND manifest_digest=?").bind(JSON.stringify(receipt), expiresAt, id,row.manifest_digest).run();
+    const previous:IngressReadiness|null=row.readiness_json?JSON.parse(row.readiness_json):null;
+    if(row.fence_json || !["prepared","target_ingress_ready"].includes(row.phase)) throw new Error("Ingress readiness is frozen");
+    if(row.readiness_json===JSON.stringify(receipt)) return receipt;
+    if(previous && (receiptId===previous.receiptId || expiresAt<=previous.expiresAt)) throw new Error("Readiness renewal must preserve receipt identity and advance expiry");
+    const result = await this.db.prepare("UPDATE content_transitions SET phase='target_ingress_ready',readiness_json=?,readiness_expires_at=? WHERE id=? AND phase IN ('prepared','target_ingress_ready') AND fence_json IS NULL AND readiness_json IS ? AND manifest_digest=? AND manifest_revision=?").bind(JSON.stringify(receipt), expiresAt, id,row.readiness_json,row.manifest_digest,row.manifest_revision).run();
     if (result.meta.changes !== 1) throw new Error("Ingress readiness race; retry from persisted state");
-    return (await this.readReadiness(id))!;
+    const actual=await this.readReadiness(id);
+    if(JSON.stringify(actual)!==JSON.stringify(receipt)) throw new Error("Readiness changed before readback; retry");
+    return actual!;
   }
   async readReadiness(id: string): Promise<IngressReadiness | null> { const row = await this.row(id); return row.readiness_json ? JSON.parse(row.readiness_json) : null; }
   async acknowledgeIngress(receipt: IngressReadiness, now: number): Promise<void> {
     const row = await this.row(receipt.id);
     if (this.side(row) !== "source") throw new Error("Only source records target readiness");
     assertReadiness(identity(row), receipt, now);
+    if(row.fence_json || !["replaying","target_ingress_ready"].includes(row.phase)) throw new Error("Source readiness phase conflict");
     if (row.readiness_json === JSON.stringify(receipt) && row.phase === "target_ingress_ready") return;
-    const result = await this.db.prepare("UPDATE content_transitions SET phase='target_ingress_ready',readiness_json=?,readiness_expires_at=? WHERE id=? AND phase='replaying'").bind(JSON.stringify(receipt), receipt.expiresAt, receipt.id).run();
+    const previous:IngressReadiness|null=row.readiness_json?JSON.parse(row.readiness_json):null;
+    if(previous && (receipt.receiptId===previous.receiptId || receipt.expiresAt<=previous.expiresAt)) throw new Error("Stale readiness renewal");
+    const result = await this.db.prepare("UPDATE content_transitions SET phase='target_ingress_ready',readiness_json=?,readiness_expires_at=? WHERE id=? AND phase IN ('replaying','target_ingress_ready') AND fence_json IS NULL AND readiness_json IS ? AND manifest_digest=? AND manifest_revision=?").bind(JSON.stringify(receipt), receipt.expiresAt, receipt.id,row.readiness_json,row.manifest_digest,row.manifest_revision).run();
     if (result.meta.changes !== 1) throw new Error("Source readiness phase conflict");
+    if(JSON.stringify(await this.readReadiness(receipt.id))!==JSON.stringify(receipt)) throw new Error("Source readiness changed before readback; retry");
   }
-  async admit(input: Omit<AcceptedOperation,"payloadHash">): Promise<OperationEnvelope> {
-    let operation:AcceptedOperation={...input,payloadHash:""};
+  async admit(input: Omit<AcceptedOperation,"payloadHash"|"expectedState">): Promise<OperationEnvelope> {
+    let operation:AcceptedOperation={...input,payloadHash:"",expectedState:null};
     const row = await this.row(operation.transitionId);
     if (!canAdmit(this.side(row), row.phase)) throw new Error("Admission moved to the target site");
     if (!operation.operationId || !operation.idempotencyKey || operation.validation.contract !== row.protocol) throw new Error("Invalid admitted operation");
@@ -180,22 +212,26 @@ export class D1TransitionRepository implements TransitionControlPort {
     const context=boundary?await readProjectionContext(this.db,plan,boundary):{sourceSite:plan.sourceSite,members:plan.members.map(member=>({uid:this.side(row)==="source"?member.uid:member.targetUid,targetUid:member.targetUid,name:member.code,externalEntityId:null}))};
     const command=await parseTransitionCommand(operation,context,this.side(row));
     const sourceCommand=this.side(row)==="source"?await parseTransitionCommand(operation,{...context,entities:[],members:context.members.map(member=>({...member,targetUid:member.uid}))},"source"):null;
-    operation={transitionId:operation.transitionId,operationId:operation.operationId,idempotencyKey:operation.idempotencyKey,kind:operation.kind,subject:{table:operation.subject.table,key:operation.subject.key},expectedVersion:operation.expectedVersion,validation:{contract:operation.validation.contract,validatedAt:operation.validation.validatedAt},admittedAt:operation.admittedAt,...command,payloadHash:await digestText(JSON.stringify(command))};
+    const prior=await this.readOperation(row.id,operation.operationId);
+    const sourceExpectedState=!prior && operation.codec.id==="schedules.save"?await this.db.prepare(`SELECT ${contentDispositionRegistry.schedules.values.join(",")} FROM schedules WHERE id=?`).bind(command.payload.id).first<Record<string,string|number|null>>():null;
+    const projected=sourceExpectedState?await projectCapturedRecord("schedules",operation.subject.key,sourceExpectedState,context):null;
+    const expectedState=prior?prior.expectedState:projected?Object.fromEntries(contentDispositionRegistry.schedules.values.map(key=>[key,projected.value[key]])) as AcceptedOperation["expectedState"]:null;
+    operation={transitionId:operation.transitionId,operationId:operation.operationId,idempotencyKey:operation.idempotencyKey,kind:operation.kind,subject:{table:operation.subject.table,key:operation.subject.key},expectedVersion:operation.expectedVersion,expectedState,validation:{contract:operation.validation.contract,validatedAt:operation.validation.validatedAt},admittedAt:operation.admittedAt,...command,payloadHash:await digestText(JSON.stringify({...command,expectedState}))};
     assertOperationMetadata(operation);
     const phases = this.side(row) === "source" ? "'prepared','protected','copying','replaying','target_ingress_ready'" : "'target_ingress_ready','source_fenced','target_owned','complete'";
     await this.db.prepare(`INSERT OR IGNORE INTO content_transition_operations(transition_id,operation_id,idempotency_key,payload_hash,generation,admitted_at,envelope_json)
       SELECT id,?,?,?,${this.side(row) === "source" ? "generation-1" : "generation"},?,? FROM content_transitions WHERE id=? AND phase IN (${phases})`)
-      .bind(operation.operationId, operation.idempotencyKey, operation.payloadHash, operation.admittedAt, JSON.stringify(sourceCommand?{...operation,sourceCommand}:operation), operation.transitionId).run();
+      .bind(operation.operationId, operation.idempotencyKey, operation.payloadHash, operation.admittedAt, JSON.stringify(sourceCommand?{...operation,sourceCommand,sourceExpectedState}:operation), operation.transitionId).run();
     const received = await this.readOperation(operation.transitionId, operation.operationId);
     if (!received) throw new Error("Admission conflict or fence race");
-    const actualAdmission=Object.fromEntries(Object.entries(received).filter(([key])=>!["generation","sourceSequence","attempt","outcome"].includes(key)));
+    const actualAdmission=Object.fromEntries(Object.entries(received).filter(([key])=>!["generation","sourceSequence","sourceFence","attempt","outcome"].includes(key)));
     if(JSON.stringify(actualAdmission)!==JSON.stringify(operation)) throw new Error("Admission identity conflict");
     return received;
   }
   async readOperation(id: string, operationId: string): Promise<OperationEnvelope | null> {
     const transition=await this.row(id);
     const row = await this.db.prepare("SELECT seq,source_seq,envelope_json,generation,attempt_json,outcome_json FROM content_transition_operations WHERE transition_id=? AND operation_id=?").bind(id, operationId).first<OperationRow>();
-    return row ? decodeOperation(row,this.side(transition)==="source") : null;
+    return row ? decodeOperation(row,this.side(transition)==="source",transition.fence_json) : null;
   }
   async exportOperation(id: string, operationId: string): Promise<OperationEnvelope> {
     const operation = await this.readOperation(id, operationId);
@@ -217,21 +253,33 @@ export class D1TransitionRepository implements TransitionControlPort {
   async receiveOperation(envelope: OperationEnvelope): Promise<{ operationId: string; payloadHash: string }> {
     const row = await this.row(envelope.transitionId);
     if (this.side(row) !== "target" || !canAdmit("target", row.phase) || envelope.generation !== row.generation-1) throw new Error("Transfer receiver is not ready for this generation");
-    if(Object.keys(envelope).sort().join(",")!=="admittedAt,attempt,codec,expectedVersion,generation,idempotencyKey,kind,operationId,outcome,payload,payloadHash,sourceSequence,subject,transitionId,validation") throw new Error("Unknown operation envelope field");
+    if(Object.keys(envelope).sort().join(",")!=="admittedAt,attempt,codec,expectedState,expectedVersion,generation,idempotencyKey,kind,operationId,outcome,payload,payloadHash,sourceFence,sourceSequence,subject,transitionId,validation") throw new Error("Unknown operation envelope field");
     const plan:TransitionPlan=JSON.parse(row.plan_json);
     const context={sourceSite:plan.sourceSite,members:plan.members.map(member=>({uid:member.targetUid,targetUid:member.targetUid,name:member.code,externalEntityId:null}))};
     const command=await parseTransitionCommand(envelope,context,"target");
     assertOperationMetadata(envelope);
     assertOperationEvidence(envelope);
-    if(await digestText(JSON.stringify(command))!==envelope.payloadHash) throw new Error("Command payload hash conflict");
-    const { generation,sourceSequence, attempt, outcome, ...admission } = envelope;
+    if(envelope.expectedState && !plan.members.some(member=>member.targetUid===envelope.expectedState!.member_uid)) throw new Error("Unapproved expected-state member");
+    if(await digestText(JSON.stringify({...command,expectedState:envelope.expectedState}))!==envelope.payloadHash) throw new Error("Command payload hash conflict");
+    const { generation,sourceSequence,sourceFence, attempt, outcome, ...admission } = envelope;
     if(!Number.isSafeInteger(sourceSequence) || sourceSequence!<1) throw new Error("Missing source sequence");
+    const final=finalTransfer(row,sourceFence,sourceSequence,"operation");
+    mergeProgress({attempt:null,outcome:null},{attempt,outcome});
     await this.db.prepare(`INSERT OR IGNORE INTO content_transition_operations(transition_id,operation_id,idempotency_key,payload_hash,generation,admitted_at,envelope_json,attempt_json,outcome_json,source_seq,transferred)
-      VALUES(?,?,?,?,?,?,?,?,?,?,1)`).bind(envelope.transitionId, envelope.operationId, envelope.idempotencyKey, envelope.payloadHash, generation, envelope.admittedAt, JSON.stringify(admission), attempt ? JSON.stringify(attempt) : null, outcome ? JSON.stringify(outcome) : null,sourceSequence).run();
+      SELECT ?,?,?,?,?,?,?,?,?,?,0 WHERE EXISTS(SELECT 1 FROM content_transitions WHERE id=? AND phase IN ('target_ingress_ready','source_fenced','target_owned','complete') AND fence_json IS ?)`)
+      .bind(envelope.transitionId, envelope.operationId, envelope.idempotencyKey, envelope.payloadHash, generation, envelope.admittedAt, JSON.stringify(admission),encoded(attempt),encoded(outcome),sourceSequence,row.id,row.fence_json).run();
     const actual = await this.exportOperation(envelope.transitionId, envelope.operationId);
-    const actualIdentity=Object.fromEntries(Object.entries(actual).filter(([key])=>!["attempt","outcome"].includes(key)));
-    const incomingIdentity=Object.fromEntries(Object.entries(envelope).filter(([key])=>!["attempt","outcome"].includes(key)));
+    const actualIdentity=Object.fromEntries(Object.entries(actual).filter(([key])=>!["attempt","outcome","sourceFence"].includes(key)));
+    const incomingIdentity=Object.fromEntries(Object.entries(envelope).filter(([key])=>!["attempt","outcome","sourceFence"].includes(key)));
     if (JSON.stringify(actualIdentity)!==JSON.stringify(incomingIdentity)) throw new Error("Conflicting transfer identity");
+    const progress=mergeProgress(actual,envelope);
+    const result=await this.db.prepare(`UPDATE content_transition_operations SET attempt_json=?,outcome_json=?,transferred=max(transferred,?),envelope_json=json_set(envelope_json,'$.sourceFence',json(?))
+      WHERE transition_id=? AND operation_id=? AND attempt_json IS ? AND outcome_json IS ? AND json_extract(envelope_json,'$.sourceFence') IS ?
+      AND EXISTS(SELECT 1 FROM content_transitions WHERE id=? AND phase IN ('target_ingress_ready','source_fenced','target_owned','complete') AND fence_json IS ?)`)
+      .bind(encoded(progress.attempt),encoded(progress.outcome),final?1:0,JSON.stringify(sourceFence??actual.sourceFence),row.id,envelope.operationId,encoded(actual.attempt),encoded(actual.outcome),encoded(actual.sourceFence),row.id,row.fence_json).run();
+    if(result.meta.changes!==1) throw new Error("Transfer progress race; retry authoritative state");
+    const persisted=await this.exportOperation(row.id,envelope.operationId);
+    mergeProgress(persisted,progress);
     return { operationId: actual.operationId, payloadHash: actual.payloadHash };
   }
   async recordAttempt(id: string, operationId: string, attempt: SideEffectAttempt): Promise<void> {
@@ -241,7 +289,7 @@ export class D1TransitionRepository implements TransitionControlPort {
     const existing = await this.exportOperation(id, operationId);
     if (existing.attempt && existing.attempt.identity !== attempt.identity) throw new Error("Reconcile the existing side-effect identity before any new execution");
     if(existing.attempt && ["completed","failed"].includes(existing.attempt.status) && existing.attempt.status!==attempt.status) throw new Error("Terminal attempt evidence cannot be overwritten");
-    const result=await this.db.prepare(`UPDATE content_transition_operations SET attempt_json=? WHERE transition_id=? AND operation_id=? AND outcome_json IS NULL AND (attempt_json IS NULL OR json_extract(attempt_json,'$.identity')=?) AND EXISTS(SELECT 1 FROM content_transitions WHERE id=? AND phase IN (${phases}))`).bind(JSON.stringify(attempt), id, operationId, attempt.identity,id).run();
+    const result=await this.db.prepare(`UPDATE content_transition_operations SET attempt_json=? WHERE transition_id=? AND operation_id=? AND outcome_json IS NULL AND attempt_json IS ? AND EXISTS(SELECT 1 FROM content_transitions WHERE id=? AND phase IN (${phases}))`).bind(JSON.stringify(attempt), id, operationId, existing.attempt?JSON.stringify(existing.attempt):null,id).run();
     if(result.meta.changes!==1) throw new Error("Attempt owner moved; preserve late result as evidence");
   }
   async recordEvidence(id:string,operationId:string,evidence:SideEffectEvidence):Promise<void> {
@@ -274,7 +322,7 @@ export class D1TransitionRepository implements TransitionControlPort {
     if (!canAdmit(this.side(row), row.phase)) throw new Error("New file intent moved to target");
     if(!intent.intentId || !intent.versionKey || !intent.logicalKey || !["intent","unknown","put_verified","reference_committed"].includes(intent.status) || intent.hash!==null && !/^[a-f0-9]{64}$/.test(intent.hash) || intent.size!==null && (!Number.isSafeInteger(intent.size) || intent.size<0) || ["put_verified","reference_committed"].includes(intent.status) && (intent.hash===null || intent.size===null)) throw new Error("Invalid file intent identity/hash/size");
     const operation = await this.exportOperation(id, operationId);
-    const envelope: FileIntentEnvelope = { ...intent, transitionId: id, operationId, generation: operation.generation,sourceSequence:null, outcome: null };
+    const envelope: FileIntentEnvelope = { ...intent, transitionId: id, operationId, generation: operation.generation,sourceSequence:null,sourceFence:null, outcome: null };
     const phases=this.side(row)==="source"?"'prepared','protected','copying','replaying','target_ingress_ready'":"'target_ingress_ready','source_fenced','target_owned','complete'";
     await this.db.prepare(`INSERT OR IGNORE INTO content_transition_file_intents(transition_id,intent_id,operation_id,generation,version_key,envelope_json) SELECT id,?,?,?,?,? FROM content_transitions WHERE id=? AND phase IN (${phases})`).bind(intent.intentId,operationId,operation.generation,intent.versionKey,JSON.stringify(envelope),id).run();
     const actual=await this.exportFileIntent(id,intent.intentId);
@@ -284,18 +332,28 @@ export class D1TransitionRepository implements TransitionControlPort {
     const transition=await this.row(id);
     const row = await this.db.prepare("SELECT seq,source_seq,envelope_json,outcome_json FROM content_transition_file_intents WHERE transition_id=? AND intent_id=?").bind(id, intentId).first<{seq:number;source_seq:number|null; envelope_json: string; outcome_json: string | null }>();
     if (!row) throw new Error("Missing file intent");
-    return { ...JSON.parse(row.envelope_json),sourceSequence:this.side(transition)==="source"?row.seq:row.source_seq, outcome: row.outcome_json ? JSON.parse(row.outcome_json) : null };
+    const wire=JSON.parse(row.envelope_json);
+    return { ...wire,sourceFence:this.side(transition)==="source"?(transition.fence_json?JSON.parse(transition.fence_json):null):(wire.sourceFence??null),sourceSequence:this.side(transition)==="source"?row.seq:row.source_seq, outcome: row.outcome_json ? JSON.parse(row.outcome_json) : null };
   }
   async receiveFileIntent(envelope: FileIntentEnvelope): Promise<{ intentId: string; versionKey: string }> {
     const row = await this.row(envelope.transitionId);
     if (this.side(row) !== "target" || !canAdmit("target", row.phase) || envelope.generation !== row.generation-1) throw new Error("File receiver is not ready");
     if(!Number.isSafeInteger(envelope.sourceSequence) || envelope.sourceSequence!<1) throw new Error("Missing source file sequence");
-    await this.db.prepare("INSERT OR IGNORE INTO content_transition_file_intents(transition_id,intent_id,operation_id,generation,version_key,envelope_json,outcome_json,source_seq,transferred) VALUES(?,?,?,?,?,?,?,?,1)")
-      .bind(envelope.transitionId, envelope.intentId, envelope.operationId, envelope.generation, envelope.versionKey, JSON.stringify(envelope), envelope.outcome ? JSON.stringify(envelope.outcome) : null,envelope.sourceSequence).run();
+    const final=finalTransfer(row,envelope.sourceFence,envelope.sourceSequence,"file");
+    assertOperationEvidence({attempt:null,outcome:envelope.outcome});
+    await this.db.prepare("INSERT OR IGNORE INTO content_transition_file_intents(transition_id,intent_id,operation_id,generation,version_key,envelope_json,outcome_json,source_seq,transferred) SELECT ?,?,?,?,?,?,?,?,0 WHERE EXISTS(SELECT 1 FROM content_transitions WHERE id=? AND phase IN ('target_ingress_ready','source_fenced','target_owned','complete') AND fence_json IS ?)")
+      .bind(envelope.transitionId, envelope.intentId, envelope.operationId, envelope.generation, envelope.versionKey, JSON.stringify({...envelope,sourceFence:null}), encoded(envelope.outcome),envelope.sourceSequence,row.id,row.fence_json).run();
     const actual = await this.exportFileIntent(envelope.transitionId, envelope.intentId);
-    const actualIdentity=Object.fromEntries(Object.entries(actual).filter(([key])=>key!=="outcome"));
-    const incomingIdentity=Object.fromEntries(Object.entries(envelope).filter(([key])=>key!=="outcome"));
+    const actualIdentity=Object.fromEntries(Object.entries(actual).filter(([key])=>!["outcome","sourceFence"].includes(key)));
+    const incomingIdentity=Object.fromEntries(Object.entries(envelope).filter(([key])=>!["outcome","sourceFence"].includes(key)));
     if (JSON.stringify(actualIdentity) !== JSON.stringify(incomingIdentity)) throw new Error("Conflicting file-intent transfer");
+    const {outcome}=mergeProgress({attempt:null,outcome:actual.outcome},{attempt:null,outcome:envelope.outcome});
+    const result=await this.db.prepare(`UPDATE content_transition_file_intents SET outcome_json=?,transferred=max(transferred,?),envelope_json=json_set(envelope_json,'$.sourceFence',json(?))
+      WHERE transition_id=? AND intent_id=? AND outcome_json IS ? AND json_extract(envelope_json,'$.sourceFence') IS ?
+      AND EXISTS(SELECT 1 FROM content_transitions WHERE id=? AND phase IN ('target_ingress_ready','source_fenced','target_owned','complete') AND fence_json IS ?)`)
+      .bind(encoded(outcome),final?1:0,JSON.stringify(envelope.sourceFence??actual.sourceFence),row.id,envelope.intentId,encoded(actual.outcome),encoded(actual.sourceFence),row.id,row.fence_json).run();
+    if(result.meta.changes!==1) throw new Error("File transfer progress race; retry authoritative state");
+    mergeProgress({attempt:null,outcome:(await this.exportFileIntent(row.id,envelope.intentId)).outcome},{attempt:null,outcome});
     return { intentId: actual.intentId, versionKey: actual.versionKey };
   }
   async recordFileObservation(id:string,intentId:string,observation:FileObservation):Promise<void> {
@@ -350,8 +408,8 @@ export class D1TransitionRepository implements TransitionControlPort {
       'operationCount',(SELECT count(*) FROM content_transition_operations WHERE transition_id=?),
       'fileIntentBoundary',(SELECT coalesce(max(seq),0) FROM content_transition_file_intents WHERE transition_id=?),
       'fileIntentCount',(SELECT count(*) FROM content_transition_file_intents WHERE transition_id=?)))
-      WHERE id=? AND phase='target_ingress_ready' AND readiness_expires_at>? AND checkpoint_revision=? AND ${manifestResolvedSql()} AND ${identityProjectionValidSql()}`.replace("UPDATE content_transitions SET","UPDATE content_transitions AS t SET"))
-      .bind(JSON.stringify(identity(row)), id, digest, id,id,id,id,id, now, row.checkpoint_revision).run();
+      WHERE id=? AND phase='target_ingress_ready' AND fence_json IS NULL AND readiness_expires_at>? AND checkpoint_revision=? AND manifest_digest=? AND manifest_revision=? AND readiness_json=? AND ${manifestResolvedSql()} AND ${identityProjectionValidSql()}`.replace("UPDATE content_transitions SET","UPDATE content_transitions AS t SET"))
+      .bind(JSON.stringify(identity(row)), id, digest, id,id,id,id,id, now, row.checkpoint_revision,row.manifest_digest,row.manifest_revision,row.readiness_json).run();
     if (result.meta.changes !== 1) {
       const invalid=await this.db.prepare("SELECT commit_seq,row_table,row_key,column_name,reason FROM content_transition_invalid_json WHERE transition_id=? ORDER BY commit_seq LIMIT 1").bind(id).first();
       if(invalid) throw new Error(`Manifest immutable JSON conflict: ${JSON.stringify(invalid)}`);
@@ -373,7 +431,7 @@ export class D1TransitionRepository implements TransitionControlPort {
     if(this.side(row)!=="source" || !row.fence_json) throw new Error("Source is not frozen");
     const fence:SourceFence=JSON.parse(row.fence_json);
     const rows=(await this.db.prepare("SELECT seq,source_seq,envelope_json,generation,attempt_json,outcome_json FROM content_transition_operations WHERE transition_id=? AND seq>? AND seq<=? ORDER BY seq LIMIT 50").bind(id,after,fence.operationBoundary).all<OperationRow>()).results;
-    return rows.map(value=>decodeOperation(value,true));
+    return rows.map(value=>decodeOperation(value,true,row.fence_json));
   }
   async exportFrozenFileIntents(id:string,after=0):Promise<FileIntentEnvelope[]> {
     const row=await this.row(id);
@@ -474,8 +532,12 @@ export class D1TransitionRepository implements TransitionControlPort {
     if (operation.outcome) { if (operation.outcome.outcome === "committed") return; throw new Error("Operation already has a terminal outcome"); }
     const phases = this.side(row) === "source" ? "'protected','copying','replaying','target_ingress_ready'" : "'target_owned','complete'";
     let versionSql="1";
-    const versionBinds:Array<string|number>=[];
-    if(operation.expectedVersion!==null) {
+    const versionBinds:Array<string|number|null>=[];
+    if(operation.codec.id==="schedules.save") {
+      const expected=this.side(row)==="source"?JSON.parse((await this.db.prepare("SELECT envelope_json FROM content_transition_operations WHERE transition_id=? AND operation_id=?").bind(id,operationId).first<string>("envelope_json"))!).sourceExpectedState as AcceptedOperation["expectedState"]:operation.expectedState;
+      versionSql=expected?`EXISTS(SELECT 1 FROM schedules WHERE ${contentDispositionRegistry.schedules.values.map(key=>`"${key}" IS ?`).join(" AND ")})`:"NOT EXISTS(SELECT 1 FROM schedules WHERE id=?)";
+      versionBinds.push(...(expected?contentDispositionRegistry.schedules.values.map(key=>expected[key]):[operation.payload.id as number]));
+    } else if(operation.expectedVersion!==null) {
       const table=operation.subject.table;
       if(!Object.hasOwn(contentDispositionRegistry,table)) throw new Error("Unknown versioned subject");
       const disposition=contentDispositionRegistry[table as keyof typeof contentDispositionRegistry];
@@ -506,11 +568,11 @@ export class D1TransitionRepository implements TransitionControlPort {
         ) WHERE transition_id=?`).bind(id,operationId,file.intentId,file.evidenceId,this.site,this.fileResource,id)),
       ...statements, ...captureStatements(this.db, id),
       ...fileReferences.map(file=>this.db.prepare("UPDATE content_transition_file_intents SET outcome_json=? WHERE transition_id=? AND operation_id=? AND intent_id=? AND outcome_json IS NULL").bind(JSON.stringify({outcome:"committed",sideEffectReconciled:true,detail:"Reference committed in business batch"}),id,operationId,file.intentId)),
-      this.db.prepare("UPDATE content_transition_operations SET outcome_json=? WHERE transition_id=? AND operation_id=? AND outcome_json IS NULL").bind(JSON.stringify({ outcome: "committed", sideEffectReconciled: !operation.attempt || operation.attempt.status==="completed", detail: "Business batch committed" }), id, operationId),
+      this.db.prepare("UPDATE content_transition_operations SET outcome_json=json_object('outcome','committed','sideEffectReconciled',json(iif(attempt_json IS NULL OR json_extract(attempt_json,'$.status') IN ('completed','failed'),'true','false')),'detail','Business batch committed') WHERE transition_id=? AND operation_id=? AND outcome_json IS NULL").bind(id, operationId),
       this.db.prepare("UPDATE content_transition_commits SET sealed=1 WHERE transition_id=? AND operation_id=?").bind(id, operationId),
       this.db.prepare("DELETE FROM content_transition_permits WHERE transition_id=?").bind(id),
     ]); } catch(error) {
-      if(String(error).includes("content_transition_version_conflict") && operation.expectedVersion!==null && !await this.db.prepare(`SELECT ${versionSql} matches`).bind(...versionBinds).first<number>("matches")) {
+      if(String(error).includes("content_transition_version_conflict") && versionSql!=="1" && !await this.db.prepare(`SELECT ${versionSql} matches`).bind(...versionBinds).first<number>("matches")) {
         await this.recordOutcome(id,operationId,{outcome:"conflicted",sideEffectReconciled:!operation.attempt || operation.attempt.status==="completed",detail:"Expected version no longer matches"});
         throw new Error("Expected version conflict",{cause:error});
       }
@@ -532,7 +594,7 @@ export class D1TransitionRepository implements TransitionControlPort {
     if(!["committed","conflicted","failed"].includes(outcome.outcome)) throw new Error("Invalid terminal outcome");
     if(outcome.sideEffectReconciled && actual.attempt && !["completed","failed"].includes(actual.attempt.status)) throw new Error("Existing side effect must reconcile before terminal acknowledgement");
     const phases=this.side(row)==="source"?"'protected','copying','replaying','target_ingress_ready'":"'target_owned','complete'";
-    await this.db.prepare(`UPDATE content_transition_operations SET outcome_json=? WHERE transition_id=? AND operation_id=? AND outcome_json IS NULL AND EXISTS(SELECT 1 FROM content_transitions WHERE id=? AND phase IN (${phases}))`).bind(JSON.stringify(outcome), id, operationId,id).run();
+    await this.db.prepare(`UPDATE content_transition_operations SET outcome_json=? WHERE transition_id=? AND operation_id=? AND outcome_json IS NULL AND (?=0 OR attempt_json IS NULL OR json_extract(attempt_json,'$.status') IN ('completed','failed')) AND EXISTS(SELECT 1 FROM content_transitions WHERE id=? AND phase IN (${phases}))`).bind(JSON.stringify(outcome), id, operationId,outcome.sideEffectReconciled?1:0,id).run();
     if(JSON.stringify((await this.exportOperation(id,operationId)).outcome)!==JSON.stringify(outcome)) throw new Error("Outcome owner moved or immutable outcome conflicts");
   }
   async archiveSource(id:string):Promise<SourceArchiveReceipt> {
