@@ -28,7 +28,7 @@
     "queues:provision": "node scripts/provision-ops-queues.mjs",
     "images:profile-backgrounds": "node scripts/optimize-profile-backgrounds.mjs",
     "r2:upload-profile-backgrounds": "node scripts/upload-profile-backgrounds-to-r2.mjs",
-    "cf-typegen": "wrangler types",
+    "cf-typegen": "wrangler types --strict-vars=false",
     "drizzle:generate": "drizzle-kit generate",
     "drizzle:generate:custom": "drizzle-kit generate --custom",
     "drizzle:migrate:remote": "wrangler d1 migrations apply otw-db --remote",

@@ -1,3 +1,4 @@
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { createLocalSiteConfig, writeLocalSiteConfig } from "./local-site-config.mjs";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
@@ -17,7 +18,7 @@ describe("local Worker config isolation", () => {
   it("keeps selected server inputs out of the generated config and browser inputs out of dev vars", () => {
     const root = mkdtempSync(join(tmpdir(), "local-site-"));
     try {
-      writeFileSync(join(root, "wrangler.luvdia.jsonc"), JSON.stringify({ main: "worker/index.ts", assets: { directory: "dist/luvdia/client" }, d1_databases: [], r2_buckets: [] }));
+      writeFileSync(join(root, "wrangler.luvdia.jsonc"), JSON.stringify(ts.parseConfigFileTextToJson("wrangler.luvdia.jsonc", readFileSync("wrangler.luvdia.jsonc", "utf8")).config));
       const path = writeLocalSiteConfig("luvdia", { CLERK_ADMIN_IDS: "selected-private", VITE_CLERK_PUBLISHABLE_KEY: "public-key" }, root);
       expect(JSON.parse(readFileSync(path, "utf8")).vars.SITE_PUBLIC_ORIGIN).toBe("http://localhost:5174");
       expect(readFileSync(path, "utf8")).not.toContain("selected-private");
@@ -26,6 +27,7 @@ describe("local Worker config isolation", () => {
       expect(privateVars).not.toContain("public-key");
       writeLocalSiteConfig("luvdia", { DEV_PORT: "5194" }, root);
       expect(JSON.parse(readFileSync(path, "utf8")).vars.SITE_PUBLIC_ORIGIN).toBe("http://localhost:5194");
+      expect(() => writeLocalSiteConfig("luvdia", { SITE_PUBLIC_ORIGIN: "http://localhost:5173" }, root)).toThrow(/conflicts/);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

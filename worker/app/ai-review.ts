@@ -1,3 +1,4 @@
+import { getWorkerSiteResources } from "../platform/site";
 import {
   AiReviewService,
   AiBatchService,
@@ -74,11 +75,12 @@ export async function handleAiReviewQueue(
   env: Env,
 ) {
   const service = createOtwPlayAiReviewService(env);
+  const isDeadLetter = batch.queue === getWorkerSiteResources(env).queues.deadLetter;
   for (const message of batch.messages) {
     if (isAiBatchMessage(message.body)) {
       const batches = createOtwPlayAiBatchService(env);
       try {
-        if (batch.queue === "otw-dead-letter") await batches.dead(message.body.itemId, message.body.generation);
+        if (isDeadLetter) await batches.dead(message.body.itemId, message.body.generation);
         else {
           const delay = await batches.process(message.body.itemId, message.body.generation);
           if (delay) { message.retry({ delaySeconds: Math.min(43200, delay) }); continue; }
@@ -102,12 +104,12 @@ export async function handleAiReviewQueue(
       continue;
     }
     try {
-      if (batch.queue === "otw-dead-letter")
+      if (isDeadLetter)
         await service.markDead(message.body.reviewId);
       else await service.process(message.body.reviewId);
       const state = await service.get(message.body.reviewId);
       if (
-        batch.queue !== "otw-dead-letter" &&
+        !isDeadLetter &&
         ["queued", "retry_wait", "running"].includes(state.status)
       )
         message.retry({

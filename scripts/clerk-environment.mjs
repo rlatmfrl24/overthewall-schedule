@@ -76,3 +76,12 @@ export const assertClerkSiteIdentity = ({ publishableKey, issuer, target }) => {
   }
   return expected.origin;
 };
+
+export const assertClerkDeploymentConfig = (environment, publicOrigin) => {
+  const issuer = assertClerkSiteIdentity({ publishableKey: environment.VITE_CLERK_PUBLISHABLE_KEY, issuer: environment.CLERK_ISSUER, target: "production" });
+  const jwks = environment.CLERK_JWKS_URL || `${issuer}/.well-known/jwks.json`;
+  if (jwks !== `${issuer}/.well-known/jwks.json`) throw new Error("Production Clerk JWKS does not match the selected app identity.");
+  const parties = environment.CLERK_AUTHORIZED_PARTIES?.split(",").map(value => value.trim()).filter(Boolean) ?? [];
+  if (parties.length !== 1 || parties[0] !== publicOrigin) throw new Error("Production Clerk authorized parties must exactly match the selected public origin.");
+  return issuer;
+};

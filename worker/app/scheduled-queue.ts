@@ -8,6 +8,7 @@ import {
 } from "../features/scheduled-operations";
 import { D1ScheduledJobRepository } from "../platform/scheduled-jobs";
 import type { Env } from "../platform/types";
+import { getWorkerSiteResources } from "../platform/site";
 
 const getErrorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -19,6 +20,7 @@ export const handleScheduledControlQueue = async (
   batch: MessageBatch<unknown>,
   env: Env,
 ) => {
+  getWorkerSiteResources(env);
   const coordinator = new ScheduledJobCoordinator(env);
   const repository = coordinator.repository;
   for (const message of batch.messages) {
@@ -55,7 +57,7 @@ export const handleScheduledJobQueue = async (
   const repository = new D1ScheduledJobRepository(env.otw_db);
   const executor = new ScheduledJobExecutor(env, repository);
   const coordinator = new ScheduledJobCoordinator(env);
-  const isDeadLetter = batch.queue === "otw-dead-letter";
+  const isDeadLetter = batch.queue === getWorkerSiteResources(env).queues.deadLetter;
   const reconcileTerminalItem = async (
     item: NonNullable<Awaited<ReturnType<typeof repository.readItem>>>,
   ) => {

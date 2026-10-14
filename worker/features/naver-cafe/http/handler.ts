@@ -1,3 +1,4 @@
+import type { SiteDefinition } from "@contracts/site-definition";
 import { authenticateRequest, requireAdminUser } from "../../../platform/auth";
 import {
   buildNaverCafeBoardUrl,
@@ -97,6 +98,7 @@ const getPostsResponseHeaders = ({
 const getPostsResponseCacheKey = (
   sources: NaverCafeSourceRecord[],
   size: number,
+  site: SiteDefinition,
 ) => {
   const sourceSignature = sources
     .map((source) =>
@@ -111,7 +113,7 @@ const getPostsResponseCacheKey = (
     )
     .join("|");
   const cacheUrl = new URL(
-    `https://otw.internal/cache/naver-cafe/posts/${NAVER_CAFE_POSTS_RESPONSE_CACHE_VERSION}`,
+    `https://${site.id}.internal/cache/naver-cafe/posts/${NAVER_CAFE_POSTS_RESPONSE_CACHE_VERSION}`,
   );
   cacheUrl.searchParams.set("size", String(size));
   cacheUrl.searchParams.set("sources", sourceSignature);
@@ -190,10 +192,11 @@ const parseSourcePayload = (body: Record<string, unknown>) => {
 
 export type NaverCafeHandlerDependencies = {
   getApplication(env: Env): NaverCafeApplication;
+  getSite(env: Env): SiteDefinition;
 };
 
 export const createNaverCafeHandler =
-  ({ getApplication }: NaverCafeHandlerDependencies) =>
+  ({ getApplication, getSite }: NaverCafeHandlerDependencies) =>
   async (request: Request, env: Env) => {
   const url = new URL(request.url);
   const application = getApplication(env);
@@ -321,7 +324,7 @@ export const createNaverCafeHandler =
       url,
       visibility,
     })
-      ? getPostsResponseCacheKey(sources, size)
+      ? getPostsResponseCacheKey(sources, size, getSite(env))
       : null;
     const cachedResponse = responseCacheKey
       ? await readPostsResponseCache(responseCacheKey)

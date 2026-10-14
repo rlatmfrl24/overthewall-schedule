@@ -1,3 +1,4 @@
+import { getWorkerSiteResources, getWorkerSiteDefinition } from "../platform/site";
 import { createSiteContentHandler } from "../features/seo";
 import { createSiteSeoDependencies } from "./site-seo";
 import { apiRoutes } from "@contracts/api-routes";
@@ -199,10 +200,9 @@ const handleDDays = createHandleDDays(
 const handleMembers = createHandleMembers(
   (env) => new D1MemberReader(getDb(env), env.ASSET_BUCKET),
 );
-const publicCatalogCache = new CloudflarePublicCatalogCache();
 const handleOtwPlayPlaylists = createPlaylistHandler(env => {
   const reader = new D1PublicCatalogReader(env.otw_db);
-  return new PlaylistService(new PublicCatalogService(reader, publicCatalogCache), reader, new D1PlaylistRepository(env.otw_db), new D1DefaultPlaylistSettingsRepository(env.otw_db));
+  return new PlaylistService(new PublicCatalogService(reader, new CloudflarePublicCatalogCache(getWorkerSiteResources(env).site)), reader, new D1PlaylistRepository(env.otw_db), new D1DefaultPlaylistSettingsRepository(env.otw_db));
 });
 const resolvePlayTelemetry = (env: Parameters<typeof getDb>[0]) =>
   new CloudflarePlayTelemetryWriter(env.OTW_PLAY_ANALYTICS);
@@ -210,7 +210,7 @@ const handleOtwPlayPublicCatalog = createPublicCatalogHandler(
   (env) => {
     const reader = new D1PublicCatalogReader(env.otw_db);
     return {
-      service: new PublicCatalogService(reader, publicCatalogCache),
+      service: new PublicCatalogService(reader, new CloudflarePublicCatalogCache(getWorkerSiteResources(env).site)),
       beginReadObservation: () => reader.beginReadObservation(),
       readDiagnostics: () => reader.getReadObservation(),
     };
@@ -224,6 +224,7 @@ const handleOtwPlayObservability = withPlayOperationsTelemetry(
       new CloudflarePlayObservabilityReader(
         env.CLOUDFLARE_ACCOUNT_ID,
         env.OTW_PLAY_ANALYTICS_READ_TOKEN,
+        getWorkerSiteResources(env).analyticsDataset,
       ),
   ),
   resolvePlayTelemetry,
@@ -293,6 +294,7 @@ const handleScheduleBoard = createHandleScheduleBoard(
 );
 const handleNaverCafe = createNaverCafeHandler({
   getApplication: createD1NaverCafeApplication,
+  getSite: getWorkerSiteDefinition,
 });
 const handleOperations = createOperationsHandler({
   getApplication: (env) =>

@@ -1,3 +1,4 @@
+import { siteEnv } from "../../../test-support/site-env";
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { beforeAll, afterEach, it, expect, vi } from "vitest";
 import chzzkMigration from "../../../../drizzle/0040_fixed_black_crow.sql?raw";
@@ -35,7 +36,7 @@ it("returns 503/no-store for total video failure and 200 for empty or partial so
       const value = Reflect.get(target, key, target);
       return typeof value === "function" ? value.bind(target) : value;
     } });
-    const runtime = { ...testEnv, SITE_ID: "otw", otw_db: sourceDb, ASSETS: { fetch: async () => new Response('<html><head></head><body><div id="root"></div></body></html>') } } as unknown as Env;
+    const runtime = { ...testEnv, ...siteEnv(), SITE_ID: "otw", otw_db: sourceDb, ASSETS: { fetch: async () => new Response('<html><head></head><body><div id="root"></div></body></html>') } } as unknown as Env;
     const response = await createSiteContentHandler(env => createSiteSeoDependencies(env).content)(new Request("https://otw.test/api/site-content?path=/vods"), runtime);
     expect(response.status).toBe(mode === "failed" ? 503 : 200);
     if (mode === "failed") {
@@ -55,7 +56,7 @@ it("returns 503/no-store for total video failure and 200 for empty or partial so
 });
 
 it("injects the configured LuvDia identity through the real Worker composition rather than the request host", async () => {
-  const runtime = { ...testEnv, SITE_ID: "luvdia", SITE_PUBLIC_ORIGIN: "http://localhost:5174", ASSETS: { fetch: async () => new Response('<html><head><title>old</title><link data-site-seo="canonical" rel="canonical" href="/"></head><body><div id="root"></div></body></html>') } } as unknown as Env;
+  const runtime = { ...testEnv, ...siteEnv("luvdia"), SITE_ID: "luvdia", SITE_PUBLIC_ORIGIN: "http://localhost:5174", ASSETS: { fetch: async () => new Response('<html><head><title>old</title><link data-site-seo="canonical" rel="canonical" href="/"></head><body><div id="root"></div></body></html>') } } as unknown as Env;
   const response = await handleWorkerFetch(new Request("http://localhost:9999/vods"), runtime);
   expect(response.status).toBe(200);
   const html = await response.text();

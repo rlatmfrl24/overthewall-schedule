@@ -1,3 +1,4 @@
+import { assertSiteResourceConfig } from "./site-resources.mjs";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import ts from "typescript";
@@ -18,11 +19,15 @@ export const writeLocalSiteConfig = (siteId, environment, root = process.cwd()) 
   const canonical = resolve(root, target.configPath);
   const parsed = ts.parseConfigFileTextToJson(canonical, readFileSync(canonical, "utf8"));
   if (parsed.error) throw new Error(`Invalid canonical config for ${siteId}.`);
+  assertSiteResourceConfig(parsed.config, siteId);
   const directory = resolve(root, ".wrangler/local", siteId);
   mkdirSync(directory, { recursive: true });
   const path = resolve(directory, "wrangler.json");
   const config = createLocalSiteConfig(parsed.config, siteId, root);
   config.vars.SITE_PUBLIC_ORIGIN = getLocalDevOrigin({ [`${siteId.toUpperCase()}_DEV_PORT`]: environment.DEV_PORT || environment[`${siteId.toUpperCase()}_DEV_PORT`] }, siteId);
+  for (const [name, value] of Object.entries(environment)) {
+    if ((name === "SITE_ID" || name === "SITE_PUBLIC_ORIGIN" || name.endsWith("_QUEUE_NAME") || name === "PLAY_ANALYTICS_DATASET") && value !== config.vars[name]) throw new Error(`Private input conflicts with configured ${name}.`);
+  }
   writeFileSync(path, JSON.stringify(config, null, 2));
   const privateVars = Object.entries(environment).filter(([name]) => !name.startsWith("VITE_") && name !== "PUBLIC_ORIGIN");
   writeFileSync(resolve(directory, ".dev.vars"), privateVars.map(([name, value]) => `${name}=${JSON.stringify(value)}`).join("\n"));

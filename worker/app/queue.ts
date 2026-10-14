@@ -5,12 +5,13 @@ import type {
   OtwPlayIngestionQueueMessage,
 } from "../features/otw-play";
 import type { Env } from "../platform/types";
+import { getWorkerSiteResources } from "../platform/site";
 import { createOtwPlayIngestionService } from "./ingestion";
 import { createOtwPlayWorkQueueService, isWorkQueueMessage } from "./work-queue";
 
 export const handleQueue = async (batch: MessageBatch<unknown>, env: Env) => {
   const service = createOtwPlayIngestionService(env);
-  const isDeadLetter = batch.queue === "otw-dead-letter";
+  const isDeadLetter = batch.queue === getWorkerSiteResources(env).queues.deadLetter;
   for (const message of batch.messages) {
     const body = message.body;
     if (isWorkQueueMessage(body)) {

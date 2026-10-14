@@ -1,3 +1,4 @@
+import { assertSiteResourceConfig } from "./site-resources.mjs";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -41,6 +42,11 @@ export const verifySiteBuildManifest = (siteId, manifest = readJson(resolve(getS
   const generated = readJson(configPath);
   const canonical = ts.parseConfigFileTextToJson(canonicalPath, readFileSync(canonicalPath, "utf8"));
   if (canonical.error || generated.name !== canonical.config.name || generated.name !== manifest.workerName || generated.vars?.SITE_ID !== siteId) throw new Error("Generated Worker config has a different site or Worker identity.");
+  assertSiteResourceConfig(canonical.config, siteId);
+  assertSiteResourceConfig(generated, siteId);
+  for (const variable of Object.keys(canonical.config.vars).filter(name => name.endsWith("_QUEUE_NAME") || name === "PLAY_ANALYTICS_DATASET")) {
+    if (generated.vars[variable] !== canonical.config.vars[variable]) throw new Error("Generated resource vars differ from the canonical config.");
+  }
   if (resolve(dirname(configPath), generated.assets.directory) !== resolve(outputRoot, "client")) throw new Error("Generated Worker assets do not belong to this site.");
   if (origin !== manifest.publicOrigin) throw new Error("Artifact origin is not canonical.");
   return manifest;

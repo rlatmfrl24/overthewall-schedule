@@ -1,4 +1,5 @@
 export type ClerkEnvironmentTarget = "development" | "production";
+export function assertClerkDeploymentConfig(environment: Record<string, string | undefined>, publicOrigin: string): string;
 export function assertClerkSiteIdentity(input: {
   publishableKey: string | null | undefined;
   issuer: string | null | undefined;

@@ -70,7 +70,6 @@ export {
 export { DrizzleAdminCatalogAudit } from "./infrastructure/admin-catalog-audit";
 export {
   CloudflarePlayObservabilityReader,
-  OTW_PLAY_OBSERVABILITY_SQL
 } from "./infrastructure/cloudflare-play-observability-reader";
 export {
   CloudflarePlayTelemetryWriter,

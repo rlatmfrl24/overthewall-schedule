@@ -1,3 +1,4 @@
+import { getWorkerSiteDefinition } from "../../../platform/site";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../../platform/types";
 
@@ -21,10 +22,12 @@ import { createNaverCafeHandler } from "./handler";
 
 const handleNaverCafe = createNaverCafeHandler({
   getApplication: createD1NaverCafeApplication,
+  getSite: getWorkerSiteDefinition,
 });
 
 const makeEnv = (): Env =>
   ({
+    SITE_ID: "otw",
     YOUTUBE_API_KEY: "",
     X_BEARER_TOKEN: "token",
     otw_db: {} as D1Database,

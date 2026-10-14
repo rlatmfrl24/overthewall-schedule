@@ -1,3 +1,4 @@
+import { siteEnv } from "../test-support/site-env";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../platform/types";
 
@@ -27,7 +28,7 @@ describe("consolidated Worker queue routing", () => {
       messages: [{ body: { messageType: "scheduled_job_control" } }],
     } as unknown as MessageBatch<unknown>;
 
-    await handleWorkerQueue(batch, {} as Env);
+    await handleWorkerQueue(batch, siteEnv() as Env);
 
     expect(mocks.handleScheduledControlQueue).toHaveBeenCalledWith(
       batch,
@@ -42,7 +43,7 @@ describe("consolidated Worker queue routing", () => {
     async (queue) => {
       const batch = { queue, messages: [] } as unknown as MessageBatch<unknown>;
 
-      await handleWorkerQueue(batch, {} as Env);
+      await handleWorkerQueue(batch, siteEnv() as Env);
 
       expect(mocks.handleScheduledJobQueue).toHaveBeenCalledWith(
         batch,
@@ -57,14 +58,14 @@ describe("consolidated Worker queue routing", () => {
     async (queue) => {
       const batch = { queue, messages: [] } as unknown as MessageBatch<unknown>;
 
-      await handleWorkerQueue(batch, {} as Env);
+      await handleWorkerQueue(batch, siteEnv() as Env);
 
       expect(mocks.handleQueue).toHaveBeenCalledWith(batch, expect.anything());
       expect(mocks.handleScheduledJobQueue).not.toHaveBeenCalled();
     },
   );
 
-  it("splits a mixed dead-letter batch by message protocol", async () => {
+  it.each(["otw", "luvdia"] as const)("splits %s mixed dead-letter batches by message protocol", async site => {
     const scheduledMessage = {
       body: {
         schemaVersion: 1,
@@ -91,36 +92,41 @@ describe("consolidated Worker queue routing", () => {
     const aiMessage = { body: { kind: "otw_play_ai_batch", schemaVersion: 1, itemId: "batch-item", generation: 0 } };
 
     await handleWorkerQueue({
-      queue: "otw-dead-letter",
+      queue: `${site}-dead-letter`,
       messages: [ingestionMessage, scheduledMessage, controlMessage, aiMessage],
-    } as unknown as MessageBatch<unknown>, {} as Env);
+    } as unknown as MessageBatch<unknown>, siteEnv(site) as Env);
 
     expect(mocks.handleScheduledJobQueue).toHaveBeenCalledWith(
       expect.objectContaining({
-        queue: "otw-dead-letter",
+        queue: `${site}-dead-letter`,
         messages: [scheduledMessage, controlMessage],
       }),
       expect.anything(),
     );
     expect(mocks.handleQueue).toHaveBeenCalledWith(
       expect.objectContaining({
-        queue: "otw-dead-letter",
+        queue: `${site}-dead-letter`,
         messages: [ingestionMessage],
       }),
       expect.anything(),
     );
-    expect(mocks.handleAiReviewQueue).toHaveBeenCalledWith(expect.objectContaining({ queue: "otw-dead-letter", messages: [aiMessage] }), expect.anything());
+    expect(mocks.handleAiReviewQueue).toHaveBeenCalledWith(expect.objectContaining({ queue: `${site}-dead-letter`, messages: [aiMessage] }), expect.anything());
   });
 
-  it("acknowledges messages from an unknown binding", async () => {
+  it("retries and reports an unknown physical queue without acknowledging", async () => {
     const ack = vi.fn();
+    const retry = vi.fn();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await handleWorkerQueue({
       queue: "unknown-queue",
-      messages: [{ body: {}, ack }],
-    } as unknown as MessageBatch<unknown>, {} as Env);
+      messages: [{ body: {}, ack, retry }],
+    } as unknown as MessageBatch<unknown>, siteEnv() as Env);
 
-    expect(ack).toHaveBeenCalledOnce();
+    expect(ack).not.toHaveBeenCalled();
+    expect(retry).toHaveBeenCalledOnce();
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("unknown"), expect.objectContaining({ queue: "unknown-queue", site: "otw" }));
+    error.mockRestore();
   });
 });
 
@@ -129,4 +135,18 @@ it("requires a non-negative integer retry generation for batch messages", () => 
   for (const generation of [undefined, null, -1, 0.5, "1", Infinity])
     expect(isAiBatchMessage({ ...message, generation })).toBe(false);
   expect(isAiBatchMessage({ ...message, generation: 1 })).toBe(true);
+});
+
+it.each([
+  ["luvdia-ops-control", "handleScheduledControlQueue"], ["luvdia-ops-critical", "handleScheduledJobQueue"],
+  ["luvdia-ops-background", "handleScheduledJobQueue"], ["luvdia-play-ingestion", "handleQueue"],
+  ["luvdia-play-ai-review", "handleAiReviewQueue"],
+] as const)("dispatches physical %s to its role handler", async (queue, handler) => {
+  vi.clearAllMocks();
+  const ack = vi.fn(), retry = vi.fn();
+  const batch = { queue, messages: [{ body: {}, ack, retry }] } as unknown as MessageBatch<unknown>;
+  await handleWorkerQueue(batch, siteEnv("luvdia") as Env);
+  expect(mocks[handler]).toHaveBeenCalledWith(batch, expect.objectContaining({ SITE_ID: "luvdia" }));
+  expect(ack).not.toHaveBeenCalled();
+  expect(retry).not.toHaveBeenCalled();
 });

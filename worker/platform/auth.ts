@@ -155,6 +155,10 @@ const getAuthConfig = (env: Env) => {
   const jwksUrl =
     configuredJwksUrl ??
     (issuer ? parseHttpsUrl(`${issuer}${CLERK_JWKS_SUFFIX}`) : null);
+  if (
+    (env.CLERK_JWKS_URL && (!configuredJwksUrl || inferIssuerFromJwksUrl(configuredJwksUrl) !== issuer)) ||
+    (env.VITE_CLERK_PUBLISHABLE_KEY && inferIssuerFromPublishableKey(env.VITE_CLERK_PUBLISHABLE_KEY) !== issuer)
+  ) return null;
   const audience = getStringClaim(env.CLERK_JWT_AUDIENCE);
   const configuredAuthorizedParties = env.CLERK_AUTHORIZED_PARTIES?.trim();
   const authorizedParties = configuredAuthorizedParties

@@ -8,7 +8,7 @@ import {
 import { DrizzleSettingsRepository } from "../features/configuration";
 import { D1PublicCatalogReader } from "../features/otw-play";
 import { getDb } from "../platform/db";
-import { getWorkerSiteDefinition } from "../platform/site";
+import { getWorkerSiteResources } from "../platform/site";
 
 import { requiresOtwPlayMembership } from "@contracts/otw-play-access";
 import { SiteContentService, CloudflareSiteContentCache, type SiteContentReader } from "../features/seo";
@@ -19,7 +19,7 @@ import { readSiteContentYouTube } from "../features/youtube";
 import { readSiteContentChzzk } from "../features/chzzk";
 
 export const createSiteSeoDependencies = (env: Env) => {
-  const site = getWorkerSiteDefinition(env);
+  const { site } = getWorkerSiteResources(env);
   const db = getDb(env);
   const members = new D1MemberReader(db, env.ASSET_BUCKET);
   const settings = new DrizzleSettingsRepository(db);
@@ -78,6 +78,6 @@ export const createSiteSeoDependencies = (env: Env) => {
       ] : []) }];
     },
   };
-  return { seo: new SiteSeoService(reader, site), content: new SiteContentService(reader, contentReader, site, new CloudflareSiteContentCache()) };
+  return { seo: new SiteSeoService(reader, site), content: new SiteContentService(reader, contentReader, site, new CloudflareSiteContentCache(site)) };
 };
 

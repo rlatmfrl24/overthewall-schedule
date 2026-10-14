@@ -9,6 +9,7 @@ import {
 } from "cloudflare:workers";
 import { ScheduledJobCoordinator } from "../features/scheduled-operations";
 import type { Env } from "../platform/types";
+import { getWorkerSiteResources } from "../platform/site";
 
 export class ScheduledOperationsWorkflow extends WorkflowEntrypoint<
   Env,
@@ -18,6 +19,7 @@ export class ScheduledOperationsWorkflow extends WorkflowEntrypoint<
     event: Readonly<WorkflowEvent<ScheduledOperationsWorkflowParams>>,
     step: WorkflowStep,
   ) {
+    getWorkerSiteResources(this.env);
     const { jobType, scheduledFor } = event.payload;
     if (
       !isScheduledJobType(jobType) ||

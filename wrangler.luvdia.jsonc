@@ -34,6 +34,13 @@
     "enabled": true
   },
   "vars": {
+    "SITE_CONTROL_QUEUE_NAME": "luvdia-ops-control",
+    "SITE_CRITICAL_QUEUE_NAME": "luvdia-ops-critical",
+    "SITE_BACKGROUND_QUEUE_NAME": "luvdia-ops-background",
+    "SITE_INGESTION_QUEUE_NAME": "luvdia-play-ingestion",
+    "SITE_AI_REVIEW_QUEUE_NAME": "luvdia-play-ai-review",
+    "SITE_DEAD_LETTER_QUEUE_NAME": "luvdia-dead-letter",
+    "PLAY_ANALYTICS_DATASET": "luvdia_play_events",
     "SITE_ID": "luvdia",
     "SITE_RESOURCES_PROVISIONED": "false",
     "OTW_PLAY_AI_REVIEW_ENABLED": "false"

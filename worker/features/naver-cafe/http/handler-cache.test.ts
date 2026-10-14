@@ -1,3 +1,4 @@
+import { getWorkerSiteDefinition } from "../../../platform/site";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../../platform/types";
 
@@ -51,6 +52,7 @@ import { createNaverCafeHandler } from "./handler";
 
 const handleNaverCafe = createNaverCafeHandler({
   getApplication: createD1NaverCafeApplication,
+  getSite: getWorkerSiteDefinition,
 });
 
 const source = {
@@ -69,6 +71,7 @@ const source = {
 
 const makeEnv = (): Env =>
   ({
+    SITE_ID: "otw",
     YOUTUBE_API_KEY: "",
     X_BEARER_TOKEN: "token",
     otw_db: {} as D1Database,
@@ -125,6 +128,15 @@ describe("naver cafe posts route cache", () => {
       sources: [{ id: 1, status: "ok", stale: false }],
     });
     responseCache = stubCache();
+  });
+
+  it("does not reuse OTW cached posts when the request host and sources match LuvDia", async () => {
+    const request = new Request("http://localhost:9999/api/naver-cafe/posts?size=10");
+    const otw = await handleNaverCafe(request, makeEnv());
+    expect((await otw.json()) as unknown).toMatchObject({ posts: [{ id: "post1" }] });
+    readStoredNaverCafePostsForSourcesMock.mockResolvedValueOnce({ posts: [{ id: "luvdia-post" }], sources: [] });
+    const luvdia = await handleNaverCafe(request, { ...makeEnv(), SITE_ID: "luvdia", SITE_PUBLIC_ORIGIN: "http://localhost:5174" });
+    expect((await luvdia.json()) as unknown).toMatchObject({ posts: [{ id: "luvdia-post" }] });
   });
 
   it("fresh response cache가 있으면 저장 조회 서비스를 다시 호출하지 않는다", async () => {

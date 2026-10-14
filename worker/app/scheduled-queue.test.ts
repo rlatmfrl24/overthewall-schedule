@@ -1,3 +1,4 @@
+import { siteEnv } from "../test-support/site-env";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../platform/types";
 
@@ -69,6 +70,18 @@ describe("scheduled job queue", () => {
     mocks.refreshRun.mockResolvedValue(undefined);
   });
 
+  it("marks LuvDia scheduled item/control dead letters before acknowledging", async () => {
+    mocks.readItem.mockResolvedValue(null);
+    const item = { body: { schemaVersion: 1, messageType: "scheduled_job_item", runId: "run", itemId: "item", phase: "collect" }, ack: vi.fn() };
+    const control = { body: { schemaVersion: 1, messageType: "scheduled_job_control", runId: "run" }, ack: vi.fn() };
+    await handleScheduledJobQueue({ queue: "luvdia-dead-letter", messages: [item, control] } as unknown as MessageBatch<unknown>, siteEnv("luvdia") as Env);
+    expect(mocks.markItemDeadLetter).toHaveBeenCalledWith("item");
+    expect(mocks.markItemDeadLetter).toHaveBeenCalledBefore(item.ack);
+    expect(mocks.markRunFailed).toHaveBeenCalledWith("run", "control_queue_retries_exhausted");
+    expect(mocks.markRunFailed).toHaveBeenCalledBefore(control.ack);
+    expect(mocks.claimItem).not.toHaveBeenCalled();
+  });
+
   it("성공한 item마다 다음 pending outbox를 dispatch한다", async () => {
     const ack = vi.fn();
     await handleScheduledJobQueue({
@@ -83,7 +96,7 @@ describe("scheduled job queue", () => {
         },
         ack,
       }],
-    } as unknown as MessageBatch<unknown>, {} as Env);
+    } as unknown as MessageBatch<unknown>, siteEnv() as Env);
 
     expect(mocks.dispatchRun).toHaveBeenCalledWith("run-1");
     expect(ack).toHaveBeenCalledOnce();
@@ -108,7 +121,7 @@ describe("scheduled job queue", () => {
         },
         ack,
       }],
-    } as unknown as MessageBatch<unknown>, {} as Env);
+    } as unknown as MessageBatch<unknown>, siteEnv() as Env);
 
     expect(mocks.completeItem).toHaveBeenCalledWith(
       expect.anything(),
@@ -147,7 +160,7 @@ describe("scheduled job queue", () => {
         ack,
         retry,
       }],
-    } as unknown as MessageBatch<unknown>, {} as Env);
+    } as unknown as MessageBatch<unknown>, siteEnv() as Env);
 
     expect(mocks.completeItem).toHaveBeenCalledWith(
       expect.anything(),
@@ -187,7 +200,7 @@ describe("scheduled job queue", () => {
         ack,
         retry,
       }],
-    } as unknown as MessageBatch<unknown>, {} as Env);
+    } as unknown as MessageBatch<unknown>, siteEnv() as Env);
 
     expect(mocks.completeItem).toHaveBeenCalledWith(
       expect.anything(),
@@ -216,7 +229,7 @@ describe("scheduled job queue", () => {
         },
         ack,
       }],
-    } as unknown as MessageBatch<unknown>, {} as Env);
+    } as unknown as MessageBatch<unknown>, siteEnv() as Env);
 
     expect(mocks.advanceRun).toHaveBeenCalledWith(
       expect.objectContaining({ id: "item-1", status: "succeeded" }),
@@ -248,7 +261,7 @@ describe("scheduled job queue", () => {
         ack,
         retry,
       }],
-    } as unknown as MessageBatch<unknown>, {} as Env);
+    } as unknown as MessageBatch<unknown>, siteEnv() as Env);
 
     expect(retry).toHaveBeenCalledWith({ delaySeconds: 60 });
     expect(ack).not.toHaveBeenCalled();
@@ -275,7 +288,7 @@ describe("scheduled job queue", () => {
         ack,
         retry,
       }],
-    } as unknown as MessageBatch<unknown>, {} as Env);
+    } as unknown as MessageBatch<unknown>, siteEnv() as Env);
 
     expect(mocks.markRunFailed).toHaveBeenCalledWith(
       "run-1",
@@ -310,7 +323,7 @@ describe("scheduled job queue", () => {
         },
         ack,
       }],
-    } as unknown as MessageBatch<unknown>, {} as Env);
+    } as unknown as MessageBatch<unknown>, siteEnv() as Env);
 
     expect(mocks.execute).not.toHaveBeenCalled();
     expect(mocks.dispatchRun).toHaveBeenCalledWith("run-1");

@@ -44,6 +44,13 @@
     "enabled": true,
   },
   "vars": {
+    "SITE_CONTROL_QUEUE_NAME": "otw-ops-control",
+    "SITE_CRITICAL_QUEUE_NAME": "otw-ops-critical",
+    "SITE_BACKGROUND_QUEUE_NAME": "otw-ops-background",
+    "SITE_INGESTION_QUEUE_NAME": "otw-play-ingestion",
+    "SITE_AI_REVIEW_QUEUE_NAME": "otw-play-ai-review",
+    "SITE_DEAD_LETTER_QUEUE_NAME": "otw-dead-letter",
+    "PLAY_ANALYTICS_DATASET": "otw_play_events",
     "SITE_ID": "otw",
     "CLOUDFLARE_ACCOUNT_ID": "46e1801b290196fbec7cfae87710ffcf",
     "CLOUDFLARE_D1_DATABASE_ID": "133b980d-1701-427e-93fd-8c9dcca1132e",

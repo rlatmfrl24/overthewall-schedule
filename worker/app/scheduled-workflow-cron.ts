@@ -2,6 +2,7 @@ import { OTW_PLAY_CHANNEL_POLL_CRON_MINUTE } from "@contracts/otw-play";
 import { isRetiredScheduledJob, type ScheduledJobType } from "@contracts/scheduled-operations";
 import { ScheduledJobCoordinator } from "../features/scheduled-operations";
 import type { Env } from "../platform/types";
+import { getWorkerSiteResources } from "../platform/site";
 
 export const SCHEDULED_WORKFLOW_CRON = "3,13,23,33,53 * * * *";
 
@@ -89,6 +90,7 @@ export async function handleScheduledWorkflowCron(
   event: ScheduledController,
   env: Env,
 ): Promise<void> {
+  getWorkerSiteResources(env);
   const jobs = selectScheduledWorkflowJobs(
     event.cron,
     event.scheduledTime,

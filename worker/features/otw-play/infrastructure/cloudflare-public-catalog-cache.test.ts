@@ -1,3 +1,4 @@
+import { getSiteDefinition } from "@contracts/site-definition";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   PublicCatalogCacheEntry,
@@ -48,7 +49,7 @@ afterEach(() => {
 describe("CloudflarePublicCatalogCache", () => {
   it("uses the fixed internal host and preserves JSON cache headers", async () => {
     const { cache } = stubCache();
-    const adapter = new CloudflarePublicCatalogCache();
+    const adapter = new CloudflarePublicCatalogCache(getSiteDefinition("otw"));
 
     await adapter.write(key, entry, 300);
 
@@ -72,7 +73,7 @@ describe("CloudflarePublicCatalogCache", () => {
 
   it("keeps config state in its deterministic cache URL identity", async () => {
     const { cache } = stubCache();
-    const adapter = new CloudflarePublicCatalogCache();
+    const adapter = new CloudflarePublicCatalogCache(getSiteDefinition("otw"));
     const configKey: PublicCatalogCacheKey = {
       version: 1,
       catalogRevision: 21,
@@ -107,7 +108,7 @@ describe("CloudflarePublicCatalogCache", () => {
 
   it("returns a miss without deleting malformed or mismatched JSON", async () => {
     const { cache, store } = stubCache();
-    const adapter = new CloudflarePublicCatalogCache();
+    const adapter = new CloudflarePublicCatalogCache(getSiteDefinition("otw"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const cacheUrl =
       "https://otw.internal/cache/play/v2/17/catalog?member=2&member=7&sort=title";
@@ -127,7 +128,7 @@ describe("CloudflarePublicCatalogCache", () => {
 
   it("treats an invalid resource data shape as a corrupt miss", async () => {
     const { store } = stubCache();
-    const adapter = new CloudflarePublicCatalogCache();
+    const adapter = new CloudflarePublicCatalogCache(getSiteDefinition("otw"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const cacheUrl =
       "https://otw.internal/cache/play/v2/17/catalog?member=2&member=7&sort=title";
@@ -155,7 +156,7 @@ describe("CloudflarePublicCatalogCache", () => {
 
   it("treats missing cache headers and a mismatched ETag as corrupt misses", async () => {
     const { store } = stubCache();
-    const adapter = new CloudflarePublicCatalogCache();
+    const adapter = new CloudflarePublicCatalogCache(getSiteDefinition("otw"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const cacheUrl =
       "https://otw.internal/cache/play/v2/17/catalog?member=2&member=7&sort=title";
@@ -188,7 +189,7 @@ describe("CloudflarePublicCatalogCache", () => {
     };
     vi.stubGlobal("caches", { default: cache });
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const adapter = new CloudflarePublicCatalogCache();
+    const adapter = new CloudflarePublicCatalogCache(getSiteDefinition("otw"));
 
     await expect(adapter.read(key)).rejects.toMatchObject({
       name: "CloudflarePublicCatalogCacheError",
@@ -204,7 +205,7 @@ describe("CloudflarePublicCatalogCache", () => {
 
   it("warns when cache integrity ETag generation fails", async () => {
     const { store } = stubCache();
-    const adapter = new CloudflarePublicCatalogCache();
+    const adapter = new CloudflarePublicCatalogCache(getSiteDefinition("otw"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const cacheUrl =
       "https://otw.internal/cache/play/v2/17/catalog?member=2&member=7&sort=title";
@@ -237,7 +238,7 @@ describe("CloudflarePublicCatalogCache", () => {
   it("reports unavailable Cache API without falling back to stale data", async () => {
     vi.stubGlobal("caches", undefined);
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const adapter = new CloudflarePublicCatalogCache();
+    const adapter = new CloudflarePublicCatalogCache(getSiteDefinition("otw"));
 
     await expect(adapter.read(key)).rejects.toEqual(
       expect.objectContaining<Partial<CloudflarePublicCatalogCacheError>>({
@@ -263,4 +264,14 @@ describe("createPublicCatalogEtag", () => {
       await createPublicCatalogEtag("오버더월 プレイ play"),
     );
   });
+});
+
+it("isolates identical catalog revisions across sites sharing Cache API", async () => {
+  stubCache();
+  const otw = new CloudflarePublicCatalogCache(getSiteDefinition("otw"));
+  const luvdia = new CloudflarePublicCatalogCache(getSiteDefinition("luvdia"));
+  await otw.write(key, entry, 300);
+  expect(await luvdia.read(key)).toBeNull();
+  await luvdia.write(key, { ...entry, document: { ...entry.document, generatedAt: "2026-10-14T00:00:00Z" } }, 300);
+  expect(await otw.read(key)).toEqual(entry);
 });

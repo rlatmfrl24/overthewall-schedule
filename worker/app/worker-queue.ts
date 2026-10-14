@@ -3,22 +3,13 @@ import {
   isScheduledJobQueueMessage,
 } from "@contracts/scheduled-operations";
 import type { Env } from "../platform/types";
+import { getWorkerSiteResources } from "../platform/site";
 import { handleQueue } from "./queue";
 import { handleAiReviewQueue, isAiReviewMessage, isAiBatchMessage } from "./ai-review";
 import {
   handleScheduledControlQueue,
   handleScheduledJobQueue,
 } from "./scheduled-queue";
-
-const CONTROL_QUEUE = "otw-ops-control";
-const SCHEDULED_JOB_QUEUES = new Set([
-  "otw-ops-critical",
-  "otw-ops-background",
-]);
-const MEDIA_QUEUES = new Set([
-  "otw-play-ingestion",
-]);
-const DEAD_LETTER_QUEUE = "otw-dead-letter";
 
 const asBatch = (
   batch: MessageBatch<unknown>,
@@ -29,20 +20,21 @@ export const handleWorkerQueue = async (
   batch: MessageBatch<unknown>,
   env: Env,
 ) => {
-  if (batch.queue === "otw-play-ai-review") { await handleAiReviewQueue(batch, env); return; }
-  if (batch.queue === CONTROL_QUEUE) {
+  const { site, queues } = getWorkerSiteResources(env);
+  if (batch.queue === queues.aiReview) { await handleAiReviewQueue(batch, env); return; }
+  if (batch.queue === queues.control) {
     await handleScheduledControlQueue(batch, env);
     return;
   }
-  if (SCHEDULED_JOB_QUEUES.has(batch.queue)) {
+  if (batch.queue === queues.critical || batch.queue === queues.background) {
     await handleScheduledJobQueue(batch, env);
     return;
   }
-  if (MEDIA_QUEUES.has(batch.queue)) {
+  if (batch.queue === queues.ingestion) {
     await handleQueue(batch, env);
     return;
   }
-  if (batch.queue === DEAD_LETTER_QUEUE) {
+  if (batch.queue === queues.deadLetter) {
     const scheduledMessages = batch.messages.filter((message) =>
       isScheduledControlQueueMessage(message.body) ||
       isScheduledJobQueueMessage(message.body)
@@ -63,5 +55,6 @@ export const handleWorkerQueue = async (
     ]);
     return;
   }
-  for (const message of batch.messages) message.ack();
+  console.error("[queue] unknown physical queue", { queue: batch.queue, site: site.id });
+  for (const message of batch.messages) message.retry();
 };

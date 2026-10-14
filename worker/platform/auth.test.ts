@@ -101,6 +101,34 @@ describe("worker auth", () => {
     return `${header}.${payload}.${base64UrlEncode(signature)}`;
   };
 
+  it("fails closed when configured JWKS or publishable app disagrees with the issuer", async () => {
+    const token = await signToken();
+    for (const overrides of [
+      { CLERK_JWKS_URL: "https://other.clerk.example/.well-known/jwks.json" },
+      { VITE_CLERK_PUBLISHABLE_KEY: makePublishableKey("https://other.clerk.example") },
+    ]) {
+      const result = await authenticateRequest(new Request("https://example.com/api/settings", { headers: { Authorization: `Bearer ${token}` } }), makeEnv(overrides));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.response.status).toBe(500);
+    }
+  });
+
+  it("accepts only the selected app issuer, authorized origin and explicit administrator ID", async () => {
+    const origin = "http://localhost:5174";
+    const issuer = "https://luvdia.clerk.example";
+    const env = makeEnv({ SITE_ID: "luvdia", CLERK_ISSUER: issuer, CLERK_JWKS_URL: `${issuer}/.well-known/jwks.json`, CLERK_AUTHORIZED_PARTIES: origin, CLERK_ADMIN_IDS: "user_luvdia_admin" });
+    for (const [claims, expected] of [
+      [{ iss: ISSUER, azp: origin, sub: "user_luvdia_admin" }, 401],
+      [{ iss: issuer, azp: "http://localhost:5173", sub: "user_luvdia_admin" }, 401],
+      [{ iss: issuer, azp: origin, sub: "user_admin", email: "same@operator.example" }, 403],
+      [{ iss: issuer, azp: origin, sub: "user_luvdia_admin" }, 200],
+    ] as const) {
+      const token = await signToken(claims);
+      const result = await requireAdminUser(new Request(`${origin}/api/settings`, { headers: { Authorization: `Bearer ${token}` } }), env);
+      expect(result.ok ? 200 : result.response.status).toBe(expected);
+    }
+  });
+
   it("spoofed user header alone is not authenticated", async () => {
     const result = await authenticateRequest(
       new Request("https://example.com/api/settings", {
