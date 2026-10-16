@@ -427,6 +427,19 @@ export const backfillXPostReferencesFromStoredPosts = async (
     ].filter((reference): reference is { type: "quote" | "reply"; id: string; hydrated: boolean } =>
       Boolean(reference?.id)
     );
+    // Freeze both keys before deletion triggers advance the source generation.
+    const removed = await db.prepare(`WITH obsolete AS MATERIALIZED (
+      SELECT r.source_post_id,r.relation_type FROM x_post_references r
+      JOIN x_posts p ON p.id=r.source_post_id JOIN x_post_repair_work work ON work.post_id=p.id
+      WHERE p.id=? AND p.handle=? AND p.value=? AND work.generation=?
+        AND r.relation_type IN ('quote','reply') AND p.content_access='normal' AND p.hidden_at IS NULL AND p.content_removed_at IS NULL
+        AND COALESCE(json_type(p.value,'$.'||r.relation_type),'null')='null'
+        AND NOT (${publicationHiddenSql("x_posts","p",siteId)})
+      ) DELETE FROM x_post_references
+      WHERE (source_post_id,relation_type) IN (SELECT source_post_id,relation_type FROM obsolete)
+      RETURNING relation_type`)
+      .bind(row.id, row.handle, row.value, row.generation)
+      .all();
     for (const reference of references) {
       const local = reference.type === "quote" ? await db.prepare("SELECT 1 AS found FROM x_posts WHERE id = ? LIMIT 1")
         .bind(reference.id).first<{ found: number }>() : null;
@@ -462,7 +475,8 @@ export const backfillXPostReferencesFromStoredPosts = async (
       ).run();
       recorded += Number(result.meta.changes > 0);
     }
-    await acknowledgeRepair(db, row, "references", true,siteId);
+    // Each removed relation invalidates repair generation once; later edits must stay pending.
+    await acknowledgeRepair(db, { ...row, generation: row.generation + removed.results.length }, "references", true,siteId);
   }
   return { scanned: rows.results.length, recorded, invalid };
 };

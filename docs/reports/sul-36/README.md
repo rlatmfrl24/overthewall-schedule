@@ -4,6 +4,7 @@
 
 - [10/16 이관 실행부 정리와 운영 반영](2026-10-16-content-transition-retirement.md)
 - [10/16 전체 미커밋 리뷰·PR 대기](2026-10-16-uncommitted-review.md)
+- [10/16 남은 코드 독립 리뷰·결함 수정](2026-10-16-uncommitted-deep-review.md)
 - [D1 사고·복구 증거](2026-10-16-otw-d1-incident.md)
 - [R2 업로드 사고 원본](operational-upload-incident.md)
 - [이전 기술 검토 원문](../../archive/2026-10-16/reports/sul-36/technical-review-before-closeout.md)

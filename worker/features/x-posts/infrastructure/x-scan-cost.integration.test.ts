@@ -4,6 +4,7 @@ import { SITE_OPENS_AT } from "@contracts/site-publication";
 import { backfillXPostFactsFromStoredPosts, backfillXPostReferencesFromStoredPosts } from "./x-history";
 import { hydrateXReferences } from "./x-reference-hydration";
 import { runXCollectionForHandles } from "./x-collection";
+import { normalizeXTimelineResponse } from "./x-api";
 
 const testEnv = env as Env & { X_REFERENCE_MIGRATIONS: D1Migration[]; transition_target_db: D1Database };
 const db = testEnv.otw_db;
@@ -27,6 +28,7 @@ function meter(afterRun?: (sql: string) => Promise<void>) {
             if (method === "all") return async () => {
               const result = await target.all();
               reads.push({ sql, rows: Number(result.meta.rows_read) });
+              await afterRun?.(sql);
               return result;
             };
             if (method === "run" && afterRun) return async () => {
@@ -129,6 +131,90 @@ describe("X maintenance reads scale with pending work", { timeout: 15_000 }, () 
     const measured = meter();
     await runXCollectionForHandles({ ...testEnv, SITE_ID: "otw", otw_db: measured.db }, [], "manual");
     expect(measured.reads.reduce((sum, read) => sum + read.rows, 0)).toBe(0);
+  });
+
+  it.each(["quote", "reply", "both"] as const)("retires removed %s relations from a normalized replay without changing originals", async relation => {
+    const [replayed] = normalizeXTimelineResponse({ data: [{ id: "removed", text: "stored post", created_at: "2026-10-15T00:00:00Z" }] }, "member");
+    const original = { ...replayed,
+      quote: relation === "reply" ? null : post("removed").quote,
+      reply: relation === "quote" ? null : { ...post("removed").quote, conversationId: null },
+    };
+    await db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at) VALUES('removed','member','member',?,'2026-10-15',1,1)")
+      .bind(JSON.stringify(original)).run();
+    await backfillXPostFactsFromStoredPosts(db, "otw");
+    await backfillXPostReferencesFromStoredPosts(db, "otw");
+    expect((await db.prepare("SELECT * FROM x_post_references WHERE source_post_id='removed'").all()).results).toHaveLength(relation === "both" ? 2 : 1);
+    const fact = await db.prepare("SELECT * FROM x_post_facts WHERE post_id='removed'").first();
+    await db.prepare("UPDATE x_posts SET value=? WHERE id='removed'").bind(JSON.stringify(replayed)).run();
+    await backfillXPostReferencesFromStoredPosts(db, "otw");
+    expect((await db.prepare("SELECT * FROM x_post_references WHERE source_post_id='removed'").all()).results).toEqual([]);
+    expect((await db.prepare("SELECT * FROM x_quote_body_work WHERE source_post_id='removed'").all()).results).toEqual([]);
+    expect(await db.prepare("SELECT value FROM x_posts WHERE id='removed'").first("value")).toBe(JSON.stringify(replayed));
+    expect(await db.prepare("SELECT * FROM x_post_facts WHERE post_id='removed'").first()).toEqual(fact);
+    expect(await db.prepare("SELECT references_pending FROM x_post_repair_work WHERE post_id='removed'").first("references_pending")).toBe(0);
+    expect(await backfillXPostReferencesFromStoredPosts(db, "otw")).toMatchObject({ scanned: 0 });
+    const provider = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected provider request"));
+    try {
+      expect(await hydrateXReferences({ siteId: "otw", db, handles: ["member"], bearerToken: "unused", mode: "post_only", tracker: tracker() }))
+        .toMatchObject({ scanned: 0 });
+      expect(provider).not.toHaveBeenCalled();
+    } finally { provider.mockRestore(); }
+  });
+
+  it.each(["selection", "removal"] as const)("preserves a new reference edited after obsolete relation %s", async stage => {
+    await db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at) VALUES('edited','member','member',?,'2026-10-15',1,1)")
+      .bind(JSON.stringify(post("edited"))).run();
+    await backfillXPostReferencesFromStoredPosts(db, "otw");
+    await db.prepare("UPDATE x_posts SET value=? WHERE id='edited'").bind(JSON.stringify({ ...post("edited"), quote: null })).run();
+    const changed = JSON.stringify(post("edited", "20"));
+    let edited = false;
+    const measured = meter(async sql => {
+      if (!edited && (stage === "selection" ? sql.includes("work.references_pending=1") : sql.includes("DELETE FROM x_post_references"))) {
+        edited = true;
+        await db.prepare("UPDATE x_posts SET value=? WHERE id='edited'").bind(changed).run();
+      }
+    });
+    await backfillXPostReferencesFromStoredPosts(measured.db, "otw");
+    expect(edited).toBe(true);
+    expect(await db.prepare("SELECT references_pending FROM x_post_repair_work WHERE post_id='edited'").first("references_pending")).toBe(1);
+    expect(await db.prepare("SELECT value FROM x_posts WHERE id='edited'").first("value")).toBe(changed);
+    await backfillXPostReferencesFromStoredPosts(db, "otw");
+    expect((await db.prepare("SELECT referenced_post_id FROM x_post_references WHERE source_post_id='edited'").all()).results).toEqual([{ referenced_post_id: "20" }]);
+    expect(await backfillXPostReferencesFromStoredPosts(db, "otw")).toMatchObject({ scanned: 0 });
+  });
+
+  it("does not remove an obsolete selected relation when its repair crosses publication cutoff", async () => {
+    await db.prepare("UPDATE members SET code='bing_hayu' WHERE uid=1").run();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(SITE_OPENS_AT) - 1);
+    try {
+      await db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at) VALUES('cutoff','member','member',?,'2026-10-15',1,1)")
+        .bind(JSON.stringify(post("cutoff"))).run();
+      await backfillXPostReferencesFromStoredPosts(db, "otw");
+      const replayed = JSON.stringify({ ...post("cutoff"), quote: null });
+      await db.prepare("UPDATE x_posts SET value=? WHERE id='cutoff'").bind(replayed).run();
+      const measured = meter(async sql => {
+        if (sql.includes("work.references_pending=1")) clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+      });
+      await backfillXPostReferencesFromStoredPosts(measured.db, "otw");
+      expect(await db.prepare("SELECT referenced_post_id FROM x_post_references WHERE source_post_id='cutoff'").first("referenced_post_id")).toBe("10");
+      expect(await db.prepare("SELECT references_pending FROM x_post_repair_work WHERE post_id='cutoff'").first("references_pending")).toBe(1);
+      expect(await db.prepare("SELECT value FROM x_posts WHERE id='cutoff'").first("value")).toBe(replayed);
+    } finally { clock.mockRestore(); }
+  });
+
+  it.each(["invalid", "malformed", "archived", "hidden", "removed"] as const)("preserves reference evidence for an %s source", async state => {
+    await db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at) VALUES('retained','member','member',?,'2026-10-15',1,1)")
+      .bind(JSON.stringify(post("retained"))).run();
+    await backfillXPostReferencesFromStoredPosts(db, "otw");
+    const value = state === "invalid" ? "invalid" : state === "malformed" ? JSON.stringify({ ...post("retained"), quote: {} })
+      : state === "archived" ? JSON.stringify({ ...post("retained"), quote: null }) : "{}";
+    await db.prepare("UPDATE x_posts SET value=?,hidden_at=?,content_removed_at=?,content_access=? WHERE id='retained'")
+      .bind(value, state === "hidden" ? 1 : null, state === "removed" ? 1 : null, state === "archived" ? "admin_archive" : "normal").run();
+    const original = await db.prepare("SELECT * FROM x_posts WHERE id='retained'").first();
+    const reference = await db.prepare("SELECT * FROM x_post_references WHERE source_post_id='retained'").first();
+    await backfillXPostReferencesFromStoredPosts(db, "otw");
+    expect(await db.prepare("SELECT * FROM x_posts WHERE id='retained'").first()).toEqual(original);
+    expect(await db.prepare("SELECT * FROM x_post_references WHERE source_post_id='retained'").first()).toEqual(reference);
   });
 
   it("does not read deferred quote-body or author backlogs before their due time", async () => {
