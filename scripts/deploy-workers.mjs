@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { verifyClientBuildForDeploy } from "./client-build-deploy-guard.mjs";
 import { getSiteTarget, parseSiteArgument } from "./site-target.mjs";
 import { verifySiteBuildManifest } from "./site-build-manifest.mjs";
@@ -18,6 +19,7 @@ const verifiedClientBuild = verifyClientBuildForDeploy(resolve(target.outputRoot
 process.stdout.write(
   `[deploy] Verified Clerk configuration in ${verifiedClientBuild.entryScriptCount} client entry script(s).\n`,
 );
+process.stdout.write(`[deploy] Release ${JSON.stringify({ siteId, gitCommit: manifest.gitCommit, sourceTreeHash: manifest.sourceTreeHash, migrationHead: manifest.migrationHead, artifactHash: createHash("sha256").update(JSON.stringify(manifest.artifactHashes)).digest("hex") })}\n`);
 
 const run = (args, options = {}) => {
   const displayCommand = `pnpm exec wrangler ${args.join(" ")}`;

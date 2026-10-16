@@ -30,7 +30,7 @@ it("returns 503/no-store for total video failure and 200 for empty or partial so
   for (const mode of ["empty", "partial", "failed"] as const) {
     const sourceDb = new Proxy(db, { get(target, key) {
       if (key === "prepare") return (sql: string) => {
-        if (mode === "failed" || (mode === "partial" && sql.includes("youtube_feed_videos"))) throw new Error("Source unavailable");
+        if (sql.includes("youtube_feed_videos") && mode !== "empty" || sql.includes("chzzk_api_cache") && mode === "failed") throw new Error("Source unavailable");
         return target.prepare(sql);
       };
       const value = Reflect.get(target, key, target);
@@ -56,6 +56,8 @@ it("returns 503/no-store for total video failure and 200 for empty or partial so
 });
 
 it("injects the configured LuvDia identity through the real Worker composition rather than the request host", async () => {
+  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-18T15:00:00Z'));
+  try {
   const runtime = { ...testEnv, ...siteEnv("luvdia"), SITE_ID: "luvdia", SITE_PUBLIC_ORIGIN: "http://localhost:5174", ASSETS: { fetch: async () => new Response('<html><head><title>old</title><link data-site-seo="canonical" rel="canonical" href="/"></head><body><div id="root"></div></body></html>') } } as unknown as Env;
   const response = await handleWorkerFetch(new Request("http://localhost:9999/vods"), runtime);
   expect(response.status).toBe(200);
@@ -64,6 +66,7 @@ it("injects the configured LuvDia identity through the real Worker composition r
   expect(html).toContain('href="http://localhost:5174/vods"');
   expect(html).not.toContain("http://localhost:9999/vods");
   expect(html).not.toContain("otw-schedule.info");
+  } finally {clock.mockRestore();}
 });
 
 it("rejects total feed failure but preserves a successful source on partial failure", async () => {

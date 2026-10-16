@@ -660,7 +660,7 @@ describe("D1IngestionRepository", () => {
       NOW + 2,
     );
 
-    expect(batchSizes).toEqual([3, 8, 8]);
+    expect(batchSizes).toEqual([3, 9, 12]);
     expect((await repository.getJob("job-50")).counts.metadataChecked).toBe(50);
   });
 
@@ -1428,6 +1428,11 @@ describe("D1IngestionRepository", () => {
       }],
       NOW,
     );
+    await db.prepare(`INSERT INTO music_ingestion_candidates(id,external_video_id,title,channel_id,metadata_checked_at,first_discovered_at,last_discovered_at,retention_expires_at,created_at,updated_at,content_access)
+      SELECT 'youtube:BBBBBBBBBBB','BBBBBBBBBBB',title,channel_id,metadata_checked_at,first_discovered_at,last_discovered_at,retention_expires_at,created_at,updated_at,'admin_archive'
+      FROM music_ingestion_candidates WHERE id='youtube:AAAAAAAAAAA'`).run();
+    const archived=await db.prepare("SELECT title,channel_id,metadata_checked_at,retention_expires_at FROM music_ingestion_candidates WHERE id='youtube:BBBBBBBBBBB'").first();
+    expect(archived).toMatchObject({title:'Eligible',metadata_checked_at:NOW});
     const thirtyDays = 30 * 86_400_000;
     const readOnly = new D1IngestionRepository({
       prepare(sql: string) {
@@ -1444,6 +1449,8 @@ describe("D1IngestionRepository", () => {
       repository.clearExpiredApiData(NOW + thirtyDays, 100),
     ).resolves.toBe(2);
     expect(await readOnly.hasExpiredApiData(NOW + thirtyDays)).toBe(false);
+    expect(await db.prepare("SELECT title,channel_id,metadata_checked_at,retention_expires_at FROM music_ingestion_candidates WHERE id='youtube:BBBBBBBBBBB'").first()).toEqual(archived);
+    expect(await db.prepare("SELECT id FROM music_ingestion_events WHERE candidate_id='youtube:BBBBBBBBBBB' AND event_type='candidate.api_data_cleared'").first()).toBeNull();
     const candidate = await db.prepare(
       `SELECT title, channel_id, thumbnail_url, availability_status,
         metadata_checked_at, classification, status

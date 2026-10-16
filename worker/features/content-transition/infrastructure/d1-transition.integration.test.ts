@@ -10,7 +10,8 @@ import { projectCapturedRecord,decodeProjectedRecord } from "../domain/projected
 import { historicalStatements } from "./historical-statements";
 import { D1IngestionRepository } from "../../otw-play/infrastructure/d1-ingestion-repository";
 import { classifiedTables } from "./manifest-statements";
-import { keySql } from "./capture-graph";
+import { keySql, type ContentTable } from "./capture-graph";
+import { contentDispositionRegistry } from "../domain/disposition-registry";
 import type { TransitionPlan } from "../../../../contracts/content-transition";
 import {D1FileAvailability} from "../../assets/infrastructure/d1-file-availability";
 import {D1R2FileStore} from '../../assets';
@@ -55,6 +56,7 @@ const bindings = env as typeof env & { transition_target_db: D1Database; CONTENT
 const sourceDb = bindings.otw_db;
 const targetDb = bindings.transition_target_db;
 const fixtureClassifications: Array<TransitionPlan["classifications"][number]>=[];
+const fixtureRows=new Map<D1Database,{table:ContentTable;rows:Record<string,unknown>[]}[]>();
 const plan = {
   id: "move", sourceSite: "otw", targetSite: "luvdia", sourceResource: "source-db", targetResource: "target-db",
   generation: 2, protocol: 1, manifestDigest: "reviewed-manifest",assetBuckets:{source:"otw-bucket",target:"luvdia-bucket"}, members: [
@@ -97,60 +99,30 @@ async function migrate(db: D1Database) {
 
 beforeAll(async () => {
   await migrate(sourceDb); await migrate(targetDb);
+  for(const db of [sourceDb,targetDb]) fixtureRows.set(db,await Promise.all((Object.keys(contentDispositionRegistry) as ContentTable[]).map(async table=>({table,rows:(await db.prepare(`SELECT * FROM "${table}"`).all<Record<string,unknown>>()).results}))));
   for(const table of classifiedTables) {
     const rows=(await sourceDb.prepare(`SELECT ${keySql(table,"a")} identity FROM "${table}" a`).all<{identity:string}>()).results;
     fixtureClassifications.push(...rows.map(row=>({table,key:row.identity,disposition:"exclude" as const,reason:"Fixture-approved unrelated site configuration"})));
   }
 }, 120000);
 beforeEach(async () => {
-  for (const db of [sourceDb, targetDb]) {
-    const resumed=(await db.prepare("SELECT json_extract(envelope_json,'$.nativeReceipt.aiResume.confirmation.reviewId') id FROM content_transition_operations WHERE transition_id=? AND json_extract(envelope_json,'$.codec.id') IN ('otw-play.ai.resume','otw-play.ai.unknown') AND json_type(envelope_json,'$.nativeReceipt.aiResume.confirmation.reviewId')='text'").bind(plan.id).all<{id:string}>()).results;
+  vi.restoreAllMocks();
+  for(const db of [sourceDb,targetDb]) {
+    await db.prepare('DELETE FROM content_transitions').run();
+    const baseline=fixtureRows.get(db)!.toSorted((a,b)=>Number(a.table==='asset_file_reference_paths')-Number(b.table==='asset_file_reference_paths'));
     await db.batch([
-      db.prepare("DELETE FROM content_transitions"),
-      db.prepare("DELETE FROM music_ai_reviews WHERE id IN (SELECT review_id FROM music_ai_review_batch_items WHERE batch_id IN (SELECT id FROM music_ai_review_batches WHERE request_key IN ('otw-pending-admin:maintenance-native-batch','luvdia-pending-admin:maintenance-native-batch')))") ,
-      db.prepare("DELETE FROM music_ai_review_batches WHERE request_key IN ('otw-pending-admin:maintenance-native-batch','luvdia-pending-admin:maintenance-native-batch')"),
-      db.prepare("DELETE FROM music_ai_reviews WHERE id IN (SELECT review_id FROM music_ai_review_requests WHERE request_key='otw-pending-admin:maintenance-cancel-ai')"),
-      ...resumed.map(row=>db.prepare('DELETE FROM music_ai_reviews WHERE id=?').bind(row.id)),
-      db.prepare("DELETE FROM music_ai_reviews WHERE id IN (SELECT review_id FROM music_ai_review_requests WHERE request_key IN ('otw-pending-admin:legacy-unknown-review','luvdia-pending-admin:native-original-review','luvdia-pending-admin:native-budget-review'))"),
-      db.prepare("DELETE FROM x_api_cache WHERE key='x:redaction-fixture'"),
-      db.prepare("DELETE FROM content_historical_relations"),
-      db.prepare("DELETE FROM content_historical_records"),
-      db.prepare("DELETE FROM notices"),db.prepare("DELETE FROM member_profile_images"),
-      db.prepare("DELETE FROM pending_schedules"),db.prepare("DELETE FROM schedule_candidate_rejections"),
-      db.prepare("DELETE FROM schedule_day_assessments"),db.prepare("DELETE FROM schedule_broadcast_observations"),
-      db.prepare("DELETE FROM schedules"),
-      db.prepare("DELETE FROM update_logs"),
-      db.prepare("DELETE FROM ddays WHERE id=900"),
-      db.prepare("DELETE FROM music_ingestion_events WHERE candidate_id IN ('review-save','review-next','review-newer')"),
-      db.prepare("DELETE FROM music_ingestion_events WHERE job_id='review-bulk-job' OR candidate_id IN ('youtube:BulkMove001','youtube:BulkStay001')"),
-      db.prepare("DELETE FROM music_ingestion_events WHERE job_id IN (SELECT b.job_id FROM music_playlist_work_batches b JOIN music_playlist_work_queues q ON q.id=b.queue_id WHERE q.playlist_id='PL1234567891')"),
-      db.prepare("DELETE FROM music_ingestion_jobs WHERE id IN (SELECT b.job_id FROM music_playlist_work_batches b JOIN music_playlist_work_queues q ON q.id=b.queue_id WHERE q.playlist_id='PL1234567891')"),
-      db.prepare("DELETE FROM music_playlist_work_items WHERE batch_id IN (SELECT b.id FROM music_playlist_work_batches b JOIN music_playlist_work_queues q ON q.id=b.queue_id WHERE q.playlist_id='PL1234567891')"),
-      db.prepare("DELETE FROM music_playlist_work_batches WHERE queue_id IN (SELECT id FROM music_playlist_work_queues WHERE playlist_id='PL1234567891')"),
-      db.prepare("DELETE FROM music_playlist_work_queues WHERE playlist_id='PL1234567891'"),
-      db.prepare("DELETE FROM music_ingestion_candidates"),
-      db.prepare("DELETE FROM music_ingestion_jobs WHERE id='review-bulk-job'"),
-      db.prepare("DELETE FROM music_ingestion_events WHERE job_id IN (SELECT id FROM music_ingestion_jobs WHERE idempotency_key='maintenance-ingestion-owner' AND actor_user_id IN ('otw-pending-admin','luvdia-pending-admin'))"),
-      db.prepare("DELETE FROM music_ingestion_jobs WHERE idempotency_key='maintenance-ingestion-owner' AND actor_user_id IN ('otw-pending-admin','luvdia-pending-admin')"),
-      db.prepare("DELETE FROM music_cover_proposals"),
-      db.prepare("DELETE FROM music_performances"),
-      db.prepare("DELETE FROM music_media_sources WHERE provider='youtube' AND external_id='NewVideo001'"),
-      db.prepare("DELETE FROM music_media_sources WHERE provider='youtube' AND external_id='BulkMove001'"),
-      db.prepare("DELETE FROM music_media_sources WHERE id='publication-source'"),
-      db.prepare("DELETE FROM music_channels WHERE id='publication-channel'"),
-      db.prepare("DELETE FROM music_channels WHERE id='video-matched'"),
-      db.prepare("DELETE FROM music_channels WHERE id='channel-delete-fixture'"),
-      db.prepare("DELETE FROM music_channels WHERE external_channel_id IN (?,?,?)").bind(`UC${"r".repeat(22)}`,`UC${"n".repeat(22)}`,`UC${"q".repeat(22)}`),
-      db.prepare("DELETE FROM music_songs"),
-      db.prepare("DELETE FROM music_entities"),
-      db.prepare("DELETE FROM x_post_facts"),db.prepare("DELETE FROM x_post_references"),db.prepare("DELETE FROM x_posts"),db.prepare("DELETE FROM x_post_sources"),
-      db.prepare("DELETE FROM members WHERE uid=90"),
-      ...(db===sourceDb?plan.members.map(member => db.prepare("INSERT OR IGNORE INTO members(uid,code,name) VALUES(?,?,?)").bind(member.uid, member.code, member.code)):[db.prepare("DELETE FROM members")]),
-      db.prepare("UPDATE members SET is_deprecated=0,content_access='normal' WHERE uid IN (1,2,3)"),
+      db.prepare('PRAGMA defer_foreign_keys=ON'),
+      ...baseline.filter(({table})=>table!=='content_transitions').map(({table})=>db.prepare(`DELETE FROM "${table}"`)),
+      ...baseline.flatMap(({table,rows})=>rows.map(row=>{
+        const columns=Object.keys(row);
+        return db.prepare(`INSERT INTO "${table}"(${columns.map(column=>'"'+column+'"').join(',')}) VALUES(${columns.map(()=>'?').join(',')})`).bind(...columns.map(column=>row[column]));
+      })),
+      ...(db===sourceDb?plan.members.map(member=>db.prepare('INSERT INTO members(uid,code,name) VALUES(?,?,?)').bind(member.uid,member.code,member.code)):[]),
+      db.prepare('PRAGMA defer_foreign_keys=OFF'),
     ]);
+    expect((await db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
   }
-  await source.prepare(plan);
-  await target.prepare(plan);
+  await source.prepare(plan);await target.prepare(plan);
 });
 
 it('launch_independent_core saves through ordinary LuvDia APIs without transition or peer authority',async()=>{
@@ -3493,12 +3465,16 @@ it("task4.4 rejects malformed original request identities before any schedule ad
   expect(await sourceDb.prepare("SELECT count(*) n FROM schedules").first("n")).toBe(0);
   expect(await sourceDb.prepare("SELECT count(*) n FROM content_transition_operations").first("n")).toBe(0);
 });
-async function routeControls(extraClassifications:TransitionPlan["classifications"]=[],maintenance=false) {
+async function prepareRouteControls(extraClassifications:TransitionPlan["classifications"]=[]) {
   await sourceDb.prepare("DELETE FROM content_transitions").run();await targetDb.prepare("DELETE FROM content_transitions").run();
   const routePlan={...plan,classifications:[...plan.classifications,...extraClassifications],sourceResource:"otw-db",targetResource:"luvdia-db"};
   const routeSource=new D1TransitionRepository(sourceDb,"otw","otw-db","otw-bucket",sourceAvailability, catalogImportProjection,new D1AiReviewAdoption(sourceDb));
   const routeTarget=new D1TransitionRepository(targetDb,"luvdia","luvdia-db","luvdia-bucket",targetAvailability, catalogImportProjection);
   await routeSource.prepare(routePlan);await routeTarget.prepare(routePlan);
+  return {routeSource,routeTarget};
+}
+async function routeControls(extraClassifications:TransitionPlan["classifications"]=[],maintenance=false) {
+  const {routeSource,routeTarget}=await prepareRouteControls(extraClassifications);
   if(maintenance){await routeSource.beginMaintenance(plan.id,Date.now(),await relayBindings.TARGET_RELAY.describe(plan.id));await routeSource.stopMaintenance(plan.id,Date.now());}
   await capturing(routeSource);
   await installInactiveBaseline(routeSource,routeTarget);
@@ -3506,6 +3482,19 @@ async function routeControls(extraClassifications:TransitionPlan["classification
   return {routeSource,routeTarget};
 }
 const sourceRouteSave=(body:unknown,db=sourceDb)=>handleWorkerFetch(new Request("http://localhost:5173/api/schedules/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}),{...bindings,...siteEnv(),otw_db:db,SITE_ASSET_BUCKET_NAME:"otw-bucket"} as unknown as Env);
+it.each(['songs','entities'] as const)('preserves the final SQL maintenance HTTP refusal and original catalog rows (%s)',async kind=>{
+  await seedPublicationCatalog();
+  const {routeSource}=await prepareRouteControls(),fixture=await pendingAdminFixture('otw');fixture.runtime.YOUTUBE_API_KEY='';
+  const body=kind==='entities'?{id:'publication-singer',expectedVersion:0,memberUid:1,entityKind:'person',displayName:'Forbidden late identity',slug:'publication-singer',archived:false}:{id:'publication-song',expectedVersion:0,slug:'publication-song',title:'Forbidden late song',isOtwOriginal:false,originalReleaseDate:null,originalReleasePrecision:'unknown',aliases:[],originalArtists:[{subject:{kind:'entity',entityId:'publication-singer'},creditOrder:0,isPrimary:true}],tags:[]};
+  const snapshot=async()=>JSON.stringify(await Promise.all(['music_entities','music_songs','music_catalog_events','music_catalog_meta','music_public_read_model_meta','music_search_terms','music_search_grams','music_search_gram_stats'].map(table=>sourceDb.prepare(`SELECT * FROM ${table} ORDER BY 1`).all().then(result=>result.results))));
+  const before=await snapshot();let stopped=false;
+  const db=interleave(sourceDb,`UPDATE music_${kind}`,async()=>{stopped=true;await routeSource.beginMaintenance(plan.id,Date.now(),await relayBindings.TARGET_RELAY.describe(plan.id));await routeSource.stopMaintenance(plan.id,Date.now());});
+  try {
+    const response=await handleWorkerFetch(new Request(`http://localhost:5173/api/play/admin/${kind}`,{method:'PUT',headers:{Authorization:`Bearer ${await fixture.token('otw-pending-admin')}`,'Content-Type':'application/json','Idempotency-Key':`publication-final-maintenance-${kind}`},body:JSON.stringify(body)}),{...fixture.runtime,otw_db:db});
+    expect(stopped).toBe(true);expect(response.status,await response.clone().text()).toBe(503);expect(await response.json()).toMatchObject({error:{code:'CONTENT_MAINTENANCE'}});expect(response.headers.get('Cache-Control')).toContain('no-store');expect(response.headers.get('Retry-After')).toBeTruthy();
+    expect(await snapshot()).toBe(before);expect(await sourceDb.prepare('SELECT count(*) n FROM content_transition_operations').first('n')).toBe(0);
+  } finally {fixture.close();}
+},20000);
 it("task4.4 rolls back source admission with the whole normal save when the fence wins",async()=>{
   await sourceDb.prepare("INSERT INTO schedules(id,member_uid,date,title,status) VALUES(701,1,'2026-10-15','Unchanged','휴방')").run();
   const {routeSource}=await routeControls();

@@ -6,6 +6,7 @@ import { D1MemberPostsPort } from "./d1-member-posts-port";
 import { xPostFeedService } from "../../x-posts";
 import { readStoredNaverCafePostsForSources } from "../../naver-cafe";
 import type { Env } from "../../../platform/types";
+import {siteEnv} from '../../../test-support/site-env';
 
 const testEnv = env as unknown as Env & { X_REFERENCE_MIGRATIONS: D1Migration[]; MEMBER_POSTS_CAFE_MIGRATIONS: D1Migration[] };
 const db = testEnv.otw_db;
@@ -17,7 +18,7 @@ const measured = new Proxy(db, { get(target, key) {
   const value = Reflect.get(target, key, target);
   return typeof value === "function" ? value.bind(target) : value;
 } });
-const port = new D1MemberPostsPort({ ...testEnv, otw_db: measured }, xPostFeedService, readStoredNaverCafePostsForSources);
+const port = new D1MemberPostsPort({ ...testEnv, ...siteEnv(), otw_db: measured }, xPostFeedService, readStoredNaverCafePostsForSources);
 const app = new GetMemberPosts(port);
 beforeEach(async () => {
   await applyD1Migrations(db, testEnv.X_REFERENCE_MIGRATIONS);

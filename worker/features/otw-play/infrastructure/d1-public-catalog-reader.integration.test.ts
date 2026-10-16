@@ -53,6 +53,9 @@ type PublicCatalogTestEnv = Env & {
 
 const testEnv = env as PublicCatalogTestEnv;
 const db = testEnv.otw_db;
+const explainCandidate = (query: ReturnType<typeof buildD1PublicCatalogCandidateQuery>) => db
+  .prepare(`EXPLAIN QUERY PLAN ${query.sql.replaceAll('__PUBLICATION_TIME__',`max(unixepoch(),${Math.floor(Date.now()/1000)})`)}`)
+  .bind(...query.binds).all<{detail:string}>();
 const NOW = Date.UTC(2026, 0, 10);
 const DAY = 86_400_000;
 
@@ -527,7 +530,7 @@ describe("D1PublicCatalogReader", () => {
     const body = await response.json() as { data: { member: { songCount: number }; items: { id: string }[] }; catalogRevision: number };
     expect(body.data.member.songCount).toBe(3);
     expect(body.data.items.map(item => item.id)).toEqual(["member-song-3"]);
-    expect(body.catalogRevision).toBe(7);
+    expect(body.catalogRevision).toBe(14);
     for (const code of ["former-b", "missing"]) {
       expect((await handler(new Request(`https://example.com/api/play/members/${code}/songbook`), testEnv)).status).toBe(404);
     }
@@ -543,8 +546,8 @@ describe("D1PublicCatalogReader", () => {
   it("reads the singleton metadata before public catalog work", async () => {
     const reader = new D1PublicCatalogReader(db);
     await expect(reader.readMeta()).resolves.toEqual({
-      revision: 7,
-      readModelRevision: 7,
+      revision: 14,
+      readModelRevision: 14,
       publicReadEnabled: true,
       navigationVisible: false,
       updatedAt: NOW,
@@ -1214,22 +1217,10 @@ describe("D1PublicCatalogReader", () => {
       namedParticipantPlan,
       missingParticipantPlan,
     ] = await Promise.all([
-      db
-        .prepare(`EXPLAIN QUERY PLAN ${recentCandidate.sql}`)
-        .bind(...recentCandidate.binds)
-        .all<{ detail: string }>(),
-      db
-        .prepare(`EXPLAIN QUERY PLAN ${participationCandidate.sql}`)
-        .bind(...participationCandidate.binds)
-        .all<{ detail: string }>(),
-      db
-        .prepare(`EXPLAIN QUERY PLAN ${namedParticipantCandidate.sql}`)
-        .bind(...namedParticipantCandidate.binds)
-        .all<{ detail: string }>(),
-      db
-        .prepare(`EXPLAIN QUERY PLAN ${missingParticipantCandidate.sql}`)
-        .bind(...missingParticipantCandidate.binds)
-        .all<{ detail: string }>(),
+      explainCandidate(recentCandidate),
+      explainCandidate(participationCandidate),
+      explainCandidate(namedParticipantCandidate),
+      explainCandidate(missingParticipantCandidate),
     ]);
     expect(recentPlan.results.map(({ detail }) => detail).join("\n")).toContain(
       "idx_music_performances_published_released_song_id",
@@ -1329,10 +1320,7 @@ describe("D1PublicCatalogReader", () => {
         "indexed",
         61,
       );
-      const plan = await db
-        .prepare(`EXPLAIN QUERY PLAN ${candidateQuery.sql}`)
-        .bind(...candidateQuery.binds)
-        .all<{ detail: string }>();
+      const plan = await explainCandidate(candidateQuery);
       const planDetails = plan.results.map(({ detail }) => detail);
       expect(planDetails).toContain("MATERIALIZE search_rank");
       expect(planDetails).toContain("SCAN search_rank");

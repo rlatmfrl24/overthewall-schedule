@@ -1,5 +1,5 @@
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
-import { beforeAll, afterEach, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, afterEach, expect, it, vi } from "vitest";
 import { handleWorkerFetch } from "./fetch";
 import { clearAuthCachesForTests } from "../platform/auth";
 import type { Env } from "../platform/types";
@@ -20,7 +20,8 @@ beforeAll(async () => {
   keys = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]) as CryptoKeyPair;
   jwk = await crypto.subtle.exportKey("jwk", keys.publicKey) as JsonWebKey;
 });
-afterEach(() => { vi.unstubAllGlobals(); clearAuthCachesForTests(); });
+beforeEach(()=>{vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-18T15:00:00Z'));});
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); clearAuthCachesForTests(); });
 it.each(["otw", "luvdia"] as const)("enforces %s app/origin/admin identity through Worker fetch before D1 mutation", async site => {
   const issuer = `https://${site}.clerk.invalid`;
   const origin = site === "otw" ? "http://localhost:5173" : "http://localhost:5174";

@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../../../platform/db";
 import type { CachedChzzkVideos } from "../../../platform/types";
@@ -206,6 +206,7 @@ describe("auto update rejection workflow", () => {
     await env.otw_db.batch(
       TEST_SCHEMA.map((statement) => env.otw_db.prepare(statement)),
     );
+    await applyD1Migrations(env.otw_db,(env as unknown as {CONTENT_TRANSITION_CONTROL_MIGRATIONS:D1Migration[]}).CONTENT_TRANSITION_CONTROL_MIGRATIONS);
     await env.otw_db.batch(
       (env as unknown as { SCHEDULE_DAY_MIGRATION_SQL: string }).SCHEDULE_DAY_MIGRATION_SQL
         .split("--> statement-breakpoint").map(sql => env.otw_db.prepare(sql)),

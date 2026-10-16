@@ -4,7 +4,7 @@
 
 후속 실행: 승인된 [스키마·PR·공개 릴리스 계획](../../superpowers/plans/2026-10-16-publication-production-release.md)에 따라 원본 WIP를 보존한 격리 작업 트리에서 진행 중이다. [실행·리뷰 기록](2026-10-16-publication-production-release.md)의 최신 상태를 우선한다. 19일 숨김 D-day는 운영자가 확인한 OTW ID **4, 9, 10, 11**이며 제목 추론이나 가짜 이관 기록을 사용하지 않는다.
 
-추가 최소 의존성0140은 발행 응답 보존에 맞춘 JSON 검증 view 갱신이며 백필은 없다. 로컬 적용·doctor·canonical parity는 통과했고 populated upgrade 재검증을 진행한다. 19일00:01 KST 실제 전환 관측 예약 `otw-luvdia-19`는 단일 등록했으며 배포·DB 변경을 수행하지 않는다.
+추가 최소 의존성0140은 발행 응답 보존에 맞춘 JSON 검증 view 갱신이며 백필은 없다. 로컬 적용·doctor·canonical parity 및 populated 양 사이트 upgrade가 통과했다. [Draft PR160](https://github.com/rlatmfrl24/overthewall-schedule/pull/160)은 공개 필수 검증·스키마 승격 후 병합한다. 사용자는 LuvDia 이관 완료와 재이관·재복사·대량 백필 금지를 재확인했다. 과거 이관 플랫폼 전체 완성·구형 시험 정리는 공개 선행 조건이 아니며 FAIL 근거를 후속으로 유지한다. 19일00:01 KST 실제 전환 관측 예약 `otw-luvdia-19`는 단일 등록했으며 배포·DB 변경을 수행하지 않는다.
 
 ## 확정 범위
 
@@ -32,7 +32,7 @@
 | 순서 / ID | 필요한 작업 | 비용·재개 조건 | 완료를 인정할 증거 / 소유 계획 |
 | --- | --- | --- | --- |
 | P0 / PUB-VERIFY | 로컬 최종 변경 검증 완료, 운영 역할·정각 검증 남음 | 로컬 완료; 운영은 호환 release 뒤 최소 확인 | 실패→수정→통과 로그, 관리자 로그인 한계와 운영 미반영을 구분. [공개 Task 1·2](../../superpowers/plans/2026-10-15-site-publication-cutover.md). |
-| P0 / PUB-RELEASE | 승인된 호환 스키마 승격 후 단일 공개 PR·양 사이트 배포 | 로컬 재현·비용 확인 후 원격 최소 migration | 승인 대상은 OTW 미적용0102~0136과0139, LuvDia0137~0139. 이미 적용된 SQL은 변경하지 않는다. 0102만으로는 aborted_at 등 정상 요청 의존성이 충족되지 않는다. 원본 전체 WIP를 무검토 배포하지 않고 필수 연결 범위를 리뷰·검증한다. 정상 도메인 countdown·관리자·OTW 사전 정상 및 artifact readback은 실제 반영 후 판정한다. [실행 기록](2026-10-16-publication-production-release.md). |
+| P0 / PUB-RELEASE | 승인된 호환 스키마 승격 후 단일 공개 PR·양 사이트 배포 | 로컬 재현·비용 확인 후 원격 최소 migration | OTW 미적용0102~0136과0139~0140, LuvDia0137~0140. 0140은 발행 응답 보존의 최소 view-only 후속 의존성이다. 이미 적용된 SQL은 변경하지 않는다. 0102만으로는 aborted_at 등 정상 요청 의존성이 충족되지 않는다. 원본 전체 WIP를 무검토 배포하지 않고 필수 연결 범위를 리뷰·검증한다. 정상 도메인 countdown·관리자·OTW 사전 정상 및 artifact readback은 실제 반영 후 판정한다. [실행 기록](2026-10-16-publication-production-release.md). |
 | P0 / PUB-CUTOVER | 19일 실제 시각 이후 LuvDia 정상 공개, OTW 세 멤버 직접 링크/파일/API 차단, 관리자 보관 확인 | 최소; 실제 날짜에 관측 | 실제 진입 → 메뉴 → 콘텐츠, 기존 로그인 역할, 원본 보존 readback. 로컬 fake clock은 실제 정각 증거가 아니다. 관측 예약은 필요할 때 기존 것과 중복 없이 설정. |
 | P1 / D1-BUDGET | 계정 전체 읽기와 DB별 쓰기 ledger 구분, 고비용 SQL/원격 doctor/이관 실행의 예산 점검 | 로컬 쿼리 계획·기존 analytics 우선 | 비용 추정과 중지 기준, 빈 작업 반복 읽기 회귀, 관측에 추가 ledger 쓰기 없음. 자기 DB write guard 통과만으로 계정 읽기 여유를 판단하지 않는다. [성능·운영 계획](../../superpowers/plans/2026-10-15-site-performance-operations.md). |
 | P1 / PROFILE | LuvDia 프로필 초기 이미지 지연: 권한 조회·중복 Blob·fallback·배경 동시 요청 분리 | 로컬 구현 우선, 운영 3회 등 제한 표본 | 정상 profile 버튼 진입에서 주 이미지가 비선택 이미지/원본 fallback을 기다리지 않음. 동일 조건 median TTFB/요청 수와 권한/304/세션 회귀. 파일 크기만 줄여 해결로 판정하지 않는다. [성능 Task 1](../../superpowers/plans/2026-10-15-site-performance-operations.md). |
@@ -43,6 +43,7 @@
 | P2 / DATA-GAPS | 전체 과거 콘텐츠·파일·공동 관계의 차이 목록 및 필요한 부분 보완 | **고비용 보류**; 계정 읽기/쓰기 여유·산정·범위별 예산 확인 후 | 원본 보존, 차이 목록→선택 복구→소유 경로 readback. 이미 복사된 DB 재복사·개인 계정/playlist 승계 금지. [초기 개통](initial-service-launch.md), [독립 배포 계획](../../superpowers/plans/2026-10-13-luvdia-independent-deployments.md). |
 | P2 / MUSIC-INTEGRITY | 재귀 음악 검색 정합성 검사, 전수 doctor, 대량 스캔·과거 백필 | **고비용 보류**; 초기화는 재개 승인 아님 | 로컬 우선, 쿼리 계획/상한·중단 기준·예산 산정 후 필요한 데이터만. 10/15 한도 소진 원인 작업을 무제한 재실행하지 않음. |
 | P2 / ARCHITECTURE | 현재 다섯 흐름 책임도 갱신, 임시 이관 결합·구형 writer/test/codec의 keep/replace/remove 대조 | 로컬, 공개 안전성 확보 후 | 현재 호출자·저장된 receipt·retry 책임 확인 후에만 제거. 폴더 전면 재배치·줄 수 목표 금지. maintenance 이전 신규 접수 성공을 전제한 시험은 현 정책에 대조한다. [공통 구조 Task 2](../../superpowers/plans/2026-10-15-shared-release-architecture.md). |
+| P2 / TRANSITION-REMOVE | **공개 배포 완료 이후 별도 후속:** 과거 이관 전용 코드·시험 안전 제거 | 호출자·exports·계약·Queue/Cron·DB trigger 의존성 조사, 운영 잔여 작업·복구 책임 없음 readback 이후 | 이관 폴더의 공개 정책(카운트다운/정각 공개/OTW 숨김/수집 차단), 일반 저장·파일 보존, 과거 검토·수집 조회 기능을 담당 기능으로 먼저 분리한다. 기존 데이터·이력·보존 파일 및 X 최적화를 유지한다. 적용 이력은 불변이며 불필요한 DB 규칙은 필요할 때 후속 migration으로 정리한다. 데이터 삭제·DB 전체 재구성·재이관은 승인 범위가 아니다. 공개 선행 조건으로 올리지 않는다. |
 | P2 / LEGACY-TESTS | 旧 maintenance stop 시험의 terminal reconciliation 준비를 현 계약에 맞춰 정리 | 로컬 | 별도 기존 시험은 직접 completeItem 후 reconcile outbox를 남겨 `scheduledDispatch=1`로 FAIL. 정상 취소→원래 Queue 마무리→재정지 경로는 기존 `scheduled_finalization_stop`이 소유한다. pending을 직접 지워 PASS로 만들거나 이 FAIL을 전체 통과로 보고하지 않음. |
 | 별도 / R2-INCIDENT | 과거 R2 업로드 사고의 이전 상태·upload version·실제 영향 확인 | 추가 조사/복구는 별도 허용 범위 확인 | 현재 7개 bytes 일치만으로 무해·복구 완료 판정 금지. 재업로드/삭제하지 않음. [원 사고 기록](operational-upload-incident.md). |
 
