@@ -35,10 +35,10 @@ const makeEnv = (overrides: Partial<Env> = {}): Env =>
   }) as Env;
 
 // HTTP normalization tests stop at the gateway's prepared-statement boundary;
-// the owning SQL/transaction is exercised against real D1 in transition tests.
+// the owning SQL/transaction is exercised by the archive and assets D1 tests.
 const mutationQuery = () => ({toSQL:()=>({sql:"notice mutation fixture",params:[]})});
 const mutationClient = (batch=vi.fn(async (statements:unknown[])=>statements.map(()=>({success:true})))) => ({
-  prepare:()=>({bind:()=>({})}),batch,
+  prepare:()=>({bind:()=>({first:async(column?:string)=>column==="state"?"[]":{content_access:"normal",moved:0}})}),batch,
 });
 
 const selectThumbnailQuery = (

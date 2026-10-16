@@ -116,14 +116,14 @@ describe("useAdminLiveScheduleAutoFill", () => {
     );
   });
 
-  it.each(["CONTENT_CONFLICT", "CONTENT_MOVED", "CONTENT_CONFLICT"])("접수와 이동 결과를 저장 성공으로 표시하지 않는다: %s", async (code) => {
+  it.each(["CONTENT_CONFLICT", "CONTENT_MOVED"])("충돌과 이동 결과를 저장 성공으로 표시하지 않는다: %s", async (code) => {
     autoFillLiveSchedulesForMembersMock.mockResolvedValue({scheduleAutoFill: {updated: 0, feedback: [{memberUid: 1, code, message: `${code} 안내`, targetSite: "luvdia", operationId: "original"}]}});
     const client=createTestQueryClient(), invalidate=vi.spyOn(client,"invalidateQueries");
     const wrapper=({children}:{children:ReactNode})=>createElement(QueryClientProvider,{client},children);
     const {useAdminLiveScheduleAutoFill}=await import("./use-admin-live-schedule-auto-fill");
     const props={enabled:true,sourceReady:true,snapshotVersion:"pending",members,schedules};
     const {rerender}=renderHook(options=>useAdminLiveScheduleAutoFill(options),{initialProps:props,wrapper});
-    await waitFor(()=>expect(toastMock).toHaveBeenCalledWith({description:`${code} 안내`,variant:code==="CONTENT_CONFLICT"?"info":"error"}));
+    await waitFor(()=>expect(toastMock).toHaveBeenCalledWith({description:`${code} 안내`,variant:"error"}));
     expect(invalidate).not.toHaveBeenCalled();
     rerender({...props,members:[...members]});
     await act(async()=>{await Promise.resolve();});expect(autoFillLiveSchedulesForMembersMock).toHaveBeenCalledOnce();
