@@ -48,7 +48,16 @@ export interface LiveScheduleAutoFillResponseDto {
   checkedChannelCount: number;
   scheduleAutoFill: {
     updated: number;
+    feedback?: LiveScheduleAutoFillFeedback[];
   };
+}
+
+export interface LiveScheduleAutoFillFeedback {
+  memberUid: number;
+  code: "CONTENT_MOVED" | "CONTENT_ACCEPTED" | "CONTENT_CONFLICT";
+  message: string;
+  operationId: string | null;
+  targetSite: "otw" | "luvdia";
 }
 
 export type ChzzkLiveStatusMap = Record<
@@ -127,4 +136,10 @@ export interface ChzzkClipsBatchResponseDto {
     channelId: string;
     content: ChzzkClipsResponseDto | null;
   }>;
+}
+
+export interface ChzzkHistoryDto {
+  nextCursor: string | null;
+  channels: Array<{ channelId: string; name: string; contentAccess: "normal" | "admin_archive" | null }>;
+  snapshots: Array<{ key: string; type: "vods" | "clips"; storedAt: string; contentAccess: "normal" | "admin_archive" | null; content: ChzzkVideosResponseDto | ChzzkClipsResponseDto }>;
 }

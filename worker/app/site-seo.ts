@@ -1,6 +1,7 @@
 import type { Env } from "../platform/types";
 import { normalizeAdminSettings } from "@contracts/configuration";
 import { D1MemberReader } from "../features/members";
+import { readContentAccessRevision } from "../features/content-transition";
 import {
   SiteSeoService,
   type SiteSeoReader,
@@ -8,6 +9,7 @@ import {
 import { DrizzleSettingsRepository } from "../features/configuration";
 import { D1PublicCatalogReader } from "../features/otw-play";
 import { getDb } from "../platform/db";
+import { getWorkerSiteResources } from "../platform/site";
 
 import { requiresOtwPlayMembership } from "@contracts/otw-play-access";
 import { SiteContentService, CloudflareSiteContentCache, type SiteContentReader } from "../features/seo";
@@ -17,11 +19,12 @@ import { readSiteContentFeed } from "../features/member-posts";
 import { readSiteContentYouTube } from "../features/youtube";
 import { readSiteContentChzzk } from "../features/chzzk";
 
-export const createSiteSeoDependencies = (env: Env) => {
+export const createSiteSeoDependencies = (env: Env,privateRead=false) => {
+  const { site } = getWorkerSiteResources(env);
   const db = getDb(env);
-  const members = new D1MemberReader(db, env.ASSET_BUCKET);
+  const members = new D1MemberReader(db, env.ASSET_BUCKET, false, getWorkerSiteResources(env).site.id);
   const settings = new DrizzleSettingsRepository(db);
-  const play = new D1PublicCatalogReader(env.otw_db);
+  const play = new D1PublicCatalogReader(env.otw_db, getWorkerSiteResources(env).site.id);
   const reader: SiteSeoReader = {
     async readFeedState() {
       const stored = await settings.read([
@@ -53,14 +56,15 @@ export const createSiteSeoDependencies = (env: Env) => {
       return play.readPublishedSongSeoBySlug(slug);
     },
   };
-  const board = new D1ScheduleBoardReader(db);
-  const notices = new D1NoticeGateway(db, env.ASSET_BUCKET);
+  const board = new D1ScheduleBoardReader(db, false, site.id);
+  const notices = new D1NoticeGateway(db, env.ASSET_BUCKET, false, undefined, undefined, site.id);
   const contentReader: SiteContentReader = {
+    readAccessRevision: () => readContentAccessRevision(env.otw_db, site.id),
     readSchedule: (start, end) => board.read(start, end),
     readNotices: today => notices.list({ includeInactive: false, type: null, today }),
-    readFeed: state => readSiteContentFeed(env.otw_db, state),
+    readFeed: state => readSiteContentFeed(env.otw_db, state, site.id),
     readVideos: async () => {
-      const results = await Promise.allSettled([readSiteContentYouTube(env.otw_db), readSiteContentChzzk(env.otw_db)]);
+      const results = await Promise.allSettled([readSiteContentYouTube(env.otw_db, site.id), readSiteContentChzzk(env.otw_db, site.id)]);
       return results.flatMap((r, index) => r.status === "fulfilled" ? r.value : [{ id: index ? "chzzk" : "youtube", title: index ? "치지직" : "유튜브", status: "unavailable" as const, updatedAt: null, items: [] }]);
     },
     readPlaySongs: async slug => {
@@ -76,6 +80,6 @@ export const createSiteSeoDependencies = (env: Env) => {
       ] : []) }];
     },
   };
-  return { seo: new SiteSeoService(reader), content: new SiteContentService(reader, contentReader, new CloudflareSiteContentCache()) };
+  return { seo: new SiteSeoService(reader, site), content: new SiteContentService(reader, contentReader, site, privateRead?undefined:new CloudflareSiteContentCache(site)) };
 };
 

@@ -11,6 +11,7 @@ export function PendingHolidayCard({ pending, dateLabel, createdLabel, busy, onA
   onApprove: () => void;
   onReject: () => void;
 }) {
+  const archived = pending.content_access === "admin_archive";
   const evidence = pending.holiday_evidence;
   const stale = !evidence || evidence.scan_status !== "complete" || evidence.broadcast_seen || pending.same_day_schedule_count > 0;
   return (
@@ -18,6 +19,7 @@ export function PendingHolidayCard({ pending, dateLabel, createdLabel, busy, onA
       <h3 className="font-semibold">{dateLabel}</h3>
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="secondary">휴방 추정</Badge>
+        {archived && <Badge variant="outline">관리자 보관 · 읽기 전용</Badge>}
         <span className="font-semibold">{pending.member_name}</span>
       </div>
       <p className="text-sm">해당 날짜의 등록 일정과 방송 기록이 확인되지 않았습니다. 기록이 남지 않은 방송이 있을 수 있으므로 확인 후 승인해 주세요.</p>
@@ -30,8 +32,8 @@ export function PendingHolidayCard({ pending, dateLabel, createdLabel, busy, onA
       <PendingExistingSchedules pending={pending} />
       {stale && <p role="status" className="text-sm text-destructive">확인 근거가 변경되었거나 불완전한 오래된 요청입니다. 다시 수집한 뒤 확인해 주세요.</p>}
       <div className="flex gap-2">
-        <Button size="sm" disabled={busy || stale || pending.is_processed} onClick={onApprove}>휴방 승인</Button>
-        <Button size="sm" variant="outline" disabled={busy || pending.is_processed} onClick={onReject}>거부</Button>
+        <Button size="sm" disabled={archived || busy || stale || pending.is_processed} onClick={onApprove}>휴방 승인</Button>
+        <Button size="sm" variant="outline" disabled={archived || busy || pending.is_processed} onClick={onReject}>거부</Button>
       </div>
     </article>
   );

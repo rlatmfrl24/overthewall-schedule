@@ -9,11 +9,13 @@ export interface NoticeLinkDto {
 }
 
 export interface NoticeDto {
+  content_access?: "normal" | "admin_archive";
   id: number;
   content: string;
   links: NoticeLinkDto[];
   image_urls: string[];
   related_member_uids: number[];
+  historical_related_people?: import("./content-transition").HistoricalPersonCredit[];
   /** @deprecated Use links. */
   url: string | null;
   /** @deprecated Use image_urls. */
@@ -56,7 +58,7 @@ export interface NoticeThumbnailUploadResponse {
 
 export interface NoticeThumbnailDeleteResponse {
   deleted: boolean;
-  reason?: "referenced";
+  reason?: "referenced" | "retained";
 }
 
 export interface NoticeThumbnailAssetStatus {
@@ -67,6 +69,9 @@ export interface NoticeThumbnailAssetStatus {
   referenced: boolean;
   referenceCount: number;
   cleanupEligible: boolean;
+  objectKey?: string;
+  recoveryHeld?: boolean;
+  graceStart?: number;
 }
 
 export interface NoticeThumbnailReferenceStatus {

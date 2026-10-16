@@ -16,7 +16,8 @@ export function getSnapshotUrl(date: string, mode: SnapshotMode, theme: "light" 
   return `/snapshot?${params.toString()}`;
 }
 
-export function getSnapshotFilename(date: string, mode: SnapshotMode, design: SnapshotDesign = "poster") {
+export function getSnapshotFilename(date: string, mode: SnapshotMode, design: SnapshotDesign, site: SiteDefinition) {
   const label = mode === "grid" ? "일정표" : design === "legacy" ? "기존편성표" : "편성표";
-  return `오버더월 스케쥴-${label}-${date}.png`;
+  return `${site.id === "otw" ? `${site.siteName} 스케쥴` : site.serviceName}-${label}-${date}.png`;
 }
+import type { SiteDefinition } from "@contracts/site-definition";

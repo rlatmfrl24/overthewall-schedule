@@ -1,3 +1,4 @@
+import { siteEnv } from "../../../test-support/site-env";
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { beforeAll, afterEach, it, expect, vi } from "vitest";
 import chzzkMigration from "../../../../drizzle/0040_fixed_black_crow.sql?raw";
@@ -29,13 +30,13 @@ it("returns 503/no-store for total video failure and 200 for empty or partial so
   for (const mode of ["empty", "partial", "failed"] as const) {
     const sourceDb = new Proxy(db, { get(target, key) {
       if (key === "prepare") return (sql: string) => {
-        if (mode === "failed" || (mode === "partial" && sql.includes("youtube_feed_videos"))) throw new Error("Source unavailable");
+        if (sql.includes("youtube_feed_videos") && mode !== "empty" || sql.includes("chzzk_api_cache") && mode === "failed") throw new Error("Source unavailable");
         return target.prepare(sql);
       };
       const value = Reflect.get(target, key, target);
       return typeof value === "function" ? value.bind(target) : value;
     } });
-    const runtime = { ...testEnv, otw_db: sourceDb, ASSETS: { fetch: async () => new Response('<html><head></head><body><div id="root"></div></body></html>') } } as unknown as Env;
+    const runtime = { ...testEnv, ...siteEnv(), SITE_ID: "otw", otw_db: sourceDb, ASSETS: { fetch: async () => new Response('<html><head></head><body><div id="root"></div></body></html>') } } as unknown as Env;
     const response = await createSiteContentHandler(env => createSiteSeoDependencies(env).content)(new Request("https://otw.test/api/site-content?path=/vods"), runtime);
     expect(response.status).toBe(mode === "failed" ? 503 : 200);
     if (mode === "failed") {
@@ -52,6 +53,20 @@ it("returns 503/no-store for total video failure and 200 for empty or partial so
       expect(content.sections.filter(s => s.status === "unavailable")).toHaveLength(mode === "empty" ? 0 : 3);
     }
   }
+});
+
+it("injects the configured LuvDia identity through the real Worker composition rather than the request host", async () => {
+  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-18T15:00:00Z'));
+  try {
+  const runtime = { ...testEnv, ...siteEnv("luvdia"), SITE_ID: "luvdia", SITE_PUBLIC_ORIGIN: "http://localhost:5174", ASSETS: { fetch: async () => new Response('<html><head><title>old</title><link data-site-seo="canonical" rel="canonical" href="/"></head><body><div id="root"></div></body></html>') } } as unknown as Env;
+  const response = await handleWorkerFetch(new Request("http://localhost:9999/vods"), runtime);
+  expect(response.status).toBe(200);
+  const html = await response.text();
+  expect(html).toContain("LuvDia Schedule VOD·클립");
+  expect(html).toContain('href="http://localhost:5174/vods"');
+  expect(html).not.toContain("http://localhost:9999/vods");
+  expect(html).not.toContain("otw-schedule.info");
+  } finally {clock.mockRestore();}
 });
 
 it("rejects total feed failure but preserves a successful source on partial failure", async () => {

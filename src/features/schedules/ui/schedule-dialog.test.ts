@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { Member } from "@/features/members";
 import type { ScheduleItem } from "../model/schedule";
 import { ScheduleDialog } from "./schedule-dialog";
+import {ApiError} from "@/shared/api/client";
 
 const fetchSchedulesMock = vi.hoisted(() => vi.fn());
 vi.mock("../api/schedules", () => ({ fetchSchedulesByDate: fetchSchedulesMock }));
@@ -209,6 +210,19 @@ describe("ScheduleDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "스케쥴 추가" }));
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("저장하지 못했습니다"));
     expect(screen.getByDisplayValue("재시도할 입력")).toBeTruthy();
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["CONTENT_MOVED","이 자료는 LuvDia Schedule로 이동했습니다. LuvDia에서 로그인한 뒤 편집해 주세요."],
+    ["CONTENT_ACCEPTED","저장 요청을 접수했습니다. 이관 처리 후 저장 결과를 확인해 주세요."],
+    ["CONTENT_CONFLICT","다른 저장으로 일정이 변경되었습니다. 변경 내용을 확인해 주세요."],
+  ])("%s 응답을 저장 성공으로 표시하지 않고 실제 후속 조치를 안내한다",async(code,message)=>{
+    const {onSubmit}=renderDialog({onSubmit:async()=>{throw new ApiError(message,409,{code});}});
+    fireEvent.change(screen.getByLabelText(/제목/),{target:{value:"보존할 이전 사이트 초안"}});
+    fireEvent.click(screen.getByRole("button",{name:"스케쥴 추가"}));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent",expect.stringContaining(message));
+    expect(screen.getByDisplayValue("보존할 이전 사이트 초안")).toBeTruthy();
     expect(onSubmit).toHaveBeenCalledOnce();
   });
 

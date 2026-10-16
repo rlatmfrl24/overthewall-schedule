@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   CloudflarePlayObservabilityReader,
-  OTW_PLAY_OBSERVABILITY_SQL,
 } from "./cloudflare-play-observability-reader";
 
 const row = (
@@ -31,6 +30,7 @@ describe("Cloudflare OTW Play observability reader", () => {
     const result = await new CloudflarePlayObservabilityReader(
       undefined,
       undefined,
+      "otw_play_events",
       fetcher as typeof fetch,
       () => 1_787_184_000_000,
     ).read24Hours();
@@ -50,9 +50,9 @@ describe("Cloudflare OTW Play observability reader", () => {
         receivers.push(this);
         const body = init?.body;
         const data =
-          body === OTW_PLAY_OBSERVABILITY_SQL.summary
+          String(body).includes("'summary' AS row_kind")
             ? [row("summary", "")]
-            : body === OTW_PLAY_OBSERVABILITY_SQL.routes
+            : String(body).includes("'route' AS row_kind")
               ? [row("route", "otw-play.public.catalog")]
               : [row("event", "play.catalog.read", { event_count: 12 })];
         return Response.json({
@@ -63,6 +63,7 @@ describe("Cloudflare OTW Play observability reader", () => {
     const result = await new CloudflarePlayObservabilityReader(
       "account",
       "read-token",
+      "otw_play_events",
       fetcher as typeof fetch,
       () => 1_787_184_000_000,
     ).read24Hours();
@@ -82,10 +83,8 @@ describe("Cloudflare OTW Play observability reader", () => {
     expect(fetcher).toHaveBeenCalledTimes(3);
     expect(receivers).toEqual([undefined, undefined, undefined]);
     const requests = fetcher.mock.calls.map(([, init]) => init);
-    expect(requests.map((init) => init?.body)).toEqual(
-      Object.values(OTW_PLAY_OBSERVABILITY_SQL),
-    );
     for (const init of requests) {
+      expect(init?.body).toContain("FROM otw_play_events");
       expect(init?.body).toContain("_sample_interval");
       expect(init?.body).toContain("INTERVAL '24' HOUR");
       expect(init?.body).toContain("FORMAT JSON");
@@ -95,7 +94,7 @@ describe("Cloudflare OTW Play observability reader", () => {
     expect(String(fetcher.mock.calls[2]?.[1]?.body)).toContain(
       "blob11 != 'request'",
     );
-    expect(OTW_PLAY_OBSERVABILITY_SQL.summary).toContain(
+    expect(String(requests[0]?.body)).toContain(
       "quantileExactWeighted(0.95)",
     );
   });
@@ -105,6 +104,7 @@ describe("Cloudflare OTW Play observability reader", () => {
     const result = await new CloudflarePlayObservabilityReader(
       "account",
       "read-token",
+      "otw_play_events",
       fetcher as typeof fetch,
     ).read24Hours();
     expect(result).toMatchObject({
@@ -119,8 +119,20 @@ describe("Cloudflare OTW Play observability reader", () => {
     const result = await new CloudflarePlayObservabilityReader(
       "account",
       "read-token",
+      "otw_play_events",
       fetcher as typeof fetch,
     ).read24Hours();
     expect(result.status).toBe("unavailable");
   });
+});
+
+it("queries only the injected dataset in all three SQL requests", async () => {
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json({ data: [] }));
+  await new CloudflarePlayObservabilityReader("same-account", "read-token", "luvdia_play_events", fetcher).read24Hours();
+  expect(fetcher).toHaveBeenCalledTimes(3);
+  for (const [, init] of fetcher.mock.calls) {
+    expect(init?.body).toContain("FROM luvdia_play_events");
+    expect(init?.body).not.toContain("otw_play_events");
+  }
+  expect(() => new CloudflarePlayObservabilityReader("account", "token", "events; DROP TABLE secrets", fetcher)).toThrow(/dataset/);
 });

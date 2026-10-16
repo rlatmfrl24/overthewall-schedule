@@ -34,7 +34,10 @@ export const getEstimatedD1RowsPerItem = (jobType: ScheduledJobType) => {
     source_health: { rowsRead: 1_000, rowsWritten: 30 },
     retention_prune: { rowsRead: 300, rowsWritten: 250 },
   };
-  return estimates[jobType];
+  const estimate = estimates[jobType];
+  // Follow-up insert/ack/run refresh plus the unresolved index's execute and
+  // reconcile insert/removal. This does not raise the site's daily ceiling.
+  return { rowsRead: estimate.rowsRead + 4, rowsWritten: estimate.rowsWritten + 10 };
 };
 
 export const getLaneForJob = (jobType: ScheduledJobType): ScheduledLane => {

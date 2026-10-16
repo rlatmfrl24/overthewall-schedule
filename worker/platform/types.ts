@@ -4,8 +4,22 @@ import {
   pendingSchedules,
 } from "@db/schema";
 import type { ScheduledOperationsWorkflowParams } from "@contracts/scheduled-operations";
+import type {TransitionPeer} from "../features/content-transition";
 
 export interface Env {
+  SITE_PUBLICATION_HOLD?: string;
+  CONTENT_TRANSITION_PEER?:TransitionPeer;
+  SITE_ID?: string;
+  SITE_D1_DATABASE_NAME?: string;
+  SITE_ASSET_BUCKET_NAME?: string;
+  SITE_PUBLIC_ORIGIN?: string;
+  SITE_CONTROL_QUEUE_NAME?: string;
+  SITE_CRITICAL_QUEUE_NAME?: string;
+  SITE_BACKGROUND_QUEUE_NAME?: string;
+  SITE_INGESTION_QUEUE_NAME?: string;
+  SITE_AI_REVIEW_QUEUE_NAME?: string;
+  SITE_DEAD_LETTER_QUEUE_NAME?: string;
+  PLAY_ANALYTICS_DATASET?: string;
   YOUTUBE_API_KEY: string;
   GEMINI_API_KEY?: string;
   OTW_PLAY_AI_REVIEW_ENABLED?: string;

@@ -8,6 +8,7 @@ import {
 } from "../features/scheduled-operations";
 import { D1ScheduledJobRepository } from "../platform/scheduled-jobs";
 import type { Env } from "../platform/types";
+import { getWorkerSiteResources } from "../platform/site";
 
 const getErrorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -19,6 +20,7 @@ export const handleScheduledControlQueue = async (
   batch: MessageBatch<unknown>,
   env: Env,
 ) => {
+  getWorkerSiteResources(env);
   const coordinator = new ScheduledJobCoordinator(env);
   const repository = coordinator.repository;
   for (const message of batch.messages) {
@@ -55,16 +57,17 @@ export const handleScheduledJobQueue = async (
   const repository = new D1ScheduledJobRepository(env.otw_db);
   const executor = new ScheduledJobExecutor(env, repository);
   const coordinator = new ScheduledJobCoordinator(env);
-  const isDeadLetter = batch.queue === "otw-dead-letter";
+  const isDeadLetter = batch.queue === getWorkerSiteResources(env).queues.deadLetter;
   const reconcileTerminalItem = async (
     item: NonNullable<Awaited<ReturnType<typeof repository.readItem>>>,
   ) => {
-    if (item.status === "succeeded" || item.status === "partial") {
+    if (item.status==="succeeded" || item.status==="partial" || ["scan","match"].includes(item.phase) && isTerminalItemStatus(item.status)) {
       await coordinator.advanceRun(item);
     }
     await coordinator.dispatchRun(item.run_id);
     await repository.refreshRun(item.run_id);
     await executor.finalizeLegacyState(item.run_id);
+    await repository.acknowledgeReconciliation(item);
   };
   const retryReconciliation = async (
     message: Message<unknown>,
@@ -76,6 +79,7 @@ export const handleScheduledJobQueue = async (
       message.retry({ delaySeconds: 60 });
       return;
     }
+    if(await repository.hasOriginalTransitionWork(item.id)) {message.ack();return;}
     await repository.markRunFailed(
       item.run_id,
       `post_completion_reconciliation_failed:${getErrorText(error)}`,
@@ -96,11 +100,14 @@ export const handleScheduledJobQueue = async (
     }
     if (isDeadLetter) {
       const existing = await repository.readItem(message.body.itemId);
+      if(existing && await repository.hasOriginalTransitionWork(existing.id) && !isTerminalItemStatus(existing.status)) {
+        await repository.deferOriginalTransitionItem(existing);message.ack();continue;
+      }
       if (existing && isTerminalItemStatus(existing.status)) {
         try {
           await reconcileTerminalItem(existing);
         } catch (error) {
-          await repository.markRunFailed(
+          if(!await repository.hasOriginalTransitionWork(existing.id)) await repository.markRunFailed(
             existing.run_id,
             `post_completion_reconciliation_dead_letter:${getErrorText(error)}`,
             true,
@@ -139,7 +146,8 @@ export const handleScheduledJobQueue = async (
         message.ack();
         continue;
       }
-      await reconcileTerminalItem({ ...item, status: outcome.status });
+      const terminal=await repository.readItem(item.id);
+      if(terminal)await reconcileTerminalItem(terminal);
       message.ack();
     } catch (error) {
       const errorText = getErrorText(error);
@@ -147,6 +155,11 @@ export const handleScheduledJobQueue = async (
       const current = await repository.readItem(item.id);
       if (current && isTerminalItemStatus(current.status)) {
         await retryReconciliation(message, current, error);
+        continue;
+      }
+      if(await repository.hasOriginalTransitionWork(item.id)) {
+        await repository.deferOriginalTransitionItem(item,true);
+        message.ack();
         continue;
       }
       if (item.attempts < 3) {

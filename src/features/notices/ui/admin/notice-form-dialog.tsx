@@ -1,5 +1,7 @@
 import { LabeledField } from "@/shared/ui/labeled-field";
+import { getContentTransitionMessage } from "@/shared/api/client";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
+import { AuthenticatedImage } from "@/shared/ui/authenticated-image";
 import {
   useEffect,
   useRef,
@@ -338,7 +340,7 @@ export function NoticeFormDialog({
     clearErrors("ended_at");
     setMessage(null);
     const normalized = { ...values, links, image_urls: values.image_urls.map((url) => url.trim()) };
-    try { await onSubmit(normalized); } catch { setMessage("공지 저장에 실패했습니다. 입력값을 유지했습니다. 다시 저장해 주세요."); return; }
+    try { await onSubmit(normalized); } catch (error) { setMessage(getContentTransitionMessage(error) ?? "공지 저장에 실패했습니다. 입력값을 유지했습니다. 다시 저장해 주세요."); return; }
     cleanupPendingImages(normalized.image_urls);
     for (const url of normalized.image_urls) pendingImageUrlsRef.current.delete(url);
   };
@@ -428,7 +430,7 @@ export function NoticeFormDialog({
               <div className="grid gap-3 sm:grid-cols-2">
                 {imageUrls.map((url, index) => (
                   <div key={`${url}-${index}`} className="overflow-hidden rounded-md border bg-muted/20">
-                    <div className="aspect-[16/9] bg-background"><img src={url} alt={`공지 이미지 ${index + 1}`} className="h-full w-full object-cover" /></div>
+                    <div className="aspect-[16/9] bg-background"><AuthenticatedImage src={url} referenceContext={{kind:"notice-draft",...(initialValues?.id?{id:initialValues.id}:{}),relatedMemberUids}} alt={`공지 이미지 ${index + 1}`} className="h-full w-full object-cover" /></div>
                     <div className="flex min-w-0 items-center gap-1 p-2">
                       <Badge variant="outline">{index + 1}</Badge>
                       <span className="min-w-0 flex-1 truncate text-xs" title={url}>{url}</span>
@@ -447,6 +449,14 @@ export function NoticeFormDialog({
               <h3 className="text-sm font-semibold">관련 멤버</h3>
               <p className="mt-1 text-xs text-muted-foreground">공동 게시자가 아닌 분류 태그입니다. 미선택 시 OTW 단독 공지입니다.</p>
             </div>
+            {!!initialValues?.historical_related_people?.length && (
+              <div className="space-y-1 text-sm">
+                <p className="text-muted-foreground">이전 자료에 기록된 인물</p>
+                {initialValues.historical_related_people.map(person => (
+                  <p key={`${person.sourceSite}:${person.sourceRecordId}`}>{person.name} · {person.sourceSite} 기록</p>
+                ))}
+              </div>
+            )}
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {members.map((member) => {
                 const checked = relatedMemberUids.includes(member.uid);

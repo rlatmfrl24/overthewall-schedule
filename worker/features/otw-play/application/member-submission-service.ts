@@ -72,7 +72,7 @@ export class MemberSubmissionService {
         "A valid YouTube URL is required",
       );
     }
-    const result = await this.repository.preflight(
+    let result = await this.repository.preflight(
       userId,
       videoId,
       input.title?.trim() || null,
@@ -83,6 +83,7 @@ export class MemberSubmissionService {
     if (!input.title && (!video || video.availabilityStatus !== "playable")) {
       throw new MemberSubmissionServiceError("invalid_request", "공개되어 재생할 수 있는 YouTube 영상인지 확인해 주세요.");
     }
+    if (video) result = await this.repository.preflight(userId, videoId, input.title?.trim() || null, video.channelId);
     return {
       ...(video ? { video: { title: video.title, channelName: video.channelTitle, durationSeconds: video.durationSeconds } } : {}),
       videoId,

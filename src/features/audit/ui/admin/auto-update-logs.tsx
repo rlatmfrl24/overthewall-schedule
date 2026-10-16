@@ -1,7 +1,7 @@
 import { getAuditResultSummary } from "../../model/audit-result";
 import { SelectField } from "@/shared/ui/select-field"
 import { readRecordedChanges } from "../../model/recorded-changes";
-import { fetchActiveMembers } from "@/features/members";
+import { fetchAdminMembers } from "@/features/members";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { QueryReadback } from "@/shared/ui/query-readback";
 import { Input } from "@/shared/ui/input";
@@ -163,7 +163,7 @@ export function AutoUpdateLogsManager({ view = "all" }: { view?: "all" | "schedu
   const { toast } = useToast();
   const [search, updateSearch] = useConsoleSearch();
   const filters = {q: search.q, action: search.category, status: search.state, target: search.source, from: search.from, until: search.until};
-  const membersQuery = useQuery({queryKey: queryKeys.members.active(), queryFn: fetchActiveMembers, enabled: view !== "audit", staleTime: 60_000});
+  const membersQuery = useQuery({queryKey: queryKeys.members.admin(), queryFn: fetchAdminMembers, enabled: view !== "audit", staleTime: 60_000});
   const pageSize = search.pageSize ?? 50;
   const setPageSize = (pageSize: number) => updateSearch({pageSize, page: 1});
   const sortKey = LOG_SORT_OPTIONS.find((item) => item.value === search.sort)?.value ?? "created_desc";

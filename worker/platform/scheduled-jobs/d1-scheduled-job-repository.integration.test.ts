@@ -36,6 +36,39 @@ beforeEach(async () => {
 });
 
 describe("D1 scheduled job state machine", () => {
+  it('scheduled_reconciliation_upgrade preserves old unknown receipts and rolls back terminal plus followup together',async()=>{
+    const upgradeDb=(env as typeof env & {transition_target_db:D1Database}).transition_target_db;
+    const migrations=testEnv.SCHEDULED_OPERATIONS_MIGRATIONS;
+    await applyD1Migrations(upgradeDb,migrations.filter(m=>!m.name.startsWith('0135_')&&!m.name.startsWith('0136_')));
+    const repository=new D1ScheduledJobRepository(upgradeDb,()=>timestamp,()=>`upgrade-${++sequence}`);
+    const legacy=await repository.createRun({jobType:'x_collection',source:'manual',idempotencyKey:'upgrade-original'});
+    const [legacyId]=await repository.addItems(legacy.id,[{targetKey:'old',phase:'collect',lane:'x'}]);
+    await upgradeDb.batch([
+      upgradeDb.prepare("UPDATE scheduled_job_items SET status='succeeded',result_json=?,finished_at=? WHERE id=?").bind(JSON.stringify({original:true}),timestamp,legacyId),
+      upgradeDb.prepare("UPDATE scheduled_job_runs SET status='succeeded',finished_at=? WHERE id=?").bind(timestamp,legacy.id),
+      upgradeDb.prepare("INSERT INTO scheduled_outbox(id,run_id,item_id,lane,event_type,status,attempts,available_at,dispatched_at,created_at,updated_at) VALUES('upgrade-reconcile',?,?,'x','reconcile','dispatched',1,?,?,?,?)").bind(legacy.id,legacyId,timestamp,timestamp,timestamp,timestamp),
+    ]);
+    const before=await upgradeDb.prepare("SELECT * FROM scheduled_outbox WHERE id='upgrade-reconcile'").first();
+    await applyD1Migrations(upgradeDb,migrations.filter(m=>m.name.startsWith('0135_')||m.name.startsWith('0136_')));
+    const after=await upgradeDb.prepare("SELECT * FROM scheduled_outbox WHERE id='upgrade-reconcile'").first();
+    expect(after).toEqual({...before,reconciled_at:null});
+    expect((await repository.claimPendingOutbox(legacy.id)).map(o=>o.id)).toEqual(['upgrade-reconcile']);
+    const run=await repository.createRun({jobType:'x_collection',source:'manual',idempotencyKey:'atomic-original'});
+    const [id]=await repository.addItems(run.id,[{targetKey:'new',phase:'collect',lane:'x'}]);const claimed=(await repository.claimItem(id))!;
+    await upgradeDb.prepare("CREATE TRIGGER task44_reconcile_insert_abort BEFORE INSERT ON scheduled_outbox WHEN NEW.event_type='reconcile' BEGIN SELECT RAISE(ABORT,'reconcile_insert_failure'); END").run();
+    await expect(repository.completeItem(claimed,{status:'succeeded',result:{original:true}})).rejects.toThrow(/reconcile_insert_failure/);
+    expect(await repository.readItem(id)).toEqual(claimed);
+    expect(await upgradeDb.prepare("SELECT count(*) n FROM scheduled_outbox WHERE item_id=? AND event_type='reconcile'").bind(id).first('n')).toBe(0);
+    await upgradeDb.prepare('DROP TRIGGER task44_reconcile_insert_abort').run();
+    expect(await repository.completeItem(claimed,{status:'succeeded',result:{original:true}})).toBe(true);
+    const item=(await repository.readItem(id))!;
+    expect(await upgradeDb.prepare("SELECT status,reconciled_at FROM scheduled_outbox WHERE item_id=? AND event_type='reconcile'").bind(id).first()).toEqual({status:'pending',reconciled_at:null});
+    await repository.acknowledgeReconciliation({...item,result_json:'{"different":true}'});
+    expect(await upgradeDb.prepare("SELECT reconciled_at FROM scheduled_outbox WHERE item_id=? AND event_type='reconcile'").bind(id).first('reconciled_at')).toBeNull();
+    await repository.acknowledgeReconciliation(item);
+    expect(await upgradeDb.prepare("SELECT status,reconciled_at FROM scheduled_outbox WHERE item_id=? AND event_type='reconcile'").bind(id).first()).toEqual({status:'pending',reconciled_at:timestamp});
+  });
+
   it("keeps idle atomic outbox updates bounded after retained history outgrows planner statistics", async () => {
     const repository = createRepository();
     const run = await repository.createRun({
@@ -65,6 +98,11 @@ describe("D1 scheduled job state machine", () => {
     expect(await db.prepare(
       "SELECT stat FROM sqlite_stat1 WHERE idx = 'sqlite_autoindex_scheduled_outbox_1'",
     ).first("stat")).toBe("22 1");
+    // Inline completion has no Queue send. Its pending status remains truthful,
+    // but reconciled history must not inflate the new recovery lookup either.
+    await db.prepare(`INSERT INTO scheduled_outbox(id,run_id,item_id,lane,event_type,status,attempts,available_at,reconciled_at,created_at,updated_at)
+      SELECT 'reconciled-'||id,run_id,id,lane,'reconcile','pending',0,?,?,?,? FROM scheduled_job_items WHERE run_id=?`)
+      .bind(timestamp,timestamp,timestamp,timestamp,run.id).run();
     await db.batch([
       db.prepare("UPDATE scheduled_job_runs SET status = 'succeeded', finished_at = ?").bind(timestamp),
     ]);
@@ -114,6 +152,7 @@ describe("D1 scheduled job state machine", () => {
       expect(measurement.rowsRead, measurement.operation).toBeLessThanOrEqual(10);
       expect(measurement.rowsWritten, measurement.operation).toBe(0);
     }
+    console.info('unresolved outbox bounded readback',measurements);
 
     const activeRun = await repository.createRun({
       jobType: "x_collection", source: "scheduled", idempotencyKey: "after-retained-history",
@@ -476,6 +515,10 @@ describe("D1 scheduled job state machine", () => {
       status: "partial",
       result: { status: "partial", attempted: 1, succeeded: 1, failed: 0 },
     })).toBe(true);
+    // The provider result is complete, but the original coordinator/finalizer
+    // responsibility is still durable until its separate completion receipt.
+    expect((await repository.readRunDto(run.id))!.status).toBe('partial');
+    await repository.acknowledgeReconciliation((await repository.readItem(item!.id))!);
 
     expect(await repository.readRun(run.id)).toMatchObject({
       status: "succeeded",

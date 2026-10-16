@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Env } from "../../../platform/types";
+import { siteEnv } from "../../../test-support/site-env";
 import {
   isYouTubeShortsPageComplete,
   readStoredYouTubeFeed,
@@ -121,7 +122,7 @@ describe("YouTube Shorts storage", () => {
     } as unknown as D1Database;
 
     const result = await readStoredYouTubeFeed(
-      { otw_db: db } as Env,
+      { ...siteEnv(), otw_db: db } as Env,
       [channelId],
       20,
       "official",

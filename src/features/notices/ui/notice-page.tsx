@@ -1,4 +1,5 @@
 import { QueryState } from "@/shared/ui/query-state";
+import { AuthenticatedImage } from "@/shared/ui/authenticated-image";
 import { useEffect, useMemo, useState } from "react";
 import type { Member } from "@/features/members";
 import { cn } from "@/shared/lib/utils";
@@ -169,9 +170,9 @@ function NoticeCarousel({ notice, compact = false }: { notice: Notice; compact?:
     >
       <div className={cn("relative aspect-[4/3]", compact && "sm:aspect-auto sm:min-h-32 sm:flex-1")}>
         {current ? (
-          <img src={current} alt={`${notice.content} 이미지 ${index + 1}`} className="absolute inset-0 h-full w-full object-cover" loading={compact ? "lazy" : "eager"} />
+          <AuthenticatedImage protectedImage={false} src={current} alt={`${notice.content} 이미지 ${index + 1}`} className="absolute inset-0 h-full w-full object-cover" loading={compact ? "lazy" : "eager"} />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center"><img src="/logo_otw.svg" alt="OTW" className={cn("max-w-[70%] opacity-90", compact ? "max-h-10" : "max-h-16")} /></div>
+          <div className="absolute inset-0 flex items-center justify-center"><img src={site.logoPath ?? undefined} alt={site.id === "otw" ? "OTW" : site.siteName} className={cn("max-w-[70%] opacity-90", compact ? "max-h-10" : "max-h-16")} /></div>
         )}
       </div>
       {imageUrls.length > 1 ? (
@@ -252,3 +253,4 @@ function NoticeEmptyState() {
   return <QueryState state="empty" title="표시할 공지사항이 없습니다." description="새로운 소식이 등록되면 이곳에 표시됩니다."
     icon={<Megaphone aria-hidden="true" className="size-8 text-muted-foreground" />} className="min-h-80 rounded-lg border border-dashed bg-muted/20 px-6 py-14" />;
 }
+import { site } from "@/shared/config/site";

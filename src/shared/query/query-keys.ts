@@ -74,6 +74,7 @@ export const queryKeys = {
   members: {
     all: ["members"] as const,
     active: () => [...queryKeys.members.all, "active"] as const,
+    admin: () => [...queryKeys.members.all, "admin-archive"] as const,
     profile: (code: string) =>
       [...queryKeys.members.all, "profile", code] as const,
     noticePublisherProfiles: (uidsKey: string) =>

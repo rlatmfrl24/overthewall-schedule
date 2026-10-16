@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -334,6 +335,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
 
   const members = useQuery({ queryKey: queryKeys.members.active(), queryFn: fetchActiveMembers });
   const preflightMutation = useMutation({ mutationFn: preflightOtwPlaySubmission });
+  const editRequestKeys=useRef(new Map<string,string>());
   const submitMutation = useMutation({
     mutationFn: async (input: Parameters<typeof createOtwPlaySubmission>[0]) => {
       if (!editId) {
@@ -342,6 +344,9 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
       if (expectedVersion === null) {
         throw new Error("수정 기준 버전을 불러오지 못했습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.");
       }
+      const identity=JSON.stringify([editId,expectedVersion,input]);
+      const requestKey=editRequestKeys.current.get(identity)??newClientRequestId();
+      editRequestKeys.current.set(identity,requestKey);
       const data = await updateOtwPlaySubmission(editId, {
         expectedVersion,
         submissionKind: input.submissionKind,
@@ -353,7 +358,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
         originalArtists: input.originalArtists,
         participants: input.participants,
         note: input.note,
-      });
+      },requestKey);
       return { data };
     },
     onSuccess: async (result) => {
@@ -646,7 +651,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
     return (
       <div className="mx-auto flex w-full max-w-3xl flex-col items-start gap-4 p-4 py-10 sm:p-8">
         <Button asChild variant="ghost" size="sm" className="-ml-2">
-          <Link to="/play"><ChevronLeft /> OTW Play로 돌아가기</Link>
+          <Link to="/play"><ChevronLeft /> {site.playName}로 돌아가기</Link>
         </Button>
         <section className="w-full rounded-2xl border bg-card p-6 text-center shadow-sm sm:p-10">
           <CheckCircle2 className="mx-auto size-12 text-emerald-600" />
@@ -685,7 +690,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 p-4 sm:px-6 sm:py-5">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
-        <Link to="/play"><ChevronLeft /> OTW Play로 돌아가기</Link>
+        <Link to="/play"><ChevronLeft /> {site.playName}로 돌아가기</Link>
       </Button>
       <div>
         <p className="text-sm font-medium text-primary">{editId ? "노래 영상 제안 수정" : "노래 영상 추가 제안"}</p>

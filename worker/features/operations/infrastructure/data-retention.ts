@@ -1,6 +1,9 @@
 import { type Env } from "../../../platform/types";
+import { contentRowHeldSql, publicationHiddenSql, nativeChzzkReadPrunableSql,nativeYouTubeChannelReadPrunableSql } from "../../content-transition";
+import { parseSiteId, type SiteId } from "@contracts/site-definition";
 
 const DAY_MS = 24 * 60 * 60_000;
+const nativeReadPrunableSql=(request?:string)=>`((${nativeChzzkReadPrunableSql(request)}) OR (${nativeYouTubeChannelReadPrunableSql(request)}))`;
 const RETENTION_LAST_PRUNE_SETTING_KEY = "data_retention_last_prune";
 const D1_DATABASE_MAX_BYTES_SETTING_KEY = "d1_database_max_bytes";
 const DEFAULT_D1_DATABASE_MAX_BYTES = 500 * 1024 * 1024;
@@ -77,14 +80,24 @@ export type DataRetentionStatusResult = DataRetentionPruneResult & {
 
 export const DATA_RETENTION_POLICIES = [
   {
+    id: "native-chzzk-read-detail",
+    category: "scheduled_operations",
+    table: "content_transition_chzzk_requests",
+    label: "전체 처리가 완료된 소유 사이트 메타데이터 읽기 상세",
+    timestampColumn: "settled_at",
+    timestampKind: "epoch_ms",
+    retentionDays: 30,
+    extraWhere: nativeReadPrunableSql(),
+  },
+  {
     id: "scheduled-outbox",
     category: "scheduled_operations",
     table: "scheduled_outbox",
-    label: "전송 완료 예약 작업 outbox",
-    timestampColumn: "dispatched_at",
+    label: "전송·후속 처리 완료 예약 작업 outbox",
+    timestampColumn: "CASE WHEN event_type = 'reconcile' THEN reconciled_at ELSE dispatched_at END",
     timestampKind: "epoch_ms",
     retentionDays: 7,
-    extraWhere: "status = 'dispatched' AND dispatched_at IS NOT NULL",
+    extraWhere: "(event_type = 'reconcile' AND reconciled_at IS NOT NULL) OR (event_type <> 'reconcile' AND status = 'dispatched' AND dispatched_at IS NOT NULL)",
   },
   {
     id: "scheduled-job-items",
@@ -95,7 +108,7 @@ export const DATA_RETENTION_POLICIES = [
     timestampKind: "epoch_ms",
     retentionDays: 30,
     extraWhere:
-      "status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled') AND finished_at IS NOT NULL",
+      "status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled') AND finished_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM scheduled_outbox o WHERE o.item_id = scheduled_job_items.id AND o.event_type = 'reconcile' AND o.reconciled_at IS NULL)",
   },
   {
     id: "scheduled-job-runs",
@@ -106,7 +119,7 @@ export const DATA_RETENTION_POLICIES = [
     timestampKind: "epoch_ms",
     retentionDays: 90,
     extraWhere:
-      "status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled') AND finished_at IS NOT NULL",
+      "status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled') AND finished_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM scheduled_outbox o WHERE o.run_id = scheduled_job_runs.id AND o.event_type = 'reconcile' AND o.reconciled_at IS NULL)",
   },
   {
     id: "youtube-feed-videos",
@@ -257,13 +270,16 @@ const readD1Capacity = async (
 const getPolicyCutoff = (policy: RetentionPolicy, now: number) =>
   now - policy.retentionDays * DAY_MS;
 
-const getPolicyWhereClause = (policy: RetentionPolicy) => {
+const getPolicyWhereClause = (policy: RetentionPolicy, siteId: SiteId) => {
   const timestampClause = policy.timestampKind === "sqlite_datetime"
     ? `${policy.timestampColumn} IS NOT NULL AND ${policy.timestampColumn} < ?`
     : `${policy.timestampColumn} < ?`;
-  return policy.extraWhere
+  const expiry = policy.extraWhere
     ? `(${policy.extraWhere}) AND (${timestampClause})`
     : timestampClause;
+  return ["youtube_feed_videos", "x_api_cache", "update_logs"].includes(policy.table)
+    ? `(${expiry}) AND NOT ${contentRowHeldSql(policy.table as "youtube_feed_videos" | "x_api_cache" | "update_logs")} AND NOT (${publicationHiddenSql(policy.table as "youtube_feed_videos" | "x_api_cache" | "update_logs", policy.table, siteId)})`
+    : expiry;
 };
 
 const getPolicyBindValue = (policy: RetentionPolicy, cutoff: number) => {
@@ -283,7 +299,7 @@ const readPrunableCount = async (
   const row = await env.otw_db
     .prepare(
       `SELECT COUNT(*) AS count FROM ${policy.table} WHERE ${getPolicyWhereClause(
-        policy,
+        policy, parseSiteId(env.SITE_ID),
       )}`,
     )
     .bind(getPolicyBindValue(policy, cutoff))
@@ -296,11 +312,12 @@ const deletePrunableRows = async (
   policy: RetentionPolicy,
   cutoff: number,
 ) => {
-  const result = await env.otw_db
-    .prepare(`DELETE FROM ${policy.table} WHERE ${getPolicyWhereClause(policy)}`)
-    .bind(getPolicyBindValue(policy, cutoff))
-    .run();
-  return Number(result.meta?.changes ?? 0) || 0;
+  const results = await env.otw_db.batch<{ deleted: number }>([
+    env.otw_db.prepare(`DELETE FROM ${policy.table} WHERE ${getPolicyWhereClause(policy, parseSiteId(env.SITE_ID))}`)
+      .bind(getPolicyBindValue(policy, cutoff)),
+    env.otw_db.prepare("SELECT changes() AS deleted"),
+  ]);
+  return Number(results[1].results[0]?.deleted ?? 0);
 };
 
 export const runDataRetentionPolicyPrune = async (
@@ -312,21 +329,31 @@ export const runDataRetentionPolicyPrune = async (
   if (!policy) throw new Error(`Unknown retention policy: ${policyId}`);
   const now = Date.now();
   const cutoff = getPolicyCutoff(policy, now);
-  const result = await env.otw_db.prepare(
+  // Each request deletion also cascades its actual attempt rows. Bound their
+  // combined cost in this one statement under the existing scheduled budget.
+  const nativeReads=policy.id==="native-chzzk-read-detail";
+  const result = await env.otw_db.prepare(nativeReads ? `
+    WITH candidates AS (
+      SELECT rowid,settled_at,1+(SELECT count(*) FROM content_transition_chzzk_attempts a
+        WHERE a.transition_id=r.transition_id AND a.operation_id=r.operation_id AND a.request_key=r.request_key) AS cost
+      FROM content_transition_chzzk_requests r WHERE ${getPolicyWhereClause({...policy,extraWhere:nativeReadPrunableSql("r")}, parseSiteId(env.SITE_ID))}
+      ORDER BY settled_at,rowid LIMIT ?
+    ), bounded AS (SELECT rowid,sum(cost) OVER (ORDER BY settled_at,rowid) AS writes FROM candidates)
+    DELETE FROM content_transition_chzzk_requests WHERE rowid IN (SELECT rowid FROM bounded WHERE writes<=?) RETURNING rowid` :
     `DELETE FROM ${policy.table}
      WHERE rowid IN (
        SELECT rowid FROM ${policy.table}
-       WHERE ${getPolicyWhereClause(policy)}
+       WHERE ${getPolicyWhereClause(policy, parseSiteId(env.SITE_ID))}
        ORDER BY ${policy.timestampColumn}
        LIMIT ?
-     )`,
-  ).bind(getPolicyBindValue(policy, cutoff), limit).run();
-  const deletedRows = Number(result.meta?.changes ?? 0) || 0;
+     ) RETURNING rowid`,
+  ).bind(getPolicyBindValue(policy, cutoff), limit,...(nativeReads?[limit]:[])).all();
+  const deletedRows = result.results.length;
   return {
     policyId,
     cutoff,
     deletedRows,
-    hasMore: deletedRows >= limit,
+    hasMore: (nativeReads || deletedRows >= limit) && await readPrunableCount(env, policy, cutoff) > 0,
   };
 };
 
@@ -336,7 +363,7 @@ const readRetentionPolicies = async (
 ): Promise<DataRetentionPolicyStatus[]> => {
   const counts = await env.otw_db.batch<{ count: number | string | null }>(
     DATA_RETENTION_POLICIES.map((policy) => env.otw_db.prepare(
-      `SELECT COUNT(*) AS count FROM ${policy.table} WHERE ${getPolicyWhereClause(policy)}`,
+      `SELECT COUNT(*) AS count FROM ${policy.table} WHERE ${getPolicyWhereClause(policy, parseSiteId(env.SITE_ID))}`,
     ).bind(getPolicyBindValue(policy, getPolicyCutoff(policy, now)))),
   );
   return DATA_RETENTION_POLICIES.map((policy, index) => {
@@ -362,7 +389,7 @@ export const readDueDataRetentionPolicyIds = async (
 ): Promise<string[]> => {
   const matches = await env.otw_db.batch<{ has_work: number }>(
     DATA_RETENTION_POLICIES.map((policy) => env.otw_db.prepare(
-      `SELECT 1 AS has_work FROM ${policy.table} WHERE ${getPolicyWhereClause(policy)} LIMIT 1`,
+      `SELECT 1 AS has_work FROM ${policy.table} WHERE ${getPolicyWhereClause(policy, parseSiteId(env.SITE_ID))} LIMIT 1`,
     ).bind(getPolicyBindValue(policy, getPolicyCutoff(policy, now)))),
   );
   return DATA_RETENTION_POLICIES.filter(

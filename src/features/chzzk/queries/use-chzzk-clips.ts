@@ -1,8 +1,8 @@
+import { CONTENT_READ_QUERY_OPTIONS, currentContentQuery } from "@/shared/query/content-read-policy";
 import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { MemberDto } from "@contracts/members";
 import { fetchAllMembersClips } from "../api/clips";
-import { MEDIA_QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 import { queryKeys } from "@/shared/query/query-keys";
 import { extractChzzkChannelId } from "../model/chzzk-url";
 
@@ -25,12 +25,12 @@ export function useAllMembersClips(
   const { enabled = true } = options;
   const channelIdsKey = useMemo(() => getChzzkChannelIdsKey(members), [members]);
   const queryEnabled = enabled && channelIdsKey.length > 0;
-  const query = useQuery({
+  const query = currentContentQuery(useQuery({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey: queryKeys.media.chzzkClips(channelIdsKey, clipsPerMember),
     queryFn: () => fetchAllMembersClips(members, clipsPerMember),
     enabled: queryEnabled,
-    staleTime: MEDIA_QUERY_STALE_TIME_MS,
-  });
+
+  }));
 
   const reload = useCallback(async () => {
     if (!queryEnabled) return;

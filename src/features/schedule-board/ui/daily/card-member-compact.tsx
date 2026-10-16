@@ -1,3 +1,5 @@
+import { site } from "@/shared/config/site";
+import { getCurrentMemberAffiliation } from "@/features/members";
 import type { Member } from "@/features/members";
 import type { ScheduleItem } from "@/features/schedules";
 import {
@@ -71,7 +73,7 @@ export const CardMemberCompact = ({
         data-member-card-header="true"
       >
         <div className="relative shrink-0">
-          <img
+          <AuthenticatedImage protectedImage={false}
             src={`/profile/${member.code}.webp`}
             alt={member.name}
             className="h-12 w-12 rounded-full border-2 object-cover shadow-sm"
@@ -114,7 +116,7 @@ export const CardMemberCompact = ({
           </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
-          {member.unit_name && (
+          {getCurrentMemberAffiliation(member, site) && (
             <span
               className="inline-flex max-w-24 items-center rounded-full border px-2 py-1 text-[10px] font-extrabold leading-none shadow-sm break-keep"
               style={{
@@ -122,10 +124,10 @@ export const CardMemberCompact = ({
                 borderColor: unitChipBorderColor,
                 color: headerTextColor,
               }}
-              title={member.unit_name}
+              title={getCurrentMemberAffiliation(member, site) ?? undefined}
               data-member-unit-chip="true"
             >
-              <span className="truncate">{member.unit_name}</span>
+              <span className="truncate">{getCurrentMemberAffiliation(member, site)}</span>
             </span>
           )}
           {onAddSchedule && (
@@ -193,3 +195,4 @@ export const CardMemberCompact = ({
     </div>
   );
 };
+import { AuthenticatedImage } from "@/shared/ui/authenticated-image";

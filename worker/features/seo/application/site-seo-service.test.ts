@@ -1,3 +1,4 @@
+import { getSiteDefinition } from "@contracts/site-definition";
 import { describe, expect, it } from "vitest";
 import type { MemberProfileDto } from "@contracts/members";
 import type { SiteSeoReader } from "./ports/site-seo-reader";
@@ -41,7 +42,7 @@ describe("SiteSeoService", () => {
     const service = new SiteSeoService(createReader({
       readPlayState: async () => ({ revision: 1, readModelRevision: 1, publicReadEnabled: true, navigationVisible: true, updatedAt: 1, requiresMembership: true }),
       listPublishedPlaySongSlugs: privateRead, findPublishedPlaySongBySlug: privateRead, readPlayMemberSummaries: privateRead,
-    }));
+    }), site);
     expect((await service.buildSitemapUrls()).some(url => url.includes("/play"))).toBe(false);
     expect(await service.findPlaySong("private-title")).toMatchObject({ robots: "noindex,nofollow" });
   });
@@ -55,7 +56,7 @@ describe("SiteSeoService", () => {
       listActiveProfileCodes: async () => ["alpha", "alpha", "beta"],
       findActiveProfileByCode: async (code) => member(code),
     });
-    const urls = await new SiteSeoService(reader).buildSitemapUrls();
+    const urls = await new SiteSeoService(reader, site).buildSitemapUrls();
     expect(urls).toContain("https://otw-schedule.info/feed");
     expect(urls.filter((url) => url.endsWith("/profile/alpha"))).toHaveLength(1);
     expect(urls.every((url) => !url.includes("?") && url.startsWith("https://"))).toBe(true);
@@ -71,7 +72,7 @@ describe("SiteSeoService", () => {
       listActiveProfileCodes: async () => [],
       findActiveProfileByCode: async () => null,
     });
-    expect(await new SiteSeoService(reader).buildSitemapUrls()).not.toContain(
+    expect(await new SiteSeoService(reader, site).buildSitemapUrls()).not.toContain(
       "https://otw-schedule.info/feed",
     );
   });
@@ -100,7 +101,7 @@ describe("SiteSeoService", () => {
           thumbnailUrl: "https://i.example/song.jpg",
         }),
       });
-      const service = new SiteSeoService(reader);
+      const service = new SiteSeoService(reader, site);
 
       expect(await service.readPlayHome()).toMatchObject({ robots, sitemap });
       expect(await service.readPlaySongs()).toMatchObject({
@@ -130,7 +131,7 @@ describe("SiteSeoService", () => {
           navigationVisible: false,
           updatedAt: 10,
         }),
-      }),
+      }), site,
     );
     await expect(stale.readPlayHome()).rejects.toThrow(/unavailable/);
     await expect(stale.buildSitemapUrls()).rejects.toThrow(/unavailable/);
@@ -144,7 +145,7 @@ describe("SiteSeoService", () => {
           navigationVisible: true,
           updatedAt: 10,
         }),
-      }),
+      }), site,
     );
     await expect(invalid.readPlaySongs()).rejects.toThrow(/unavailable/);
   });
@@ -167,7 +168,7 @@ describe("SiteSeoService", () => {
           mainVocalNames: ["  Main\tVocal  "],
           thumbnailUrl: null,
         }),
-      }),
+      }), site,
     );
     const metadata = await service.findPlaySong("song & one");
     expect(metadata?.canonical).toBe(
@@ -194,7 +195,7 @@ describe("SiteSeoService", () => {
       createReader({
         ...base,
         listPublishedPlaySongSlugs: async () => [slugs[0]!, ...slugs],
-      }),
+      }), site,
     );
     const urls = await allowed.buildSitemapUrls();
     expect(
@@ -205,8 +206,10 @@ describe("SiteSeoService", () => {
       createReader({
         ...base,
         listPublishedPlaySongSlugs: async () => [...slugs, "song-5000"],
-      }),
+      }), site,
     );
     await expect(excessive.buildSitemapUrls()).rejects.toThrow(/limit/);
   });
 });
+
+const site = getSiteDefinition("otw");

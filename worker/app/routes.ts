@@ -1,20 +1,21 @@
+import {createOtwPlayMemberSubmissionService} from "./member-submissions";
+import { getWorkerSiteResources, getWorkerSiteDefinition } from "../platform/site";
 import { createSiteContentHandler } from "../features/seo";
 import { createSiteSeoDependencies } from "./site-seo";
 import { apiRoutes } from "@contracts/api-routes";
+import { readSitePublicationStatus } from "./site-publication";
 import { createAiReviewHandler, createAiBatchHandler, createWorkQueueHandler } from "../features/otw-play";
 import { createOtwPlayWorkQueueService } from "./work-queue";
+import { buildScheduleTransitionWriter,buildNoticeTransitionWriter,buildDDayTransitionWriter,buildPendingTransitionWriter,buildLiveScheduleTransitionWriter } from "./content-transition";
 import { createOtwPlayAiReviewService, createOtwPlayAiBatchService } from "./ai-review";
 import { createAuthStatusHandler } from "../features/auth";
-import {
-  createHandleR2Asset,
-  R2AssetReader,
-} from "../features/assets";
+import { handleAsset,handleProtectedAssetReference, buildAssetFileStore } from "./assets";
 import {
   createHandleAdminAuditLogs,
   D1AdminAuditLogReader,
 } from "../features/audit";
 import {
-  buildChzzkApplication,
+  buildChzzkApplication, createChzzkHistoryHandler, D1AdminChzzkHistoryReader,
   createChzzkMediaHandler,
   createLiveScheduleAutoFillHandler,
   createLiveStatusHandler,
@@ -51,8 +52,6 @@ import {
   SourceHealthService,
   YouTubeOtwPlayMetadataReader,
   withPlayOperationsTelemetry,
-  MemberSubmissionService,
-  D1MemberSubmissionRepository,
   createMemberSubmissionHandler,
   createIngestionHandler,
   createChannelMonitorHandler,
@@ -106,7 +105,7 @@ import {
   xPostFeedService,
 } from "../features/x-posts";
 import {
-  buildYouTubeApplication,
+  buildYouTubeApplication, createYouTubeHistoryHandler, D1AdminYouTubeHistoryReader,
   createKirinukiHandler,
   createYouTubeHandler,
 } from "../features/youtube";
@@ -139,21 +138,20 @@ const ADMIN_NO_STORE = {
   cache: "no-store",
   successStatus: 200,
 } as const;
-const PUBLIC_MEDIA_CACHE =
-  "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
+const PUBLIC_MEDIA_CACHE = "no-store";
 
 const handleScheduleRequest = createScheduleRequestHandler(
-  (env) =>
+  (env, includeArchived) =>
     new ScheduleService(
-      new D1ScheduleQueryRepository(env.otw_db),
-      new D1ScheduleWriteRepository(env.otw_db),
+      new D1ScheduleQueryRepository(env.otw_db, includeArchived, getWorkerSiteResources(env).site.id),
+      new D1ScheduleWriteRepository(env.otw_db,buildScheduleTransitionWriter(env)),
       new PublicScheduleWritePolicy(),
     ),
 );
 const handlePendingScheduleCommand = createPendingScheduleCommandHandler(
   (env) =>
     new PendingScheduleService(
-      new D1PendingScheduleRepository(env.otw_db),
+      new D1PendingScheduleRepository(env.otw_db,buildPendingTransitionWriter(env)),
       new D1PendingBulkAudit(env.otw_db),
     ),
 );
@@ -186,31 +184,27 @@ const handleAdminSettings = createAdminSettingsHandler(
       new DrizzleSettingsAudit(getDb(env)),
     ),
 );
-const handleR2Asset = createHandleR2Asset((env) =>
-  env.ASSET_BUCKET ? new R2AssetReader(env.ASSET_BUCKET) : null,
-);
 const handleAuthStatus = createAuthStatusHandler();
 const handleAdminAuditLogs = createHandleAdminAuditLogs(
   (env) => new D1AdminAuditLogReader(getDb(env)),
 );
 const handleDDays = createHandleDDays(
-  (env) => new D1DDayRepository(getDb(env)),
+  (env, includeArchived,identity) => new D1DDayRepository(getDb(env), includeArchived,identity?buildDDayTransitionWriter(env,identity):undefined, getWorkerSiteResources(env).site.id),
 );
 const handleMembers = createHandleMembers(
-  (env) => new D1MemberReader(getDb(env), env.ASSET_BUCKET),
+  (env, includeArchived) => new D1MemberReader(getDb(env), env.ASSET_BUCKET, includeArchived, getWorkerSiteResources(env).site.id),
 );
-const publicCatalogCache = new CloudflarePublicCatalogCache();
 const handleOtwPlayPlaylists = createPlaylistHandler(env => {
-  const reader = new D1PublicCatalogReader(env.otw_db);
-  return new PlaylistService(new PublicCatalogService(reader, publicCatalogCache), reader, new D1PlaylistRepository(env.otw_db), new D1DefaultPlaylistSettingsRepository(env.otw_db));
+  const reader = new D1PublicCatalogReader(env.otw_db, getWorkerSiteResources(env).site.id);
+  return new PlaylistService(new PublicCatalogService(reader, new CloudflarePublicCatalogCache(getWorkerSiteResources(env).site)), reader, new D1PlaylistRepository(env.otw_db), new D1DefaultPlaylistSettingsRepository(env.otw_db));
 });
 const resolvePlayTelemetry = (env: Parameters<typeof getDb>[0]) =>
   new CloudflarePlayTelemetryWriter(env.OTW_PLAY_ANALYTICS);
 const handleOtwPlayPublicCatalog = createPublicCatalogHandler(
   (env) => {
-    const reader = new D1PublicCatalogReader(env.otw_db);
+    const reader = new D1PublicCatalogReader(env.otw_db, getWorkerSiteResources(env).site.id);
     return {
-      service: new PublicCatalogService(reader, publicCatalogCache),
+      service: new PublicCatalogService(reader, new CloudflarePublicCatalogCache(getWorkerSiteResources(env).site)),
       beginReadObservation: () => reader.beginReadObservation(),
       readDiagnostics: () => reader.getReadObservation(),
     };
@@ -224,6 +218,7 @@ const handleOtwPlayObservability = withPlayOperationsTelemetry(
       new CloudflarePlayObservabilityReader(
         env.CLOUDFLARE_ACCOUNT_ID,
         env.OTW_PLAY_ANALYTICS_READ_TOKEN,
+        getWorkerSiteResources(env).analyticsDataset,
       ),
   ),
   resolvePlayTelemetry,
@@ -236,11 +231,12 @@ const handleOtwPlayAdminCatalogCore = createAdminCatalogHandler(
   createOtwPlayAdminCatalogService,
   (env) =>
     new SourceHealthService(
-      new D1SourceHealthRepository(env.otw_db),
+      new D1SourceHealthRepository(env.otw_db, getWorkerSiteResources(env).site.id),
       new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY, fetch, {
         db: env.otw_db,
         priority: "core",
         origin: "otw_play_admin_preflight",
+        siteId:getWorkerSiteResources(env).site.id,
       }),
     ),
 );
@@ -248,17 +244,7 @@ const handleOtwPlayAdminCatalog = withPlayOperationsTelemetry(
   handleOtwPlayAdminCatalogCore,
   resolvePlayTelemetry,
 );
-const handleOtwPlayMemberSubmissionsCore = createMemberSubmissionHandler(
-  (env) =>
-    new MemberSubmissionService(
-      new D1MemberSubmissionRepository(env.otw_db),
-      () => crypto.randomUUID(),
-      Date.now,
-      new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY, fetch, {
-        db: env.otw_db, priority: "core", origin: "otw_play_member_preflight",
-      }),
-    ),
-);
+const handleOtwPlayMemberSubmissionsCore = createMemberSubmissionHandler(createOtwPlayMemberSubmissionService);
 const handleOtwPlayMemberSubmissions = withPlayOperationsTelemetry(
   handleOtwPlayMemberSubmissionsCore,
   resolvePlayTelemetry,
@@ -283,16 +269,17 @@ const handleOtwPlayWebsubAdmin = withPlayOperationsTelemetry(
   resolvePlayTelemetry,
 );
 const handleNotices = createHandleNotices(
-  (env) =>
+  (env, includeArchived) =>
     new NoticeUseCases(
-      new D1NoticeGateway(getDb(env), env.ASSET_BUCKET),
+      new D1NoticeGateway(getDb(env), env.ASSET_BUCKET, includeArchived, env.ASSET_BUCKET?buildAssetFileStore(env):undefined,buildNoticeTransitionWriter(env), getWorkerSiteResources(env).site.id),
     ),
 );
 const handleScheduleBoard = createHandleScheduleBoard(
-  (env) => new D1ScheduleBoardReader(getDb(env)),
+  (env, includeArchived) => new D1ScheduleBoardReader(getDb(env), includeArchived, getWorkerSiteResources(env).site.id),
 );
 const handleNaverCafe = createNaverCafeHandler({
   getApplication: createD1NaverCafeApplication,
+  getSite: getWorkerSiteDefinition,
 });
 const handleOperations = createOperationsHandler({
   getApplication: (env) =>
@@ -301,7 +288,7 @@ const handleOperations = createOperationsHandler({
       collectNaverCafePostsForSources,
     ),
 });
-const handleXPosts = createXPostsHandler(buildXPostsApplication);
+const handleXPosts = createXPostsHandler(buildOwnedXPostsApplication);
 const handleManualXCollection = createManualXCollectionHandler(
   buildXPostsApplication,
   (env, actor, idempotencyKey) =>
@@ -324,7 +311,7 @@ const buildChzzkRouteApplication = (env: Parameters<
 >[0]) => {
   const database = getDb(env);
   const liveScheduleAutoFill =
-    createLiveScheduleAutoFillService(database);
+    createLiveScheduleAutoFillService(database,buildLiveScheduleTransitionWriter(env));
   return buildChzzkApplication(env, {
     autoFillLiveSchedules: (items) =>
       liveScheduleAutoFill.run(items),
@@ -333,14 +320,14 @@ const buildChzzkRouteApplication = (env: Parameters<
         eventType: "live_schedule.auto_fill",
         resourceType: "schedule",
         action: "auto_fill",
-        status: "success",
+        status: input.feedback?.length ? input.updated > 0 ? "partial" : "skipped" : "success",
         actorId: input.actorId,
         actorName: input.actorName,
         actorIp: input.actorIp,
         targetCount: input.channelIds.length,
         successCount: input.updated,
         failureCount: 0,
-        detail: { channelIds: input.channelIds },
+        detail: { channelIds: input.channelIds, ...(input.feedback?.length ? { feedback: input.feedback } : {}) },
       }),
   });
 };
@@ -350,6 +337,8 @@ const handleLiveStatus = createLiveStatusHandler(
 const handleLiveScheduleAutoFill =
   createLiveScheduleAutoFillHandler(buildChzzkRouteApplication);
 const handleVods = createChzzkMediaHandler(buildChzzkRouteApplication);
+const handleYouTubeHistory = createYouTubeHistoryHandler(env => new D1AdminYouTubeHistoryReader(env.otw_db));
+const handleChzzkHistory = createChzzkHistoryHandler(env => new D1AdminChzzkHistoryReader(env.otw_db));
 const handleYouTube = createYouTubeHandler(buildYouTubeApplication);
 const handleKirinuki = createKirinukiHandler(buildYouTubeApplication);
 
@@ -377,9 +366,12 @@ const head = (
 ): WorkerRouteMethodContract => ({ method: "HEAD", ...contract });
 
 const routeDefinitions: readonly WorkerRouteDefinition[] = [
+  { id: "publication.status", owner: "auth", path: apiRoutes.publication.status.pattern,
+    methods: methods(get({ auth: "optional", cache: "no-store", successStatus: 200 }), head({ auth: "optional", cache: "no-store", successStatus: 200 })),
+    handler: readSitePublicationStatus },
   { id: "seo.site-content", owner: "seo", path: apiRoutes.siteContent.read.pattern,
     methods: methods(get({ auth: "public", cache: "route-policy", successStatus: 200 })),
-    handler: createSiteContentHandler(env => createSiteSeoDependencies(env).content) },
+    handler: createSiteContentHandler((env,request) => createSiteSeoDependencies(env,request.headers.has("Authorization") || request.headers.has("Cookie")).content) },
   {
     id: "auth.admin-status",
     owner: "auth",
@@ -392,22 +384,29 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleAuthStatus,
   },
   {
+    id: "assets.protected-reference",
+    owner: "assets",
+    path: apiRoutes.assets.protectedReference.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleProtectedAssetReference,
+  },
+  {
     id: "assets.get",
     owner: "assets",
     path: apiRoutes.assets.object.pattern,
     methods: methods(
       get({
         auth: "public",
-        cache: "public, max-age=31536000, immutable",
+        cache: "no-store",
         successStatus: 200,
       }),
       head({
         auth: "public",
-        cache: "public, max-age=31536000, immutable",
+        cache: "no-store",
         successStatus: 200,
       }),
     ),
-    handler: handleR2Asset,
+    handler: handleAsset,
   },
   {
     id: "chzzk.live-status",
@@ -415,7 +414,7 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     path: apiRoutes.chzzk.liveStatus.pattern,
     methods: methods(get({
       auth: "public",
-      cache: "public, max-age=0, s-maxage=45, must-revalidate",
+      cache: "no-store",
       successStatus: 200,
     })),
     handler: handleLiveStatus,
@@ -437,6 +436,12 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
       get({ auth: "public", cache: PUBLIC_MEDIA_CACHE, successStatus: 200 }),
     ),
     handler: handleVods,
+  },
+  {
+    id: "youtube.history", owner: "youtube", path: apiRoutes.youtube.history.pattern, methods: methods(get(ADMIN_NO_STORE)), handler: handleYouTubeHistory,
+  },
+  {
+    id: "chzzk.history", owner: "chzzk", path: apiRoutes.chzzk.history.pattern, methods: methods(get(ADMIN_NO_STORE)), handler: handleChzzkHistory,
   },
   {
     id: "youtube.vods",
@@ -498,8 +503,7 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     methods: methods(
       get({
         auth: "public",
-        cache:
-          "public, max-age=60, s-maxage=300, stale-while-revalidate=600",
+        cache: "no-store",
         successStatus: 200,
       }),
     ),
@@ -726,6 +730,8 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
   { id: "otw-play.admin.ai-draft", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviewDraft.pattern, methods: methods(get(ADMIN_NO_STORE)), handler: handleOtwPlayAiBatch },
   { id: "otw-play.admin.ai-reviews", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviews.pattern, methods: methods(get(ADMIN_NO_STORE), post({ ...ADMIN_NO_STORE, successStatus: 202 })), handler: handleOtwPlayAiReview },
   { id: "otw-play.admin.ai-review", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReview.pattern, methods: methods(get(ADMIN_NO_STORE)), handler: handleOtwPlayAiReview },
+  { id: "otw-play.admin.ai-review-close-unknown", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviewCloseUnknown.pattern, methods: methods(post(ADMIN_NO_STORE)), handler: handleOtwPlayAiReview },
+  { id: "otw-play.admin.ai-review-resume", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviewResume.pattern, methods: methods(post(ADMIN_NO_STORE)), handler: handleOtwPlayAiReview },
   {
     id: "otw-play.admin.import-budget",
     owner: "otw-play",
@@ -1445,3 +1451,4 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
 
 export const workerRouteRegistry = createRouteRegistry(routeDefinitions);
 export const workerRouteManifest = workerRouteRegistry.manifest;
+import { buildOwnedXPostsApplication } from "./x-posts";

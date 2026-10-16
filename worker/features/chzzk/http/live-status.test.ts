@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {siteEnv} from '../../../test-support/site-env';
 import {
   buildChzzkApplication,
   createLiveScheduleAutoFillHandler,
@@ -51,6 +52,7 @@ const cacheStore = new Map<string, Response>();
 
 const makeEnv = (): Env =>
   ({
+    ...siteEnv(),
     YOUTUBE_API_KEY: "",
     X_BEARER_TOKEN: "",
     otw_db: {
@@ -171,7 +173,7 @@ describe("live status route", () => {
 
     expect(revalidatedResponse.status).toBe(200);
     expect(revalidatedResponse.headers.get("Cache-Control")).toBe(
-      "public, max-age=0, s-maxage=45, must-revalidate",
+      "no-store",
     );
     expect(body.items).toEqual([{ channelId, content: liveContent }]);
     expect(fetchChzzkLiveStatusMock).toHaveBeenCalledOnce();

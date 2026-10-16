@@ -1,4 +1,6 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { publicationHiddenSql } from "../../content-transition";
+import { parseSiteId } from "@contracts/site-definition";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { naverCafePosts, naverCafeSources } from "@db/schema";
 import { getDb } from "../../../platform/db";
 import { getSetting, insertAdminAuditLog } from "../../../platform/http-helpers";
@@ -10,6 +12,7 @@ import type {
   NaverCafeSourceRecord,
   NaverCafeVisibility,
 } from "../application/naver-cafe-application";
+import { readContentAccessRevision } from "../../content-transition";
 import { readStoredNaverCafePostsForSources } from "./naver-cafe-collector";
 
 const ENABLED_SETTING_KEY = "naver_cafe_posts_enabled";
@@ -43,11 +46,13 @@ export class D1NaverCafeApplication implements NaverCafeApplication {
     }
   }
 
-  async listSources(): Promise<NaverCafeSourceRecord[]> {
+  readAccessRevision() { return readContentAccessRevision(this.env.otw_db, parseSiteId(this.env.SITE_ID)); }
+
+  async listSources(includeArchived = false): Promise<NaverCafeSourceRecord[]> {
     return this.db
       .select()
       .from(naverCafeSources)
-      .where(isNull(naverCafeSources.archived_at))
+      .where(and(isNull(naverCafeSources.archived_at), includeArchived ? undefined : sql`NOT EXISTS (SELECT 1 FROM members archive_member WHERE archive_member.uid = ${naverCafeSources.member_uid} AND (archive_member.content_access = 'admin_archive' OR ${sql.raw(publicationHiddenSql("members","archive_member",parseSiteId(this.env.SITE_ID)))}))`))
       .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));
   }
 
@@ -186,9 +191,11 @@ export class D1NaverCafeApplication implements NaverCafeApplication {
     return changed;
   }
 
-  readStoredPosts(sources: NaverCafeSourceRecord[], size: number) {
+  readStoredPosts(sources: NaverCafeSourceRecord[], size: number, includeArchived = false) {
     return readStoredNaverCafePostsForSources(sources, {
       cacheDb: this.env.otw_db,
+      includeArchived,
+      siteId: parseSiteId(this.env.SITE_ID),
       size,
     });
   }

@@ -134,7 +134,7 @@ export class WorkQueueService {
       return;
     }
     if (job.status === "collecting") return;
-    if (job.status !== "completed") throw new WorkQueueError("metadata_incomplete","영상 수집이 완료되지 않았습니다. 가져오기 오류를 확인한 뒤 현재 묶음을 재시도하세요.");
+    if (job.status !== "completed" && !(job.status==='partial' && await this.ingestionRepo.hasOnlyPublicationCutoffFailures(b.jobId))) throw new WorkQueueError("metadata_incomplete","영상 수집이 완료되지 않았습니다. 가져오기 오류를 확인한 뒤 현재 묶음을 재시도하세요.");
     const latest=await this.repo.record(b.id);
     if (!latest.pageRecorded) throw new WorkQueueError("playlist_page_failed","목록 페이지를 읽지 못했습니다. 가져오기 오류를 확인하거나 목록을 다시 확인하세요.");
     await this.repo.snapshot(b.id,this.clock());

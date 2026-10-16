@@ -42,6 +42,7 @@ export type ChzzkClipFetchResult = {
 export type ChzzkScheduleAutoFillResult = {
   updated: number;
   details?: unknown[];
+  feedback?: import("@contracts/chzzk").LiveScheduleAutoFillFeedback[];
 };
 
 export type ChzzkActor = {
@@ -53,6 +54,7 @@ export type ChzzkActor = {
 export type ChzzkAutoFillAuditInput = ChzzkActor & {
   channelIds: string[];
   updated: number;
+  feedback?: import("@contracts/chzzk").LiveScheduleAutoFillFeedback[];
 };
 
 export interface ChzzkApplicationPorts {
@@ -166,6 +168,7 @@ export const createChzzkApplication = (ports: ChzzkApplicationPorts) => {
   };
 
   return {
+    assertAuthorized,
     fetchLiveStatuses,
 
     async fetchVideos(channelIds: string[], page: number, size: number) {
@@ -215,6 +218,7 @@ export const createChzzkApplication = (ports: ChzzkApplicationPorts) => {
           ...actor,
           channelIds,
           updated: result.updated,
+          ...(result.feedback?.length ? { feedback: result.feedback } : {}),
         });
       } catch (error) {
         console.error("Failed to write live schedule auto-fill audit", error);

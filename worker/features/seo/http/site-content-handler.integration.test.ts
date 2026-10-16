@@ -1,3 +1,4 @@
+import { getSiteDefinition } from "@contracts/site-definition";
 import { describe, it, expect, vi } from "vitest";
 import { resolveSiteSeo } from "@contracts/site-seo";
 import type { SitePublicContent } from "@contracts/site-public-content";
@@ -6,7 +7,7 @@ import type { SiteContentService } from "../application/site-content-service";
 import { createSiteContentHandler, rewriteSiteContent } from "./site-content-handler";
 
 const content = (): SitePublicContent => ({
-  path: "/", date: "2026-09-22", metadata: resolveSiteSeo("/"),
+  path: "/", date: "2026-09-22", metadata: resolveSiteSeo("/", site),
   generatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 300_000).toISOString(),
   sections: [{ id: "schedule", title: "오늘 방송 일정", status: "available", updatedAt: null, items: [{ title: '</script><script>alert("x")</script>', text: "휴방", url: "/profile/member" }] }],
   structuredData: { "@context": "https://schema.org", name: "</script><script>bad</script>" },
@@ -14,7 +15,7 @@ const content = (): SitePublicContent => ({
 
 describe("site content HTTP representations", () => {
   it("sends readable body and safely serialized data without relying on JavaScript", async () => {
-    const response = rewriteSiteContent(new Response('<html><head><title>old</title></head><body><div id="root"></div></body></html>', { headers: { ETag: '"old"', "Last-Modified": "old", "Content-Length": "100" } }), content());
+    const response = rewriteSiteContent(new Response('<html><head><title>old</title></head><body><div id="root"></div></body></html>', { headers: { ETag: '"old"', "Last-Modified": "old", "Content-Length": "100" } }), content(), site);
     const html = await response.text();
     expect(html).toContain("오늘 방송 일정");
     expect(html).toContain('<div id="site-content-fallback">');
@@ -51,3 +52,5 @@ describe("site content HTTP representations", () => {
     expect(response.headers.get("X-Robots-Tag")).toBe("noindex,nofollow");
   });
 });
+
+const site = getSiteDefinition("otw");

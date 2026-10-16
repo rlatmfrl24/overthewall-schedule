@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { PlaylistDetailSkeleton, PlaylistTracksSkeleton } from "./playlist-skeletons";
 import { useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
@@ -37,7 +38,7 @@ export function OtwPlayDefaultPlaylistPage({ playlistKey }: { playlistKey: strin
 }
 
 export function OtwPlayPersonalPlaylistPage({ playlistId }: { playlistId: string }) {
-  const seo = useMemo(() => ({ ...resolveSiteSeo(`/play/playlists/${playlistId}`), title: "내 플레이리스트 | OTW Play" }), [playlistId]);
+  const seo = useMemo(() => ({ ...resolveSiteSeo(`/play/playlists/${playlistId}`, site), title: `내 플레이리스트 | ${site.playName}` }), [playlistId]);
   useSiteSeo(seo);
   return <PlaylistLoginGate><PersonalPlaylist playlistId={playlistId} /></PlaylistLoginGate>;
 }

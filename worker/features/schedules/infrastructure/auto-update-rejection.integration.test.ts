@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../../../platform/db";
 import type { CachedChzzkVideos } from "../../../platform/types";
@@ -25,11 +25,14 @@ const TEST_SCHEMA = [
   "DROP TABLE IF EXISTS members",
   `CREATE TABLE members (
      uid INTEGER PRIMARY KEY,
+     code TEXT NOT NULL DEFAULT 'fixture_member',
+     content_access TEXT NOT NULL DEFAULT 'normal',
      name TEXT NOT NULL,
      url_chzzk TEXT,
      is_deprecated INTEGER
    )`,
   `CREATE TABLE schedules (
+     content_access TEXT NOT NULL DEFAULT 'normal',
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      member_uid INTEGER NOT NULL,
      date TEXT NOT NULL,
@@ -39,6 +42,7 @@ const TEST_SCHEMA = [
      created_at NUMERIC DEFAULT CURRENT_TIMESTAMP
    )`,
   `CREATE TABLE pending_schedules (
+     content_access TEXT NOT NULL DEFAULT 'normal',
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      member_uid INTEGER NOT NULL,
      member_name TEXT NOT NULL,
@@ -69,6 +73,7 @@ const TEST_SCHEMA = [
   "CREATE UNIQUE INDEX uidx_pending_vod ON pending_schedules(vod_id) WHERE vod_id IS NOT NULL",
   "CREATE UNIQUE INDEX uidx_pending_time ON pending_schedules(member_uid, date, start_time)",
   `CREATE TABLE schedule_candidate_rejections (
+     content_access TEXT NOT NULL DEFAULT 'normal',
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      vod_id TEXT NOT NULL UNIQUE,
      member_uid INTEGER NOT NULL,
@@ -118,6 +123,7 @@ const TEST_SCHEMA = [
      created_at NUMERIC DEFAULT CURRENT_TIMESTAMP
    )`,
   `CREATE TABLE schedule_broadcast_observations (
+     content_access TEXT NOT NULL DEFAULT 'normal',
      vod_id TEXT PRIMARY KEY NOT NULL,
      member_uid INTEGER NOT NULL,
      channel_id TEXT NOT NULL,
@@ -200,10 +206,12 @@ describe("auto update rejection workflow", () => {
     await env.otw_db.batch(
       TEST_SCHEMA.map((statement) => env.otw_db.prepare(statement)),
     );
+    await applyD1Migrations(env.otw_db,(env as unknown as {CONTENT_TRANSITION_CONTROL_MIGRATIONS:D1Migration[]}).CONTENT_TRANSITION_CONTROL_MIGRATIONS);
     await env.otw_db.batch(
       (env as unknown as { SCHEDULE_DAY_MIGRATION_SQL: string }).SCHEDULE_DAY_MIGRATION_SQL
         .split("--> statement-breakpoint").map(sql => env.otw_db.prepare(sql)),
     );
+    await env.otw_db.prepare("ALTER TABLE schedule_day_assessments ADD COLUMN content_access TEXT NOT NULL DEFAULT 'normal'").run();
     await env.otw_db
       .prepare(
         `INSERT INTO members (uid, name, url_chzzk, is_deprecated)

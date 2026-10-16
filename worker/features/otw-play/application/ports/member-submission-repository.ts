@@ -61,6 +61,7 @@ export interface MemberSubmissionRepository {
     userId: string,
     videoId: string,
     title: string | null,
+    channelId?: string | null,
   ): Promise<Omit<OtwPlaySubmissionPreflightDto, "videoId" | "canonicalUrl" | "thumbnailUrl">>;
   create(
     command: CreateMemberSubmissionCommand,

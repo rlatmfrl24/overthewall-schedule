@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor,within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,11 +8,13 @@ const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   detail: vi.fn(),
   useAdminStatus: vi.fn(),
+  withdraw:vi.fn(),
 }));
 vi.mock("@clerk/clerk-react", () => ({
   useUser: () => ({ user: { id: "user-one" } }),
 }));
 vi.mock("@/features/auth", () => ({ useAdminStatus: mocks.useAdminStatus }));
+vi.mock('../../api/submissions',()=>({withdrawOtwPlaySubmission:mocks.withdraw}));
 vi.mock("../../queries/use-member-submissions", () => ({
   useMyOtwPlaySubmissions: mocks.list,
   useMyOtwPlaySubmission: mocks.detail,
@@ -22,6 +24,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 import { OtwPlaySubmissionsPage } from "./submissions-page";
+import {ApiError} from '@/shared/api/client';
 
 const renderPage = () => {
   const client = new QueryClient({
@@ -46,6 +49,18 @@ describe("OtwPlaySubmissionsPage", () => {
     mocks.detail.mockReturnValue({ isPending: false, data: null });
   });
   afterEach(cleanup);
+
+  it('keeps accepted withdrawal visible in the original confirmation and reuses its key',async()=>{
+    const proposal={id:'own-proposal',title:'내 제보',status:'pending_review',version:0,createdAt:1,youtubeVideoId:'abcdefghijk',youtubeUrl:'https://youtu.be/abcdefghijk',participants:[],originalArtists:[],tags:[],editable:true,withdrawable:true};
+    mocks.list.mockReturnValue({isPending:false,data:{pages:[{items:[proposal]}]}});
+    mocks.detail.mockReturnValue({isPending:false,data:proposal,refetch:vi.fn()});
+    mocks.withdraw.mockRejectedValue(new ApiError('접수된 철회 결과를 기다리고 있습니다.',409,{code:'CONTENT_ACCEPTED'}));
+    renderPage();fireEvent.click(screen.getByRole('button',{name:/내 제보/}));fireEvent.click(screen.getByRole('button',{name:'철회'}));
+    const confirmation=screen.getByRole('alertdialog');fireEvent.click(within(confirmation).getByRole('button',{name:'제안 철회'}));
+    await within(confirmation).findByText('접수된 철회 결과를 기다리고 있습니다.');expect(screen.queryByText('제안을 철회했습니다.')).toBeNull();
+    const original=mocks.withdraw.mock.calls[0];fireEvent.click(within(confirmation).getByRole('button',{name:'제안 철회'}));
+    await waitFor(()=>expect(mocks.withdraw).toHaveBeenCalledTimes(2));expect(mocks.withdraw.mock.calls[1]).toEqual(original);expect(original).toEqual(['own-proposal',{expectedVersion:0},expect.any(String)]);
+  });
 
   it("shows a focused first-proposal action without an empty detail panel", () => {
     mocks.list.mockReturnValue({

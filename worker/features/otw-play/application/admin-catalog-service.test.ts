@@ -880,7 +880,7 @@ describe("AdminCatalogService", () => {
 
   it("keeps proposal approval fail-closed until policy resolution", async () => {
     const repository = {
-      readProposals: vi.fn(),
+      readProposals: vi.fn(async()=>[{id:'proposal-1',youtubeVideoId:'dQw4w9WgXcQ'}]),
       approveProposal: vi.fn(),
     } as unknown as AdminCatalogRepository;
     const service = new AdminCatalogService(
@@ -915,7 +915,7 @@ describe("AdminCatalogService", () => {
         actor,
       ),
     ).rejects.toMatchObject({ code: "policy_unresolved" });
-    expect(repository.readProposals).not.toHaveBeenCalled();
+    expect(repository.readProposals).toHaveBeenCalledOnce();
     expect(repository.approveProposal).not.toHaveBeenCalled();
   });
 
@@ -990,11 +990,12 @@ describe("AdminCatalogService", () => {
       service.approveProposal("proposal-1", input, actor),
     ).rejects.toMatchObject({ code: "not_found" });
 
-    readProposals.mockResolvedValueOnce([{ ...proposal, version: 1 }]);
+    readProposals.mockResolvedValue([{ ...proposal, version: 1 }]);
     await expect(
       service.approveProposal("proposal-1", input, actor),
     ).rejects.toMatchObject({ code: "stale_write" });
 
+    readProposals.mockResolvedValue([proposal]);
     readCatalog.mockResolvedValueOnce({ revision: 1, channels: [] });
     await expect(
       service.approveProposal("proposal-1", input, actor),
@@ -1042,7 +1043,7 @@ describe("AdminCatalogService", () => {
       }),
     );
 
-    readProposals.mockResolvedValueOnce([{
+    readProposals.mockResolvedValue([{
       ...proposal,
       status: "approved",
       version: 1,

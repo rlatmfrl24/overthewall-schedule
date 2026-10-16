@@ -1,3 +1,4 @@
+import { parseSiteId } from "@contracts/site-definition";
 import type {
   ScheduledJobQueueMessage,
   ScheduledJobType,
@@ -17,6 +18,8 @@ import {
   type ScheduledJobItemRecord,
 } from "../../../platform/scheduled-jobs";
 import { ScheduledJobPlanner } from "./scheduled-job-planner";
+import {buildContentTransitionRepository} from "../../../app/content-transition";
+import {assertTransitionAdmission} from '../../content-transition';
 
 const SCHEDULED_DISPATCH_BATCH_SIZE = 8;
 
@@ -60,6 +63,7 @@ export class ScheduledJobCoordinator {
   }
 
   async runScheduled(jobType: ScheduledJobType, scheduledFor = Date.now()) {
+    await assertTransitionAdmission(this.env.otw_db);
     const scheduledBucket = getScheduledBucket(jobType, scheduledFor);
     const idempotencyKey = `scheduled:${jobType}:${scheduledBucket}`;
     const existingRun = await this.repository.readRunByIdempotencyKey(
@@ -110,6 +114,7 @@ export class ScheduledJobCoordinator {
   }
 
   async planManualRun(runId: string) {
+    await assertTransitionAdmission(this.env.otw_db);
     const run = await this.repository.readRun(runId);
     if (!run || run.status !== "queued") return run;
     const usagePercent = await this.repository.getBackgroundUsagePercent();
@@ -137,6 +142,7 @@ export class ScheduledJobCoordinator {
     limit = SCHEDULED_DISPATCH_BATCH_SIZE,
     runId?: string,
   ) {
+    await assertTransitionAdmission(this.env.otw_db);
     const outbox = await this.repository.claimPendingOutbox(runId, limit);
     let dispatched = 0;
     let failed = 0;
@@ -155,6 +161,7 @@ export class ScheduledJobCoordinator {
         getEstimatedD1RowsPerItem(record.job_type),
       );
       if (!reserved) {
+        if(await this.repository.hasOriginalTransitionWork(record.item_id)) break;
         await this.repository.markRunThrottled(
           record.run_id,
           "daily_background_budget_exhausted",
@@ -194,7 +201,6 @@ export class ScheduledJobCoordinator {
         "scan",
       );
       if (progress.queued > 0 || progress.running > 0) return false;
-      if (progress.failed > 0 || progress.throttled > 0) return false;
       const setting = await this.env.otw_db.prepare(
         `SELECT value FROM settings WHERE key = 'auto_update_range_days'`,
       ).first<{ value: string | null }>();
@@ -203,10 +209,19 @@ export class ScheduledJobCoordinator {
           parsedRangeDays >= 1 && parsedRangeDays <= 7
         ? parsedRangeDays
         : 3;
-      const targets = await readAutoUpdateMatchTargets(
+      const repository=buildContentTransitionRepository(this.env);
+      const originals=await repository.chzzkRunContinuations(item.run_id);
+      await repository.closeUnadmittedChzzkChildren(item.run_id);
+      const selected=new Set(originals.flatMap(original=>original.memberUids));
+      const channels=await this.env.otw_db.prepare(`SELECT DISTINCT json_extract(channel.value,'$.channelId') channel_id FROM scheduled_job_items scan,json_each(scan.result_json,'$.channelResults') channel
+        WHERE scan.run_id=? AND scan.phase='scan' AND scan.status IN ('succeeded','partial')`).bind(item.run_id).all<{channel_id:string}>();
+      const localTargets = await readAutoUpdateMatchTargets(
         getDb(this.env),
         rangeDays,
+        channels.results.map(channel=>channel.channel_id),
+        parseSiteId(this.env.SITE_ID),
       );
+      const targets=[...localTargets.filter(target=>!selected.has(target.memberUid)),...originals.filter(original=>["succeeded","partial"].includes(original.scanStatus)).flatMap(original=>original.targets)];
       await this.repository.addItems(
         item.run_id,
         targets.length > 0
@@ -228,7 +243,6 @@ export class ScheduledJobCoordinator {
         "match",
       );
       if (progress.queued > 0 || progress.running > 0) return false;
-      if (progress.failed > 0 || progress.throttled > 0) return false;
       await this.repository.addItems(item.run_id, [{
         targetKey: "finalizer",
         phase: "finalize",

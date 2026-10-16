@@ -708,6 +708,279 @@
       "when": 1791855019671,
       "tag": "0101_playlist_work_progress_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "6",
+      "when": 1791953303241,
+      "tag": "0102_content_transition_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "6",
+      "when": 1791953305061,
+      "tag": "0103_content_transition_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "6",
+      "when": 1791968206420,
+      "tag": "0104_asset_file_recovery",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "6",
+      "when": 1791968332998,
+      "tag": "0105_asset_file_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "6",
+      "when": 1791969729801,
+      "tag": "0106_asset_file_cleanup",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "6",
+      "when": 1791969916132,
+      "tag": "0107_asset_file_reference_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "6",
+      "when": 1791970669661,
+      "tag": "0108_asset_file_owner_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "6",
+      "when": 1791971224617,
+      "tag": "0109_file_availability_evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "6",
+      "when": 1791972955187,
+      "tag": "0110_asset_file_cafe_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "6",
+      "when": 1791977956730,
+      "tag": "0111_asset_file_url_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "6",
+      "when": 1791978029100,
+      "tag": "0112_asset_file_url_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "6",
+      "when": 1791983427515,
+      "tag": "0113_normal_husk",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "6",
+      "when": 1791983671497,
+      "tag": "0114_asset_file_inventory_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "6",
+      "when": 1791988860782,
+      "tag": "0115_asset_file_path_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "6",
+      "when": 1791990369737,
+      "tag": "0116_asset_file_url_parse_order",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "6",
+      "when": 1791991752419,
+      "tag": "0117_asset_file_decode_validity",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "6",
+      "when": 1791996720633,
+      "tag": "0118_schedule_audit_capture_independence",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "6",
+      "when": 1792000188582,
+      "tag": "0119_inactive_target_baseline_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "6",
+      "when": 1792001462747,
+      "tag": "0120_native_dday_owning_receipt",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "6",
+      "when": 1792004515531,
+      "tag": "0121_chzzk_read_request_journal",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "6",
+      "when": 1792004765316,
+      "tag": "0122_chzzk_read_attempt_uncertainty",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "6",
+      "when": 1792005465453,
+      "tag": "0123_chzzk_read_resolution_receipt",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "6",
+      "when": 1792007003661,
+      "tag": "0124_chzzk_original_continuation_stage",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "6",
+      "when": 1792007530431,
+      "tag": "0125_chzzk_original_batch_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "6",
+      "when": 1792019110559,
+      "tag": "0126_admitted_channel_dependency_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "6",
+      "when": 1792020640361,
+      "tag": "0127_original_proposal_event_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "6",
+      "when": 1792021300178,
+      "tag": "0128_member_submission_event_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "6",
+      "when": 1792023634414,
+      "tag": "0129_admitted_video_dependency_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "6",
+      "when": 1792028958638,
+      "tag": "0130_admitted_conversion_dependency_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "6",
+      "when": 1792031698372,
+      "tag": "0131_admitted_candidate_metadata_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "6",
+      "when": 1792034212225,
+      "tag": "0132_admitted_channel_approval_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "6",
+      "when": 1792038553760,
+      "tag": "0133_transition_maintenance_stop",
+      "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "6",
+      "when": 1792040841707,
+      "tag": "0134_transition_abort_evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "6",
+      "when": 1792050767433,
+      "tag": "0135_transition_scheduled_reconciliation",
+      "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "6",
+      "when": 1792051624837,
+      "tag": "0136_transition_unresolved_scheduled_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "6",
+      "when": 1792109762292,
+      "tag": "0137_x-repair-pending",
+      "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "6",
+      "when": 1792109763796,
+      "tag": "0138_x-repair-invalidation",
+      "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "6",
+      "when": 1792110176316,
+      "tag": "0139_x-repair-maintenance-guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "6",
+      "when": 1792125356709,
+      "tag": "0140_publication-ingestion-evidence",
+      "breakpoints": true
     }
   ]
 }

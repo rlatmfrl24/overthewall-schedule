@@ -7,8 +7,12 @@ import {
   extractChzzkChannelId,
   extractKSTTime,
   getKSTDateString,
-  insertUpdateLog,
 } from "../../../platform/http-helpers";
+import { TransitionWriteError } from "../../content-transition";
+import type { LiveScheduleAutoFillFeedback } from "@contracts/chzzk";
+import type { LiveScheduleCommand, LiveScheduleFillPlan } from "../domain/live-schedule-command";
+import type { D1LiveScheduleTransitionWriter } from "./d1-live-schedule-transition-writer";
+export type { LiveScheduleFillPlan } from "../domain/live-schedule-command";
 
 type LiveStatusContent = NonNullable<CachedLiveStatus["content"]>;
 
@@ -31,28 +35,6 @@ type LiveScheduleRow = {
   title?: string | null;
   status: string;
 };
-
-type LiveScheduleFillPlanBase = {
-  memberUid: number;
-  memberName: string;
-  scheduleDate: string;
-  startTime: string;
-  title: string;
-};
-
-export type LiveScheduleFillPlan =
-  | (LiveScheduleFillPlanBase & {
-      action: "update";
-      scheduleId: number;
-      previousStatus: string;
-      previousStartTime: string | null;
-      previousTitle: string | null;
-    })
-  | (LiveScheduleFillPlanBase & {
-      action: "create";
-      scheduleId: null;
-      previousStatus: null;
-    });
 
 const isOpenLiveStatus = (
   content: CachedLiveStatus["content"] | null,
@@ -186,6 +168,7 @@ export const buildLiveScheduleFillPlans = ({
 export const autoFillUndecidedLiveSchedules = async (
   db: DbInstance,
   liveItems: LiveStatusItem[],
+  transitionWriter?: D1LiveScheduleTransitionWriter,
 ) => {
   const openChannelIds = liveItems
     .filter((item) => isOpenLiveStatus(item.content))
@@ -240,6 +223,7 @@ export const autoFillUndecidedLiveSchedules = async (
       start_time: schedules.start_time,
       title: schedules.title,
       status: schedules.status,
+      created_at: schedules.created_at,
     })
     .from(schedules)
     .where(
@@ -257,73 +241,40 @@ export const autoFillUndecidedLiveSchedules = async (
   });
   let updated = 0;
   const details: LiveScheduleFillPlan[] = [];
+  const feedback: LiveScheduleAutoFillFeedback[] = [];
 
   for (const plan of plans) {
-    if (plan.action === "create") {
-      // Check absence and insert in one statement so overlapping admin requests cannot duplicate it.
-      const result = await db.run(sql`
-        INSERT INTO schedules (member_uid, date, start_time, title, status)
-        SELECT ${plan.memberUid}, ${plan.scheduleDate}, ${plan.startTime}, ${plan.title}, '방송'
-        WHERE NOT EXISTS (
-          SELECT 1 FROM schedules
-          WHERE member_uid = ${plan.memberUid} AND date = ${plan.scheduleDate}
-        )
-      `);
-
-      if (result.meta.changes !== 1) {
-        continue;
-      }
-
-      await insertUpdateLog(db, {
-        scheduleId: result.meta.last_row_id,
-        memberUid: plan.memberUid,
-        memberName: plan.memberName,
-        scheduleDate: plan.scheduleDate,
-        action: "schedule_auto_created",
-        title: plan.title,
-        previousStatus: null,
-      });
-
+    try {
+      if (!await applyLiveScheduleFillPlan(db, {
+        plan,
+        expectedRows: scheduleRows.filter(row => row.member_uid === plan.memberUid && row.date === plan.scheduleDate),
+      }, transitionWriter)) continue;
       updated += 1;
       details.push(plan);
-      continue;
+    } catch (error) {
+      if (!(error instanceof TransitionWriteError)) throw error;
+      feedback.push({ memberUid: plan.memberUid, code: error.code, message: error.message, operationId: error.operationId, targetSite: error.targetSite });
     }
-
-    const result = await db
-      .update(schedules)
-      .set({
-        status: "방송",
-        start_time: plan.startTime,
-        title: plan.title,
-      })
-      .where(
-        and(
-          eq(schedules.id, plan.scheduleId),
-          eq(schedules.member_uid, plan.memberUid),
-          eq(schedules.date, plan.scheduleDate),
-          eq(schedules.status, plan.previousStatus),
-          sql`${schedules.start_time} IS ${plan.previousStartTime}`,
-          sql`${schedules.title} IS ${plan.previousTitle}`,
-        ),
-      );
-
-    if (result.meta.changes !== 1) {
-      continue;
-    }
-
-    await insertUpdateLog(db, {
-      scheduleId: plan.scheduleId,
-      memberUid: plan.memberUid,
-      memberName: plan.memberName,
-      scheduleDate: plan.scheduleDate,
-      action: "schedule_auto_updated",
-      title: plan.title,
-      previousStatus: plan.previousStatus,
-    });
-
-    updated += 1;
-    details.push(plan);
   }
 
-  return { updated, details };
+  return { updated, details, ...(feedback.length ? { feedback } : {}) };
 };
+
+/** The owning executor reuses the exact admitted plan, not a new provider snapshot. */
+export async function applyLiveScheduleFillPlan(db: DbInstance, command: LiveScheduleCommand, transitionWriter?: D1LiveScheduleTransitionWriter) {
+  const { plan } = command, d1 = db.$client;
+  const mutation = plan.action === "create"
+    ? d1.prepare(`INSERT INTO schedules(member_uid,date,start_time,title,status)
+        SELECT ?,?,?,?,'방송' WHERE NOT EXISTS(SELECT 1 FROM schedules WHERE member_uid=? AND date=?) RETURNING id`)
+      .bind(plan.memberUid,plan.scheduleDate,plan.startTime,plan.title,plan.memberUid,plan.scheduleDate)
+    : d1.prepare(`UPDATE schedules SET status='방송',start_time=?,title=? WHERE id=? AND member_uid=? AND date=? AND status=? AND start_time IS ? AND title IS ? RETURNING id`)
+      .bind(plan.startTime,plan.title,plan.scheduleId,plan.memberUid,plan.scheduleDate,plan.previousStatus,plan.previousStartTime,plan.previousTitle);
+  // Keep changes()/last_insert_rowid() adjacent. These original schedule_auto_*
+  // actions have null actors, including when triggered by an administrator.
+  const audit = d1.prepare(`INSERT INTO update_logs(schedule_id,member_uid,member_name,schedule_date,action,title,previous_status)
+    SELECT ${plan.action === "create" ? "last_insert_rowid()" : "?"},?,?,?,?,?,? WHERE changes()=1`)
+    .bind(...(plan.action === "create" ? [] : [plan.scheduleId]),plan.memberUid,plan.memberName,plan.scheduleDate,plan.action === "create" ? "schedule_auto_created" : "schedule_auto_updated",plan.title,plan.previousStatus);
+  const statements = [mutation,audit];
+  const results = await transitionWriter?.write(command,statements) ?? await d1.batch(statements);
+  return results[0].results.length === 1;
+}

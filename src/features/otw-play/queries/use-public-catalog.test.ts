@@ -59,6 +59,21 @@ describe("OTW Play public queries", () => {
     );
   });
 
+  it("revalidates on the next screen entry without displaying a pre-archive catalog snapshot", async () => {
+    apiMocks.fetchOtwPlayCatalog.mockResolvedValueOnce(envelope({ items: [{ id: "archived", title: "Former public title" }] }));
+    const wrapper = createWrapper();
+    const first = renderHook(() => useOtwPlayCatalog(), { wrapper });
+    await waitFor(() => expect(first.result.current.data?.pages[0]?.data.items).toHaveLength(1));
+    first.unmount();
+    let complete!: (value: unknown) => void;
+    apiMocks.fetchOtwPlayCatalog.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+    const second = renderHook(() => useOtwPlayCatalog(), { wrapper });
+    expect(second.result.current.data).toBeUndefined();
+    await waitFor(() => expect(apiMocks.fetchOtwPlayCatalog).toHaveBeenCalledTimes(2));
+    act(() => complete(envelope({ items: [] })));
+    await waitFor(() => expect(second.result.current.data?.pages[0]?.data.items).toEqual([]));
+  });
+
   it("catalog cursor를 infinite query page parameter로만 전달한다", async () => {
     apiMocks.fetchOtwPlayCatalog
       .mockResolvedValueOnce(envelope({ items: [] }, "cursor-2"))

@@ -1,5 +1,6 @@
-export { fetchActiveMembers, fetchMemberProfile } from "./api/members";
+export { fetchAdminMembers, fetchActiveMembers, fetchMemberProfile } from "./api/members";
 export { isActiveMember } from "./model/member";
+export { getCurrentMemberAffiliation } from "./model/current-member-affiliation";
 export type {
   Member,
   MemberProfile,

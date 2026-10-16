@@ -21,6 +21,11 @@ import type {
   AdminCatalogRepository,
 } from "./ports/admin-catalog-repository";
 import type { OtwPlayYouTubeMetadataReader } from "./ports/youtube-metadata";
+import type {ChannelTransitionPort} from "./ports/channel-transition";
+import type {VideoCatalogCommand,VideoEntryIds,CandidateConversionInput} from "../domain/video-catalog-command";
+import type {CandidateConversionCommand} from './ports/candidate-conversion-transition';
+import type {VideoCatalogTransitionPort} from "./ports/video-catalog-transition";
+import type {ChannelMutationCommand} from "../domain/channel-mutation";
 
 export type AdminCatalogServiceErrorCode =
   | "invalid_request"
@@ -88,6 +93,8 @@ export class AdminCatalogService {
   private readonly clock: () => number;
   private readonly createId: () => string;
   private readonly officialCoverPolicyEnabled: boolean;
+  private readonly channelTransition?:ChannelTransitionPort;
+  private readonly videoTransition?:VideoCatalogTransitionPort;
 
   constructor(
     repository: AdminCatalogRepository,
@@ -96,6 +103,8 @@ export class AdminCatalogService {
     createId: () => string,
     officialCoverPolicyEnabled: boolean,
     clock: () => number = Date.now,
+    channelTransition?:ChannelTransitionPort,
+    videoTransition?:VideoCatalogTransitionPort,
   ) {
     this.repository = repository;
     this.youtube = youtube;
@@ -103,6 +112,7 @@ export class AdminCatalogService {
     this.clock = clock;
     this.createId = createId;
     this.officialCoverPolicyEnabled = officialCoverPolicyEnabled;
+    this.channelTransition=channelTransition;this.videoTransition=videoTransition;
   }
 
   readCatalog(scope?: import("./ports/admin-catalog-repository").AdminCatalogScope) {
@@ -114,6 +124,10 @@ export class AdminCatalogService {
   }
 
   async lookupChannel(externalChannelId: string) {
+    return this.verifyChannel(externalChannelId,this.youtube);
+  }
+
+  private async verifyChannel(externalChannelId:string,reader:OtwPlayYouTubeMetadataReader) {
     const normalizedChannelId = externalChannelId.trim();
     if (!YOUTUBE_CHANNEL_ID_PATTERN.test(normalizedChannelId)) {
       throw new AdminCatalogServiceError(
@@ -122,7 +136,7 @@ export class AdminCatalogService {
         { externalChannelId: "invalid" },
       );
     }
-    const metadata = await this.youtube.readChannel(normalizedChannelId);
+    const metadata = await reader.readChannel(normalizedChannelId);
     if (!metadata || metadata.channelId !== normalizedChannelId) {
       throw new AdminCatalogServiceError(
         "validation_failed",
@@ -136,7 +150,7 @@ export class AdminCatalogService {
     };
   }
 
-  private async readVerifiedVideo(youtubeUrl: string) {
+  private async readVerifiedVideo(youtubeUrl: string,reader=this.youtube) {
     const videoId = extractYouTubeVideoId(youtubeUrl);
     if (!videoId) {
       throw new AdminCatalogServiceError(
@@ -145,7 +159,7 @@ export class AdminCatalogService {
         { youtubeUrl: "invalid" },
       );
     }
-    const metadata = await this.youtube.readVideo(videoId);
+    const metadata = await reader.readVideo(videoId);
     if (!metadata || metadata.videoId !== videoId) {
       throw new AdminCatalogServiceError(
         "external_service_unavailable",
@@ -201,9 +215,10 @@ export class AdminCatalogService {
 
   async preflightCatalogEntry(
     input: OtwPlayAdminCatalogEntryPreflightRequest,
+    reader=this.youtube,
   ) {
     this.validateSourceSegment(input.startSeconds, input.endSeconds, null);
-    const video = await this.readVerifiedVideo(input.youtubeUrl);
+    const video = await this.readVerifiedVideo(input.youtubeUrl,reader);
     this.validateSourceSegment(
       input.startSeconds,
       input.endSeconds,
@@ -212,15 +227,62 @@ export class AdminCatalogService {
     return this.repository.preflightCatalogEntry(video, input.startSeconds);
   }
 
-  async createCatalogEntry(
+  private videoEntityIds(subjects:readonly OtwPlayAdminCatalogSubjectInput[]) {
+    const entityIds:Record<string,string>={},entityEventIds:Record<string,string>={};
+    for(const subject of subjects) {const key=subjectKey(subject);if(key&&!entityIds[key]) {entityIds[key]=this.createId();entityEventIds[key]=this.createId();}}
+    return {entityIds,entityEventIds};
+  }
+  private videoEntryIds(input:OtwPlayAdminCreateCatalogEntryRequest|OtwPlayAdminApproveProposalRequest) {
+    const subjects=[...input.participants.map(item=>item.subject),...(input.song.kind==='create'?input.song.originalArtists.map(item=>item.subject):[]),...(input.channel.kind==='confirm'||input.channel.kind==='pending'?input.channel.owners:input.channel.kind==='recognized_member'?[{kind:'member' as const,memberUid:input.channel.memberUid}]:[])];
+    return {...this.videoEntityIds(subjects),channelId:this.createId(),channelEventId:this.createId(),songId:this.createId(),songEventId:this.createId(),performanceId:this.createId(),performanceEventId:this.createId(),sourceId:this.createId()};
+  }
+  /** Only the validated retained Queue command supplies a null transferred actor. */
+  resumeVideoCatalog(command:VideoCatalogCommand) {
+    switch(command.action) {
+      case 'performance_create':return this.runCreatePerformance(command);
+      case 'performance_update':return this.runUpdatePerformance(command);
+      case 'catalog_create':return this.runCreateCatalogEntry(command);
+      case 'proposal_approve':return this.runApproveProposal(command);
+      case 'candidate_convert':throw new Error('Candidate conversion requires its original ingestion service');
+    }
+  }
+  private runCreatePerformance(command:Extract<VideoCatalogCommand,{action:'performance_create'}>) {
+    const execute=(actual:VideoCatalogCommand,reader:OtwPlayYouTubeMetadataReader)=>{if(actual.action!=='performance_create') throw new Error('Original performance command mismatch');return this.createPerformanceOriginal(actual.input,actual.actor,actual,reader);};
+    return this.videoTransition?this.videoTransition.run(command,execute):execute(command,this.youtube);
+  }
+  private runUpdatePerformance(command:Extract<VideoCatalogCommand,{action:'performance_update'}>) {
+    const execute=(actual:VideoCatalogCommand,reader:OtwPlayYouTubeMetadataReader)=>{if(actual.action!=='performance_update') throw new Error('Original performance command mismatch');return this.updatePerformanceOriginal(actual.input,actual.actor,actual,reader);};
+    return this.videoTransition?this.videoTransition.run(command,execute):execute(command,this.youtube);
+  }
+  private runCreateCatalogEntry(command:Extract<VideoCatalogCommand,{action:'catalog_create'}>) {
+    const execute=(actual:VideoCatalogCommand,reader:OtwPlayYouTubeMetadataReader)=>{if(actual.action!=='catalog_create') throw new Error('Original catalog command mismatch');return this.createCatalogEntryOriginal(actual.input,actual.actor,undefined,actual,reader);};
+    return this.videoTransition?this.videoTransition.run(command,execute):execute(command,this.youtube);
+  }
+  private runApproveProposal(command:Extract<VideoCatalogCommand,{action:'proposal_approve'}>) {
+    const execute=(actual:VideoCatalogCommand,reader:OtwPlayYouTubeMetadataReader)=>{if(actual.action!=='proposal_approve') throw new Error('Original approval command mismatch');return this.approveProposalOriginal(actual.proposalId,actual.input,actual.actor,actual,reader);};
+    return this.videoTransition?this.videoTransition.run(command,execute):execute(command,this.youtube);
+  }
+  async createCatalogEntry(input:OtwPlayAdminCreateCatalogEntryRequest,actor:AdminCatalogActor,candidateConversion?:Parameters<AdminCatalogRepository['createCatalogEntry']>[0]['candidateConversion']) {
+    if(candidateConversion) return this.createCatalogEntryOriginal(input,actor,candidateConversion);
+    return this.runCreateCatalogEntry({action:'catalog_create',input,actor,ids:this.videoEntryIds(input),now:this.clock()});
+  }
+  prepareCandidateConversion(input:CandidateConversionInput,actor:AdminCatalogActor):CandidateConversionCommand {
+    const subjects=[...input.reviewInput.participants.map(item=>item.subject),...(input.reviewInput.song.kind==='create'?input.reviewInput.song.originalArtists.map(item=>item.subject):[])];
+    return {action:'candidate_convert',input,actor,now:this.clock(),ids:{...this.videoEntityIds(subjects),channelId:this.createId(),channelEventId:this.createId(),songId:this.createId(),songEventId:this.createId(),performanceId:this.createId(),performanceEventId:this.createId(),sourceId:this.createId(),candidateEventId:this.createId(),outcomeEventId:this.createId()}};
+  }
+  createConvertedCatalogEntry(input:OtwPlayAdminCreateCatalogEntryRequest,command:CandidateConversionCommand,reader:OtwPlayYouTubeMetadataReader) {
+    return this.createCatalogEntryOriginal(input,command.actor,{jobId:command.input.jobId,candidateId:command.input.candidateId,expectedVersion:command.input.expectedVersion,eventId:command.ids.candidateEventId},command,reader);
+  }
+  private async createCatalogEntryOriginal(
     input: OtwPlayAdminCreateCatalogEntryRequest,
-    actor: AdminCatalogActor,
+    actor: AdminCatalogActor|null,
     candidateConversion?: {
       jobId: string | null;
       candidateId: string;
       expectedVersion: number;
       eventId: string;
     },
+    command?:{ids:VideoEntryIds;now:number},reader=this.youtube,
   ) {
     if (input.releaseType === "broadcast") input = { ...input, relationType: "singing_clip" };
     else if (input.relationType === "singing_clip") throw new AdminCatalogServiceError("invalid_request", "Singing clips require a broadcast release");
@@ -293,12 +355,12 @@ export class AdminCatalogService {
       }
       definitions.set(key, definition);
       if (!entityIds[key]) {
-        entityIds[key] = this.createId();
-        entityEventIds[key] = this.createId();
+        entityIds[key] = command?.ids.entityIds[key]??this.createId();
+        entityEventIds[key] = command?.ids.entityEventIds[key]??this.createId();
       }
     }
 
-    const video = await this.readVerifiedVideo(input.youtubeUrl);
+    const video = await this.readVerifiedVideo(input.youtubeUrl,reader);
     if (
       input.registrationMode === "medley_segment" &&
       video.durationSeconds === null
@@ -318,29 +380,29 @@ export class AdminCatalogService {
       input.endSeconds,
       video.durationSeconds,
     );
-    const performanceId = this.createId();
+    const performanceId = command?.ids.performanceId??this.createId();
     const result = await this.repository.createCatalogEntry({
       input,
       video,
       actor,
-      now: this.clock(),
+      now: command?.now??this.clock(),
       ids: {
         entityIds,
         entityEventIds,
-        channelId: this.createId(),
-        channelEventId: this.createId(),
-        songId: this.createId(),
-        songEventId: this.createId(),
+        channelId: command?.ids.channelId??this.createId(),
+        channelEventId: command?.ids.channelEventId??this.createId(),
+        songId: command?.ids.songId??this.createId(),
+        songEventId: command?.ids.songEventId??this.createId(),
         performanceId,
-        performanceEventId: this.createId(),
-        sourceId: this.createId(),
+        performanceEventId: command?.ids.performanceEventId??this.createId(),
+        sourceId: command?.ids.sourceId??this.createId(),
       },
       candidateConversion,
     });
-    await bestEffortAudit(this.audit, {
+    if(actor) await bestEffortAudit(this.audit, {
       eventType: "otw_play.catalog_entry.created",
       resourceType: "music_performance",
-      resourceId: performanceId,
+      resourceId: result.data.performance.id,
       actor,
       detail: { publicationTarget: input.publicationTarget },
     });
@@ -361,7 +423,7 @@ export class AdminCatalogService {
     await bestEffortAudit(this.audit, {
       eventType: "otw_play.entity.created",
       resourceType: "music_entity",
-      resourceId: entityId,
+      resourceId: result.data.id,
       actor,
     });
     return result;
@@ -423,7 +485,7 @@ export class AdminCatalogService {
     await bestEffortAudit(this.audit, {
       eventType: "otw_play.song.created",
       resourceType: "music_song",
-      resourceId: songId,
+      resourceId: result.data.id,
       actor,
     });
     return result;
@@ -476,6 +538,7 @@ export class AdminCatalogService {
 
   private async verifyPerformanceSources(
     input: Pick<OtwPlayAdminCreatePerformanceRequest, "sources" | "releaseType">,
+    reader=this.youtube,sourceIds?:readonly string[],
   ) {
     if (
       input.sources.length === 0 ||
@@ -501,7 +564,7 @@ export class AdminCatalogService {
           { [`sources.${index}.youtubeUrl`]: "invalid" },
         );
       }
-      const metadata = await this.youtube.readVideo(videoId);
+      const metadata = await reader.readVideo(videoId);
       if (!metadata) {
         throw new AdminCatalogServiceError(
           "external_service_unavailable",
@@ -535,42 +598,50 @@ export class AdminCatalogService {
         sourceInput.endSeconds,
         metadata.durationSeconds,
       );
-      verified.push({ input: sourceInput, video: metadata, sourceId: this.createId() });
+      verified.push({ input: sourceInput, video: metadata, sourceId: sourceIds?.[index]??this.createId() });
     }
     return verified;
   }
 
-  async createPerformance(
+  createPerformance(input:OtwPlayAdminCreatePerformanceRequest,actor:AdminCatalogActor) {
+    return this.runCreatePerformance({action:"performance_create",input,actor,ids:{performanceId:this.createId(),eventId:this.createId()},sourceIds:input.sources.map(()=>this.createId()),now:this.clock()});
+  }
+  private async createPerformanceOriginal(
     input: OtwPlayAdminCreatePerformanceRequest,
-    actor: AdminCatalogActor,
+    actor: AdminCatalogActor|null,
+    command:Extract<VideoCatalogCommand,{action:"performance_create"}>,reader:OtwPlayYouTubeMetadataReader,
   ) {
     if (input.releaseType === "broadcast") input = { ...input, relationType: "singing_clip" };
     else if (input.relationType === "singing_clip") throw new AdminCatalogServiceError("invalid_request", "Singing clips require a broadcast release");
 
-    const sources = await this.verifyPerformanceSources(input);
-    const performanceId = this.createId();
+    const sources = await this.verifyPerformanceSources(input,reader,command.sourceIds);
+    const performanceId = command.ids.performanceId;
     const result = await this.repository.createPerformance({
       input,
       sources,
       actor,
-      now: this.clock(),
+      now: command.now,
       ids: {
         performanceId,
-        eventId: this.createId(),
+        eventId: command.ids.eventId,
       },
     });
-    await bestEffortAudit(this.audit, {
+    if(actor) await bestEffortAudit(this.audit, {
       eventType: "otw_play.performance.created",
       resourceType: "music_performance",
-      resourceId: performanceId,
+      resourceId: result.data.id,
       actor,
     });
     return result;
   }
 
-  async updatePerformance(
+  updatePerformance(input:OtwPlayAdminUpdatePerformanceRequest,actor:AdminCatalogActor) {
+    return this.runUpdatePerformance({action:"performance_update",input,actor,ids:{...this.videoEntityIds(input.participants.map(item=>item.subject)),eventId:this.createId()},sourceIds:input.sources.map(()=>this.createId()),now:this.clock()});
+  }
+  private async updatePerformanceOriginal(
     input: OtwPlayAdminUpdatePerformanceRequest,
-    actor: AdminCatalogActor,
+    actor: AdminCatalogActor|null,
+    command:Extract<VideoCatalogCommand,{action:"performance_update"}>,reader:OtwPlayYouTubeMetadataReader,
   ) {
     if (input.releaseType === "broadcast") input = { ...input, relationType: "singing_clip" };
     else if (input.relationType === "singing_clip") throw new AdminCatalogServiceError("invalid_request", "Singing clips require a broadcast release");
@@ -593,23 +664,23 @@ export class AdminCatalogService {
       }
       definitions.set(key, definition);
       if (!entityIds[key]) {
-        entityIds[key] = this.createId();
-        entityEventIds[key] = this.createId();
+        entityIds[key] = command.ids.entityIds[key];
+        entityEventIds[key] = command.ids.entityEventIds[key];
       }
     }
-    const sources = await this.verifyPerformanceSources(input);
+    const sources = await this.verifyPerformanceSources(input,reader,command.sourceIds);
     const result = await this.repository.updatePerformance({
       input,
       sources,
       actor,
-      now: this.clock(),
+      now: command.now,
       ids: {
         entityIds,
         entityEventIds,
-        eventId: this.createId(),
+        eventId: command.ids.eventId,
       },
     });
-    await bestEffortAudit(this.audit, {
+    if(actor) await bestEffortAudit(this.audit, {
       eventType: "otw_play.performance.updated",
       resourceType: "music_performance",
       resourceId: input.id,
@@ -690,21 +761,7 @@ export class AdminCatalogService {
     input: OtwPlayAdminCreateChannelRequest,
     actor: AdminCatalogActor,
   ) {
-    const metadata = await this.lookupChannel(input.externalChannelId);
-    const channelId = this.createId();
-    const result = await this.repository.createChannel(
-      { ...input, displayName: metadata.displayName },
-      actor,
-      { channelId, eventId: this.createId() },
-      this.clock(),
-    );
-    await bestEffortAudit(this.audit, {
-      eventType: "otw_play.channel.created",
-      resourceType: "music_channel",
-      resourceId: channelId,
-      actor,
-    });
-    return result;
+    return this.runChannel({action:"create",id:this.createId(),input,actor,eventId:this.createId(),now:this.clock()});
   }
 
   async updateChannel(
@@ -712,20 +769,27 @@ export class AdminCatalogService {
     actor: AdminCatalogActor,
   ) {
     validateVersion(input.expectedVersion);
-    const metadata = await this.lookupChannel(input.externalChannelId);
-    const result = await this.repository.updateChannel(
-      { ...input, displayName: metadata.displayName },
-      actor,
-      this.createId(),
-      this.clock(),
-    );
-    await bestEffortAudit(this.audit, {
-      eventType: "otw_play.channel.updated",
-      resourceType: "music_channel",
-      resourceId: input.id,
-      actor,
-    });
-    return result;
+    return this.runChannel({action:"update",id:input.id,input,actor,eventId:this.createId(),now:this.clock()});
+  }
+
+  /** Internal Queue entry. Its transition port verifies the retained operation
+   * and original command before admitting a nullable transferred-source actor. */
+  executeAcceptedChannel(command:ChannelMutationCommand) {
+    if(!this.channelTransition) throw new Error("Missing accepted channel executor");
+    return this.runChannel(command);
+  }
+
+  private runChannel(command:ChannelMutationCommand) {
+    const execute=async(original:ChannelMutationCommand,reader:OtwPlayYouTubeMetadataReader)=>{
+      const metadata=await this.verifyChannel(original.input.externalChannelId,reader);
+      const result=original.action==="create"
+        ?await this.repository.createChannel({...original.input,displayName:metadata.displayName},original.actor,{channelId:original.id,eventId:original.eventId},original.now)
+        :await this.repository.updateChannel({...original.input,displayName:metadata.displayName},original.actor,original.eventId,original.now);
+      if(original.actor) await bestEffortAudit(this.audit,{eventType:`otw_play.channel.${original.action==="create"?"created":"updated"}`,resourceType:"music_channel",resourceId:result.data.id,actor:original.actor});
+      return result;
+    };
+    if(!this.channelTransition && !command.actor) throw new Error("Transferred actor requires an original transition receipt");
+    return this.channelTransition?this.channelTransition.run(command,execute):execute(command,this.youtube);
   }
 
   async deleteChannel(
@@ -743,10 +807,16 @@ export class AdminCatalogService {
     );
   }
 
-  async approveProposal(
+  async approveProposal(id:string,input:OtwPlayAdminApproveProposalRequest,actor:AdminCatalogActor) {
+    const proposal=(await this.repository.readProposals()).find(item=>item.id===id);
+    if(!proposal) throw new AdminCatalogServiceError('not_found','Proposal not found');
+    return this.runApproveProposal({action:'proposal_approve',proposalId:id,proposalVideoId:proposal.youtubeVideoId,input,actor,ids:{...this.videoEntryIds(input),proposalEventId:this.createId()},now:this.clock()});
+  }
+  private async approveProposalOriginal(
     id: string,
     input: OtwPlayAdminApproveProposalRequest,
-    actor: AdminCatalogActor,
+    actor: AdminCatalogActor|null,
+    command:Extract<VideoCatalogCommand,{action:"proposal_approve"}>,reader:OtwPlayYouTubeMetadataReader,
   ) {
     validateVersion(input.expectedVersion);
     validateVersion(input.expectedCatalogRevision);
@@ -823,7 +893,7 @@ export class AdminCatalogService {
       channelDecision.kind === "existing"
         ? selectedChannel?.channelRole
         : channelDecision.channelRole;
-    const video = await this.youtube.readVideo(proposal.youtubeVideoId);
+    const video = await reader.readVideo(proposal.youtubeVideoId);
     if (
       !video ||
       video.videoId !== proposal.youtubeVideoId ||
@@ -864,30 +934,30 @@ export class AdminCatalogService {
     for (const subject of subjects) {
       const key = subjectKey(subject);
       if (!key || entityIds[key]) continue;
-      entityIds[key] = this.createId();
-      entityEventIds[key] = this.createId();
+      entityIds[key] = command.ids.entityIds[key];
+      entityEventIds[key] = command.ids.entityEventIds[key];
     }
     const result = await this.repository.approveProposal({
       proposalId: id,
       input,
       video,
       actor,
-      now: this.clock(),
+      now: command.now,
       ids: {
-        lockToken: this.createId(),
+        lockToken: command.reviewLockToken??this.createId(),
         entityIds,
         entityEventIds,
-        channelId: this.createId(),
-        channelEventId: this.createId(),
-        songId: this.createId(),
-        performanceId: this.createId(),
-        sourceId: this.createId(),
-        proposalEventId: this.createId(),
-        songEventId: this.createId(),
-        performanceEventId: this.createId(),
+        channelId: command.ids.channelId,
+        channelEventId: command.ids.channelEventId,
+        songId: command.ids.songId,
+        performanceId: command.ids.performanceId,
+        sourceId: command.ids.sourceId,
+        proposalEventId: command.ids.proposalEventId,
+        songEventId: command.ids.songEventId,
+        performanceEventId: command.ids.performanceEventId,
       },
     });
-    await bestEffortAudit(this.audit, {
+    if(actor) await bestEffortAudit(this.audit, {
       eventType: "otw_play.proposal.approved",
       resourceType: "music_cover_proposal",
       resourceId: id,

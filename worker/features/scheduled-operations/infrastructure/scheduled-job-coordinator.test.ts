@@ -16,6 +16,7 @@ describe("scheduled job physical queue mapping", () => {
   const critical = { send: async () => undefined } as unknown as Queue<unknown>;
   const background = { send: async () => undefined } as unknown as Queue<unknown>;
   const env = {
+    otw_db: { prepare: vi.fn(() => ({ first: async () => null })) },
     OTW_OPS_CONTROL_QUEUE: control,
     OTW_OPS_CRITICAL_QUEUE: critical,
     OTW_OPS_BACKGROUND_QUEUE: background,
@@ -131,7 +132,9 @@ describe("scheduled job physical queue mapping", () => {
     statement.bind.mockReturnValue(statement);
     const resumedEnv = {
       ...env,
-      otw_db: { prepare: vi.fn(() => statement) },
+      otw_db: { prepare: vi.fn((sql: string) => sql.includes("FROM content_transitions")
+        ? { first: async (): Promise<null> => null }
+        : statement) },
     } as unknown as Env;
     vi.spyOn(
       D1ScheduledJobRepository.prototype,

@@ -1,4 +1,5 @@
 export interface MemberDto {
+  content_access?: "normal" | "admin_archive";
   uid: number;
   code: string;
   name: string;

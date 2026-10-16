@@ -6,6 +6,7 @@ import { D1MemberPostsPort } from "./d1-member-posts-port";
 import { xPostFeedService } from "../../x-posts";
 import { readStoredNaverCafePostsForSources } from "../../naver-cafe";
 import type { Env } from "../../../platform/types";
+import {siteEnv} from '../../../test-support/site-env';
 
 const testEnv = env as unknown as Env & { X_REFERENCE_MIGRATIONS: D1Migration[]; MEMBER_POSTS_CAFE_MIGRATIONS: D1Migration[] };
 const db = testEnv.otw_db;
@@ -17,7 +18,7 @@ const measured = new Proxy(db, { get(target, key) {
   const value = Reflect.get(target, key, target);
   return typeof value === "function" ? value.bind(target) : value;
 } });
-const port = new D1MemberPostsPort({ ...testEnv, otw_db: measured }, xPostFeedService, readStoredNaverCafePostsForSources);
+const port = new D1MemberPostsPort({ ...testEnv, ...siteEnv(), otw_db: measured }, xPostFeedService, readStoredNaverCafePostsForSources);
 const app = new GetMemberPosts(port);
 beforeEach(async () => {
   await applyD1Migrations(db, testEnv.X_REFERENCE_MIGRATIONS);
@@ -25,6 +26,7 @@ beforeEach(async () => {
   await db.batch([db.prepare("DELETE FROM x_posts"), db.prepare("DELETE FROM naver_cafe_posts"), db.prepare("DELETE FROM naver_cafe_sources")]);
   await db.prepare("INSERT INTO naver_cafe_sources(id,name,cafe_id,menu_id,cafe_url,member_uid,enabled,sort_order) VALUES(1,'member','1','1','https://cafe.naver.com',2,1,0)").run();
   vi.spyOn(port, "listActiveMembers").mockResolvedValue([{
+    content_access: "normal",
     uid: 1, code: "member", name: "Member", url_twitter: "https://x.com/member",
     main_color: null, sub_color: null, oshi_mark: null, url_youtube: null,
     url_chzzk: null, youtube_channel_id: null, birth_date: null, debut_date: null,

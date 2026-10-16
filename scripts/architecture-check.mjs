@@ -7,6 +7,14 @@ const sourceRoots = ["src", "worker", "contracts", "db"]
   .map((directory) => path.join(repositoryRoot, directory))
   .filter((directory) => fs.existsSync(directory));
 const errors = [];
+const publicWorkerCommandEntries = new Set([
+  "worker/features/schedules/commands.ts",
+  "worker/features/notices/commands.ts",
+  "worker/features/ddays/commands.ts",
+  "worker/features/otw-play/commands.ts",
+  "worker/features/assets/commands.ts",
+  "worker/features/x-posts/commands.ts",
+]);
 
 const walk = (directory) =>
   fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -90,6 +98,7 @@ const getWorkerFeature = (file) => {
     featurePath,
     layer,
     isPublicIndex: /^index\.tsx?$/.test(featurePath),
+    isPublicCommands: publicWorkerCommandEntries.has(relativePath(file)),
   };
 };
 
@@ -210,7 +219,7 @@ for (const file of sourceFiles) {
       workerFeature &&
       targetWorkerFeature &&
       targetWorkerFeature.capability !== workerFeature.capability &&
-      !targetWorkerFeature.isPublicIndex
+      !targetWorkerFeature.isPublicIndex && !targetWorkerFeature.isPublicCommands
     ) {
       addError(
         file,
@@ -218,6 +227,11 @@ for (const file of sourceFiles) {
         `Worker capability 간 참조는 공개 index만 사용해야 합니다: ${specifier}`,
         sourceFile,
       );
+    }
+
+    if (isProduction && workerFeature?.isPublicCommands &&
+        (!targetWorkerFeature || targetWorkerFeature.capability !== workerFeature.capability || targetWorkerFeature.layer !== "domain")) {
+      addError(file, node, `Worker public commands may only expose their owning pure domain parser: ${specifier}`, sourceFile);
     }
 
     if (isWorkerDomainLayer && targetWorkerFeature) {

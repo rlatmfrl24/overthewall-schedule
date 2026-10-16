@@ -1,3 +1,4 @@
+import type { SiteDefinition } from "@contracts/site-definition";
 import { authenticateRequest, requireAdminUser } from "../../../platform/auth";
 import {
   buildNaverCafeBoardUrl,
@@ -23,9 +24,9 @@ import type {
 } from "../application/naver-cafe-application";
 
 const NAVER_CAFE_POSTS_CACHE_CONTROL =
-  "public, max-age=300, s-maxage=900, stale-while-revalidate=1800";
+  "no-store";
 const NAVER_CAFE_AUTHENTICATED_POSTS_CACHE_CONTROL = "no-store";
-const NAVER_CAFE_POSTS_RESPONSE_CACHE_VERSION = "v2";
+const NAVER_CAFE_POSTS_RESPONSE_CACHE_VERSION = "v3";
 
 const parseSize = (value: string | null) => {
   if (value === null || value.trim() === "") return 10;
@@ -97,6 +98,8 @@ const getPostsResponseHeaders = ({
 const getPostsResponseCacheKey = (
   sources: NaverCafeSourceRecord[],
   size: number,
+  site: SiteDefinition,
+  accessRevision: number,
 ) => {
   const sourceSignature = sources
     .map((source) =>
@@ -111,9 +114,10 @@ const getPostsResponseCacheKey = (
     )
     .join("|");
   const cacheUrl = new URL(
-    `https://otw.internal/cache/naver-cafe/posts/${NAVER_CAFE_POSTS_RESPONSE_CACHE_VERSION}`,
+    `https://${site.id}.internal/cache/naver-cafe/posts/${NAVER_CAFE_POSTS_RESPONSE_CACHE_VERSION}`,
   );
   cacheUrl.searchParams.set("size", String(size));
+  cacheUrl.searchParams.set("access", String(accessRevision));
   cacheUrl.searchParams.set("sources", sourceSignature);
   return new Request(cacheUrl.toString(), { method: "GET" });
 };
@@ -143,7 +147,9 @@ const writePostsResponseCache = async (
   if (!cache) return;
 
   try {
-    await cache.put(cacheKey, response.clone());
+    const stored = new Response(response.clone().body, response);
+    stored.headers.set("Cache-Control", "public, max-age=900");
+    await cache.put(cacheKey, stored);
   } catch (error) {
     console.warn("Failed to write Naver Cafe posts response cache", error);
   }
@@ -190,10 +196,11 @@ const parseSourcePayload = (body: Record<string, unknown>) => {
 
 export type NaverCafeHandlerDependencies = {
   getApplication(env: Env): NaverCafeApplication;
+  getSite(env: Env): SiteDefinition;
 };
 
 export const createNaverCafeHandler =
-  ({ getApplication }: NaverCafeHandlerDependencies) =>
+  ({ getApplication, getSite }: NaverCafeHandlerDependencies) =>
   async (request: Request, env: Env) => {
   const url = new URL(request.url);
   const application = getApplication(env);
@@ -210,7 +217,7 @@ export const createNaverCafeHandler =
     if (!admin.ok) return admin.response;
 
     if (request.method === "GET") {
-      const sources = await application.listSources();
+      const sources = await application.listSources(true);
       return Response.json(sources);
     }
 
@@ -300,7 +307,8 @@ export const createNaverCafeHandler =
       return badRequest("size must be an integer between 5 and 20");
     }
 
-    const sources = await application.listSources();
+    const sources = await application.listSources(adminView);
+    const accessRevision = await application.readAccessRevision();
 
     if (sources.length === 0) {
       const response = json(
@@ -321,16 +329,20 @@ export const createNaverCafeHandler =
       url,
       visibility,
     })
-      ? getPostsResponseCacheKey(sources, size)
+      ? getPostsResponseCacheKey(sources, size, getSite(env), accessRevision)
       : null;
     const cachedResponse = responseCacheKey
       ? await readPostsResponseCache(responseCacheKey)
       : null;
     if (cachedResponse) {
-      return cachedResponse;
+      if (await application.readAccessRevision() !== accessRevision) return new Response("Content access changed", { status: 503, headers: { "Cache-Control": "no-store" } });
+      const response = new Response(cachedResponse.body, cachedResponse);
+      response.headers.set("Cache-Control", "no-store");
+      return response;
     }
 
-    const content = await application.readStoredPosts(sources, size);
+    const content = await application.readStoredPosts(sources, size, adminView);
+    if (await application.readAccessRevision() !== accessRevision) return new Response("Content access changed", { status: 503, headers: { "Cache-Control": "no-store" } });
     const response = json(
       {
         updatedAt: new Date().toISOString(),

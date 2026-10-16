@@ -4,6 +4,7 @@ import type { MemberDto } from "@contracts/members";
 import type { ScheduleDto } from "@contracts/schedules";
 import { autoFillLiveSchedulesForMembers } from "@/features/chzzk";
 import { queryKeys } from "@/shared/query/query-keys";
+import { useToast } from "@/shared/ui/toast";
 
 type AdminLiveScheduleAutoFillOptions = {
   enabled: boolean;
@@ -23,6 +24,7 @@ export function useAdminLiveScheduleAutoFill({
   schedules,
 }: AdminLiveScheduleAutoFillOptions) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const lastRequestKeyRef = useRef<string | null>(null);
   const inFlightRequestKeyRef = useRef<string | null>(null);
 
@@ -51,6 +53,9 @@ export function useAdminLiveScheduleAutoFill({
         if (inFlightRequestKeyRef.current === requestKey) {
           lastRequestKeyRef.current = requestKey;
         }
+        for (const feedback of result.scheduleAutoFill.feedback ?? []) {
+          toast({description: feedback.message, variant: feedback.code === "CONTENT_ACCEPTED" ? "info" : "error"});
+        }
         if (result.scheduleAutoFill.updated === 0) return;
         await queryClient.invalidateQueries({
           queryKey: queryKeys.schedules.all,
@@ -73,5 +78,6 @@ export function useAdminLiveScheduleAutoFill({
     snapshotVersion,
     snapshotReceivedAt,
     requestKey,
+    toast,
   ]);
 }

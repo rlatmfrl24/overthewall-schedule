@@ -8,7 +8,7 @@ import type { PlayObservabilityReader } from "../application/ports/play-observab
 const WINDOW_HOURS = 24 as const;
 const REQUEST_TIMEOUT_MS = 5_000;
 
-export const OTW_PLAY_OBSERVABILITY_SQL = {
+const createObservabilitySql = (dataset: string) => ({
   summary: `SELECT
     'summary' AS row_kind,
     '' AS row_key,
@@ -23,7 +23,7 @@ export const OTW_PLAY_OBSERVABILITY_SQL = {
     sumIf(double4 * _sample_interval, double4 >= 0) AS d1_rows_written,
     countIf(double4 >= 0) AS d1_rows_written_known,
     0 AS event_count
-  FROM otw_play_events
+  FROM ${dataset}
   WHERE timestamp >= NOW() - INTERVAL '24' HOUR AND blob3 != 'scheduled'
   FORMAT JSON`,
   routes: `SELECT
@@ -40,7 +40,7 @@ export const OTW_PLAY_OBSERVABILITY_SQL = {
     sumIf(double4 * _sample_interval, double4 >= 0) AS d1_rows_written,
     countIf(double4 >= 0) AS d1_rows_written_known,
     0 AS event_count
-  FROM otw_play_events
+  FROM ${dataset}
   WHERE timestamp >= NOW() - INTERVAL '24' HOUR AND blob3 != 'scheduled'
   GROUP BY blob2
   FORMAT JSON`,
@@ -58,11 +58,11 @@ export const OTW_PLAY_OBSERVABILITY_SQL = {
     0 AS d1_rows_written,
     0 AS d1_rows_written_known,
     sum(_sample_interval) AS event_count
-  FROM otw_play_events
+  FROM ${dataset}
   WHERE timestamp >= NOW() - INTERVAL '24' HOUR AND blob11 != 'request'
   GROUP BY blob1
   FORMAT JSON`,
-} as const;
+} as const);
 
 type AnalyticsRow = {
   row_kind: "summary" | "route" | "event";
@@ -167,6 +167,7 @@ const toSummary = (row: AnalyticsRow): OtwPlayAdminObservabilitySummaryDto => ({
 export class CloudflarePlayObservabilityReader
   implements PlayObservabilityReader
 {
+  private readonly sql: ReturnType<typeof createObservabilitySql>;
   private readonly accountId: string | undefined;
   private readonly token: string | undefined;
   private readonly fetcher: typeof fetch;
@@ -175,9 +176,12 @@ export class CloudflarePlayObservabilityReader
   constructor(
     accountId: string | undefined,
     token: string | undefined,
+    dataset: string,
     fetcher: typeof fetch = fetch,
     now: () => number = Date.now,
   ) {
+    if (typeof dataset !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(dataset)) throw new Error("Invalid Analytics dataset identifier.");
+    this.sql = createObservabilitySql(dataset);
     this.accountId = accountId;
     this.token = token;
     this.fetcher = fetcher;
@@ -196,7 +200,7 @@ export class CloudflarePlayObservabilityReader
       const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/analytics_engine/sql`;
       const fetcher = this.fetcher;
       const responses = await Promise.all(
-        Object.values(OTW_PLAY_OBSERVABILITY_SQL).map((body) =>
+        Object.values(this.sql).map((body) =>
           fetcher(endpoint, {
           method: "POST",
           headers: {

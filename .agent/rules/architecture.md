@@ -22,6 +22,11 @@ D1, Drizzle, HTTP adapters, or platform modules.
   `src/features/<capability>` or `worker/features/<capability>`.
 - Access another frontend capability only through its public `index.ts`.
 - Access another Worker capability only through its public `index.ts`.
+  The explicitly declared `worker/features/{schedules,notices,ddays,otw-play,assets,x-posts}/commands.ts`
+  entries may expose only their owning pure domain command parsers and the assets
+  file-reference classifier's matching SQL predicate. These narrow
+  entries avoid loading D1/HTTP/application composition through the full index;
+  they do not permit arbitrary deep imports or new public entry conventions.
   Application code must represent cross-capability collaboration as a port;
   inject the concrete public service from `worker/app`.
 - Keep concrete adapter construction in `worker/app`. Worker HTTP adapters

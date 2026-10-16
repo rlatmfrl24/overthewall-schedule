@@ -1,8 +1,11 @@
+import { publicationHiddenSql } from "../../content-transition";
+import type { SiteId } from "@contracts/site-definition";
 import { and, eq, sql } from "drizzle-orm";
 import {
   memberLinks,
   memberProfileImages,
   members,
+  assetFileReferences,
   naverCafeSources,
 } from "@db/schema";
 import type {
@@ -20,7 +23,7 @@ const PROFILE_BACKGROUND_KEY =
 type MemberRow = typeof members.$inferSelect;
 
 const activeCondition =
-  sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0`;
+  sql`(${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0)`;
 
 const toProfileImage = (
   row: typeof memberProfileImages.$inferSelect,
@@ -45,11 +48,18 @@ export class D1MemberReader implements MemberReader {
   private readonly db: DbInstance;
   private readonly assetBucket?: R2Bucket;
 
+  private readonly includeArchived: boolean;
+
+  private readonly siteId: SiteId;
   constructor(
     db: DbInstance,
     assetBucket?: R2Bucket,
+    includeArchived = false,
+    siteId: SiteId = "otw",
   ) {
     this.db = db;
+    this.siteId = siteId;
+    this.includeArchived = includeArchived;
     this.assetBucket = assetBucket;
   }
 
@@ -57,7 +67,7 @@ export class D1MemberReader implements MemberReader {
     return this.db
       .select()
       .from(members)
-      .where(activeCondition) as Promise<MemberDto[]>;
+      .where(this.includeArchived ? undefined : and(activeCondition, sql.raw(`members.content_access = 'normal' AND NOT (${publicationHiddenSql("members","members",this.siteId)})`))) as Promise<MemberDto[]>;
   }
 
   async findProfileByCode(code: string): Promise<MemberProfileDto | null> {
@@ -65,7 +75,7 @@ export class D1MemberReader implements MemberReader {
     const data = await this.db
       .select()
       .from(members)
-      .where(and(eq(members.code, code), activeCondition))
+      .where(and(eq(members.code, code), this.includeArchived ? undefined : and(activeCondition, sql.raw(`members.content_access = 'normal' AND NOT (${publicationHiddenSql("members","members",this.siteId)})`))))
       .limit(1);
 
     let member: MemberRow | undefined = data[0];
@@ -73,7 +83,7 @@ export class D1MemberReader implements MemberReader {
       const allMembers = await this.db
         .select()
         .from(members)
-        .where(activeCondition);
+        .where(this.includeArchived ? undefined : and(activeCondition, sql.raw(`members.content_access = 'normal' AND NOT (${publicationHiddenSql("members","members",this.siteId)})`)));
       member = allMembers.find(
         (candidate) =>
           candidate.code?.trim().toLowerCase() === normalizedCode,
@@ -199,7 +209,10 @@ export class D1MemberReader implements MemberReader {
       string,
       { variants: Set<string>; versionParts: string[] }
     >();
-    for (const object of listed.objects) {
+    const references=await this.db.select().from(assetFileReferences).where(sql`${assetFileReferences.logical_key} LIKE ${`${prefix}%`}`);
+    const managedKeys=new Set(references.map(reference=>reference.logical_key));
+    const objects=[...listed.objects.filter(object=>!managedKeys.has(object.key)),...references.map(reference=>({key:reference.logical_key,etag:reference.hash,uploaded:new Date(reference.updated_at)}))];
+    for (const object of objects) {
       const match = object.key.match(PROFILE_BACKGROUND_KEY);
       const backgroundId = match?.[1];
       const variant = match?.[2];

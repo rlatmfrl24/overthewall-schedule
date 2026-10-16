@@ -43,7 +43,7 @@ describe("saveScheduleWithConflicts", () => {
       start_time: null,
       title: "미정 처리",
       status: "미정",
-    });
+    },undefined);
   });
 
   it("수정 저장도 기존 id를 유지한 command payload로 전달한다", async () => {
@@ -71,6 +71,6 @@ describe("saveScheduleWithConflicts", () => {
       start_time: null,
       title: "게릴라 전환",
       status: "게릴라",
-    });
+    },undefined);
   });
 });

@@ -1,4 +1,5 @@
 import { QueryReadback } from "@/shared/ui/query-readback";
+import {ApiError,getContentTransitionMessage} from '@/shared/api/client';
 import { refreshReviewInbox } from "../../queries/refresh-review-inbox";
 import { useIngestionBudget } from "../../queries/use-ingestion-budget";
 import { useConfirmation } from "@/shared/lib/confirmation";
@@ -21,14 +22,15 @@ import { AiBatchPanel } from "./ai-batch-panel";
 import { fetchWorkBatch, workQueueQueryKey } from "../../api/work-queue";
 
 const statusLabels: Record<string, string> = { withdrawn: "철회", discovered: "검수 대기", needs_input: "정보 입력 필요", ready: "등록 준비 완료", blocked: "확인 필요", converted: "등록 완료", ignored: "제외됨", pending_review: "제안 검수 대기", approved: "승인됨", rejected: "거절됨" };
+const allPlaylistImports = "all-playlist-imports";
 const sourceLabels = { playlist: "플레이리스트", automatic: "자동 수집", user: "사용자 제안" };
-type ReviewActionResult = { action: "conversion" | "kind-correction"; outcome: "success" | "error"; message: string };
+type ReviewActionResult = { action: "conversion" | "kind-correction"; outcome: "success" | "error" | "pending"; message: string };
 export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalog, active = true }: { active?: boolean; catalog: OtwPlayAdminCatalogDto | null; onProposal: (id: string) => void; onManageChannel: (id: string, kind?: "official_video" | "singing_clip") => void; onOpenCatalog: () => void }) {
   const [search, update] = useConsoleSearch();
   const workScope = useQuery({ queryKey: ["otw-play-work-batch", search.workBatch], queryFn: () => fetchWorkBatch(search.workBatch!), enabled: active && Boolean(search.workBatch), retry: false });
   const jobsQuery = useOtwPlayImportJobs(active && search.source !== "user" && search.source !== "automatic");
   const source = search.source === "automatic" || search.source === "user" ? search.source : !search.source && search.tab === "automatic-review" ? "automatic" : "playlist";
-  const jobId = source === "playlist" ? search.category ?? jobsQuery.data?.[0]?.id : undefined;
+  const jobId = source === "playlist" && search.category !== allPlaylistImports ? search.category ?? jobsQuery.data?.[0]?.id : undefined;
   const editingId = search.view === "review" ? search.selected : undefined;
   const budget = useIngestionBudget(active && source === "playlist");
   const budgetBlocked = !budget.isError && budget.data?.status === "blocked" && Date.now() - Date.parse(budget.data.measuredAt) <= 120_000 && Date.parse(budget.data.resetAt) > Date.now();
@@ -61,9 +63,9 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
     }
     previousBatchState.current = batchState;
   }, [active, batchState, client]);
-  const query = useInfiniteQuery({ enabled: active && (source !== "playlist" || Boolean(jobId)), queryKey: ["otw-play-review-inbox", filters], queryFn: ({ pageParam }) => fetchOtwPlayReviewItems({ ...filters, cursor: pageParam ?? undefined }), initialPageParam: null as string | null, getNextPageParam: page => page.nextCursor, refetchOnWindowFocus: false, refetchOnReconnect: false, staleTime: Infinity });
+  const query = useInfiniteQuery({ enabled: active && (source !== "playlist" || Boolean(jobId) || !jobsQuery.isLoading), queryKey: ["otw-play-review-inbox", filters], queryFn: ({ pageParam }) => fetchOtwPlayReviewItems({ ...filters, cursor: pageParam ?? undefined }), initialPageParam: null as string | null, getNextPageParam: page => page.nextCursor, refetchOnWindowFocus: false, refetchOnReconnect: false, staleTime: Infinity });
   const rows = query.data?.pages.flatMap(page => page.items) ?? [];
-  const selectableRows = rows.filter(row => row.kind === "candidate" && row.status === "ready" && !row.pendingProposalId && !row.workBatchId);
+  const selectableRows = rows.filter(row => row.contentAccess !== "admin_archive" && row.kind === "candidate" && row.status === "ready" && !row.pendingProposalId && !row.workBatchId);
   const conflicts = useQuery({
     queryKey: ["otw-play-review-kind-conflicts", jobId, selectedJob?.candidateKind],
     staleTime: 60_000, refetchOnWindowFocus: false,
@@ -75,7 +77,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
         const page = await fetchOtwPlayReviewItems({ source: "playlist", jobId,
           candidateKind: selectedJob!.candidateKind === "singing_clip" ? "official_video" : "singing_clip",
           status: "pending", cursor });
-        items.push(...page.items.filter(row => row.kind === "candidate" && row.candidateKind !== selectedJob!.candidateKind && !row.candidate?.linkedPerformanceId));
+        items.push(...page.items.filter(row => row.contentAccess !== "admin_archive" && row.kind === "candidate" && row.candidateKind !== selectedJob!.candidateKind && !row.candidate?.linkedPerformanceId));
         cursor = page.nextCursor ?? undefined;
       } while (cursor);
       return items;
@@ -85,7 +87,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   const [aiSelection, setAiSelection] = useState<{ scope: string; all: boolean; ids: Record<string, number> }>({ scope: "", all: false, ids: {} });
   const aiSelected = aiSelection.scope === scope ? aiSelection.ids : {};
   const aiAll = aiSelection.scope === scope && aiSelection.all;
-  const aiEligible = (row: OtwPlayReviewItemDto) => !row.workBatchId && row.kind === "candidate" && ["discovered", "needs_input", "blocked"].includes(row.status) && !row.pendingProposalId && row.candidate?.availabilityStatus === "playable" && (!search.workBatch || workScope.data?.data.items.some(i => i.candidateId === row.id && i.disposition === "pending"));
+  const aiEligible = (row: OtwPlayReviewItemDto) => row.contentAccess !== "admin_archive" && !row.workBatchId && row.kind === "candidate" && ["discovered", "needs_input", "blocked"].includes(row.status) && !row.pendingProposalId && row.candidate?.availabilityStatus === "playable" && (!search.workBatch || workScope.data?.data.items.some(i => i.candidateId === row.id && i.disposition === "pending"));
   const [selectionState, setSelectionState] = useState<Record<string, Record<string, number>>>({});
   const selected = selectionState[scope] ?? {};
   const setSelected = (next: Record<string, number> | ((current: Record<string, number>) => Record<string, number>)) => setSelectionState(current => ({ ...current, [scope]: typeof next === "function" ? next(current[scope] ?? {}) : next }));
@@ -159,7 +161,8 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   const setResults = (next: (current: Record<string, ReviewActionResult>) => Record<string, ReviewActionResult>) => setResultState(current => ({ ...current, [scope]: next(current[scope] ?? {}) }));
   const conversionResults = Object.values(results).filter(result => result.action === "conversion");
   const conversionSuccessCount = conversionResults.filter(result => result.outcome === "success").length;
-  const conversionFailureCount = conversionResults.length - conversionSuccessCount;
+  const conversionFailureCount = conversionResults.filter(result=>result.outcome==='error').length;
+  const conversionPendingCount = conversionResults.filter(result=>result.outcome==='pending').length;
   const refresh = async (allScopes = false) => { await Promise.all([refreshReviewInbox(client, allScopes ? undefined : filters), client.invalidateQueries({ queryKey: queryKeys.otwPlay.importJobs(), exact: true }), client.invalidateQueries({ queryKey: allScopes ? ["otw-play-review-kind-conflicts"] : ["otw-play-review-kind-conflicts", jobId] }),
     ...(jobId ? [client.invalidateQueries({ queryKey: queryKeys.otwPlay.importJob(jobId), exact: true })] : [])]); };
   const filterKey = JSON.stringify(filters);
@@ -183,7 +186,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
           const ok = result.outcome === "created" || result.outcome === "duplicate";
           setResults(current => ({ ...current, [id]: { action: "conversion", outcome: ok ? "success" : "error", message: ok ? "임시 등록 완료" : `등록 실패: ${result.errorCode ?? result.outcome}` } }));
           if (ok) setSelected(current => { const next = { ...current }; delete next[id]; return next; });
-        } catch { setResults(current => ({ ...current, [id]: { action: "conversion", outcome: "error", message: "등록 실패 · 최신 후보를 확인하고 재시도하세요." } })); }
+        } catch(error) { setResults(current => ({ ...current, [id]: { action: "conversion", outcome: error instanceof ApiError&&error.code==='CONTENT_ACCEPTED'?'pending':"error", message: getContentTransitionMessage(error)??"등록 실패 · 최신 후보를 확인하고 재시도하세요." } })); }
       }
       await client.invalidateQueries({ queryKey: queryKeys.otwPlay.adminCatalog(), refetchType: "none" });
       await refresh();
@@ -257,17 +260,17 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
           aria-label="검수 가져오기 이력"
           disabled={busy || jobsQuery.isLoading}
           className="h-11 w-full min-w-0 max-w-full sm:h-9"
-          value={jobId ?? ""}
+          value={jobId ?? allPlaylistImports}
           onValueChange={value => update({ category: value || undefined, kind: "all", selected: undefined }, false)}
           options={[
-            ...(!jobId ? [{ value: "", label: "이력을 선택하세요" }] : []),
+            { value: allPlaylistImports, label: "전체 플레이리스트 후보" },
             ...(jobId && !jobsQuery.data?.some(job => job.id === jobId) ? [{ value: jobId, label: selectedJob?.playlistTitle ?? `선택한 이력 · ${jobId}` }] : []),
             ...(jobsQuery.data ?? []).map(job => ({ value: job.id, label: `${job.playlistTitle ?? job.playlistId} · ${new Date(job.createdAt).toLocaleString("ko-KR")} · ${job.candidateKind === "singing_clip" ? "노래 클립" : "공식 곡"}` })),
           ]}
         />
       </label>
       {jobsQuery.isError && <p role="alert">가져오기 이력을 불러오지 못했습니다. <Button size="sm" variant="link" onClick={() => void jobsQuery.refetch()}>이력 다시 불러오기</Button></p>}
-      {!jobsQuery.isLoading && !jobsQuery.isError && !jobId && <p className="text-sm text-muted-foreground">가져오기 이력이 없습니다. 새 가져오기를 시작하거나 다른 출처를 선택하세요.</p>}
+      {!jobsQuery.isLoading && !jobsQuery.isError && !jobId && <p className="text-sm text-muted-foreground">이관된 후보를 포함해 플레이리스트에서 수집한 전체 후보를 표시합니다.</p>}
     </div>}
       <label className="flex min-w-0 flex-col gap-2 text-xs font-medium">영상 종류 <SelectField className="h-11 w-full min-w-0 sm:h-9" aria-label="검수 영상 종류" value={search.kind ?? "all"} onValueChange={value => { setSelected({}); update({ kind: value as "all" | "official" | "broadcast", selected: undefined }); }} options={[{ value: "all", label: "전체" }, { value: "official", label: "공식 곡" }, { value: "broadcast", label: "노래 클립" }]} /></label>
       <label className="flex min-w-0 flex-col gap-2 text-xs font-medium">처리 상태 <SelectField className="h-11 w-full min-w-0 sm:h-9" aria-label="검수 처리 상태" value={filters.status ?? "pending"} onValueChange={value => { setSelected({}); update({ state: value }); }} options={[{ value: "pending", label: "검수 대기" }, { value: "ready", label: "등록 준비 완료" }, { value: "completed", label: "처리 완료" }]} /></label>
@@ -279,7 +282,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
       <Button size="sm" variant="outline" disabled={busy} onClick={() => void correctImportKinds()}>가져오기 종류로 일괄 정정</Button>
     </div>}
     {source === "playlist" && conflicts.isError && <p role="alert">기존 후보의 종류 충돌을 확인하지 못했습니다. 새로고침해 주세요.</p>}
-    {!selectedJob?.workBatchId && !search.workBatch && source !== "user" && rows.length>0 && filters.status === "pending" && (source !== "playlist" || jobId) && <AiBatchPanel
+    {!selectedJob?.workBatchId && !search.workBatch && source !== "user" && rows.length>0 && filters.status === "pending" && <AiBatchPanel
       active={active && !editingId && !search.proposal} allSelected={aiAll} busy={aiBusy} setBusy={setAiBusy}
       selection={aiAll ? { filters: { source, ...(jobId ? { jobId } : {}), ...(filters.candidateKind ? { candidateKind: filters.candidateKind } : {}) } } : Object.keys(aiSelected).length ? { candidates: Object.entries(aiSelected).map(([id, version]) => ({ id, version })) } : null}
       onToggleAll={() => setAiSelection({ scope, all: !aiAll, ids: {} })}
@@ -294,7 +297,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
         {(source !== "user" || selectableRows.length > 0) && <><Button variant="outline" disabled={busy || selectableRows.length === 0} onClick={toggleAllSelectableRows}>{allSelectableRowsSelected ? `일괄 선택 해제 (${selectableRows.length}개)` : `등록 가능 ${selectableRows.length}개 일괄 선택`}</Button><Button disabled={busy || !Object.keys(selected).length} onClick={() => void convert()}>선택 {Object.keys(selected).length}개 일괄 임시 등록</Button></>}<Button variant="ghost" onClick={() => onOpenCatalog()}>카탈로그 확인</Button>
       </div>
     </section>}
-    {conversionResults.length > 0 && <div role="status" aria-label="일괄 임시 등록 결과" className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-muted/30 px-3 py-2 text-sm"><span className="font-medium">일괄 임시 등록 결과</span><span>완료 <strong className="tabular-nums">{conversionSuccessCount}개</strong></span><span className={conversionFailureCount > 0 ? "text-destructive" : "text-muted-foreground"}>실패 <strong className="tabular-nums">{conversionFailureCount}개</strong></span></div>}
+    {conversionResults.length > 0 && <div role="status" aria-label="일괄 임시 등록 결과" className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-muted/30 px-3 py-2 text-sm"><span className="font-medium">일괄 임시 등록 결과</span><span>완료 <strong className="tabular-nums">{conversionSuccessCount}개</strong></span>{conversionPendingCount>0&&<span>접수 대기 <strong className="tabular-nums">{conversionPendingCount}개</strong></span>}<span className={conversionFailureCount > 0 ? "text-destructive" : "text-muted-foreground"}>실패 <strong className="tabular-nums">{conversionFailureCount}개</strong></span></div>}
     {query.isError && !query.isFetchNextPageError && <p role="alert">검수 목록을 불러오지 못했습니다. <Button variant="link" onClick={() => void query.refetch()}>다시 시도</Button></p>}
     {query.isLoading && <p role="status">검수 목록을 불러오는 중입니다.</p>}
     {!query.isLoading && !query.isError && !rows.length && <p className="rounded-lg border border-dashed p-6 text-center text-sm">해당 조건의 검수 항목이 없습니다.</p>}
@@ -306,7 +309,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
         if (checked) ids[row.id] = row.version; else delete ids[row.id];
         return { scope, all: false, ids };
       })} />}
-      {row.kind === "candidate" && !aiEligible(row) && !row.workBatchId && <Checkbox className="!min-h-4" aria-label={`${row.title ?? row.id} 선택`} checked={selected[row.id] !== undefined} disabled={busy || row.status !== "ready" || Boolean(row.pendingProposalId)} onCheckedChange={checked => setSelected(current => { const next = { ...current }; if (checked) next[row.id] = row.version; else delete next[row.id]; return next; })} />}
+      {row.kind === "candidate" && !aiEligible(row) && !row.workBatchId && <Checkbox className="!min-h-4" aria-label={`${row.title ?? row.id} 선택`} checked={selected[row.id] !== undefined} disabled={row.contentAccess === "admin_archive" || busy || row.status !== "ready" || Boolean(row.pendingProposalId)} onCheckedChange={checked => setSelected(current => { const next = { ...current }; if (checked) next[row.id] = row.version; else delete next[row.id]; return next; })} />}
       </label>
       <div className="col-start-2 min-w-0 space-y-1">
         <p className="break-words text-sm font-medium leading-6">{row.title ?? "제목 미확인"}</p>
@@ -321,8 +324,8 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
       </div>
       <div className="col-start-2 flex flex-wrap items-center gap-2 xl:col-start-4">
       <Button size="sm" variant="outline" className="h-11 flex-1 xl:h-9" disabled={busy || aiBusy} onClick={event => { if(row.workBatchId)update({view:"review",workBatch:row.workBatchId,workQueue:undefined,workItem:undefined,selected:row.id},false);else if (row.pendingProposalId) onProposal(row.pendingProposalId); else if (row.kind === "proposal") onProposal(row.id); else { returnFocus.current = event.currentTarget; update({ view: "review", selected: row.id }, false); } }}>{row.workBatchId ? "플레이리스트 작업에서 검수" : row.pendingProposalId ? "연결된 제안 검수" : row.kind === "proposal" && row.status !== "pending_review" ? "처리 내역" : row.aiDraft && ["saved", "needs_selection", "changed"].includes(row.aiDraft.status) ? "초안 검수" : "검수 열기"}</Button>
-      {row.kind === "candidate" && !row.workBatchId && !["converted", "ignored"].includes(row.status) && <Button size="sm" variant="ghost" className="h-11 xl:h-9" disabled={busy} onClick={() => void changeKind(row)}>{row.candidateKind === "official_video" ? "노래 클립으로 정정" : "공식 영상으로 정정"}</Button>}
-      {!row.workBatchId && <Button size="sm" variant="ghost" className="h-11 text-destructive hover:text-destructive xl:h-9" aria-label={`${row.title ?? row.id} 삭제`} disabled={busy || aiBusy || Boolean(row.pendingProposalId) || (row.kind === "proposal" && row.status === "pending_review")} onClick={() => void deleteItem(row)}>삭제</Button>}
+      {row.kind === "candidate" && !row.workBatchId && !["converted", "ignored"].includes(row.status) && <Button size="sm" variant="ghost" className="h-11 xl:h-9" disabled={busy || row.contentAccess === "admin_archive"} onClick={() => void changeKind(row)}>{row.candidateKind === "official_video" ? "노래 클립으로 정정" : "공식 영상으로 정정"}</Button>}
+      {!row.workBatchId && <Button size="sm" variant="ghost" className="h-11 text-destructive hover:text-destructive xl:h-9" aria-label={`${row.title ?? row.id} 삭제`} disabled={row.contentAccess === "admin_archive" || busy || aiBusy || Boolean(row.pendingProposalId) || (row.kind === "proposal" && row.status === "pending_review")} onClick={() => void deleteItem(row)}>삭제</Button>}
       </div>
       {row.aiDraft?.errorMessage && <p className="col-start-2 -col-end-1 break-words text-xs leading-5 text-destructive">AI · {row.aiDraft.errorMessage}</p>}
       {row.pendingProposalId && <p className="col-start-2 -col-end-1 text-xs leading-5 text-muted-foreground">같은 영상의 사용자 제안이 검수 대기 중입니다. 연결된 제안을 먼저 처리하면 이 이력에서 후속 검수를 진행할 수 있습니다.</p>}

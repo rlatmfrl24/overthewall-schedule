@@ -41,6 +41,23 @@ describe("schedule save feedback", () => {
     expect(invalidate).not.toHaveBeenCalled();
   });
 
+  it("불확정 저장 재시도는 같은 키를 유지하고 새 내용 또는 성공 이후에는 새 키를 사용한다",async()=>{
+    saveMock.mockRejectedValueOnce(new Error("Response lost")).mockResolvedValue({success:true,scheduleId:42,deletedIds:[]});
+    const {result}=setup();
+    await act(async()=>{await expect(result.current.save(input)).rejects.toThrow("Response lost");});
+    const originalKey=saveMock.mock.calls[0][1];
+    expect(originalKey).toMatch(/^[a-f0-9-]{36}$/);
+    await act(()=>result.current.save(input));
+    expect(saveMock.mock.calls[1][1]).toBe(originalKey);
+    await act(()=>result.current.save(input));
+    expect(saveMock.mock.calls[2][1]).not.toBe(originalKey);
+    saveMock.mockRejectedValueOnce(new Error("Response lost again"));
+    await act(async()=>{await expect(result.current.save(input)).rejects.toThrow("Response lost again");});
+    const uncertainKey=saveMock.mock.calls[3][1];
+    await act(()=>result.current.save({...input,title:"새 논리 저장"}));
+    expect(saveMock.mock.calls[4][1]).not.toBe(uncertainKey);
+  });
+
   it("목록 갱신 실패를 저장 성공과 구분하고 읽기만 재시도한다", async () => {
     saveMock.mockResolvedValue({ success: true, scheduleId: 42, deletedIds: [] });
     const { result, invalidate } = setup();

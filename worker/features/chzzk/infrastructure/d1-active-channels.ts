@@ -1,14 +1,12 @@
+import { publicationHiddenSql } from "../../content-transition";
+import { type SiteId } from "@contracts/site-definition";
 import {
   CHZZK_CHANNEL_ID_PATTERN,
 } from "../domain/channel-targets";
 
-const ACTIVE_CHANNELS_TTL_MS = 5 * 60_000;
 const CHZZK_CHANNEL_URL_PATTERN =
   /(?:https?:\/\/)?chzzk\.naver\.com\/([a-f0-9]{32})(?:[/?#]|$)/i;
 
-let activeChannelsCache:
-  | { database: D1Database; fetchedAt: number; channelIds: ReadonlySet<string> }
-  | undefined;
 
 const getD1Results = <T>(value: unknown): T[] => {
   if (Array.isArray(value)) return value as T[];
@@ -33,14 +31,8 @@ const extractChannelId = (value: string | null) => {
 
 export const readActiveChzzkChannels = async (
   database: D1Database,
+  siteId: SiteId = "otw",
 ): Promise<ReadonlySet<string>> => {
-  const now = Date.now();
-  if (
-    activeChannelsCache?.database === database &&
-    now - activeChannelsCache.fetchedAt < ACTIVE_CHANNELS_TTL_MS
-  ) {
-    return activeChannelsCache.channelIds;
-  }
 
   try {
     const statement = database.prepare(
@@ -48,6 +40,7 @@ export const readActiveChzzkChannels = async (
          FROM members
          WHERE url_chzzk IS NOT NULL
            AND TRIM(url_chzzk) <> ''
+           AND content_access = 'normal' AND NOT (${publicationHiddenSql("members","members",siteId)})
            AND (is_deprecated IS NULL OR is_deprecated != 1)`,
     );
     const executable =
@@ -60,7 +53,6 @@ export const readActiveChzzkChannels = async (
       const channelId = extractChannelId(row.url_chzzk);
       if (channelId) channelIds.add(channelId);
     }
-    activeChannelsCache = { database, fetchedAt: now, channelIds };
     return channelIds;
   } catch (error) {
     throw new ChzzkAllowlistUnavailableError({ cause: error });
@@ -68,5 +60,5 @@ export const readActiveChzzkChannels = async (
 };
 
 export const clearActiveChzzkChannelsCacheForTests = () => {
-  activeChannelsCache = undefined;
+  // The access allowlist is read fresh before every provider/cache lookup.
 };

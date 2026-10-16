@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -186,7 +187,7 @@ export function KirinukiChannelFormDialog({
             <FieldLabel htmlFor="channel_name">채널명</FieldLabel>
             <Input
               id="channel_name"
-              placeholder="예: 오버더월 키리누키"
+              placeholder={`예: ${site.siteName} 키리누키`}
               {...register("channel_name", {
                 required: "채널명을 입력해주세요",
               })}

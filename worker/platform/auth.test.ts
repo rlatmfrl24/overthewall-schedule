@@ -34,6 +34,7 @@ const makeEnv = (overrides: Partial<Env> = {}): Env =>
     CLERK_ISSUER: ISSUER,
     CLERK_JWKS_URL: JWKS_URL,
     CLERK_ADMIN_IDS: "user_admin",
+    CLERK_AUTHORIZED_PARTIES: "https://example.com",
     otw_db: {} as D1Database,
     ...overrides,
   }) as Env;
@@ -86,6 +87,7 @@ describe("worker auth", () => {
     const payload = base64UrlEncode(
       JSON.stringify({
         iss: ISSUER,
+        azp: "https://example.com",
         sub: "user_admin",
         sid: "session_1",
         name: "Admin User",
@@ -100,6 +102,34 @@ describe("worker auth", () => {
     );
     return `${header}.${payload}.${base64UrlEncode(signature)}`;
   };
+
+  it("fails closed when configured JWKS or publishable app disagrees with the issuer", async () => {
+    const token = await signToken();
+    for (const overrides of [
+      { CLERK_JWKS_URL: "https://other.clerk.example/.well-known/jwks.json" },
+      { VITE_CLERK_PUBLISHABLE_KEY: makePublishableKey("https://other.clerk.example") },
+    ]) {
+      const result = await authenticateRequest(new Request("https://example.com/api/settings", { headers: { Authorization: `Bearer ${token}` } }), makeEnv(overrides));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.response.status).toBe(500);
+    }
+  });
+
+  it("accepts only the selected app issuer, authorized origin and explicit administrator ID", async () => {
+    const origin = "http://localhost:5174";
+    const issuer = "https://luvdia.clerk.example";
+    const env = makeEnv({ SITE_ID: "luvdia", CLERK_ISSUER: issuer, CLERK_JWKS_URL: `${issuer}/.well-known/jwks.json`, CLERK_AUTHORIZED_PARTIES: origin, CLERK_ADMIN_IDS: "user_luvdia_admin" });
+    for (const [claims, expected] of [
+      [{ iss: ISSUER, azp: origin, sub: "user_luvdia_admin" }, 401],
+      [{ iss: issuer, azp: "http://localhost:5173", sub: "user_luvdia_admin" }, 401],
+      [{ iss: issuer, azp: origin, sub: "user_admin", email: "same@operator.example" }, 403],
+      [{ iss: issuer, azp: origin, sub: "user_luvdia_admin" }, 200],
+    ] as const) {
+      const token = await signToken(claims);
+      const result = await requireAdminUser(new Request(`${origin}/api/settings`, { headers: { Authorization: `Bearer ${token}` } }), env);
+      expect(result.ok ? 200 : result.response.status).toBe(expected);
+    }
+  });
 
   it("spoofed user header alone is not authenticated", async () => {
     const result = await authenticateRequest(
@@ -147,7 +177,7 @@ describe("worker auth", () => {
   });
 
   it.each([
-    ["missing", {}],
+    ["missing", { azp: undefined }],
     ["foreign", { azp: "https://attacker.example.com" }],
   ])("rejects a token with a %s authorized party", async (_case, claims) => {
     const token = await signToken(claims);
@@ -161,6 +191,19 @@ describe("worker auth", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.response.status).toBe(401);
+    }
+  });
+
+  it.each([undefined, "", " \t "])("fails closed without a usable authorized-party configuration: %j", async parties => {
+    for (const azp of [undefined, "https://attacker.example.com"]) {
+      const bearer = await signToken({ azp });
+      const request = new Request("https://example.com/api/settings", { headers: { Authorization: `Bearer ${bearer}` } });
+      const env = makeEnv({ CLERK_AUTHORIZED_PARTIES: parties });
+      const result = await authenticateRequest(request, env);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.response.status).toBe(500);
+      expect(await authenticateOptionalRequest(request, env)).toBeNull();
+      expect(fetch).not.toHaveBeenCalled();
     }
   });
 

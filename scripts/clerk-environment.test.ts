@@ -1,14 +1,22 @@
+import { assertClerkDeploymentConfig } from "./clerk-environment.mjs";
 import { describe, expect, it } from "vitest";
 import {
   assertClerkPublishableKeyForTarget,
   getClerkPublishableKeyKind,
   resolveClerkEnvironmentTarget,
+  assertClerkSiteIdentity,
 } from "./clerk-environment.mjs";
 
 const developmentKey = "pk_test_example_publishable_key_123";
 const productionKey = "pk_live_example_publishable_key_123";
 
 describe("Clerk environment contract", () => {
+  it("checks app identity as well as key kind without exposing a key", () => {
+    const key = `pk_test_${Buffer.from("luvdia.clerk.accounts.dev$").toString("base64")}`;
+    expect(assertClerkSiteIdentity({ publishableKey: key, issuer: "https://luvdia.clerk.accounts.dev", target: "development" })).toBe("https://luvdia.clerk.accounts.dev");
+    expect(() => assertClerkSiteIdentity({ publishableKey: key, issuer: "https://otw.clerk.accounts.dev", target: "development" })).toThrow(/identity/);
+    expect(() => assertClerkSiteIdentity({ publishableKey: key, issuer: undefined, target: "development" })).toThrow(/CLERK_ISSUER/);
+  });
   it("classifies development and production publishable keys", () => {
     expect(getClerkPublishableKeyKind(developmentKey)).toBe("development");
     expect(getClerkPublishableKeyKind(productionKey)).toBe("production");
@@ -75,4 +83,17 @@ describe("Clerk environment contract", () => {
       }),
     ).toThrow(/Invalid VITE_CLERK_PUBLISHABLE_KEY/);
   });
+});
+
+it("rejects production JWKS app mismatch and origins outside the selected site", () => {
+  const issuer = "https://clerk.luvdia.example";
+  const env = { VITE_CLERK_PUBLISHABLE_KEY: `pk_live_${btoa("clerk.luvdia.example$")}`, CLERK_ISSUER: issuer, CLERK_JWKS_URL: `${issuer}/.well-known/jwks.json`, CLERK_AUTHORIZED_PARTIES: "https://luvdia.example" };
+  expect(assertClerkDeploymentConfig(env, "https://luvdia.example")).toBe(issuer);
+  for (const overrides of [
+    { CLERK_JWKS_URL: "https://clerk.otw.example/.well-known/jwks.json" },
+    { CLERK_AUTHORIZED_PARTIES: "https://otw-schedule.info" },
+    { CLERK_AUTHORIZED_PARTIES: "https://luvdia.example,http://localhost:5174" },
+    { CLERK_AUTHORIZED_PARTIES: "https://luvdia.example/path" },
+    { CLERK_AUTHORIZED_PARTIES: "" },
+  ]) expect(() => assertClerkDeploymentConfig({ ...env, ...overrides }, "https://luvdia.example")).toThrow();
 });

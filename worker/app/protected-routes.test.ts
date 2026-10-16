@@ -1,9 +1,11 @@
+import { siteEnv } from "../test-support/site-env";
 import { describe, expect, it } from "vitest";
 import type { Env } from "../platform/types";
 import { workerRouteRegistry } from "./routes";
 
 const makeEnv = (): Env =>
   ({
+    ...siteEnv(),
     YOUTUBE_API_KEY: "",
     X_BEARER_TOKEN: "token",
     otw_db: {} as D1Database,

@@ -1,9 +1,11 @@
+import { getSiteDefinition } from "@contracts/site-definition";
 // @vitest-environment jsdom
 import { afterEach, it, expect, vi } from "vitest";
 import { cleanup, render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { resolveSiteSeo } from "@contracts/site-seo";
-import { siteContentQueryKey, type SitePublicContent } from "@contracts/site-public-content";
+import { type SitePublicContent } from "@contracts/site-public-content";
+import { seedSiteContent } from "./bootstrap";
 import { SiteContentMetadata } from "./site-content-metadata";
 import { SiteContentProvider } from "../ui/site-content-provider";
 import { useSiteContentDate } from "./date-context";
@@ -12,17 +14,19 @@ import { fetchSiteContent } from "../api/site-content";
 vi.mock("../api/site-content", () => ({ fetchSiteContent: vi.fn() }));
 vi.mock("@/shared/seo/use-site-seo", () => ({ useSiteSeo: vi.fn() }));
 
-const data = (path: string, title: string): SitePublicContent => ({ path, date: "2026-09-22", metadata: resolveSiteSeo(path), generatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 300_000).toISOString(), sections: [{ id: "s", title, status: "available", updatedAt: null, items: [{ title: "항목" }] }], structuredData: { name: title } });
+const data = (path: string, title: string): SitePublicContent => ({ path, date: "2026-09-22", metadata: resolveSiteSeo(path, site), generatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 300_000).toISOString(), sections: [{ id: "s", title, status: "available", updatedAt: null, items: [{ title: "항목" }] }], structuredData: { name: title } });
 afterEach(() => { cleanup(); vi.clearAllMocks(); document.getElementById("site-content-jsonld")?.remove(); });
 
 it("uses the delivered data and replaces JSON-LD without adding app UI", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(siteContentQueryKey("/"), data("/", "오늘 일정"));
+  const seed = document.createElement("script");
+  seed.type = "application/json"; seed.id = "site-content-data"; seed.textContent = JSON.stringify(data("/", "오늘 일정"));
+  document.head.append(seed); seedSiteContent(client);
   vi.mocked(fetchSiteContent).mockResolvedValue(data("/rights", "권리 안내"));
   const view = render(<QueryClientProvider client={client}><SiteContentMetadata path="/" /></QueryClientProvider>);
   expect(view.container.childElementCount).toBe(0);
   expect(document.getElementById("site-content-jsonld")?.textContent).toContain("오늘 일정");
-  expect(fetchSiteContent).not.toHaveBeenCalled();
+  expect(fetchSiteContent).toHaveBeenCalledWith("/", undefined);
   view.rerender(<QueryClientProvider client={client}><SiteContentMetadata path="/rights" /></QueryClientProvider>);
   await waitFor(() => expect(document.getElementById("site-content-jsonld")?.textContent).toContain("권리 안내"));
   expect(view.container.childElementCount).toBe(0);
@@ -52,3 +56,5 @@ it("follows the selected week and clears stale JSON-LD without replacing the UI 
   expect(view.container.textContent).toBe("다음 주");
   client.clear();
 });
+
+const site = getSiteDefinition("otw");

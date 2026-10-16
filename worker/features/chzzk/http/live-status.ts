@@ -41,7 +41,7 @@ const targetErrorResponse = (error: unknown) => {
 };
 
 const LIVE_STATUS_CACHE_CONTROL =
-  "public, max-age=0, s-maxage=45, must-revalidate";
+  "no-store";
 const LIVE_STATUS_SERVER_CACHE_VERSION = "2";
 
 const getLiveStatusCache = () =>
@@ -83,6 +83,9 @@ export const createLiveStatusHandler =
 
   const parsed = parseChzzkChannelTargets(url.searchParams.get("channelIds"));
   if (!parsed.ok) return badRequest(parsed.message);
+  const application = buildApplication(env);
+  try { await application.assertAuthorized(parsed.channelIds); }
+  catch (error) { return targetErrorResponse(error); }
   const cache = debug ? null : getLiveStatusCache();
   const cacheKey = makeLiveStatusCacheKey(request, parsed.channelIds);
   if (cache) {
@@ -98,7 +101,7 @@ export const createLiveStatusHandler =
   }
   let items;
   try {
-    items = await buildApplication(env).fetchLiveStatuses(
+    items = await application.fetchLiveStatuses(
       parsed.channelIds,
       debug,
     );
@@ -123,7 +126,11 @@ export const createLiveStatusHandler =
       },
     },
   );
-  if (cache) await cache.put(cacheKey, response.clone());
+  if (cache) {
+    const cached = response.clone();
+    cached.headers.set("Cache-Control", "public, max-age=45");
+    await cache.put(cacheKey, cached);
+  }
   return response;
   };
 
@@ -187,7 +194,7 @@ export const createLiveScheduleAutoFillHandler =
   const response: LiveScheduleAutoFillResponseDto = {
     updatedAt: new Date().toISOString(),
     checkedChannelCount: parsed.channelIds.length,
-    scheduleAutoFill: { updated: result.updated },
+    scheduleAutoFill: { updated: result.updated, ...(result.feedback?.length ? { feedback: result.feedback } : {}) },
   };
   return json(
     response,

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {siteEnv} from '../../../test-support/site-env';
 import type { Env } from "../../../platform/types";
 import { clearActiveXHandlesCacheForTests } from "../infrastructure/d1-active-handles";
 
@@ -24,6 +25,7 @@ const makeEnv = ({
   allowedHandle?: string;
 } = {}): Env =>
   ({
+    ...siteEnv(),
     X_BEARER_TOKEN: "token",
     YOUTUBE_API_KEY: "",
     otw_db: {

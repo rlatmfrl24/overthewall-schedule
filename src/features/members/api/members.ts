@@ -11,6 +11,10 @@ export async function fetchActiveMembers() {
   return list.filter(isActiveMember);
 }
 
-export async function fetchMemberProfile(code: string) {
-  return apiFetch<MemberProfile>(apiRoutes.members.profile.build(code));
+export async function fetchMemberProfile(code: string, includeArchived = false) {
+  return apiFetch<MemberProfile>(`${apiRoutes.members.profile.build(code)}${includeArchived ? "?archive=1" : ""}`, { cache: "no-store" });
+}
+
+export async function fetchAdminMembers() {
+  return apiFetch<Member[]>(`${apiRoutes.members.collection.build()}?archive=1`, { cache: "no-store" });
 }

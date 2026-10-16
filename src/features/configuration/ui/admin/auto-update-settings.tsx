@@ -791,7 +791,7 @@ export function AutoUpdateSettingsManager({
     };
   };
 
-  const batchPendingList = sortedPendingList;
+  const batchPendingList = useMemo(() => sortedPendingList.filter(item => item.content_access !== "admin_archive"), [sortedPendingList]);
   const batchHolidays = batchPendingList.filter(item => item.candidate_kind === "holiday_suggestion");
 
   const pendingBatchSummary = useMemo(() => {
@@ -845,7 +845,7 @@ export function AutoUpdateSettingsManager({
       await loadPending();
       setPendingApprovalOptions((prev) => {
         const next = { ...prev };
-        for (const id of targetIds) {
+        for (const id of result.results.filter(item => item.success).map(item => item.id)) {
           delete next[id];
         }
         return next;
@@ -858,7 +858,7 @@ export function AutoUpdateSettingsManager({
         description:
           action === "approve"
             ? `일괄 승인 완료: 성공 ${result.successCount}건, 실패 ${result.failedCount}건${failures ? ` · ${failures}` : ""}`
-            : `일괄 거부 완료: 성공 ${result.successCount}건, 실패 ${result.failedCount}건`,
+            : `일괄 거부 완료: 성공 ${result.successCount}건, 실패 ${result.failedCount}건${failures ? ` · ${failures}` : ""}`,
       });
     } catch (error) {
       console.error("Failed to process pending schedules in batch:", error);
@@ -1451,9 +1451,10 @@ export function AutoUpdateSettingsManager({
                     const vodDateTime = `${getBroadcastStartDate(
                       pending,
                     )} ${getBroadcastStartTime(pending)}`;
+                    const isArchived = pending.content_access === "admin_archive";
                     const isProcessed = pending.is_processed;
                     const canApprove =
-                      !isProcessed &&
+                      !isArchived && !isProcessed &&
                       (options.targetMode === "create" ||
                         Boolean(selectedExistingSchedule));
                     const reviewRisk = getPendingReviewRisk(pending, options);
@@ -1648,7 +1649,8 @@ export function AutoUpdateSettingsManager({
                             </div>
                           </div>
 
-                          <div className="rounded-lg border bg-card p-4">
+                          <fieldset disabled={isArchived} className="rounded-lg border bg-card p-4">
+                            {isArchived && <Badge variant="outline">관리자 보관 · 읽기 전용</Badge>}
                             <div className="space-y-4">
                               {isProcessed ? (
                                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -1815,7 +1817,7 @@ export function AutoUpdateSettingsManager({
                                 </Button>
                               </div>
                             </div>
-                          </div>
+                          </fieldset>
                         </div>
                       </div>
                     );

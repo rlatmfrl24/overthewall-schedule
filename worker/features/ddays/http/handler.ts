@@ -17,11 +17,12 @@ import type {
   DDayRepository,
   DDayWriteInput,
 } from "../application/ports/dday-repository";
+import type { DDayRequestIdentity } from "../domain/dday-command";
 
 const DDAYS_CACHE_CONTROL =
-  "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
+  "no-store";
 
-export type DDayRepositoryResolver = (env: Env) => DDayRepository;
+export type DDayRepositoryResolver = (env: Env, includeArchived: boolean, identity?:DDayRequestIdentity) => DDayRepository;
 
 const parseWriteInput = (body: DDayPayload): DDayWriteInput | null => {
   if (!body.title?.trim() || !body.date?.trim()) return null;
@@ -38,16 +39,21 @@ export const createHandleDDays =
   (resolveRepository: DDayRepositoryResolver) =>
   async (request: Request, env: Env): Promise<Response> => {
     const url = new URL(request.url);
+    const includeArchived = url.searchParams.get("archive") === "1";
+    const requestId=request.headers.get("Idempotency-Key");
+    if(request.method!=="GET" && requestId!==null && !/^[A-Za-z0-9_-]{16,100}$/.test(requestId)) return badRequest("Invalid Idempotency-Key");
+    let identity:DDayRequestIdentity|undefined;
     if (
       request.method === "POST" ||
       request.method === "PUT" ||
-      request.method === "DELETE"
+      request.method === "DELETE" || includeArchived
     ) {
       const admin = await requireAdminUser(request, env);
       if (!admin.ok) return admin.response;
+      identity={actorId:admin.user.id,...(requestId?{requestId}:{})};
     }
 
-    const repository = resolveRepository(env);
+    const repository = resolveRepository(env, includeArchived,identity);
     if (request.method === "GET") {
       const noCache = url.searchParams.get("noCache") === "1";
       return json(await listDDays(repository), 200, {

@@ -1,3 +1,4 @@
+import { CONTENT_READ_QUERY_OPTIONS, currentContentQuery } from "@/shared/query/content-read-policy";
 import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -5,7 +6,6 @@ import {
   type KirinukiVideosResponse,
   type FetchKirinukiVideosOptions,
 } from "../api/kirinuki";
-import { MEDIA_QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 import { queryKeys } from "@/shared/query/query-keys";
 
 interface UseKirinukiVideosResult {
@@ -22,11 +22,11 @@ export function useKirinukiVideos(
   options: FetchKirinukiVideosOptions = {},
 ): UseKirinukiVideosResult {
   const { maxResults = 20 } = options;
-  const query = useQuery({
+  const query = currentContentQuery(useQuery({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey: queryKeys.media.kirinuki(maxResults),
     queryFn: () => fetchKirinukiVideos({ maxResults }),
-    staleTime: MEDIA_QUERY_STALE_TIME_MS,
-  });
+
+  }));
 
 
   const refetch = useCallback(async () => {

@@ -1,0 +1,161 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "luvdia-schedule",
+  "keep_vars": true,
+  "main": "worker/index.ts",
+  "compatibility_date": "2025-11-25",
+  "assets": {
+    "directory": "./dist/luvdia/client",
+    "binding": "ASSETS",
+    "html_handling": "drop-trailing-slash",
+    "not_found_handling": "404-page",
+    "run_worker_first": true
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "SITE_CONTROL_QUEUE_NAME": "luvdia-ops-control",
+    "SITE_CRITICAL_QUEUE_NAME": "luvdia-ops-critical",
+    "SITE_BACKGROUND_QUEUE_NAME": "luvdia-ops-background",
+    "SITE_INGESTION_QUEUE_NAME": "luvdia-play-ingestion",
+    "SITE_AI_REVIEW_QUEUE_NAME": "luvdia-play-ai-review",
+    "SITE_DEAD_LETTER_QUEUE_NAME": "luvdia-dead-letter",
+    "PLAY_ANALYTICS_DATASET": "luvdia_play_events",
+    "SITE_ID": "luvdia",
+    "SITE_D1_DATABASE_NAME": "luvdia-db",
+    "SITE_ASSET_BUCKET_NAME": "luvdia-schedule",
+    "SITE_RESOURCES_PROVISIONED": "true",
+    "OTW_PLAY_AI_REVIEW_ENABLED": "false",
+    "SITE_PUBLIC_ORIGIN": "https://luvdia-schedule.info"
+  },
+  "analytics_engine_datasets": [
+    {
+      "binding": "OTW_PLAY_ANALYTICS",
+      "dataset": "luvdia_play_events"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "otw_db",
+      "database_name": "luvdia-db",
+      "migrations_dir": "drizzle",
+      "database_id": "ce8eec7f-0922-4119-ab75-f67133b94312"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ASSET_BUCKET",
+      "bucket_name": "luvdia-schedule",
+      "remote": false
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "OTW_PLAY_SUBMISSION_RATE_LIMITER",
+      "namespace_id": "1002",
+      "simple": {
+        "limit": 3,
+        "period": 60
+      }
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "3,13,23,33,53 * * * *"
+    ]
+  },
+  "placement": {
+    "region": "aws:ap-northeast-2"
+  },
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "luvdia-schedule.info",
+      "custom_domain": true
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "OTW_PLAY_AI_REVIEW_QUEUE",
+        "queue": "luvdia-play-ai-review"
+      },
+      {
+        "binding": "OTW_OPS_CONTROL_QUEUE",
+        "queue": "luvdia-ops-control"
+      },
+      {
+        "binding": "OTW_OPS_CRITICAL_QUEUE",
+        "queue": "luvdia-ops-critical"
+      },
+      {
+        "binding": "OTW_OPS_BACKGROUND_QUEUE",
+        "queue": "luvdia-ops-background"
+      },
+      {
+        "binding": "OTW_PLAY_INGESTION_QUEUE",
+        "queue": "luvdia-play-ingestion"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "luvdia-play-ai-review",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 100,
+        "dead_letter_queue": "luvdia-dead-letter",
+        "max_concurrency": 1
+      },
+      {
+        "queue": "luvdia-ops-control",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "luvdia-dead-letter",
+        "max_concurrency": 1
+      },
+      {
+        "queue": "luvdia-ops-critical",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "luvdia-dead-letter",
+        "max_concurrency": 1
+      },
+      {
+        "queue": "luvdia-ops-background",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "luvdia-dead-letter",
+        "max_concurrency": 1
+      },
+      {
+        "queue": "luvdia-play-ingestion",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "luvdia-dead-letter",
+        "max_concurrency": 1
+      },
+      {
+        "queue": "luvdia-dead-letter",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 0,
+        "max_concurrency": 1
+      }
+    ]
+  },
+  "workflows": [
+    {
+      "binding": "SCHEDULED_OPERATIONS_WORKFLOW",
+      "name": "luvdia-scheduled-operations",
+      "class_name": "ScheduledOperationsWorkflow",
+      "limits": {
+        "steps": 3
+      }
+    }
+  ]
+}

@@ -113,13 +113,13 @@ describe("scanRecentChzzkVideos", () => {
         { channelId: channelB, page: 0, size: 5, cacheable: true },
       ],
       cacheDb,
-      { forceRefresh: true, requireFresh: true },
+      { forceRefresh: true, requireFresh: true,siteId:'otw' },
     );
     expect(fetchChzzkVideosBatchMock).toHaveBeenNthCalledWith(
       2,
       [{ channelId: channelA, page: 1, size: 5, cacheable: true }],
       cacheDb,
-      { forceRefresh: true, requireFresh: true },
+      { forceRefresh: true, requireFresh: true,siteId:'otw' },
     );
   });
 

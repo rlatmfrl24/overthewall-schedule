@@ -1,3 +1,6 @@
+import { SnapshotPortrait } from "./snapshot-portrait";
+import { site } from "@/shared/config/site";
+import { getCurrentMemberAffiliation } from "@/features/members";
 import { useMemo, type CSSProperties } from "react";
 import type { Member } from "@/features/members";
 import type { ScheduleItem } from "@/features/schedules";
@@ -64,12 +67,12 @@ function SnapshotScheduleRow({ entry, member }: { entry: ScheduleBoardEntry; mem
     <time className="snapshot-time" dateTime={entry.schedule.start_time ?? undefined}>{formatScheduleTime(entry.schedule.start_time)}</time>
     <div className="snapshot-programme-copy">
       <div className="snapshot-member-line">
-        {member.unit_name && <span className="snapshot-unit">{member.unit_name}</span>}
+        {getCurrentMemberAffiliation(member, site) && <span className="snapshot-unit">{getCurrentMemberAffiliation(member, site)}</span>}
         <p className="snapshot-member-name">{member.name}</p>
       </div>
       <h3 className="snapshot-programme-title whitespace-normal break-words">{title}</h3>
     </div>
-    <img src={`/profile/${member.code}.webp`} alt="" className="snapshot-portrait" />
+    <SnapshotPortrait src={`/profile/${member.code}.webp`} alt="" className="snapshot-portrait" />
   </li>;
 }
 
@@ -91,7 +94,7 @@ function SnapshotSideGroup({ groupKey, items, memberMap }: {
         // The group already states the status; retain any actual editorial title.
         const showTitle = title && title !== schedule.status;
         return <li key={schedule.id} className="snapshot-compact-member" style={memberColors(member)}>
-          <img src={`/profile/${member.code}.webp`} alt="" className="snapshot-small-portrait" />
+          <SnapshotPortrait src={`/profile/${member.code}.webp`} alt="" className="snapshot-small-portrait" />
           <div>
             <p className="snapshot-compact-name">{member.name}{time && <time className="snapshot-side-time" dateTime={schedule.start_time ?? undefined}>{time}</time>}</p>
             {showTitle && <p className="snapshot-compact-title">{getScheduleDisplayTitle(schedule)}</p>}
@@ -110,7 +113,7 @@ function SnapshotNoScheduleGroup({ entries }: { entries: NoScheduleMemberEntry[]
     <p className="snapshot-group-note">오늘 등록된 일정이 없습니다</p>
     <ul className="snapshot-member-grid">
       {entries.map(({ member }) => <li key={member.uid} className="snapshot-compact-member" style={memberColors(member)}>
-        <img src={`/profile/${member.code}.webp`} alt="" className="snapshot-small-portrait" />
+        <SnapshotPortrait src={`/profile/${member.code}.webp`} alt="" className="snapshot-small-portrait" />
         <p className="snapshot-compact-name">{member.name}</p>
       </li>)}
     </ul>

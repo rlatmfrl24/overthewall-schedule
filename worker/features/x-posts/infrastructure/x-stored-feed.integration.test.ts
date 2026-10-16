@@ -40,7 +40,7 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("X stored public feed batching", () => {
-  it("reads eight handles in two queries with independent limits, tie order, and source freshness", async () => {
+  it("reads eight handles in three bounded queries with independent limits, tie order, and source freshness", async () => {
     const timestamp = Date.now();
     for (const [memberIndex, handle] of handles.entries()) {
       await database.prepare(
@@ -68,7 +68,7 @@ describe("X stored public feed batching", () => {
       expect(result.userId).toBe(`user-${memberIndex}`);
       expect(result.stale).toBe(memberIndex === 0);
     }
-    expect(observed.statements).toHaveLength(2);
+    expect(observed.statements).toHaveLength(3);
     expect(observed.statements.every((sql) => /^\s*(SELECT|WITH)\b/.test(sql))).toBe(true);
     const postsSql = observed.statements.find((sql) => sql.includes("WITH requested(handle)"))!;
     const plan = await database.prepare(`EXPLAIN QUERY PLAN ${postsSql}`).bind(JSON.stringify(handles), 5)
@@ -111,4 +111,32 @@ describe("X stored public feed batching", () => {
     expect(observed.statements.every((sql) => (sql.match(/\?/g) ?? []).length <= 100)).toBe(true);
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
+});
+
+
+it("keeps independently verified chunks when another chunk's archive-policy query fails", async () => {
+  const requested = Array.from({ length: 51 }, (_, index) => `member${index}`);
+  const hidden = { ...post("archived", "8888"), text: "Unverified snapshot" };
+  const unsafe = { ...post("member0", "1000"), quote: { postId: hidden.id, post: hidden } };
+  const healthy = { ...post("member50", "1050"), text: "Verified healthy chunk" };
+  await database.batch([unsafe, healthy].map(value => database.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,fetched_at) VALUES(?,?,?,?,?,100)").bind(value.id,value.username,value.username,JSON.stringify(value),value.createdAt)));
+  let policyReads = 0;
+  const failure = new Error("first chunk policy unavailable");
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const db = new Proxy(database, { get(target, property) {
+    if (property === "prepare") return (sql: string) => {
+      if (sql.includes("SELECT id, NULL AS handle FROM x_posts") && ++policyReads === 1) throw failure;
+      return target.prepare(sql);
+    };
+    const value = Reflect.get(target, property, target);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
+  try {
+    const result = await fetchXPostsForHandles(requested, { cacheDb: db, refresh: false, maxResults: 5 });
+    expect(result.posts.map(value => value.text)).toEqual(["Verified healthy chunk"]);
+    expect(JSON.stringify(result)).not.toContain("Unverified snapshot");
+    expect(policyReads).toBe(2);
+    expect(warn).toHaveBeenCalledExactlyOnceWith("Failed to read stored X posts", failure);
+    expect(fetch).not.toHaveBeenCalled();
+  } finally { warn.mockRestore(); }
 });

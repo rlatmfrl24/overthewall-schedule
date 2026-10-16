@@ -15,7 +15,7 @@ describe("kirinuki stored feed", () => {
     const { request, readStoredFeed } = setup();
     const response = await request("?maxResults=40");
     expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toContain("public");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(await response.json()).toMatchObject({ videos: [{ videoId: "one" }], byChannel: [{ channelName: "Clip" }], cache: { state: "fresh" } });
     expect(readStoredFeed).toHaveBeenCalledWith([channel], 40, "kirinuki");
   });

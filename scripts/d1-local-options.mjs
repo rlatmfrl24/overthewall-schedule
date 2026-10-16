@@ -1,4 +1,11 @@
 const PERSIST_TO_PREFIX = "--persist-to=";
+import { getSiteTarget, parseSiteArgument, assertLocalPersistenceIsolation } from "./site-target.mjs";
+
+export const resolveLocalD1Options = (args, environment = process.env) => {
+  const siteId = parseSiteArgument(args);
+  const persistTo = assertLocalPersistenceIsolation(siteId, environment, process.cwd(), parsePersistToOption(args) ?? undefined);
+  return { ...getSiteTarget(siteId), persistTo };
+};
 
 export const parsePersistToOption = (args) => {
   const persistOptions = args.filter(

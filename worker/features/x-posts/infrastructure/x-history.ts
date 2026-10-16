@@ -1,3 +1,5 @@
+import type { SiteId } from "@contracts/site-definition";
+import { publicationHiddenSql } from "../../content-transition";
 import type {
   XHistoryHealthResponseDto,
   XHistoryPostDto,
@@ -13,6 +15,7 @@ type D1 = Pick<D1Database, "prepare">;
 
 type MemberRow = { uid: number | string; name: string; url_twitter: string | null };
 type FactRow = {
+  content_access: "normal" | "admin_archive";
   post_id: string;
   member_uid: number | string;
   member_name_snapshot: string;
@@ -28,7 +31,16 @@ type FactRow = {
   value: string | null;
 };
 
-type BackfillRow = { handle: string; value: string };
+type BackfillRow = { id: string; handle: string; value: string; generation: number; publication_hidden: number };
+
+const acknowledgeRepair = async (db: D1, row: BackfillRow, kind: "facts" | "references", completed: boolean, siteId: SiteId) => {
+  // An edit during processing must remain pending; failed rows rotate behind untouched work.
+  await db.prepare(`UPDATE x_post_repair_work SET ${kind}_pending=?,checked_at=?
+    WHERE post_id=? AND generation=? AND EXISTS(SELECT 1 FROM x_posts p
+      WHERE p.id=? AND p.handle=? AND p.value=? AND p.hidden_at IS NULL AND p.content_removed_at IS NULL
+        AND (${completed ? `NOT (${publicationHiddenSql("x_posts","p",siteId)})` : "1"}))`)
+    .bind(completed ? 0 : 1, Date.now(), row.id, row.generation, row.id, row.handle, row.value).run();
+};
 
 const settingIsEnabled = async (db: D1, key: string) => {
   const row = await db.prepare("SELECT value FROM settings WHERE key = ?")
@@ -90,6 +102,7 @@ const toHistoryPost = (row: FactRow): XHistoryPostDto => {
   const status: XHistoryPostStatus = hiddenAtValue === null ? "visible" : "redacted";
   return {
     postId: row.post_id,
+    contentAccess: row.content_access,
     memberUid: asNumber(row.member_uid),
     memberName: row.member_name_snapshot,
     postType: row.post_type,
@@ -117,6 +130,7 @@ export const recordXPostFacts = async (
   handle: string,
   posts: readonly XPostItem[],
   timestamp = Date.now(),
+  siteId: SiteId = "luvdia",
 ) => {
   if (posts.length === 0 || !(await settingIsEnabled(db, "x_history_analytics_enabled"))) {
     return { recorded: 0, skipped: posts.length };
@@ -132,7 +146,7 @@ export const recordXPostFacts = async (
          post_id, member_uid, member_name_snapshot, post_type, created_at,
          first_seen_at, media_count, link_count, edit_root_post_id,
          superseded_by_post_id, hidden_at, hidden_reason, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
+       ) VALUES (iif(EXISTS(SELECT 1 FROM members m WHERE m.uid=${asNumber(member.uid)} AND ${publicationHiddenSql("members", "m", siteId)}),json('site_member_cutover'),?), ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
        ON CONFLICT(post_id) DO UPDATE SET
          member_uid = excluded.member_uid,
          member_name_snapshot = excluded.member_name_snapshot,
@@ -157,34 +171,41 @@ export const recordXPostFacts = async (
   return { recorded, skipped: posts.length - recorded };
 };
 
-export const backfillXPostFactsFromStoredPosts = async (db: D1, limit = 100) => {
+export const backfillXPostFactsFromStoredPosts = async (db: D1, siteId: SiteId, limit = 100) => {
   if (!(await settingIsEnabled(db, "x_history_analytics_enabled"))) {
     return { scanned: 0, recorded: 0, invalid: 0, skipped: true };
   }
   const boundedLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
   const rows = await db.prepare(
-    `SELECT p.handle, p.value
-     FROM x_posts p
-     LEFT JOIN x_post_facts f ON f.post_id = p.id
-     WHERE f.post_id IS NULL AND p.hidden_at IS NULL
+    `WITH candidates AS MATERIALIZED (SELECT p.id, p.handle, p.value, work.generation
+     FROM x_post_repair_work work INDEXED BY idx_x_post_repair_facts
+     JOIN x_posts p ON p.id=work.post_id
+     WHERE work.facts_pending=1 AND p.hidden_at IS NULL
        AND p.content_removed_at IS NULL
-     ORDER BY p.first_seen_at, p.id
-     LIMIT ?`,
+     ORDER BY work.checked_at, work.post_id
+     LIMIT ?) SELECT candidates.*, ${publicationHiddenSql("x_posts","candidates",siteId)} AS publication_hidden FROM candidates`,
   ).bind(boundedLimit).all<BackfillRow>();
-  const grouped = new Map<string, XPostItem[]>();
+  const grouped = new Map<string, { row: BackfillRow; post: XPostItem }[]>();
   let invalid = 0;
   for (const row of rows.results) {
+    if(row.publication_hidden) {
+      await acknowledgeRepair(db,row,"facts",false,siteId);
+      continue;
+    }
     const post = parseBackfillPost(row.value);
-    if (!post) {
+    if (!post || post.id !== row.id || !Number.isFinite(Date.parse(post.createdAt))) {
       invalid += 1;
+      await acknowledgeRepair(db, row, "facts", false,siteId);
       continue;
     }
     const handle = normalizeHandle(row.handle);
-    grouped.set(handle, [...(grouped.get(handle) ?? []), post]);
+    grouped.set(handle, [...(grouped.get(handle) ?? []), { row, post }]);
   }
   let recorded = 0;
-  for (const [handle, posts] of grouped) {
-    recorded += (await recordXPostFacts(db, handle, posts)).recorded;
+  for (const [handle, entries] of grouped) {
+    const result = await recordXPostFacts(db, handle, entries.map(entry => entry.post),Date.now(),siteId);
+    recorded += result.recorded;
+    for (const entry of entries) await acknowledgeRepair(db, entry.row, "facts", result.recorded === entries.length,siteId);
   }
   return { scanned: rows.results.length, recorded, invalid, skipped: false };
 };
@@ -241,7 +262,7 @@ export const readXHistoryPosts = async (
     bindings.push(options.cursor.createdAt, options.cursor.createdAt, options.cursor.postId);
   }
   const rows = await db.prepare(
-    `SELECT f.post_id, f.member_uid, f.member_name_snapshot, f.post_type,
+    `SELECT f.post_id, f.content_access, f.member_uid, f.member_name_snapshot, f.post_type,
             f.created_at, f.first_seen_at, f.media_count, f.link_count,
             f.hidden_at, f.hidden_reason, p.hidden_at AS stored_hidden_at,
             p.hidden_reason AS stored_hidden_reason, p.value
@@ -374,27 +395,30 @@ export const readXHistoryHealth = async (
 
 export const backfillXPostReferencesFromStoredPosts = async (
   db: D1,
+  siteId: SiteId,
   limit = 100,
 ) => {
   const boundedLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
   const rows = await db.prepare(
-    `SELECT p.id, p.value
-     FROM x_posts p
-     WHERE p.hidden_at IS NULL AND p.content_removed_at IS NULL
-       AND json_valid(p.value)
-       AND ((json_extract(p.value, '$.quote.postId') IS NOT NULL AND NOT EXISTS (
-         SELECT 1 FROM x_post_references r WHERE r.source_post_id=p.id AND r.relation_type='quote'))
-         OR (json_extract(p.value, '$.reply.postId') IS NOT NULL AND NOT EXISTS (
-         SELECT 1 FROM x_post_references r WHERE r.source_post_id=p.id AND r.relation_type='reply')))
-     ORDER BY p.first_seen_at, p.id LIMIT ?`,
-  ).bind(boundedLimit).all<{ id: string; value: string }>();
+    `WITH candidates AS MATERIALIZED (SELECT p.id, p.handle, p.value, work.generation
+     FROM x_post_repair_work work INDEXED BY idx_x_post_repair_references
+     JOIN x_posts p ON p.id=work.post_id
+     WHERE work.references_pending=1 AND p.hidden_at IS NULL AND p.content_removed_at IS NULL
+     ORDER BY work.checked_at, work.post_id LIMIT ?)
+     SELECT candidates.*, ${publicationHiddenSql("x_posts","candidates",siteId)} AS publication_hidden FROM candidates`,
+  ).bind(boundedLimit).all<BackfillRow>();
   let recorded = 0;
   let invalid = 0;
   const timestamp = Date.now();
   for (const row of rows.results) {
+    if(row.publication_hidden) {
+      await acknowledgeRepair(db,row,"references",false,siteId);
+      continue;
+    }
     const post = parseBackfillPost(row.value);
     if (!post || post.id !== row.id) {
       invalid += 1;
+      await acknowledgeRepair(db, row, "references", false,siteId);
       continue;
     }
     const references = [
@@ -408,12 +432,21 @@ export const backfillXPostReferencesFromStoredPosts = async (
         .bind(reference.id).first<{ found: number }>() : null;
       const state = reference.type === "reply" && !reference.hydrated
         ? "link_only" : local ? "local" : reference.hydrated ? "hydrated" : "pending";
-      await db.prepare(
-        `INSERT OR IGNORE INTO x_post_references (
+      const result = await db.prepare(
+        `INSERT INTO x_post_references (
            source_post_id, relation_type, referenced_post_id,
            resolution_state, attempt_count, next_attempt_at, hydrated_at,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+         ) SELECT ?, ?, ?, ?, 0, ?, ?, ?, ?
+         WHERE EXISTS(SELECT 1 FROM x_posts p WHERE p.id=? AND p.handle=? AND p.value=? AND p.hidden_at IS NULL AND p.content_removed_at IS NULL
+           AND NOT (${publicationHiddenSql("x_posts","p",siteId)}))
+         ON CONFLICT(source_post_id,relation_type) DO UPDATE SET
+           referenced_post_id=excluded.referenced_post_id,resolution_state=excluded.resolution_state,
+           attempt_count=0,next_attempt_at=excluded.next_attempt_at,hydrated_at=excluded.hydrated_at,
+           last_error_code=NULL,lease_token=NULL,lease_until=NULL,author_id=NULL,
+           author_state='not_required',author_attempt_count=0,author_next_attempt_at=NULL,
+           author_last_error_code=NULL,updated_at=excluded.updated_at
+         WHERE x_post_references.referenced_post_id<>excluded.referenced_post_id`,
       ).bind(
         row.id,
         reference.type,
@@ -423,9 +456,13 @@ export const backfillXPostReferencesFromStoredPosts = async (
         reference.hydrated ? timestamp : null,
         timestamp,
         timestamp,
+        row.id,
+        row.handle,
+        row.value,
       ).run();
-      recorded += 1;
+      recorded += Number(result.meta.changes > 0);
     }
+    await acknowledgeRepair(db, row, "references", true,siteId);
   }
   return { scanned: rows.results.length, recorded, invalid };
 };

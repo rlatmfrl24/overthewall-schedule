@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, apiFetch } from "./client";
+import { ApiError, apiFetch, apiFetchBlob } from "./client";
 
 const jsonResponse = () =>
   new Response(JSON.stringify({ ok: true }), {
@@ -7,6 +7,16 @@ const jsonResponse = () =>
   });
 
 describe("apiFetch", () => {
+  it("fetches protected image bytes with the actual session bearer and preserves binary data", async () => {
+    vi.stubGlobal("window", { Clerk: { session: { getToken: async () => "actual-session-token" } } });
+    const request = vi.fn<typeof fetch>(async (_path, init) => new Headers(init?.headers).get("Authorization") === "Bearer actual-session-token"
+      ? new Response(new Uint8Array([0, 128, 255, 1]), { headers: { "Content-Type": "image/webp" } })
+      : new Response(null, { status: 401 }));
+    vi.stubGlobal("fetch", request);
+    const blob = await apiFetchBlob("/profile/bing_hayu.webp?archive=1");
+    expect([...new Uint8Array(await blob.arrayBuffer())]).toEqual([0, 128, 255, 1]);
+    expect(blob.type).toBe("image/webp");
+  });
   afterEach(() => {
     vi.unstubAllGlobals();
   });

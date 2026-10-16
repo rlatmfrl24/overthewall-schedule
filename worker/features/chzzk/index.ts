@@ -23,3 +23,6 @@ export {
   type ChzzkVideoCatalog,
 } from "./infrastructure/chzzk-adapters";
 export { readSiteContentChzzk } from "./infrastructure/site-content-videos";
+
+export { createChzzkHistoryHandler } from "./http/history";
+export { D1AdminChzzkHistoryReader } from "./infrastructure/d1-history-reader";

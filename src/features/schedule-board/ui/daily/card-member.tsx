@@ -1,3 +1,5 @@
+import { site } from "@/shared/config/site";
+import { getCurrentMemberAffiliation } from "@/features/members";
 import type { Member } from "@/features/members";
 import type { ScheduleItem } from "@/features/schedules";
 import {
@@ -77,7 +79,7 @@ export const CardMember = ({
         data-member-card-header="true"
       >
         <div className="absolute right-3 top-3 z-20 flex max-w-[calc(100%-7.25rem)] flex-col items-end gap-1.5">
-          {member.unit_name && (
+          {getCurrentMemberAffiliation(member, site) && (
             <span
               className="inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-extrabold leading-none shadow-sm backdrop-blur-sm break-keep"
               style={{
@@ -85,10 +87,10 @@ export const CardMember = ({
                 borderColor: unitChipBorderColor,
                 color: headerTextColor,
               }}
-              title={member.unit_name}
+              title={getCurrentMemberAffiliation(member, site) ?? undefined}
               data-member-unit-chip="true"
             >
-              <span className="truncate">{member.unit_name}</span>
+              <span className="truncate">{getCurrentMemberAffiliation(member, site)}</span>
             </span>
           )}
         </div>
@@ -155,7 +157,7 @@ export const CardMember = ({
             className="absolute -inset-1.5 rounded-full opacity-20 blur-sm"
             style={{ backgroundColor: mainColor }}
           />
-          <img
+          <AuthenticatedImage protectedImage={false}
             src={`/profile/${member.code}.webp`}
             alt={member.name}
             className="relative h-[5.5rem] w-[5.5rem] rounded-full border-4 object-cover shadow-lg transition-transform duration-300 group-hover:scale-105"
@@ -260,3 +262,4 @@ export const CardMember = ({
     </div>
   );
 };
+import { AuthenticatedImage } from "@/shared/ui/authenticated-image";

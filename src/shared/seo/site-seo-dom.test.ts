@@ -1,3 +1,4 @@
+import { getSiteDefinition } from "@contracts/site-definition";
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
 import { buildFeedSiteSeo, buildProfileSiteSeo } from "@contracts/site-seo";
@@ -9,14 +10,14 @@ describe("applySiteSeo", () => {
   });
 
   it("updates navigation metadata without creating new duplicates", () => {
-    applySiteSeo(buildFeedSiteSeo(true));
+    applySiteSeo(buildFeedSiteSeo(true, site));
     applySiteSeo(
       buildProfileSiteSeo({
         code: "member",
         name: "멤버",
         introduction: "소개",
         profileImages: [],
-      }),
+      }, site),
     );
     expect(document.title).toBe("멤버 프로필 | 오버더월");
     expect(document.querySelectorAll('link[rel="canonical"]')).toHaveLength(1);
@@ -24,3 +25,5 @@ describe("applySiteSeo", () => {
     expect(document.querySelector('meta[data-site-seo="robots"]')?.getAttribute("content")).toBe("index,follow");
   });
 });
+
+const site = getSiteDefinition("otw");

@@ -1,5 +1,16 @@
 import { decrementGramStatsStatements, projectionStatements } from "./d1-catalog-projection";
+import {catalogBatchError} from "./catalog-batch-error";
+import type {D1ProposalRejectionWriter} from "./d1-proposal-rejection-writer";
+import { readHistoricalMaterials } from "./read-historical-materials";
+import {isArchivedYouTubeVideo,archivedYouTubeVideoSql,publicationHiddenSql} from '../../content-transition';
+import type {SiteId} from '@contracts/site-definition';
 import { readBroadcastMetadata } from "../domain/broadcast-metadata";
+import type {D1SongTransitionWriter} from "./d1-song-transition-writer";
+import type {D1EntityTransitionWriter} from "./d1-entity-transition-writer";
+import type {D1PublicationTransitionWriter} from "./d1-publication-transition-writer";
+import type {D1CatalogDeleteWriter} from "./d1-catalog-delete-writer";
+import type {VideoCatalogBatchWriter,VideoCatalogEvent} from "./video-catalog-batch";
+import type {D1ChannelTransitionWriter} from "./d1-channel-transition-writer";
 import type {
   OtwPlayAdminCatalogDto,
   OtwPlayAdminCatalogEntryPreflightDto,
@@ -108,6 +119,7 @@ type ChannelRow = {
 };
 type ChannelEntityRow = { channel_id: string; entity_id: string };
 type PerformanceRow = {
+  content_access: "normal" | "admin_archive";
   id: string;
   song_id: string;
   relation_type: OtwPlayAdminPerformanceDto["relationType"];
@@ -276,9 +288,24 @@ const activeIngestionCandidateEntityReferenceSql = `EXISTS (
 
 export class D1AdminCatalogRepository implements AdminCatalogRepository {
   private readonly database: D1Database;
+  private readonly songWriter?:D1SongTransitionWriter;
+  private readonly entityWriter?:D1EntityTransitionWriter;
+  private readonly publicationWriter?:D1PublicationTransitionWriter;
+  private readonly deleteWriter?:D1CatalogDeleteWriter;
+  private readonly channelWriter?:D1ChannelTransitionWriter;
+  private readonly proposalRejectionWriter?:D1ProposalRejectionWriter;
+  private readonly videoWriter?:VideoCatalogBatchWriter;
+  private readonly siteId:SiteId;
 
-  constructor(database: D1Database) {
+  constructor(database: D1Database,songWriter?:D1SongTransitionWriter,entityWriter?:D1EntityTransitionWriter,publicationWriter?:D1PublicationTransitionWriter,deleteWriter?:D1CatalogDeleteWriter,channelWriter?:D1ChannelTransitionWriter,proposalRejectionWriter?:D1ProposalRejectionWriter,videoWriter?:VideoCatalogBatchWriter,siteId:SiteId='otw') {
     this.database = database;
+    this.songWriter=songWriter;
+    this.entityWriter=entityWriter;
+    this.publicationWriter=publicationWriter;
+    this.deleteWriter=deleteWriter;
+    this.channelWriter=channelWriter;
+    this.proposalRejectionWriter=proposalRejectionWriter;this.videoWriter=videoWriter;
+    this.siteId=siteId;
   }
 
   private async readRevision() {
@@ -366,7 +393,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         FROM music_channels ORDER BY display_name, id`, "channels", "id"),
       select(`SELECT channel_id, entity_id FROM music_channel_entities
         ORDER BY channel_id, entity_id`, "channels", "channel_id"),
-      select(`SELECT id, song_id, relation_type, release_type,
+      select(`SELECT id, content_access, song_id, relation_type, release_type,
         participation_type, publication_status, quality_status, released_at, broadcast_metadata,
         internal_note, version FROM music_performances ORDER BY created_at DESC, id`, "performances", "id"),
       select(`SELECT performance_id, tag_key, display_name
@@ -500,6 +527,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         releaseType: row.release_type,
         ...(row.release_type === "broadcast" ? { broadcast: readBroadcastMetadata(row.broadcast_metadata) } : {}),
         participationType: row.participation_type,
+        contentAccess: row.content_access,
         publicationStatus: row.publication_status,
         qualityStatus: row.quality_status,
         releasedAt: row.released_at,
@@ -544,6 +572,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     video: AdminCreateCatalogEntryCommand["video"],
     startSeconds: number,
   ): Promise<OtwPlayAdminCatalogEntryPreflightDto> {
+    if(await isArchivedYouTubeVideo(this.database,video.videoId,this.siteId,video.channelId)) throw new AdminCatalogRepositoryError('validation_failed','이관된 멤버의 신규 수집은 종료되었습니다.',{policy:'publication_cutoff'});
     const meta = await this.readRevision();
     const [channel, member, duplicate] = await Promise.all([
       this.database
@@ -653,8 +682,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       );
     }
     const where = status ? "WHERE proposal.status = ?" : "";
-    const statement = this.database.prepare(`SELECT proposal.id,
-      proposal.submitted_by_user_id, proposal.submitted_url, proposal.youtube_video_id,
+    const statement = this.database.prepare(`SELECT proposal.id, proposal.content_access,
+      proposal.submitted_by_user_id, proposal.historical_source_site, proposal.historical_source_record_id,
+      proposal.historical_review, proposal.submitted_url, proposal.youtube_video_id,
       proposal.segment_start_seconds, proposal.submitted_title, proposal.suggested_song_id,
       proposal.submitted_tags_json, proposal.submitted_note, proposal.status, proposal.version,
       proposal.submission_kind, proposal.submitted_broadcast_json,
@@ -679,7 +709,11 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       OtwPlayAdminProposalDto,
       "participants" | "originalArtists" | "tags"
     > & {
-      submitted_by_user_id: string;
+      content_access: "normal" | "admin_archive";
+      submitted_by_user_id: string | null;
+      historical_source_site: "otw" | "luvdia" | null;
+      historical_source_record_id: string | null;
+      historical_review: number;
       submitted_url: string;
       youtube_video_id: string;
       segment_start_seconds: number;
@@ -714,9 +748,17 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       resultsOf(artistResult as D1Result<ProposalArtistRow>),
       (row) => row.proposal_id,
     );
-    return resultsOf(proposalResult as D1Result<ProposalRow>).map((row) => ({
+    const proposalRows=resultsOf(proposalResult as D1Result<ProposalRow>);
+    const history=await readHistoricalMaterials(this.database,"music_cover_proposals",proposalRows.map(row=>row.id));
+    return proposalRows.map((row) => ({
       id: row.id,
+      contentAccess: row.content_access,
       submittedByUserId: row.submitted_by_user_id,
+      historicalProvenance: row.historical_source_site && row.historical_source_record_id
+        ? { sourceSite: row.historical_source_site, sourceRecordId: row.historical_source_record_id }
+        : null,
+      historicalReview: row.historical_review === 1,
+      historicalMaterials:history.get(row.id)??[],
       submittedUrl: row.submitted_url,
       youtubeVideoId: row.youtube_video_id,
       segmentStartSeconds: Number(row.segment_start_seconds),
@@ -751,32 +793,35 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     }));
   }
 
-  private async executeCatalogBatch(
+  private async videoCatalogEvent(event:VideoCatalogEvent,actor:AdminCatalogActor|null):Promise<D1PreparedStatement[]> {
+    if(!actor) {if(!this.videoWriter) throw new Error('Missing transferred video event authority');return this.videoWriter.historicalEvent(event);}
+    return [this.database.prepare(`INSERT INTO music_catalog_events(id,aggregate_type,aggregate_id,event_type,actor_kind,actor_user_id,after_json,created_at) VALUES(?,?,?,?,'admin',?,?,?)`).bind(event.id,event.aggregateType,event.aggregateId,event.eventType,actor.userId,event.afterJson,event.now)];
+  }
+  private async executeCatalogBatch<T>(
     statements: D1PreparedStatement[],
     expectedRevision: number,
     now: number,
+    commit?: (statements:D1PreparedStatement[])=>Promise<T|null>,
   ) {
     try {
+      if(commit) {
+        const stored=await commit([...statements,...appendRevisionStatements(this.database,expectedRevision,now)]);
+        if(stored) return stored;
+      }
       await this.database.batch([
         ...statements,
         ...appendRevisionStatements(this.database, expectedRevision, now),
       ]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (/music_catalog_meta_singleton_check/i.test(message)) {
-        throw new AdminCatalogRepositoryError(
-          "stale_write",
-          "Catalog command conflicted with a newer write",
-        );
-      }
-      if (/UNIQUE|constraint/i.test(message)) {
-        throw new AdminCatalogRepositoryError(
-          "validation_failed",
-          "Catalog command violates an identity or relationship constraint",
-        );
-      }
-      throw error;
+      throw catalogBatchError(error) ?? error;
     }
+  }
+  private guardCollection(statements:D1PreparedStatement[],videos:ReadonlyArray<{videoId:string|null;channelId:string}>,performanceId:string|null=null) {
+    const guard=()=>this.database.prepare(`WITH observed AS(SELECT json_extract(value,'$.videoId') video_id,json_extract(value,'$.channelId') channel_id FROM json_each(?))
+      SELECT iif(NOT EXISTS(SELECT 1 FROM observed WHERE ${archivedYouTubeVideoSql('observed.video_id',this.siteId,'observed.channel_id')})
+        AND NOT EXISTS(SELECT 1 FROM music_performances selected WHERE selected.id=? AND ${publicationHiddenSql('music_performances','selected',this.siteId)}),1,json_extract('{}','publication_cutoff'))`).bind(JSON.stringify(videos),performanceId);
+    // A mutation cannot grant its own shared-owner exception by replacing selected relations.
+    return [guard(),...statements,guard()];
   }
 
   private async readSong(id: string) {
@@ -820,6 +865,12 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     ids: { entityId: string; eventId: string },
     now: number,
   ) {
+    const accepted=await this.entityWriter?.accept({action:"create",id:ids.entityId,input,actor,eventId:ids.eventId,now});
+    if(accepted?.result) return accepted.result;
+    if(accepted?.acceptance) {
+      const command=accepted.acceptance.command;if(command.action!=="create") throw new Error("Wrong original entity action");
+      input=command.input;actor=command.actor;now=command.now;ids={entityId:command.id,eventId:command.eventId};
+    }
     const meta = await this.readRevision();
     const normalizedName = normalizeOtwPlaySearchText(input.displayName);
     const statements = [
@@ -857,8 +908,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
-    return this.readEntity(ids.entityId);
+    const stored=await this.executeCatalogBatch(statements,Number(meta.revision),now,accepted?.acceptance?statements=>this.entityWriter!.write(accepted.acceptance!,statements):undefined);
+    return stored??this.readEntity(ids.entityId);
   }
 
   async updateEntity(
@@ -867,6 +918,12 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     eventId: string,
     now: number,
   ) {
+    const accepted=await this.entityWriter?.accept({action:"update",id:input.id,input,actor,eventId,now});
+    if(accepted?.result) return accepted.result;
+    if(accepted?.acceptance) {
+      const command=accepted.acceptance.command;if(command.action!=="update") throw new Error("Wrong original entity action");
+      input=command.input;actor=command.actor;now=command.now;eventId=command.eventId;
+    }
     const meta = await this.readRevision();
     const affectedRows = await this.database
       .prepare(
@@ -923,8 +980,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
-    return this.readEntity(input.id);
+    const stored=await this.executeCatalogBatch(statements,Number(meta.revision),now,accepted?.acceptance?statements=>this.entityWriter!.write(accepted.acceptance!,statements):undefined);
+    return stored??this.readEntity(input.id);
   }
 
   async deleteEntity(
@@ -934,6 +991,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     eventId: string,
     now: number,
   ) {
+    const accepted=await this.deleteWriter?.accept({kind:"entity",id,expectedVersion,actor,eventId,now});
+    if(accepted?.result) return accepted.result;
+    if(accepted?.acceptance) ({id,expectedVersion,actor,eventId,now}=accepted.acceptance.command);
     const meta = await this.readRevision();
     const current = await this.database
       .prepare(
@@ -1046,8 +1106,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
-    return { data: { id }, catalogRevision: Number(meta.revision) + 1 };
+    const stored=await this.executeCatalogBatch(statements,Number(meta.revision),now,accepted?.acceptance?statements=>this.deleteWriter!.write(accepted.acceptance!,statements):undefined);
+    return stored??{ data: { id }, catalogRevision: Number(meta.revision) + 1 };
   }
 
   async createSong(
@@ -1056,6 +1116,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     ids: { songId: string; eventId: string },
     now: number,
   ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminSongDto>> {
+    const accepted=await this.songWriter?.acceptCreate({input,actor,ids,now});
+    if(accepted?.result) return accepted.result;
+    if(accepted?.acceptance) ({input,actor,ids,now}=accepted.acceptance.command);
     const meta = await this.readRevision();
     const normalizedTitle = normalizeOtwPlaySearchText(input.title);
     const dedupeKey = createSongDedupeKeyMaterial({
@@ -1128,11 +1191,14 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
-    return this.readSong(ids.songId);
+    const stored=await this.executeCatalogBatch(statements,Number(meta.revision),now,accepted?.acceptance?statements=>this.songWriter!.writeCreate(accepted.acceptance!,statements):undefined);
+    return stored??this.readSong(ids.songId);
   }
 
   async updateSong(command: AdminUpdateSongCommand) {
+    const accepted=await this.songWriter?.accept(command);
+    if(accepted?.result) return accepted.result;
+    if(accepted?.acceptance) command=accepted.acceptance.command;
     const { input, actor, ids, now } = command;
     const meta = await this.readRevision();
     const catalog = await this.readCatalog({ subjects: input.originalArtists.map(a => a.subject) });
@@ -1366,8 +1432,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
-    return this.readSong(input.id);
+    const stored=await this.executeCatalogBatch(statements,Number(meta.revision),now,accepted?.acceptance?statements=>this.songWriter!.write(accepted.acceptance!,statements):undefined);
+    return stored??this.readSong(input.id);
   }
 
   async deleteSong(
@@ -1377,6 +1443,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     eventId: string,
     now: number,
   ) {
+    const accepted=await this.deleteWriter?.accept({kind:"song",id,expectedVersion,actor,eventId,now});
+    if(accepted?.result) return accepted.result;
+    if(accepted?.acceptance) ({id,expectedVersion,actor,eventId,now}=accepted.acceptance.command);
     const meta = await this.readRevision();
     const current = await this.database
       .prepare(
@@ -1498,8 +1567,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
-    return { data: { id }, catalogRevision: Number(meta.revision) + 1 };
+    const stored=await this.executeCatalogBatch(statements,Number(meta.revision),now,accepted?.acceptance?statements=>this.deleteWriter!.write(accepted.acceptance!,statements):undefined);
+    return stored??{ data: { id }, catalogRevision: Number(meta.revision) + 1 };
   }
 
   private sourceInsert(
@@ -1673,27 +1742,15 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           ),
       ),
       ...projectionStatements(this.database, input.songId),
-      this.database
-        .prepare(
-          `INSERT INTO music_catalog_events
-        (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
-        VALUES (?, 'performance', ?, 'performance.created', 'admin', ?, ?, ?)`,
-        )
-        .bind(
-          ids.eventId,
-          ids.performanceId,
-          actor.userId,
-          eventJson({
+      ...(await this.videoCatalogEvent({id:ids.eventId,aggregateType:"performance",aggregateId:ids.performanceId,eventType:"performance.created",afterJson:eventJson({
             songId: input.songId,
             publicationStatus: "draft",
             sourceCount: resolvedSources.length,
             tags: input.tags ?? [],
-          }),
-          now,
-        ),
+          }),now:now},actor)),
     ];
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
-    return this.readPerformance(ids.performanceId);
+    const stored=await this.executeCatalogBatch(this.guardCollection(statements,sources.map(source=>source.video),ids.performanceId),Number(meta.revision),now,this.videoWriter?statements=>this.videoWriter!.write<OtwPlayAdminPerformanceDto>(statements,{kind:"performance",id:ids.performanceId}):undefined);
+    return stored??this.readPerformance(ids.performanceId);
   }
 
   async createCatalogEntry(command: AdminCreateCatalogEntryCommand) {
@@ -1737,7 +1794,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         );
       }
     }
+    const conversionScope=candidateConversion?await this.videoWriter?.conversionJobScope(candidateConversion.jobId,candidateConversion.candidateId):null;
     if (candidateConversion) {
+      if(!actor&&!conversionScope?.historical) throw new Error("Ingestion conversion requires its original own actor");
       const candidate = await this.database.prepare(
         `SELECT 1 AS matched FROM music_ingestion_candidates AS candidate
          WHERE candidate.id = ? AND candidate.status = 'ready'
@@ -1753,17 +1812,16 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
                AND channel.active = 1
                 AND ${ingestionCandidateChannelRoleSql}
             )
-            AND (? IS NULL OR EXISTS (
+            AND ${conversionScope?.sql??`(? IS NULL OR EXISTS (
               SELECT 1 FROM music_ingestion_candidate_origins AS origin
               WHERE origin.candidate_id = candidate.id AND origin.job_id = ?
-            ))`,
+            ))`}`,
       ).bind(
         candidateConversion.candidateId,
         candidateConversion.expectedVersion,
         input.releaseType,
         input.releaseType,
-        candidateConversion.jobId,
-        candidateConversion.jobId,
+        ...(conversionScope?.bindings??[candidateConversion.jobId,candidateConversion.jobId]),
       ).first<{ matched: number }>();
       if (!candidate) {
         throw new AdminCatalogRepositoryError(
@@ -1794,6 +1852,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       );
     }
 
+    const historicalApproval=proposalApproval&&!actor?await this.videoWriter?.transferredApproval(proposalApproval.proposalId,proposalApproval.lockToken):false;
+    if(proposalApproval&&!actor&&!historicalApproval) throw new Error("Missing transferred approval authority");
     const statements: D1PreparedStatement[] = proposalApproval
       ? [
           this.database
@@ -1894,19 +1954,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
               now,
               now,
             ),
-          this.database
-            .prepare(
-              `INSERT INTO music_catalog_events
-              (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
-              VALUES (?, 'entity', ?, 'entity.created_from_member', 'admin', ?, ?, ?)`,
-            )
-            .bind(
-              ids.entityEventIds[key],
-              entityId,
-              actor.userId,
-              eventJson({ memberUid: authority.uid }),
-              now,
-            ),
+          ...(await this.videoCatalogEvent({id:ids.entityEventIds[key],aggregateType:"entity",aggregateId:entityId,eventType:"entity.created_from_member",afterJson:eventJson({ memberUid: authority.uid }),now:now},actor)),
         );
         createdEntityIds.push(entityId);
         resolved.set(key, { id: entityId, displayName: authority.name });
@@ -1955,22 +2003,10 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             now,
             now,
           ),
-        this.database
-          .prepare(
-            `INSERT INTO music_catalog_events
-            (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
-            VALUES (?, 'entity', ?, 'entity.created_inline', 'admin', ?, ?, ?)`,
-          )
-          .bind(
-            ids.entityEventIds[key],
-            entityId,
-            actor.userId,
-            eventJson({
+        ...(await this.videoCatalogEvent({id:ids.entityEventIds[key],aggregateType:"entity",aggregateId:entityId,eventType:"entity.created_inline",afterJson:eventJson({
               displayName: subject.displayName,
               entityKind: subject.entityKind,
-            }),
-            now,
-          ),
+            }),now:now},actor)),
       );
       createdEntityIds.push(entityId);
       resolved.set(key, { id: entityId, displayName: subject.displayName.trim() });
@@ -2148,22 +2184,10 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             )
             .bind(channelId, entityId),
         ),
-        this.database
-          .prepare(
-            `INSERT INTO music_catalog_events
-            (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
-            VALUES (?, 'channel', ?, 'channel.confirmed_inline', 'admin', ?, ?, ?)`,
-          )
-          .bind(
-            ids.channelEventId,
-            channelId,
-            actor.userId,
-            eventJson({
+        ...(await this.videoCatalogEvent({id:ids.channelEventId,aggregateType:"channel",aggregateId:channelId,eventType:"channel.confirmed_inline",afterJson:eventJson({
               externalChannelId: video.channelId,
               verificationStatus: channelApproved ? "approved" : "pending",
-            }),
-            now,
-          ),
+            }),now:now},actor)),
       );
     }
 
@@ -2276,24 +2300,12 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             ),
         ),
         ...songTagStatements(this.database, songId, songInput.tags),
-        this.database
-          .prepare(
-            `INSERT INTO music_catalog_events
-            (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
-            VALUES (?, 'song', ?, 'song.created_inline', 'admin', ?, ?, ?)`,
-          )
-          .bind(
-            ids.songEventId,
-            songId,
-            actor.userId,
-            eventJson({
+        ...(await this.videoCatalogEvent({id:ids.songEventId,aggregateType:"song",aggregateId:songId,eventType:"song.created_inline",afterJson:eventJson({
               title: songInput.title,
               slug,
               creationMode:
                 input.song.kind === "from_video" ? "from_video" : "inline",
-            }),
-            now,
-          ),
+            }),now:now},actor)),
       );
     }
 
@@ -2391,24 +2403,12 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           input.releaseType === "broadcast" ? "kirinuki" : "official",
         ),
       ...projectionStatements(this.database, songId, { decrementExistingGrams: input.song.kind === "existing" }),
-      this.database
-        .prepare(
-          `INSERT INTO music_catalog_events
-          (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
-          VALUES (?, 'performance', ?, 'performance.created_inline', 'admin', ?, ?, ?)`,
-        )
-        .bind(
-          ids.performanceEventId,
-          ids.performanceId,
-          actor.userId,
-          eventJson({
+      ...(await this.videoCatalogEvent({id:ids.performanceEventId,aggregateType:"performance",aggregateId:ids.performanceId,eventType:"performance.created_inline",afterJson:eventJson({
             songId,
             publicationStatus: input.publicationTarget,
             videoId: video.videoId,
             tags: input.performanceTags ?? [],
-          }),
-          now,
-        ),
+          }),now:now},actor)),
     );
 
     if (proposalApproval) {
@@ -2416,14 +2416,15 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         this.database
           .prepare(
             `UPDATE music_cover_proposals
-             SET status = 'approved', reviewed_by_user_id = ?, reviewed_at = ?,
+             SET status = 'approved', historical_review = ?, reviewed_by_user_id = ?, reviewed_at = ?,
                approved_performance_id = ?, review_lock_token = NULL,
                review_lock_expires_at = NULL, version = version + 1, updated_at = ?
              WHERE id = ? AND status = 'pending_review' AND version = ?
                AND review_lock_token = ?`,
           )
           .bind(
-            actor.userId,
+            historicalApproval?1:0,
+            actor?.userId??null,
             now,
             ids.performanceId,
             now,
@@ -2432,24 +2433,13 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             proposalApproval.lockToken,
           ),
         versionGuard(this.database),
-        this.database
-          .prepare(
-            `INSERT INTO music_catalog_events
-             (id, aggregate_type, aggregate_id, event_type, actor_kind,
-              actor_user_id, after_json, created_at)
-             VALUES (?, 'proposal', ?, 'proposal.approved', 'admin', ?, ?, ?)`,
-          )
-          .bind(
-            proposalApproval.proposalEventId,
-            proposalApproval.proposalId,
-            actor.userId,
-            eventJson({ performanceId: ids.performanceId }),
-            now,
-          ),
+        ...(await this.videoCatalogEvent({id:proposalApproval.proposalEventId,aggregateType:"proposal",aggregateId:proposalApproval.proposalId,eventType:"proposal.approved",afterJson:eventJson({ performanceId: ids.performanceId }),now:now},actor)),
       );
     }
 
     if (candidateConversion) {
+      if(!actor&&!conversionScope?.historical) throw new Error("Ingestion conversion requires its original own actor");
+      const updateScope=await this.videoWriter?.conversionJobScope(candidateConversion.jobId,candidateConversion.candidateId,'music_ingestion_candidates');
       statements.push(
         this.database.prepare(
           `UPDATE music_ingestion_candidates
@@ -2463,11 +2453,11 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
                AND ((candidate_kind = 'official_video'
                    AND ? IN ('official_mv', 'official_video'))
                  OR (candidate_kind = 'singing_clip' AND ? = 'broadcast'))
-              AND (? IS NULL OR EXISTS (
+              AND ${updateScope?.sql??`(? IS NULL OR EXISTS (
                 SELECT 1 FROM music_ingestion_candidate_origins AS origin
                 WHERE origin.candidate_id = music_ingestion_candidates.id
                   AND origin.job_id = ?
-              ))
+              ))`}
               AND EXISTS (
                SELECT 1 FROM music_channels AS channel
                WHERE channel.provider = 'youtube'
@@ -2482,17 +2472,16 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         ).bind(
           ids.performanceId,
           now,
-          actor.userId,
+          actor?.userId??null,
           now,
           candidateConversion.candidateId,
           candidateConversion.expectedVersion,
           input.releaseType,
           input.releaseType,
-          candidateConversion.jobId,
-          candidateConversion.jobId,
+          ...(updateScope?.bindings??[candidateConversion.jobId,candidateConversion.jobId]),
         ),
         versionGuard(this.database),
-        this.database.prepare(
+        ...(conversionScope?.historical?await this.videoWriter!.conversionEvent({eventId:candidateConversion.eventId,jobId:candidateConversion.jobId,candidateId:candidateConversion.candidateId,eventType:'candidate.convert.created',detailJson:eventJson({performanceId:ids.performanceId})!,now}):[this.database.prepare(
           `INSERT INTO music_ingestion_events (
             id, job_id, candidate_id, event_type, actor_user_id,
             detail_json, created_at
@@ -2501,19 +2490,16 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           candidateConversion.eventId,
           candidateConversion.jobId,
           candidateConversion.candidateId,
-          actor.userId,
+          actor!.userId,
           eventJson({ performanceId: ids.performanceId }),
           now,
-        ),
+        )]),
       );
     }
 
     try {
-      await this.executeCatalogBatch(
-        statements,
-        input.expectedCatalogRevision,
-        now,
-      );
+      const stored=await this.executeCatalogBatch(this.guardCollection(statements,[video],ids.performanceId),input.expectedCatalogRevision,now,this.videoWriter?statements=>this.videoWriter!.write<import("@contracts/otw-play").OtwPlayAdminCatalogEntryResultDto>(statements,{kind:"entry",songId,performanceId:ids.performanceId,channelId,entityIds:createdEntityIds,...(proposalApproval?{proposalId:proposalApproval.proposalId}:{})}):undefined);
+      if(stored) return stored;
     } catch (error) {
       if (
         error instanceof AdminCatalogRepositoryError &&
@@ -2665,19 +2651,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
               now,
               now,
             ),
-          this.database
-            .prepare(
-              `INSERT INTO music_catalog_events
-              (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
-              VALUES (?, 'entity', ?, 'entity.created_from_member', 'admin', ?, ?, ?)`,
-            )
-            .bind(
-              entityEventId,
-              entityId,
-              actor.userId,
-              eventJson({ memberUid: authority.uid }),
-              now,
-            ),
+          ...(await this.videoCatalogEvent({id:entityEventId,aggregateType:"entity",aggregateId:entityId,eventType:"entity.created_from_member",afterJson:eventJson({ memberUid: authority.uid }),now:now},actor)),
         );
         resolved.set(key, { id: entityId, displayName: authority.name });
         continue;
@@ -2705,22 +2679,10 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             now,
             now,
           ),
-        this.database
-          .prepare(
-            `INSERT INTO music_catalog_events
-            (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
-            VALUES (?, 'entity', ?, 'entity.created_inline', 'admin', ?, ?, ?)`,
-          )
-          .bind(
-            entityEventId,
-            entityId,
-            actor.userId,
-            eventJson({
+        ...(await this.videoCatalogEvent({id:entityEventId,aggregateType:"entity",aggregateId:entityId,eventType:"entity.created_inline",afterJson:eventJson({
               displayName: subject.displayName,
               entityKind: subject.entityKind,
-            }),
-            now,
-          ),
+            }),now:now},actor)),
       );
       resolved.set(key, {
         id: entityId,
@@ -3007,26 +2969,14 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       ...(current.song_id === input.songId
         ? []
         : projectionStatements(this.database, input.songId)),
-      this.database
-        .prepare(
-          `INSERT INTO music_catalog_events
-        (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
-        VALUES (?, 'performance', ?, 'performance.updated', 'admin', ?, ?, ?)`,
-        )
-        .bind(
-          ids.eventId,
-          input.id,
-          actor.userId,
-          eventJson({
+      ...(await this.videoCatalogEvent({id:ids.eventId,aggregateType:"performance",aggregateId:input.id,eventType:"performance.updated",afterJson:eventJson({
             songId: input.songId,
             version: input.expectedVersion + 1,
             sourceCount: resolvedSources.length,
-          }),
-          now,
-        ),
+          }),now:now},actor)),
     ];
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
-    return this.readPerformance(input.id);
+    const stored=await this.executeCatalogBatch(this.guardCollection(statements,sources.map(source=>source.video),input.id),Number(meta.revision),now,this.videoWriter?statements=>this.videoWriter!.write<OtwPlayAdminPerformanceDto>(statements,{kind:"performance",id:input.id}):undefined);
+    return stored??this.readPerformance(input.id);
   }
 
   async transitionPerformance(
@@ -3037,6 +2987,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     eventId: string,
     now: number,
   ) {
+    const accepted=await this.publicationWriter?.accept({id,expectedVersion,target,actor,eventId,now});
+    if(accepted?.result) return accepted.result;
+    if(accepted?.acceptance) ({id,expectedVersion,target,actor,eventId,now}=accepted.acceptance.command);
     const meta = await this.readRevision();
     const current = await this.database
       .prepare(
@@ -3155,8 +3108,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
-    return this.readPerformance(id);
+    const stored=await this.executeCatalogBatch(statements,Number(meta.revision),now,accepted?.acceptance?statements=>this.publicationWriter!.write(accepted.acceptance!,statements):undefined);
+    return stored??this.readPerformance(id);
   }
 
   private archiveApprovedProposals(
@@ -3206,6 +3159,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     eventId: string,
     now: number,
   ) {
+    const accepted=await this.deleteWriter?.accept({kind:"performance",id,expectedVersion,actor,eventId,now});
+    if(accepted?.result) return accepted.result;
+    if(accepted?.acceptance) ({id,expectedVersion,actor,eventId,now}=accepted.acceptance.command);
     const meta = await this.readRevision();
     const current = await this.database
       .prepare(
@@ -3290,16 +3246,17 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
-    return { data: { id }, catalogRevision: Number(meta.revision) + 1 };
+    const stored=await this.executeCatalogBatch(statements,Number(meta.revision),now,accepted?.acceptance?statements=>this.deleteWriter!.write(accepted.acceptance!,statements):undefined);
+    return stored??{ data: { id }, catalogRevision: Number(meta.revision) + 1 };
   }
 
   async createChannel(
     input: OtwPlayAdminCreateChannelRequest,
-    actor: AdminCatalogActor,
+    actor: AdminCatalogActor | null,
     ids: { channelId: string; eventId: string },
     now: number,
   ) {
+    if(!actor && !this.channelWriter) throw new Error("Transferred channel event requires the owning transition writer");
     const meta = await this.readRevision();
     const statements: D1PreparedStatement[] = [
       this.database
@@ -3324,7 +3281,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           )
           .bind(ids.channelId, entityId),
       ),
-      this.database
+      ...(!actor?await this.channelWriter!.historicalEvent({id:ids.eventId,channelId:ids.channelId,eventType:"channel.created",beforeJson:null,afterJson:eventJson({externalChannelId:input.externalChannelId,status:"pending"}),now}):[this.database
         .prepare(
           `INSERT INTO music_catalog_events
         (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
@@ -3339,18 +3296,19 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             status: "pending",
           }),
           now,
-        ),
+        )]),
     ];
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
-    return this.readChannel(ids.channelId);
+    const stored=await this.executeCatalogBatch(this.guardCollection(statements,[{videoId:null,channelId:input.externalChannelId}]),Number(meta.revision),now,this.channelWriter?statements=>this.channelWriter!.write(statements):undefined);
+    return stored??this.readChannel(ids.channelId);
   }
 
   async updateChannel(
     input: OtwPlayAdminUpdateChannelRequest,
-    actor: AdminCatalogActor,
+    actor: AdminCatalogActor | null,
     eventId: string,
     now: number,
   ) {
+    if(!actor && !this.channelWriter) throw new Error("Transferred channel event requires the owning transition writer");
     const meta = await this.readRevision();
     const [current, currentEntityRows] = await Promise.all([
       this.database
@@ -3421,7 +3379,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           )
           .bind(input.id, entityId),
       ),
-      this.database
+      ...(!actor?await this.channelWriter!.historicalEvent({id:eventId,channelId:input.id,eventType:"channel.updated",beforeJson:eventJson({externalChannelId:current.external_channel_id,displayName:current.display_name,channelRole:current.channel_role,verificationStatus:current.verification_status,active:Boolean(current.active),entityIds:currentEntityIds}),afterJson:eventJson({externalChannelId:input.externalChannelId,displayName:input.displayName.trim(),channelRole:input.channelRole,verificationStatus:input.verificationStatus,active:input.active,entityIds:nextEntityIds}),now}):[this.database
         .prepare(
           `INSERT INTO music_catalog_events
         (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, before_json, after_json, created_at)
@@ -3448,10 +3406,10 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             entityIds: nextEntityIds,
           }),
           now,
-        ),
+        )]),
     ];
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
-    return this.readChannel(input.id);
+    const stored=await this.executeCatalogBatch(this.guardCollection(statements,[{videoId:null,channelId:input.externalChannelId},{videoId:null,channelId:current.external_channel_id}]),Number(meta.revision),now,this.channelWriter?statements=>this.channelWriter!.write(statements):undefined);
+    return stored??this.readChannel(input.id);
   }
 
   async deleteChannel(
@@ -3461,6 +3419,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     eventId: string,
     now: number,
   ) {
+    const accepted=await this.deleteWriter?.accept({kind:"channel",id,expectedVersion,actor,eventId,now});
+    if(accepted?.result) return accepted.result;
+    if(accepted?.acceptance) ({id,expectedVersion,actor,eventId,now}=accepted.acceptance.command);
     const meta = await this.readRevision();
     const statements = [
       this.database
@@ -3475,8 +3436,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         )
         .bind(eventId, id, actor.userId, now),
     ];
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
-    return { data: { id }, catalogRevision: Number(meta.revision) + 1 };
+    const stored=await this.executeCatalogBatch(statements,Number(meta.revision),now,accepted?.acceptance?statements=>this.deleteWriter!.write(accepted.acceptance!,statements):undefined);
+    return stored??{ data: { id }, catalogRevision: Number(meta.revision) + 1 };
   }
 
   async rejectProposal(
@@ -3486,12 +3447,15 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     eventId: string,
     now: number,
   ) {
+    const accepted=await this.proposalRejectionWriter?.accept({id:proposalId,input,actor,eventId,now});
+    if(accepted?.result) return accepted.result;
+    if(accepted?.acceptance) ({id:proposalId,input,actor,eventId,now}=accepted.acceptance.command);
     const meta = await this.readRevision();
     const statements = [
       this.database
         .prepare(
           `UPDATE music_cover_proposals SET status = 'rejected',
-        reviewed_by_user_id = ?, reviewed_at = ?, review_result_code = ?, review_note = ?,
+        historical_review = 0, reviewed_by_user_id = ?, reviewed_at = ?, review_result_code = ?, review_note = ?,
         review_lock_token = NULL, review_lock_expires_at = NULL,
         version = version + 1, updated_at = ?
         WHERE id = ? AND status = 'pending_review' AND version = ?`,
@@ -3520,7 +3484,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
+    const stored=await this.executeCatalogBatch(statements,Number(meta.revision),now,accepted?.acceptance?statements=>this.proposalRejectionWriter!.write(accepted.acceptance!,statements):undefined);
+    if(stored) return stored;
     const proposal = (await this.readProposals()).find(
       (item) => item.id === proposalId,
     );

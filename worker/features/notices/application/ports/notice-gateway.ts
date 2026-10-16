@@ -1,20 +1,11 @@
 import type {
   NoticeDto,
-  NoticeLinkDto,
   NoticeThumbnailCleanupResponse,
   NoticeThumbnailStatusResponse,
 } from "../../../../../contracts/notices";
 
-export interface NoticeWriteInput {
-  content: string;
-  links: NoticeLinkDto[];
-  imageUrls: string[];
-  relatedMemberUids: number[];
-  type: string;
-  isActive: boolean;
-  startedAt: string | null;
-  endedAt: string | null;
-}
+import type { NoticeWriteInput } from "../../domain/notice-command";
+export type { NoticeWriteInput } from "../../domain/notice-command";
 
 export type NoticeMutationResult =
   | { status: "success" }
@@ -24,6 +15,7 @@ export type NoticeMutationResult =
 export type NoticeThumbnailDeleteResult =
   | { status: "deleted" }
   | { status: "referenced" }
+  | { status: "retained" }
   | { status: "unavailable" }
   | { status: "failed" };
 
@@ -35,6 +27,7 @@ export type NoticeThumbnailCleanupResult =
     };
 
 export interface NoticeThumbnailUploadInput {
+  operationId: string;
   file: Blob;
   extension: string;
   contentType: string;

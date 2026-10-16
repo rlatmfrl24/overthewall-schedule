@@ -1,3 +1,4 @@
+import { getSiteDefinition } from "@contracts/site-definition";
 // @vitest-environment jsdom
 import React from "react";
 import { cleanup, render } from "@testing-library/react";
@@ -14,10 +15,10 @@ describe("SEO navigation", () => {
     const profile = buildProfileSiteSeo({ code: "Alpha", name: "알파", introduction: "  소개\n 문장 ", profileImages: [
       { id: 2, memberUid: 1, imageUrl: "/later.webp", alt: null, sortOrder: 2 },
       { id: 1, memberUid: 1, imageUrl: "/first.webp", alt: null, sortOrder: 0 },
-    ] });
+    ] }, site);
     expect(profile.image).toBe("https://otw-schedule.info/first.webp");
     expect(profile.description).toBe("소개 문장");
-    const play = buildPlaySongsSiteSeo("noindex,nofollow");
+    const play = buildPlaySongsSiteSeo("noindex,nofollow", site);
     const view = render(<SiteSeoProvider pathname="/profile/Alpha"><Page metadata={profile} /></SiteSeoProvider>);
     expect(document.title).toBe(profile.title);
     view.rerender(<SiteSeoProvider pathname="/play/songs"><Page metadata={play} /></SiteSeoProvider>);
@@ -33,3 +34,5 @@ describe("SEO navigation", () => {
     expect(document.querySelector('meta[name="robots"]')?.getAttribute('content')).toBe("noindex,nofollow");
   });
 });
+
+const site = getSiteDefinition("otw");

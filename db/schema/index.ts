@@ -11,6 +11,191 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+export const assetFileReferences = sqliteTable("asset_file_references", {
+  logical_key: text().primaryKey(), version_key: text().notNull(), hash: text().notNull(), size: integer().notNull(),
+  content_type: text().notNull(), updated_at: integer().notNull(),
+}, table => [check("asset_reference_bytes", sql`length(${table.hash})=64 AND ${table.size}>=0 AND length(${table.version_key})>0`)]);
+
+export const assetFileReferencePaths=sqliteTable("asset_file_reference_paths",{
+  row_table:text().notNull(),row_key:text().notNull(),field:text().notNull(),raw_url:text().notNull(),origin:text(),path:text().notNull(),
+},table=>[
+  primaryKey({columns:[table.row_table,table.row_key,table.field]}),
+  index("idx_asset_file_reference_path").on(table.path,table.origin),
+]);
+
+export const assetFileRetentionReleases=sqliteTable("asset_file_retention_releases",{
+  logical_key:text().primaryKey(),released_at:integer().notNull().default(0),held:integer().notNull().default(1),
+},table=>[check("asset_retention_release_state",sql`${table.logical_key} LIKE 'notices/thumbnails/%' AND ${table.released_at}>=0 AND ${table.held} IN (0,1) AND (${table.held}=1 OR ${table.released_at}>0)`) ]);
+
+export const assetFileVersions = sqliteTable("asset_file_versions", {
+  version_key: text().primaryKey(), operation_id: text().notNull().unique(), logical_key: text().notNull(),
+  site_id: text().notNull(), generation: integer().notNull(), resource: text().notNull(),
+  previous_version: text(), hash: text().notNull(), size: integer().notNull(), content_type: text().notNull(),
+  member_uid:integer(),member_code:text(),
+  transition_id: text(), transition_operation_id: text(), created_at: integer().notNull(), attempted_at: integer(),
+  object_version: text(), verified_at: integer(), reference_committed_at: integer(), acknowledged_at: integer(), released_at: integer(),
+}, table => [
+  index("idx_asset_file_logical").on(table.logical_key),
+  check("asset_file_identity", sql`${table.site_id} IN ('otw','luvdia') AND ${table.generation}>0 AND length(${table.hash})=64 AND ${table.size}>=0 AND length(${table.logical_key})>0 AND length(${table.operation_id})>0 AND length(${table.resource})>0`),
+  check("asset_file_progress", sql`(${table.object_version} IS NULL)=(${table.verified_at} IS NULL) AND (${table.reference_committed_at} IS NULL OR ${table.verified_at} IS NOT NULL) AND (${table.acknowledged_at} IS NULL OR ${table.reference_committed_at} IS NOT NULL) AND (${table.transition_id} IS NULL)=(${table.transition_operation_id} IS NULL)`),
+]);
+
+export const contentTransitions = sqliteTable("content_transitions", {
+  id: text().primaryKey(),
+  source_site: text().notNull(), target_site: text().notNull(),
+  source_resource: text().notNull(), target_resource: text().notNull(),
+  local_site: text().notNull(), local_resource: text().notNull(),
+  generation: integer().notNull(), protocol: integer().notNull(),
+  manifest_digest: text().notNull(), manifest_revision:integer().notNull().default(0), plan_json: text().notNull(),
+  phase: text().notNull().default("prepared"),
+  maintenance_state: text().notNull().default("open"),
+  maintenance_started_at: integer(),
+  maintenance_stopped_at: integer(),
+  maintenance_proof_json: text(),
+  aborted_at: integer(),
+  protection_receipt_json: text(), readiness_json: text(), readiness_expires_at: integer(),
+  fence_json: text(), installation_json: text(), archive_receipt_json: text(),
+  checkpoint_revision: integer().notNull().default(0),
+  checkpoints_json: text().notNull().default("[]"),
+}, table => [
+  check("content_transition_sites", sql`${table.source_site} IN ('otw','luvdia') AND ${table.target_site} IN ('otw','luvdia') AND ${table.source_site} <> ${table.target_site}
+    AND ((${table.local_site} = ${table.source_site} AND ${table.local_resource} = ${table.source_resource}) OR (${table.local_site} = ${table.target_site} AND ${table.local_resource} = ${table.target_resource}))
+    AND length(${table.source_resource}) > 0 AND length(${table.target_resource}) > 0 AND ${table.source_resource} <> ${table.target_resource}`),
+  check("content_transition_protocol", sql`${table.protocol} = 1 AND ${table.generation} >= 2 AND ${table.checkpoint_revision} >= 0`),
+  check("content_transition_phase", sql`${table.phase} IN ('prepared','protected','copying','replaying','target_ingress_ready','source_fenced','target_owned','complete')`),
+  check("content_transition_json", sql`json_valid(${table.plan_json}) AND json_type(${table.plan_json})='object' AND json_valid(${table.checkpoints_json}) AND json_type(${table.checkpoints_json})='array'`),
+  uniqueIndex("uidx_content_transition_active").on(sql`(1)`).where(sql`${table.phase} <> 'complete' AND ${table.aborted_at} IS NULL`),
+]);
+export const contentTransitionOperations = sqliteTable("content_transition_operations", {
+  seq: integer().primaryKey({ autoIncrement: true }),
+  transition_id: text().notNull().references(() => contentTransitions.id, { onDelete: "cascade" }),
+  operation_id: text().notNull(), idempotency_key: text().notNull(), payload_hash: text().notNull(),
+  source_seq: integer(),
+  generation: integer().notNull(), admitted_at: integer().notNull(),
+  envelope_json: text().notNull(), attempt_json: text(), outcome_json: text(),
+  transferred: integer({ mode: "boolean" }).notNull().default(false),
+  outcome_acknowledged: integer({ mode: "boolean" }).notNull().default(false),
+}, table => [
+  uniqueIndex("uidx_content_transition_operation").on(table.transition_id, table.operation_id),
+  uniqueIndex("uidx_content_transition_idempotency").on(table.transition_id, table.idempotency_key),
+  uniqueIndex("uidx_content_transition_source_operation").on(table.transition_id, table.source_seq),
+  check("content_transition_operation_envelope", sql`length(${table.operation_id})>0 AND length(${table.payload_hash})>0 AND length(${table.idempotency_key})>0 AND ${table.generation}>0 AND json_valid(${table.envelope_json}) AND json_type(${table.envelope_json})='object'`),
+]);
+export const contentTransitionFileIntents = sqliteTable("content_transition_file_intents", {
+  seq: integer().primaryKey({ autoIncrement: true }),
+  transition_id: text().notNull().references(() => contentTransitions.id, { onDelete: "cascade" }),
+  intent_id: text().notNull(), operation_id: text().notNull(), generation: integer().notNull(),
+  source_seq: integer(),
+  version_key: text().notNull(), envelope_json: text().notNull(), outcome_json: text(),
+  transferred: integer({ mode: "boolean" }).notNull().default(false),
+  outcome_acknowledged: integer({ mode: "boolean" }).notNull().default(false),
+}, table => [
+  uniqueIndex("uidx_content_transition_file_intent").on(table.transition_id, table.intent_id),
+  uniqueIndex("uidx_content_transition_source_file").on(table.transition_id, table.source_seq),
+  uniqueIndex("uidx_content_transition_file_version").on(table.version_key),
+  foreignKey({ columns: [table.transition_id, table.operation_id], foreignColumns: [contentTransitionOperations.transition_id, contentTransitionOperations.operation_id] }),
+  check("content_transition_file_envelope", sql`json_valid(${table.envelope_json}) AND json_type(${table.envelope_json})='object' AND length(${table.intent_id})>0 AND length(${table.version_key})>0 AND ${table.generation}>0`),
+]);
+export const contentTransitionFileEvidence=sqliteTable("content_transition_file_evidence",{
+  transition_id:text().notNull(),intent_id:text().notNull(),evidence_id:text().notNull(),observation_json:text().notNull(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.intent_id,table.evidence_id]}),
+  foreignKey({columns:[table.transition_id,table.intent_id],foreignColumns:[contentTransitionFileIntents.transition_id,contentTransitionFileIntents.intent_id]}).onDelete("cascade"),
+  check("content_file_evidence_json",sql`json_valid(${table.observation_json}) AND json_type(${table.observation_json})='object'`),
+]);
+export const contentTransitionCommits = sqliteTable("content_transition_commits", {
+  seq: integer().primaryKey({ autoIncrement: true }),
+  transition_id: text().notNull().references(() => contentTransitions.id, { onDelete: "cascade" }),
+  operation_id: text().notNull(), sealed: integer({ mode: "boolean" }).notNull().default(false),
+}, table => [uniqueIndex("uidx_content_transition_commit").on(table.transition_id, table.operation_id)]);
+export const contentTransitionPermits = sqliteTable("content_transition_permits", {
+  id: integer().primaryKey(), transition_id: text().notNull().references(() => contentTransitions.id, { onDelete: "cascade" }),
+  operation_id: text().notNull(), generation: integer().notNull(),
+  mode: text().notNull().default("business"),
+  version_matches: integer().notNull().default(1),
+  commit_seq: integer().notNull().references(() => contentTransitionCommits.seq, { onDelete: "cascade" }),
+}, table => [
+  check("content_transition_single_permit", sql`${table.id}=1 AND ${table.generation}>0 AND ${table.mode} IN ('business','baseline','archive','identity')`),
+  check("content_transition_version_conflict", sql`${table.version_matches}=1`),
+]);
+export const contentTransitionDirtyRows = sqliteTable("content_transition_dirty_rows", {
+  transition_id: text().notNull().references(() => contentTransitions.id, { onDelete: "cascade" }),
+  row_table: text().notNull(), row_key: text().notNull(),
+  structural: integer().notNull().default(1),
+}, table => [primaryKey({ columns: [table.transition_id, table.row_table, table.row_key] })]);
+export const contentTransitionEvidence = sqliteTable("content_transition_evidence", {
+  transition_id: text().notNull().references(() => contentTransitions.id, { onDelete: "cascade" }),
+  operation_id: text().notNull(), evidence_id: text().notNull(), attempt_identity: text().notNull(),
+  evidence_json: text().notNull(),
+}, table => [
+  primaryKey({ columns: [table.transition_id, table.operation_id, table.evidence_id] }),
+  foreignKey({ columns: [table.transition_id, table.operation_id], foreignColumns: [contentTransitionOperations.transition_id, contentTransitionOperations.operation_id] }),
+  check("content_transition_evidence_json", sql`json_valid(${table.evidence_json}) AND json_type(${table.evidence_json})='object'`),
+]);
+export const contentTransitionReplay = sqliteTable("content_transition_replay", {
+  transition_id: text().notNull().references(() => contentTransitions.id, { onDelete: "cascade" }),
+  commit_seq: integer().notNull(), previous_commit: integer().notNull(), digest: text().notNull(),
+  projected_json: text().notNull(),
+}, table => [
+  primaryKey({ columns: [table.transition_id, table.commit_seq] }),
+  check("content_transition_replay_json", sql`json_valid(${table.projected_json}) AND json_type(${table.projected_json})='array' AND ${table.commit_seq}>${table.previous_commit}`),
+]);
+export const contentTransitionDirtyRoots = sqliteTable("content_transition_dirty_roots", {
+  transition_id: text().notNull().references(() => contentTransitions.id, { onDelete: "cascade" }),
+  root_table: text().notNull(), root_key: text().notNull(),
+}, table => [primaryKey({ columns: [table.transition_id, table.root_table, table.root_key] })]);
+export const contentTransitionMembership = sqliteTable("content_transition_membership", {
+  transition_id: text().notNull().references(() => contentTransitions.id, { onDelete: "cascade" }),
+  root_table: text().notNull(), root_key: text().notNull(), row_table: text().notNull(), row_key: text().notNull(),
+  archive_previous_access: text(),
+}, table => [
+  primaryKey({ columns: [table.transition_id, table.root_table, table.root_key, table.row_table, table.row_key] }),
+  index("idx_content_transition_membership_row").on(table.transition_id, table.row_table, table.row_key),
+]);
+export const contentTransitionImages = sqliteTable("content_transition_images", {
+  transition_id: text().notNull().references(() => contentTransitions.id, { onDelete: "cascade" }),
+  row_table: text().notNull(), row_key: text().notNull(), image_json: text().notNull(),
+  root_count: integer().notNull().default(0),
+}, table => [
+  primaryKey({ columns: [table.transition_id, table.row_table, table.row_key] }),
+  index("idx_content_transition_images_orphan").on(table.transition_id, table.root_count),
+  check("content_transition_image_json", sql`json_valid(${table.image_json}) AND json_type(${table.image_json})='object'`),
+]);
+export const contentTransitionJournal = sqliteTable("content_transition_journal", {
+  seq: integer().primaryKey({ autoIncrement: true }),
+  transition_id: text().notNull().references(() => contentTransitions.id, { onDelete: "cascade" }),
+  commit_seq: integer().notNull().references(() => contentTransitionCommits.seq, { onDelete: "cascade" }),
+  row_table: text().notNull(), row_key: text().notNull(), before_json: text(), after_json: text(),
+}, table => [
+  index("idx_content_transition_journal_commit").on(table.transition_id, table.commit_seq, table.seq),
+  index("idx_content_transition_journal_row").on(table.transition_id,table.row_table,table.row_key,table.commit_seq,table.seq),
+  check("content_transition_journal_image", sql`${table.before_json} IS NOT NULL OR ${table.after_json} IS NOT NULL`),
+]);
+export const contentTransitionIdentityProofs=sqliteTable("content_transition_identity_proofs",{
+  transition_id:text().notNull().references(()=>contentTransitions.id,{onDelete:"cascade"}),
+  member_uid:integer().notNull(),first_commit:integer().notNull(),target_entity_id:text().notNull(),
+  source_name:text().notNull(),normalized_name:text().notNull(),
+  protocol:integer().notNull(),manifest_digest:text().notNull(),manifest_revision:integer().notNull(),generation:integer().notNull(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.member_uid,table.source_name]}),
+  check("content_identity_proof_shape",sql`${table.protocol}=1 AND ${table.first_commit}>0 AND length(${table.target_entity_id})>0 AND length(${table.normalized_name})>0`),
+]);
+export const contentHistoricalRecords = sqliteTable("content_historical_records", {
+  source_site: text().notNull(), source_table: text().notNull(), source_key: text().notNull(),
+  record_json: text().notNull(), protocol: integer().notNull(),
+}, table => [
+  primaryKey({ columns: [table.source_site, table.source_table, table.source_key] }),
+  check("content_historical_record", sql`${table.source_site} IN ('otw','luvdia') AND ${table.protocol}=1 AND json_valid(${table.record_json}) AND json_type(${table.record_json})='object'`),
+]);
+export const contentHistoricalLinks = sqliteTable("content_historical_links", {
+  source_site: text().notNull(), source_table: text().notNull(), source_key: text().notNull(),
+  subject_table: text().notNull(), subject_key: text().notNull(),
+}, table => [
+  primaryKey({ columns: [table.source_site,table.source_table,table.source_key,table.subject_table,table.subject_key] }),
+  foreignKey({ columns: [table.source_site,table.source_table,table.source_key], foreignColumns: [contentHistoricalRecords.source_site,contentHistoricalRecords.source_table,contentHistoricalRecords.source_key], name:"content_historical_link_record" }).onDelete("cascade"),
+  index("idx_content_historical_subject").on(table.subject_table,table.subject_key),
+]);
+
 export const musicAiReviewBatches = sqliteTable("music_ai_review_batches", {
   id: text().primaryKey(),
   actor: text().notNull(),
@@ -18,6 +203,90 @@ export const musicAiReviewBatches = sqliteTable("music_ai_review_batches", {
   selection_json: text().notNull(),
   created_at: integer().notNull(),
 });
+export const contentTransitionChzzkRequests = sqliteTable("content_transition_chzzk_requests", {
+  transition_id:text().notNull(),operation_id:text().notNull(),request_key:text().notNull(),request_hash:text().notNull(),request_json:text().notNull(),
+  response_hash:text(),response_json:text(),attempt:integer().notNull().default(0),claim:text(),retry_at:integer().notNull().default(0),
+  disposition:text(),settled_outcome_digest:text(),settled_at:integer(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.operation_id,table.request_key]}),
+  foreignKey({columns:[table.transition_id,table.operation_id],foreignColumns:[contentTransitionOperations.transition_id,contentTransitionOperations.operation_id]}).onDelete("cascade"),
+  check("content_transition_chzzk_request_state",sql`length(${table.request_hash})=64 AND json_valid(${table.request_json}) AND ${table.attempt}>=0 AND ${table.retry_at}>=0 AND (${table.response_hash} IS NULL)=(${table.response_json} IS NULL) AND (${table.response_hash} IS NULL OR (length(${table.response_hash})=64 AND json_valid(${table.response_json})))`),
+]);
+export const contentTransitionChzzkAttempts = sqliteTable("content_transition_chzzk_attempts", {
+  transition_id:text().notNull(),operation_id:text().notNull(),request_key:text().notNull(),attempt:integer().notNull(),claim:text().notNull(),
+  started_at:integer().notNull(),uncertain_at:integer(),finished_at:integer(),state:text().notNull().default("started"),response_hash:text(),
+  superseded_by_response_hash:text(),resolved_at:integer(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.operation_id,table.request_key,table.attempt]}),
+  foreignKey({columns:[table.transition_id,table.operation_id,table.request_key],foreignColumns:[contentTransitionChzzkRequests.transition_id,contentTransitionChzzkRequests.operation_id,contentTransitionChzzkRequests.request_key]}).onDelete("cascade"),
+  check("content_transition_chzzk_attempt_state",sql`${table.attempt}>0 AND length(${table.claim})>0 AND ${table.started_at}>=0 AND ${table.state} IN ('started','uncertain','response_committed','superseded','failed') AND (${table.response_hash} IS NULL OR length(${table.response_hash})=64)`),
+]);
+export const contentTransitionChzzkStages=sqliteTable("content_transition_chzzk_stages",{
+  transition_id:text().notNull(),operation_id:text().notNull(),parent_json:text().notNull(),
+  completion_json:text(),handover_acknowledged:integer({mode:"boolean"}).notNull().default(false),finalizer_json:text(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.operation_id]}),
+  foreignKey({columns:[table.transition_id,table.operation_id],foreignColumns:[contentTransitionOperations.transition_id,contentTransitionOperations.operation_id]}).onDelete("cascade"),
+  check("content_chzzk_stage_json",sql`json_valid(${table.parent_json}) AND (${table.completion_json} IS NULL OR json_valid(${table.completion_json})) AND (${table.finalizer_json} IS NULL OR json_valid(${table.finalizer_json}))`),
+]);
+export const contentTransitionChzzkChildren=sqliteTable("content_transition_chzzk_children",{
+  transition_id:text().notNull(),operation_id:text().notNull(),child_key:text().notNull(),member_uid:integer().notNull(),member_code:text().notNull(),date:text().notNull(),
+  input_json:text(),result_json:text(),accounted_at:integer(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.operation_id,table.child_key]}),
+  foreignKey({columns:[table.transition_id,table.operation_id],foreignColumns:[contentTransitionChzzkStages.transition_id,contentTransitionChzzkStages.operation_id]}).onDelete("cascade"),
+  check("content_chzzk_child_result",sql`${table.member_uid}>0 AND length(${table.child_key})>0 AND length(${table.member_code})>0 AND (${table.result_json} IS NULL OR json_valid(${table.result_json})) AND (${table.accounted_at} IS NULL OR ${table.result_json} IS NOT NULL)`),
+]);
+export const contentTransitionChzzkBatches=sqliteTable("content_transition_chzzk_batches",{
+  transition_id:text().notNull(),operation_id:text().notNull(),child_key:text().notNull(),batch_key:text().notNull(),
+  command_json:text().notNull(),before_json:text().notNull(),result_json:text(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.operation_id,table.child_key,table.batch_key]}),
+  foreignKey({columns:[table.transition_id,table.operation_id,table.child_key],foreignColumns:[contentTransitionChzzkChildren.transition_id,contentTransitionChzzkChildren.operation_id,contentTransitionChzzkChildren.child_key]}).onDelete("cascade"),
+  check("content_chzzk_batch_json",sql`json_valid(${table.command_json}) AND json_valid(${table.before_json}) AND (${table.result_json} IS NULL OR json_valid(${table.result_json}))`),
+]);
+
+export const assetFileCleanup = sqliteTable("asset_file_cleanup", {
+  object_key:text().primaryKey(),logical_key:text().notNull(),site_id:text().notNull(),resource:text().notNull(),
+  object_version:text().notNull(),hash:text().notNull(),size:integer().notNull(),generation:integer().notNull().default(1),claimed_at:integer().notNull(),deleted_at:integer(),
+},table=>[
+  index("idx_asset_file_cleanup_logical").on(table.logical_key),
+  check("asset_cleanup_identity",sql`${table.site_id} IN ('otw','luvdia') AND length(${table.resource})>0 AND length(${table.object_version})>0 AND length(${table.hash})=64 AND ${table.size}>=0 AND ${table.claimed_at}>=0 AND (${table.deleted_at} IS NULL OR ${table.deleted_at}>=${table.claimed_at})`),
+]);
+export const contentTransitionFileAvailabilityEvidence=sqliteTable("content_transition_file_availability_evidence",{
+  transition_id:text().notNull().references(()=>contentTransitions.id,{onDelete:"cascade"}),
+  evidence_id:text().notNull(),observation_json:text().notNull(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.evidence_id]}),
+  check("content_file_availability_observation",sql`json_valid(${table.observation_json}) AND json_type(${table.observation_json})='object'`),
+]);
+export const contentTransitionManifestRevisions=sqliteTable("content_transition_manifest_revisions",{
+  transition_id:text().notNull().references(()=>contentTransitions.id,{onDelete:"cascade"}),
+  revision:integer().notNull(),parent_digest:text().notNull(),manifest_digest:text().notNull(),receipt_json:text().notNull(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.revision]}),
+  uniqueIndex("uidx_content_manifest_parent").on(table.transition_id,table.parent_digest),
+  uniqueIndex("uidx_content_manifest_digest").on(table.transition_id,table.manifest_digest),
+  check("content_manifest_revision",sql`${table.revision}>0 AND json_valid(${table.receipt_json})`),
+]);
+export const contentTransitionBaselines = sqliteTable("content_transition_baselines", {
+  transition_id:text().primaryKey().references(()=>contentTransitions.id,{onDelete:"cascade"}),
+  manifest_digest:text().notNull(),
+  source_boundary:integer().notNull(), expected_rows:integer().notNull(), expected_digest:text().notNull(),
+  staged_rows:integer().notNull().default(0), staged_digest:text().notNull().default("0"),
+  receipt_json:text(),
+},table=>[check("content_baseline_counts",sql`${table.expected_rows}>=0 AND ${table.staged_rows}>=0 AND ${table.staged_rows}<=${table.expected_rows}`)]);
+export const contentTransitionBaselineRows=sqliteTable("content_transition_baseline_rows",{
+  transition_id:text().notNull().references(()=>contentTransitionBaselines.transition_id,{onDelete:"cascade"}),
+  ordinal:integer().notNull(), row_table:text().notNull(), row_key:text().notNull(),
+  row_digest:text().notNull(), record_json:text().notNull(), dependency_rank:integer().notNull(),
+  installed:integer({mode:"boolean"}).notNull().default(false),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.ordinal]}),
+  uniqueIndex("uidx_content_baseline_row").on(table.transition_id,table.row_table,table.row_key),
+  index("idx_content_baseline_pending").on(table.transition_id,table.installed,table.dependency_rank,table.ordinal),
+  check("content_baseline_record",sql`${table.ordinal}>=0 AND json_valid(${table.record_json}) AND json_type(${table.record_json})='object'`),
+]);
 export const musicPlaylistWorkQueues = sqliteTable("music_playlist_work_queues", {
   id: text().primaryKey(),
   playlist_id: text().notNull().unique(),
@@ -154,6 +423,34 @@ export const musicAiReviewRequests = sqliteTable("music_ai_review_requests", {
   review_id: text().notNull().references(() => musicAiReviews.id, { onDelete: "cascade" }),
   created_at: integer().notNull(),
 });
+
+export const contentTransitionFileInventories=sqliteTable("content_transition_file_inventories",{
+  transition_id:text().notNull().references(()=>contentTransitions.id,{onDelete:"cascade"}),inventory_id:text().notNull(),
+  plan_json:text().notNull(),manifest_revision:integer().notNull(),state:text().notNull().default("armed"),
+  coverage_json:text(),source_boundary:integer(),expected_rows:integer(),expected_digest:text(),
+  staged_rows:integer().notNull().default(0),staged_digest:text().notNull().default("0"),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.inventory_id]}),
+  check("content_file_inventory_state",sql`${table.state} IN ('armed','observed','sealed','receiving','received') AND json_valid(${table.plan_json}) AND ${table.manifest_revision}>=0 AND ${table.staged_rows}>=0`),
+]);
+export const contentTransitionFileInventoryRows=sqliteTable("content_transition_file_inventory_rows",{
+  transition_id:text().notNull(),inventory_id:text().notNull(),kind:text().notNull(),identity:text().notNull(),value_json:text().notNull(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.inventory_id,table.kind,table.identity]}),
+  foreignKey({columns:[table.transition_id,table.inventory_id],foreignColumns:[contentTransitionFileInventories.transition_id,contentTransitionFileInventories.inventory_id]}).onDelete("cascade"),
+  check("content_file_inventory_row",sql`${table.kind} IN ('reference','object') AND json_valid(${table.value_json})`),
+]);
+export const contentTransitionMaterializedRows=sqliteTable("content_transition_materialized_rows",{
+  transition_id:text().notNull().references(()=>contentTransitions.id,{onDelete:"cascade"}),
+  row_table:text().notNull(),row_key:text().notNull(),
+},table=>[primaryKey({columns:[table.transition_id,table.row_table,table.row_key]})]);
+export const contentHistoricalRelations=sqliteTable("content_historical_relations",{
+  source_site:text().notNull(),from_table:text().notNull(),from_key:text().notNull(),
+  to_table:text().notNull(),to_key:text().notNull(),
+},table=>[
+  primaryKey({columns:[table.source_site,table.from_table,table.from_key,table.to_table,table.to_key]}),
+  index("idx_content_history_relation_target").on(table.source_site,table.to_table,table.to_key),
+]);
 export const musicAiReviewAttempts = sqliteTable("music_ai_review_attempts", {
   token: text().primaryKey(),
   review_id: text().notNull().references(() => musicAiReviews.id, { onDelete: "cascade" }),
@@ -221,6 +518,7 @@ import type {
 export const members = sqliteTable(
   "members",
   {
+    content_access: text("content_access").$type<"normal" | "admin_archive">().notNull().default("normal"),
     uid: integer().primaryKey({ autoIncrement: true }),
     code: text().notNull(),
     name: text().notNull(),
@@ -238,7 +536,8 @@ export const members = sqliteTable(
     introduction: text("introduction"),
     is_deprecated: integer("is_deprecated", { mode: "boolean" }),
   },
-  (table) => [index("idx_members_code").on(table.code)],
+  (table) => [check("members_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
+    index("idx_members_code").on(table.code)],
 );
 
 export const memberProfileImages = sqliteTable(
@@ -287,6 +586,7 @@ export const memberLinks = sqliteTable(
 export const schedules = sqliteTable(
   "schedules",
   {
+    content_access: text("content_access").$type<"normal" | "admin_archive">().notNull().default("normal"),
     id: integer().primaryKey({ autoIncrement: true }),
     member_uid: integer("member_uid").notNull(),
     date: text().notNull(),
@@ -296,6 +596,7 @@ export const schedules = sqliteTable(
     created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
+    check("schedules_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
     index("idx_schedules_date").on(table.date),
     index("idx_schedules_member_date_time").on(
       table.member_uid,
@@ -317,6 +618,7 @@ export const schedules = sqliteTable(
 export const notices = sqliteTable(
   "notices",
   {
+    content_access: text("content_access").$type<"normal" | "admin_archive">().notNull().default("normal"),
     id: integer().primaryKey({ autoIncrement: true }),
     content: text().notNull(),
     links: text("links", { mode: "json" })
@@ -331,6 +633,8 @@ export const notices = sqliteTable(
       .$type<number[]>()
       .notNull()
       .default(sql`'[]'`),
+    historical_related_people: text("historical_related_people", { mode: "json" })
+      .$type<import("../../contracts/content-transition").HistoricalPersonCredit[]>().notNull().default(sql`'[]'`),
     url: text(),
     thumbnail_url: text("thumbnail_url"),
     type: text("type").notNull().default("notice"),
@@ -345,13 +649,16 @@ export const notices = sqliteTable(
     created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
   },
   () => [
+    check("notices_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
     check("notices_type_check", sql`type IN ('notice', 'event')`),
+    check("notices_historical_people_check", sql`json_valid(historical_related_people) AND json_type(historical_related_people) = 'array'`),
   ],
 );
 
 export const ddays = sqliteTable(
   "ddays",
   {
+    content_access: text("content_access").$type<"normal" | "admin_archive">().notNull().default("normal"),
     id: integer().primaryKey({ autoIncrement: true }),
     title: text().notNull(),
     date: text().notNull(),
@@ -361,6 +668,7 @@ export const ddays = sqliteTable(
     created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
+    check("ddays_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
     index("idx_ddays_date").on(table.date),
     check("ddays_type_check", sql`type IN ('debut', 'birthday', 'event')`),
   ],
@@ -427,6 +735,7 @@ export type NewXApiCache = typeof xApiCache.$inferInsert;
 export const xPosts = sqliteTable(
   "x_posts",
   {
+    content_access: text("content_access").$type<"normal" | "admin_archive">().notNull().default("normal"),
     id: text().primaryKey(),
     handle: text().notNull(),
     user_id: text("user_id"),
@@ -440,6 +749,7 @@ export const xPosts = sqliteTable(
     content_removed_at: integer("content_removed_at"),
   },
   (table) => [
+    check("x_posts_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
     index("idx_x_posts_handle_created_at").on(table.handle, table.created_at),
     index("idx_x_posts_handle_hidden_created").on(
       table.handle,
@@ -529,6 +839,23 @@ export const xPostReferences = sqliteTable(
   ],
 );
 
+export const xPostRepairWork = sqliteTable("x_post_repair_work", {
+  post_id: text().primaryKey().references(() => xPosts.id, { onDelete: "cascade" }),
+  facts_pending: integer().notNull().default(1),
+  references_pending: integer().notNull().default(1),
+  generation: integer().notNull().default(1),
+  checked_at: integer().notNull().default(0),
+}, table => [
+  index("idx_x_post_repair_facts").on(table.checked_at, table.post_id).where(sql`${table.facts_pending}=1`),
+  index("idx_x_post_repair_references").on(table.checked_at, table.post_id).where(sql`${table.references_pending}=1`),
+]);
+
+export const xQuoteBodyWork = sqliteTable("x_quote_body_work", {
+  source_post_id: text().primaryKey().references(() => xPosts.id, { onDelete: "cascade" }),
+  due_at: integer().notNull(),
+  created_at: integer().notNull(),
+}, table => [index("idx_x_quote_body_work_due").on(table.due_at, table.created_at, table.source_post_id)]);
+
 export const xApiResourceDaily = sqliteTable(
   "x_api_resource_daily",
   {
@@ -575,6 +902,7 @@ export const xApiUsageDaily = sqliteTable(
 export const xPostFacts = sqliteTable(
   "x_post_facts",
   {
+    content_access: text("content_access").$type<"normal" | "admin_archive">().notNull().default("normal"),
     post_id: text("post_id").primaryKey(),
     member_uid: integer("member_uid").notNull(),
     member_name_snapshot: text("member_name_snapshot").notNull(),
@@ -590,6 +918,7 @@ export const xPostFacts = sqliteTable(
     updated_at: integer("updated_at").notNull(),
   },
   (table) => [
+    check("x_post_facts_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
     index("idx_x_post_facts_member_created").on(table.member_uid, table.created_at),
     index("idx_x_post_facts_visible_created").on(table.hidden_at, table.created_at),
     check(
@@ -710,6 +1039,7 @@ export type NewChzzkApiCache = typeof chzzkApiCache.$inferInsert;
 export const scheduleBroadcastObservations = sqliteTable(
   "schedule_broadcast_observations",
   {
+    content_access: text("content_access").$type<"normal" | "admin_archive">().notNull().default("normal"),
     vod_id: text("vod_id").primaryKey(),
     member_uid: integer("member_uid").notNull(),
     channel_id: text("channel_id").notNull(),
@@ -722,6 +1052,7 @@ export const scheduleBroadcastObservations = sqliteTable(
     last_seen_at: integer("last_seen_at").notNull(),
   },
   (table) => [
+    check("schedule_broadcast_observations_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
     index("idx_schedule_broadcast_observations_member_started").on(
       table.member_uid,
       table.started_at,
@@ -860,6 +1191,7 @@ export const youtubeFeedSources = sqliteTable(
 export const youtubeFeedVideos = sqliteTable(
   "youtube_feed_videos",
   {
+    content_access: text("content_access").$type<"normal" | "admin_archive">().notNull().default("normal"),
     video_id: text("video_id").primaryKey(),
     source_id: integer("source_id")
       .notNull()
@@ -876,6 +1208,7 @@ export const youtubeFeedVideos = sqliteTable(
     available: integer("available", { mode: "boolean" }).notNull().default(true),
   },
   (table) => [
+    check("youtube_feed_videos_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
     index("idx_youtube_feed_videos_source_published").on(
       table.source_id,
       table.published_at,
@@ -1021,6 +1354,7 @@ export type NewNaverCafeSourceCheck =
 export const naverCafePosts = sqliteTable(
   "naver_cafe_posts",
   {
+    content_access: text("content_access").$type<"normal" | "admin_archive">().notNull().default("normal"),
     id: text().primaryKey(),
     article_id: integer("article_id").notNull(),
     source_id: integer("source_id")
@@ -1046,6 +1380,7 @@ export const naverCafePosts = sqliteTable(
     content_removed_at: integer("content_removed_at"),
   },
   (table) => [
+    check("naver_cafe_posts_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
     index("idx_naver_cafe_posts_source_hidden_created").on(
       table.source_id,
       table.hidden_at,
@@ -1233,6 +1568,7 @@ export type NewAutoUpdateRun = typeof autoUpdateRuns.$inferInsert;
 // 승인 대기 스케줄 테이블
 // Evidence and operator decisions for one member's Korean calendar day.
 export const scheduleDayAssessments = sqliteTable("schedule_day_assessments", {
+  content_access: text("content_access").$type<"normal" | "admin_archive">().notNull().default("normal"),
   member_uid: integer().notNull().references(() => members.uid),
   date: text().notNull(),
   channel_id: text().notNull(),
@@ -1245,11 +1581,13 @@ export const scheduleDayAssessments = sqliteTable("schedule_day_assessments", {
   decided_at: integer(),
   decided_by: text(),
   rejection_reason: text(),
-}, table => [primaryKey({ columns: [table.member_uid, table.date] })]);
+}, table => [check("schedule_day_assessments_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
+    primaryKey({ columns: [table.member_uid, table.date] })]);
 
 export const pendingSchedules = sqliteTable(
   "pending_schedules",
   {
+    content_access: text("content_access").$type<"normal" | "admin_archive">().notNull().default("normal"),
     id: integer().primaryKey({ autoIncrement: true }),
     member_uid: integer("member_uid").notNull(),
     member_name: text("member_name").notNull(),
@@ -1278,6 +1616,7 @@ export const pendingSchedules = sqliteTable(
     created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
+    check("pending_schedules_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
     uniqueIndex("uidx_pending_holiday_member_date").on(table.member_uid, table.date)
       .where(sql`${table.candidate_kind} = 'holiday_suggestion'`),
     index("idx_pending_schedules_vod_id").on(table.vod_id),
@@ -1309,6 +1648,7 @@ export type NewPendingSchedule = typeof pendingSchedules.$inferInsert;
 export const scheduleCandidateRejections = sqliteTable(
   "schedule_candidate_rejections",
   {
+    content_access: text("content_access").$type<"normal" | "admin_archive">().notNull().default("normal"),
     id: integer().primaryKey({ autoIncrement: true }),
     vod_id: text("vod_id").notNull(),
     member_uid: integer("member_uid").notNull(),
@@ -1341,6 +1681,7 @@ export const scheduleCandidateRejections = sqliteTable(
     rejected_at: numeric("rejected_at").default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
+    check("schedule_candidate_rejections_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
     uniqueIndex("uidx_schedule_candidate_rejections_vod_id").on(
       table.vod_id,
     ),
@@ -1865,6 +2206,7 @@ export type NewMusicMediaSourceRelation =
 export const musicPerformances = sqliteTable(
   "music_performances",
   {
+    content_access: text("content_access").$type<"normal" | "admin_archive">().notNull().default("normal"),
     id: text().primaryKey(),
     song_id: text("song_id")
       .notNull()
@@ -1893,6 +2235,7 @@ export const musicPerformances = sqliteTable(
     updated_at: integer("updated_at").notNull(),
   },
   (table) => [
+    check("music_performances_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
     check("music_performances_broadcast_metadata_check", sql`${table.broadcast_metadata} IS NULL OR CASE WHEN json_valid(${table.broadcast_metadata}) THEN coalesce((
       json_type(${table.broadcast_metadata}) = 'object'
       AND json_type(${table.broadcast_metadata}, '$.performedOn') IN ('text', 'null')
@@ -2157,8 +2500,12 @@ export type NewMusicPerformanceSource =
 export const musicCoverProposals = sqliteTable(
   "music_cover_proposals",
   {
+    content_access: text("content_access").$type<"normal" | "admin_archive">().notNull().default("normal"),
     id: text().primaryKey(),
-    submitted_by_user_id: text("submitted_by_user_id").notNull(),
+    submitted_by_user_id: text("submitted_by_user_id"),
+    historical_source_site: text("historical_source_site").$type<"otw" | "luvdia">(),
+    historical_source_record_id: text("historical_source_record_id"),
+    historical_review: integer("historical_review", { mode: "boolean" }).notNull().default(false),
     idempotency_key: text("idempotency_key").notNull(),
     submitted_url: text("submitted_url").notNull(),
     youtube_video_id: text("youtube_video_id").notNull(),
@@ -2191,6 +2538,7 @@ export const musicCoverProposals = sqliteTable(
     updated_at: integer("updated_at").notNull(),
   },
   (table) => [
+    check("music_cover_proposals_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
     uniqueIndex("uidx_music_cover_proposals_submitter_idempotency").on(
       table.submitted_by_user_id,
       table.idempotency_key,
@@ -2224,7 +2572,6 @@ export const musicCoverProposals = sqliteTable(
     check(
       "music_cover_proposals_required_text_check",
       sql`length(trim(${table.id})) > 0
-        AND length(trim(${table.submitted_by_user_id})) > 0
         AND length(trim(${table.idempotency_key})) > 0
         AND length(trim(${table.submitted_url})) > 0
         AND length(trim(${table.submitted_title})) > 0`,
@@ -2262,12 +2609,25 @@ export const musicCoverProposals = sqliteTable(
           AND ${table.review_lock_expires_at} >= 0)`,
     ),
     check(
+      "music_cover_proposals_provenance_check",
+      sql`(${table.historical_source_site} IS NULL AND ${table.historical_source_record_id} IS NULL
+          AND ${table.submitted_by_user_id} IS NOT NULL AND length(trim(${table.submitted_by_user_id})) > 0
+          AND ${table.historical_review} = 0)
+        OR (${table.historical_source_site} IS NOT NULL AND ${table.historical_source_site} IN ('otw', 'luvdia')
+          AND ${table.historical_source_record_id} IS NOT NULL AND length(trim(${table.historical_source_record_id})) > 0
+          AND ${table.submitted_by_user_id} IS NULL AND ${table.historical_review} IN (0, 1))`,
+    ),
+    uniqueIndex("uidx_music_cover_proposals_historical_origin").on(table.historical_source_site, table.historical_source_record_id),
+    check(
       "music_cover_proposals_review_pair_check",
-      sql`(${table.reviewed_by_user_id} IS NULL AND ${table.reviewed_at} IS NULL)
-        OR (${table.reviewed_by_user_id} IS NOT NULL
+      sql`(${table.historical_review} = 0 AND ${table.reviewed_by_user_id} IS NULL AND ${table.reviewed_at} IS NULL)
+        OR (${table.historical_review} = 0 AND ${table.reviewed_by_user_id} IS NOT NULL
           AND length(trim(${table.reviewed_by_user_id})) > 0
           AND typeof(${table.reviewed_at}) = 'integer'
-          AND ${table.reviewed_at} >= ${table.created_at})`,
+          AND ${table.reviewed_at} >= ${table.created_at})
+        OR (${table.historical_review} = 1 AND ${table.historical_source_site} IS NOT NULL
+          AND ${table.reviewed_by_user_id} IS NULL AND ${table.status} IN ('approved', 'rejected')
+          AND typeof(${table.reviewed_at}) = 'integer' AND ${table.reviewed_at} >= ${table.created_at})`,
     ),
     check(
       "music_cover_proposals_status_outcome_check",
@@ -2278,12 +2638,12 @@ export const musicCoverProposals = sqliteTable(
           AND ${table.review_note} IS NULL
           AND ${table.approved_performance_id} IS NULL)
         OR (${table.status} = 'approved'
-          AND ${table.reviewed_by_user_id} IS NOT NULL
+          AND (${table.reviewed_by_user_id} IS NOT NULL OR ${table.historical_review} = 1)
           AND ${table.reviewed_at} IS NOT NULL
           AND (${table.approved_performance_id} IS NOT NULL
             OR ${table.approved_performance_snapshot_json} IS NOT NULL))
         OR (${table.status} = 'rejected'
-          AND ${table.reviewed_by_user_id} IS NOT NULL
+          AND (${table.reviewed_by_user_id} IS NOT NULL OR ${table.historical_review} = 1)
           AND ${table.reviewed_at} IS NOT NULL
           AND ${table.approved_performance_id} IS NULL)
         OR (${table.status} = 'withdrawn'
@@ -2598,6 +2958,7 @@ export type NewMusicIngestionJob = typeof musicIngestionJobs.$inferInsert;
 export const musicIngestionCandidates = sqliteTable(
   "music_ingestion_candidates",
   {
+    content_access: text("content_access").$type<"normal" | "admin_archive">().notNull().default("normal"),
     id: text().primaryKey(),
     provider: text().$type<OtwPlayProvider>().notNull().default("youtube"),
     external_video_id: text("external_video_id").notNull(),
@@ -2636,6 +2997,7 @@ export const musicIngestionCandidates = sqliteTable(
     updated_at: integer("updated_at").notNull(),
   },
   (table) => [
+    check("music_ingestion_candidates_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
     uniqueIndex("uidx_music_ingestion_candidates_provider_video").on(
       table.provider,
       table.external_video_id,
@@ -3578,6 +3940,7 @@ export const scheduledOutbox = sqliteTable(
     lease_token: text("lease_token"),
     lease_until: integer("lease_until"),
     dispatched_at: integer("dispatched_at"),
+    reconciled_at: integer("reconciled_at"),
     last_error: text("last_error"),
     created_at: integer("created_at").notNull(),
     updated_at: integer("updated_at").notNull(),
@@ -3590,6 +3953,9 @@ export const scheduledOutbox = sqliteTable(
     index("idx_scheduled_outbox_status_available").on(
       table.status,
       table.available_at,
+    ),
+    index("idx_scheduled_outbox_unresolved").on(table.available_at, table.id).where(
+      sql`(${table.event_type} = 'reconcile' AND ${table.reconciled_at} IS NULL) OR (${table.event_type} = 'execute' AND ${table.status} IN ('pending', 'failed', 'dispatching'))`,
     ),
     check(
       "scheduled_outbox_status_check",

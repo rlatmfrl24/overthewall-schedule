@@ -29,6 +29,10 @@ export interface AdminCatalogActor {
   displayName: string | null;
   ipAddress: string | null;
 }
+export type AdminEntityMutationCommand = import("../../domain/entity-mutation").EntityMutation & {
+  actor:AdminCatalogActor;now:number;eventId:string;
+};
+export type AdminPublicationCommand = import("../../domain/publication-command").PublicationCommand & {actor:AdminCatalogActor;now:number;eventId:string};
 
 export interface VerifiedYouTubeVideo {
   videoId: string;
@@ -71,7 +75,7 @@ export interface AdminCreatePerformanceCommand {
     video: VerifiedYouTubeVideo;
     sourceId: string;
   }>;
-  actor: AdminCatalogActor;
+  actor: AdminCatalogActor|null;
   now: number;
   ids: {
     performanceId: string;
@@ -86,7 +90,7 @@ export interface AdminUpdatePerformanceCommand {
     video: VerifiedYouTubeVideo;
     sourceId: string;
   }>;
-  actor: AdminCatalogActor;
+  actor: AdminCatalogActor|null;
   now: number;
   ids: {
     entityIds: Record<string, string>;
@@ -99,7 +103,7 @@ export interface AdminApproveProposalCommand {
   proposalId: string;
   input: OtwPlayAdminApproveProposalRequest;
   video: VerifiedYouTubeVideo;
-  actor: AdminCatalogActor;
+  actor: AdminCatalogActor|null;
   now: number;
   ids: {
     lockToken: string;
@@ -119,7 +123,7 @@ export interface AdminApproveProposalCommand {
 export interface AdminCreateCatalogEntryCommand {
   input: OtwPlayAdminCreateCatalogEntryRequest;
   video: VerifiedYouTubeVideo;
-  actor: AdminCatalogActor;
+  actor: AdminCatalogActor|null;
   now: number;
   ids: {
     entityIds: Record<string, string>;
@@ -156,6 +160,8 @@ export interface AdminUpdateSongCommand {
     songEventId: string;
   };
 }
+
+export type {AdminCreateSongCommand} from "../../domain/song-creation-command";
 
 export interface AdminCatalogRepository {
   readCatalog(scope?: AdminCatalogScope): Promise<OtwPlayAdminCatalogDto>;
@@ -225,13 +231,13 @@ export interface AdminCatalogRepository {
   ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminPerformanceDto>>;
   createChannel(
     input: OtwPlayAdminCreateChannelRequest,
-    actor: AdminCatalogActor,
+    actor: AdminCatalogActor | null,
     ids: { channelId: string; eventId: string },
     now: number,
   ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminChannelDto>>;
   updateChannel(
     input: OtwPlayAdminUpdateChannelRequest,
-    actor: AdminCatalogActor,
+    actor: AdminCatalogActor | null,
     eventId: string,
     now: number,
   ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminChannelDto>>;

@@ -1,5 +1,10 @@
+import { publicationHiddenSql } from "../../content-transition";
+import type { SiteId } from "@contracts/site-definition";
 import { ddays } from "@db/schema";
-import { eq, getTableColumns, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, sql } from "drizzle-orm";
+import { contentRowMovedSql } from "../../content-transition";
+import type { D1DDayTransitionWriter } from "./d1-dday-transition-writer";
+import type { DDayCommand } from "../domain/dday-command";
 import type { DDayDto } from "../../../../contracts/ddays";
 import type { DbInstance } from "../../../platform/db";
 import type {
@@ -10,8 +15,19 @@ import type {
 export class D1DDayRepository implements DDayRepository {
   private readonly db: DbInstance;
 
-  constructor(db: DbInstance) {
+  private readonly includeArchived: boolean;
+
+  private readonly writer?: D1DDayTransitionWriter;
+  private readonly siteId: SiteId;
+  constructor(db: DbInstance, includeArchived = false, writer?:D1DDayTransitionWriter, siteId: SiteId = "otw") {
     this.db = db;
+    this.siteId = siteId;
+    this.includeArchived = includeArchived;
+    this.writer=writer;
+  }
+  private async write(command:DDayCommand,statement:{toSQL():{sql:string;params:unknown[]}}) {
+    const query=statement.toSQL(),prepared=this.db.$client.prepare(query.sql).bind(...query.params);
+    return (await this.writer?.write(command,[prepared]))??(await prepared.run()).success;
   }
 
   async list(): Promise<DDayDto[]> {
@@ -20,18 +36,18 @@ export class D1DDayRepository implements DDayRepository {
       // Qualify the required column: SQLite can interpret an unknown quoted
       // unqualified identifier as a string instead of rejecting old schemas.
       type: sql<DDayDto["type"]>`ddays.type`,
-    }).from(ddays).orderBy(ddays.date) as DDayDto[];
+    }).from(ddays).where(this.includeArchived ? undefined : and(sql.raw(`ddays.content_access = 'normal' AND NOT (${publicationHiddenSql("ddays","ddays",this.siteId)})`),sql.raw(`NOT (${contentRowMovedSql("ddays")})`))).orderBy(ddays.date) as DDayDto[];
   }
 
   async create(input: DDayWriteInput): Promise<boolean> {
-    return (await this.db.insert(ddays).values(input)).success;
+    return this.write({action:"create",input},this.db.insert(ddays).values(input));
   }
 
   async update(id: number, input: DDayWriteInput): Promise<boolean> {
-    return (await this.db.update(ddays).set(input).where(eq(ddays.id, id))).success;
+    return this.write({action:"update",id,input},this.db.update(ddays).set(input).where(eq(ddays.id, id)));
   }
 
   async remove(id: number): Promise<boolean> {
-    return (await this.db.delete(ddays).where(eq(ddays.id, id))).success;
+    return this.write({action:"delete",id},this.db.delete(ddays).where(eq(ddays.id, id)));
   }
 }

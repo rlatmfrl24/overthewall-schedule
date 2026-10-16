@@ -10,6 +10,7 @@ export default tseslint.config([
     "dist",
     "coverage",
     ".yoyo",
+    ".tmp",
     "worker-configuration.d.ts",
   ]),
   {

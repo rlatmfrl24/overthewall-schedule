@@ -1,3 +1,5 @@
+import type { SiteId } from "@contracts/site-definition";
+import { publicationHiddenSql } from "../../content-transition";
 import { pMap } from "../../../platform/http-helpers";
 import type {
   XLinkedPostPreviewItem,
@@ -10,7 +12,7 @@ import {
   enrichLinksWithPreviews,
 } from "./link-preview";
 import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
-import { readStoredXPreview } from "./x-reference-store";
+import { filterArchivedXReferences, readStoredXPreview } from "./x-reference-store";
 import { connectStoredReplyReferences } from "./x-reply-reference";
 import { prepareXReferenceRedaction } from "./x-reference-redaction";
 import { reserveXReferenceBudget, XReferenceBudgetError } from "./x-reference-budget";
@@ -204,6 +206,7 @@ type XHandlePostsResult = {
 };
 
 type FetchXPostsForHandlesOptions = {
+  siteId?: SiteId;
   storedPage?: import("@contracts/member-posts").MemberPostsPageRequest;
   bearerToken?: string | null;
   maxResults?: number;
@@ -237,6 +240,7 @@ export type XApiUsageTracker = {
 };
 
 type CollectXPostsOptions = {
+  siteId?: SiteId;
   bearerToken?: string | null;
   maxResults?: number;
   cacheDb?: XCacheDb;
@@ -1063,24 +1067,28 @@ const writeD1Cache = async <T>(
   value: T,
   fetchedAt: number,
   ttlMs: number,
+  source?: { handle: string; siteId: SiteId },
 ) => {
-  if (!cacheDb) return;
+  if (!cacheDb) return true;
 
   try {
     await cacheDb
       .prepare(
-        `INSERT INTO x_api_cache (key, type, value, fetched_at, expires_at)
-         VALUES (?, ?, ?, ?, ?)
+        `${source ? "WITH incoming(key,type,value,fetched_at,expires_at,handle) AS (VALUES (?,?,?,?,?,?))" : ""}
+         INSERT INTO x_api_cache (key, type, value, fetched_at, expires_at)
+         ${source ? `SELECT iif(${publicationHiddenSql("x_post_sources", "incoming", source.siteId)},json('site_member_cutover'),key),type,value,fetched_at,expires_at FROM incoming WHERE 1` : "VALUES (?, ?, ?, ?, ?)"}
          ON CONFLICT(key) DO UPDATE SET
            type = excluded.type,
            value = excluded.value,
            fetched_at = excluded.fetched_at,
            expires_at = excluded.expires_at`,
       )
-      .bind(key, type, JSON.stringify(value), fetchedAt, fetchedAt + ttlMs)
+      .bind(key, type, JSON.stringify(value), fetchedAt, fetchedAt + ttlMs, ...(source ? [normalizeHandle(source.handle)] : []))
       .run();
+    return true;
   } catch (error) {
     console.warn("Failed to write X API cache", error);
+    return false;
   }
 };
 
@@ -1167,7 +1175,7 @@ export const readStoredXReplyReference = async (
       .prepare(
         `SELECT id, handle, user_id, username, value, created_at, fetched_at, hidden_at
          FROM x_posts
-         WHERE id = ? AND hidden_at IS NULL`,
+         WHERE id = ? AND hidden_at IS NULL AND content_access = 'normal'`,
       )
       .bind(sourcePostId)
       .first<XStoredPostRow>();
@@ -1281,6 +1289,7 @@ const readStoredPostsForHandles = async (
   richXLinkPreviewEnabled: boolean,
   cacheDb: XCacheDb,
   page?: import("@contracts/member-posts").MemberPostsPageRequest,
+  siteId: SiteId = "otw",
 ) => {
   const entries = new Map<string, StoredXPostsEntry | null>();
   // Keep each batch bounded, with indexed per-handle limits followed by ID
@@ -1306,7 +1315,7 @@ const readStoredPostsForHandles = async (
            FROM requested CROSS JOIN x_posts AS post
            WHERE post.id IN (
              SELECT candidate.id FROM x_posts AS candidate
-             WHERE candidate.handle = requested.handle AND candidate.hidden_at IS NULL
+             WHERE candidate.handle = requested.handle AND candidate.hidden_at IS NULL AND candidate.content_access = 'normal' AND NOT (${publicationHiddenSql("x_posts","candidate",siteId)})
              ${page?.cursor ? "AND candidate.created_at <= ? AND (candidate.created_at < ? OR ('x:' || candidate.id) < ?)" : ""}
              ORDER BY candidate.created_at DESC, candidate.id DESC LIMIT ?
            )
@@ -1320,10 +1329,16 @@ const readStoredPostsForHandles = async (
         group.push(row);
         posts.set(row.handle, group);
       }
+      const staged = new Map<string, StoredXPostsEntry | null>();
       for (const handle of chunk) {
-        entries.set(handle, storedPostsEntry(
-          sources.get(handle) ?? null, posts.get(handle) ?? [], richXLinkPreviewEnabled,
-        ));
+        staged.set(handle, storedPostsEntry(sources.get(handle) ?? null, posts.get(handle) ?? [], richXLinkPreviewEnabled));
+      }
+      const filtered = new Map((await filterArchivedXReferences(cacheDb,
+        [...staged.values()].flatMap(entry => entry?.posts ?? []), siteId)).map(post => [post.id, post]));
+      // Publish the chunk only after its policy read succeeds. Other verified
+      // chunks remain usable if this chunk fails in the non-paginated feed.
+      for (const [handle, entry] of staged) {
+        entries.set(handle, entry ? { ...entry, posts: entry.posts.flatMap(post => filtered.get(post.id) ?? []) } : null);
       }
     } catch (error) {
       if (page) throw error;
@@ -1337,6 +1352,7 @@ const recordXPostReferences = async (
   cacheDb: XCacheDb,
   posts: XPostItem[],
   recordedAt: number,
+  siteId: SiteId,
 ) => {
   for (const post of posts) {
     const references = [
@@ -1363,7 +1379,8 @@ const recordXPostReferences = async (
            source_post_id, relation_type, referenced_post_id,
            resolution_state, attempt_count, next_attempt_at, hydrated_at,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)
+         ) SELECT iif(EXISTS(SELECT 1 FROM x_posts p WHERE p.id=incoming.column1 AND ${publicationHiddenSql("x_posts", "p", siteId)}),json('site_member_cutover'),incoming.column1), incoming.column2, incoming.column3, incoming.column4, incoming.column5, incoming.column6, incoming.column7, incoming.column8, incoming.column9
+         FROM (VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)) incoming WHERE 1
          ON CONFLICT(source_post_id, relation_type) DO UPDATE SET
            referenced_post_id = excluded.referenced_post_id,
             resolution_state = CASE
@@ -1421,6 +1438,7 @@ const writeStoredPosts = async (
   user: XApiUser,
   posts: XPostItem[],
   fetchedAt: number,
+  siteId: SiteId,
 ): Promise<StoredXPostsWriteResult> => {
   if (!cacheDb || posts.length === 0) {
     return { ok: true, count: 0, error: null };
@@ -1448,7 +1466,7 @@ const writeStoredPosts = async (
           `INSERT INTO x_posts (
              id, handle, user_id, username, value, created_at, first_seen_at,
              fetched_at, hidden_at, hidden_reason, content_removed_at
-           ) VALUES ${placeholders}
+           ) SELECT iif(EXISTS(SELECT 1 FROM (SELECT incoming.column2 AS handle) selected_source WHERE ${publicationHiddenSql("x_post_sources","selected_source",siteId)}),json('site_member_cutover'),incoming.column1), incoming.column2, incoming.column3, incoming.column4, incoming.column5, incoming.column6, incoming.column7, incoming.column8, incoming.column9, incoming.column10, incoming.column11 FROM (VALUES ${placeholders}) incoming WHERE 1
            ON CONFLICT(id) DO UPDATE SET
              handle = excluded.handle,
              user_id = excluded.user_id,
@@ -1469,8 +1487,8 @@ const writeStoredPosts = async (
     // the existing feed can stay enabled until the approved analytics use-case
     // is confirmed in the X Developer Console.
     const connectedPosts = await connectStoredReplyReferences(cacheDb, posts);
-    await recordXPostFacts(cacheDb, normalizedHandle, connectedPosts, fetchedAt);
-    await recordXPostReferences(cacheDb, connectedPosts, fetchedAt);
+    await recordXPostFacts(cacheDb, normalizedHandle, connectedPosts, fetchedAt, siteId);
+    await recordXPostReferences(cacheDb, connectedPosts, fetchedAt, siteId);
     return { ok: true, count: posts.length, error: null };
   } catch (error) {
     console.warn("Failed to write stored X posts", error);
@@ -1485,13 +1503,15 @@ const writeStoredPosts = async (
 export const redactStoredXPosts = async (
   cacheDb: Pick<D1Database, "prepare" | "batch">,
   postIds: readonly string[],
+  commit?: (postId:string,statements:D1PreparedStatement[])=>Promise<D1Result[]|{redacted:number}>,
 ) => {
   const uniqueIds = [...new Set(postIds.filter(Boolean))];
   const redactedAt = Date.now();
   let found = 0;
   let redacted = 0;
-  for (let index = 0; index < uniqueIds.length; index += 50) {
-    const chunk = uniqueIds.slice(index, index + 50);
+  const chunkSize=commit?1:50;
+  for (let index = 0; index < uniqueIds.length; index += chunkSize) {
+    const chunk = uniqueIds.slice(index, index + chunkSize);
     const existing = await cacheDb.prepare(
       `SELECT id FROM x_posts
        WHERE id IN (${chunk.map(() => "?").join(", ")})`,
@@ -1499,20 +1519,21 @@ export const redactStoredXPosts = async (
     const ids = existing.results.map(row => row.id);
     found += ids.length;
     if (!ids.length) continue;
-    const results = await cacheDb.batch([
+    const statements = [
       cacheDb.prepare(
        `UPDATE x_posts
         SET value = '{}', hidden_at = ?, hidden_reason = 'admin', content_removed_at = ?
         WHERE id IN (${ids.map(() => "?").join(", ")})
-          AND hidden_at IS NULL AND content_removed_at IS NULL`,
+          AND hidden_at IS NULL AND content_removed_at IS NULL RETURNING id`,
       ).bind(redactedAt, redactedAt, ...ids),
       cacheDb.prepare(
         `UPDATE x_post_facts SET hidden_at=?,hidden_reason='admin',updated_at=?
          WHERE post_id IN (${ids.map(() => "?").join(", ")})`,
       ).bind(redactedAt, redactedAt, ...ids),
       ...prepareXReferenceRedaction(cacheDb, ids, redactedAt),
-    ]);
-    redacted += Number(results[0].meta?.changes ?? 0) || 0;
+    ];
+    const results=commit?await commit(ids[0]!,statements):await cacheDb.batch(statements);
+    redacted += Array.isArray(results) ? results[0].results.length : results.redacted;
     invalidateXPostMemoryCache();
   }
   return {
@@ -1535,6 +1556,7 @@ const writeXSyncContinuation = async (
     completedPostId: string | null;
   },
   effectiveIntervalMs = X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS,
+  siteId: SiteId = "otw",
 ) => {
   if (!cacheDb) return;
   const checkedAt = now();
@@ -1542,16 +1564,25 @@ const writeXSyncContinuation = async (
   // A failed statement leaves the previous range intact for infrastructure retry.
     await cacheDb
       .prepare(
-        `INSERT INTO x_post_sources (
+        `WITH incoming(handle,user_id,username,last_seen_post_id,last_checked_at,
+           updated_at,last_error,collection_started_at,initialization_completed_at,
+           last_attempt_at,last_success_at,next_check_at,consecutive_failures,last_error_code,
+           sync_pagination_token,sync_base_post_id,sync_newest_post_id) AS
+         (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?))
+         INSERT INTO x_post_sources (
            handle, user_id, username, last_seen_post_id, last_checked_at,
            updated_at, last_error, collection_started_at,
            initialization_completed_at, last_attempt_at, last_success_at,
            next_check_at, consecutive_failures, last_error_code,
            sync_pagination_token, sync_base_post_id, sync_newest_post_id
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?)
+         SELECT iif(${publicationHiddenSql("x_post_sources", "incoming", siteId)},json('site_member_cutover'),handle),
+           user_id,username,last_seen_post_id,last_checked_at,updated_at,last_error,
+           collection_started_at,initialization_completed_at,last_attempt_at,last_success_at,
+           next_check_at,consecutive_failures,last_error_code,sync_pagination_token,sync_base_post_id,sync_newest_post_id
+         FROM incoming WHERE 1
          ON CONFLICT(handle) DO UPDATE SET
-           user_id = excluded.user_id,
+           user_id = iif(${publicationHiddenSql("x_post_sources","x_post_sources",siteId)},json('site_member_cutover'),excluded.user_id),
            username = excluded.username,
            last_seen_post_id = excluded.last_seen_post_id,
            sync_pagination_token = excluded.sync_pagination_token,
@@ -1751,6 +1782,7 @@ const setCachedPosts = async (
   richXLinkPreviewEnabled: boolean,
   cacheDb?: XCacheDb,
   postsToStore: XPostItem[] = posts,
+  siteId: SiteId = "otw",
 ): Promise<CachedXPostsWriteEntry> => {
   const fetchedAt = now();
   const entry = {
@@ -1765,22 +1797,18 @@ const setCachedPosts = async (
     richXLinkPreviewEnabled,
   );
 
-  X_POSTS_CACHE.set(cacheKey, entry);
-  await writeD1Cache<XPostsCacheValue>(
-    cacheDb,
-    cacheKey,
-    "posts",
-    { userId: user.id, posts },
-    fetchedAt,
-    X_POSTS_CACHE_POLICY.freshTtlMs,
-  );
   const storedPostsWrite = await writeStoredPosts(
     cacheDb,
     handle,
     user,
     postsToStore,
     fetchedAt,
+    siteId,
   );
+  if (storedPostsWrite.ok && await writeD1Cache<XPostsCacheValue>(
+    cacheDb, cacheKey, "posts", { userId: user.id, posts }, fetchedAt,
+    X_POSTS_CACHE_POLICY.freshTtlMs, { handle, siteId },
+  )) X_POSTS_CACHE.set(cacheKey, entry);
   return {
     ...entry,
     postsStored: storedPostsWrite.count,
@@ -2311,10 +2339,11 @@ export const fetchXPostPreviewById = async (
     bearerToken?: string | null;
     cacheDb?: XCacheDb;
     usageSource?: string;
+    siteId?: SiteId;
   } = {},
 ) => {
   if (!options.cacheDb) return null;
-  return (await readStoredXPreview(options.cacheDb, postId))?.post ?? null;
+  return (await readStoredXPreview(options.cacheDb, postId, Date.now(), options.siteId))?.post ?? null;
 };
 
 const mergeLinkedXPostPreview = (
@@ -2472,6 +2501,7 @@ const fetchXPostsForUser = async (
   referencePreviewMode: "cached_author" | "post_only" | "link_only" = "cached_author",
   effectiveIntervalMs = X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS,
   deferReferenceHydration = false,
+  siteId: SiteId = "otw",
 ): Promise<{
   posts: XPostItem[];
   error: string | null;
@@ -2650,6 +2680,7 @@ const fetchXPostsForUser = async (
       richXLinkPreviewEnabled,
       cacheDb,
       newPostsOnly ? enrichedNewPosts : mergedPostsForResponse,
+      siteId,
     );
     // The timeline watermark is an acknowledgement that every post in this
     // page was durably stored. Advancing it after a D1 write failure would
@@ -2661,7 +2692,7 @@ const fetchXPostsForUser = async (
           basePostId: syncToken ? stored?.syncBasePostId ?? null : sinceId,
           newestPostId: lastSeenPostId,
           completedPostId: lastSeenPostId,
-        }, effectiveIntervalMs);
+        }, effectiveIntervalMs, siteId);
       } catch (error) {
         console.warn("Failed to acknowledge stored X timeline page", error);
         entry.storageError = "x_post_storage_failed";
@@ -2825,6 +2856,7 @@ export const fetchXPostsForHandles = async (
     referencePreviewMode = "cached_author",
     effectiveIntervalMinutes = 120,
     deferReferenceHydration = false,
+    siteId = "otw",
   } = options;
   const normalizedHandles = Array.from(
     new Set(handles.map(normalizeHandle).filter(Boolean)),
@@ -2854,7 +2886,7 @@ export const fetchXPostsForHandles = async (
   if (!refresh && cacheDb) {
     // D1 remains authoritative across isolates for redaction/reference updates.
     const entries = await readStoredPostsForHandles(
-      normalizedHandles, maxResults, richXLinkPreviewEnabled, cacheDb, options.storedPage,
+      normalizedHandles, maxResults, richXLinkPreviewEnabled, cacheDb, options.storedPage, siteId,
     );
     return buildResult(normalizedHandles.map((handle) => {
       const stored = entries.get(handle);
@@ -3030,6 +3062,7 @@ export const fetchXPostsForHandles = async (
               referencePreviewMode,
               effectiveIntervalMinutes * 60_000,
               deferReferenceHydration,
+              siteId,
             );
           return {
             handle,
@@ -3239,6 +3272,7 @@ export const collectXPostsForHandles = async (
     referencePreviewMode = "cached_author",
     coalescedHandles = 0,
     afterTimeline,
+    siteId = "otw",
   } = options;
   const startedAt = now();
   const normalizedHandles = Array.from(
@@ -3366,6 +3400,7 @@ export const collectXPostsForHandles = async (
       usageTracker: tracker,
       newPostsOnly: optimizerEnabled || Boolean(afterTimeline),
       deferReferenceHydration: Boolean(afterTimeline),
+      siteId,
       continuationMaxResults: X_COLLECTION_MAX_RESULTS,
       referencePreviewMode,
       effectiveIntervalMinutes,

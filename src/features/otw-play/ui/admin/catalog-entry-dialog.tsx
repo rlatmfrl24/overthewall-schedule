@@ -475,6 +475,7 @@ export function CatalogEntryDialog({
     broadcast.originalUrl || broadcast.extent);
   const canDiscard = useUnsavedChanges(open && !completedSegment && hasDraftInput, preservedNavigation);
   const aiSession = useAiReviewSession(`${open}:${youtubeUrl}:${clip}`);
+  const saveRequests = useRef(new Map<string,string>());
   const channelCardRef = useRef<HTMLElement>(null);
   const formBodyRef = useRef<HTMLDivElement>(null);
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -735,8 +736,11 @@ export function CatalogEntryDialog({
     setSaving(true);
     setErrorMessage(null);
     try {
-      const result = await createOtwPlayCatalogEntry(buildRequest(target));
+      const command=buildRequest(target),key=JSON.stringify(command),requestId=saveRequests.current.get(key)??crypto.randomUUID();
+      saveRequests.current.set(key,requestId);
+      const result = await createOtwPlayCatalogEntry(command,requestId);
       await onSaved(clip ? "broadcast" : "official");
+      saveRequests.current.delete(key);
       toast({ variant: "success", description: target === "published" ? "영상을 게시했습니다." : "영상을 임시 저장했습니다." });
       if (
         (registrationMode === "medley_segment" || (clip && segmentEnabled)) &&

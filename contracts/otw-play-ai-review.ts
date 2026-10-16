@@ -77,6 +77,38 @@ export type AiReviewStatus =
   | "succeeded"
   | "partial"
   | "failed";
+/** Recovery responsibility is distinct from the original model outcome. Account
+ * identities and provider credentials remain private to the deciding site. */
+export interface AiReviewUnknownEvidence {
+  operationId: string;
+  attemptId: string;
+  requestHash: string;
+  evidenceHash: string;
+  issuance: "issued" | "issuance_unknown";
+}
+export type AiReviewRecovery = AiReviewUnknownEvidence & (
+  | { state: "outcome_unknown" }
+  | { state: "closed_by_admin"; decisionId: string; decidedAt: number }
+);
+export interface AiReviewCloseUnknownRequest extends AiReviewUnknownEvidence {
+  decision: "close_unknown";
+  idempotencyKey: string;
+}
+export interface AiReviewResumeEvidence {
+  operationId:string;
+  attemptId:string;
+  requestHash:string;
+  evidenceHash:string;
+  issuance:'unissued';
+}
+export interface AiReviewResumeRequest extends AiReviewResumeEvidence {
+  decision:'resume_unissued';
+  idempotencyKey:string;
+}
+export type AiReviewContinuation = AiReviewResumeEvidence & (
+  | {state:'confirmation_required'}
+  | {state:'confirmed';executionId:string;confirmedAt:number}
+);
 export interface AiReviewDto {
   id: string;
   candidateId: string | null;
@@ -95,6 +127,10 @@ export interface AiReviewDto {
   expiresAt: number;
   nextRetryAt: number | null;
   usage: { inputTokens: number; outputTokens: number } | null;
+  recovery?: AiReviewRecovery;
+  continuation?:AiReviewContinuation;
 }
 export const isAiReviewPending = (status: AiReviewStatus) =>
   ["queued", "running", "retry_wait"].includes(status);
+export const isAiReviewExecuting = (review: Pick<AiReviewDto, "status" | "recovery"|'continuation'>) =>
+  !review.recovery && review.continuation?.state!=='confirmation_required' && isAiReviewPending(review.status);

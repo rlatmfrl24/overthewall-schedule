@@ -1,3 +1,4 @@
+import { CONTENT_READ_QUERY_OPTIONS, currentContentQuery } from "@/shared/query/content-read-policy";
 import {
   createContext,
   createElement,
@@ -5,7 +6,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  keepPreviousData,
   useInfiniteQuery,
   useQuery,
 } from "@tanstack/react-query";
@@ -21,8 +21,6 @@ import {
   getOtwPlayCatalogQueryKey,
 } from "../api/public";
 
-const PUBLIC_QUERY_STALE_TIME_MS = 60_000;
-const SEARCH_QUERY_STALE_TIME_MS = 30_000;
 
 type PublicQueryOptions = {
   enabled?: boolean;
@@ -61,12 +59,12 @@ export type OtwPlayCatalogBaseQuery = Omit<
 
 export function useOtwPlayConfig(options: PublicQueryOptions = {}) {
   const request = usePublicRequestOptions(options);
-  return useQuery({
+  return currentContentQuery(useQuery({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey: queryKeys.otwPlay.config(request.audience),
     queryFn: () => fetchOtwPlayConfig({ adminPreview: request.adminPreview }),
     enabled: options.enabled ?? true,
-    staleTime: PUBLIC_QUERY_STALE_TIME_MS,
-  });
+
+  }));
 }
 
 export function useOtwPlayCatalog(
@@ -75,9 +73,8 @@ export function useOtwPlayCatalog(
 ) {
   const request = usePublicRequestOptions(options);
   const canonicalQuery = getOtwPlayCatalogQueryKey(query);
-  const hasSearch = Boolean(query.q?.trim());
 
-  return useInfiniteQuery({
+  return currentContentQuery(useInfiniteQuery({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey: queryKeys.otwPlay.catalog(canonicalQuery, request.audience),
     queryFn: ({ pageParam }) =>
       fetchOtwPlayCatalog(
@@ -90,21 +87,19 @@ export function useOtwPlayCatalog(
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: options.enabled ?? true,
-    staleTime: hasSearch
-      ? SEARCH_QUERY_STALE_TIME_MS
-      : PUBLIC_QUERY_STALE_TIME_MS,
-    placeholderData: keepPreviousData,
-  });
+
+
+  }));
 }
 
 export function useOtwPlayFacets(options: PublicQueryOptions = {}) {
   const request = usePublicRequestOptions(options);
-  return useQuery({
+  return currentContentQuery(useQuery({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey: queryKeys.otwPlay.facets(request.audience),
     queryFn: () => fetchOtwPlayFacets({ adminPreview: request.adminPreview }),
     enabled: options.enabled ?? true,
-    staleTime: PUBLIC_QUERY_STALE_TIME_MS,
-  });
+
+  }));
 }
 
 export function useOtwPlaySong(
@@ -113,13 +108,13 @@ export function useOtwPlaySong(
   scope: "official" | "all" = "official",
 ) {
   const request = usePublicRequestOptions(options);
-  return useQuery({
+  return currentContentQuery(useQuery({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey: [...queryKeys.otwPlay.song(slug, request.audience), scope],
     queryFn: () =>
       scope === "all" ? fetchOtwPlaySong(slug, { adminPreview: request.adminPreview }, scope) : fetchOtwPlaySong(slug, { adminPreview: request.adminPreview }),
     enabled: (options.enabled ?? true) && slug.trim().length > 0,
-    staleTime: PUBLIC_QUERY_STALE_TIME_MS,
-  });
+
+  }));
 }
 
 export function useOtwPlayPerformance(
@@ -127,22 +122,22 @@ export function useOtwPlayPerformance(
   options: PublicQueryOptions = {},
 ) {
   const request = usePublicRequestOptions(options);
-  return useQuery({
+  return currentContentQuery(useQuery({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey: queryKeys.otwPlay.performance(id, request.audience),
     queryFn: () =>
       fetchOtwPlayPerformance(id, { adminPreview: request.adminPreview }),
     enabled: (options.enabled ?? true) && id.trim().length > 0,
-    staleTime: PUBLIC_QUERY_STALE_TIME_MS,
-  });
+
+  }));
 }
 
 export function useOtwPlayMembers(options: PublicQueryOptions = {}) {
   const request = usePublicRequestOptions(options);
-  return useQuery({
+  return currentContentQuery(useQuery({ ...CONTENT_READ_QUERY_OPTIONS,
     queryKey: queryKeys.otwPlay.members(request.audience),
     queryFn: () => fetchOtwPlayMembers(request),
     enabled: options.enabled ?? true,
-    staleTime: 0,
+
     retry: false,
-  });
+  }));
 }

@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
 import { OtwPlayPlaylistDiscovery } from "../playlists/playlists-page";
@@ -151,8 +152,8 @@ export function OtwPlayHomePage() {
     <div className="play-page">
       <header className="play-intro">
         <div className="min-w-0">
-          <h1><span className="play-intro-brand">오버더월</span> NOW PLAY ON OTW PLAY</h1>
-          <p>오버더월의 오리지널과 공식 커버를 한곳에서.</p>
+          <h1><span className="play-intro-brand">{site.siteName}</span> NOW PLAY ON {site.playName.toUpperCase()}</h1>
+          <p>{site.siteName}의 오리지널과 공식 커버를 한곳에서.</p>
         </div>
         <img src="/images/otw-play/glass-note.png" alt="" width={1024} height={1536} className="play-brand-note" decoding="async" />
       </header>
@@ -193,7 +194,7 @@ export function OtwPlayHomePage() {
                 <div className="play-spotlight-content-stack" aria-live={carousel.rotating ? "off" : "polite"} aria-atomic="true">
                   {featuredSongs.map((song) => (
                     <div key={song.id} className="play-spotlight-content" data-active={song.id === featured.id} aria-hidden={song.id !== featured.id}>
-                      <p className="play-kicker">New on OTW Play</p>
+                      <p className="play-kicker">New on {site.playName}</p>
                       <div className="play-spotlight-identity">
                         <h2 id={song.id === featured.id ? "play-home-featured" : undefined}>{song.title}</h2>
                         <OtwPlayParticipantAvatarGroup participants={song.representativePerformance.participants} />

@@ -1,3 +1,4 @@
+import { getSiteDefinition } from "@contracts/site-definition";
 // @vitest-environment jsdom
 import React from "react";
 import { afterEach, expect, it, vi } from "vitest";
@@ -17,7 +18,7 @@ const createClient = () => {
   clients.push(client);
   return client;
 };
-const data = (path: string): SitePublicContent => ({ path, date: null, metadata: resolveSiteSeo(path), generatedAt: new Date(Date.now() - 300_000).toISOString(), expiresAt: new Date(Date.now() - 1).toISOString(), sections: [], structuredData: { name: path } });
+const data = (path: string): SitePublicContent => ({ path, date: null, metadata: resolveSiteSeo(path, site), generatedAt: new Date(Date.now() - 300_000).toISOString(), expiresAt: new Date(Date.now() - 1).toISOString(), sections: [], structuredData: { name: path } });
 afterEach(() => {
   cleanup();
   clients.splice(0).forEach(client => client.clear());
@@ -63,7 +64,7 @@ it("waits a minute after expired content fails, then resumes fresh polling after
 it("preserves the healthy profile metadata when only the AEO request fails", async () => {
   const client = createClient();
   const path = "/profile/member";
-  const metadata = buildProfileSiteSeo({ code: "member", name: "멤버", introduction: "소개", profileImages: [] });
+  const metadata = buildProfileSiteSeo({ code: "member", name: "멤버", introduction: "소개", profileImages: [] }, site);
   client.setQueryData(siteContentQueryKey(path), { ...data(path), metadata, expiresAt: new Date(Date.now() + 300_000).toISOString() });
   vi.mocked(fetchSiteContent).mockRejectedValue(new Error("503"));
   function ExistingProfile() { useSiteSeo(metadata); return <p>정상 프로필</p>; }
@@ -73,4 +74,30 @@ it("preserves the healthy profile metadata when only the AEO request fails", asy
   await waitFor(() => expect(document.getElementById("site-content-jsonld")).toBeNull());
   expect(document.title).toBe(metadata.title);
   expect(document.querySelector('meta[name="robots"]')?.getAttribute("content")).toBe("index,follow");
+});
+
+const site = getSiteDefinition("otw");
+
+
+it("does not reinstall a previous route's cached title or JSON-LD while current access is pending or denied", async () => {
+  const client = createClient();
+  const path = "/profile/member";
+  const old = { ...data(path), metadata: { ...data(path).metadata, title: "Archived profile title" }, structuredData: { name: "Archived profile JSON-LD" }, expiresAt: new Date(Date.now() + 300_000).toISOString() };
+  vi.mocked(fetchSiteContent).mockResolvedValueOnce(old);
+  const tree = (route: string) => <QueryClientProvider client={client}><SiteSeoProvider pathname={route}><SiteContentMetadata path={route} /></SiteSeoProvider></QueryClientProvider>;
+  const view = render(tree(path));
+  await waitFor(() => expect(document.title).toBe("Archived profile title"));
+  view.rerender(tree("/multiview"));
+  expect(document.getElementById("site-content-jsonld")).toBeNull();
+  // Simulate another observer retaining the old DTO after the route leaves.
+  client.setQueryData(siteContentQueryKey(path), old);
+  let reject!: (error: Error) => void;
+  vi.mocked(fetchSiteContent).mockImplementation(() => new Promise((_resolve, fail) => { reject = fail; }));
+  view.rerender(tree(path));
+  expect(document.title).not.toBe("Archived profile title");
+  expect(document.getElementById("site-content-jsonld")).toBeNull();
+  await waitFor(() => expect(fetchSiteContent).toHaveBeenCalledTimes(2));
+  await act(async () => reject(new Error("404")));
+  expect(document.title).not.toBe("Archived profile title");
+  expect(document.getElementById("site-content-jsonld")).toBeNull();
 });

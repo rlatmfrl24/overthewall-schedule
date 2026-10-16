@@ -30,25 +30,28 @@ export const parseLocalDevPort = (value, source = "port") => {
   return port;
 };
 
-export const resolveLocalDevPort = (environment = process.env) => {
-  const configuredPort = environment.OTW_DEV_PORT?.trim();
+import { getSiteTarget, assertLocalPersistenceIsolation } from "./site-target.mjs";
+
+export const resolveLocalDevPort = (environment = process.env, siteId = "otw") => {
+  getSiteTarget(siteId);
+  const source = `${siteId.toUpperCase()}_DEV_PORT`;
+  const configuredPort = environment[source]?.trim();
   return configuredPort
-    ? parseLocalDevPort(configuredPort, "OTW_DEV_PORT")
-    : DEFAULT_LOCAL_DEV_PORT;
+    ? parseLocalDevPort(configuredPort, source)
+    : siteId === "otw" ? DEFAULT_LOCAL_DEV_PORT : 5174;
 };
 
-export const getLocalDevServerConfig = (environment = process.env) => ({
+export const getLocalDevServerConfig = (environment = process.env, siteId = "otw") => ({
   host: LOCAL_DEV_HOST,
-  port: resolveLocalDevPort(environment),
+  port: resolveLocalDevPort(environment, siteId),
   strictPort: true,
 });
 
-export const getLocalDevOrigin = (environment = process.env) =>
-  `http://${LOCAL_DEV_HOST}:${resolveLocalDevPort(environment)}`;
+export const getLocalDevOrigin = (environment = process.env, siteId = "otw") =>
+  `http://${LOCAL_DEV_HOST}:${resolveLocalDevPort(environment, siteId)}`;
 
-export const resolveLocalD1PersistState = (environment = process.env) => {
-  const configuredPath = environment.OTW_D1_PERSIST_TO?.trim();
-  return configuredPath ? { path: configuredPath } : true;
+export const resolveLocalD1PersistState = (environment = process.env, siteId = "otw") => {
+  return { path: assertLocalPersistenceIsolation(siteId, environment) };
 };
 
 export const rewriteLocalSpaRequest = (request) => {

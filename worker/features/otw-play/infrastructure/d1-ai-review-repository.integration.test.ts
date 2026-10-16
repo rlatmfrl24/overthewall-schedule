@@ -2,7 +2,6 @@ import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AiReviewService } from "../application/ai-review-service";
 import type { OtwPlayAdminCatalogDto } from "@contracts/otw-play";
-import migration from "../../../../drizzle/0092_perfect_manta.sql?raw";
 import { D1AiReviewRepository } from "./d1-ai-review-repository";
 import { D1AiReviewContext } from "./d1-ai-review-context";
 import { resolveAiReviewCatalog } from "../domain/ai-review-result";
@@ -52,15 +51,7 @@ const record = (id: string, hash = id): AiReviewRecord => ({
   expiresAt: now + 30 * 86400000,
 });
 beforeEach(async () => {
-  await applyD1Migrations(db, [
-    {
-      name: "ai-review",
-      queries: migration
-        .split("--> statement-breakpoint")
-        .map((s) => s.trim())
-        .filter(Boolean),
-    },
-  ]);
+  await applyD1Migrations(db, (env as unknown as { OTW_PLAY_AI_REVIEW_MIGRATIONS: D1Migration[] }).OTW_PLAY_AI_REVIEW_MIGRATIONS);
   await db.prepare("DELETE FROM music_ai_reviews").run();
 });
 describe("AI review durable execution", () => {

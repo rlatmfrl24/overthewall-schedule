@@ -1,3 +1,4 @@
+import type { SiteDefinition } from "@contracts/site-definition";
 import type {
   PublicCatalogCache,
   PublicCatalogCacheEntry,
@@ -5,8 +6,7 @@ import type {
   PublicCatalogCacheResource,
 } from "../application/ports/public-catalog-cache";
 
-const PUBLIC_CATALOG_CACHE_ORIGIN = "https://otw.internal";
-const PUBLIC_CATALOG_CACHE_PREFIX = "/cache/play/v2";
+const PUBLIC_CATALOG_CACHE_PREFIX = "/cache/play/v3";
 const PUBLIC_CATALOG_BROWSER_MAX_AGE_SECONDS = 60;
 
 const PUBLIC_CATALOG_CACHE_RESOURCES = new Set<PublicCatalogCacheResource>([
@@ -67,7 +67,7 @@ const canonicalPathAndQuery = (key: PublicCatalogCacheKey) => {
   return key.identity;
 };
 
-const createCacheRequest = (key: PublicCatalogCacheKey) => {
+const createCacheRequest = (key: PublicCatalogCacheKey, site: SiteDefinition) => {
   if (!isValidCacheKey(key)) {
     throw new CloudflarePublicCatalogCacheError(
       "read",
@@ -77,7 +77,7 @@ const createCacheRequest = (key: PublicCatalogCacheKey) => {
 
   const url = new URL(
     `${PUBLIC_CATALOG_CACHE_PREFIX}/${key.catalogRevision}/${canonicalPathAndQuery(key)}`,
-    PUBLIC_CATALOG_CACHE_ORIGIN,
+    `https://${site.id}.internal`,
   );
   return new Request(url, { method: "GET" });
 };
@@ -164,8 +164,10 @@ export const createPublicCatalogEtag = async (material: string) => {
 };
 
 export class CloudflarePublicCatalogCache implements PublicCatalogCache {
+  private readonly site: SiteDefinition;
+  constructor(site: SiteDefinition) { this.site = site; }
   async read(key: PublicCatalogCacheKey) {
-    const cacheRequest = createCacheRequest(key);
+    const cacheRequest = createCacheRequest(key, this.site);
     let response: Response | undefined;
 
     try {
@@ -245,7 +247,7 @@ export class CloudflarePublicCatalogCache implements PublicCatalogCache {
 
     let cacheRequest: Request;
     try {
-      cacheRequest = createCacheRequest(key);
+      cacheRequest = createCacheRequest(key, this.site);
     } catch (error) {
       if (error instanceof CloudflarePublicCatalogCacheError) {
         throw new CloudflarePublicCatalogCacheError(

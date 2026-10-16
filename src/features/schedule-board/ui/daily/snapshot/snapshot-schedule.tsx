@@ -1,3 +1,5 @@
+import { requireSiteOrigin } from "@contracts/site-definition";
+import { site } from "@/shared/config/site";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { ko } from "date-fns/locale";
@@ -128,7 +130,7 @@ export const SnapshotSchedule = ({
               <footer className="snapshot-footer">
                 <div className="snapshot-footer-meta">
                   <ScheduleUpdatedAt updatedAt={board?.updatedAt} label="최종 편집" className="snapshot-updated" />
-                  <span className="snapshot-footer-domain">otw-schedule.info</span>
+                  <span className="snapshot-footer-domain">{new URL(requireSiteOrigin(site)).host}</span>
                 </div>
                 <p>한국시간(KST) 기준 · 일정은 변경될 수 있습니다</p>
               </footer>
@@ -148,6 +150,7 @@ export const SnapshotSchedule = ({
               })}
             </div>
           )}</>}
+          {mode === "grid" && <span className="text-right text-xs text-muted-foreground">{new URL(requireSiteOrigin(site)).host}</span>}
         </div>
       </div>
     </SnapshotFontContext>
@@ -171,10 +174,10 @@ function SnapshotHeader({
         <div className="snapshot-brand-row">
           <h1>오늘의 편성표</h1>
           <img
-            src="/logo_otw.svg"
+            src={site.logoPath ?? undefined}
             width={76}
             height={25}
-            alt="오버더월"
+            alt={site.siteName}
             className="snapshot-logo"
           />
         </div>
@@ -211,10 +214,10 @@ function SnapshotHeader({
           )}
         >
           <img
-            src="/logo_otw.svg"
+            src={site.logoPath ?? undefined}
             width={90}
             height={25}
-            alt="오버더월"
+            alt={site.siteName}
             className={cn(
               "h-auto shrink-0",
               "w-[72px]",

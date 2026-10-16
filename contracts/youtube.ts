@@ -132,3 +132,10 @@ export interface YouTubeVodsResponseDto {
   updatedAt: string | null;
   collection: { state: "unregistered" | "initializing" | "ready" | "partial" | "disabled" | "error" };
 }
+
+export interface YouTubeHistoryRequest { channelId: string | null; cursor: string | null; limit: number }
+export interface YouTubeHistoryDto {
+  channels: Array<{ channelId: string; name: string; sourceKind: "official" | "kirinuki"; contentAccess: "normal" | "admin_archive" }>;
+  items: Array<YouTubeVideoDto & { description: string; storedAt: string; available: boolean; contentAccess: "normal" | "admin_archive"; sourceKind: "official" | "kirinuki" }>;
+  nextCursor: string | null;
+}

@@ -1,3 +1,7 @@
+import { SnapshotPortrait } from "./snapshot-portrait";
+import { getCurrentMemberAffiliation } from "@/features/members";
+import { requireSiteOrigin } from "@contracts/site-definition";
+import { site } from "@/shared/config/site";
 import { useMemo, type CSSProperties } from "react";
 import { format, parseISO } from "date-fns";
 import { ko } from "date-fns/locale";
@@ -15,7 +19,7 @@ const groups = [
 ] as const;
 
 function Portrait({ member }: { member: Member }) {
-  return <img src={`/profile/${member.code}.webp`} alt="" className="legacy-avatar"
+  return <SnapshotPortrait src={`/profile/${member.code}.webp`} alt="" className="legacy-avatar"
     style={{ "--legacy-member": member.main_color || "var(--legacy-accent)" } as CSSProperties} />;
 }
 
@@ -28,7 +32,7 @@ export function SnapshotLegacy({ date, members, schedules, updatedAt }: {
   const timed = board.mainItems.filter(entry => memberMap.has(entry.schedule.member_uid));
   return <>
     <header className="legacy-header legacy-panel">
-      <div className="legacy-brand"><h1>오늘의 편성표</h1><img src="/logo_otw.svg" alt="오버더월" width={76} height={25} /></div>
+      <div className="legacy-brand"><h1>오늘의 편성표</h1><img src={site.logoPath ?? undefined} alt={site.siteName} width={76} height={25} /></div>
       <time className="legacy-date" dateTime={date}>{format(parseISO(date), "yyyy년 M월 d일 EEEE", { locale: ko })}</time>
       <ScheduleUpdatedAt updatedAt={updatedAt} label="최종 편집" className="legacy-updated" />
     </header>
@@ -39,7 +43,7 @@ export function SnapshotLegacy({ date, members, schedules, updatedAt }: {
         return <li key={schedule.id} className="legacy-broadcast">
           <time className="legacy-time" dateTime={schedule.start_time ?? undefined}>{formatScheduleTime(schedule.start_time)}</time>
           <div className="legacy-programme"><Portrait member={member} /><div className="legacy-copy">
-            <div className="legacy-member-line"><span>{member.name}</span>{member.unit_name && <span className="legacy-unit">{member.unit_name}</span>}</div>
+            <div className="legacy-member-line"><span>{member.name}</span>{getCurrentMemberAffiliation(member, site) && <span className="legacy-unit">{getCurrentMemberAffiliation(member, site)}</span>}</div>
             <h3>{getScheduleDisplayTitle(schedule)}</h3>
           </div></div>
         </li>;
@@ -65,6 +69,6 @@ export function SnapshotLegacy({ date, members, schedules, updatedAt }: {
       <ul className="legacy-list">{noSchedule.map(({ member }) => <li className="legacy-side-member" key={member.uid}><Portrait member={member} /><h3>{member.name}</h3></li>)}</ul>
     </section>}
     {members.length === 0 && <p className="legacy-empty">표시할 멤버가 없습니다.</p>}
-    <footer className="legacy-footer"><span>한국시간(KST) 기준 · 일정은 변경될 수 있습니다</span><span>otw-schedule.info</span></footer>
+    <footer className="legacy-footer"><span>한국시간(KST) 기준 · 일정은 변경될 수 있습니다</span><span>{new URL(requireSiteOrigin(site)).host}</span></footer>
   </>;
 }

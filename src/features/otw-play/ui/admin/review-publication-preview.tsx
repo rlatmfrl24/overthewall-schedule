@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { useId, useState } from "react";
 import { ReviewSegmentPlayer } from "./review-segment-player";
 import "../play-glass.css";
@@ -35,7 +36,7 @@ export function ReviewPublicationPreview({ videoId, title, originalArtists, song
   const safeBroadcast = { ...broadcast, originalUrl: /^https:\/\//i.test(broadcast.originalUrl ?? "") ? broadcast.originalUrl : null };
   const primary = participants.filter((person) => person.participantRole === "vocal");
   return <section className="space-y-3" aria-label="게시 미리보기">
-    <Button type="button" variant="outline" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}><Eye /> OTW Play 게시 미리보기</Button>
+    <Button type="button" variant="outline" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}><Eye /> {site.playName} 게시 미리보기</Button>
     {open && <div id={id} className="otw-play-glass max-w-5xl space-y-4 rounded-xl border bg-background p-4" style={{ containerName: "play-page", containerType: "inline-size" }}>
       <div>
         <h3 className="font-semibold">게시 후 곡 상세 미리보기</h3>

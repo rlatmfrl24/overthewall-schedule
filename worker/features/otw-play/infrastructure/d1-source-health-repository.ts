@@ -1,3 +1,5 @@
+import type { SiteId } from "@contracts/site-definition";
+import { publicationHiddenSql } from "../../content-transition";
 import type {
   OtwPlayAdminSourceDto,
   OtwPlayAdminSourceHealthDto,
@@ -191,9 +193,11 @@ const safeRetryCode = (detailJson: string | null) => {
 
 export class D1SourceHealthRepository implements SourceHealthRepository {
   private readonly database: D1Database;
+  private readonly siteId: SiteId;
 
-  constructor(database: D1Database) {
+  constructor(database: D1Database, siteId: SiteId = "luvdia") {
     this.database = database;
+    this.siteId = siteId;
   }
 
   private async readRevision() {
@@ -230,7 +234,7 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
 
   async readTarget(sourceId: string) {
     const row = await this.database
-      .prepare(this.targetQuery("source.id = ?"))
+      .prepare(this.targetQuery(`source.id = ? AND NOT (${publicationHiddenSql("music_media_sources", "source", this.siteId)})`))
       .bind(sourceId)
       .first<TargetRow>();
     return row ? targetOf(row) : null;
@@ -247,7 +251,7 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
         SET next_check_at = ?, updated_at = ?
         WHERE id IN (
           SELECT id FROM music_media_sources
-          WHERE next_check_at <= ? AND ${OTW_PLAY_AUTOMATION_RUNNING_SQL}
+          WHERE next_check_at <= ? AND ${OTW_PLAY_AUTOMATION_RUNNING_SQL} AND NOT (${publicationHiddenSql("music_media_sources", "music_media_sources", this.siteId)})
           ORDER BY next_check_at, id
           LIMIT ?
         )
@@ -258,7 +262,7 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
     if (ids.length === 0) return [];
     const rows = await this.database
       .prepare(
-        `${this.targetQuery(`source.id IN (${placeholders(ids.length)})`)}
+        `${this.targetQuery(`source.id IN (${placeholders(ids.length)}) AND NOT (${publicationHiddenSql("music_media_sources", "source", this.siteId)})`)}
          ORDER BY source.id`,
       )
       .bind(...ids)
@@ -292,7 +296,7 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
         .prepare(`UPDATE music_media_sources SET title = ?, thumbnail_url = ?,
           duration_seconds = ?, provider_published_at = ?, availability_status = ?,
           last_checked_at = ?, next_check_at = ?, version = version + 1, updated_at = ?
-          WHERE id = ? AND version = ?
+          WHERE id = ? AND version = ? AND NOT (${publicationHiddenSql("music_media_sources", "music_media_sources", this.siteId)})
             ${actor.kind === "system" ? `AND ${OTW_PLAY_AUTOMATION_RUNNING_SQL}` : ""}`)
         .bind(
           title,
@@ -395,7 +399,7 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
         this.database
           .prepare(`UPDATE music_media_sources
             SET next_check_at = ?, version = version + 1, updated_at = ?
-            WHERE id = ? AND version = ?
+            WHERE id = ? AND version = ? AND NOT (${publicationHiddenSql("music_media_sources", "music_media_sources", this.siteId)})
               ${actor.kind === "system" ? `AND ${OTW_PLAY_AUTOMATION_RUNNING_SQL}` : ""}`)
           .bind(nextCheckAt, now, target.id, target.version),
         versionGuard(this.database),

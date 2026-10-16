@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import {
   ClerkFailed,
   ClerkLoading,
@@ -87,7 +88,7 @@ export function PublicAppShell({ children }: PublicAppShellProps) {
             <SheetContent side="left" className="w-80 p-0 sm:max-w-80">
               <SheetTitle className="sr-only">주 메뉴</SheetTitle>
               <SheetDescription className="sr-only">
-                오버더월 스케쥴표의 주요 화면과 외부 링크
+                {site.siteName} 스케쥴표의 주요 화면과 외부 링크
               </SheetDescription>
               <MobileSidebarContent
                 sections={sections}
@@ -304,14 +305,14 @@ function BrandLink({
         "inline-flex min-w-0 items-center gap-2 rounded-md outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         collapsed && "justify-center",
       )}
-      aria-label="오버더월 스케쥴표 홈"
+      aria-label={`${site.siteName} 스케쥴표 홈`}
       onClick={onNavigate}
     >
       <img
-        src="/logo_otw.svg"
+        src={site.logoPath ?? undefined}
         width={90}
         height={25}
-        alt="오버더월"
+        alt={site.siteName}
         className={cn(
           "h-auto shrink-0",
           collapsed ? "w-10" : compact ? "w-[82px]" : "w-[90px]",

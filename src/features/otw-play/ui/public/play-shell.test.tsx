@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getSiteDefinition, type SiteId } from "@contracts/site-definition";
 
 const mocks = vi.hoisted(() => ({
   useCatalog: vi.fn(() => ({ isPending: false, isError: false, data: { pages: [{ data: { items: [] } }] } })),
@@ -13,7 +14,13 @@ const mocks = vi.hoisted(() => ({
   pathname: "/play/songs",
   providerModes: [] as boolean[],
   playerModes: [] as boolean[],
+  siteId: "otw" as SiteId,
 }));
+
+vi.mock("@/shared/config/site", async () => {
+  const { getSiteDefinition } = await import("@contracts/site-definition");
+  return { get site() { return getSiteDefinition(mocks.siteId); } };
+});
 
 vi.mock("@tanstack/react-router", () => ({
   Link: React.forwardRef<HTMLAnchorElement, { children: React.ReactNode; to: string } & React.AnchorHTMLAttributes<HTMLAnchorElement>>(
@@ -76,6 +83,7 @@ describe("OtwPlayShell config gate", () => {
       disconnect() {}
     });
     mocks.pathname = "/play/songs";
+    mocks.siteId = "otw";
     mocks.providerModes.length = 0;
     mocks.playerModes.length = 0;
     mocks.useUser.mockReturnValue({
@@ -140,6 +148,23 @@ describe("OtwPlayShell config gate", () => {
     expect(screen.getByText("로그인하고 OTW Play를 만나보세요")).toBeTruthy();
     expect(screen.getByRole("button", { name: "로그인" })).toBeTruthy();
     expect(mocks.useConfig).toHaveBeenCalledWith();
+    expect(mocks.childMounted).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["otw", true, "OTW 회원이라면 노래를 듣고 플레이리스트를 이용할 수 있어요."],
+    ["otw", false, "OTW 회원이라면 노래를 듣고 플레이리스트와 곡 제안을 이용할 수 있어요."],
+    ["luvdia", true, "LuvDia Schedule 회원이라면 노래를 듣고 플레이리스트를 이용할 수 있어요."],
+    ["luvdia", false, "LuvDia Schedule 회원이라면 노래를 듣고 플레이리스트와 곡 제안을 이용할 수 있어요."],
+  ] as const)("uses %s membership wording in the signed-out card for mobile=%s", (siteId, mobile, description) => {
+    mocks.siteId = siteId;
+    mocks.pathname = "/play";
+    mocks.useUser.mockReturnValue({ isLoaded: true, isSignedIn: false, user: null });
+    vi.stubGlobal("matchMedia", () => ({ matches: mobile, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+    expect(screen.getByText(`로그인하고 ${getSiteDefinition(siteId).playName}를 만나보세요`)).toBeTruthy();
+    expect(screen.getByText(description)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "로그인" })).toBeTruthy();
     expect(mocks.childMounted).not.toHaveBeenCalled();
   });
 

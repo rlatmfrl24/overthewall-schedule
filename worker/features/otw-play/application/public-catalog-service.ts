@@ -157,6 +157,7 @@ export class PublicCatalogService {
       ? await this.readCache<PublicCatalogConfigData>(key)
       : null;
     if (cached) {
+      await this.assertReadSnapshot(meta);
       return { status: "ok", document: cached, cacheStatus: "hit" };
     }
     const document = this.createDocument(meta, {
@@ -164,6 +165,7 @@ export class PublicCatalogService {
       navigationVisible: meta.navigationVisible,
       updatedAt: meta.updatedAt,
     });
+    await this.assertReadSnapshot(meta);
     if (context.allowSharedCache) await this.writeCache(key, document);
     return {
       status: "ok",
@@ -219,6 +221,7 @@ export class PublicCatalogService {
       ? await this.readCache<{ items: PublicCatalogSongSummary[] }>(key)
       : null;
     if (cached) {
+      await this.assertReadSnapshot(meta);
       return { status: "ok", document: cached, cacheStatus: "hit" };
     }
 
@@ -249,6 +252,7 @@ export class PublicCatalogService {
       { items: page.items },
       nextCursor,
     );
+    await this.assertReadSnapshot(meta);
     if (cacheAllowed) await this.writeCache(key, document);
     return {
       status: "ok",
@@ -257,7 +261,7 @@ export class PublicCatalogService {
     };
   }
 
-  private async assertMemberSnapshot(meta: PublicCatalogMeta) {
+  private async assertReadSnapshot(meta: PublicCatalogMeta) {
     const current = await this.readPublicState();
     if (current.revision !== meta.revision || current.readModelRevision !== meta.readModelRevision ||
         current.publicReadEnabled !== meta.publicReadEnabled || current.navigationVisible !== meta.navigationVisible) {
@@ -273,7 +277,7 @@ export class PublicCatalogService {
     const members = (await this.reader.readMemberSummaries()).map(member => ({
       ...member, pageEligible: isOtwPlayMemberPageEligible(member, meta),
     }));
-    await this.assertMemberSnapshot(meta);
+    await this.assertReadSnapshot(meta);
     return { status: "ok", cacheStatus: "bypass", document: this.createDocument(meta, { members }) };
   }
 
@@ -289,7 +293,7 @@ export class PublicCatalogService {
     const catalog = await this.browseCatalog({ ...query, memberUids: [member.uid], memberMode: "any" },
       { ...context, allowSharedCache: false }, meta);
     if (catalog.status !== "ok") return catalog;
-    await this.assertMemberSnapshot(meta);
+    await this.assertReadSnapshot(meta);
     return { ...catalog, document: { ...catalog.document, data: { member, items: catalog.document.data.items } } };
   }
 
@@ -440,9 +444,11 @@ export class PublicCatalogService {
       ? await this.readCache<Data>(key)
       : null;
     if (cached) {
+      await this.assertReadSnapshot(meta);
       return { status: "ok", document: cached, cacheStatus: "hit" };
     }
     const document = this.createDocument(meta, await read());
+    await this.assertReadSnapshot(meta);
     if (context.allowSharedCache) await this.writeCache(key, document);
     return {
       status: "ok",
@@ -470,6 +476,7 @@ export class PublicCatalogService {
       ? await this.readCache<Data>(key)
       : null;
     if (cached) {
+      await this.assertReadSnapshot(meta);
       return { status: "ok", document: cached, cacheStatus: "hit" };
     }
     const data = await read();
@@ -481,6 +488,7 @@ export class PublicCatalogService {
       };
     }
     const document = this.createDocument(meta, data);
+    await this.assertReadSnapshot(meta);
     if (context.allowSharedCache) await this.writeCache(key, document);
     return {
       status: "ok",

@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { useUser } from "@clerk/clerk-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -47,7 +48,7 @@ const roleLabels: Record<OtwPlayParticipantRole, string> = {
 function BackToPlayLink() {
   return (
     <Button asChild variant="ghost" size="sm" className="-ml-2">
-      <Link to="/play"><ChevronLeft /> OTW Play로 돌아가기</Link>
+      <Link to="/play"><ChevronLeft /> {site.playName}로 돌아가기</Link>
     </Button>
   );
 }
@@ -68,9 +69,13 @@ export function OtwPlaySubmissionsPage() {
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
   const detail = useMyOtwPlaySubmission(selectedId);
   const selectedDetail = detail.data?.id === selectedId ? detail.data : null;
+  const withdrawRequestKeys=useRef(new Map<string,string>());
   const withdrawMutation = useMutation({
-    mutationFn: ({ id, expectedVersion }: { id: string; expectedVersion: number }) =>
-      withdrawOtwPlaySubmission(id, { expectedVersion }),
+    mutationFn: ({ id, expectedVersion }: { id: string; expectedVersion: number }) => {
+      const identity=JSON.stringify([id,expectedVersion]),key=withdrawRequestKeys.current.get(identity)??crypto.randomUUID();
+      withdrawRequestKeys.current.set(identity,key);
+      return withdrawOtwPlaySubmission(id, { expectedVersion },key);
+    },
     onSuccess: async (updated) => {
       setWithdrawOpen(false);
       setCommandMessage("제안을 철회했습니다.");
@@ -252,7 +257,7 @@ export function OtwPlaySubmissionsPage() {
             ) : null}
           </div>
         ) : null}
-        {commandMessage ? (
+        {commandMessage && !withdrawOpen ? (
           <p role="status" className="mt-4 rounded-lg border p-3 text-sm">
             {commandMessage}
           </p>
@@ -270,6 +275,7 @@ export function OtwPlaySubmissionsPage() {
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {commandMessage ? <p role="status" className="rounded-lg border p-3 text-sm">{commandMessage}</p> : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={withdrawMutation.isPending}>계속 검토 대기</AlertDialogCancel>
             <AlertDialogAction

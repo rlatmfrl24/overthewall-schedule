@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getSiteDefinition, requireSiteOrigin, type SiteDefinition } from "../contracts/site-definition";
+import { getSiteTarget, loadSiteEnvironment, parseSiteArgument, resolveSiteOrigin } from "./site-target.mjs";
 import {
   resolveSiteSeo,
   STATIC_SHELL_PATHS,
@@ -14,7 +16,8 @@ const escapeHtml = (value: string): string =>
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
 
-const seoTags = (metadata: SiteSeoMetadata): Record<string, string> => ({
+const seoTags = (metadata: SiteSeoMetadata, site: SiteDefinition): Record<string, string> => ({
+  ...(site.logoPath ? { icon: `<link data-site-seo="icon" rel="icon" href="${escapeHtml(site.id === "otw" ? "/favicon.ico" : site.logoPath)}" />` } : {}),
   description: `<meta data-site-seo="description" name="description" content="${escapeHtml(metadata.description)}" />`,
   robots: `<meta data-site-seo="robots" name="robots" content="${metadata.robots}" />`,
   canonical: `<link data-site-seo="canonical" rel="canonical" href="${escapeHtml(metadata.canonical)}" />`,
@@ -28,12 +31,13 @@ const seoTags = (metadata: SiteSeoMetadata): Record<string, string> => ({
 export const renderSeoDocument = (
   source: string,
   metadata: SiteSeoMetadata,
+  site: SiteDefinition,
 ): string => {
   let document = source.replace(
     /<title>[\s\S]*?<\/title>/i,
     `<title>${escapeHtml(metadata.title)}</title>`,
   );
-  for (const [key, tag] of Object.entries(seoTags(metadata))) {
+  for (const [key, tag] of Object.entries(seoTags(metadata, site))) {
     const pattern = new RegExp(
       `<(?:meta|link)\\b[^>]*data-site-seo=["']${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'][^>]*>`,
       "gi",
@@ -53,23 +57,33 @@ export const renderSeoDocument = (
   return document;
 };
 
-export const renderNotFoundDocument = (): string => `<!doctype html>
+export const createSeoHtmlTransform = (site: SiteDefinition) => ({
+  // Resolve the shell's relative canonical before Vite treats link hrefs as assets.
+  order: "pre" as const,
+  handler: (html: string) => renderSeoDocument(html, resolveSiteSeo("/", site), site),
+});
+
+export const renderRobots = (site: SiteDefinition): string =>
+  `User-agent: *\nAllow: /\n\nSitemap: ${requireSiteOrigin(site)}/sitemap.xml\n`;
+
+export const renderNotFoundDocument = (site: SiteDefinition): string => `<!doctype html>
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>페이지를 찾을 수 없습니다 | 오버더월</title>
-    <meta name="description" content="요청하신 오버더월 페이지를 찾을 수 없습니다." />
+    <title>페이지를 찾을 수 없습니다 | ${escapeHtml(site.siteName)}</title>
+    <meta name="description" content="요청하신 ${escapeHtml(site.siteName)} 페이지를 찾을 수 없습니다." />
     <meta name="robots" content="noindex,nofollow" />
   </head>
   <body style="margin:0;font-family:system-ui,sans-serif;background:#101114;color:#f8fafc">
     <main style="min-height:100vh;display:grid;place-items:center;padding:24px;text-align:center">
-      <section><h1>페이지를 찾을 수 없습니다</h1><p>주소를 확인하거나 홈으로 이동해 주세요.</p><a href="/" style="color:#c084fc">오버더월 홈으로 이동</a></section>
+      <section><h1>페이지를 찾을 수 없습니다</h1><p>주소를 확인하거나 홈으로 이동해 주세요.</p><a href="/" style="color:#c084fc">${escapeHtml(site.siteName)} 홈으로 이동</a></section>
     </main>
   </body>
 </html>`;
 
-export const generateSeoAssets = async (outputRoot: string): Promise<void> => {
+export const generateSeoAssets = async (outputRoot: string, site: SiteDefinition): Promise<void> => {
+  requireSiteOrigin(site);
   const rootIndex = resolve(outputRoot, "index.html");
   const source = await readFile(rootIndex, "utf8");
   for (const path of STATIC_SHELL_PATHS) {
@@ -77,12 +91,15 @@ export const generateSeoAssets = async (outputRoot: string): Promise<void> => {
       ? rootIndex
       : resolve(outputRoot, path.slice(1), "index.html");
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, renderSeoDocument(source, resolveSiteSeo(path)), "utf8");
+    await writeFile(target, renderSeoDocument(source, resolveSiteSeo(path, site), site), "utf8");
   }
-  await writeFile(resolve(outputRoot, "404.html"), renderNotFoundDocument(), "utf8");
+  await writeFile(resolve(outputRoot, "404.html"), renderNotFoundDocument(site), "utf8");
+  await writeFile(resolve(outputRoot, "robots.txt"), renderRobots(site), "utf8");
 };
 
 const currentFile = fileURLToPath(import.meta.url);
 if (process.argv[1] && resolve(process.argv[1]) === currentFile) {
-  await generateSeoAssets(resolve(process.cwd(), "dist/client"));
+  const siteId = parseSiteArgument();
+  const origin = resolveSiteOrigin(siteId, loadSiteEnvironment(siteId, "production"));
+  await generateSeoAssets(resolve(process.cwd(), getSiteTarget(siteId).outputRoot, "client"), { ...getSiteDefinition(siteId), publicOrigin: origin });
 }

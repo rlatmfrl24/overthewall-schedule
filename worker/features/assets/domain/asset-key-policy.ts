@@ -77,6 +77,12 @@ export const getR2AssetKey = (pathname: string) => {
 };
 
 export const getAssetContentType = (key: string) => {
+  if (/^profile\/[a-z0-9_]+\.webp$/.test(key)) return "image/webp";
+  if (/^profile\/signatures\/[a-z0-9_]+\.png$/.test(key)) return "image/png";
   if (PROFILE_BACKGROUND_KEY.test(key)) return "image/webp";
   return getNoticeThumbnailContentTypeFromKey(key);
 };
+
+export const getAssetMemberCode = (key:string) => key.match(/^members\/([a-z0-9_]+)\/backgrounds\//i)?.[1] ?? key.match(/^profile\/(?:signatures\/)?([a-z0-9_]+)\.(?:webp|png)$/i)?.[1] ?? null;
+
+export const isStaticProfileAsset = (path: string) => /^\/profile\/(?:[a-z0-9_]+\.webp|signatures\/[a-z0-9_]+\.png)$/i.test(path);

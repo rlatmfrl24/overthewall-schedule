@@ -1,3 +1,5 @@
+import type { SiteId } from "@contracts/site-definition";
+import { publicationHiddenSql,publicationChannelHiddenSql,isPublicationCutoffSqlError } from "../../content-transition";
 import type {
   OtwPlayChannelMonitorCandidateDto,
   OtwPlayChannelMonitorDto,
@@ -158,12 +160,25 @@ const toDto = (row: MonitorRow): OtwPlayChannelMonitorDto => ({
   updatedAt: Number(row.updated_at),
 });
 
+export type ChannelMonitorBatchAction = 'create'|'updateStatus'|'updateTarget'|'resetWatermark'|'revokeApproval'|'remove'|'claim'|'recordCandidates'|'complete'|'saveContinuation'|'completeSupplemental'|'markGapSuspected'|'fail';
+export type ChannelMonitorBatchWriter = (action:ChannelMonitorBatchAction,statements:D1PreparedStatement[])=>Promise<D1Result[]>;
+
 export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   private readonly database: D1Database;
+  private readonly siteId: SiteId;
 
-  constructor(database: D1Database) {
+  private readonly write:ChannelMonitorBatchWriter;
+  constructor(database: D1Database, write:ChannelMonitorBatchWriter = (_action,statements)=>database.batch(statements), siteId: SiteId = "luvdia") {
+    this.write=async(action,statements)=>{
+      try{return await write(action,statements);}catch(error){
+        if(isPublicationCutoffSqlError(error instanceof Error?error.message:String(error))) throw new IngestionRepositoryError('validation_failed','이관된 멤버의 신규 수집은 종료되었습니다.',{policy:'publication_cutoff'});
+        throw error;
+      }
+    };
     this.database = database;
+    this.siteId = siteId;
   }
+  private collectionChannelSql() { return `(SELECT iif(NOT (${publicationChannelHiddenSql('channel.external_channel_id',this.siteId)}),channel.id,json_extract('{}','publication_cutoff')) FROM music_channels channel WHERE channel.id=?)`; }
 
   private async staleWrite(id: string, expectedVersion: number): Promise<never> {
     const current = await this.get(id);
@@ -192,6 +207,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
        WHERE external_channel_id = ? AND provider = 'youtube'
           AND channel_role = 'approved_kirinuki'
           AND verification_status = 'approved' AND active = 1
+          AND NOT (${publicationChannelHiddenSql('channel.external_channel_id',this.siteId)})
           AND (? = 0 OR EXISTS (
             SELECT 1 FROM music_channel_automation_approvals AS approval
             WHERE approval.channel_id = channel.id
@@ -253,7 +269,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
              AND current_origin.candidate_id = origin.candidate_id
          )`;
     const statement = this.database.prepare(
-      `SELECT candidate.id AS candidate_id, candidate.version AS candidate_version,
+      `SELECT candidate.id AS candidate_id, candidate.version AS candidate_version, candidate.content_access,
         candidate.external_video_id, candidate.title, candidate.channel_title,
         candidate.thumbnail_url, candidate.duration_seconds,
         candidate.provider_published_at, candidate.availability_status,
@@ -283,6 +299,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
     const result = await statement.bind(...bindings).all<{
       candidate_id: string;
       candidate_version: number;
+      content_access: "normal" | "admin_archive";
       external_video_id: string;
       title: string | null;
       channel_title: string | null;
@@ -303,6 +320,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
     const rows = resultsOf(result);
     const items = rows.slice(0, limit).map((row) => ({
       candidateId: row.candidate_id,
+      contentAccess: row.content_access,
       candidateVersion: Number(row.candidate_version),
       videoId: row.external_video_id,
       title: row.title,
@@ -327,13 +345,13 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   }
 
   async create(input: Parameters<ChannelMonitorRepository["create"]>[0]) {
-    await this.database.batch([
+    await this.write('create',[
       this.database.prepare(
         `INSERT INTO music_channel_automation_approvals (
           channel_id, scope, status, operator_reference, approval_reference,
           revocation_procedure, approved_by_user_id, approved_at,
           version, created_at, updated_at
-        ) VALUES (?, 'candidate_collection', 'approved', ?, ?, ?, ?, ?, 0, ?, ?)
+        ) VALUES (${this.collectionChannelSql()}, 'candidate_collection', 'approved', ?, ?, ?, ?, ?, 0, ?, ?)
         ON CONFLICT(channel_id) DO UPDATE SET
           scope = 'candidate_collection', status = 'approved',
           operator_reference = excluded.operator_reference,
@@ -414,14 +432,14 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   async updateStatus(
     input: Parameters<ChannelMonitorRepository["updateStatus"]>[0],
   ) {
-    const [result] = await this.database.batch([
+    const [result] = await this.write('updateStatus',[
       this.database.prepare(
         `UPDATE music_channel_upload_monitors
          SET status = ?, next_check_at = ?, lease_until = NULL,
            last_error_code = NULL, version = version + 1, updated_at = ?
          WHERE id = ? AND version = ? AND deleted_at IS NULL
            AND NOT (COALESCE(last_error_code, '') = 'gap_suspected' AND ? = 'active')
-           AND (? = 'paused' OR ${automationRunning})`,
+           AND (? = 'paused' OR ${automationRunning} AND NOT (${publicationHiddenSql("music_channel_upload_monitors", "music_channel_upload_monitors", this.siteId)}))`,
       ).bind(
         input.status,
         input.status === "active"
@@ -465,16 +483,16 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   }
 
   async updateTarget(input: Parameters<ChannelMonitorRepository["updateTarget"]>[0]) {
-    const [updateResult] = await this.database.batch([
+    const [updateResult] = await this.write('updateTarget',[
       this.database.prepare(
         `UPDATE music_channel_upload_monitors
-         SET channel_id = ?, uploads_playlist_id = ?, last_checked_at = NULL,
+         SET channel_id = ${this.collectionChannelSql()}, uploads_playlist_id = ?, last_checked_at = NULL,
             next_check_at = ?, last_seen_video_id = ?, last_seen_published_at = NULL,
             last_error_code = NULL, lease_until = NULL,
             sync_page_token = NULL, sync_base_video_id = NULL,
             sync_newest_video_id = NULL, sync_started_at = NULL,
             generation = generation + 1, version = version + 1, updated_at = ?
-          WHERE id = ? AND version = ? AND deleted_at IS NULL`,
+          WHERE id = ? AND version = ? AND deleted_at IS NULL AND NOT (${publicationHiddenSql('music_channel_upload_monitors','music_channel_upload_monitors',this.siteId)})`,
       ).bind(
         input.channel.id,
         input.uploadsPlaylistId,
@@ -510,7 +528,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   async resetWatermark(
     input: Parameters<ChannelMonitorRepository["resetWatermark"]>[0],
   ) {
-    const [result] = await this.database.batch([
+    const [result] = await this.write('resetWatermark',[
       this.database.prepare(
         `UPDATE music_channel_upload_monitors
          SET status = 'active', last_checked_at = NULL, next_check_at = ?,
@@ -520,7 +538,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
            sync_newest_video_id = NULL, sync_started_at = NULL,
            version = version + 1, updated_at = ?
          WHERE id = ? AND version = ? AND deleted_at IS NULL
-           AND ${automationRunning}
+           AND ${automationRunning} AND NOT (${publicationHiddenSql("music_channel_upload_monitors", "music_channel_upload_monitors", this.siteId)})
            AND EXISTS (
              SELECT 1 FROM music_channels AS channel
              JOIN music_channel_automation_approvals AS approval ON approval.channel_id = channel.id
@@ -559,7 +577,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   async revokeApproval(
     input: Parameters<ChannelMonitorRepository["revokeApproval"]>[0],
   ) {
-    const results = await this.database.batch([
+    const results = await this.write('revokeApproval',[
       this.database.prepare(
         `UPDATE music_channel_automation_approvals
          SET status = 'revoked', revoked_by_user_id = ?, revoked_at = ?,
@@ -652,7 +670,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   }
 
   async remove(input: Parameters<ChannelMonitorRepository["remove"]>[0]) {
-    const [result] = await this.database.batch([
+    const [result] = await this.write('remove',[
       this.database.prepare(
         `UPDATE music_channel_upload_monitors
          SET status = 'paused', lease_until = NULL, deleted_at = ?,
@@ -677,7 +695,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
     const result = await this.database.prepare(
        `SELECT id FROM music_channel_upload_monitors
        WHERE status = 'active' AND next_check_at <= ?
-          AND ${automationRunning}
+          AND ${automationRunning} AND NOT (${publicationHiddenSql("music_channel_upload_monitors", "music_channel_upload_monitors", this.siteId)})
           AND deleted_at IS NULL
           AND (lease_until IS NULL OR lease_until <= ?)
          AND EXISTS (
@@ -699,11 +717,11 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   }
 
   async claim(id: string, now: number) {
-    const result = await this.database.prepare(
+    const [result] = await this.write('claim',[this.database.prepare(
       `UPDATE music_channel_upload_monitors
         SET lease_until = ?, version = version + 1, updated_at = ?
        WHERE id = ? AND status = 'active' AND deleted_at IS NULL
-         AND ${automationRunning}
+         AND ${automationRunning} AND NOT (${publicationHiddenSql("music_channel_upload_monitors", "music_channel_upload_monitors", this.siteId)})
          AND (lease_until IS NULL OR lease_until <= ?)
          AND EXISTS (
            SELECT 1 FROM music_channels AS channel
@@ -718,7 +736,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
              AND approval.scope = 'candidate_collection'
              AND approval.status = 'approved'
          )`,
-    ).bind(now + LEASE_MS, now, id, now).run();
+    ).bind(now + LEASE_MS, now, id, now)]);
     return Number(result.meta.changes ?? 0) === 1 ? this.get(id) : null;
   }
 
@@ -755,7 +773,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
                 SELECT 1 FROM music_channel_upload_monitors
                 WHERE id = ? AND version = ? AND generation = ?
                   AND status = 'active' AND deleted_at IS NULL
-                  AND ${automationRunning}
+                  AND ${automationRunning} AND NOT (${publicationHiddenSql("music_channel_upload_monitors", "music_channel_upload_monitors", this.siteId)})
                   AND EXISTS (
                     SELECT 1 FROM music_channel_automation_approvals AS approval
                     WHERE approval.channel_id = music_channel_upload_monitors.channel_id
@@ -864,7 +882,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
                   SELECT 1 FROM music_channel_upload_monitors
                   WHERE id = ? AND version = ? AND generation = ?
                     AND status = 'active' AND deleted_at IS NULL
-                    AND ${automationRunning}
+                    AND ${automationRunning} AND NOT (${publicationHiddenSql("music_channel_upload_monitors", "music_channel_upload_monitors", this.siteId)})
                     AND EXISTS (
                       SELECT 1 FROM music_channel_automation_approvals AS approval
                       WHERE approval.channel_id = music_channel_upload_monitors.channel_id
@@ -884,13 +902,13 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
           ),
         );
       }
-      if (statements.length > 0) await this.database.batch(statements);
+      if (statements.length > 0) await this.write('recordCandidates',statements);
     }
     const claim = await this.database.prepare(
       `SELECT 1 AS matched FROM music_channel_upload_monitors
        WHERE id = ? AND version = ? AND generation = ?
          AND status = 'active' AND deleted_at IS NULL
-         AND ${automationRunning}
+         AND ${automationRunning} AND NOT (${publicationHiddenSql("music_channel_upload_monitors", "music_channel_upload_monitors", this.siteId)})
          AND EXISTS (
            SELECT 1 FROM music_channel_automation_approvals AS approval
            WHERE approval.channel_id = music_channel_upload_monitors.channel_id
@@ -916,7 +934,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   }
 
   async complete(input: Parameters<ChannelMonitorRepository["complete"]>[0]) {
-    const result = await this.database.prepare(
+    const [result] = await this.write('complete',[this.database.prepare(
       `UPDATE music_channel_upload_monitors
        SET last_checked_at = ?, next_check_at = ?, last_seen_video_id = ?,
          last_seen_published_at = ?, last_error_code = NULL, lease_until = NULL,
@@ -926,7 +944,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
          version = version + 1, updated_at = ?
         WHERE id = ? AND version = ? AND generation = ?
           AND status = 'active' AND deleted_at IS NULL
-          AND ${automationRunning}
+          AND ${automationRunning} AND NOT (${publicationHiddenSql("music_channel_upload_monitors", "music_channel_upload_monitors", this.siteId)})
           AND EXISTS (
             SELECT 1 FROM music_channel_automation_approvals AS approval
             WHERE approval.channel_id = music_channel_upload_monitors.channel_id
@@ -943,7 +961,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       input.id,
       input.expectedVersion,
       input.monitorGeneration,
-    ).run();
+    )]);
     if (Number(result.meta.changes ?? 0) !== 1) {
       throw new IngestionRepositoryError(
         "stale_message",
@@ -956,14 +974,14 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   async saveContinuation(
     input: Parameters<ChannelMonitorRepository["saveContinuation"]>[0],
   ) {
-    const result = await this.database.prepare(
+    const [result] = await this.write('saveContinuation',[this.database.prepare(
       `UPDATE music_channel_upload_monitors SET
          sync_page_token = ?, sync_base_video_id = ?, sync_newest_video_id = ?,
          sync_started_at = COALESCE(sync_started_at, ?), last_checked_at = ?,
          next_check_at = ?, last_error_code = NULL, lease_until = NULL,
          version = version + 1, updated_at = ?
        WHERE id = ? AND version = ? AND generation = ?
-         AND status = 'active' AND deleted_at IS NULL AND ${automationRunning}`,
+         AND status = 'active' AND deleted_at IS NULL AND ${automationRunning} AND NOT (${publicationHiddenSql("music_channel_upload_monitors", "music_channel_upload_monitors", this.siteId)})`,
     ).bind(
       input.pageToken,
       input.baseVideoId,
@@ -975,7 +993,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       input.id,
       input.expectedVersion,
       input.monitorGeneration,
-    ).run();
+    )]);
     if (Number(result.meta.changes ?? 0) !== 1) {
       throw new IngestionRepositoryError("stale_message", "Channel monitor continuation changed");
     }
@@ -985,13 +1003,13 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   async completeSupplemental(
     input: Parameters<ChannelMonitorRepository["completeSupplemental"]>[0],
   ) {
-    const result = await this.database.prepare(
+    const [result] = await this.write('completeSupplemental',[this.database.prepare(
       `UPDATE music_channel_upload_monitors
        SET last_recent_reconciled_at = ?, lease_until = NULL,
          version = version + 1, updated_at = ?
        WHERE id = ? AND version = ? AND generation = ?
          AND status = 'active' AND deleted_at IS NULL
-         AND ${automationRunning}
+         AND ${automationRunning} AND NOT (${publicationHiddenSql("music_channel_upload_monitors", "music_channel_upload_monitors", this.siteId)})
          AND EXISTS (
            SELECT 1 FROM music_channel_automation_approvals AS approval
            WHERE approval.channel_id = music_channel_upload_monitors.channel_id
@@ -1004,7 +1022,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       input.id,
       input.expectedVersion,
       input.monitorGeneration,
-    ).run();
+    )]);
     if (Number(result.meta.changes ?? 0) !== 1) {
       throw new IngestionRepositoryError(
         "stale_message",
@@ -1017,13 +1035,13 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   async markGapSuspected(
     input: Parameters<ChannelMonitorRepository["markGapSuspected"]>[0],
   ) {
-    const result = await this.database.prepare(
+    const [result] = await this.write('markGapSuspected',[this.database.prepare(
       `UPDATE music_channel_upload_monitors
        SET status = 'paused', last_checked_at = ?, next_check_at = ?,
          last_error_code = 'gap_suspected', lease_until = NULL,
          version = version + 1, updated_at = ?
        WHERE id = ? AND version = ? AND generation = ?
-         AND status = 'active' AND deleted_at IS NULL`,
+         AND status = 'active' AND deleted_at IS NULL AND NOT (${publicationHiddenSql("music_channel_upload_monitors", "music_channel_upload_monitors", this.siteId)})`,
     ).bind(
       input.now,
       nextChannelPollAt(input.now),
@@ -1031,7 +1049,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       input.id,
       input.expectedVersion,
       input.monitorGeneration,
-    ).run();
+    )]);
     if (Number(result.meta.changes ?? 0) !== 1) {
       throw new IngestionRepositoryError(
         "stale_message",
@@ -1042,13 +1060,13 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   }
 
   async fail(input: Parameters<ChannelMonitorRepository["fail"]>[0]) {
-    await this.database.prepare(
+    await this.write('fail',[this.database.prepare(
       `UPDATE music_channel_upload_monitors
        SET last_error_code = ?, next_check_at = ?, lease_until = NULL,
           consecutive_failures = consecutive_failures + 1,
           version = version + 1, updated_at = ?
         WHERE id = ? AND version = ? AND generation = ?
-          AND status = 'active' AND deleted_at IS NULL AND ${automationRunning}`,
+          AND status = 'active' AND deleted_at IS NULL AND ${automationRunning} AND NOT (${publicationHiddenSql("music_channel_upload_monitors", "music_channel_upload_monitors", this.siteId)})`,
     ).bind(
       input.errorCode,
       input.now + 15 * 60_000,
@@ -1056,6 +1074,6 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       input.id,
       input.expectedVersion,
       input.monitorGeneration,
-    ).run();
+    )]);
   }
 }

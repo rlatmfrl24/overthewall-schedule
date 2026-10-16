@@ -155,13 +155,17 @@ const getAuthConfig = (env: Env) => {
   const jwksUrl =
     configuredJwksUrl ??
     (issuer ? parseHttpsUrl(`${issuer}${CLERK_JWKS_SUFFIX}`) : null);
+  if (
+    (env.CLERK_JWKS_URL && (!configuredJwksUrl || inferIssuerFromJwksUrl(configuredJwksUrl) !== issuer)) ||
+    (env.VITE_CLERK_PUBLISHABLE_KEY && inferIssuerFromPublishableKey(env.VITE_CLERK_PUBLISHABLE_KEY) !== issuer)
+  ) return null;
   const audience = getStringClaim(env.CLERK_JWT_AUDIENCE);
   const configuredAuthorizedParties = env.CLERK_AUTHORIZED_PARTIES?.trim();
   const authorizedParties = configuredAuthorizedParties
     ? parseAuthorizedParties(configuredAuthorizedParties)
     : null;
 
-  if (!jwksUrl || !issuer || (configuredAuthorizedParties && !authorizedParties)) {
+  if (!jwksUrl || !issuer || !authorizedParties) {
     return null;
   }
 
@@ -250,9 +254,8 @@ const verifyAudience = (claim: unknown, expectedAudience: string | null) => {
 
 const verifyAuthorizedParty = (
   claim: unknown,
-  authorizedParties: string[] | null,
+  authorizedParties: string[],
 ) => {
-  if (!authorizedParties) return true;
   const party = getStringClaim(claim);
   if (!party) return false;
   const normalized = normalizeAuthorizedParty(party);

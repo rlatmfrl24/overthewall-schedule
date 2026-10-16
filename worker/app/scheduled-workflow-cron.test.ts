@@ -1,3 +1,4 @@
+import { siteEnv } from "../test-support/site-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../platform/types";
 import { ScheduledJobCoordinator } from "../features/scheduled-operations";
@@ -18,6 +19,7 @@ const makeDb = (
   },
 ) => ({
   prepare: vi.fn((sql: string) => ({
+    first: async () => null,
     bind: (...values: unknown[]) => ({
       all: async () => ({
         results: sql.includes("FROM settings WHERE key IN")
@@ -73,9 +75,10 @@ describe("scheduled Workflow cron bridge", () => {
     ]);
   });
 
-  it("starts one generic Workflow instance for every selected job", async () => {
+  it.each(["otw", "luvdia"] as const)("starts one generic Workflow instance per selected job on normal %s without a transition peer", async (site) => {
     const create = vi.fn().mockResolvedValue(undefined);
     const env = {
+      ...siteEnv(site),
       otw_db: makeDb(),
       SCHEDULED_OPERATIONS_WORKFLOW: { create },
     } as unknown as Env;
@@ -98,6 +101,7 @@ describe("scheduled Workflow cron bridge", () => {
   it("does not create Workflows after the internal D1 write guard is exhausted", async () => {
     const create = vi.fn().mockResolvedValue(undefined);
     const env = {
+      ...siteEnv(),
       otw_db: makeDb([], {
         consumed: 40_000,
         limitValue: 40_000,
@@ -119,6 +123,7 @@ describe("scheduled Workflow cron bridge", () => {
       .mockImplementation(async (jobType) => jobType === "ingestion_recovery");
     const create = vi.fn().mockResolvedValue(undefined);
     const env = {
+      ...siteEnv(),
       otw_db: makeDb(),
       SCHEDULED_OPERATIONS_WORKFLOW: { create },
     } as unknown as Env;
@@ -138,7 +143,7 @@ describe("scheduled Workflow cron bridge", () => {
     await expect(handleScheduledWorkflowCron({
       cron: SCHEDULED_WORKFLOW_CRON,
       scheduledTime: utc(5, 33),
-    } as ScheduledController, {} as Env)).rejects.toThrow(
+    } as ScheduledController, {...siteEnv(),otw_db:makeDb()} as unknown as Env)).rejects.toThrow(
       "Missing scheduled Workflow binding: SCHEDULED_OPERATIONS_WORKFLOW",
     );
   });
@@ -152,7 +157,7 @@ describe("scheduled Workflow cron bridge", () => {
       });
     let created = false;
     const create = vi.fn(async () => { await Promise.resolve(); created = true; });
-    const env = { otw_db: makeDb(), SCHEDULED_OPERATIONS_WORKFLOW: { create } } as unknown as Env;
+    const env = { ...siteEnv(), otw_db: makeDb(), SCHEDULED_OPERATIONS_WORKFLOW: { create } } as unknown as Env;
     const scheduledTime = utc(5, 3);
     await expect(handleScheduledWorkflowCron({
       cron: SCHEDULED_WORKFLOW_CRON, scheduledTime,
@@ -162,4 +167,11 @@ describe("scheduled Workflow cron bridge", () => {
       params: { jobType: "schedule_auto_update", scheduledFor: scheduledTime },
     });
   });
+});
+
+it("rejects resource configuration before reading budgets or creating Workflow instances", async () => {
+  const db = makeDb(), create = vi.fn();
+  await expect(handleScheduledWorkflowCron({ cron: SCHEDULED_WORKFLOW_CRON, scheduledTime: utc(5, 3) } as ScheduledController, { ...siteEnv("luvdia"), SITE_DEAD_LETTER_QUEUE_NAME: "otw-dead-letter", otw_db: db, SCHEDULED_OPERATIONS_WORKFLOW: { create } } as unknown as Env)).rejects.toThrow(/Queue/);
+  expect(db.prepare).not.toHaveBeenCalled();
+  expect(create).not.toHaveBeenCalled();
 });

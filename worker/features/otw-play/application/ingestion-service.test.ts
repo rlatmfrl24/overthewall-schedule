@@ -61,6 +61,9 @@ const job = (overrides: Partial<OtwPlayIngestionJobDto> = {}): OtwPlayIngestionJ
 });
 
 const repository = () => ({
+  collectableVideoIds: vi.fn<IngestionRepository['collectableVideoIds']>(async message=>message.videoIds),
+  assertCandidateCollectionAllowed: vi.fn<IngestionRepository['assertCandidateCollectionAllowed']>(async()=>{}),
+  hasOnlyPublicationCutoffFailures: vi.fn(async()=>false),
   findPreviousImport: vi.fn(async () => null),
   createJob: vi.fn(async () => ({
     job: job(),
@@ -120,7 +123,7 @@ const repository = () => ({
     reviewInput: null,
     linkedPerformanceId: null,
   })),
-  ignoreCandidate: vi.fn(async () => ({
+  ignoreCandidate: vi.fn<IngestionRepository["ignoreCandidate"]>(async () => ({
     id: "youtube:AAAAAAAAAAA",
     version: 2,
     videoId: "AAAAAAAAAAA",
@@ -756,7 +759,7 @@ describe("IngestionService", () => {
     expect(preflightCatalogEntry).toHaveBeenCalledWith({
       youtubeUrl: "https://www.youtube.com/watch?v=AAAAAAAAAAA",
       startSeconds: 12,
-    });
+    }, undefined);
     expect(createCatalogEntry).toHaveBeenCalledWith(
       expect.objectContaining({
         startSeconds: 12,
@@ -849,22 +852,34 @@ describe("IngestionService", () => {
     expect(repo.recordConversionOutcome).not.toHaveBeenCalled();
   });
 
-  it("bulk ignores job-owned candidates and returns stale rows for separate review", async () => {
+  it('conversion_bulk_acceptance continues independent rows without recording pending work as failure',async()=>{
+    const repo=repository(),runConversion=vi.fn(async(identity:{candidateId:string})=>{
+      if(identity.candidateId==='pending') throw new IngestionRepositoryError('content_accepted','Pending');
+      if(identity.candidateId==='moved') throw new IngestionRepositoryError('content_moved','Moved');
+      return {candidateId:identity.candidateId,outcome:'created' as const,performanceId:'created-performance',errorCode:null};
+    });
+    const service=new IngestionService(repo,youtube(),{send:vi.fn(async()=>undefined)},()=> 'event',()=>100,{} as AdminCatalogService,undefined,{runConversion});
+    await expect(service.convertCandidates('job-1',{candidates:[{id:'pending',expectedVersion:1},{id:'moved',expectedVersion:1},{id:'ordinary',expectedVersion:1}]},{userId:'admin',displayName:null,ipAddress:null})).resolves.toEqual({results:[
+      {candidateId:'pending',outcome:'accepted',performanceId:null,errorCode:'CONTENT_ACCEPTED'},
+      {candidateId:'moved',outcome:'moved',performanceId:null,errorCode:'CONTENT_MOVED'},
+      {candidateId:'ordinary',outcome:'created',performanceId:'created-performance',errorCode:null},
+    ]});
+    expect(runConversion).toHaveBeenCalledTimes(3);expect(repo.recordConversionOutcome).not.toHaveBeenCalled();
+  });
+  it("bulk ignores job-owned candidates and preserves stale and accepted outcomes", async () => {
     const repo = repository();
-    repo.readReviewCandidate.mockImplementation(async (
-      _jobId: string | null,
-      candidateId: string,
-    ) => ({
-      id: candidateId,
-      version: candidateId === "candidate-stale" ? 3 : 1,
-      videoId: candidateId === "candidate-stale" ? "BBBBBBBBBBB" : "AAAAAAAAAAA",
+    repo.ignoreCandidate.mockImplementation(async ({candidateId}) => {
+      if (candidateId === "candidate-stale") throw new IngestionRepositoryError("stale_message", "Candidate changed");
+      if (candidateId === "candidate-pending") throw new IngestionRepositoryError("content_accepted", "Accepted for target", {targetSite:"luvdia"});
+      return {
+      id: candidateId, version: 2, videoId: "AAAAAAAAAAA",
       candidateKind: "official_video" as const,
-      status: "blocked" as const,
+      status: "ignored" as const,
       classification: "unavailable" as const,
       catalogChannelId: null,
       reviewInput: null,
       linkedPerformanceId: null,
-    }));
+    };});
     const service = new IngestionService(
       repo,
       youtube(),
@@ -877,6 +892,7 @@ describe("IngestionService", () => {
       candidates: [
         { id: "candidate-1", expectedVersion: 1 },
         { id: "candidate-stale", expectedVersion: 2 },
+        { id: "candidate-pending", expectedVersion: 1 },
       ],
     }, {
       userId: "admin-1",
@@ -890,20 +906,17 @@ describe("IngestionService", () => {
           outcome: "stale",
           errorCode: "stale_write",
         },
+        { candidateId: "candidate-pending", outcome: "accepted", errorCode: "CONTENT_ACCEPTED" },
       ],
     });
     expect(repo.getJobContext).toHaveBeenCalledWith("job-1");
-    expect(repo.readReviewCandidate).toHaveBeenNthCalledWith(
-      1,
-      "job-1",
-      "candidate-1",
-    );
     expect(repo.ignoreCandidate).toHaveBeenCalledWith(expect.objectContaining({
+      jobId: "job-1",
       candidateId: "candidate-1",
       expectedVersion: 1,
       actorUserId: "admin-1",
     }));
-    expect(repo.ignoreCandidate).toHaveBeenCalledTimes(1);
+    expect(repo.ignoreCandidate).toHaveBeenCalledTimes(3);
   });
 });
 

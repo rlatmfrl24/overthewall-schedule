@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {siteEnv} from '../../../test-support/site-env';
 
 const fetchChzzkVideosBatchMock = vi.hoisted(() => vi.fn());
 const fetchChzzkClipsBatchMock = vi.hoisted(() => vi.fn());
@@ -38,6 +39,7 @@ const makeEnv = () => {
   }));
   return {
     env: {
+      ...siteEnv(),
       YOUTUBE_API_KEY: "youtube-key",
       otw_db: { prepare } as unknown as D1Database,
     } as Env,
@@ -47,6 +49,7 @@ const makeEnv = () => {
 
 const makeUnavailableEnv = (): Env =>
   ({
+    ...siteEnv(),
     YOUTUBE_API_KEY: "youtube-key",
     otw_db: {
       prepare: () => ({
@@ -101,6 +104,7 @@ describe("CHZZK media routes", () => {
         },
       ],
       env.otw_db,
+      {siteId:'otw'},
     );
   });
 
@@ -125,6 +129,7 @@ describe("CHZZK media routes", () => {
         },
       ],
       env.otw_db,
+      {siteId:'otw'},
     );
   });
 
@@ -143,6 +148,7 @@ describe("CHZZK media routes", () => {
         { channelId: registeredChannelId, size: 10, cacheable: true },
       ],
       env.otw_db,
+      {siteId:'otw'},
     );
   });
 

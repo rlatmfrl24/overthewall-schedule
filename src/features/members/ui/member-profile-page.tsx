@@ -1,3 +1,5 @@
+import { getCurrentMemberAffiliation } from "../model/current-member-affiliation";
+import { site } from "@/shared/config/site";
 import { useAnimations } from "@/shared/ui/animation-provider";
 import { ApiError } from "@/shared/api/client";
 import { Link } from "@tanstack/react-router";
@@ -15,6 +17,8 @@ import { useMemberProfile } from "../queries/use-member-profile";
 import { buildNotFoundSiteSeo, buildProfileSiteSeo } from "@contracts/site-seo";
 import { useSiteSeo } from "@/shared/seo";
 import { Button } from "@/shared/ui/button";
+import { useAuthenticatedImage, useAuthenticatedImages } from "@/shared/hooks/use-authenticated-image";
+import { useContentSession } from "@/shared/hooks/content-session";
 import {
   ArrowLeft,
   Cake,
@@ -119,20 +123,19 @@ const ProfileSignatureImage = ({
   memberCode,
   memberName,
   className,
+  protectedImage = false,
 }: {
   memberCode: string;
   memberName: string;
   className?: string;
+  protectedImage?: boolean;
 }) => {
   const { enabled } = useAnimations();
-  const signatureSrc = useMemo(
-    () => getProfileSignatureImageSrc(memberCode),
-    [memberCode],
-  );
+  const signatureSrc = useAuthenticatedImage(getProfileSignatureImageSrc(memberCode), protectedImage);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (typeof window === "undefined" || !signatureSrc) {
       return;
     }
 
@@ -429,8 +432,9 @@ const ProfileAiImageNotice = ({ className }: { className?: string }) => {
   );
 };
 
-export function MemberProfilePage({ code, renderPlayLink }: {
+export function MemberProfilePage({ code, renderPlayLink, includeArchived = false }: {
   code: string;
+  includeArchived?: boolean;
   renderPlayLink?: (memberUid: number) => ReactNode;
 }) {
   const { enabled } = useAnimations();
@@ -452,12 +456,12 @@ export function MemberProfilePage({ code, renderPlayLink }: {
   const canRenderProfileBackground = useMediaQuery(
     PROFILE_BACKGROUND_MEDIA_QUERY,
   );
-  const memberQuery = useMemberProfile(code);
+  const memberQuery = useMemberProfile(code, includeArchived);
   const member = memberQuery.isError ? null : memberQuery.data ?? null;
   const missingMember = memberQuery.error instanceof ApiError && memberQuery.error.status === 404;
   const profileSeo = useMemo(
-    () => member ? buildProfileSiteSeo(member) : missingMember ? buildNotFoundSiteSeo(`/profile/${encodeURIComponent(code)}`) : null,
-    [member, missingMember, code],
+    () => includeArchived ? null : member ? buildProfileSiteSeo(member, site) : missingMember ? buildNotFoundSiteSeo(`/profile/${encodeURIComponent(code)}`, site) : null,
+    [member, missingMember, code, includeArchived],
   );
   useSiteSeo(profileSeo);
   const loading = memberQuery.isLoading;
@@ -493,26 +497,31 @@ export function MemberProfilePage({ code, renderPlayLink }: {
     [member],
   );
 
-  const activeImage = profileImages[0];
+  const activeImageUrl = useAuthenticatedImage(profileImages[0]?.imageUrl, includeArchived);
+  const authenticatedProfile=Boolean(useContentSession()) || includeArchived;
+  const activeImage = activeImageUrl && profileImages[0] ? { ...profileImages[0], imageUrl: activeImageUrl } : null;
   const profileBackgroundSourceSets = useMemo(
     () =>
       member
         ? buildProfileBackgroundImageSourceSets(
           member.code,
           member.backgroundImages,
+          authenticatedProfile ? "/r2-assets" : undefined,
         ).filter((background) => !failedProfileBackgroundIds.includes(background.id))
         : [],
-    [failedProfileBackgroundIds, member],
+    [failedProfileBackgroundIds, member, authenticatedProfile],
   );
+  const authenticatedBackground = useAuthenticatedImages(profileBackgroundSourceSets.flatMap(background => [background.sources.src, background.sources.fallbackSrc]), includeArchived);
   const resolvedProfileBackgroundSourceSets = useMemo(
     () =>
       profileBackgroundSourceSets.map((background) => {
         const usesOptimized =
           !failedOptimizedProfileBackgroundIds.includes(background.id);
-        const src = usesOptimized
+        const source = usesOptimized
           ? background.sources.src
           : background.sources.fallbackSrc;
-        const srcSet = usesOptimized ? background.sources.srcSet : undefined;
+        const src = authenticatedBackground(source);
+        const srcSet = usesOptimized && !authenticatedProfile ? background.sources.srcSet : undefined;
         const sizes = usesOptimized ? background.sources.sizes : undefined;
 
         return {
@@ -525,8 +534,8 @@ export function MemberProfilePage({ code, renderPlayLink }: {
           loadKey: `${background.id}:${src}:${srcSet ?? ""}`,
           usesOptimized,
         };
-      }),
-    [failedOptimizedProfileBackgroundIds, profileBackgroundSourceSets],
+      }).filter((background): background is typeof background & {image: {src:string}} => Boolean(background.image.src)),
+    [failedOptimizedProfileBackgroundIds, profileBackgroundSourceSets, authenticatedBackground, authenticatedProfile],
   );
   const loadedProfileBackgroundSourceSets = useMemo(
     () =>
@@ -867,7 +876,7 @@ export function MemberProfilePage({ code, renderPlayLink }: {
   } as CSSProperties;
   const birthDate = formatProfileDate(member.birth_date);
   const debutDate = formatProfileDate(member.debut_date);
-  const unitLogo = getUnitLogo(member.unit_name);
+  const unitLogo = site.id === "otw" ? getUnitLogo(member.unit_name) : null;
   const hasInfoCapsules =
     Boolean(member.fan_name) ||
     Boolean(member.oshi_mark) ||
@@ -961,6 +970,7 @@ export function MemberProfilePage({ code, renderPlayLink }: {
 
       {canRenderProfileBackground && (
         <ProfileSignatureImage
+          protectedImage={includeArchived}
           memberCode={member.code}
           memberName={member.name}
           className="absolute left-[clamp(14rem,18.5vw,21rem)] top-[clamp(18.5rem,44dvh,22rem)] z-10 hidden [@media_(min-width:1180px)_and_(min-height:680px)]:block"
@@ -975,6 +985,7 @@ export function MemberProfilePage({ code, renderPlayLink }: {
             animate={{ opacity: 1, y: 0 }}
             transition={enabled ? { duration: 0.45, ease: "easeOut" } : { duration: 0, delay: 0 }}
           >
+            {site.id === "luvdia" && <p className="mb-5 text-sm text-white/80">{getCurrentMemberAffiliation(member, site)}</p>}
             {unitLogo && (
               <div className="mb-5 flex max-w-full items-center lg:mb-6">
                 <img

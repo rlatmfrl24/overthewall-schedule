@@ -1,3 +1,4 @@
+import { siteEnv } from "../test-support/site-env";
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../platform/types";
@@ -48,7 +49,7 @@ const observeAdmission = () => {
   return {
     statements,
     create,
-    env: { ...testEnv, otw_db: db, YOUTUBE_API_KEY: "test",
+    env: { ...testEnv, ...siteEnv(), otw_db: db, YOUTUBE_API_KEY: "test",
       SCHEDULED_OPERATIONS_WORKFLOW: { create } } as unknown as Env,
   };
 };

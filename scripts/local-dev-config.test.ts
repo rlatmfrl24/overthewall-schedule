@@ -33,13 +33,23 @@ describe("local development server config", () => {
     expect(getLocalDevOrigin(environment)).toBe("http://localhost:5180");
   });
 
-  it("uses an isolated D1 state only when explicitly configured", () => {
-    expect(resolveLocalD1PersistState({})).toBe(true);
+  it("uses isolated site state by default", () => {
+    expect(resolveLocalD1PersistState({})).toEqual({ path: ".wrangler/state/otw" });
     expect(
       resolveLocalD1PersistState({
         OTW_D1_PERSIST_TO: " C:/tmp/otw-play-pr6 ",
       }),
     ).toEqual({ path: "C:/tmp/otw-play-pr6" });
+  });
+  it("uses independent LuvDia port and state even with OTW overrides", () => {
+    expect(getLocalDevOrigin({ OTW_DEV_PORT: "5180" }, "luvdia")).toBe("http://localhost:5174");
+    expect(resolveLocalD1PersistState({ OTW_D1_PERSIST_TO: "wrong" }, "luvdia")).toEqual({ path: ".wrangler/state/luvdia" });
+  });
+  it("rejects configured nested state before Vite local bindings are constructed", () => {
+    expect(() => resolveLocalD1PersistState({ OTW_D1_PERSIST_TO: ".tmp/site-state", LUVDIA_D1_PERSIST_TO: ".tmp/site-state/v3/d1/child" }, "luvdia")).toThrow(/persistence/);
+  });
+  it.runIf(process.platform === "win32")("rejects configured Windows aliases in the Vite state resolver", () => {
+    expect(() => resolveLocalD1PersistState({ LUVDIA_D1_PERSIST_TO: ".wrangler/state/OTW" }, "luvdia")).toThrow(/persistence/);
   });
 
   it("rewrites non-Worker SPA requests for both Vite and the Worker proxy", () => {

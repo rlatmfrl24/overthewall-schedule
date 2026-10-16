@@ -5,6 +5,9 @@ import { workerRouteManifest, workerRouteRegistry } from "./routes";
 const env = {} as Env;
 // Independent security/cache contracts, grouped to avoid a second route registry.
 const expectedPolicies = [
+  {method:'GET',auth:'optional',successStatus:200,cache:'no-store',paths:['/api/publication-status']},
+  {method:'HEAD',auth:'optional',successStatus:200,cache:'no-store',paths:['/api/publication-status']},
+  {method:"GET",auth:"admin",successStatus:200,cache:"no-store",paths:["/api/assets/protected-reference"]},
   { method: "GET", auth: "public", successStatus: 200,
     cache: "route-policy", paths: ["/api/site-content"] },
   { method: "GET", auth: "optional", successStatus: 200,
@@ -12,19 +15,19 @@ const expectedPolicies = [
     "/api/auth/admin-status",
   ] },
   { method: "GET", auth: "public", successStatus: 200,
-    cache: "public, max-age=31536000, immutable", paths: [
+    cache: "no-store", paths: [
     "/r2-assets/*key",
   ] },
   { method: "HEAD", auth: "public", successStatus: 200,
-    cache: "public, max-age=31536000, immutable", paths: [
+    cache: "no-store", paths: [
     "/r2-assets/*key",
   ] },
   { method: "GET", auth: "public", successStatus: 200,
-    cache: "public, max-age=0, s-maxage=45, must-revalidate", paths: [
+    cache: "no-store", paths: [
     "/api/live-status",
   ] },
   { method: "GET", auth: "public", successStatus: 200,
-    cache: "public, max-age=60, s-maxage=300, stale-while-revalidate=600", paths: [
+    cache: "no-store", paths: [
     "/api/vods/chzzk",
     "/api/clips/chzzk",
     "/api/youtube/videos",
@@ -44,6 +47,8 @@ const expectedPolicies = [
   { method: "GET", auth: "admin", successStatus: 200,
     cache: "no-store", paths: [
     "/api/youtube/feed/status",
+    "/api/youtube/feed/history",
+    "/api/chzzk/history",
     "/api/kirinuki/channels",
     "/api/play/admin/playlists/defaults",
     "/api/play/admin/playlists/defaults/:playlistKey",
@@ -86,6 +91,8 @@ const expectedPolicies = [
   { method: "POST", auth: "admin", successStatus: 200,
     cache: "no-store", paths: [
     "/api/play/admin/ai-review-batches/preview",
+    "/api/play/admin/ai-reviews/:id/close-unknown",
+    "/api/play/admin/ai-reviews/:id/resume-unissued",
     "/api/play/admin/imports/playlist/preflight",
     "/api/play/admin/import-candidates/:id/convert",
     "/api/play/admin/imports/:jobId/convert",

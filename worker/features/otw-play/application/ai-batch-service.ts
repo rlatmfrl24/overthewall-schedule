@@ -49,8 +49,8 @@ export class AiBatchService {
     }
     return { queued, failed };
   }
-  async process(id: string, generation: number) {
-    if (!this.enabled) return;
+  async process(id: string, generation: number, finishSavedOnly=false) {
+    if (!this.enabled&&!finishSavedOnly) return;
     const token = this.id();
     const item = await this.repository.claim(id, generation, token, this.clock());
     if (!item) return;
@@ -63,14 +63,16 @@ export class AiBatchService {
       if (!result) {
         let reviewId = item.reviewId;
         if (!reviewId) {
+          if(finishSavedOnly)throw new Error('Original batch has no recorded analysis to finish');
           const review = await this.analysis.start({ target: { candidateId: item.candidateId }, range: null,
             idempotencyKey: `batch-${id}-${item.generation}` }, item.actor);
           reviewId = review.id;
           await this.repository.attach(id, token, reviewId, this.clock());
         }
-        await this.analysis.process(reviewId);
+        if(!finishSavedOnly)await this.analysis.process(reviewId);
         const review = await this.analysis.get(reviewId);
         if (isAiReviewPending(review.status)) {
+          if(finishSavedOnly)throw new Error('Original batch analysis remains unfinished');
           await this.repository.attach(id, token, reviewId, this.clock(), { message: review.errorMessage, retryAt: review.nextRetryAt });
           return Math.max(30, Math.ceil(((review.nextRetryAt ?? this.clock() + 30000) - this.clock()) / 1000));
         }

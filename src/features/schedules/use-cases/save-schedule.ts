@@ -11,7 +11,7 @@ export type SaveScheduleInput = {
   status: ScheduleStatus;
 };
 
-export async function saveScheduleWithConflicts(input: SaveScheduleInput) {
+export async function saveScheduleWithConflicts(input: SaveScheduleInput, requestId?:string) {
   const dateStr = format(input.date, "yyyy-MM-dd");
   return saveSchedule({
     id: input.id,
@@ -20,7 +20,7 @@ export async function saveScheduleWithConflicts(input: SaveScheduleInput) {
     start_time: input.start_time,
     title: input.title,
     status: input.status,
-  });
+  },requestId);
 }
 
 

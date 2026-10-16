@@ -60,12 +60,12 @@ const ALLOWED_PUBLIC_CHANNEL_ROLES = new Set([
 ]);
 
 const CACHE_CONTROL = {
-  config: "public, max-age=60, s-maxage=1800",
-  catalog: "public, max-age=60, s-maxage=300",
-  catalogSearch: "private, max-age=30",
-  catalogCursor: "private, max-age=60",
-  facets: "public, max-age=60, s-maxage=1800",
-  detail: "public, max-age=60, s-maxage=600",
+  config: "no-store",
+  catalog: "no-store",
+  catalogSearch: "no-store",
+  catalogCursor: "no-store",
+  facets: "no-store",
+  detail: "no-store",
   private: "no-store",
 } as const;
 

@@ -1,3 +1,4 @@
+import { parseSiteId } from "@contracts/site-definition";
 import type { XPostDto, XPostsByHandleDto } from "@contracts/x-posts";
 import { getDb } from "../../../platform/db";
 import {
@@ -7,6 +8,7 @@ import type { Env } from "../../../platform/types";
 import {
   createXPostsApplication,
   XPostFeedError,
+  type XActor,
 } from "../application/x-posts-service";
 import { readActiveXHandles } from "./d1-active-handles";
 import {
@@ -24,7 +26,7 @@ import {
   readXHistoryPosts,
 } from "./x-history";
 
-export const buildXPostsApplication = (env: Env) => {
+export const buildXPostsApplication = (env: Env, redact?: (postId:string,actor:XActor)=>Promise<{found:boolean;changed:boolean;auditWritten?:boolean}>) => {
   const db = getDb(env);
 
   const mapApiError = (error: unknown) => {
@@ -41,12 +43,13 @@ export const buildXPostsApplication = (env: Env) => {
 
   return createXPostsApplication({
     readSetting: (key) => readXSetting(env.otw_db, key),
-    readAllowedHandles: () => readActiveXHandles(env.otw_db),
+    readAllowedHandles: () => readActiveXHandles(env.otw_db, parseSiteId(env.SITE_ID)),
     fetchPosts: async (handles, options) => {
       try {
         return await fetchXPostsForHandles(handles, {
           bearerToken: env.X_BEARER_TOKEN,
           cacheDb: env.otw_db,
+          siteId: parseSiteId(env.SITE_ID),
           maxResults: options.maxResults,
           richXLinkPreviewEnabled: options.richXLinkPreviewEnabled,
           refresh: options.refresh,
@@ -61,6 +64,7 @@ export const buildXPostsApplication = (env: Env) => {
       try {
         return await fetchXPostPreviewById(postId, {
           cacheDb: env.otw_db,
+          siteId: parseSiteId(env.SITE_ID),
         });
       } catch (error) {
         if (error instanceof XApiError) {
@@ -78,7 +82,8 @@ export const buildXPostsApplication = (env: Env) => {
         throw error;
       }
     },
-    redactStoredPost: async (postId) => {
+    redactStoredPost: async (postId,actor) => {
+      if(redact) return redact(postId,actor);
       const result = await redactStoredXPosts(env.otw_db, [postId]);
       return { found: result.found > 0, changed: result.redacted > 0 };
     },
@@ -122,6 +127,7 @@ export const buildXPostsApplication = (env: Env) => {
 };
 
 export type XPostFeedServiceOptions = {
+  siteId: import("@contracts/site-definition").SiteId;
   storedPage?: import("@contracts/member-posts").MemberPostsPageRequest;
   bearerToken?: string;
   cacheDb: D1Database;
@@ -149,6 +155,7 @@ export const xPostFeedService: XPostFeedService = {
   extractHandle: (value) => extractXHandleFromUrl(value),
   fetchPosts: (handles, options) =>
     fetchXPostsForHandles(handles, {
+      siteId: options.siteId,
       ...(options.storedPage ? { storedPage: options.storedPage } : {}),
       bearerToken: options.bearerToken,
       cacheDb: options.cacheDb,

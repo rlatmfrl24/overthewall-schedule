@@ -19,7 +19,7 @@ import { YouTubeShortsCursorError } from "../domain/shorts-cursor";
 import { YouTubeShortsUnavailableError } from "../domain/shorts-errors";
 
 const YOUTUBE_CACHE_CONTROL =
-  "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
+  "no-store";
 const PRIVATE_YOUTUBE_CACHE_CONTROL = "no-store";
 
 export type BuildYouTubeApplication = (env: Env) => YouTubeApplication;

@@ -1,3 +1,4 @@
+import { getSiteDefinition } from "@contracts/site-definition";
 import { describe, expect, it } from "vitest";
 import { getSnapshotGeometry, getSnapshotUrl, getSnapshotFilename, normalizeSnapshotDesign } from "./snapshot-options";
 import { validateConsoleSearch } from "@/shared/lib/admin-console-search";
@@ -15,12 +16,17 @@ describe("snapshot designs", () => {
   it("carries the capture state and preserves existing filenames", () => {
     expect(getSnapshotUrl("2026-09-16", "timeline", "dark", "legacy")).toBe("/snapshot?date=2026-09-16&mode=timeline&theme=dark&design=legacy");
     expect(getSnapshotUrl("2026-09-16", "grid", "light", "legacy")).toContain("design=poster");
-    expect(getSnapshotFilename("2026-09-16", "timeline")).toBe("오버더월 스케쥴-편성표-2026-09-16.png");
-    expect(getSnapshotFilename("2026-09-16", "timeline", "legacy")).toBe("오버더월 스케쥴-기존편성표-2026-09-16.png");
-    expect(getSnapshotFilename("2026-09-16", "grid", "legacy")).toBe("오버더월 스케쥴-일정표-2026-09-16.png");
+    expect(getSnapshotFilename("2026-09-16", "timeline", "poster", site)).toBe("오버더월 스케쥴-편성표-2026-09-16.png");
+    expect(getSnapshotFilename("2026-09-16", "timeline", "legacy", site)).toBe("오버더월 스케쥴-기존편성표-2026-09-16.png");
+    expect(getSnapshotFilename("2026-09-16", "grid", "legacy", site)).toBe("오버더월 스케쥴-일정표-2026-09-16.png");
   });
   it("preserves the design in administrator URL state", () => {
     expect(validateConsoleSearch({ tab: "snapshot", design: "legacy", theme: "dark", mode: "timeline" })).toEqual({ tab: "snapshot", design: "legacy", theme: "dark", mode: "timeline" });
     expect(validateConsoleSearch({ design: "invalid" }).design).toBeUndefined();
   });
+  it("names LuvDia exports without the OTW brand", () => {
+    expect(getSnapshotFilename("2026-10-14", "timeline", "poster", getSiteDefinition("luvdia"))).toBe("LuvDia Schedule-편성표-2026-10-14.png");
+  });
 });
+
+const site = getSiteDefinition("otw");

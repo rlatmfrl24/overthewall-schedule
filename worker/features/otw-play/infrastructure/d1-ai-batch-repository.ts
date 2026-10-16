@@ -2,18 +2,24 @@ import type { AiBatchDraft, AiBatchItem, AiBatchSelection, AiBatchSummary } from
 import type { AiReviewResult } from "@contracts/otw-play-ai-review";
 import type { AiBatchRepository, AiBatchRetryCommand, AiBatchWork } from "../application/ports/ai-batch";
 import { AiReviewError } from "../application/ports/ai-review";
+import { historicalReviewDeletedSql } from "./historical-review-sql";
 
 type Row = Record<string, string | number | null>;
+type BatchAction='batch_create'|'batch_claim'|'batch_attach'|'batch_capture'|'batch_finish'|'batch_release'|'batch_pending'|'batch_retry'|'batch_dead';
+type BatchWriter=(action:BatchAction,id:string|null,statements:D1PreparedStatement[])=>Promise<D1Result[]>;
 const pending = "('queued','analyzing','saving')";
 const eligible = `c.status IN ('discovered','needs_input','blocked') AND c.availability_status='playable'
   AND c.linked_performance_id IS NULL
   AND NOT EXISTS (SELECT 1 FROM music_catalog_events deleted WHERE deleted.aggregate_type='review_candidate' AND deleted.aggregate_id=c.id AND deleted.event_type='review_item.deleted')
+  AND NOT ${historicalReviewDeletedSql("review_candidate","c.id")}
   AND NOT EXISTS (SELECT 1 FROM music_cover_proposals p WHERE p.youtube_video_id=c.external_video_id AND p.status='pending_review' AND p.segment_start_seconds=0)`;
 const current = `${eligible} AND c.version=i.candidate_version AND c.candidate_kind=i.candidate_kind`;
 const decode = (r: Row): AiBatchItem => ({ id: String(r.id), batchId: String(r.batch_id), candidateId: String(r.candidate_id),
   candidateVersion: Number(r.candidate_version), candidateKind: r.candidate_kind as AiBatchItem["candidateKind"],
   title: r.title as string | null, status: r.status as AiBatchItem["status"], errorMessage: r.error_message as string | null,
   jobId: r.job_id as string | null ?? null, candidateStatus: r.candidate_status as string | null ?? null });
+const historicalPlaylistOrigin = `EXISTS(SELECT 1 FROM content_historical_links h WHERE h.subject_table='music_ingestion_candidates'
+  AND h.subject_key=json_array(c.id) AND h.source_table='music_ingestion_candidate_origins')`;
 function selectionSql(selection: AiBatchSelection) {
   const bindings: (string | number)[] = [];
   let where = eligible;
@@ -21,13 +27,13 @@ function selectionSql(selection: AiBatchSelection) {
     where += " AND EXISTS (SELECT 1 FROM json_each(?) j WHERE json_extract(j.value,'$.id')=c.id AND json_extract(j.value,'$.version')=c.version)";
     bindings.push(JSON.stringify(selection.candidates));
     where += ` AND (EXISTS (SELECT 1 FROM music_ingestion_candidate_origins o WHERE o.candidate_id=c.id)
-      OR EXISTS (SELECT 1 FROM music_channel_upload_candidate_origins o WHERE o.candidate_id=c.id))`;
+      OR EXISTS (SELECT 1 FROM music_channel_upload_candidate_origins o WHERE o.candidate_id=c.id) OR ${historicalPlaylistOrigin})`;
   } else {
     where += " AND NOT EXISTS (SELECT 1 FROM music_playlist_work_items wi WHERE wi.candidate_id=c.id)";
     const f = selection.filters;
     where += f.source === "automatic"
       ? " AND EXISTS (SELECT 1 FROM music_channel_upload_candidate_origins o WHERE o.candidate_id=c.id)"
-      : ` AND EXISTS (SELECT 1 FROM music_ingestion_candidate_origins o WHERE o.candidate_id=c.id${f.jobId ? " AND o.job_id=?" : ""})`;
+      : ` AND (EXISTS (SELECT 1 FROM music_ingestion_candidate_origins o WHERE o.candidate_id=c.id${f.jobId ? " AND o.job_id=?" : ""})${f.jobId ? "" : ` OR ${historicalPlaylistOrigin}`})`;
     if (f.source === "playlist" && f.jobId) bindings.push(f.jobId);
     if (f.candidateKind) { where += " AND c.candidate_kind=?"; bindings.push(f.candidateKind); }
   }
@@ -36,7 +42,9 @@ function selectionSql(selection: AiBatchSelection) {
 }
 export class D1AiBatchRepository implements AiBatchRepository {
   private readonly db: D1Database;
-  constructor(db: D1Database) { this.db = db; }
+  private readonly writer:BatchWriter|null;
+  constructor(db: D1Database,writer:BatchWriter|null=null) { this.db = db;this.writer=writer; }
+  private batch(action:BatchAction,id:string|null,statements:D1PreparedStatement[]) {return this.writer?this.writer(action,id,statements):this.db.batch(statements);}
   async preview(selection: AiBatchSelection) {
     const { where, bindings } = selectionSql(selection);
     const r = await this.db.prepare(`SELECT count(*) AS n FROM music_ingestion_candidates c WHERE ${where}`).bind(...bindings).first<{ n: number }>();
@@ -45,7 +53,7 @@ export class D1AiBatchRepository implements AiBatchRepository {
   async create(id: string, actor: string, key: string, selection: AiBatchSelection, now: number) {
     const requestKey = `${actor}:${key}`, json = JSON.stringify(selection);
     const { where, bindings } = selectionSql(selection);
-    await this.db.batch([
+    await this.batch('batch_create',id,[
       this.db.prepare("INSERT OR IGNORE INTO music_ai_review_batches(id,actor,request_key,selection_json,created_at) VALUES(?,?,?,?,?)").bind(id, actor, requestKey, json, now),
       this.db.prepare(`INSERT INTO music_ai_review_batch_items(id,batch_id,candidate_id,candidate_version,candidate_kind,title,auto_apply,created_at,updated_at)
         SELECT lower(hex(randomblob(16))),?,c.id,c.version,c.candidate_kind,c.title,c.review_input_json IS NULL,?,?
@@ -98,8 +106,9 @@ export class D1AiBatchRepository implements AiBatchRepository {
       autoApply: ["saved", "needs_selection"].includes(String(row.status)) && Boolean(row.auto_apply) && Boolean(row.can_apply) };
   }
   async claim(id: string, generation: number, token: string, now: number): Promise<AiBatchWork | null> {
-    const row = await this.db.prepare(`UPDATE music_ai_review_batch_items SET lease_token=?,lease_until=?,updated_at=?
-      WHERE id=? AND generation=? AND status IN ${pending} AND (lease_until IS NULL OR lease_until<=?) RETURNING *`).bind(token, now + 300000, now, id, generation, now).first<Row>();
+    const result=await this.batch('batch_claim',id,[this.db.prepare(`UPDATE music_ai_review_batch_items SET lease_token=?,lease_until=?,updated_at=?
+      WHERE id=? AND generation=? AND status IN ${pending} AND (lease_until IS NULL OR lease_until<=?) RETURNING *`).bind(token, now + 300000, now, id, generation, now)]);
+    const row=result[0].results[0] as Row|undefined;
     if (!row) return null;
     const batch = await this.db.prepare("SELECT actor FROM music_ai_review_batches WHERE id=?").bind(row.batch_id).first<{ actor: string }>();
     return { ...decode(row), actor: batch!.actor, reviewId: row.review_id as string | null, generation: Number(row.generation), result: row.result_json ? JSON.parse(String(row.result_json)) : null };
@@ -108,26 +117,26 @@ export class D1AiBatchRepository implements AiBatchRepository {
     return Boolean(await this.db.prepare(`SELECT i.id FROM music_ai_review_batch_items i JOIN music_ingestion_candidates c ON c.id=i.candidate_id WHERE i.id=? AND ${current}`).bind(item.id).first());
   }
   async attach(id: string, token: string, reviewId: string, now: number, waiting?: { message: string | null; retryAt: number | null }) {
-    await this.db.prepare("UPDATE music_ai_review_batch_items SET review_id=?,status='analyzing',error_message=?,dispatch_until=?,updated_at=? WHERE id=? AND lease_token=?")
-      .bind(reviewId, waiting?.message ?? null, Math.max(now + 600000, waiting?.retryAt ?? 0), now, id, token).run();
+    await this.batch('batch_attach',id,[this.db.prepare("UPDATE music_ai_review_batch_items SET review_id=?,status='analyzing',error_message=?,dispatch_until=?,updated_at=? WHERE id=? AND lease_token=?")
+      .bind(reviewId, waiting?.message ?? null, Math.max(now + 600000, waiting?.retryAt ?? 0), now, id, token)]);
   }
   async capture(id: string, token: string, result: AiReviewResult, now: number) {
-    await this.db.prepare("UPDATE music_ai_review_batch_items SET result_json=?,status='saving',updated_at=? WHERE id=? AND lease_token=?").bind(JSON.stringify(result), now, id, token).run();
+    await this.batch('batch_capture',id,[this.db.prepare("UPDATE music_ai_review_batch_items SET result_json=?,status='saving',updated_at=? WHERE id=? AND lease_token=?").bind(JSON.stringify(result), now, id, token)]);
   }
   async finish(id: string, token: string, status: AiBatchItem["status"], message: string | null, now: number) {
-    await this.db.prepare(`UPDATE music_ai_review_batch_items AS i SET
+    await this.batch('batch_finish',id,[this.db.prepare(`UPDATE music_ai_review_batch_items AS i SET
       status=CASE WHEN EXISTS (SELECT 1 FROM music_ingestion_candidates c WHERE c.id=i.candidate_id AND ${current}) THEN ? ELSE 'changed' END,
-      error_message=?,updated_at=?,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=?`).bind(status, message, now, id, token).run();
+      error_message=?,updated_at=?,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=?`).bind(status, message, now, id, token)]);
   }
   async release(id: string, token: string, now: number) {
-    await this.db.prepare("UPDATE music_ai_review_batch_items SET lease_token=NULL,lease_until=NULL,updated_at=? WHERE id=? AND lease_token=?").bind(now, id, token).run();
+    await this.batch('batch_release',id,[this.db.prepare("UPDATE music_ai_review_batch_items SET lease_token=NULL,lease_until=NULL,updated_at=? WHERE id=? AND lease_token=?").bind(now, id, token)]);
   }
   async pending(now: number, batchId?: string) {
-    const rows = await this.db.prepare(`UPDATE music_ai_review_batch_items SET dispatch_until=? WHERE id IN (
+    const rows = await this.batch('batch_pending',batchId??null,[this.db.prepare(`UPDATE music_ai_review_batch_items SET dispatch_until=? WHERE id IN (
       SELECT id FROM music_ai_review_batch_items WHERE status IN ${pending} AND (lease_until IS NULL OR lease_until<=?)
       AND (dispatch_until IS NULL OR dispatch_until<=?) ${batchId ? "AND batch_id=?" : ""} ORDER BY updated_at,id LIMIT 20) RETURNING id,generation`)
-      .bind(now + 600000, now, now, ...(batchId ? [batchId] : [])).all<{ id: string; generation: number }>();
-    return rows.results;
+      .bind(now + 600000, now, now, ...(batchId ? [batchId] : []))]);
+    return rows[0].results as {id:string;generation:number}[];
   }
   async hasRecoveryWork(now: number) {
     return Boolean(await this.db.prepare(`SELECT id FROM music_ai_review_batch_items WHERE status IN ${pending}
@@ -146,10 +155,10 @@ export class D1AiBatchRepository implements AiBatchRepository {
       ${candidateIds ? "AND i.candidate_id IN (SELECT value FROM json_each(?))" : ""} ${receiptGuard}`).bind(now, id, ...(candidateIds ? [JSON.stringify(candidateIds)] : []),...(receiptId ? [receiptId] : []))];
     if(command)statements.push(this.db.prepare(`INSERT OR IGNORE INTO music_catalog_events(id,aggregate_type,aggregate_id,event_type,actor_kind,actor_user_id,detail_json,created_at)
       VALUES(?,'ai_review_batch',?,'ai_batch.retry','admin',?,'{}',?)`).bind(receiptId,id,command.actorUserId,now));
-    await this.db.batch(statements);
+    await this.batch('batch_retry',id,statements);
   }
   async dead(id: string, generation: number, now: number) {
-    await this.db.prepare(`UPDATE music_ai_review_batch_items SET status='failed',error_message='큐 처리를 완료하지 못했습니다. 다시 시도하세요.',updated_at=?
-      WHERE id=? AND generation=? AND status IN ${pending} AND (lease_until IS NULL OR lease_until<=?)`).bind(now, id, generation, now).run();
+    await this.batch('batch_dead',id,[this.db.prepare(`UPDATE music_ai_review_batch_items SET status='failed',error_message='큐 처리를 완료하지 못했습니다. 다시 시도하세요.',updated_at=?
+      WHERE id=? AND generation=? AND status IN ${pending} AND (lease_until IS NULL OR lease_until<=?)`).bind(now, id, generation, now)]);
   }
 }

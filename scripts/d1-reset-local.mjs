@@ -6,6 +6,7 @@ import {
   mkdtemp,
   mkdir,
   readdir,
+  readFile,
   rename,
   rm,
   writeFile,
@@ -15,12 +16,21 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { shouldBlockDestructiveLocalReset } from "./d1-reset-guard.mjs";
+import { resolveLocalD1Options } from "./d1-local-options.mjs";
+import ts from "typescript";
+import { assertLocalPersistenceIsolation } from "./site-target.mjs";
 
 const require = createRequire(import.meta.url);
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const wranglerEntry = join(dirname(require.resolve("wrangler/package.json")), "bin", "wrangler.js");
-const wranglerStateDir = resolve(rootDir, ".wrangler", "state");
+const args = process.argv.slice(2).filter((arg) => arg !== "--");
+const target = resolveLocalD1Options(args);
+const wranglerStateDir = resolve(rootDir, target.persistTo);
+const canonical = ts.parseConfigFileTextToJson(target.configPath, await readFile(resolve(rootDir, target.configPath), "utf8"));
+if (canonical.error) throw new Error("Invalid selected site's canonical D1 configuration.");
+const database = canonical.config.d1_databases.find(binding => binding.binding === "otw_db");
+if (!database) throw new Error("Missing selected site's local D1 binding.");
 const drizzleDir = resolve(rootDir, "drizzle");
 const localD1Dir = resolve(wranglerStateDir, "v3", "d1");
 const legacyLocalD1Dir = resolve(
@@ -49,13 +59,12 @@ const usage = [
   "  --help           이 도움말을 표시합니다.",
 ].join("\n");
 
-const args = process.argv.slice(2).filter((arg) => arg !== "--");
 if (args.includes("--help") || args.includes("-h")) {
   console.log(usage);
   process.exit(0);
 }
 const unknownArgs = args.filter(
-  (arg) => arg !== "--validate-only" && arg !== "--force",
+  (arg) => arg !== "--validate-only" && arg !== "--force" && !arg.startsWith("--site=") && !arg.startsWith("--persist-to="),
 );
 if (unknownArgs.length > 0) {
   console.error(
@@ -67,14 +76,15 @@ if (unknownArgs.length > 0) {
 const validateOnly = args.includes("--validate-only");
 const force = args.includes("--force");
 
-const ensureInsideStateDir = (target) => {
-  const relative = target.slice(wranglerStateDir.length);
+const ensureInsideStateDir = (mutationPath) => {
+  assertLocalPersistenceIsolation(target.siteId, process.env, rootDir, target.persistTo);
+  const relative = mutationPath.slice(wranglerStateDir.length);
   if (
-    target === wranglerStateDir ||
-    !target.startsWith(wranglerStateDir) ||
+    mutationPath === wranglerStateDir ||
+    !mutationPath.startsWith(wranglerStateDir) ||
     (!relative.startsWith("\\") && !relative.startsWith("/"))
   ) {
-    throw new Error(`Refusing to modify path outside .wrangler/state: ${target}`);
+    throw new Error(`Refusing to modify path outside .wrangler/state: ${mutationPath}`);
   }
 };
 
@@ -176,8 +186,8 @@ const buildConfig = (migrationsDir) =>
       d1_databases: [
         {
           binding: "otw_db",
-          database_name: "otw-db",
-          database_id: "133b980d-1701-427e-93fd-8c9dcca1132e",
+          database_name: database.database_name,
+          ...(database.database_id ? { database_id: database.database_id } : {}),
           migrations_dir: migrationsDir,
         },
       ],
@@ -224,7 +234,7 @@ const applyMigrations = async (configPath, persistDir) => {
       "d1",
       "migrations",
       "apply",
-      "otw-db",
+      "otw_db",
       "--config",
       configPath,
       "--local",
@@ -241,7 +251,7 @@ const executeFile = async (configPath, persistDir, filePath) => {
     [
       "d1",
       "execute",
-      "otw-db",
+      "otw_db",
       "--config",
       configPath,
       "--local",
@@ -265,7 +275,7 @@ const verifyResetDatabase = async (
     [
       "d1",
       "execute",
-      "otw-db",
+      "otw_db",
       "--config",
       configPath,
       "--local",
@@ -314,7 +324,7 @@ const verifyResetDatabase = async (
     [
       "d1",
       "execute",
-      "otw-db",
+      "otw_db",
       "--config",
       configPath,
       "--local",
@@ -345,16 +355,24 @@ const promoteResetDatabase = async (sourceD1Dir) => {
     ensureInsideStateDir(target);
   }
 
+  ensureInsideStateDir(stateV3Dir);
   await mkdir(stateV3Dir, { recursive: true });
+  ensureInsideStateDir(readyDir);
   await rm(readyDir, { recursive: true, force: true });
+  ensureInsideStateDir(backupDir);
   await rm(backupDir, { recursive: true, force: true });
+  ensureInsideStateDir(readyDir);
   await cp(sourceD1Dir, readyDir, { recursive: true });
 
   const hadCurrentDatabase = await pathExists(localD1Dir);
   try {
     if (hadCurrentDatabase) {
+      ensureInsideStateDir(localD1Dir);
+      ensureInsideStateDir(backupDir);
       await rename(localD1Dir, backupDir);
     }
+    ensureInsideStateDir(readyDir);
+    ensureInsideStateDir(localD1Dir);
     await rename(readyDir, localD1Dir);
   } catch (error) {
     if (
@@ -362,15 +380,19 @@ const promoteResetDatabase = async (sourceD1Dir) => {
       !(await pathExists(localD1Dir)) &&
       (await pathExists(backupDir))
     ) {
+      ensureInsideStateDir(backupDir);
+      ensureInsideStateDir(localD1Dir);
       await rename(backupDir, localD1Dir);
     }
     throw error;
   } finally {
+    ensureInsideStateDir(readyDir);
     await rm(readyDir, { recursive: true, force: true });
   }
 
   for (const staleDir of [legacyLocalD1Dir, backupDir]) {
     try {
+      ensureInsideStateDir(staleDir);
       await rm(staleDir, { recursive: true, force: true });
     } catch (error) {
       console.warn(

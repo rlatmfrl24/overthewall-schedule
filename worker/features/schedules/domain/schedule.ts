@@ -10,6 +10,7 @@ export type ScheduleWriteInput = {
 };
 
 export type ScheduleActor = {
+  requestId?: string;
   actorId: string | null;
   actorName: string | null;
   actorIp: string | null;

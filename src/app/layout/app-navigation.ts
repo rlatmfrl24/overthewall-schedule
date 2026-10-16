@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { useUser } from "@clerk/clerk-react";
 import {
   CalendarDays,
@@ -68,7 +69,7 @@ type PublicNavigationOptions = {
   otwPlayAdminPreviewAvailable?: boolean;
 };
 
-const FAN_CAFE_URL = "https://cafe.naver.com/otwoffical";
+
 
 export function getAppChromeMode(pathname: string): AppChromeMode {
   if (pathname.startsWith("/snapshot") || pathname.startsWith("/profile/")) {
@@ -169,7 +170,7 @@ export function getPublicNavigationSections({
           ? [
               {
                 id: "otw-play",
-                label: "OTW Play",
+                label: `${site.playName}`,
                 icon: Music2,
                 group: "content" as const,
                 to: otwPlayDestination,
@@ -192,26 +193,26 @@ export function getPublicNavigationSections({
           : []),
         {
           id: "multiview",
-          label: "오버더월 멀티뷰",
+          label: site.id === "luvdia" ? "멀티뷰" : `${site.siteName} 멀티뷰`,
           icon: MonitorPlay,
           group: "content",
           to: "/multiview",
         },
       ],
     },
-    {
-      id: "external",
+    ...(site.fanCafeUrl ? [{
+      id: "external" as const,
       label: "외부 링크",
       items: [
         {
           id: "fan-cafe",
           label: "공식 팬카페",
           icon: ExternalLink,
-          group: "external",
-          externalHref: FAN_CAFE_URL,
+          group: "external" as const,
+          externalHref: site.fanCafeUrl,
         },
       ],
-    },
+    }] : []),
   ];
 
   if (isAdmin) {

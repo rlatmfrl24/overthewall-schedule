@@ -33,11 +33,12 @@ const fakeState = vi.hoisted(() => ({
 const fakeDb = vi.hoisted(() => ({
   select() {
     return {
-      from() {
+      from(table: { [key: symbol]: unknown }) {
+        const rows = table[Symbol.for("drizzle:Name")] === "members" ? fakeState.members : fakeState.cafeSources;
         return {
           where() {
             return {
-              orderBy: () => fakeState.members,
+              orderBy: () => rows,
             };
           },
           orderBy: () => fakeState.cafeSources,
@@ -67,6 +68,7 @@ vi.mock("../../../platform/http-helpers", async (importOriginal) => {
 
 const makeEnv = (): Env =>
   ({
+    SITE_ID: "otw",
     YOUTUBE_API_KEY: "",
     X_BEARER_TOKEN: "token",
     otw_db: { prepare: timestampQueryMock } as unknown as D1Database,
@@ -257,8 +259,9 @@ describe("member-posts aggregate worker route", () => {
     };
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toContain("max-age=300");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(fetchXPostsForHandlesMock).toHaveBeenCalledWith(["otw_member"], {
+      siteId: "otw",
       bearerToken: "token",
       cacheDb: env.otw_db,
       forceRefresh: false,
@@ -270,7 +273,7 @@ describe("member-posts aggregate worker route", () => {
     });
     expect(readStoredNaverCafePostsForSourcesMock).toHaveBeenCalledWith(
       fakeState.cafeSources,
-      { cacheDb: env.otw_db, size: 5 },
+      { cacheDb: env.otw_db, size: 5, siteId: "otw" },
     );
     expect(body.posts.map((post) => post.kind)).toEqual(["cafe", "x"]);
     expect(body.posts.map((post) => post.memberUid)).toEqual([2, 1]);
@@ -421,6 +424,7 @@ describe("member-posts aggregate worker route", () => {
 
     expect(response.status).toBe(200);
     expect(fetchXPostsForHandlesMock).toHaveBeenCalledWith(["otw_member"], {
+      siteId: "otw",
       bearerToken: "token",
       cacheDb: env.otw_db,
       forceRefresh: false,
@@ -430,7 +434,7 @@ describe("member-posts aggregate worker route", () => {
       richXLinkPreviewEnabled: true,
       usageSource: "member-posts",
     });
-    expect(response.headers.get("Cache-Control")).toContain("max-age=300");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 
   it("관리자 cache-buster GET도 X 수집을 강제하지 않는다", async () => {
@@ -450,6 +454,7 @@ describe("member-posts aggregate worker route", () => {
     expect(response.status).toBe(200);
     expect(requireAdminUserMock).toHaveBeenCalledTimes(1);
     expect(fetchXPostsForHandlesMock).toHaveBeenCalledWith(["otw_member"], {
+      siteId: "otw",
       bearerToken: "token",
       cacheDb: env.otw_db,
       forceRefresh: false,

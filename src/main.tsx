@@ -14,6 +14,8 @@ import { ToastProvider } from "./shared/ui/toast";
 import { queryClient } from "./shared/query/query-client";
 import { RootNotFound } from "./app/errors/root-not-found";
 import { AppStartup } from "./app/providers/app-startup";
+import { SessionQueryBoundary } from "./app/providers/session-query-boundary";
+import { site } from "./shared/config/site";
 
 const router = createRouter({ routeTree, defaultNotFoundComponent: RootNotFound, InnerWrap: AppStartup });
 
@@ -28,6 +30,9 @@ const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 if (!PUBLISHABLE_KEY) {
   throw new Error("Missing Publishable Key");
+}
+if (!site.publicOrigin || !import.meta.env.VITE_CLERK_ISSUER) {
+  throw new Error("Missing selected site's public origin or Clerk app identity.");
 }
 
 const expectedClerkKeyPrefix = import.meta.env.DEV ? "pk_test_" : "pk_live_";
@@ -46,7 +51,7 @@ createRoot(document.getElementById("root")!).render(
         <AnimationProvider>
           <ToastProvider>
             <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
-              <RouterProvider router={router} />
+              <SessionQueryBoundary><RouterProvider router={router} /></SessionQueryBoundary>
             </ClerkProvider>
           </ToastProvider>
         </AnimationProvider>

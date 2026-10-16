@@ -27,3 +27,4 @@ export {
   type XPostFeedService,
   type XPostFeedServiceOptions
 } from "./infrastructure/x-posts-adapters";
+export { D1RedactionWriter } from "./infrastructure/d1-redaction-writer";

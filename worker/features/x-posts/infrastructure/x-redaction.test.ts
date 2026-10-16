@@ -11,6 +11,7 @@ describe("X post redaction", () => {
           bind: () => ({
             all: async () => ({ results: [{ id: "12345678901" }] }),
             run: async () => ({
+              results: [],
               meta: { changes: sql.includes("UPDATE x_posts") ? 0 : 1 },
             }),
           }),

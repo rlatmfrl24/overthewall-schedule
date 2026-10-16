@@ -7,6 +7,7 @@ import { RootNotFound } from "@/app/errors/root-not-found";
 import { SiteSeoProvider } from "@/shared/seo";
 import { InteractionProvider } from "@/app/providers/interaction-provider";
 import { UiScopeContext } from "@/shared/lib/ui-scope";
+import { SitePublicationBoundary } from "@/app/providers/site-publication-boundary";
 
 const RootComponent = () => {
   const location = useLocation();
@@ -49,6 +50,7 @@ const RootComponent = () => {
   }
 
   return (
+    <SitePublicationBoundary>
     <UiScopeContext value={chromeMode === "admin" ? "admin" : isPlayRoute ? "play" : "public"}>
       <InteractionProvider>
         <SiteSeoProvider pathname={location.pathname}>
@@ -59,6 +61,7 @@ const RootComponent = () => {
         </SiteSeoProvider>
       </InteractionProvider>
     </UiScopeContext>
+    </SitePublicationBoundary>
   );
 };
 

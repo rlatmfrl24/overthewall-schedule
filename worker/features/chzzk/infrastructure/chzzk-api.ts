@@ -6,6 +6,10 @@ import type {
 } from "../../../platform/types";
 import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
 import { pMap } from "../../../platform/http-helpers";
+import type { SiteId } from "@contracts/site-definition";
+import { getHiddenMemberCodes } from "@contracts/site-publication";
+import { publicationHiddenSql } from "../../content-transition";
+import { readActiveChzzkChannels } from "./d1-active-channels";
 
 const LIVE_STATUS_CACHE = new Map<string, CachedLiveStatus>();
 const LIVE_STATUS_TTL_MS = 60_000;
@@ -46,6 +50,7 @@ type ChzzkCacheRow = {
 
 type CacheWriteRow = {
   key: string;
+  channelId: string;
   type: ChzzkCacheType;
   value: string;
   fetchedAt: number;
@@ -80,6 +85,7 @@ export type ChzzkClipFetchRequest = {
 };
 
 export type ChzzkFetchOptions = {
+  siteId?: SiteId;
   forceRefresh?: boolean;
   requireFresh?: boolean;
 };
@@ -189,14 +195,16 @@ const readCacheRows = async (
 const writeCacheRows = async (
   cacheDb: ChzzkCacheDb | undefined,
   rows: CacheWriteRow[],
+  siteId: SiteId,
 ) => {
   if (!cacheDb || rows.length === 0) return;
 
   for (let offset = 0; offset < rows.length; offset += CHZZK_CACHE_WRITE_CHUNK_SIZE) {
     const chunk = rows.slice(offset, offset + CHZZK_CACHE_WRITE_CHUNK_SIZE);
-    const valuesSql = chunk.map(() => "(?, ?, ?, ?, ?, ?, ?, ?)").join(", ");
+    const valuesSql = chunk.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ");
     const bindings = chunk.flatMap((row) => [
       row.key,
+      row.channelId,
       row.type,
       row.value,
       row.fetchedAt,
@@ -209,11 +217,13 @@ const writeCacheRows = async (
     try {
       await cacheDb
         .prepare(
-          `INSERT INTO chzzk_api_cache (
+          `WITH incoming(key,channel_id,type,value,fetched_at,expires_at,stale_until,last_status,last_error) AS (VALUES ${valuesSql})
+           INSERT INTO chzzk_api_cache (
              key, type, value, fetched_at, expires_at, stale_until,
              last_status, last_error
            )
-           VALUES ${valuesSql}
+           SELECT key,type,value,fetched_at,expires_at,stale_until,last_status,last_error FROM incoming
+           WHERE ${siteId === "luvdia" ? "1" : `NOT EXISTS(SELECT 1 FROM members hidden WHERE ${publicationHiddenSql("members","hidden",siteId)} AND lower(hidden.url_chzzk) LIKE '%chzzk.naver.com/'||incoming.channel_id||'%' AND NOT EXISTS(SELECT 1 FROM members remaining WHERE remaining.content_access='normal' AND NOT (${publicationHiddenSql("members","remaining",siteId)}) AND (remaining.is_deprecated IS NULL OR remaining.is_deprecated!=1) AND lower(remaining.url_chzzk) LIKE '%chzzk.naver.com/'||incoming.channel_id||'%'))`}
            ON CONFLICT(key) DO UPDATE SET
              type = excluded.type,
              value = excluded.value,
@@ -363,6 +373,7 @@ type CachedBatchRequest = {
 };
 
 type FetchCachedBatchParams<T> = {
+  siteId?: SiteId;
   requests: CachedBatchRequest[];
   cacheDb?: ChzzkCacheDb;
   cacheType: ChzzkCacheType;
@@ -376,6 +387,7 @@ type FetchCachedBatchParams<T> = {
 };
 
 const fetchCachedBatch = async <T>({
+  siteId = "otw",
   requests,
   cacheDb,
   cacheType,
@@ -387,9 +399,13 @@ const fetchCachedBatch = async <T>({
   isContent,
   fetchOrigin,
 }: FetchCachedBatchParams<T>) => {
-  const uniqueRequests = Array.from(
+  let uniqueRequests = Array.from(
     new Map(requests.map((request) => [request.cacheKey, request])).values(),
   );
+  if (cacheDb && getHiddenMemberCodes(siteId, Date.now()).length) {
+    const allowed = await readActiveChzzkChannels(cacheDb as D1Database, siteId);
+    uniqueRequests = uniqueRequests.filter(request => allowed.has(request.channelId));
+  }
   const timestamp = now();
   const resolved = new Map<string, T | null>();
   const candidates = new Map<string, CacheCandidate<T>>();
@@ -479,6 +495,7 @@ const fetchCachedBatch = async <T>({
         }
         return {
           key: request.cacheKey,
+          channelId: request.channelId,
           type: cacheType,
           value,
           fetchedAt,
@@ -505,6 +522,7 @@ const fetchCachedBatch = async <T>({
       }
       return {
         key: existing.key,
+        channelId: request.channelId,
         type: existing.type,
         value: existing.value,
         fetchedAt: toNumber(existing.fetched_at),
@@ -520,6 +538,7 @@ const fetchCachedBatch = async <T>({
   await writeCacheRows(
     cacheDb,
     writes.filter((row): row is CacheWriteRow => row !== null),
+    siteId,
   );
 
   return requests.map((request) => ({
@@ -587,6 +606,7 @@ export const fetchChzzkVideosBatch = async (
   const originRequests = new Map(normalized.map((request) => [request.cacheKey, request]));
 
   return fetchCachedBatch<ChzzkVideosContent>({
+    siteId: options.siteId,
     requests: normalized,
     cacheDb,
     cacheType: "vods",
@@ -620,6 +640,7 @@ export const fetchChzzkClipsBatch = async (
   const originRequests = new Map(normalized.map((request) => [request.cacheKey, request]));
 
   return fetchCachedBatch<ChzzkClipsContent>({
+    siteId: options.siteId,
     requests: normalized,
     cacheDb,
     cacheType: "clips",

@@ -30,11 +30,13 @@ const encodeAssetKey = (key: string) =>
     .join("/");
 
 export const apiRoutes = {
+  publication: { status: staticRoute("/api/publication-status") },
   siteContent: { read: staticRoute("/api/site-content") },
   auth: {
     adminStatus: staticRoute("/api/auth/admin-status"),
   },
   assets: {
+    protectedReference: staticRoute("/api/assets/protected-reference"),
     object: dynamicRoute(
       "/r2-assets/*key",
       (key: string) => `/r2-assets/${encodeAssetKey(key)}` as const,
@@ -44,6 +46,7 @@ export const apiRoutes = {
     adminLogs: staticRoute("/api/settings/audit-logs"),
   },
   chzzk: {
+    history: staticRoute("/api/chzzk/history"),
     liveStatus: staticRoute("/api/live-status"),
     vods: staticRoute("/api/vods/chzzk"),
     clips: staticRoute("/api/clips/chzzk"),
@@ -165,6 +168,8 @@ export const apiRoutes = {
       aiReviewDraft: dynamicRoute("/api/play/admin/ai-review-drafts/:id", (id: string) => `/api/play/admin/ai-review-drafts/${encodeURIComponent(id)}` as const),
       aiReviews: staticRoute("/api/play/admin/ai-reviews"),
       aiReview: dynamicRoute("/api/play/admin/ai-reviews/:id", (id: string) => `/api/play/admin/ai-reviews/${encodeURIComponent(id)}` as const),
+      aiReviewCloseUnknown: dynamicRoute("/api/play/admin/ai-reviews/:id/close-unknown", (id: string) => `/api/play/admin/ai-reviews/${encodeURIComponent(id)}/close-unknown` as const),
+      aiReviewResume: dynamicRoute("/api/play/admin/ai-reviews/:id/resume-unissued", (id: string) => `/api/play/admin/ai-reviews/${encodeURIComponent(id)}/resume-unissued` as const),
       importJobs: staticRoute("/api/play/admin/imports"),
       importJob: dynamicRoute(
         "/api/play/admin/imports/:jobId",
@@ -362,6 +367,7 @@ export const apiRoutes = {
     runCollectionNow: staticRoute("/api/settings/x-collection/run-now"),
   },
   youtube: {
+    history: staticRoute("/api/youtube/feed/history"),
     vods: staticRoute("/api/youtube/vods"),
     videos: staticRoute("/api/youtube/videos"),
     shorts: staticRoute("/api/youtube/shorts"),

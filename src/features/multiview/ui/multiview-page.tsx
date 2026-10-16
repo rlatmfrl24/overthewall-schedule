@@ -1,3 +1,4 @@
+import { site } from "@/shared/config/site";
 import { Check, ExternalLink, MonitorPlay, RotateCcw, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/shared/ui/button";
@@ -117,7 +118,7 @@ export function MultiviewPage() {
   return <main data-testid="multiview-root" className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-background text-foreground">
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-6xl space-y-7 p-4 sm:p-6">
-          <header className="space-y-2"><h1 className="flex items-center gap-2 text-xl font-bold"><MonitorPlay aria-hidden="true" />오버더월 멀티뷰</h1>
+          <header className="space-y-2"><h1 className="flex items-center gap-2 text-xl font-bold"><MonitorPlay aria-hidden="true" />{site.siteName} 멀티뷰</h1>
             <p className="text-sm text-muted-foreground">함께 볼 멤버를 선택하고 Mul.Live에서 시청해 주세요. 최대 {MAX_MULTIVIEW_CHANNELS}명까지 선택할 수 있습니다.</p></header>
           <Alert>
             <AlertTitle>치지직 멀티뷰 시청 안내</AlertTitle>

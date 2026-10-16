@@ -1,9 +1,11 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdirSync, cpSync, writeFileSync } from "node:fs";
+import { writeStaticAssetManifest } from "./scripts/static-asset-manifest.mjs";
 import {
   cloudflareTest,
   readD1Migrations,
 } from "@cloudflare/vitest-pool-workers";
 import path from "node:path";
+import {createRequire} from "node:module";
 import { defineConfig } from "vitest/config";
 import { testAliases, testMaxWorkers } from "./vitest.shared";
 
@@ -50,6 +52,7 @@ const OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES = [
   "0093_omniscient_sunset_bain.sql",
   "0094_reflective_spirit.sql",
   "0097_fine_agent_zero.sql",
+  "0102_content_transition_foundation.sql",
 ] as const;
 const OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES = [
   ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.slice(0, 4),
@@ -73,9 +76,34 @@ export default defineConfig({
   resolve: { alias: testAliases },
   plugins: [
     cloudflareTest(async () => {
+      const dependencyRequire=createRequire(createRequire(import.meta.url).resolve("wrangler/package.json"));
+      // Compile the actual Worker locally with the installed library, never a
+      // deploy/upload CLI. The two services share only task-owned D1 fixtures.
+      const relayScript=dependencyRequire("esbuild").buildSync({entryPoints:[path.resolve(__dirname,"worker/index.ts")],bundle:true,write:false,format:"esm",platform:"browser",external:["cloudflare:*","node:*"],tsconfig:path.resolve(__dirname,"tsconfig.worker.json")}).outputFiles[0].text;
+      const relayWorkers=(["otw","luvdia"] as const).map(site=>({name:`transition-${site}`,modules:true,script:relayScript,compatibilityDate:"2025-11-25",compatibilityFlags:["nodejs_compat"],d1Databases:{otw_db:site==="otw"?"otw_db":"transition_target_db"},bindings:{SITE_ID:site,SITE_D1_DATABASE_NAME:`${site}-db`,SITE_ASSET_BUCKET_NAME:`${site}-bucket`,SITE_PUBLIC_ORIGIN:site==="otw"?"https://otw-schedule.info":"http://localhost:5174",...Object.fromEntries(["control","critical","background"].map(lane=>[`SITE_${lane.toUpperCase()}_QUEUE_NAME`,`${site}-ops-${lane}`])),SITE_INGESTION_QUEUE_NAME:`${site}-play-ingestion`,SITE_AI_REVIEW_QUEUE_NAME:`${site}-play-ai-review`,SITE_DEAD_LETTER_QUEUE_NAME:`${site}-dead-letter`,PLAY_ANALYTICS_DATASET:`${site}_play_events`},serviceBindings:{CONTENT_TRANSITION_PEER:{name:`transition-${site==="otw"?"luvdia":"otw"}`,entrypoint:"ContentTransitionRelay"}}}));
       const migrations = await readD1Migrations(
         path.resolve(__dirname, "./drizzle"),
       );
+      const nativeWorkflowWorker = {
+        ...relayWorkers[0], name: "transition-native-workflow",
+        workflows: { SCHEDULED_OPERATIONS_WORKFLOW: { name: "transition-native-scheduled", className: "ScheduledOperationsWorkflow" } },
+        queueProducers: { OTW_OPS_BACKGROUND_QUEUE: "otw-ops-background" },
+        queueConsumers: { "otw-ops-background": { maxBatchSize: 1, maxBatchTimeout: 0, maxRetries: 0 } },
+        outboundService: "native-workflow-provider",
+      };
+      // Small feature fixtures consume the exact canonical access DDL for their tables.
+      // Stable per-table migration names let combined fixtures deduplicate members.
+      const accessMigrations = (tables: string[]) => [...tables.map(table => ({
+        name: `0102_content_transition_foundation.sql:${table}`,
+        queries: migrations.find(migration => migration.name === "0102_content_transition_foundation.sql")!.queries
+          .filter(query => query.startsWith(`ALTER TABLE \`${table}\` ADD COLUMN \`content_access\``) ||
+            (table === "content_transitions" && (query.startsWith("CREATE TABLE `content_transitions`") || query.startsWith("CREATE TABLE `content_transition_membership`")))),
+      })), ...(tables.includes("content_transitions") ? migrations
+        .filter(({ name }) => /^(0133_|0134_)/.test(name))
+        .map(migration => ({
+          name: `${migration.name}:control`,
+          queries: migration.queries.filter(query => /^\s*ALTER TABLE `content_transition(?:s|_membership)` ADD /.test(query)),
+        })) : [])];
       const otwPlayCatalogMigrations = migrations.filter(({ name }) =>
         name.startsWith(OTW_PLAY_CATALOG_MIGRATION_PREFIX),
       );
@@ -90,12 +118,24 @@ export default defineConfig({
       const otwPlayPublicCatalogMigrations =
         OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.flatMap((name) => {
           const migration = migrationsByName.get(name);
-          return migration ? [migration] : [];
+          return migration ? [migration.name === "0102_content_transition_foundation.sql" ? {
+            ...migration,
+            queries: [
+              ...migrationsByName.get("0071_gifted_romulus.sql")!.queries.filter(query => /^\s*CREATE (?:TABLE|(?:UNIQUE )?INDEX) `(?:youtube_feed_|u?idx_youtube_feed_)/.test(query)),
+              ...migration.queries.filter(query => !/^\s*ALTER TABLE `(?!members`|music_|__new_music_|youtube_feed_videos`)/.test(query)),
+            ],
+          } : migration] : [];
         });
       const otwPlayIngestionMigrations =
         OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES.flatMap((name) => {
           const migration = migrationsByName.get(name);
-          return migration ? [migration] : [];
+          return migration ? [migration.name === "0102_content_transition_foundation.sql" ? {
+            ...migration,
+            queries: [
+              ...migrationsByName.get("0071_gifted_romulus.sql")!.queries.filter(query => /^\s*CREATE (?:TABLE|(?:UNIQUE )?INDEX) `(?:youtube_feed_|u?idx_youtube_feed_)/.test(query)),
+              ...migration.queries.filter(query => !/^\s*ALTER TABLE `(?!members`|music_|__new_music_|youtube_feed_videos`)/.test(query)),
+            ],
+          } : migration] : [];
         });
       const otwPlayPreHardeningMigrations = otwPlayIngestionMigrations.filter(
         ({ name }) =>
@@ -119,7 +159,7 @@ export default defineConfig({
           });
       const otwPlayReleaseMigrations =
         OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES.flatMap((name) => {
-          const migration = migrationsByName.get(name);
+          const migration = otwPlayPublicCatalogMigrations.find(migration => migration.name === name) ?? migrationsByName.get(name);
           return migration ? [migration] : [];
         });
       const otwPlaySourceHealthMigration = migrationsByName.get(
@@ -214,44 +254,69 @@ export default defineConfig({
 
       return {
         miniflare: {
+          // Miniflare's assets:storage service is global within one runtime.
+          // Select distinct actual artifact directories through one real ASSETS
+          // binding; no synthetic bytes or ETag/version substitutions.
+          workers: [{name:"file-asset-storage",modules:true,script:"export default {fetch(request,env){return env.ASSETS.fetch(request)}}",compatibilityDate:"2025-11-25",assets:{binding:"ASSETS",directory:(()=>{
+            const root=path.resolve(__dirname,".tmp/sul36-file-assets-bundle");
+            for(const side of ["source","target","changed-body","missing-manifest"]) {
+              const directory=path.join(root,side);
+              mkdirSync(directory,{recursive:true});
+              cpSync(path.resolve(__dirname,"public/profile"),path.join(directory,"profile"),{recursive:true});
+              if(side!=="missing-manifest") writeStaticAssetManifest(directory);
+              if(side==="changed-body") writeFileSync(path.join(directory,"profile/bing_hayu.webp"),"changed actual static body after manifest");
+            }
+            return root;
+          })()}},...["source","target","changed-body","missing-manifest"].map(side=>({name:`file-assets-${side}`,modules:true,script:`export default {fetch(request,env){const url=new URL(request.url);url.pathname='/${side}'+url.pathname;return env.FILES.fetch(new Request(url,request));}}`,compatibilityDate:"2025-11-25",serviceBindings:{FILES:"file-asset-storage"}})),...relayWorkers,nativeWorkflowWorker,{name:"native-workflow-provider",modules:true,script:dependencyRequire("esbuild").buildSync({entryPoints:[path.resolve(__dirname,"worker/test-support/native-workflow-provider.ts")],bundle:true,write:false,format:"esm",platform:"browser"}).outputFiles[0].text,compatibilityDate:"2025-11-25"}],
+          workflows: { NATIVE_SCHEDULED_WORKFLOW: { name: "transition-native-scheduled", className: "ScheduledOperationsWorkflow", scriptName: "transition-native-workflow" } },
+          serviceBindings: { NATIVE_WORKFLOW_PROVIDER:"native-workflow-provider",SOURCE_ASSETS:"file-assets-source",TARGET_ASSETS:"file-assets-target",CHANGED_ASSETS:"file-assets-changed-body",MISSING_MANIFEST_ASSETS:"file-assets-missing-manifest",SOURCE_RELAY:{name:"transition-otw",entrypoint:"ContentTransitionRelay"},TARGET_RELAY:{name:"transition-luvdia",entrypoint:"ContentTransitionRelay"},SOURCE_WORKER:"transition-otw",TARGET_WORKER:"transition-luvdia" },
           compatibilityDate: "2025-11-25",
           compatibilityFlags: ["nodejs_compat"],
-          d1Databases: ["otw_db"],
+          d1Databases: ["otw_db", "transition_target_db"],
+          r2Buckets: ["ASSET_BUCKET", "TRANSITION_TARGET_BUCKET"],
           bindings: {
+            CONTENT_TRANSITION_MIGRATIONS: migrations,
+            CONTENT_TRANSITION_CONTROL_MIGRATIONS: accessMigrations(["content_transitions"]),
             SCHEDULE_DAY_MIGRATION_SQL: readFileSync(path.resolve(__dirname, "drizzle/0096_unknown_hex.sql"), "utf8"),
             OTW_PLAY_SEARCH_INTEGRITY_SQL: readFileSync(path.resolve(__dirname, "scripts/otw-play-search-integrity.sql"), "utf8"),
             OTW_PLAY_SEARCH_BACKFILL_MIGRATIONS: migrations.filter(({ name }) => name === "0095_otw-play-ready-search-backfill.sql"),
-            MEMBER_POSTS_CAFE_MIGRATIONS: migrations.filter(({ name }) => /^(0024_|0036_|0039_)/.test(name))
-              .map(migration => ({ ...migration, queries: migration.queries.filter(query => !/^\s*CREATE INDEX `idx_x_/.test(query)) })),
+            MEMBER_POSTS_CAFE_MIGRATIONS: [...migrations.filter(({ name }) => /^(0024_|0036_|0039_)/.test(name))
+              .map(migration => ({ ...migration, queries: migration.queries.filter(query => !/^\s*CREATE INDEX `idx_x_/.test(query)) })), ...accessMigrations(["naver_cafe_posts"])],
             OTW_PLAY_PLAYLIST_MIGRATIONS: migrations.filter(({ name }) => ["0038_misty_speed_demon.sql", "0087_burly_midnight.sql", "0088_friendly_photon.sql"].includes(name)),
-            SETTINGS_MIGRATIONS: migrations.filter(({ name }) =>
+            SETTINGS_MIGRATIONS: [...migrations.filter(({ name }) =>
               /^(0011_|0038_|0086_)/.test(name)
-            ),
+            ), ...accessMigrations(["content_transitions"])],
             YOUTUBE_QUOTA_MIGRATIONS: migrations.filter(({ name }) =>
               name === "0086_canonical-youtube-quota.sql"
             ),
-            DDAY_SCHEMA_MIGRATIONS: migrations.filter(({ name }) =>
+            DDAY_SCHEMA_MIGRATIONS: [...migrations.filter(({ name }) =>
               /^(0004_|0005_)/.test(name)
-            ),
-            YOUTUBE_FEED_MIGRATIONS: migrations.filter(({ name }) =>
+            ), ...accessMigrations(["ddays", "content_transitions"])],
+            YOUTUBE_FEED_MIGRATIONS: [...migrations.filter(({ name }) =>
               /^(0000_|0009_|0011_|0017_|0027_|0035_|0037_|0068_|0069_|0071_|0082_|0086_)/.test(name)
             ).map(migration => migration.name.startsWith("0071_")
               ? { ...migration, queries: migration.queries.filter(query =>
                   /^\s*CREATE (?:TABLE|(?:UNIQUE )?INDEX) `(?:youtube_feed_|u?idx_youtube_feed_)/.test(query)
                 ) }
-              : migration),
-            X_REFERENCE_MIGRATIONS: migrations.filter(({ name }) =>
-              /^(0000_|0011_|0023_|0025_|0026_|0068_|0071_|0072_|0075_|0077_|0078_|0079_|0083_|0084_)/.test(name)
+              : migration), ...accessMigrations(["members", "youtube_feed_videos", "content_transitions"])],
+            X_REFERENCE_MIGRATIONS: [...migrations.filter(({ name }) =>
+              /^(0000_|0011_|0023_|0025_|0026_|0068_|0071_|0072_|0075_|0077_|0078_|0079_|0083_|0084_|0137_|0138_)/.test(name)
             ).map(migration => /^(0071_|0072_)/.test(migration.name)
               ? { ...migration, queries: migration.queries.filter(query => /^\s*ALTER TABLE `x_/.test(query)) }
-              : migration),
+              : migration), ...accessMigrations(["members", "x_posts", "x_post_facts"])],
             OTW_PLAY_CHANNEL_SEPARATION_MIGRATIONS: migrations.filter(({ name }) => name === "0017_short_satana.sql"),
             OTW_PLAY_CATALOG_MIGRATIONS: otwPlayCatalogMigrations,
             OTW_PLAY_PROPOSAL_SEARCH_MIGRATIONS:
               otwPlayProposalSearchMigrations,
             OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS:
               otwPlayPublicCatalogMigrations,
-            OTW_PLAY_INGESTION_MIGRATIONS: otwPlayIngestionMigrations,
+            OTW_PLAY_INGESTION_MIGRATIONS: [...otwPlayIngestionMigrations,
+              ...accessMigrations(["content_transitions"]).filter(migration => migration.name.endsWith(":control"))],
+            OTW_PLAY_AI_REVIEW_MIGRATIONS: [
+              ...otwPlayIngestionMigrations,
+              migrationsByName.get("0092_perfect_manta.sql")!,
+              ...accessMigrations(["content_transitions"]).filter(migration => migration.name.endsWith(":control")),
+            ],
             OTW_PLAY_POLLING_MIGRATIONS: migrations.filter(({ name }) =>
               name === "0085_retire_websub_hourly_polling.sql"
             ),
@@ -268,6 +333,8 @@ export default defineConfig({
             SCHEDULED_OPERATIONS_MIGRATIONS: [
               scheduledOperationsMigration,
               scheduledOperationsPartialMigration,
+              {name:'0135_transition_scheduled_reconciliation.sql:outbox',queries:migrationsByName.get('0135_transition_scheduled_reconciliation.sql')!.queries.filter(query=>query.startsWith('ALTER TABLE `scheduled_outbox`'))},
+              migrationsByName.get('0136_transition_unresolved_scheduled_outbox.sql')!,
             ],
           },
         },

@@ -4,14 +4,15 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
 import { XPostHistoryManager } from "./x-post-history-manager";
+import { ApiError } from "@/shared/api/client";
 
-const fetchActiveMembersMock = vi.hoisted(() => vi.fn());
+const fetchAdminMembersMock = vi.hoisted(() => vi.fn());
 const fetchXHistoryPostsMock = vi.hoisted(() => vi.fn());
 const redactXHistoryPostMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/features/members", () => ({
-  fetchActiveMembers: fetchActiveMembersMock,
+  fetchAdminMembers: fetchAdminMembersMock,
 }));
 
 vi.mock("../../api/x-history-api", () => ({
@@ -24,8 +25,18 @@ vi.mock("@/shared/ui/toast", () => ({
 }));
 
 describe("XPostHistoryManager", () => {
+  it.each(["CONTENT_MOVED","CONTENT_ACCEPTED","CONTENT_CONFLICT"])("삭제를 성공으로 표시하지 않고 실제 %s 안내를 유지한다",async code=>{
+    redactXHistoryPostMock.mockRejectedValueOnce(new ApiError(`실제 ${code} 안내`,409,{code}));
+    render(createElement(XPostHistoryManager,{enabled:true}),{wrapper:createQueryWrapper()});
+    const details=screen.getByText("보관 기록 관리").closest("details")!;details.open=true;fireEvent(details,new Event("toggle"));
+    const actions=(await screen.findByText("기타 관리")).closest("details")!;actions.open=true;fireEvent(actions,new Event("toggle"));
+    fireEvent.click(screen.getByRole("button",{name:"원문 제거 및 숨김"}));
+    fireEvent.click(await screen.findByRole("button",{name:"영구 제거"}));
+    await waitFor(()=>expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({variant:"error",description:`실제 ${code} 안내`})));
+    expect(screen.getByRole("button",{name:"영구 제거"})).toBeTruthy();expect(toastMock.mock.calls.some(([input])=>input.variant==="success")).toBe(false);
+  });
   beforeEach(() => {
-    fetchActiveMembersMock.mockResolvedValue([]);
+    fetchAdminMembersMock.mockResolvedValue([]);
     fetchXHistoryPostsMock.mockResolvedValue({
       posts: [{
         postId: "2092687186093388108",

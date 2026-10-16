@@ -1,40 +1,18 @@
+import {isIsoDate,parseScheduleInput} from "../domain/schedule-input";
 import type {
   SchedulePayload,
-  UpsertSchedulePayload,
 } from "../../../../contracts/schedules";
-import { authenticateOptionalRequest } from "../../../platform/auth";
+import { authenticateOptionalRequest, requireAdminUser } from "../../../platform/auth";
 import type { Env } from "../../../platform/types";
 import { badRequest, getActorInfo, parseNumericId } from "../../../platform/http-helpers";
 import type { ScheduleWriteOperation } from "../application/ports/schedule-write-authorization-policy";
 import type { ScheduleService } from "../application/schedule-service";
 import {
-  isScheduleStatus,
   type ScheduleActor,
-  type ScheduleWriteInput,
 } from "../domain/schedule";
 
 const SCHEDULE_READ_CACHE_CONTROL = "no-store";
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
-
-export type ResolveScheduleService = (env: Env) => ScheduleService;
-
-const isIsoDate = (value: unknown): value is string => {
-  if (typeof value !== "string" || !DATE_PATTERN.test(value)) {
-    return false;
-  }
-
-  const [year, month, day] = value.split("-").map(Number);
-  const candidate = new Date(Date.UTC(year, month - 1, day));
-  return (
-    candidate.getUTCFullYear() === year &&
-    candidate.getUTCMonth() === month - 1 &&
-    candidate.getUTCDate() === day
-  );
-};
-
-const isNullableText = (value: unknown) =>
-  value === undefined || value === null || typeof value === "string";
+export type ResolveScheduleService = (env: Env, includeArchived: boolean) => ScheduleService;
 
 const parseJson = async (request: Request): Promise<unknown | null> => {
   try {
@@ -44,47 +22,6 @@ const parseJson = async (request: Request): Promise<unknown | null> => {
   }
 };
 
-const parseScheduleInput = (
-  body: unknown,
-  options: { requireId: boolean },
-): ScheduleWriteInput | null => {
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return null;
-  }
-
-  const candidate = body as Partial<
-    UpsertSchedulePayload & { id: number | string | null }
-  >;
-  const memberUid = parseNumericId(candidate.member_uid);
-  const id =
-    candidate.id === undefined || candidate.id === null
-      ? null
-      : parseNumericId(candidate.id);
-
-  if (
-    memberUid === null ||
-    (options.requireId && id === null) ||
-    (candidate.id !== undefined && candidate.id !== null && id === null) ||
-    !isIsoDate(candidate.date) ||
-    !isScheduleStatus(candidate.status) ||
-    !isNullableText(candidate.start_time) ||
-    !isNullableText(candidate.title) ||
-    (typeof candidate.start_time === "string" &&
-      !TIME_PATTERN.test(candidate.start_time))
-  ) {
-    return null;
-  }
-
-  return {
-    id,
-    memberUid,
-    date: candidate.date,
-    startTime: candidate.start_time ?? null,
-    title: candidate.title ?? null,
-    status: candidate.status,
-  };
-};
-
 const resolveAuthorizedActor = async (
   request: Request,
   env: Env,
@@ -92,8 +29,10 @@ const resolveAuthorizedActor = async (
   service: ScheduleService,
 ): Promise<{ authorized: boolean; actor: ScheduleActor }> => {
   const authenticatedUser = await authenticateOptionalRequest(request, env);
-  const actor = getActorInfo(request, authenticatedUser);
-  const authorized = await service.canWrite(operation, actor);
+  const actor:ScheduleActor = getActorInfo(request, authenticatedUser);
+  const requestId=request.headers.get("Idempotency-Key");
+  if(requestId && /^[A-Za-z0-9_-]{16,100}$/.test(requestId)) actor.requestId=requestId;
+  const authorized = (env.SITE_ID!=="luvdia" || authenticatedUser!==null) && await service.canWrite(operation, actor);
   return { authorized, actor };
 };
 
@@ -101,7 +40,14 @@ export const createScheduleRequestHandler =
   (resolveService: ResolveScheduleService) =>
   async (request: Request, env: Env) => {
   const url = new URL(request.url);
-  const service = resolveService(env);
+  const requestId=request.headers.get("Idempotency-Key");
+  if(request.method!=="GET" && requestId!==null && !/^[A-Za-z0-9_-]{16,100}$/.test(requestId)) return badRequest("Invalid Idempotency-Key");
+  const includeArchived = request.method === "GET" && url.searchParams.get("archive") === "1";
+  if (includeArchived) {
+    const admin = await requireAdminUser(request, env);
+    if (!admin.ok) return admin.response;
+  }
+  const service = resolveService(env, includeArchived);
 
   if (url.pathname === "/api/schedules/save") {
     if (request.method !== "POST") {

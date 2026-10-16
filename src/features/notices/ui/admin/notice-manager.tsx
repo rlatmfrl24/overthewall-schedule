@@ -5,11 +5,12 @@ import { Input } from "@/shared/ui/input";
 import { QueryReadback } from "@/shared/ui/query-readback";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchActiveMembers, type Member } from "@/features/members";
+import { fetchAdminMembers, type Member } from "@/features/members";
 import type { Notice } from "../../model/types";
 import { PiSpinnerGapBold as Loader2, PiPlusCircleBold as PlusCircle, PiPencilSimpleBold as Pencil, PiTrashBold as Trash2, PiArrowsClockwiseBold as RefreshCw, PiHardDriveBold as HardDrive, PiImageBrokenBold as ImageOff, PiTrashBold as Trash, PiStarBold as Star } from "react-icons/pi";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
+import { AuthenticatedImage } from "@/shared/ui/authenticated-image";
 import {
   Select,
   SelectContent,
@@ -30,6 +31,7 @@ import {
 } from "../../api/notices";
 import { queryKeys } from "@/shared/query/query-keys";
 import { useToast } from "@/shared/ui/toast";
+import { getContentTransitionMessage } from "@/shared/api/client";
 import { AdminSectionHeader } from "@/app/admin";
 import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
 import { getOwnedNoticeThumbnailKey } from "../../model/notice-thumbnails";
@@ -137,8 +139,8 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
     staleTime: QUERY_STALE_TIME_MS,
   });
   const membersQuery = useQuery<Member[]>({
-    queryKey: queryKeys.members.active(),
-    queryFn: fetchActiveMembers,
+    queryKey: queryKeys.members.admin(),
+    queryFn: fetchAdminMembers,
     staleTime: QUERY_STALE_TIME_MS,
   });
   const thumbnailStatusQuery = useQuery<NoticeThumbnailStatusResponse>({
@@ -229,6 +231,7 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
     () =>
       notices.reduce<number | null>((selectedId, notice) => {
         if (
+          notice.content_access === "admin_archive" ||
           notice.is_featured === false ||
           !notice.id ||
           getNoticePublicationStatus(notice) !== "published"
@@ -286,7 +289,7 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
       console.error("Delete failed:", error);
       toast({
         variant: "error",
-        description: "공지사항 삭제에 실패했습니다.",
+        description: getContentTransitionMessage(error) ?? "공지사항 삭제에 실패했습니다.",
       });
     } finally {
       setDeletingNotice(null);
@@ -321,7 +324,7 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
       console.error("Failed to save notice:", error);
       toast({
         variant: "error",
-        description: "공지사항 저장에 실패했습니다.",
+        description: getContentTransitionMessage(error) ?? "공지사항 저장에 실패했습니다.",
       });
       throw error;
     } finally {
@@ -343,7 +346,7 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
       console.error("Failed to set featured notice:", error);
       toast({
         variant: "error",
-        description: "대표 공지 지정에 실패했습니다.",
+        description: getContentTransitionMessage(error) ?? "대표 공지 지정에 실패했습니다.",
       });
     } finally {
       setFeaturingNoticeId(null);
@@ -528,7 +531,7 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
                 isThumbnailStatusLoading ||
                 isCleaningThumbnails ||
                 !thumbnailStatus?.bucketConfigured ||
-                (thumbnailStatus?.stats.cleanupEligibleObjects ?? 0) === 0
+                (thumbnailStatus?.stats.unusedObjects ?? 0) === 0
               }
             >
               {isCleaningThumbnails ? (
@@ -606,7 +609,7 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
               {cleanupEligibleThumbnailPreview
                 .slice(0, 3)
                 .map((asset) => (
-                  <div key={asset.key} className="truncate">
+                  <div key={asset.objectKey ?? asset.key} className="truncate">
                     {asset.key} · {formatBytes(asset.size)}
                   </div>
                 ))}
@@ -634,16 +637,17 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
                 <div className="min-w-0 space-y-1">
                   <h3 className="whitespace-pre-wrap break-words font-semibold leading-relaxed [overflow-wrap:anywhere]">{notice.content}</h3>
                   <p className="break-words text-xs leading-5 text-muted-foreground">{getRelatedMemberLabel(notice, memberMap)}</p>
+                  {getNoticeImageUrls(notice).length > 0 && <details><summary className="cursor-pointer text-sm">공지 이미지 보기</summary><div className="mt-2 grid gap-2">{getNoticeImageUrls(notice).map((url, index) => <AuthenticatedImage key={url} src={url} referenceContext={{kind:"notice",id:notice.id}} alt={`${notice.content} 이미지 ${index + 1}`} className="max-h-80 max-w-full object-contain" />)}</div></details>}
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1">이미지 {renderThumbnailBadge(notice)}</span><span>링크 {getNoticeLinks(notice).length}개</span></div>
                 </div>
                 <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2 text-xs">{renderNoticePublicationStatus(notice)}<span>{noticeTypeConfigs[notice.type as NoticeTypeKey]?.label ?? notice.type}</span></div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs">{notice.content_access === "admin_archive" && <span>관리자 보관 · 읽기 전용</span>}{renderNoticePublicationStatus(notice)}<span>{noticeTypeConfigs[notice.type as NoticeTypeKey]?.label ?? notice.type}</span></div>
                   <p className="text-xs leading-5 text-muted-foreground tabular-nums">{formatPeriod(notice)}</p>
                 </div>
                 <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-1 lg:w-64">
-                  <Button size="sm" variant={notice.id === featuredNoticeId ? "default" : "outline"} aria-pressed={notice.id === featuredNoticeId} disabled={featuringNoticeId !== null || getNoticePublicationStatus(notice) !== "published"} onClick={() => void handleSetFeaturedNotice(notice)}><Star className="size-3.5"/>{notice.id === featuredNoticeId ? "대표 공지" : "대표로 선택"}</Button>
-                  <Button size="sm" variant="ghost" onClick={() => handleOpenEdit(notice)} aria-label={`${notice.content} 수정`}><Pencil className="size-3.5"/>수정</Button>
-                  <SecondaryAction size="sm" variant="ghost" className="text-destructive" onClick={() => setDeletingNotice(notice)} aria-label={`${notice.content} 삭제`}><Trash2 className="size-3.5"/>삭제</SecondaryAction>
+                  <Button size="sm" variant={notice.id === featuredNoticeId ? "default" : "outline"} aria-pressed={notice.id === featuredNoticeId} disabled={notice.content_access === "admin_archive" || featuringNoticeId !== null || getNoticePublicationStatus(notice) !== "published"} onClick={() => void handleSetFeaturedNotice(notice)}><Star className="size-3.5"/>{notice.id === featuredNoticeId ? "대표 공지" : "대표로 선택"}</Button>
+                  <Button size="sm" variant="ghost" disabled={notice.content_access === "admin_archive"} onClick={() => handleOpenEdit(notice)} aria-label={`${notice.content} 수정`}><Pencil className="size-3.5"/>수정</Button>
+                  <SecondaryAction size="sm" variant="ghost" className="text-destructive" disabled={notice.content_access === "admin_archive"} onClick={() => setDeletingNotice(notice)} aria-label={`${notice.content} 삭제`}><Trash2 className="size-3.5"/>삭제</SecondaryAction>
                 </div>
               </article>
             ))}

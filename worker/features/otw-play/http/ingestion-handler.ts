@@ -1,3 +1,4 @@
+import {TransitionWriteError} from '../../content-transition';
 import {
   OTW_PLAY_INGESTION_CANDIDATE_STATUSES,
   OTW_PLAY_INGESTION_CLASSIFICATIONS,
@@ -371,6 +372,7 @@ export const createIngestionHandler = (
     }
     return new Response(null, { status: 404, headers: NO_STORE_HEADERS });
   } catch (error) {
+    if(error instanceof TransitionWriteError) return responseJson({error:{code:error.code,message:error.message,requestId,fields:{targetSite:error.targetSite,...(error.operationId?{operationId:error.operationId}:{})}}},409);
     if (error instanceof IngestionCursorError) {
       return errorResponse(
         requestId,
@@ -402,6 +404,7 @@ export const createIngestionHandler = (
       );
     }
     if (error instanceof IngestionRepositoryError) {
+      if(error.code==='content_accepted'||error.code==='content_moved'||error.code==='content_conflict') return responseJson({error:{code:error.code.toUpperCase(),message:error.message,requestId,fields:error.fields}},409);
       const status = error.code === "not_found"
         ? 404
         : error.code === "validation_failed"

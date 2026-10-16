@@ -1,4 +1,5 @@
 import type { Member } from "@/features/members";
+import { AuthenticatedImage } from "@/shared/ui/authenticated-image";
 
 interface WeeklyGridMemberCellProps {
   member: Member;
@@ -18,7 +19,7 @@ export const WeeklyGridMemberCell = ({
         }}
       >
         <div className="relative shrink-0 w-8 h-8 md:w-12 md:h-12">
-          <img
+          <AuthenticatedImage protectedImage={false}
             src={`/profile/${member.code}.webp`}
             alt={member.name}
             className="w-full h-full rounded-full object-cover border shadow-sm"

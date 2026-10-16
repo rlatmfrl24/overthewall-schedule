@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {siteEnv} from '../../../test-support/site-env';
 import type { Env } from "../../../platform/types";
 import {
   DATA_RETENTION_POLICIES,
@@ -37,11 +38,16 @@ const isPrunableRow = (
   return Number(value) < Number(cutoff);
 };
 
-const makeEnv = (state: FakeD1State): Env =>
-  ({
+const makeEnv = (state: FakeD1State): Env => {
+  let lastChanges = 0;
+  return ({
+    ...siteEnv(),
     otw_db: {
-      batch: async (statements: Array<{ all: () => Promise<unknown> }>) =>
-        Promise.all(statements.map((statement) => statement.all())),
+      batch: async (statements: Array<{ all: () => Promise<unknown> }>) => {
+        const results = [];
+        for (const statement of statements) results.push(await statement.all());
+        return results;
+      },
       prepare: (sql: string) => {
         let params: unknown[] = [];
         const statement = {
@@ -64,6 +70,11 @@ const makeEnv = (state: FakeD1State): Env =>
             return { count } as T;
           },
           all: async <T,>() => {
+            if (/^DELETE\b/.test(sql)) {
+              await statement.run();
+              return { results: [] as T[] };
+            }
+            if (sql.includes("SELECT changes()")) return { results: [{ deleted: lastChanges }] as T[] };
             if (sql.includes("SELECT COUNT(*)") || sql.includes("SELECT 1 AS has_work")) {
               const policy = getPolicyForSql(sql);
               const count = policy ? (state.tables[policy.table] ?? []).filter((row) =>
@@ -106,13 +117,15 @@ const makeEnv = (state: FakeD1State): Env =>
               (row) => !isPrunableRow(row, policy, cutoff),
             );
             state.tables[policy.table] = kept;
-            return { meta: { changes: rows.length - kept.length } };
+            lastChanges = rows.length - kept.length;
+            return { meta: { changes: lastChanges } };
           },
         };
         return statement;
       },
     },
   }) as unknown as Env;
+};
 
 describe("data retention service", () => {
   it("selects only due policies in one read-only batch and preserves the cutoff boundary", async () => {
