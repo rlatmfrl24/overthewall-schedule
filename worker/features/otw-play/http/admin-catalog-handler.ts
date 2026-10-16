@@ -13,7 +13,7 @@ import {
   SourceHealthServiceError,
 } from "../application/source-health-service";
 import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metadata";
-import {TransitionWriteError,isTransitionMaintenanceError} from "../../content-transition";
+import { TransitionWriteError, isTransitionMaintenanceError } from "../../content-transition";
 import {
   parseCatalogEntryPreflight,
   parseCreateCatalogEntry,

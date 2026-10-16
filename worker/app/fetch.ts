@@ -5,7 +5,7 @@ import { isSiteContentPath } from "@contracts/site-public-content";
 import { createSiteSeoDependencies } from "./site-seo";
 import { getWorkerSiteResources } from "../platform/site";
 import { handleAsset } from "./assets";
-import { TransitionWriteError,TransitionMaintenanceError,isTransitionMaintenanceError } from "../features/content-transition";
+import { TransitionWriteError, TransitionMaintenanceError, isTransitionMaintenanceError } from "../features/content-transition";
 import { readTransitionAccess,privateTransitionResponse } from "./content-transition-access";
 import { readSitePublicationAccess } from "./site-publication";
 import { SITE_OPENS_AT } from "@contracts/site-publication";

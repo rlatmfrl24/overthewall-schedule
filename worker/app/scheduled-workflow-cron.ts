@@ -4,7 +4,7 @@ import { ScheduledJobCoordinator } from "../features/scheduled-operations";
 import type { Env } from "../platform/types";
 import { getWorkerSiteResources } from "../platform/site";
 import {recoverTransitionWork} from "./content-transition-recovery";
-import {readTransitionMaintenance} from '../features/content-transition';
+import { readTransitionMaintenance } from '../features/content-transition';
 
 export const SCHEDULED_WORKFLOW_CRON = "3,13,23,33,53 * * * *";
 

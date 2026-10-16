@@ -1,7 +1,7 @@
 import type { PlayWorkCommand, PlayWorkDisposition, PlayWorkItem, PlayWorkQueue, PlayWorkQueueAction } from "@contracts/otw-play-work-queue";
 import type { OtwPlayYouTubePlaylistSummary } from "../application/ports/youtube-metadata";
 import { historicalReviewDeletedSql } from "./historical-review-sql";
-import { publicationHiddenSql,publicationChannelHiddenSql } from '../../content-transition';
+import { publicationHiddenSql, publicationChannelHiddenSql } from '../../content-access';
 import type {SiteId} from '@contracts/site-definition';
 import { WorkQueueError, type WorkQueueBatchRecord, type WorkQueueMessage, type WorkQueueRepository, type WorkQueueSource } from "../application/ports/work-queue";
 

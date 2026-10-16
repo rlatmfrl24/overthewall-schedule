@@ -10,7 +10,7 @@ import {
 import { ScheduledJobCoordinator } from "../features/scheduled-operations";
 import type { Env } from "../platform/types";
 import { getWorkerSiteResources } from "../platform/site";
-import {assertTransitionAdmission} from '../features/content-transition';
+import { assertTransitionAdmission } from '../features/content-transition';
 
 export class ScheduledOperationsWorkflow extends WorkflowEntrypoint<
   Env,

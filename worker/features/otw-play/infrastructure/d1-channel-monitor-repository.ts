@@ -1,5 +1,5 @@
 import type { SiteId } from "@contracts/site-definition";
-import { publicationHiddenSql,publicationChannelHiddenSql,isPublicationCutoffSqlError } from "../../content-transition";
+import { publicationHiddenSql, publicationChannelHiddenSql, isPublicationCutoffSqlError } from "../../content-access";
 import type {
   OtwPlayChannelMonitorCandidateDto,
   OtwPlayChannelMonitorDto,

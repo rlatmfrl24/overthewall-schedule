@@ -1,4 +1,4 @@
-import type { HistoricalContentMaterial } from "@contracts/content-transition";
+import type { HistoricalContentMaterial } from "../../../../contracts/content-history";
 
 export async function readHistoricalMaterials(db:D1Database,table:"music_ingestion_candidates"|"music_cover_proposals",ids:readonly string[]):Promise<Map<string,HistoricalContentMaterial[]>> {
   const result=new Map<string,HistoricalContentMaterial[]>();

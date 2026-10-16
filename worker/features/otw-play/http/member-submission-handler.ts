@@ -7,7 +7,7 @@ import {
 } from "../application/member-submission-service";
 import { MemberSubmissionRepositoryError } from "../application/ports/member-submission-repository";
 import { MemberSubmissionCursorError } from "../domain/member-submission-cursor";
-import {TransitionWriteError} from "../../content-transition";
+import { TransitionWriteError } from "../../content-transition";
 import {
   parseCreateSubmission,
   parseSubmissionPreflight,

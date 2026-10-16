@@ -1,11 +1,11 @@
 import {catalogImportProjection} from "../features/otw-play";
 import {WorkerEntrypoint} from "cloudflare:workers";
 import {parseSiteStorageResources} from "@contracts/site-definition";
-import {D1TransitionRepository,D1CandidateChannelStages,D1ChzzkReadJournal,D1YouTubeChannelReadJournal,D1YouTubeVideoReadJournal,D1AiUnknownControl,D1AiResumeControl,type TransitionPeer} from "../features/content-transition";
+import { D1TransitionRepository, D1CandidateChannelStages, D1ChzzkReadJournal, D1YouTubeChannelReadJournal, D1YouTubeVideoReadJournal, D1AiUnknownControl, D1AiResumeControl, type TransitionPeer } from "../features/content-transition";
 import type {YouTubeChannelReadResponse,YouTubeVideoReadResponse,YouTubeVideoCompletion,YouTubeVideoFailure} from "@contracts/content-transition-youtube";
 import type {ChzzkScanResponse} from "@contracts/content-transition-chzzk";
 import type {Env} from "../platform/types";
-import {deliverTransitionOutcome,transitionPeer} from "./content-transition";
+import { deliverTransitionOutcome, transitionPeer } from "./content-transition";
 import {executeOriginalChzzkChild,finishOriginalChzzkParent} from "./content-transition-chzzk";
 import {D1ChzzkCollectorWriter,reconcileHolidaySuggestions} from "../features/schedules";
 

@@ -1,7 +1,7 @@
 import {catalogImportProjection,D1AiReviewAdoption} from "../features/otw-play";
 import type {TransitionOperationMessage} from "@contracts/content-transition-queue";
 import { parseSiteStorageResources } from "@contracts/site-definition";
-import { D1TransitionRepository,D1ChzzkReadJournal,D1AiUnknownControl,D1AiResumeControl } from "../features/content-transition";
+import { D1TransitionRepository, D1ChzzkReadJournal, D1AiUnknownControl, D1AiResumeControl } from "../features/content-transition";
 import { D1ScheduleTransitionWriter,D1PendingTransitionWriter,D1LiveScheduleTransitionWriter,D1ChzzkScanTransitionWriter,D1CollectorTransitionWriter } from "../features/schedules";
 import { D1NoticeTransitionWriter } from "../features/notices";
 import type { Env } from "../platform/types";

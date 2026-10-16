@@ -1,7 +1,8 @@
 import type {OtwPlayAdminCommandResponse} from '@contracts/otw-play';
 import type {TransitionOperationMessage} from '@contracts/content-transition-queue';
 import type {YouTubeVideoCompletion,YouTubeVideoDependency,YouTubeVideoFailure,YouTubeVideoReadResponse} from '@contracts/content-transition-youtube';
-import {D1TransitionRepository,D1YouTubeVideoReadJournal,TransitionWriteError,youtubeVideoRequestKey,parseVideoCatalogFailure,isPublicationCutoffSqlError,type TransitionPeer} from '../../content-transition';
+import { D1TransitionRepository, D1YouTubeVideoReadJournal, TransitionWriteError, youtubeVideoRequestKey, parseVideoCatalogFailure, type TransitionPeer } from '../../content-transition';
+import { isPublicationCutoffSqlError } from '../../content-access';
 import {parseVideoCatalogMutation,videoCatalogReads,type VideoCatalogCommand} from '../domain/video-catalog-command';
 import type {VideoCatalogTransitionPort,VideoCatalogResultData} from '../application/ports/video-catalog-transition';
 import {AdminCatalogServiceError} from '../application/admin-catalog-service';

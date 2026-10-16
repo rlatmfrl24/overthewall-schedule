@@ -1,4 +1,4 @@
-import {TransitionWriteError} from '../../content-transition';
+import { TransitionWriteError } from '../../content-transition';
 import {
   OTW_PLAY_INGESTION_CANDIDATE_STATUSES,
   OTW_PLAY_INGESTION_CLASSIFICATIONS,

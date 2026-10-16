@@ -1,4 +1,4 @@
-import {D1TransitionRepository,TransitionWriteError} from "../../content-transition";
+import { D1TransitionRepository, TransitionWriteError } from "../../content-transition";
 import type {TransitionOperationMessage} from "../../../../contracts/content-transition-queue";
 import {parsePendingCommand,type PendingCommand} from "../domain/pending-command";
 import type {ScheduleActor} from "../domain/schedule";

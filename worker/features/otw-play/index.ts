@@ -124,3 +124,5 @@ export {D1CandidateReviewWriter} from './infrastructure/d1-candidate-review-writ
 export { D1CandidateMetadataWriter } from './infrastructure/d1-candidate-metadata-writer';
 export {D1AiReviewAdoption} from './infrastructure/d1-ai-review-adoption';
 export {D1AiReviewTransitionReadback} from './infrastructure/d1-ai-review-transition-readback';
+
+export {isArchivedYouTubeVideo,archivedYouTubeVideoSql} from "./infrastructure/archived-youtube-video";

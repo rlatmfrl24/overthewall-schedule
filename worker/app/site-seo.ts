@@ -1,7 +1,7 @@
 import type { Env } from "../platform/types";
 import { normalizeAdminSettings } from "@contracts/configuration";
 import { D1MemberReader } from "../features/members";
-import { readContentAccessRevision } from "../features/content-transition";
+import { readContentAccessRevision } from "../features/content-access";
 import {
   SiteSeoService,
   type SiteSeoReader,

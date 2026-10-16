@@ -1,6 +1,6 @@
 import {expect,it} from "vitest";
 import {classifyFileReference,validateFileOrigins} from "./file-reference";
-import type {TransitionPlan} from "@contracts/content-transition";
+import type { TransitionPlan } from "@contracts/content-transition";
 const plan={sourceSite:"otw",targetSite:"luvdia",assetBuckets:{source:"otw-schedule",target:"luvdia-schedule"},fileOrigins:[{kind:"site",site:"otw",origin:"https://otw-schedule.info"},{kind:"external",origin:"https://media.example.com",reason:"Approved external provider media"}]} as unknown as TransitionPlan;
 it("projects approved owning URLs into canonical relative paths without changing external-only media",()=>{
   validateFileOrigins(plan);

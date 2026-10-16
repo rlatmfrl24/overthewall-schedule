@@ -8,7 +8,7 @@ import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
 import { pMap } from "../../../platform/http-helpers";
 import type { SiteId } from "@contracts/site-definition";
 import { getHiddenMemberCodes } from "@contracts/site-publication";
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import { readActiveChzzkChannels } from "./d1-active-channels";
 
 const LIVE_STATUS_CACHE = new Map<string, CachedLiveStatus>();

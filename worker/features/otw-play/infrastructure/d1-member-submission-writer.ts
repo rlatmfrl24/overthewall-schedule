@@ -1,4 +1,4 @@
-import {D1TransitionRepository,TransitionWriteError} from "../../content-transition";
+import { D1TransitionRepository, TransitionWriteError } from "../../content-transition";
 import type {TransitionOperationMessage} from "@contracts/content-transition-queue";
 import type {OtwPlayCreateSubmissionResponse} from "@contracts/otw-play";
 import {MemberSubmissionRepositoryError} from "../application/ports/member-submission-repository";

@@ -18,8 +18,8 @@ import {
   type ScheduledJobItemRecord,
 } from "../../../platform/scheduled-jobs";
 import { ScheduledJobPlanner } from "./scheduled-job-planner";
-import {buildContentTransitionRepository} from "../../../app/content-transition";
-import {assertTransitionAdmission} from '../../content-transition';
+import { buildContentTransitionRepository } from "../../../app/content-transition";
+import { assertTransitionAdmission } from '../../content-transition';
 
 const SCHEDULED_DISPATCH_BATCH_SIZE = 8;
 

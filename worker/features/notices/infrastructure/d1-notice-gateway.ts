@@ -1,4 +1,4 @@
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import type { SiteId } from "@contracts/site-definition";
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { members, notices } from "@db/schema";
@@ -14,7 +14,7 @@ import {
   type D1R2FileStore,
 } from "../../assets";
 import type { DbInstance } from "../../../platform/db";
-import { contentRowMovedSql } from "../../content-transition";
+import { contentRowMovedSql } from "../../content-access";
 import type { NoticeCommand } from "../domain/notice-command";
 import type { D1NoticeTransitionWriter } from "./d1-notice-transition-writer";
 import type {

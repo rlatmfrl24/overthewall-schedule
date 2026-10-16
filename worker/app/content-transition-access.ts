@@ -1,7 +1,7 @@
 import {catalogImportProjection} from "../features/otw-play";
 import { apiRoutes } from "@contracts/api-routes";
 import { parseSiteStorageResources } from "@contracts/site-definition";
-import { D1TransitionRepository,assertTransitionAdmission } from "../features/content-transition";
+import { D1TransitionRepository, assertTransitionAdmission } from "../features/content-transition";
 import { authenticateOptionalRequest, isAdminUser } from "../platform/auth";
 import type { Env } from "../platform/types";
 

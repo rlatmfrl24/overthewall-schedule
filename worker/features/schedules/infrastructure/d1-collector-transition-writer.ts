@@ -1,4 +1,4 @@
-import {D1TransitionRepository,TransitionWriteError} from "../../content-transition";
+import { D1TransitionRepository, TransitionWriteError } from "../../content-transition";
 import type {TransitionOperationMessage} from "@contracts/content-transition-queue";
 import {parseCollectorCommand,type CollectorCommand} from "../domain/collector-command";
 

@@ -1,4 +1,4 @@
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import { parseSiteId } from "@contracts/site-definition";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { naverCafePosts, naverCafeSources } from "@db/schema";
@@ -12,7 +12,7 @@ import type {
   NaverCafeSourceRecord,
   NaverCafeVisibility,
 } from "../application/naver-cafe-application";
-import { readContentAccessRevision } from "../../content-transition";
+import { readContentAccessRevision } from "../../content-access";
 import { readStoredNaverCafePostsForSources } from "./naver-cafe-collector";
 
 const ENABLED_SETTING_KEY = "naver_cafe_posts_enabled";

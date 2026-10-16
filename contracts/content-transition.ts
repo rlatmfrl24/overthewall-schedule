@@ -3,15 +3,7 @@ import type { SiteId } from "./site-definition";
 export const CONTENT_TRANSITION_PROTOCOL = 1;
 export const MANAGED_TRANSITION_MEMBER_CODES = ["bing_hayu", "u_lili", "yang_mei"] as const;
 export type ContentAccess = "normal" | "admin_archive";
-export interface HistoricalContentProvenance { sourceSite: SiteId; sourceRecordId: string }
-export interface HistoricalPersonCredit extends HistoricalContentProvenance { name: string }
-export type HistoricalJsonValue = string | number | boolean | null | HistoricalJsonValue[] | { [key: string]: HistoricalJsonValue };
-/** Read-only imported facts. These records never identify a runnable target job or user. */
-export interface HistoricalContentMaterial extends HistoricalContentProvenance {
-  kind: "origin" | "event" | "review" | "attempt" | "batch" | "job" | "work" | "approval";
-  sourceTable: string;
-  values: Record<string,HistoricalJsonValue>;
-}
+export type { HistoricalContentProvenance, HistoricalPersonCredit, HistoricalJsonValue, HistoricalContentMaterial } from "./content-history";
 export type TransitionPhase = "prepared" | "protected" | "copying" | "replaying" | "target_ingress_ready" | "source_fenced" | "target_owned" | "complete";
 export interface TransitionIdentity {
   id: string;

@@ -1,5 +1,5 @@
 import type { SiteId } from "@contracts/site-definition";
-import type { FileObservation, StaticFileObservation, CommittedR2Observation,BaselineFileInventoryPage,LegacyR2Observation } from "@contracts/content-transition";
+import type { FileObservation, StaticFileObservation, CommittedR2Observation, BaselineFileInventoryPage, LegacyR2Observation } from "@contracts/content-transition";
 import type { CommittedFileAvailability, FileAvailabilityContext, BaselineFileInventoryContext } from "../../content-transition";
 import { isStaticProfileAsset } from "../domain/asset-key-policy";
 import { hashFileBytes } from "./d1-r2-file-store";

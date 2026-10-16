@@ -1,5 +1,6 @@
 import { AdminCatalogRepositoryError } from "../application/ports/admin-catalog-repository";
-import {isPublicationCutoffSqlError,isTransitionMaintenanceError} from '../../content-transition';
+import { isPublicationCutoffSqlError } from '../../content-access';
+import { isTransitionMaintenanceError } from '../../content-transition';
 
 /** Original owning catalog error mapping, also used for immutable failed receipts. */
 export function catalogBatchError(error: unknown) {

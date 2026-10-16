@@ -1,7 +1,7 @@
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import { parseSiteId } from "@contracts/site-definition";
 import { officialChannelTargetsSql } from "./official-channel-targets";
-import { contentRowHeldSql, contentRowMovedSql } from "../../content-transition";
+import { contentRowHeldSql, contentRowMovedSql } from "../../content-access";
 import type {
   YouTubeShortsResponseDto,
   YouTubeVideoDto,

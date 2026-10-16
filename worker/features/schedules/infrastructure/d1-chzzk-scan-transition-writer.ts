@@ -1,7 +1,7 @@
 import type {ChzzkReadReceipt,ChzzkScanCommand,ChzzkScanRequest,ChzzkScanResponse,ChzzkScanResult} from "@contracts/content-transition-chzzk";
-import type {OperationEnvelope} from "@contracts/content-transition";
+import type { OperationEnvelope } from "@contracts/content-transition";
 import type {TransitionOperationMessage} from "@contracts/content-transition-queue";
-import {D1ChzzkReadJournal,D1TransitionRepository,type TransitionPeer} from "../../content-transition";
+import { D1ChzzkReadJournal, D1TransitionRepository, type TransitionPeer } from "../../content-transition";
 import {parseChzzkScanCommand,chzzkScanRequestKey} from "../domain/chzzk-scan-command";
 import type {ChzzkScanExecution,ChzzkScanExecutionResult,ChzzkScanProvider} from "./chzzk-scan-types";
 

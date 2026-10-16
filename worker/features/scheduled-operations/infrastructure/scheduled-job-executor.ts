@@ -34,8 +34,8 @@ import type {
   ScheduledJobItemRecord,
 } from "../../../platform/scheduled-jobs";
 import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
-import {buildChzzkScanTransitionWriter,buildCollectorTransitionWriter,transitionPeer} from "../../../app/content-transition";
-import {buildContentTransitionRepository} from "../../../app/content-transition";
+import { buildChzzkScanTransitionWriter, buildCollectorTransitionWriter, transitionPeer } from "../../../app/content-transition";
+import { buildContentTransitionRepository } from "../../../app/content-transition";
 import {executeOriginalChzzkChild} from "../../../app/content-transition-chzzk";
 import {parseSiteStorageResources} from "@contracts/site-definition";
 

@@ -1,6 +1,6 @@
 import type { SiteId } from '@contracts/site-definition';
 import type { AiReviewCloseUnknownRequest,AiReviewResult,AiReviewResumeRequest } from '@contracts/otw-play-ai-review';
-import { D1TransitionRepository,D1AiUnknownControl,D1AiResumeControl } from '../../content-transition';
+import { D1TransitionRepository, D1AiUnknownControl, D1AiResumeControl } from '../../content-transition';
 import type { AiReviewTransitionReadback } from '../application/ports/ai-review-transition';
 import { AiReviewError,type AiReviewRecord } from '../application/ports/ai-review';
 import { D1AiReviewContext } from './d1-ai-review-context';

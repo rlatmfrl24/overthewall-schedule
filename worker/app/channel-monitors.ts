@@ -5,7 +5,7 @@ import {
   readOtwPlayAutomationPaused,
 } from "../features/otw-play";
 import type { Env } from "../platform/types";
-import {buildContentTransitionRepository} from './content-transition';
+import { buildContentTransitionRepository } from './content-transition';
 import { parseSiteId } from "@contracts/site-definition";
 
 export const createOtwPlayChannelMonitorService = (env: Env) =>

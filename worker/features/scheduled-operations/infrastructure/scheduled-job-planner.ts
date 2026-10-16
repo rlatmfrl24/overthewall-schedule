@@ -19,7 +19,7 @@ import {
   readActiveXHandles,
 } from "../../x-posts";
 import { hasScheduledYouTubeFeedWork } from "../../youtube";
-import {editableCollectorSql, publicationHiddenSql} from "../../content-transition";
+import { editableCollectorSql, publicationHiddenSql } from "../../content-access";
 import { getDb } from "../../../platform/db";
 import type { Env } from "../../../platform/types";
 import { extractChzzkChannelId } from "../../../platform/http-helpers";

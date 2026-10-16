@@ -2,7 +2,7 @@ import { D1WorkQueueRepository, WorkQueueService, D1IngestionRepository, YouTube
 import { createOtwPlayIngestionService } from "./ingestion";
 import { createOtwPlayAiBatchService } from "./ai-review";
 import type { Env } from "../platform/types";
-import {buildContentTransitionRepository} from './content-transition';
+import { buildContentTransitionRepository } from './content-transition';
 import {parseSiteStorageResources} from '@contracts/site-definition';
 
 export const createOtwPlayWorkQueueService=(env:Env)=>new WorkQueueService(

@@ -1,6 +1,6 @@
 import type {CollectorCommand} from "../domain/collector-command";
 import type {CollectorWriter} from "./collector-writer";
-import {D1TransitionRepository} from "../../content-transition";
+import { D1TransitionRepository } from "../../content-transition";
 
 /** Each write is an original native batch under the existing frozen parent.
  * Re-delivery reads the retained actual rows without admitting another job. */

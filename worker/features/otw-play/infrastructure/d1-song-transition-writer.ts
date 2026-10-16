@@ -1,4 +1,4 @@
-import {D1TransitionRepository,TransitionWriteError} from "../../content-transition";
+import { D1TransitionRepository, TransitionWriteError } from "../../content-transition";
 import type {TransitionOperationMessage} from "@contracts/content-transition-queue";
 import type {AdminUpdateSongCommand,AdminCreateSongCommand} from "../application/ports/admin-catalog-repository";
 import {catalogBatchError} from "./catalog-batch-error";

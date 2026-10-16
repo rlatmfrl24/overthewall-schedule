@@ -5,7 +5,7 @@ import {
 import type { Env } from "../platform/types";
 import { getWorkerSiteResources } from "../platform/site";
 import {handleTransitionQueue} from "./content-transition-queue";
-import {readTransitionMaintenance} from '../features/content-transition';
+import { readTransitionMaintenance } from '../features/content-transition';
 import { handleQueue } from "./queue";
 import { handleAiReviewQueue, isAiReviewMessage, isAiBatchMessage } from "./ai-review";
 import {

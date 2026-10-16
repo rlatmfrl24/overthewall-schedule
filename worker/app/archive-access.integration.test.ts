@@ -9,7 +9,7 @@ import { projectionStatements } from "../features/otw-play/infrastructure/d1-cat
 import { D1PlaylistRepository } from "../features/otw-play/infrastructure/d1-playlist-repository";
 import { SITE_OPENS_AT } from "@contracts/site-publication";
 import { D1TransitionRepository } from "../features/content-transition";
-import { publicationHiddenSql } from "../features/content-transition";
+import { publicationHiddenSql } from "../features/content-access";
 import { readActiveChzzkChannels } from "../features/chzzk/infrastructure/d1-active-channels";
 import { readActiveYouTubeChannels } from "../features/youtube/infrastructure/d1-active-channels";
 import { runScheduledYouTubeFeedCollection } from "../features/youtube/infrastructure/youtube-feed";

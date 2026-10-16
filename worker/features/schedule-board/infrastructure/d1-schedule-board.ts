@@ -1,4 +1,4 @@
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import type { SiteId } from "@contracts/site-definition";
 import { and, asc, between, desc, eq, inArray, sql } from "drizzle-orm";
 import {

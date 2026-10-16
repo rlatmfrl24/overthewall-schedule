@@ -1,9 +1,9 @@
 import { SITE_OPENS_AT } from "@contracts/site-publication";
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import { type SiteId } from "@contracts/site-definition";
-import { isArchivedYouTubeVideo } from "../../content-transition";
+import { isArchivedYouTubeVideo } from "./archived-youtube-video";
 import { readBroadcastMetadata } from "../domain/broadcast-metadata";
-import { CONTENT_ACCESS_REVISION_SQL } from "../../content-transition";
+import { CONTENT_ACCESS_REVISION_SQL } from "../../content-access";
 import type { OtwPlayMemberSummary } from "@contracts/otw-play-members";
 import type { PlayDefaultPlaylist } from "@contracts/otw-play-playlists";
 import type { PlaylistPerformanceQuery } from "../application/ports/playlist-repository";

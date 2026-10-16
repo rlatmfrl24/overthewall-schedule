@@ -1,6 +1,6 @@
 import type {TransitionOperationMessage} from '@contracts/content-transition-queue';
 import type {YouTubeVideoReadReceipt,YouTubeVideoReadResponse,YouTubeVideoFailure} from '@contracts/content-transition-youtube';
-import {D1TransitionRepository,D1YouTubeVideoReadJournal,D1CandidateChannelStages,youtubeVideoRequestKey,candidateChannelRequestKey,type TransitionPeer} from '../../content-transition';
+import { D1TransitionRepository, D1YouTubeVideoReadJournal, D1CandidateChannelStages, youtubeVideoRequestKey, candidateChannelRequestKey, type TransitionPeer } from '../../content-transition';
 import type {CandidateChannelTransitionPort,CandidateChannelExecution} from '../application/ports/candidate-channel-transition';
 import type {CandidateChannelContinuation} from './candidate-channel-continuation';
 import {parseCandidateChannelMutation} from '../domain/candidate-channel-command';

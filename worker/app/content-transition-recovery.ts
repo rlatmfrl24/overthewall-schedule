@@ -1,8 +1,8 @@
 import {catalogImportProjection} from "../features/otw-play";
 import {parseSiteStorageResources} from "@contracts/site-definition";
-import {D1TransitionRepository} from "../features/content-transition";
+import { D1TransitionRepository } from "../features/content-transition";
 import type {Env} from "../platform/types";
-import {deliverTransitionOutcome,transitionPeer} from "./content-transition";
+import { deliverTransitionOutcome, transitionPeer } from "./content-transition";
 import {ScheduledJobCoordinator,ScheduledJobExecutor} from "../features/scheduled-operations";
 import {parseChzzkScanCommand} from "../features/schedules";
 import {finishOriginalChzzkParent} from "./content-transition-chzzk";

@@ -1,6 +1,6 @@
-import type {BaselineFileInventoryHeader,BaselineFileInventoryPage,BaselineFileInventoryRow,TransitionPlan} from "@contracts/content-transition";
+import type { BaselineFileInventoryHeader, BaselineFileInventoryPage, BaselineFileInventoryRow, TransitionPlan } from "@contracts/content-transition";
 import type {SiteId} from "@contracts/site-definition";
-import {inventoryReferencesMatchSql,readFileInventoryHeader,type FileAvailabilityContext,type BaselineFileInventoryContext} from "../../content-transition";
+import { inventoryReferencesMatchSql, readFileInventoryHeader, type FileAvailabilityContext, type BaselineFileInventoryContext } from "../../content-transition";
 import {classifyFileReference} from "../domain/file-reference";
 import {getAssetContentType} from "../domain/asset-key-policy";
 import {hashFileBytes} from "./d1-r2-file-store";

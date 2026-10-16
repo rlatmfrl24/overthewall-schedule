@@ -1,8 +1,8 @@
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import type { SiteId } from "@contracts/site-definition";
 import { ddays } from "@db/schema";
 import { and, eq, getTableColumns, sql } from "drizzle-orm";
-import { contentRowMovedSql } from "../../content-transition";
+import { contentRowMovedSql } from "../../content-access";
 import type { D1DDayTransitionWriter } from "./d1-dday-transition-writer";
 import type { DDayCommand } from "../domain/dday-command";
 import type { DDayDto } from "../../../../contracts/ddays";

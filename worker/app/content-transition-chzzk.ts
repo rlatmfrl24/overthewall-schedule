@@ -1,11 +1,11 @@
 import {catalogImportProjection} from "../features/otw-play";
 import {parseSiteStorageResources} from "@contracts/site-definition";
 import type {ChzzkChildResult} from "@contracts/content-transition-chzzk";
-import {D1TransitionRepository} from "../features/content-transition";
+import { D1TransitionRepository } from "../features/content-transition";
 import {autoUpdateSchedules,D1ChzzkCollectorWriter,parseChzzkScanCommand} from "../features/schedules";
 import {getDb} from "../platform/db";
 import type {Env} from "../platform/types";
-import {transitionPeer,deliverTransitionOutcome} from "./content-transition";
+import { transitionPeer, deliverTransitionOutcome } from "./content-transition";
 
 export async function executeOriginalChzzkChild(env:Env,id:string,operationId:string,childKey:string):Promise<ChzzkChildResult> {
   const {site,database,bucket}=parseSiteStorageResources(env),repository=new D1TransitionRepository(env.otw_db,site,database,bucket, null, catalogImportProjection);

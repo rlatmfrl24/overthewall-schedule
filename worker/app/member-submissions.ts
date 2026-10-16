@@ -1,6 +1,6 @@
 import {catalogImportProjection} from "../features/otw-play";
 import {D1MemberSubmissionRepository,D1MemberSubmissionWriter,MemberSubmissionService,YouTubeOtwPlayMetadataReader} from "../features/otw-play";
-import {D1TransitionRepository} from "../features/content-transition";
+import { D1TransitionRepository } from "../features/content-transition";
 import {parseSiteStorageResources} from "@contracts/site-definition";
 import type {TransitionOperationMessage} from "@contracts/content-transition-queue";
 import type {Env} from "../platform/types";

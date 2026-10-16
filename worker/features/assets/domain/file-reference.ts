@@ -1,4 +1,4 @@
-import type {TransitionPlan} from "@contracts/content-transition";
+import type { TransitionPlan } from "@contracts/content-transition";
 import {getAssetContentType,isStaticProfileAsset} from "./asset-key-policy";
 
 /** SQL form of the owning path allowlist for the final atomic manifest gate. */

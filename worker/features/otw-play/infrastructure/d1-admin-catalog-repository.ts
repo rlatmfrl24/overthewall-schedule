@@ -2,7 +2,8 @@ import { decrementGramStatsStatements, projectionStatements } from "./d1-catalog
 import {catalogBatchError} from "./catalog-batch-error";
 import type {D1ProposalRejectionWriter} from "./d1-proposal-rejection-writer";
 import { readHistoricalMaterials } from "./read-historical-materials";
-import {isArchivedYouTubeVideo,archivedYouTubeVideoSql,publicationHiddenSql} from '../../content-transition';
+import { isArchivedYouTubeVideo, archivedYouTubeVideoSql } from './archived-youtube-video';
+import { publicationHiddenSql } from '../../content-access';
 import type {SiteId} from '@contracts/site-definition';
 import { readBroadcastMetadata } from "../domain/broadcast-metadata";
 import type {D1SongTransitionWriter} from "./d1-song-transition-writer";

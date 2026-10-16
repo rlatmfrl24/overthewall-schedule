@@ -7,7 +7,9 @@ import {
   type AiReviewRecord,
   type AiReviewRepository,
 } from "../application/ports/ai-review";
-import {contentRowHeldSql,aiResumeExecutionHeldSql,aiResumeExecutionPendingSql,releasedSourceAiRetrySql,publicationHiddenSql,archivedYouTubeVideoSql,type D1AiUnknownControl,type D1AiResumeControl} from '../../content-transition';
+import { contentRowHeldSql, publicationHiddenSql } from '../../content-access';
+import { aiResumeExecutionHeldSql, aiResumeExecutionPendingSql, releasedSourceAiRetrySql, type D1AiUnknownControl, type D1AiResumeControl } from '../../content-transition';
+import { archivedYouTubeVideoSql } from './archived-youtube-video';
 import type {SiteId} from '@contracts/site-definition';
 
 const unknownHeld=(id:string)=>`EXISTS(SELECT 1 FROM content_transition_operations held JOIN content_transitions t ON t.id=held.transition_id WHERE json_extract(held.envelope_json,'$.codec.id') IN ('otw-play.ai.unknown','otw-play.ai.resume') AND (t.aborted_at IS NULL OR json_extract(held.envelope_json,'$.codec.id')='otw-play.ai.unknown' AND NOT coalesce((${releasedSourceAiRetrySql('held','t')}),0)) AND json_extract(held.envelope_json,'$.payload.reviewId')=${id})`;

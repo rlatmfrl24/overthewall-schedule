@@ -3,7 +3,7 @@ import type {
   XReferenceHydrationResultDto,
 } from "@contracts/x-posts";
 import type { SiteId } from "@contracts/site-definition";
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import {
   invalidateXPostMemoryCache,
   normalizeLinkedXPost,

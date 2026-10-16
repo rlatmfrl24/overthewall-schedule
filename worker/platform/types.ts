@@ -4,7 +4,7 @@ import {
   pendingSchedules,
 } from "@db/schema";
 import type { ScheduledOperationsWorkflowParams } from "@contracts/scheduled-operations";
-import type {TransitionPeer} from "../features/content-transition";
+import type { TransitionPeer } from "../features/content-transition";
 
 export interface Env {
   SITE_PUBLICATION_HOLD?: string;

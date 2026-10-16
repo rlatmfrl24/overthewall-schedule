@@ -1,5 +1,5 @@
-import {buildContentTransitionRepository,transitionPeer} from './content-transition';
-import {D1YouTubeVideoReadJournal,D1CandidateChannelStages} from '../features/content-transition';
+import { buildContentTransitionRepository, transitionPeer } from './content-transition';
+import { D1YouTubeVideoReadJournal, D1CandidateChannelStages } from '../features/content-transition';
 import {parseSiteStorageResources} from '@contracts/site-definition';
 import type {TransitionOperationMessage} from '@contracts/content-transition-queue';
 import {

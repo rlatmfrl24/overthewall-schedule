@@ -1,5 +1,6 @@
 import { type Env } from "../../../platform/types";
-import { contentRowHeldSql, publicationHiddenSql, nativeChzzkReadPrunableSql,nativeYouTubeChannelReadPrunableSql } from "../../content-transition";
+import { contentRowHeldSql, publicationHiddenSql } from "../../content-access";
+import { nativeChzzkReadPrunableSql, nativeYouTubeChannelReadPrunableSql } from "../../content-transition";
 import { parseSiteId, type SiteId } from "@contracts/site-definition";
 
 const DAY_MS = 24 * 60 * 60_000;

@@ -5,7 +5,7 @@ import type {CandidateMetadataFacts} from '@contracts/content-transition-youtube
 import type {D1VideoCatalogWriter} from './d1-video-catalog-writer';
 import {candidateReviewSqlError} from './candidate-review-error';
 import { D1AdminCatalogRepository } from "./d1-admin-catalog-repository";
-import { contentRowHeldSql, publicationHiddenSql, publicationChannelHiddenSql,publicationCutoffSql } from "../../content-transition";
+import { contentRowHeldSql, publicationHiddenSql, publicationChannelHiddenSql, publicationCutoffSql } from "../../content-access";
 import type { SiteId } from "@contracts/site-definition";
 import { historicalReviewDeletedSql } from "./historical-review-sql";
 import { readHistoricalMaterials } from "./read-historical-materials";

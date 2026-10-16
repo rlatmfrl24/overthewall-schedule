@@ -2,7 +2,7 @@ import type { SiteId } from "@contracts/site-definition";
 import { parseSiteId } from "@contracts/site-definition";
 import { readAdminReviewSummary } from "../../otw-play";
 import { asc, eq, and, sql } from "drizzle-orm";
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import { naverCafeSources } from "@db/schema";
 import {
   normalizeAutoUpdateIntervalHours,

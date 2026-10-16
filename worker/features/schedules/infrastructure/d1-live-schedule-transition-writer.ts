@@ -1,4 +1,4 @@
-import {D1TransitionRepository,TransitionWriteError} from "../../content-transition";
+import { D1TransitionRepository, TransitionWriteError } from "../../content-transition";
 import type {TransitionOperationMessage} from "../../../../contracts/content-transition-queue";
 import type {LiveScheduleCommand} from "../domain/live-schedule-command";
 

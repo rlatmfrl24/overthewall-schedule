@@ -1,5 +1,5 @@
 import type { SiteId } from "@contracts/site-definition";
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import type { XLinkedPostPreviewDto, XPostDto } from "@contracts/x-posts";
 import { extractXHandle } from "../domain/handle-targets";
 

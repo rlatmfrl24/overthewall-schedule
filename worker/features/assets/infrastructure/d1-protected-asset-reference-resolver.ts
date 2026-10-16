@@ -1,9 +1,10 @@
 import type {SiteId} from "@contracts/site-definition";
-import type {TransitionPlan} from "@contracts/content-transition";
+import type { TransitionPlan } from "@contracts/content-transition";
 import type {ProtectedAssetReferenceContext} from "@contracts/assets";
 import type {ProtectedAssetReferenceResolver,NoticeImageMemberValidator} from "../application/ports/asset-reader";
 import {classifyFileReference,normalizeOwnedFilePath} from "../domain/file-reference";
-import {selectedFileRowSql,contentRowHeldSql,contentRowMovedSql} from "../../content-transition";
+import { selectedFileRowSql } from "./file-reference-integrity";
+import { contentRowHeldSql, contentRowMovedSql } from "../../content-access";
 
 const tables=["notices","member_profile_images","naver_cafe_posts"] as const;
 const imageMatches=(table:string,json:string)=>`(${table}='notices' AND (json_extract(${json},'$.thumbnail_url')=input.raw OR EXISTS(SELECT 1 FROM json_each(json_extract(${json},'$.image_urls')) image WHERE image.value=input.raw)) OR ${table}='member_profile_images' AND json_extract(${json},'$.image_url')=input.raw OR ${table}='naver_cafe_posts' AND json_extract(${json},'$.thumbnail_url')=input.raw)`;

@@ -1,5 +1,5 @@
 import type { SiteId } from "@contracts/site-definition";
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import { holidayTargetDate, recordHolidayAssessments, reconcileHolidaySuggestions,executeHolidayCollectorCommand, type ScanCoverage } from "./holiday-suggestions";
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { type DbInstance } from "../../../platform/db";
@@ -38,7 +38,7 @@ import {CHZZK_SESSION_RESUME_MARGIN_MS} from "../domain/chzzk-scan-command";
 import {parseCollectorCommand,type CollectorCommand} from "../domain/collector-command";
 import type {CollectorWriter} from "./collector-writer";
 import type {ChzzkMatchInput} from "../domain/chzzk-match-input";
-import {editableCollectorSql} from "../../content-transition";
+import { editableCollectorSql } from "../../content-access";
 
 const CHZZK_SCAN_PAGE_SIZE = 5;
 const CHZZK_SCAN_MAX_PAGES = 3;

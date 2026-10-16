@@ -11,9 +11,9 @@ import {
   D1AiReviewTransitionReadback,
 } from "../features/otw-play";
 import type { Env } from "../platform/types";
-import {D1AiUnknownControl,D1AiResumeControl,readTransitionMaintenance} from '../features/content-transition';
+import { D1AiUnknownControl, D1AiResumeControl, readTransitionMaintenance } from '../features/content-transition';
 import {parseSiteStorageResources} from '@contracts/site-definition';
-import {buildContentTransitionRepository} from './content-transition';
+import { buildContentTransitionRepository } from './content-transition';
 
 export const createOtwPlayAiReviewService = (env: Env) => {
   const {site,database}=parseSiteStorageResources(env);

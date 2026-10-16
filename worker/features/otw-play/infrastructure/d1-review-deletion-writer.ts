@@ -1,4 +1,4 @@
-import {D1TransitionRepository,TransitionWriteError} from '../../content-transition';
+import { D1TransitionRepository, TransitionWriteError } from '../../content-transition';
 import type {TransitionOperationMessage} from '@contracts/content-transition-queue';
 import {parseReviewDeletion,type ReviewDeletionCommand} from '../domain/review-deletion-command';
 import {IngestionRepositoryError} from '../application/ports/ingestion-repository';

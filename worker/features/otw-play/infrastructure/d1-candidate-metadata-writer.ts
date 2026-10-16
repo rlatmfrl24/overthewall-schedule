@@ -1,7 +1,7 @@
 import type {CandidateChannelContinuation} from './candidate-channel-continuation';
 import type {TransitionOperationMessage} from '@contracts/content-transition-queue';
 import type {CandidateMetadataFacts,YouTubeVideoCompletion,YouTubeVideoFailure,YouTubeVideoReadResponse} from '@contracts/content-transition-youtube';
-import {D1TransitionRepository,D1YouTubeVideoReadJournal,youtubeVideoRequestKey,type TransitionPeer} from '../../content-transition';
+import { D1TransitionRepository, D1YouTubeVideoReadJournal, youtubeVideoRequestKey, type TransitionPeer } from '../../content-transition';
 import type {CandidateMetadataTransitionPort} from '../application/ports/candidate-metadata-transition';
 import {IngestionRepositoryError} from '../application/ports/ingestion-repository';
 import {OtwPlayYouTubeMetadataError,type OtwPlayYouTubeBatchMetadataReader} from '../application/ports/youtube-metadata';

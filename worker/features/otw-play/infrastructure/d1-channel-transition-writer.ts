@@ -2,7 +2,7 @@ import type {CandidateChannelContinuation} from './candidate-channel-continuatio
 import type {OtwPlayAdminChannelDto,OtwPlayAdminCommandResponse} from "@contracts/otw-play";
 import type {TransitionOperationMessage} from "@contracts/content-transition-queue";
 import type {YouTubeChannelCompletion,YouTubeChannelReadResponse} from "@contracts/content-transition-youtube";
-import {D1TransitionRepository,D1YouTubeChannelReadJournal,TransitionWriteError,youtubeChannelRequestKey,youtubeExhaustedOutcome,type TransitionPeer} from "../../content-transition";
+import { D1TransitionRepository, D1YouTubeChannelReadJournal, TransitionWriteError, youtubeChannelRequestKey, youtubeExhaustedOutcome, type TransitionPeer } from "../../content-transition";
 import {parseChannelMutation,type ChannelMutationCommand} from "../domain/channel-mutation";
 import type {ChannelTransitionPort} from "../application/ports/channel-transition";
 import {OtwPlayYouTubeMetadataError,type OtwPlayYouTubeMetadataReader} from "../application/ports/youtube-metadata";

@@ -1,4 +1,4 @@
-import {D1TransitionRepository,TransitionWriteError} from "../../content-transition";
+import { D1TransitionRepository, TransitionWriteError } from "../../content-transition";
 import type {TransitionOperationMessage} from "@contracts/content-transition-queue";
 import type {CatalogDeleteCommand} from "../domain/catalog-delete-command";
 import {parseCatalogDeleteCommand} from "../domain/catalog-delete-command";

@@ -1,4 +1,4 @@
-import {D1TransitionRepository,TransitionWriteError} from "../../content-transition";
+import { D1TransitionRepository, TransitionWriteError } from "../../content-transition";
 import type {TransitionOperationMessage} from "@contracts/content-transition-queue";
 import {parseProposalRejection,type ProposalRejectionCommand} from "../domain/proposal-rejection-command";
 import {catalogBatchError} from "./catalog-batch-error";
