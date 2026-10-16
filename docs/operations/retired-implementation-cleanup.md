@@ -3,7 +3,7 @@
 기준: 2026-09-17. 이 문서는 종료한 기능의 재도입을 방지하는 유지 계약이다.
 원래 제거 절차·49시간 계획·검증 수치는 [과거 기록](../archive/retired-implementation-cleanup-before-2026-09-17.md),
 실제 잔여 메시지 기준으로 바꾼 결정은 [관측 유효성 기록](../archive/observation-validity-2026-09-09.md),
-제거 상태의 마지막 운영 확인은 [2026-09-16 보고서](backend-cost-observation-final-2026-09-16.md)에 있다.
+제거 상태의 마지막 운영 확인은 [2026-09-16 보고서](../archive/2026-10-16/operations/backend-cost-observation-final-2026-09-16.md)에 있다.
 
 ## 보존할 경계
 

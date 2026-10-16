@@ -1,3 +1,5 @@
+> 2026-10-16 아카이브: 당시 계획·검증 기록입니다. 미완료 표기를 현재 실행 지시로 사용하지 않습니다. 남은 작업과 중단 조건은 [현재 작업](../../../../current-work.md)을 따릅니다.
+
 # OTW·LuvDia 운영 점검과 공개 준비
 
 - 점검일: 2026-10-15, Asia/Seoul. 원격 관측 범위 약 21:39–21:47 KST.
@@ -14,9 +16,9 @@
 
 | 순서 | 결과물 | 실행 계획 |
 | --- | --- | --- |
-| P0 | LuvDia 사전 숨김·관리자 유지·정각 공개, OTW 대상 숨김/수집 종료, 메뉴명 | [공개 전환](../../superpowers/plans/2026-10-15-site-publication-cutover.md) |
-| P1 | 이미지 지연 개선, 계정 합산 비용과 예약 경로 판정 | [성능·운영 검증](../../superpowers/plans/2026-10-15-site-performance-operations.md) |
-| P1/P2 | 동일 소스 release 증명, 임시 이관 책임 정리와 현행 구조 문서 | [버전·구조 정리](../../superpowers/plans/2026-10-15-shared-release-architecture.md) |
+| P0 | LuvDia 사전 숨김·관리자 유지·정각 공개, OTW 대상 숨김/수집 종료, 메뉴명 | [공개 전환](../../plans/2026-10-15-site-publication-cutover.md) |
+| P1 | 이미지 지연 개선, 계정 합산 비용과 예약 경로 판정 | [성능·운영 검증](../../plans/2026-10-15-site-performance-operations.md) |
+| P1/P2 | 동일 소스 release 증명, 임시 이관 책임 정리와 현행 구조 문서 | [버전·구조 정리](../../plans/2026-10-15-shared-release-architecture.md) |
 
 독립 작업으로 나누되 공개·숨김을 담당하는 공통 접근 정책은 하나만 사용한다. 시간 제약을 이유로 인증, 데이터 보존, retry/idempotency를 약화하지 않는다. 대량 D1 작업은 여유 회복 후 수행한다.
 
@@ -103,7 +105,7 @@ Cloudflare GraphQL Analytics를 한 번 읽었다. 범위는 2026-10-15 UTC 00:0
 | 전체 과거 콘텐츠·파일·공동 관계 완전성 | 초기 개통 이후 보완 범위 | 원본을 보존하고 차이 목록부터, 재복사 금지 |
 | AI·키리누키·Play 채널 자동화 | 의도적 비활성/미검증 | 일반 수집과 구분, 예산 회복 후 승인된 기능 검증 |
 | 양 사이트 동일 release·자동 배포 | 미완료/설정 미확인 | artifact·schema·자동 배포 검사 |
-| R2 업로드 사고 | 재발 방지 구현 기록 있음, 사고 전 상태·실사용 영향 미확인 | [사고 기록](operational-upload-incident.md)을 보존; 정상 운영 최적화와 구분 |
+| R2 업로드 사고 | 재발 방지 구현 기록 있음, 사고 전 상태·실사용 영향 미확인 | [사고 기록](../../../../reports/sul-36/operational-upload-incident.md)을 보존; 정상 운영 최적화와 구분 |
 | Task 4.4 전체·실시간 인계 플랫폼 | 초기 개통의 필수 조건에서 해제 | 오래된 체크박스를 이유로 재개하지 않음; 남은 책임 보존 후 정리 |
 | 전체 preflight | 이전 실패/중단 기록, 이번 미실행 | 최종 merge/release 때만 실행 |
 

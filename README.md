@@ -1,5 +1,7 @@
 # OverTheWall Schedule
 
+Start work from [Current work and handoff](docs/current-work.md). D1-related work is currently paused by the user; historical plans and a quota reset do not authorize resuming it. Read other documents only for the capability being changed.
+
 OverTheWall Schedule is a fan-operated schedule hub for the Over The Wall
 creator group. It focuses on fast schedule scanning, live status awareness,
 content discovery, and lightweight admin workflows.
@@ -30,9 +32,9 @@ content discovery, and lightweight admin workflows.
 
 ## Documentation
 
-- [Development status](docs/development-status.md): implemented scope, completed
-  work, remaining product and operational gates.
-- [Documentation index](docs/README.md): current contracts and archived evidence.
+- [Current work](docs/current-work.md): pause conditions, next-day handoff and remaining work.
+- [Documentation index](docs/README.md): entry points and archive policy.
+- [Reference](docs/reference.md): capability contracts to consult on demand.
 
 - `Design.md`: current UI patterns, tone, layout, accessibility, and component
   guidance.

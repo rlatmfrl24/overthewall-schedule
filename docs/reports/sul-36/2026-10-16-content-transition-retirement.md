@@ -53,3 +53,35 @@ OTW 대상 코드는 `bing_hayu`, `u_lili`, `yang_mei`다. 과거 원본을 새 
 
 데이터를 지우는 롤백은 사용하지 않는다. 스키마 141 및 공개 경계와 호환되는 Worker만 복구 대상으로 삼는다.
 대량 이관·백필·전수 검사·재귀 음악 정합성 검사, 장기 아키텍처 정리와 의도적으로 비활성화된 자동화 재개는 수행하지 않는다.
+
+## 2026-10-16 운영 반영 결과
+
+[PR #161](https://github.com/rlatmfrl24/overthewall-schedule/pull/161)은 검토 HEAD `9deb80373c15cf71822d613414539e4dd3e47450`로 검사를 확인한 뒤 18:32 KST에 병합했다. 병합 커밋은 `462779cf1db6b7e06fadc46d0dc3f878762e241b`이며 검토 HEAD와 tree가 같다.
+
+양 DB에 유일한 pending migration인 0141을 먼저 적용했다. OTW 503 commands/102.80ms, LuvDia 503 commands/217.27ms였다. readback에서 기존 마이그레이션 이름·비트리거 스키마 SQL은 동일했고, 492개 제거·기존 보호 20개 SQL 동일·새 assets 트리거 9개·총 29개를 확인했다. 읽기 확인은 쓰기 0행이다. 원격 CLI는 실제 rows_read 비용을 출력하지 않았으므로 로컬 보수 추정치와 계정 집계를 구분한다.
+
+| 사이트 | 배포 경로 | 실제 100% Worker 버전 | 배포 ID |
+| --- | --- | --- | --- |
+| OTW | 기존 Cloudflare Builds `c036162c-2edc-467d-b0ee-77d7297b7c4a`, 중복 수동 배포 없음 | `d76f0228-f235-4be2-ad33-a1f472d42f2b` | `1394a6db-5193-41e5-9820-654183d35d35` |
+| LuvDia | 동일 병합 HEAD에서 재빌드한 검증 산출물, schema-only doctor 후 배포 | `b935842a-b8f1-49cf-9011-a23d812bbb80` | `2d97a9f9-2a97-4906-862d-dd74fcd19022` |
+
+OTW CI의 canonical Git 소스 해시는 `3d2279c9b7b1ead443f7a803d7309295267b139ddd1e571642543740fded103f`, LuvDia Windows working bytes 해시는 `0c130ce27c5254cc00914afd96052d50e0a4c49010711541c19252e8ac67f2a8`이다. Git blob 전체 대조에서 차이는 873개 파일의 CRLF뿐이었다. 양쪽 Git tree는 `814eaa57c1cb1ccf0e1217161d081404351aaaa7`로 동일하다. 실제 OTW 산출물 해시는 `2a2116febfb5d2363bd67b1a222817f98362713448fa29542996f2225df83f85`, LuvDia는 `f4e91ca9f2715d91569b4a7b01e268449e023ede9051aefc32dac413ebc0a8b4`이다.
+
+배포 후 리소스·Cron·각 6개 Queue의 consumer/retry/concurrency/DLQ/paused 설정이 사전 snapshot과 동일했고 적체는 모두 0이었다. 양 Clerk issuer binding은 유지했고, 실제 기존 Clerk 로그인 상태로 관리자 대시보드와 사이트 미리보기를 통과했다. LuvDia의 세 프로필 이미지는 모두 실제 로드 완료·자연 크기 480/820/600px를 확인했다. Play 자동화 중지 및 LuvDia AI false는 유지했다.
+
+익명 실도메인 확인: OTW 메인·members·D-day 200, 공개 전 대상 3명과 D-day 4/9/10/11 유지. LuvDia 메인 카운트다운 200, 공개 API·프로필·R2·인코딩 API 경로는 403/no-store, HEAD 본문 0, publication-status는 countdown 및 정확한 공개 시각을 반환했다. 관리자 로그인 경로는 200이었다. 관리자 미리보기와 익명 차단을 구분했다. 일반 회원·정각을 넘긴 저장·동시 수정·알 수 없는 업로드·실패 롤백은 로컬 실제 D1/R2 경로로 검증했으며, 운영 데이터를 바꿔서 시험하지 않았다.
+
+검증은 **조합 증거**다. 최초 전체 preflight는 358개 파일 중 4개/14개 사례가 실패했다. 수정 후 실패/변경 파일 5개 127개 사례를 재확인했고, 기존 timeout 하나는 같은 5초 제한으로 catalog 전체 70개가 격리 실행에서 통과했다. 현재 358개 파일·유효 2,832개 사례 모두 통과 근거가 있다. 성공한 전체 명령 재실행이라고 표현하지 않는다. 전체 구조·타입·린트와 변경 범위 재검사, 로컬 doctor·mirror 및 양 build가 통과했다.
+
+18:38 KST 계정 집계는 읽기 4,279,621행으로 5백만 한도의 약 85.6%다. 대량 검증·이관·백필은 계속 보류한다. 18:39 보존 readback에서 원본 409개 파일 해시·status 409개와 X 작업 트리 HEAD/status 16개가 유지됐다. 기존 두 보고서의 미커밋 바이트도 변경하지 않았다. 현재 작업 트리/증거는 후속 관측과 복구에 필요해 삭제하지 않는다.
+
+## 남은 관측과 후속 항목
+
+- 오늘 19:01 KST의 `automation-4`가 새 Worker 이후 자연 X 정규 실행·최종 저장을 최소 표본으로 확인하고 PR161에 기록한다. 강제 실행하지 않았다. 이 관측은 아직 완료되지 않았다.
+- `otw-luvdia-19`의 기존 19일 00:01 KST 예약은 동일하게 유지하고 PR161/병합 HEAD/schema141/실제 두 Worker 버전으로 갱신했다. 실제 공개 전환은 서버 시간에 의해 실행되며 예약에 의존하지 않는다. 기존 `otw-9-d1`은 PAUSED다.
+- 기존 OTW 자동 업데이트 partial `f1195a83-a4ab-4efd-8590-23f771a72d9c`는 이번 배포 전 16:03~16:08 실행이다. 관리자 실제 이력에서 `scan/schedule_scan_failed`: 조회 실패 1채널, 시도 3회와 native finalize partial을 확인했다. 성공으로 덮어쓰거나 강제 재수집하지 않았다. 다음 승인된 일반 일정 수집 점검에서 공급자 실패 원인을 확인한다.
+- 대량 LuvDia 이관·전수 검증·백필·음악 재귀 검사·장기 아키텍처 정리는 계속 보류한다. 일반 데이터/파일/이력과 마이그레이션은 보존 상태다.
+
+적용 전후 PASS·최초 preflight FAIL·실제 artifact/버전 이동은 PR161 comment ledger에 기록한다. 이 운영 결과 단락은 병합 이후의 로컬 운영 기록이며 이미 배포한 코드·산출물에 영향을 주지 않는다.
+
+운영 결과 ledger: https://github.com/rlatmfrl24/overthewall-schedule/pull/161#issuecomment-6212711299 . 기존 `.tmp` 증거와 작업 트리는 19일 관측·복구 입력으로 보존한다. 이관 전용 코드 제거는 배포 완료이며 자연 실행 관측 결과는 위 예약에서 추가 기록한다.

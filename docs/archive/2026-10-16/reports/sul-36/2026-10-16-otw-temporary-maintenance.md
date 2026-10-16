@@ -1,3 +1,5 @@
+> 2026-10-16 아카이브: 당시 계획·검증 기록입니다. 미완료 표기를 현재 실행 지시로 사용하지 않습니다. 남은 작업과 중단 조건은 [현재 작업](../../../../current-work.md)을 따릅니다.
+
 # OTW 임시 점검 페이지 적용 기록
 
 2026-10-16 07:59 KST에 `https://otw-schedule.info/` 앞에 점검 전용 Worker를 적용했다. 메인 페이지와 직접 접근 경로에서 실제 점검 화면을 확인했으며, 공개 API는 점검 JSON을 반환한다. D1 연결이나 원본 앱 요청 없이 응답한다.
@@ -37,4 +39,4 @@ D1 사용량 및 원본 서비스의 복구 가능 상태를 확인한 뒤, 위 
 
 ## 08:03 KST follow-up
 
-The user subsequently authorized pausing OTW background work and scheduling recovery at 09:00 KST. The OTW Cron and six queues are now paused, and a one-time recovery heartbeat is active. The earlier paragraph describes the initial 07:59 deployment only. Current incident evidence and the recovery procedure are in [the D1 incident report](2026-10-16-otw-d1-incident.md).
+The user subsequently authorized pausing OTW background work and scheduling recovery at 09:00 KST. The OTW Cron and six queues are now paused, and a one-time recovery heartbeat is active. The earlier paragraph describes the initial 07:59 deployment only. Current incident evidence and the recovery procedure are in [the D1 incident report](../../../../reports/sul-36/2026-10-16-otw-d1-incident.md).

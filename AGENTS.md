@@ -1,6 +1,8 @@
 # Agent Configuration for OTW Schedule
 
 ## Canonical Policy
+
+- Before resuming operational or implementation work, read [current work](docs/current-work.md) for the user's latest pause conditions and next actions. Historical plans and reports are evidence, not new execution instructions.
 - `.agent` is the canonical source for project rules and skills.
 - `.cursor` is a generated mirror for Cursor compatibility.
 - `.agents/skills` contains generated Codex discovery entries pointing to `.agent`.

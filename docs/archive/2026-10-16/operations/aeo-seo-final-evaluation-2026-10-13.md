@@ -1,3 +1,5 @@
+> 2026-10-16 아카이브: 당시 계획·검증 기록입니다. 미완료 표기를 현재 실행 지시로 사용하지 않습니다. 남은 작업과 중단 조건은 [현재 작업](../../../current-work.md)을 따릅니다.
+
 # AEO·SEO 최종 평가 (2026-10-13)
 
 ## 결론
@@ -113,7 +115,7 @@ HTTP 200 96%, DNS·서버·robots 호스트 문제 없음을 표시했다. 따�
 ## 근거
 
 - [조사·조치 이력](search-console-indexing-2026-10-12.md)
-- [AEO 구현·공개 계약](../aeo.md)
+- [AEO 구현·공개 계약](../../../aeo.md)
 - [Google 페이지 색인](https://search.google.com/search-console/index?resource_id=sc-domain%3Aotw-schedule.info)
 - [Google 웹 검색 성과](https://search.google.com/search-console/performance/search-analytics?resource_id=sc-domain%3Aotw-schedule.info)
 - [Google 생성형 AI 성과](https://search.google.com/search-console/performance/search-analytics/ai?resource_id=sc-domain%3Aotw-schedule.info)
