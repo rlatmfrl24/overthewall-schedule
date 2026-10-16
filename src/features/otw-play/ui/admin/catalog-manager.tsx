@@ -37,7 +37,7 @@ import type {
 } from "@contracts/otw-play";
 import { AdminSectionHeader } from "@/app/admin";
 import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
-import { ApiError,getContentTransitionMessage } from "@/shared/api/client";
+import { ApiError,getContentWriteMessage } from "@/shared/api/client";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -92,7 +92,6 @@ import { OperationsSection } from "./operations-section";
 import { IngestionSection } from "./ingestion-section";
 import { WorkQueuePanel } from "./work-queue-panel";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/shared/ui/dropdown-menu";
-
 
 export type Section =
   | "catalog"
@@ -324,8 +323,8 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
       }
       return true;
     } catch (error) {
-      const transitionMessage=getContentTransitionMessage(error);
-      if(transitionMessage) {toast({variant:error instanceof ApiError && error.code==="CONTENT_ACCEPTED"?"info":"error",description:transitionMessage});return false;}
+      const transitionMessage=getContentWriteMessage(error);
+      if(transitionMessage) {toast({variant:"error",description:transitionMessage});return false;}
       console.error("OTW Play admin command failed", error);
       const description =
         error instanceof ApiError && error.fields?.broadcast === "extent_required"
@@ -363,7 +362,6 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
     if (saving !== null || performances.length === 0) return;
     let published = 0;
     let failed = 0;
-    let pending = 0;
     const transitionErrors = new Set<string>();
     try {
       for (const [index, performance] of performances.entries()) {
@@ -374,19 +372,16 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
           }, publicationRequestId(performance, "published"));
           published += 1;
         } catch (error) {
-          if (error instanceof ApiError && error.code === "CONTENT_ACCEPTED") pending += 1;
-          else {
-            failed += 1;
-            const message = getContentTransitionMessage(error);
-            if (message) transitionErrors.add(message);
-          }
+          failed += 1;
+          const message = getContentWriteMessage(error);
+          if (message) transitionErrors.add(message);
         }
       }
       await refresh();
-      if (pending > 0 || transitionErrors.size > 0) {
+      if (transitionErrors.size > 0) {
         toast({
-          variant: published > 0 || pending > 0 ? "info" : "error",
-          description: `${published}개 게시 완료 · ${pending}개 접수 대기 · ${failed}개 게시 실패.${pending > 0 ? " 이관 처리 후 저장 결과를 확인해 주세요." : ""}${transitionErrors.size ? ` ${[...transitionErrors].join(" ")}` : ""}`,
+          variant: published > 0 ? "info" : "error",
+          description: `${published}개 게시 완료 · ${failed}개 게시 실패.${transitionErrors.size ? ` ${[...transitionErrors].join(" ")}` : ""}`,
         });
       } else if (failed === 0) {
         toast({

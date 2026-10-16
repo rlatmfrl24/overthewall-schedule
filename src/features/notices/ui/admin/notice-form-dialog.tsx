@@ -1,5 +1,5 @@
 import { LabeledField } from "@/shared/ui/labeled-field";
-import { getContentTransitionMessage } from "@/shared/api/client";
+import { getContentWriteMessage } from "@/shared/api/client";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { AuthenticatedImage } from "@/shared/ui/authenticated-image";
 import {
@@ -340,7 +340,7 @@ export function NoticeFormDialog({
     clearErrors("ended_at");
     setMessage(null);
     const normalized = { ...values, links, image_urls: values.image_urls.map((url) => url.trim()) };
-    try { await onSubmit(normalized); } catch (error) { setMessage(getContentTransitionMessage(error) ?? "공지 저장에 실패했습니다. 입력값을 유지했습니다. 다시 저장해 주세요."); return; }
+    try { await onSubmit(normalized); } catch (error) { setMessage(getContentWriteMessage(error) ?? "공지 저장에 실패했습니다. 입력값을 유지했습니다. 다시 저장해 주세요."); return; }
     cleanupPendingImages(normalized.image_urls);
     for (const url of normalized.image_urls) pendingImageUrlsRef.current.delete(url);
   };

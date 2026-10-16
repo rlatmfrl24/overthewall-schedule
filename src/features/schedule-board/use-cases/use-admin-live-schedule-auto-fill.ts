@@ -54,7 +54,7 @@ export function useAdminLiveScheduleAutoFill({
           lastRequestKeyRef.current = requestKey;
         }
         for (const feedback of result.scheduleAutoFill.feedback ?? []) {
-          toast({description: feedback.message, variant: feedback.code === "CONTENT_ACCEPTED" ? "info" : "error"});
+          toast({description: feedback.message, variant: "error"});
         }
         if (result.scheduleAutoFill.updated === 0) return;
         await queryClient.invalidateQueries({

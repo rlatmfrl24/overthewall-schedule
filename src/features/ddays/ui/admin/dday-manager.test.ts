@@ -81,7 +81,7 @@ describe("DDayManager", () => {
     await waitFor(() => expect(updateDDayMock).toHaveBeenCalledWith(expect.objectContaining({id: 2, description: null}),expect.any(String)));
     await waitFor(() => expect(fetchDDaysMock).toHaveBeenCalledTimes(2));
   });
-  it.each(["CONTENT_MOVED","CONTENT_ACCEPTED","CONTENT_CONFLICT"])("keeps the draft and original key after %s",async code=>{
+  it.each(["CONTENT_MOVED","CONTENT_CONFLICT"])("keeps the draft and original key after %s",async code=>{
     updateDDayMock.mockRejectedValue(new ApiError(`실제 ${code} 안내`,409,{code}));
     const client=createTestQueryClient();
     render(createElement(QueryClientProvider,{client},createElement(DDayManager)));

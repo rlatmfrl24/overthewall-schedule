@@ -16,7 +16,7 @@ import {
 import type { DbInstance } from "../../../platform/db";
 import { contentRowMovedSql } from "../../content-access";
 import type { NoticeCommand } from "../domain/notice-command";
-import type { D1NoticeTransitionWriter } from "./d1-notice-transition-writer";
+import { commitNoticeMutation } from "./notice-write";
 import type {
   NoticeGateway,
   NoticeMutationResult,
@@ -25,7 +25,6 @@ import type {
   NoticeThumbnailUploadInput,
   NoticeWriteInput,
 } from "../application/ports/notice-gateway";
-
 
 type NoticeThumbnailReference = {
   key: string;
@@ -87,7 +86,6 @@ export class D1NoticeGateway implements NoticeGateway {
 
   private readonly includeArchived: boolean;
   private readonly fileStore?:NoticeFileStore;
-  private readonly transitionWriter?:D1NoticeTransitionWriter;
 
   private readonly siteId: SiteId;
   constructor(
@@ -95,7 +93,6 @@ export class D1NoticeGateway implements NoticeGateway {
     bucket?: R2Bucket,
     includeArchived = false,
     fileStore?:NoticeFileStore,
-    transitionWriter?:D1NoticeTransitionWriter,
     siteId: SiteId = "otw",
   ) {
     this.db = db;
@@ -103,12 +100,11 @@ export class D1NoticeGateway implements NoticeGateway {
     this.includeArchived = includeArchived;
     this.bucket = bucket;
     this.fileStore=fileStore;
-    this.transitionWriter=transitionWriter;
   }
 
   private async write(command:NoticeCommand,statements:Array<{toSQL():{sql:string;params:unknown[]}}>):Promise<Array<Pick<D1Result,"success">>> {
     const prepared=statements.map(statement=>{const query=statement.toSQL();return this.db.$client.prepare(query.sql).bind(...query.params);});
-    return this.transitionWriter?this.transitionWriter.write(command,prepared):this.db.$client.batch(prepared);
+    return commitNoticeMutation(this.db.$client,this.siteId,command,prepared);
   }
 
   isThumbnailStorageConfigured() {

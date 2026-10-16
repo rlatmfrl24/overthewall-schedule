@@ -1,4 +1,4 @@
-import type {ChzzkScanCommand,ChzzkScanResult} from "@contracts/content-transition-chzzk";
+import type {ChzzkScanCommand,ChzzkScanResult} from "@contracts/chzzk-scan";
 import type {ChzzkVideoCatalog} from "../../chzzk";
 import type {ChzzkVideoDto} from "@contracts/chzzk";
 
@@ -11,5 +11,5 @@ export type ChzzkScanExecution=(command:ChzzkScanCommand,provider:ChzzkScanProvi
 export interface ChzzkScanExecutionResult {
   channels:number;
   observations:number;
-  channelResults:Array<{channelId:string;status:"complete"|"failed"|"incomplete"|"accepted"|"moved"|"conflicted";operationId?:string}>;
+  channelResults:Array<{channelId:string;status:"complete"|"failed"|"incomplete"}>;
 }

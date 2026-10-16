@@ -1,5 +1,5 @@
 import type {SiteId} from "@contracts/site-definition";
-import type { TransitionPlan } from "@contracts/content-transition";
+import type {AssetReferenceScope} from "../domain/file-reference";
 import type {ProtectedAssetReferenceContext} from "@contracts/assets";
 import type {ProtectedAssetReferenceResolver,NoticeImageMemberValidator} from "../application/ports/asset-reader";
 import {classifyFileReference,normalizeOwnedFilePath} from "../domain/file-reference";
@@ -20,7 +20,7 @@ export class D1ProtectedAssetReferenceResolver implements ProtectedAssetReferenc
   constructor(db:D1Database,site:SiteId,resource:string,origins:readonly string[],noticeMembers:NoticeImageMemberValidator) {this.db=db;this.site=site;this.resource=resource;this.origins=origins;this.noticeMembers=noticeMembers;}
   private async noticeContext(raw:string,context:ProtectedAssetReferenceContext) {
     let restricted=false;
-    const plans:TransitionPlan[]=[];
+    const plans:AssetReferenceScope[]=[];
     if(context.id!==undefined) {
       const notice=await this.db.prepare(`SELECT n.content_access,${contentRowHeldSql("notices","n")} held,${contentRowMovedSql("notices","n")} moved,n.thumbnail_url,n.image_urls FROM notices n WHERE n.id=?`).bind(context.id).first<{content_access:string;held:number;moved:number;thumbnail_url:string|null;image_urls:string}>();
       if(!notice) throw new Error("Missing actual notice context");
@@ -28,12 +28,12 @@ export class D1ProtectedAssetReferenceResolver implements ProtectedAssetReferenc
       if(context.kind==="notice-draft" && (notice.content_access!=="normal" || notice.moved)) throw new Error("Notice is not editable here");
       restricted=notice.content_access!=="normal" || !!notice.held;
       const rows=(await this.db.prepare(`SELECT t.plan_json FROM content_transitions t JOIN notices owner ON owner.id=? WHERE t.local_site=? AND ${rowSelectedOrHeld("notices","owner")}`).bind(context.id,this.site).all<{plan_json:string}>()).results;
-      plans.push(...rows.map(row=>JSON.parse(row.plan_json) as TransitionPlan));
+      plans.push(...rows.map(row=>JSON.parse(row.plan_json) as AssetReferenceScope));
     }
     if(context.kind==="notice-draft") {
       if(!await this.noticeMembers.areRelatedMembersValid(context.relatedMemberUids)) throw new Error("Invalid actual notice members");
       const rows=(await this.db.prepare("SELECT t.plan_json FROM content_transitions t WHERE t.local_site=? AND EXISTS(SELECT 1 FROM json_each(t.plan_json,'$.members') member JOIN json_each(?) draft ON draft.value=iif(t.local_site=t.source_site,json_extract(member.value,'$.uid'),json_extract(member.value,'$.targetUid')))").bind(this.site,JSON.stringify(context.relatedMemberUids)).all<{plan_json:string}>()).results;
-      plans.push(...rows.map(row=>JSON.parse(row.plan_json) as TransitionPlan));
+      plans.push(...rows.map(row=>JSON.parse(row.plan_json) as AssetReferenceScope));
     }
     return {restricted,plans};
   }
@@ -51,7 +51,7 @@ export class D1ProtectedAssetReferenceResolver implements ProtectedAssetReferenc
       f.row_table='member_profile_images' AND EXISTS(SELECT 1 FROM member_profile_images p JOIN members m ON m.uid=p.member_uid WHERE p.id=f.row_id AND m.content_access='admin_archive') OR
       f.row_table='naver_cafe_posts' AND EXISTS(SELECT 1 FROM naver_cafe_posts n WHERE n.id=f.row_id AND n.content_access='admin_archive')))
       OR EXISTS(SELECT 1 FROM content_historical_records h,input WHERE ${imageMatches("h.source_table","h.record_json")}) restricted`).bind(raw).first<number>("restricted");
-    return {restricted:!!archived,plans:plans.map(row=>JSON.parse(row.plan_json) as TransitionPlan)};
+    return {restricted:!!archived,plans:plans.map(row=>JSON.parse(row.plan_json) as AssetReferenceScope)};
   }
   async resolve(raw:string,context?:ProtectedAssetReferenceContext):Promise<string|null> {
     const value=raw.trim(),url=new URL(value);

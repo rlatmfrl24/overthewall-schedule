@@ -20,4 +20,3 @@ export type {CandidateReviewMutation,CandidateReviewCommand} from './domain/cand
 export {parseConversionOutcome,type ConversionOutcomeInput,type ConversionOutcomeCommand} from './domain/conversion-outcome-command';
 export {parseCandidateMetadataMutation,type CandidateMetadataMutation,type CandidateMetadataCommand} from './domain/candidate-metadata-command';
 export {parseCandidateChannelMutation,type CandidateChannelMutation,type CandidateChannelCommand,type CandidateChannelInput} from './domain/candidate-channel-command';
-export {parseUnknownAiReviewCommand,parseResumeAiReviewCommand,type UnknownAiReviewCommand,type ResumeAiReviewCommand} from './domain/ai-review-command';

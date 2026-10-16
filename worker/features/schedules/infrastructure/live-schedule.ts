@@ -8,10 +8,10 @@ import {
   extractKSTTime,
   getKSTDateString,
 } from "../../../platform/http-helpers";
-import { TransitionWriteError } from "../../content-transition";
+import { ContentWriteError } from "../../content-access";
 import type { LiveScheduleAutoFillFeedback } from "@contracts/chzzk";
 import type { LiveScheduleCommand, LiveScheduleFillPlan } from "../domain/live-schedule-command";
-import type { D1LiveScheduleTransitionWriter } from "./d1-live-schedule-transition-writer";
+import type { D1LiveScheduleWriter } from "./publication-writers";
 export type { LiveScheduleFillPlan } from "../domain/live-schedule-command";
 
 type LiveStatusContent = NonNullable<CachedLiveStatus["content"]>;
@@ -168,7 +168,7 @@ export const buildLiveScheduleFillPlans = ({
 export const autoFillUndecidedLiveSchedules = async (
   db: DbInstance,
   liveItems: LiveStatusItem[],
-  transitionWriter?: D1LiveScheduleTransitionWriter,
+  transitionWriter?: D1LiveScheduleWriter,
 ) => {
   const openChannelIds = liveItems
     .filter((item) => isOpenLiveStatus(item.content))
@@ -252,7 +252,7 @@ export const autoFillUndecidedLiveSchedules = async (
       updated += 1;
       details.push(plan);
     } catch (error) {
-      if (!(error instanceof TransitionWriteError)) throw error;
+      if (!(error instanceof ContentWriteError)) throw error;
       feedback.push({ memberUid: plan.memberUid, code: error.code, message: error.message, operationId: error.operationId, targetSite: error.targetSite });
     }
   }
@@ -261,7 +261,7 @@ export const autoFillUndecidedLiveSchedules = async (
 };
 
 /** The owning executor reuses the exact admitted plan, not a new provider snapshot. */
-export async function applyLiveScheduleFillPlan(db: DbInstance, command: LiveScheduleCommand, transitionWriter?: D1LiveScheduleTransitionWriter) {
+export async function applyLiveScheduleFillPlan(db: DbInstance, command: LiveScheduleCommand, transitionWriter?: D1LiveScheduleWriter) {
   const { plan } = command, d1 = db.$client;
   const mutation = plan.action === "create"
     ? d1.prepare(`INSERT INTO schedules(member_uid,date,start_time,title,status)

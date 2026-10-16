@@ -1,4 +1,5 @@
-import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
+import { readSiteSchemaMigrations } from "../test-support/site-schema";
+import { applyD1Migrations, env } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { handleWorkerFetch } from "./fetch";
 import { clearAuthCachesForTests } from "../platform/auth";
@@ -8,7 +9,7 @@ import { D1PublicCatalogReader } from "../features/otw-play/infrastructure/d1-pu
 import { projectionStatements } from "../features/otw-play/infrastructure/d1-catalog-projection";
 import { D1PlaylistRepository } from "../features/otw-play/infrastructure/d1-playlist-repository";
 import { SITE_OPENS_AT } from "@contracts/site-publication";
-import { D1TransitionRepository } from "../features/content-transition";
+import { commitPublicationBatch } from "../features/content-access";
 import { publicationHiddenSql } from "../features/content-access";
 import { readActiveChzzkChannels } from "../features/chzzk/infrastructure/d1-active-channels";
 import { readActiveYouTubeChannels } from "../features/youtube/infrastructure/d1-active-channels";
@@ -32,7 +33,7 @@ import { D1AdminCatalogRepository } from "../features/otw-play/infrastructure/d1
 import { AiReviewService } from "../features/otw-play/application/ai-review-service";
 import { D1AiReviewContext } from "../features/otw-play/infrastructure/d1-ai-review-context";
 
-const bindings = env as unknown as Env & { CONTENT_TRANSITION_MIGRATIONS: D1Migration[] };
+const bindings = env as unknown as Env & { };
 const db = bindings.otw_db;
 const issuer = "https://archive.clerk.invalid";
 const origin = "http://localhost:5173";
@@ -53,7 +54,7 @@ async function request(path: string, user?: string, init: RequestInit = {}, requ
   return handleWorkerFetch(new Request(`${origin}${path}`, { ...init, headers }), requestRuntime);
 }
 beforeAll(async () => {
-  for (const migration of bindings.CONTENT_TRANSITION_MIGRATIONS) {
+  for (const migration of (await readSiteSchemaMigrations())) {
     if (migration.name.startsWith("0030_")) await db.batch(["kurenai_natsuki", "terri_nunna", "bing_hayu", "yang_mei", "u_lili", "on_haru", "hane", "kim_ate"].map((code, index) => db.prepare("INSERT INTO members(uid,code,name,is_deprecated) VALUES(?,?,?,1)").bind(-10000-index, code, "migration bootstrap")));
     await applyD1Migrations(db, [migration]);
   }
@@ -225,7 +226,7 @@ it("rejects a late X post instead of recording facts or acknowledging its waterm
 it("excludes timed artists and song candidates from ordinary submission lookup", async () => {
   await catalog();
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
-  const repository = new D1MemberSubmissionRepository(db,undefined,"otw");
+  const repository = new D1MemberSubmissionRepository(db,"otw");
   const clock = vi.spyOn(Date,"now").mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
   expect(await repository.searchArtists("Archived")).toHaveLength(1);
   clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
@@ -268,7 +269,7 @@ it("excludes selected Play monitors and rejects their in-flight watermark update
     db.prepare("UPDATE music_channels SET channel_role='approved_kirinuki' WHERE id='channel'"),
     db.prepare("INSERT INTO music_channel_entities(channel_id,entity_id) VALUES('channel','archived-singer')"),
   ]);
-  const repository = new D1ChannelMonitorRepository(db,undefined,"otw");
+  const repository = new D1ChannelMonitorRepository(db,"otw");
   const clock = vi.spyOn(Date,"now").mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
   const externalId = await db.prepare("SELECT external_channel_id FROM music_channels WHERE id='channel'").first<string>("external_channel_id");
   const channel = await repository.findApprovableChannel(externalId!);
@@ -306,10 +307,9 @@ it("stops transferred collection targets and rolls back an already prepared nati
   clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   expect(await readActiveYouTubeChannels(db,"otw")).not.toContain("UCaaaaaaaaaaaaaaaaaaaaaa");
   expect(await readActiveChzzkChannels(db,"otw")).not.toContain("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-  const source = new D1TransitionRepository(db,"otw","otw-db");
-  await expect(source.commitPublicationBatch([1],[lateWrite])).rejects.toThrow();
+  await expect(commitPublicationBatch(db,"otw",[1],[lateWrite])).rejects.toThrow();
   expect(await db.prepare("SELECT title FROM schedules WHERE id=1").first("title")).toBe("Archived schedule");
-  await source.commitPublicationBatch([2],[db.prepare("UPDATE schedules SET title='remaining member' WHERE id=2")]);
+  await commitPublicationBatch(db,"otw",[2],[db.prepare("UPDATE schedules SET title='remaining member' WHERE id=2")]);
   expect(await db.prepare("SELECT title FROM schedules WHERE id=2").first("title")).toBe("remaining member");
   expect(await readActiveYouTubeChannels(db,"luvdia")).toContain("UCaaaaaaaaaaaaaaaaaaaaaa");
 });
@@ -705,7 +705,7 @@ const createPublicationImport=async(repo:D1IngestionRepository,id:string)=>repo.
 it.each([['otw',false,false],['luvdia',false,false],['otw',true,false],['luvdia',true,false],['otw',true,true],['luvdia',true,true]] as const)('settles mixed %s ingestion with discovery after midnight=%s and existing unclassified=%s',async(site,lateDiscovery,unclassified)=>{
   const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
-  const repo=new D1IngestionRepository(db,undefined,undefined,undefined,undefined,undefined,site);
+  const repo=new D1IngestionRepository(db,site);
   if(unclassified) {
     const seed=await createPublicationImport(repo,'publication-ingestion-unclassified');
     await repo.recordPlaylistPage(await repo.readMessage(seed.message.idempotencyKey),{items:[{videoId:'PPPPPPPPPP1',position:0,playlistItemId:'unclassified-original'}],nextPageToken:null},Date.now());
@@ -816,7 +816,7 @@ const cutoffReview = (id: string): AiReviewRecord => ({
 it.each(['otw','luvdia'] as const)('guards %s administrator channel lookup and final catalog writes without blocking another member',async site=>{
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
   const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
-  const repo=new D1AdminCatalogRepository(db,undefined,undefined,undefined,undefined,undefined,undefined,undefined,site);
+  const repo=new D1AdminCatalogRepository(db,site);
   const actor={userId:'archive-admin',displayName:'Admin',ipAddress:null};
   const selected={externalChannelId:'UCaaaaaaaaaaaaaaaaaaaaaa',displayName:'Selected',channelRole:'member_music' as const,entityIds:[]};
   clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
@@ -876,7 +876,7 @@ it('rejects a stale selected channel-monitor creation atomically after midnight'
     db.prepare("UPDATE music_channels SET channel_role='approved_kirinuki' WHERE id='channel'"),
     db.prepare("INSERT INTO music_channel_entities(channel_id,entity_id) VALUES('channel','archived-singer')"),
   ]);
-  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1),repo=new D1ChannelMonitorRepository(db,undefined,'otw');
+  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1),repo=new D1ChannelMonitorRepository(db,'otw');
   const channel=(await repo.findApprovableChannel('UCcccccccccccccccccccccc'))!;
   expect(channel).not.toBeNull();clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   expect(await repo.findApprovableChannel(channel.externalChannelId)).toBeNull();
@@ -898,7 +898,7 @@ it("refuses selected queued AI without spending an attempt while retaining the o
 it('allows independent LuvDia and shared-owner AI collection after midnight',async()=>{
   vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT));
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
-  const luv=new D1AiReviewRepository(db,null,null,null,'luvdia'),record=cutoffReview('publication-ai-luv');
+  const luv=new D1AiReviewRepository(db,'luvdia'),record=cutoffReview('publication-ai-luv');
   await luv.create(record,record.id,record.id,false,Date.now());expect(await luv.claim(record.id,'luv-lease',Date.now(),500)).not.toBeNull();await luv.finish(record.id,'luv-lease',{videoAnalyzed:true,warnings:[],songs:[]},null,null,Date.now());
   const otw=new D1AiReviewRepository(db);
   await db.prepare("INSERT INTO member_links(member_uid,type,label,url,youtube_channel_id,enabled) VALUES(2,'youtube_sub','Disabled shared','https://youtube.com/shared','UCaaaaaaaaaaaaaaaaaaaaaa',0)").run();
@@ -1023,7 +1023,6 @@ it("keeps legitimate shared curated artwork but hides it and preflight metadata 
   expect(telemetry).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ event: "play.request.failed", status: 404, errorCode: "PLAY_SUBMISSION_NOT_FOUND" }));
 });
 
-
 it.each([false, true])("validates short Korean contains origins with dense=%s", async dense => {
   await catalog();
   await db.prepare("UPDATE music_entities SET normalized_name='빙하유',display_name='빙하유' WHERE id='archived-singer'").run();
@@ -1074,7 +1073,6 @@ it("discards unverified stored X snapshots when archive policy lookup fails", as
   expect(warn).toHaveBeenCalledTimes(1);
   warn.mockRestore();
 });
-
 
 it("makes retained non-Play YouTube official, Shorts and VOD history reachable only to admins", async () => {
   await db.batch([

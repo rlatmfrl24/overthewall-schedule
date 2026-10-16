@@ -21,7 +21,6 @@ export type IngestionRepositoryErrorCode =
   | "stale_write"
   | "stale_message"
   | "validation_failed"
-  | "content_accepted"
   | "content_moved"
   | "content_conflict"
   | "unavailable";

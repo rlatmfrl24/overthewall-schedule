@@ -91,11 +91,11 @@ it("requires proposal processing before removal and lets processed proposals be 
 });
 
 it("keeps the original inbox deletion selected while its owner accepts the same retry", async () => {
-  deleteReviewItem.mockRejectedValueOnce(new ApiError("삭제 요청이 접수되었습니다. 잠시 후 다시 시도해 주세요.",409,{code:"CONTENT_ACCEPTED"}));
+  deleteReviewItem.mockRejectedValueOnce(new ApiError("삭제 중 동시 변경이 발생했습니다. 다시 확인해 주세요.",409,{code:"CONTENT_CONFLICT"}));
   render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
   const checkbox=await screen.findByRole("checkbox",{name:"clip-a 선택"});fireEvent.click(checkbox);
   fireEvent.click(screen.getByRole("button",{name:"clip-a 삭제"}));
-  await waitFor(()=>expect(toast).toHaveBeenCalledWith({variant:"error",description:"삭제 요청이 접수되었습니다. 잠시 후 다시 시도해 주세요."}));
+  await waitFor(()=>expect(toast).toHaveBeenCalledWith({variant:"error",description:"삭제 중 동시 변경이 발생했습니다. 다시 확인해 주세요."}));
   expect(checkbox.getAttribute("data-state")).toBe("checked");expect(screen.getByText("clip-a")).toBeTruthy();
   deleteReviewItem.mockResolvedValueOnce(undefined);
   fireEvent.click(screen.getByRole("button",{name:"clip-a 삭제"}));
@@ -227,14 +227,14 @@ it("only converts selected ready candidates and retains failed selections for re
   expect(screen.getByRole("button", { name: "선택 1개 일괄 임시 등록" })).toBeTruthy();
 });
 it('conversion_pending_feedback retains the accepted selection while independent registration completes',async()=>{
-  convert.mockRejectedValueOnce(new ApiError('변환 요청이 접수되었습니다. 잠시 후 다시 확인해 주세요.',409,{code:'CONTENT_ACCEPTED'})).mockResolvedValueOnce({outcome:'created',performanceId:'p-b'});
+  convert.mockRejectedValueOnce(new ApiError('변환 중 동시 변경이 발생했습니다. 다시 확인해 주세요.',409,{code:'CONTENT_CONFLICT'})).mockResolvedValueOnce({outcome:'created',performanceId:'p-b'});
   render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
   fireEvent.click(await screen.findByRole('button',{name:'등록 가능 2개 일괄 선택'}));
   fireEvent.click(screen.getByRole('button',{name:'선택 2개 일괄 임시 등록'}));
   await waitFor(()=>expect(convert).toHaveBeenCalledTimes(2));
-  expect(await screen.findByText('변환 요청이 접수되었습니다. 잠시 후 다시 확인해 주세요.')).toBeTruthy();
+  expect(await screen.findByText('변환 중 동시 변경이 발생했습니다. 다시 확인해 주세요.')).toBeTruthy();
   const summary=screen.getByRole('status',{name:'일괄 임시 등록 결과'}).textContent;
-  expect(summary).toContain('완료 1개');expect(summary).toContain('접수 대기 1개');expect(summary).toContain('실패 0개');
+  expect(summary).toContain('완료 1개');expect(summary).toContain('실패 1개');
   expect(screen.getByRole('button',{name:'선택 1개 일괄 임시 등록'})).toBeTruthy();
 });
 it("summarizes successful draft registrations once instead of repeating row messages", async () => {
@@ -360,7 +360,6 @@ it("restores a review URL by finding the selected candidate on the next page", a
   expect(fetchReview).toHaveBeenCalledWith(expect.objectContaining({ cursor: "next", source: "playlist" }));
 });
 
-
 it("corrects every conflicting page within one import and keeps failed rows retryable", async () => {
   const legacy = (id: string) => ({ ...row(id, "needs_input"), candidateKind: "official_video" as const });
   let corrected = false;
@@ -390,7 +389,6 @@ it("keeps overlapping proposals reachable without offering duplicate draft conve
   expect(screen.getByRole("checkbox", { name: "clip-with-proposal 선택" })).toHaveProperty("disabled", true);
   expect(within(screen.getByRole("article")).getByText("노래 클립")).toBeTruthy();
 });
-
 
 const observeReviewBottom = () => {
   const callbacks: Array<() => void> = [];

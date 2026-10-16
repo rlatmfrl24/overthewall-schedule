@@ -8,7 +8,6 @@ import type { Env } from "../../../platform/types";
 import {
   createXPostsApplication,
   XPostFeedError,
-  type XActor,
 } from "../application/x-posts-service";
 import { readActiveXHandles } from "./d1-active-handles";
 import {
@@ -26,7 +25,7 @@ import {
   readXHistoryPosts,
 } from "./x-history";
 
-export const buildXPostsApplication = (env: Env, redact?: (postId:string,actor:XActor)=>Promise<{found:boolean;changed:boolean;auditWritten?:boolean}>) => {
+export const buildXPostsApplication = (env: Env) => {
   const db = getDb(env);
 
   const mapApiError = (error: unknown) => {
@@ -82,8 +81,7 @@ export const buildXPostsApplication = (env: Env, redact?: (postId:string,actor:X
         throw error;
       }
     },
-    redactStoredPost: async (postId,actor) => {
-      if(redact) return redact(postId,actor);
+    redactStoredPost: async (postId) => {
       const result = await redactStoredXPosts(env.otw_db, [postId]);
       return { found: result.found > 0, changed: result.redacted > 0 };
     },

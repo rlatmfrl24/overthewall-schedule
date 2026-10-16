@@ -1,5 +1,5 @@
 import { QueryReadback } from "@/shared/ui/query-readback";
-import {ApiError,getContentTransitionMessage} from '@/shared/api/client';
+import {getContentWriteMessage} from '@/shared/api/client';
 import { refreshReviewInbox } from "../../queries/refresh-review-inbox";
 import { useIngestionBudget } from "../../queries/use-ingestion-budget";
 import { useConfirmation } from "@/shared/lib/confirmation";
@@ -186,7 +186,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
           const ok = result.outcome === "created" || result.outcome === "duplicate";
           setResults(current => ({ ...current, [id]: { action: "conversion", outcome: ok ? "success" : "error", message: ok ? "임시 등록 완료" : `등록 실패: ${result.errorCode ?? result.outcome}` } }));
           if (ok) setSelected(current => { const next = { ...current }; delete next[id]; return next; });
-        } catch(error) { setResults(current => ({ ...current, [id]: { action: "conversion", outcome: error instanceof ApiError&&error.code==='CONTENT_ACCEPTED'?'pending':"error", message: getContentTransitionMessage(error)??"등록 실패 · 최신 후보를 확인하고 재시도하세요." } })); }
+        } catch(error) { setResults(current => ({ ...current, [id]: { action: "conversion", outcome: "error", message: getContentWriteMessage(error)??"등록 실패 · 최신 후보를 확인하고 재시도하세요." } })); }
       }
       await client.invalidateQueries({ queryKey: queryKeys.otwPlay.adminCatalog(), refetchType: "none" });
       await refresh();

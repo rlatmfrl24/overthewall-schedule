@@ -1,26 +1,14 @@
-import {catalogImportProjection} from "../features/otw-play";
 import { parseSiteStorageResources,getSiteDefinition } from "@contracts/site-definition";
-import { createHandleR2Asset,createHandleProtectedAssetReference,D1ProtectedAssetReferenceResolver, D1AssetAccessReader, R2AssetReader, D1R2FileStore, D1TransitionFileWriter, D1FileAvailability } from "../features/assets";
+import { createHandleR2Asset,createHandleProtectedAssetReference,D1ProtectedAssetReferenceResolver, D1AssetAccessReader, R2AssetReader, D1R2FileStore } from "../features/assets";
 import type { Env } from "../platform/types";
-import { D1TransitionRepository } from "../features/content-transition";
 import {getWorkerSiteDefinition} from "../platform/site";
 import {D1NoticeGateway} from "../features/notices";
 import {getDb} from "../platform/db";
 
 export const buildAssetFileStore = (env:Env) => {
-  const {site,database,bucket}=parseSiteStorageResources(env);
-  if(!env.ASSET_BUCKET) throw new Error("R2 binding required");
-  return new D1R2FileStore(env.otw_db,env.ASSET_BUCKET,site,bucket,new D1TransitionFileWriter(new D1TransitionRepository(env.otw_db,site,database,bucket, null, catalogImportProjection),site,bucket));
-};
-
-export const buildFileAvailability = (env:Env) => {
   const {site,bucket}=parseSiteStorageResources(env);
-  if(!env.ASSET_BUCKET || !env.ASSETS) throw new Error("Selected R2 and ASSETS bindings required");
-  return new D1FileAvailability(env.otw_db,env.ASSET_BUCKET,env.ASSETS,site,bucket);
-};
-export const buildFileTransitionRepository = (env:Env) => {
-  const {site,database,bucket}=parseSiteStorageResources(env);
-  return new D1TransitionRepository(env.otw_db,site,database,bucket,buildFileAvailability(env), catalogImportProjection);
+  if(!env.ASSET_BUCKET) throw new Error("R2 binding required");
+  return new D1R2FileStore(env.otw_db,env.ASSET_BUCKET,site,bucket);
 };
 
 export const handleAsset = createHandleR2Asset(

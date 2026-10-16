@@ -91,8 +91,6 @@ const expectedPolicies = [
   { method: "POST", auth: "admin", successStatus: 200,
     cache: "no-store", paths: [
     "/api/play/admin/ai-review-batches/preview",
-    "/api/play/admin/ai-reviews/:id/close-unknown",
-    "/api/play/admin/ai-reviews/:id/resume-unissued",
     "/api/play/admin/imports/playlist/preflight",
     "/api/play/admin/import-candidates/:id/convert",
     "/api/play/admin/imports/:jobId/convert",

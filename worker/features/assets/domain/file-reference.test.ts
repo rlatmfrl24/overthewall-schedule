@@ -1,7 +1,7 @@
 import {expect,it} from "vitest";
 import {classifyFileReference,validateFileOrigins} from "./file-reference";
-import type { TransitionPlan } from "@contracts/content-transition";
-const plan={sourceSite:"otw",targetSite:"luvdia",assetBuckets:{source:"otw-schedule",target:"luvdia-schedule"},fileOrigins:[{kind:"site",site:"otw",origin:"https://otw-schedule.info"},{kind:"external",origin:"https://media.example.com",reason:"Approved external provider media"}]} as unknown as TransitionPlan;
+import type {AssetReferenceScope} from "./file-reference";
+const plan={sourceSite:"otw",targetSite:"luvdia",assetBuckets:{source:"otw-schedule",target:"luvdia-schedule"},fileOrigins:[{kind:"site",site:"otw",origin:"https://otw-schedule.info"},{kind:"external",origin:"https://media.example.com",reason:"Approved external provider media"}]} as unknown as AssetReferenceScope;
 it("projects approved owning URLs into canonical relative paths without changing external-only media",()=>{
   validateFileOrigins(plan);
   expect(classifyFileReference("https://otw-schedule.info/r2-assets/notices/old/../thumbnails/%61.webp?x=1",plan)).toEqual({kind:"owned",path:"/r2-assets/notices/thumbnails/a.webp",site:"otw",resource:"otw-schedule"});

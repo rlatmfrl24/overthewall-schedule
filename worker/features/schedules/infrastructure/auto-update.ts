@@ -30,9 +30,9 @@ import {
   type AutoUpdateSessionDecision,
   type BroadcastObservation,
 } from "../domain/auto-update-matcher";
-import type {ChzzkScanCommand} from "@contracts/content-transition-chzzk";
-import type {D1ChzzkScanTransitionWriter} from "./d1-chzzk-scan-transition-writer";
-import type {ChzzkScanResult} from "@contracts/content-transition-chzzk";
+import type {ChzzkScanCommand} from "@contracts/chzzk-scan";
+import type {D1ChzzkScanWriter} from "./publication-writers";
+import type {ChzzkScanResult} from "@contracts/chzzk-scan";
 import type {ChzzkScanProvider,ScanVideo} from "./chzzk-scan-types";
 import {CHZZK_SESSION_RESUME_MARGIN_MS} from "../domain/chzzk-scan-command";
 import {parseCollectorCommand,type CollectorCommand} from "../domain/collector-command";
@@ -528,8 +528,7 @@ export const scanAndPersistRecentChzzkObservations = async (
   requestedChannelIds: string[],
   cacheDb?: Pick<D1Database, "prepare">,
   videoCatalog: ChzzkVideoCatalog = chzzkVideoCatalog,
-  transitionWriter?: D1ChzzkScanTransitionWriter,
-  operationKey?: string,
+  transitionWriter?: D1ChzzkScanWriter,
   parent?:ChzzkScanCommand["parent"],
 ) => {
   const scanStartedAt = Date.now();
@@ -560,7 +559,7 @@ export const scanAndPersistRecentChzzkObservations = async (
   if (channelIds.length === 0) return { channels: 0, observations: 0, channelResults: [] };
   const command:ChzzkScanCommand={members:targets.map(({member,channelId})=>({uid:member.uid,code:member.code,name:member.name,channelId})),rangeDays:Math.max(1,Math.floor(rangeDays)),startedAt:scanStartedAt,startDate,today,...(parent?{parent}:{})};
   const execute=(original:ChzzkScanCommand,catalog:ChzzkScanProvider,commit?:(statements:D1PreparedStatement[],result:ChzzkScanResult)=>Promise<void>)=>executeChzzkObservationScan(db,original,cacheDb,catalog,commit,transitionWriter?.siteId??"otw");
-  return transitionWriter?transitionWriter.run(command,videoCatalog,execute,operationKey):execute(command,videoCatalog);
+  return transitionWriter?transitionWriter.run(command,videoCatalog,execute):execute(command,videoCatalog);
 };
 
 export const executeChzzkObservationScan = async (

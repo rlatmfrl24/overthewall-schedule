@@ -1,4 +1,4 @@
-import type { AiReviewRequest, AiReviewCloseUnknownRequest,AiReviewResumeRequest } from "@contracts/otw-play-ai-review";
+import type { AiReviewRequest } from "@contracts/otw-play-ai-review";
 import { requireAdminUser } from "../../../platform/auth";
 import type { Env } from "../../../platform/types";
 import type { AiReviewService } from "../application/ai-review-service";
@@ -7,20 +7,7 @@ import { isAiReviewPending } from "@contracts/otw-play-ai-review";
 
 const object = (v: unknown): v is Record<string, unknown> =>
   Boolean(v && typeof v === "object" && !Array.isArray(v));
-export function parseAiReviewCloseUnknown(value: unknown): AiReviewCloseUnknownRequest {
-  if (!object(value) || Object.keys(value).sort().join(',') !== 'attemptId,decision,evidenceHash,idempotencyKey,issuance,operationId,requestHash' ||
-    value.decision !== 'close_unknown' || !['issued', 'issuance_unknown'].includes(String(value.issuance)) ||
-    !['operationId', 'attemptId'].every(k => typeof value[k] === 'string' && /^[a-zA-Z0-9_-]{1,200}$/.test(value[k] as string)) ||
-    !['requestHash', 'evidenceHash'].every(k => typeof value[k] === 'string' && /^[a-f0-9]{64}$/.test(value[k] as string)) ||
-    typeof value.idempotencyKey !== 'string' || !/^[a-zA-Z0-9_-]{8,100}$/.test(value.idempotencyKey))
-    throw new AiReviewError('invalid_request', '원래 미확인 분석과 종결 요청을 확인하세요.');
-  return value as unknown as AiReviewCloseUnknownRequest;
-}
-export function parseAiReviewResume(value:unknown):AiReviewResumeRequest {
-  if(!object(value)||value.decision!=='resume_unissued'||value.issuance!=='unissued')throw new AiReviewError('invalid_request','원래 미발행 분석과 재개 확인을 확인하세요.');
-  parseAiReviewCloseUnknown({...value,decision:'close_unknown',issuance:'issuance_unknown'});
-  return value as unknown as AiReviewResumeRequest;
-}
+
 export function parseAiReviewRequest(value: unknown): AiReviewRequest {
   if (
     !object(value) ||
@@ -166,18 +153,7 @@ export const createAiReviewHandler =
       } catch {
         throw new AiReviewError("invalid_request", "잘못된 JSON 요청입니다.");
       }
-      if (url.pathname.endsWith('/close-unknown')) {
-        const id = decodeURIComponent(url.pathname.split('/').at(-2)!);
-        if (!/^[a-zA-Z0-9_-]{1,200}$/.test(id) || url.search)
-          throw new AiReviewError('invalid_request', '분석 ID를 확인하세요.');
-        return json({ data: await service.closeUnknown(id, parseAiReviewCloseUnknown(value), admin.user.id) });
-      }
-      if(url.pathname.endsWith('/resume-unissued')) {
-        const id=decodeURIComponent(url.pathname.split('/').at(-2)!);
-        if(!/^[a-zA-Z0-9_-]{1,200}$/.test(id)||url.search)throw new AiReviewError('invalid_request','분석 ID를 확인하세요.');
-        const data=await service.confirmResume(id,parseAiReviewResume(value),admin.user.id);
-        return json({data},isAiReviewPending(data.status)?202:200);
-      }
+
       const data = await service.start(
         parseAiReviewRequest(value),
         admin.user.id,

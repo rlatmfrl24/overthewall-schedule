@@ -1,24 +1,21 @@
-import {catalogImportProjection} from "../../otw-play";
-import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
+import { readSiteSchemaMigrations } from "../../../test-support/site-schema";
+import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeAll, beforeEach, expect, it } from "vitest";
 import { D1R2FileStore } from "./d1-r2-file-store";
 import { buildAssetFileStore } from "../../../app/assets";
-import { D1TransitionRepository } from "../../content-transition";
-import { classifiedTables } from "../../content-transition/infrastructure/manifest-statements";
-import { keySql } from "../../content-transition/infrastructure/capture-graph";
 import type { Env } from "../../../platform/types";
-import {filePathSql,fileOriginSql} from "../../content-transition/infrastructure/file-reference-index";
+import {filePathSql,fileOriginSql} from "./file-reference-index";
 import {classifyFileReference,ownedFilePathSql} from "../domain/file-reference";
 import {D1AssetAccessReader} from "./d1-asset-access-reader";
 
-const runtime = env as unknown as { otw_db:D1Database; ASSET_BUCKET:R2Bucket; CONTENT_TRANSITION_MIGRATIONS:D1Migration[] };
+const runtime = env as unknown as { otw_db:D1Database; ASSET_BUCKET:R2Bucket; };
 const db = runtime.otw_db;
 const bucket = runtime.ASSET_BUCKET;
 const store = new D1R2FileStore(db, bucket, "otw", "otw-schedule");
 const input = (operationId:string, bytes = new Uint8Array([82,73,70,70,255])) => ({ operationId, logicalKey:"notices/thumbnails/recover.webp", contentType:"image/webp", bytes });
 let migrationPreserved=false;
 beforeAll(async () => {
-  for(const migration of runtime.CONTENT_TRANSITION_MIGRATIONS) {
+  for(const migration of (await readSiteSchemaMigrations())) {
     if(migration.name.startsWith("0030_")) await db.batch(["kurenai_natsuki","terri_nunna","bing_hayu","yang_mei","u_lili","on_haru","hane","kim_ate"].map((code,index)=>db.prepare("INSERT INTO members(uid,code,name,is_deprecated) VALUES(?,?,?,1)").bind(-10000-index,code,"migration bootstrap")));
     if(migration.name.startsWith("0111_")) await db.prepare("INSERT INTO notices(id,content,image_urls) VALUES(995,'migration preservation','[\"/r2-assets/notices/thumbnails/%6Cegacy.webp?version=1\"]')").run();
     await applyD1Migrations(db,[migration]);
@@ -124,13 +121,8 @@ it("does not borrow another row's external-origin classification to release a cu
   await db.batch([db.prepare("DELETE FROM member_links"),db.prepare("DELETE FROM music_entities"),db.prepare("DELETE FROM members")]);
   const members=[{code:"bing_hayu",uid:1,targetUid:1},{code:"u_lili",uid:2,targetUid:2},{code:"yang_mei",uid:3,targetUid:3}];
   await db.batch([...members,{code:"unrelated",uid:90}].map(member=>db.prepare("INSERT INTO members(uid,code,name) VALUES(?,?,?)").bind(member.uid,member.code,member.code)));
-  const classifications=[];
-  for(const table of classifiedTables) {
-    const rows=(await db.prepare(`SELECT ${keySql(table,"a")} identity FROM "${table}" a`).all<{identity:string}>()).results;
-    classifications.push(...rows.map(row=>({table,key:row.identity,disposition:"exclude" as const,reason:"Unrelated fixture configuration"})));
-  }
-  const repository=new D1TransitionRepository(db,"otw","otw-db","otw-schedule", null, catalogImportProjection);
-  await repository.prepare({id:"origin-scope",sourceSite:"otw",targetSite:"luvdia",sourceResource:"otw-db",targetResource:"luvdia-db",generation:2,protocol:1,manifestDigest:"origins",members,classifications,fileOrigins:[{kind:"external",origin:"https://remote.example",reason:"Selected manifest external image"}]});
+
+  await db.prepare("INSERT INTO content_transitions(id,source_site,target_site,source_resource,target_resource,local_site,local_resource,generation,protocol,manifest_digest,plan_json) VALUES('origin-scope','otw','luvdia','otw-db','luvdia-db','otw','otw-db',2,1,'origins',?)").bind(JSON.stringify({sourceSite:"otw",targetSite:"luvdia",members,classifications:[],fileOrigins:[{kind:"external",origin:"https://remote.example",reason:"Retained approved external image"}]})).run();
   const first=await store.put(input("external-selected"));
   const raw=`https://remote.example/r2-assets/${first.logicalKey}`;
   await db.prepare("INSERT INTO notices(id,content,related_member_uids,image_urls) VALUES(991,'selected','[1]',?)").bind(JSON.stringify([raw])).run();
@@ -156,24 +148,12 @@ it("restarts legacy grace at a later historical hold's actual release without re
   expect(release.held).toBe(0);expect(release.released_at).toBeGreaterThan(1);
   expect((await store.retention(key,key,object.uploaded.getTime())).cleanupEligible).toBe(false);
 });
-it("captures selected profile replacement through the normal composed store and fixed transition file receipts",async()=>{
-  await db.batch([db.prepare("DELETE FROM member_links"),db.prepare("DELETE FROM music_entities"),db.prepare("DELETE FROM members")]);
-  const members=[{code:"bing_hayu",uid:1,targetUid:1},{code:"u_lili",uid:2,targetUid:2},{code:"yang_mei",uid:3,targetUid:3}];
-  await db.batch(members.map(member=>db.prepare("INSERT INTO members(uid,code,name) VALUES(?,?,?)").bind(member.uid,member.code,member.code)));
-  const classifications=[];
-  for(const table of classifiedTables) {
-    const rows=(await db.prepare(`SELECT ${keySql(table,"a")} identity FROM "${table}" a`).all<{identity:string}>()).results;
-    classifications.push(...rows.map(row=>({table,key:row.identity,disposition:"exclude" as const,reason:"Unrelated fixture configuration"})));
-  }
-  const repository=new D1TransitionRepository(db,"otw","otw-db","otw-schedule", null, catalogImportProjection);
-  await repository.prepare({id:"files",sourceSite:"otw",targetSite:"luvdia",sourceResource:"otw-db",targetResource:"luvdia-db",generation:2,protocol:1,manifestDigest:"files",members,classifications});
-  await repository.protect("files",{receiptId:"hold",protocol:1,manifestDigest:"files"});
-  const composed=buildAssetFileStore({...runtime,SITE_ID:"otw",SITE_D1_DATABASE_NAME:"otw-db",SITE_ASSET_BUCKET_NAME:"otw-schedule"} as unknown as Env);
-  const intent=await composed.put({...input("profile-held"),logicalKey:"members/bing_hayu/backgrounds/main/original.webp"});
-  expect(intent.transitionId).toBe("files");
-  expect((await repository.exportFileIntent("files",intent.operationId))).toMatchObject({status:"intent",outcome:{outcome:"committed",sideEffectReconciled:true}});
-  expect((await repository.exportOperation("files",intent.operationId)).outcome?.outcome).toBe("committed");
-  expect((await repository.readJournal("files")).some(row=>row.table==="asset_file_references" && row.after_json?.includes(intent.hash))).toBe(true);
+it("writes a normal composed profile version without creating transfer receipts",async()=>{
+  await db.prepare("INSERT OR IGNORE INTO members(uid,code,name) VALUES(700,'canonical_owner','Canonical Owner')").run();
+  const intent=await buildAssetFileStore({...runtime,SITE_ID:"otw",SITE_D1_DATABASE_NAME:"otw-db",SITE_ASSET_BUCKET_NAME:"otw-schedule"} as unknown as Env).put({...input("native-profile"),logicalKey:"members/canonical_owner/backgrounds/default/original.webp"});
+  expect(intent.transitionId).toBeNull();
+  expect(await db.prepare("SELECT count(*) n FROM content_transition_operations").first("n")).toBe(0);
+  expect(await db.prepare("SELECT version_key FROM asset_file_references WHERE logical_key=?").bind(intent.logicalKey).first("version_key")).toBe(intent.versionKey);
   expect(await bucket.get(intent.versionKey)).not.toBeNull();
 });
 it("reconciles a real immutable put after unknown result and commits exactly one reference before ACK",async()=>{

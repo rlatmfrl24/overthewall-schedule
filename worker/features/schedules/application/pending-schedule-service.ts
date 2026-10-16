@@ -75,8 +75,8 @@ const toUnexpectedBatchFailure = (
 ): PendingScheduleActionResult => ({
   id,
   success: false,
-  error: error instanceof Error && "code" in error && ["CONTENT_MOVED","CONTENT_ACCEPTED","CONTENT_CONFLICT"].includes(String(error.code))?String(error.code):"error",
-  message: error instanceof Error && "code" in error && ["CONTENT_MOVED","CONTENT_ACCEPTED","CONTENT_CONFLICT"].includes(String(error.code))?error.message:"대기 스케줄 처리 중 오류가 발생했습니다.",
+  error: error instanceof Error && "code" in error && ["CONTENT_MOVED","CONTENT_CONFLICT"].includes(String(error.code))?String(error.code):"error",
+  message: error instanceof Error && "code" in error && ["CONTENT_MOVED","CONTENT_CONFLICT"].includes(String(error.code))?error.message:"대기 스케줄 처리 중 오류가 발생했습니다.",
 });
 
 export class PendingScheduleService {

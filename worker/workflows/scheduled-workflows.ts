@@ -10,7 +10,6 @@ import {
 import { ScheduledJobCoordinator } from "../features/scheduled-operations";
 import type { Env } from "../platform/types";
 import { getWorkerSiteResources } from "../platform/site";
-import { assertTransitionAdmission } from '../features/content-transition';
 
 export class ScheduledOperationsWorkflow extends WorkflowEntrypoint<
   Env,
@@ -36,7 +35,6 @@ export class ScheduledOperationsWorkflow extends WorkflowEntrypoint<
         timeout: "1 minute",
       },
       async () => {
-        await assertTransitionAdmission(this.env.otw_db);
         return new ScheduledJobCoordinator(this.env).runScheduled(jobType,scheduledFor);
       },
     );

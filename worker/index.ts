@@ -4,7 +4,6 @@ import { handleScheduledWorkflowCron } from "./app/scheduled-workflow-cron";
 import type { Env } from "./platform/types";
 
 export { ScheduledOperationsWorkflow } from "./workflows/scheduled-workflows";
-export {ContentTransitionRelay} from "./app/content-transition-relay";
 
 export default {
   fetch(request, env, ctx) {

@@ -1,4 +1,4 @@
-import type {ChzzkScanCommand,ChzzkScanRequest,ChzzkScanResponse,ChzzkScanResult,ChzzkScanParent} from "@contracts/content-transition-chzzk";
+import type {ChzzkScanCommand,ChzzkScanRequest,ChzzkScanResponse,ChzzkScanResult,ChzzkScanParent} from "@contracts/chzzk-scan";
 import {isIsoDate} from "./schedule-input";
 
 const record=(value:unknown):value is Record<string,unknown>=>!!value && typeof value==="object" && !Array.isArray(value);

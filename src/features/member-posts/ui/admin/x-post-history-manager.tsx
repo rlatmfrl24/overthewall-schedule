@@ -4,7 +4,7 @@ import { PiArchiveBold as Archive, PiCaretDownBold as ChevronDown, PiArrowSquare
 import type { XHistoryPostDto, XHistoryPostStatus } from "@contracts/x-posts";
 import { fetchAdminMembers } from "@/features/members";
 import { queryKeys } from "@/shared/query/query-keys";
-import { getContentTransitionMessage } from "@/shared/api/client";
+import { getContentWriteMessage } from "@/shared/api/client";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -88,7 +88,7 @@ export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
     },
     onError: (error) => {
       console.error("Failed to redact X post:", error);
-      toast({ variant: "error", description: getContentTransitionMessage(error) ?? "X 게시물 원문 제거에 실패했습니다." });
+      toast({ variant: "error", description: getContentWriteMessage(error) ?? "X 게시물 원문 제거에 실패했습니다." });
     },
   });
 

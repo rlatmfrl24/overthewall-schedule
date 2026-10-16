@@ -1,8 +1,6 @@
 import type { SiteId } from "@contracts/site-definition";
 import { publicationHiddenSql } from "../../content-access";
-import type {D1MemberSubmissionWriter} from "./d1-member-submission-writer";
 import { isArchivedYouTubeVideo } from "./archived-youtube-video";
-import { TransitionWriteError } from "../../content-transition";
 import type {
   OtwPlaySubmissionArtistDto,
   OtwPlayCreateSubmissionRequest,
@@ -130,13 +128,8 @@ export class D1MemberSubmissionRepository
 {
   private readonly database: D1Database;
 
-  private readonly transition?:D1MemberSubmissionWriter;
   private readonly siteId: SiteId;
-  constructor(database: D1Database,transition?:D1MemberSubmissionWriter,siteId:SiteId="otw") {
-    this.transition=transition;
-    this.database = database;
-    this.siteId=siteId;
-  }
+  constructor(database:D1Database,siteId:SiteId="otw") {this.database=database;this.siteId=siteId;}
 
   private prepare(sql: string) { return this.database.prepare(sql.replaceAll("__PUBLICATION_TIME__",this.siteId==="otw"?`max(unixepoch(),${Math.floor(Date.now()/1000)})`:"0")); }
 
@@ -468,10 +461,10 @@ export class D1MemberSubmissionRepository
   }
 
   async create(command: CreateMemberSubmissionCommand) {
-    return this.transition?this.transition.execute({action:"create",...command},original=>this.createOriginal(original)):this.createOriginal(command);
+    return (this.createOriginal(command));
   }
   private async writeBatch(statements:D1PreparedStatement[]) {
-    if(this.transition) await this.transition.batch(statements,()=>this.database.batch(statements));else await this.database.batch(statements);
+    await this.database.batch(statements);
   }
   private memberGuard(subjects: ResolvedSubject[]) {
     return this.prepare(`SELECT iif(NOT EXISTS(SELECT 1 FROM members member WHERE member.uid IN (SELECT value FROM json_each(?)) AND ${publicationHiddenSql("members", "member", "otw", "__PUBLICATION_TIME__")}),1,json('site_member_cutover'))`)
@@ -630,7 +623,7 @@ export class D1MemberSubmissionRepository
         ),
       ]);
     } catch (error) {
-      if(error instanceof TransitionWriteError || error instanceof MemberSubmissionRepositoryError) throw error;
+      if(error instanceof MemberSubmissionRepositoryError) throw error;
       const raced = await this.readByIdempotency(userId, input.clientRequestId);
       if (raced) {
         if (await this.samePayload(raced, input, canonicalUrl, participants, artists)) {
@@ -675,8 +668,7 @@ export class D1MemberSubmissionRepository
     input: OtwPlayCreateSubmissionRequest,
     canonicalUrl: string,
   ) {
-    const receipt=await this.transition?.replay({action:"create",proposalId:"original-request",userId,input,canonicalUrl,videoId:canonicalUrl.slice(-11),now:0,dayStart:0,dayEnd:86400000});
-    if(receipt) return {...receipt,idempotentReplay:true as const};
+
     const existing = await this.readByIdempotency(userId, input.clientRequestId);
     if (!existing) return null;
     const [resolvedParticipants, artists] = await Promise.all([
@@ -744,7 +736,7 @@ export class D1MemberSubmissionRepository
   }
 
   async update(command: UpdateMemberSubmissionCommand) {
-    return this.transition?(await this.transition.execute({action:"update",...command},async original=>({data:await this.updateOriginal(original),idempotentReplay:false}))).data:this.updateOriginal(command);
+    return (this.updateOriginal(command));
   }
   private async updateOriginal(command: UpdateMemberSubmissionCommand) {
     const { userId, proposalId, input, canonicalUrl, videoId, now } = command;
@@ -938,7 +930,7 @@ export class D1MemberSubmissionRepository
         ),
       ]);
     } catch (error) {
-      if(error instanceof TransitionWriteError || error instanceof MemberSubmissionRepositoryError) throw error;
+      if(error instanceof MemberSubmissionRepositoryError) throw error;
       if (/UNIQUE constraint|constraint failed/i.test(String(error))) {
         throw new MemberSubmissionRepositoryError(
           "duplicate",
@@ -980,7 +972,7 @@ export class D1MemberSubmissionRepository
   }
 
   async withdraw(command: WithdrawMemberSubmissionCommand) {
-    return this.transition?(await this.transition.execute({action:"withdraw",...command},async original=>({data:await this.withdrawOriginal(original),idempotentReplay:false}))).data:this.withdrawOriginal(command);
+    return (this.withdrawOriginal(command));
   }
   private async withdrawOriginal(command: WithdrawMemberSubmissionCommand) {
     const nextVersion = command.expectedVersion + 1;

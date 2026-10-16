@@ -4,8 +4,6 @@ import type {
   ScheduleWriteInput,
 } from "../domain/schedule";
 import type { ScheduleWriteRepository } from "../application/ports/schedule-write-repository";
-import type { D1ScheduleTransitionWriter } from "./d1-schedule-transition-writer";
-import type { ScheduleCommand } from "../domain/schedule-command";
 
 type ScheduleIdRow = { id: number };
 
@@ -74,23 +72,9 @@ const conflictPredicate = (input: ScheduleWriteInput) => {
 
 export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
   private readonly db: D1Database;
-  private readonly transition?:D1ScheduleTransitionWriter;
 
-  constructor(db: D1Database, transition?:D1ScheduleTransitionWriter) {
+  constructor(db: D1Database) {
     this.db = db;
-    this.transition=transition;
-  }
-
-  private async batch(command:ScheduleCommand,statements:D1PreparedStatement[],actor:ScheduleActor) {
-    const input=command.action==="delete"?null:command.input;
-    const predicate=input && command.action==="save"?conflictPredicate({id:input.id,memberUid:input.member_uid,date:input.date,startTime:input.start_time,title:input.title,status:input.status}):null;
-    const action=command.action==="delete" || input?.status==="미정"?"delete_conflicts":input?.id!==null?"update":"create";
-    const receipt={action:action as SaveScheduleResult["action"],scheduleId:action==="update"?input!.id:null,deletedIdsSql:predicate?`SELECT json_group_array(id) FROM (SELECT id FROM schedules WHERE ${predicate.sql} ORDER BY id)`:"SELECT '[]'",deletedIdsBindings:predicate?.bindings??[]};
-    return await this.transition?.write(command,statements,actor,receipt) ?? {results:await this.db.batch(statements),receipt:null};
-  }
-
-  private command(action:"save"|"create"|"update",input:ScheduleWriteInput):ScheduleCommand {
-    return {action,input:{id:input.id,member_uid:input.memberUid,date:input.date,start_time:input.startTime,title:input.title,status:input.status}};
   }
 
   async saveWithConflictResolution(
@@ -125,8 +109,8 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
     ];
 
     if (input.status === "미정") {
-      const {results,receipt} = await this.batch(this.command("save",input),statements,actor);
-      if(receipt) return receipt;
+      const results = await this.db.batch(statements);
+
       return {
         success: true,
         action: "delete_conflicts",
@@ -172,8 +156,8 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
           ),
       );
 
-      const {results,receipt} = await this.batch(this.command("save",input),statements,actor);
-      if(receipt) return receipt;
+      const results = await this.db.batch(statements);
+
       return {
         success: true,
         action: "update",
@@ -198,8 +182,8 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
       createLogStatement(this.db, input, actor),
     );
 
-    const {results,receipt} = await this.batch(this.command("save",input),statements,actor);
-    if(receipt) return receipt;
+    const results = await this.db.batch(statements);
+
     const insertResult = results[3];
     const scheduleId = Number(insertResult.meta.last_row_id);
 
@@ -212,7 +196,7 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
   }
 
   async create(input: ScheduleWriteInput, actor: ScheduleActor): Promise<void> {
-    await this.batch(this.command("create",input),[
+    await this.db.batch([
       this.db
         .prepare(
           `INSERT INTO schedules (member_uid, date, start_time, title, status)
@@ -226,7 +210,7 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
           input.status,
         ),
       createLogStatement(this.db, input, actor),
-    ],actor);
+    ]);
   }
 
   async update(input: ScheduleWriteInput, actor: ScheduleActor): Promise<void> {
@@ -234,7 +218,7 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
       throw new Error("Schedule ID is required for update");
     }
 
-    await this.batch(this.command("update",input),[
+    await this.db.batch([
       this.db
         .prepare(
           `INSERT INTO update_logs (${UPDATE_LOG_COLUMNS})
@@ -268,11 +252,11 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
           input.status,
           input.id,
         ),
-    ],actor);
+    ]);
   }
 
   async delete(id: number, actor: ScheduleActor): Promise<void> {
-    await this.batch({action:"delete",id},[
+    await this.db.batch([
       this.db
         .prepare(
           `INSERT INTO update_logs (${UPDATE_LOG_COLUMNS})
@@ -291,6 +275,6 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
         )
         .bind(...actorBindings(actor), id),
       this.db.prepare("DELETE FROM schedules WHERE id = ?").bind(id),
-    ],actor);
+    ]);
   }
 }

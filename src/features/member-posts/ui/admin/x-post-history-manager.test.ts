@@ -25,7 +25,7 @@ vi.mock("@/shared/ui/toast", () => ({
 }));
 
 describe("XPostHistoryManager", () => {
-  it.each(["CONTENT_MOVED","CONTENT_ACCEPTED","CONTENT_CONFLICT"])("삭제를 성공으로 표시하지 않고 실제 %s 안내를 유지한다",async code=>{
+  it.each(["CONTENT_MOVED","CONTENT_CONFLICT"])("삭제를 성공으로 표시하지 않고 실제 %s 안내를 유지한다",async code=>{
     redactXHistoryPostMock.mockRejectedValueOnce(new ApiError(`실제 ${code} 안내`,409,{code}));
     render(createElement(XPostHistoryManager,{enabled:true}),{wrapper:createQueryWrapper()});
     const details=screen.getByText("보관 기록 관리").closest("details")!;details.open=true;fireEvent(details,new Event("toggle"));

@@ -6,7 +6,7 @@ export const summarizePendingRejectionBatch = (
   const successfulIds = result.results
     .filter((item) => item.success)
     .map((item) => item.id);
-  const feedback=result.results.filter(item=>!item.success && ["CONTENT_MOVED","CONTENT_ACCEPTED","CONTENT_CONFLICT"].includes(item.error??""))
+  const feedback=result.results.filter(item=>!item.success && ["CONTENT_MOVED","CONTENT_CONFLICT"].includes(item.error??""))
     .map(item=>item.message).filter(Boolean).slice(0,3).join(" · ");
   if (result.failedCount === 0) {
     return {

@@ -233,7 +233,7 @@ const planSimpleJob = async (
       );
     }
     case "channel_reconcile": {
-      const ids = await new D1ChannelMonitorRepository(env.otw_db, undefined, parseSiteId(env.SITE_ID)).listDueIds(timestamp, 10);
+      const ids = await new D1ChannelMonitorRepository(env.otw_db,parseSiteId(env.SITE_ID)).listDueIds(timestamp, 10);
       // Each item claims the next currently due monitor at execution time.
       // Keep slot keys so a queued item never claims to have checked a stale ID.
       return makeIndexedItems(ids.length, "monitor", "reconcile", lane);

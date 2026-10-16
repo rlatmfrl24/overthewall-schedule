@@ -1,8 +1,3 @@
-import type {D1ReviewDeletionWriter} from './d1-review-deletion-writer';
-import type {D1CandidateReviewWriter} from './d1-candidate-review-writer';
-import type {D1CandidateMetadataWriter} from './d1-candidate-metadata-writer';
-import type {CandidateMetadataFacts} from '@contracts/content-transition-youtube';
-import type {D1VideoCatalogWriter} from './d1-video-catalog-writer';
 import {candidateReviewSqlError} from './candidate-review-error';
 import { D1AdminCatalogRepository } from "./d1-admin-catalog-repository";
 import { contentRowHeldSql, publicationHiddenSql, publicationChannelHiddenSql, publicationCutoffSql } from "../../content-access";
@@ -99,14 +94,6 @@ const effectiveCandidateClassificationSql = `CASE
 END`;
 
 /** The original review DTO, read in its owning commit for immutable retries. */
-const candidateReviewResultSql=`(SELECT json_object('id',candidate.id,'version',candidate.version,'videoId',candidate.external_video_id,
-  'candidateKind',candidate.candidate_kind,'contentAccess',candidate.content_access,'status',candidate.status,'classification',${effectiveCandidateClassificationSql},
-  'catalogChannelId',(SELECT channel.id FROM music_channels channel WHERE channel.provider='youtube' AND channel.external_channel_id=candidate.channel_id AND channel.verification_status='approved' AND channel.active=1 AND ${reviewChannelRoleSql} LIMIT 1),
-  'reviewInput',json(CASE WHEN json_valid(candidate.review_input_json) AND json_type(candidate.review_input_json)='object' THEN candidate.review_input_json ELSE 'null' END),'linkedPerformanceId',candidate.linked_performance_id,
-  'historicalMaterials',json((WITH RECURSIVE history(source_site,source_table,source_key) AS (
-    SELECT source_site,source_table,source_key FROM content_historical_links WHERE subject_table='music_ingestion_candidates' AND subject_key=json_array(candidate.id)
-    UNION SELECT h.source_site,e.to_table,e.to_key FROM history h JOIN content_historical_relations e ON e.source_site=h.source_site AND e.from_table=h.source_table AND e.from_key=h.source_key
-  ) SELECT coalesce(json_group_array(json(record_json)),'[]') FROM (SELECT r.record_json FROM history h JOIN content_historical_records r USING(source_site,source_table,source_key) ORDER BY r.source_table,r.source_key)))) FROM music_ingestion_candidates candidate WHERE candidate.id=?)`;
 
 const missingReviewInputEntityReferenceSql = `EXISTS (
   SELECT 1 FROM json_tree(?) AS entity_reference
@@ -338,29 +325,12 @@ const catalogVersionGuard = (database: D1Database) =>
     WHERE id = 1
   `);
 
-type IngestionBatchWriter=(action:'create'|'response'|'failure'|'dead'|'history'|'prune',id:string|null,statements:D1PreparedStatement[])=>Promise<D1Result[]>;
 export class D1IngestionRepository implements IngestionRepository {
   private readonly database: D1Database;
 
-  private readonly reviewDeletionWriter?:D1ReviewDeletionWriter;
-  private readonly candidateReviewWriter?:D1CandidateReviewWriter;
-  private readonly conversionWriter?:D1VideoCatalogWriter;
-  private readonly metadataWriter?:D1CandidateMetadataWriter;
-  private readonly runtimeWriter?:IngestionBatchWriter;
   private readonly siteId:SiteId;
-  constructor(database: D1Database,reviewDeletionWriter?:D1ReviewDeletionWriter,candidateReviewWriter?:D1CandidateReviewWriter,conversionWriter?:D1VideoCatalogWriter,metadataWriter?:D1CandidateMetadataWriter,runtimeWriter?:IngestionBatchWriter,siteId:SiteId='otw') {
-    this.reviewDeletionWriter=reviewDeletionWriter;
-    this.candidateReviewWriter=candidateReviewWriter;
-    this.conversionWriter=conversionWriter;
-    this.metadataWriter=metadataWriter;
-    this.runtimeWriter=runtimeWriter;
-    this.database = database;
-    this.siteId=siteId;
-  }
+  constructor(database:D1Database,siteId:SiteId="otw") {this.database=database;this.siteId=siteId;}
 
-  private runtimeBatch(action:Parameters<IngestionBatchWriter>[0],id:string|null,statements:D1PreparedStatement[]) {
-    return this.runtimeWriter?this.runtimeWriter(action,id,statements):this.database.batch(statements);
-  }
   private candidateBlockedSql(alias:string) {
     return `(${alias}.content_access='admin_archive' OR ${publicationHiddenSql('music_ingestion_candidates',alias,this.siteId)})`;
   }
@@ -441,7 +411,7 @@ export class D1IngestionRepository implements IngestionRepository {
 
     const firstMessageKey = `${command.jobId}:playlist_page:first`;
     try {
-      await this.runtimeBatch('create',command.jobId,[
+      await this.database.batch([
         this.database.prepare(
           `INSERT INTO music_ingestion_jobs (
             id, source_kind, candidate_kind, source_external_id, source_url, source_title,
@@ -548,13 +518,13 @@ export class D1IngestionRepository implements IngestionRepository {
   }
 
   async changeCandidateKind(command: { candidateId: string; expectedVersion: number; candidateKind: "official_video" | "singing_clip"; actorUserId: string; eventId: string; now: number }) {
-    return this.candidateReviewWriter?this.candidateReviewWriter.execute({...command,action:'change_kind'},original=>this.changeCandidateKindOriginal(original)):this.changeCandidateKindOriginal(command);
+    return (this.changeCandidateKindOriginal(command));
   }
   private async changeCandidateKindOriginal(command: { candidateId: string; expectedVersion: number; candidateKind: "official_video" | "singing_clip"; actorUserId: string; eventId: string; now: number }) {
     const current = await this.readReviewCandidate(null, command.candidateId);
     if (current.version !== command.expectedVersion || current.linkedPerformanceId || current.status === "converted") throw new IngestionRepositoryError("stale_write", "등록된 후보 또는 변경된 후보는 종류를 정정할 수 없습니다.");
     if (current.candidateKind === command.candidateKind) {
-      await this.candidateReviewWriter?.batch([],async()=>{}, {sql:candidateReviewResultSql,bindings:[command.candidateId],eventRequired:false},current.version);
+
       return current;
     }
     const input = current.reviewInput ? {
@@ -575,14 +545,14 @@ export class D1IngestionRepository implements IngestionRepository {
         .bind(command.candidateKind, safeInput ? JSON.stringify(safeInput) : null, command.now, command.candidateId, command.expectedVersion, command.eventId),
     ];
     const ordinary=async()=>{const result=await this.database.batch(statements);if(!result[1]?.meta.changes) throw new IngestionRepositoryError('stale_write','후보 상태가 변경되었습니다.');};
-    if(this.candidateReviewWriter) await this.candidateReviewWriter.batch(statements,ordinary,{sql:candidateReviewResultSql,bindings:[command.candidateId],eventRequired:true},current.version);else await ordinary();
+    await ordinary();
     return this.readReviewCandidate(null, command.candidateId);
   }
 
   async deleteJobHistory(jobId: string, actorUserId: string, now: number) {
     await this.getJobContext(jobId);
     // Retain candidate origins and audit records; only remove the history entry.
-    const [result] = await this.runtimeBatch('history',jobId,[this.database.prepare(
+    const [result] = await this.database.batch([this.database.prepare(
       `INSERT INTO music_ingestion_events
         (id, job_id, event_type, actor_user_id, detail_json, created_at)
        SELECT ?, job.id, 'history_deleted', ?, '{}', ?
@@ -603,9 +573,7 @@ export class D1IngestionRepository implements IngestionRepository {
   }
 
   async deleteReviewItem(command: import("@contracts/otw-play").OtwPlayDeleteReviewItemRequest & { id: string; actorUserId: string; eventId: string; now: number }) {
-    const accepted=await this.reviewDeletionWriter?.accept(command);
-    if(accepted?.done) return;
-    command=accepted?.acceptance?.command??command;
+
     const candidate = command.kind === "candidate";
     const table = candidate ? "music_ingestion_candidates" : "music_cover_proposals";
     const aggregate = candidate ? "review_candidate" : "review_proposal";
@@ -627,7 +595,7 @@ export class D1IngestionRepository implements IngestionRepository {
           AND EXISTS (SELECT 1 FROM music_catalog_events WHERE id = ?)`)
         .bind(command.now, command.id, command.expectedVersion, command.eventId),
     ];
-    if(accepted?.acceptance) {await this.reviewDeletionWriter!.write(accepted.acceptance,statements);return;}
+
     const results=await this.database.batch(statements);
     if (!results[1]?.meta.changes) throw new IngestionRepositoryError("stale_write", "항목이 변경되었거나 처리 대기 중인 제안이 있습니다. 목록을 새로고침해 주세요.");
   }
@@ -1111,7 +1079,7 @@ export class D1IngestionRepository implements IngestionRepository {
       )
     );
 
-    const saved=await this.runtimeBatch('response',message.jobId,[
+    const saved=await this.database.batch([
       ...candidateStatements,
       ...originStatements,
       ...children.map((child) => child.statement),
@@ -1318,7 +1286,7 @@ export class D1IngestionRepository implements IngestionRepository {
         ]),
       )
     );
-    await this.runtimeBatch('response',message.jobId,[
+    await this.database.batch([
       this.database.prepare(`WITH observation AS(SELECT value FROM json_each(?)) INSERT OR IGNORE INTO music_ingestion_candidates
         (id,provider,external_video_id,candidate_kind,status,classification,availability_status,first_discovered_at,last_discovered_at,retention_expires_at,version,created_at,updated_at)
         SELECT 'youtube:'||json_extract(observation.value,'$.videoId'),'youtube',json_extract(observation.value,'$.videoId'),job.candidate_kind,'discovered','pending_metadata','unknown',?,?,?,0,?,?
@@ -1381,7 +1349,7 @@ export class D1IngestionRepository implements IngestionRepository {
     nextRetryAt: number | null,
     now: number,
   ) {
-    await this.runtimeBatch('failure',idempotencyKey,[
+    await this.database.batch([
       this.database.prepare(
         `UPDATE music_ingestion_messages
          SET attempts = attempts + 1, last_error_code = ?, next_retry_at = ?,
@@ -1404,7 +1372,7 @@ export class D1IngestionRepository implements IngestionRepository {
     errorCode: string,
     now: number,
   ) {
-    await this.runtimeBatch('dead',idempotencyKey,[
+    await this.database.batch([
       this.database.prepare(
         `UPDATE music_ingestion_messages
          SET status = 'failed', attempts = attempts + 1, last_error_code = ?,
@@ -1500,14 +1468,14 @@ export class D1IngestionRepository implements IngestionRepository {
           now,
         ),
       ]);
-      const results = await this.runtimeBatch('prune',null,statements);
+      const results = await this.database.batch(statements);
       for (let index = 0; index < results.length; index += 2) {
         cleared += results[index]?.results.length ?? 0;
       }
     }
     const jobs = await this.listExpiredJobApiData(now, limit);
     for (const chunk of chunksOf(jobs, 50)) {
-      const results = await this.runtimeBatch('prune',null,chunk.map((job) =>
+      const results = await this.database.batch(chunk.map((job) =>
         this.database.prepare(
           `UPDATE music_ingestion_jobs
            SET source_title = NULL, owner_channel_title = NULL,
@@ -1524,7 +1492,7 @@ export class D1IngestionRepository implements IngestionRepository {
     return cleared;
   }
 
-  private async readHistoricalMaterials(candidateIds: string[]): Promise<Map<string,import("@contracts/content-transition").HistoricalContentMaterial[]>> {
+  private async readHistoricalMaterials(candidateIds: string[]): Promise<Map<string,import("@contracts/content-history").HistoricalContentMaterial[]>> {
     return readHistoricalMaterials(this.database,"music_ingestion_candidates",candidateIds);
   }
 
@@ -1532,7 +1500,7 @@ export class D1IngestionRepository implements IngestionRepository {
     candidateIdValue: string,
     jobId?: string,
   ): Promise<IngestionReviewCandidate> {
-    const conversionScope=await this.conversionWriter?.conversionJobScope(jobId??null,candidateIdValue);
+
     const row = await this.database.prepare(
       `SELECT candidate.id, candidate.version, candidate.external_video_id,
         candidate.candidate_kind, candidate.content_access,
@@ -1550,11 +1518,11 @@ export class D1IngestionRepository implements IngestionRepository {
          AND NOT EXISTS (SELECT 1 FROM music_catalog_events deleted WHERE deleted.aggregate_type = 'review_candidate'
            AND deleted.aggregate_id = candidate.id AND deleted.event_type = 'review_item.deleted')
          AND NOT ${historicalReviewDeletedSql("review_candidate","candidate.id")}
-         ${conversionScope?`AND ${conversionScope.sql}`:jobId ? `AND EXISTS (
+         ${(jobId ? `AND EXISTS (
            SELECT 1 FROM music_ingestion_candidate_origins AS origin
            WHERE origin.candidate_id = candidate.id AND origin.job_id = ?
-         )` : ""}`,
-    ).bind(candidateIdValue,...(conversionScope?.bindings??(jobId?[jobId]:[]))).first<{
+         )` : "")}`,
+    ).bind(candidateIdValue,...(((jobId?[jobId]:[])))).first<{
       id: string;
       version: number;
       external_video_id: string;
@@ -1592,9 +1560,7 @@ export class D1IngestionRepository implements IngestionRepository {
   }
 
   private async requireCandidateEvent(eventId: string) {
-    const historical=await this.metadataWriter?.eventExists(eventId);
-    if(historical===true) return;
-    if(historical===false) throw new IngestionRepositoryError('stale_message','Ingestion candidate changed during metadata refresh');
+
     const event = await this.database.prepare(
       "SELECT 1 AS matched FROM music_ingestion_events WHERE id = ?",
     ).bind(eventId).first<{ matched: number }>();
@@ -1926,7 +1892,7 @@ export class D1IngestionRepository implements IngestionRepository {
   }
 
   async saveCandidateReview(command: SaveCandidateReviewCommand) {
-    return this.candidateReviewWriter?this.candidateReviewWriter.execute({...command,action:'save'},original=>this.saveCandidateReviewOriginal(original)):this.saveCandidateReviewOriginal(command);
+    return (this.saveCandidateReviewOriginal(command));
   }
   private async saveCandidateReviewOriginal(command:SaveCandidateReviewCommand) {
     const hasExpectedReviewState = command.expectedReviewInput !== undefined &&
@@ -2080,10 +2046,7 @@ export class D1IngestionRepository implements IngestionRepository {
       );
     }
     try {
-      if(this.candidateReviewWriter) await this.candidateReviewWriter.batch(statements,()=>this.database.batch(statements),{
-        sql:candidateReviewResultSql,bindings:[command.candidateId],eventRequired:true,
-        ...(materialized.expectedCatalogRevision===null?{}:{catalog:{songId:materialized.createdSong&&materialized.input.song.kind==='existing'?materialized.input.song.songId:null,entityIds:materialized.createdEntityIds}}),
-      },expectedVersion);else await this.database.batch(statements);
+      await this.database.batch(statements);
     } catch (error) {
       throw candidateReviewSqlError(error)??error;
     }
@@ -2105,7 +2068,7 @@ export class D1IngestionRepository implements IngestionRepository {
     eventId: string;
     now: number;
   }) {
-    return this.candidateReviewWriter?this.candidateReviewWriter.execute({...command,action:'ignore'},original=>this.ignoreCandidateOriginal(original)):this.ignoreCandidateOriginal(command);
+    return (this.ignoreCandidateOriginal(command));
   }
   private async ignoreCandidateOriginal(command:{candidateId:string;expectedVersion:number;actorUserId:string;eventId:string;now:number;jobId?:string}) {
     if(command.jobId!==undefined) {
@@ -2144,7 +2107,7 @@ export class D1IngestionRepository implements IngestionRepository {
         command.now,
       ),
     ];
-    if(this.candidateReviewWriter) await this.candidateReviewWriter.batch(statements,()=>this.database.batch(statements),{sql:candidateReviewResultSql,bindings:[command.candidateId],eventRequired:true},command.expectedVersion);else await this.database.batch(statements);
+    await this.database.batch(statements);
     await this.requireCandidateEvent(command.eventId);
     return this.readReviewCandidateById(command.candidateId);
   }
@@ -2157,15 +2120,15 @@ export class D1IngestionRepository implements IngestionRepository {
     eventId: string;
     now: number;
   }) {
-    this.metadataWriter?.assertCommand(command);
+
     const video = command.observation.video;
-    if(!this.metadataWriter?.hasAdmittedRefresh) {
+    {
       if(command.actorUserId===null) throw new Error('Missing original refresh authority');
-      await this.runtimeBatch('response',command.candidateId,[this.database.prepare(`INSERT OR IGNORE INTO music_ingestion_events(id,candidate_id,event_type,actor_user_id,detail_json,created_at)
+      await this.database.batch([this.database.prepare(`INSERT OR IGNORE INTO music_ingestion_events(id,candidate_id,event_type,actor_user_id,detail_json,created_at)
         SELECT ?,id,'candidate.metadata_response',?,?,? FROM music_ingestion_candidates WHERE id=?`).bind(`response:${command.eventId}`,command.actorUserId,JSON.stringify({observation:command.observation}),command.now,command.candidateId)]);
     }
     await this.assertCandidateCollectionAllowed(command.candidateId,video?.channelId);
-    const readFacts=async():Promise<CandidateMetadataFacts>=>{
+    const readFacts=async()=>{
     const [sourceResult, proposalResult, channelResult] = await this.database.batch([
       this.database.prepare(
         `SELECT 1 AS matched FROM music_media_sources
@@ -2190,7 +2153,7 @@ export class D1IngestionRepository implements IngestionRepository {
     }>)[0];
     return {existingSource,existingProposal,channel:channel??null};
     };
-    const {existingSource,existingProposal,channel}=this.metadataWriter?await this.metadataWriter.facts(readFacts):await readFacts();
+    const {existingSource,existingProposal,channel}=(await readFacts());
     const unavailable = command.observation.availabilityStatus !== "playable";
     const kids = video?.madeForKids === true;
     const policyBlocked = channel?.verification_status === "revoked" || channel?.active === 0;
@@ -2284,20 +2247,14 @@ export class D1IngestionRepository implements IngestionRepository {
         command.now,
       ),
     ];
-    if(command.actorUserId===null&&!this.metadataWriter) throw new Error('Missing transferred refresh authority');
-    statements.push(...(this.metadataWriter?await this.metadataWriter.events(detailJson,ordinaryEvent):ordinaryEvent()));
-    if(this.metadataWriter) await this.metadataWriter.batch(statements,{sql:candidateReviewResultSql,bindings:[command.candidateId]},()=>this.database.batch(statements));
-    else await this.database.batch(statements);
+    if(command.actorUserId===null) throw new Error('Missing transferred refresh authority');
+    statements.push(...((ordinaryEvent())));
+    await this.database.batch(statements);
     await this.requireCandidateEvent(command.eventId);
     return this.readReviewCandidateById(command.candidateId);
   }
 
-  async recordConversionOutcome(command:Parameters<IngestionRepository['recordConversionOutcome']>[0]) {
-    if(!this.conversionWriter) return this.recordConversionOutcomeOriginal(command);
-    const belongs=command.jobId===null||Boolean(await this.database.prepare('SELECT 1 FROM music_ingestion_candidate_origins WHERE candidate_id=? AND job_id=?').bind(command.candidateId,command.jobId).first());
-    return this.conversionWriter.executeConversionOutcome(command,belongs,original=>this.recordConversionOutcomeOriginal(original));
-  }
-  private async recordConversionOutcomeOriginal(command: {
+  async recordConversionOutcome(command: {
     jobId: string | null;
     candidateId: string;
     expectedVersion: number;
@@ -2311,14 +2268,14 @@ export class D1IngestionRepository implements IngestionRepository {
     jobOnly?:true;
   }) {
     const duplicate = command.outcome === "duplicate";
-    const conversionScope=await this.conversionWriter?.conversionJobScope(command.jobId,command.candidateId,'music_ingestion_candidates');
-    if(!command.actorUserId&&!conversionScope?.historical) throw new Error('Conversion outcome requires its original actor');
-    const belongsToJob = conversionScope?.historical?true:command.jobId === null
+
+    if(!command.actorUserId) throw new Error('Conversion outcome requires its original actor');
+    const belongsToJob = (command.jobId === null
       ? true
       : Boolean(await this.database.prepare(
         `SELECT 1 AS matched FROM music_ingestion_candidate_origins
          WHERE candidate_id = ? AND job_id = ? LIMIT 1`,
-      ).bind(command.candidateId, command.jobId).first<{ matched: number }>());
+      ).bind(command.candidateId, command.jobId).first<{ matched: number }>()));
     if (!belongsToJob) {
       const statement=this.database.prepare(
         `INSERT INTO music_ingestion_events (
@@ -2335,8 +2292,7 @@ export class D1IngestionRepository implements IngestionRepository {
         }),
         command.now,
       );
-      const captured=await this.conversionWriter?.writeConversionOutcome(command,[statement]);
-      if(captured) return captured.outcome as typeof command.outcome;
+
       await statement.run();
       return "validation_failed" as const;
     }
@@ -2358,11 +2314,11 @@ export class D1IngestionRepository implements IngestionRepository {
                  AND channel.verification_status = 'approved' AND channel.active = 1
                  AND ${reviewChannelRoleForUpdateSql}
              ))
-             AND ${conversionScope?.sql??`(? IS NULL OR EXISTS (
+             AND ${(`(? IS NULL OR EXISTS (
               SELECT 1 FROM music_ingestion_candidate_origins AS origin
               WHERE origin.candidate_id = music_ingestion_candidates.id
                 AND origin.job_id = ?
-            ))`}`,
+            ))`)}`,
       ).bind(
         duplicate ? 1 : 0,
         duplicate ? 1 : 0,
@@ -2377,9 +2333,9 @@ export class D1IngestionRepository implements IngestionRepository {
         command.expectedVersion,
         command.validatedVersion??null,command.validatedVersion??null,
         duplicate ? 1 : 0,
-        ...(conversionScope?.bindings??[command.jobId,command.jobId]),
+        ...(([command.jobId,command.jobId])),
       ),
-      ...(conversionScope?.historical?await this.conversionWriter!.conversionEvent({eventId:command.eventId,jobId:command.jobId,candidateId:command.candidateId,eventType:`candidate.convert.${command.outcome}`,detailJson:JSON.stringify({expectedVersion:command.expectedVersion,candidateId:command.candidateId,performanceId:command.performanceId,errorCode:command.errorCode}),now:command.now,fromChanges:true}):[this.database.prepare(
+      ...(([this.database.prepare(
         `INSERT INTO music_ingestion_events (
           id, job_id, candidate_id, event_type, actor_user_id, detail_json, created_at
         ) SELECT ?, ?, ?,
@@ -2398,10 +2354,9 @@ export class D1IngestionRepository implements IngestionRepository {
           errorCode: command.errorCode,
         }),
         command.now,
-      )]),
+      )])),
     ];
-    const captured=await this.conversionWriter?.writeConversionOutcome(command,statements);
-    if(captured) return captured.outcome as typeof command.outcome;
+
     const results=await this.database.batch(statements);
     return Number(results[0]?.meta.changes ?? 0) === 1
       ? command.outcome

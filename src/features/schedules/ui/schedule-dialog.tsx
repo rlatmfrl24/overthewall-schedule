@@ -44,7 +44,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Calendar } from "@/shared/ui/calendar";
 import { Input } from "@/shared/ui/input";
-import {getContentTransitionMessage} from "@/shared/api/client";
+import {getContentWriteMessage} from "@/shared/api/client";
 
 type ScheduleSubmitData = {
   id?: number;
@@ -297,7 +297,7 @@ export const ScheduleDialog = ({
       }
     } catch (error) {
       console.error(error);
-      setFormError(getContentTransitionMessage(error)??"스케쥴을 저장하지 못했습니다. 입력 내용은 유지됩니다. 연결 상태를 확인한 뒤 다시 저장해주세요.");
+      setFormError(getContentWriteMessage(error)??"스케쥴을 저장하지 못했습니다. 입력 내용은 유지됩니다. 연결 상태를 확인한 뒤 다시 저장해주세요.");
     } finally {
       setIsSubmitting(false);
       setPendingSubmitData(null);
@@ -360,7 +360,7 @@ export const ScheduleDialog = ({
         }
       } catch (error) {
         console.error(error);
-        setAlertMessage(getContentTransitionMessage(error)??"스케쥴 삭제 중 오류가 발생했습니다.");
+        setAlertMessage(getContentWriteMessage(error)??"스케쥴 삭제 중 오류가 발생했습니다.");
         setAlertOpen(true);
       } finally {
         setIsSubmitting(false);

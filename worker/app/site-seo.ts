@@ -57,7 +57,7 @@ export const createSiteSeoDependencies = (env: Env,privateRead=false) => {
     },
   };
   const board = new D1ScheduleBoardReader(db, false, site.id);
-  const notices = new D1NoticeGateway(db, env.ASSET_BUCKET, false, undefined, undefined, site.id);
+  const notices = new D1NoticeGateway(db,env.ASSET_BUCKET,false,undefined,site.id);
   const contentReader: SiteContentReader = {
     readAccessRevision: () => readContentAccessRevision(env.otw_db, site.id),
     readSchedule: (start, end) => board.read(start, end),

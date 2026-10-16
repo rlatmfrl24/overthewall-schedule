@@ -1088,7 +1088,7 @@ describe("OtwPlayCatalogManager", () => {
   });
 
   it.each([false,true])("rejects with an internal reason and then refetches authoritative state (accepted=%s)", async accepted => {
-    if(accepted) rejectProposalMock.mockRejectedValueOnce(new ApiError("저장 요청을 접수했습니다. 이관 처리 후 저장 결과를 확인해 주세요.",409,{code:"CONTENT_ACCEPTED"}));
+    if(accepted) rejectProposalMock.mockRejectedValueOnce(new ApiError("동시 변경이 발생했습니다. 최신 상태를 확인한 뒤 다시 저장해 주세요.",409,{code:"CONTENT_CONFLICT"}));
     renderCatalogManager();
 
     fireEvent.click(await screen.findByRole("tab", { name: "가져오기/검수" }));
@@ -1103,7 +1103,7 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(rejectButton);
 
     if(accepted) {
-      await waitFor(()=>expect(toastMock).toHaveBeenCalledWith({variant:"info",description:expect.stringContaining("접수")}));
+      await waitFor(()=>expect(toastMock).toHaveBeenCalledWith({variant:"error",description:expect.stringContaining("동시 변경")}));
       expect(screen.getByLabelText("검수할 공식 커버 거절 코드")).toHaveProperty("value","duplicate");
       const original=rejectProposalMock.mock.calls.at(-1)!;
       const attempts=rejectProposalMock.mock.calls.length;
@@ -1143,7 +1143,7 @@ describe("OtwPlayCatalogManager", () => {
         },
       ],
     });
-    updateEntityMock.mockRejectedValueOnce(accepted?new ApiError("저장 요청을 접수했습니다. 이관 처리 후 저장 결과를 확인해 주세요.",409,{code:"CONTENT_ACCEPTED"}):new Error("write failed"));
+    updateEntityMock.mockRejectedValueOnce(accepted?new ApiError("동시 변경이 발생했습니다. 최신 상태를 확인한 뒤 다시 저장해 주세요.",409,{code:"CONTENT_CONFLICT"}):new Error("write failed"));
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -1161,7 +1161,7 @@ describe("OtwPlayCatalogManager", () => {
     expect(screen.queryByLabelText(/slug/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "수정 저장" }));
 
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(accepted?{variant:"info",description:expect.stringContaining("접수")}:{variant:"error",description:"외부 identity 수정 작업에 실패했습니다."}));
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(accepted?{variant:"error",description:expect.stringContaining("동시 변경")}:{variant:"error",description:"외부 identity 수정 작업에 실패했습니다."}));
     expect(nameInput.value).toBe("입력 보존");
     if(accepted) {
       const original=updateEntityMock.mock.calls[0];expect(original[1]).toMatch(/^[A-Za-z0-9_-]{16,100}$/);
@@ -1312,7 +1312,7 @@ describe("OtwPlayCatalogManager", () => {
   });
 
   it.each([false,true])("approves a channel and preserves the same accepted editor retry (%s)", async accepted => {
-    if(accepted) updateChannelMock.mockRejectedValueOnce(new ApiError("저장 요청을 접수했습니다. 이관 처리 후 저장 결과를 확인해 주세요.",409,{code:"CONTENT_ACCEPTED"}));
+    if(accepted) updateChannelMock.mockRejectedValueOnce(new ApiError("동시 변경이 발생했습니다. 최신 상태를 확인한 뒤 다시 저장해 주세요.",409,{code:"CONTENT_CONFLICT"}));
     const channelId = `UC${"K".repeat(22)}`;
     fetchCatalogMock.mockResolvedValue({
       ...catalog,
@@ -1427,7 +1427,7 @@ describe("OtwPlayCatalogManager", () => {
   });
 
   it.each([false,true])("edits original artists as reusable chips and preserves an accepted retry (%s)", async acceptedRetry => {
-    if(acceptedRetry) updateSongMock.mockRejectedValueOnce(new ApiError("저장 요청을 접수했습니다. 이관 처리 후 저장 결과를 확인해 주세요.",409,{code:"CONTENT_ACCEPTED"}));
+    if(acceptedRetry) updateSongMock.mockRejectedValueOnce(new ApiError("동시 변경이 발생했습니다. 최신 상태를 확인한 뒤 다시 저장해 주세요.",409,{code:"CONTENT_CONFLICT"}));
     fetchCatalogMock.mockResolvedValue({
       ...catalog,
       performances: [{ ...linkedPerformance, songId: "song-edit" }],
@@ -1507,7 +1507,7 @@ describe("OtwPlayCatalogManager", () => {
       expect.stringMatching(/^[A-Za-z0-9_-]{16,100}$/),
     );
     if(acceptedRetry) {
-      await waitFor(()=>expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({variant:"info",description:expect.stringContaining("접수")})));
+      await waitFor(()=>expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({variant:"error",description:expect.stringContaining("동시 변경")})));
       expect(within(dialog).getByLabelText("곡명")).toHaveProperty("value","수정한 곡");
       expect(screen.getByRole("dialog",{name:"곡 정보 수정"})).toBeTruthy();
       const first=updateSongMock.mock.calls[0];
@@ -1979,7 +1979,7 @@ describe("OtwPlayCatalogManager", () => {
       .mockImplementationOnce(() => new Promise((resolve) => {
         resolveFirstPublish = () => resolve({});
       }))
-      .mockRejectedValueOnce(accepted ? new ApiError("Accepted", 409, { code: "CONTENT_ACCEPTED" }) : new Error("channel approval changed"));
+      .mockRejectedValueOnce(accepted ? new ApiError("동시 변경이 발생했습니다.", 409, { code: "CONTENT_CONFLICT" }) : new Error("channel approval changed"));
     renderCatalogManager();
 
     expect(await screen.findByText("미게시 가창 2개 · 2곡")).toBeTruthy();
@@ -2014,7 +2014,7 @@ describe("OtwPlayCatalogManager", () => {
     );
     await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
       variant: "info",
-      description: accepted ? "1개 게시 완료 · 1개 접수 대기 · 0개 게시 실패. 이관 처리 후 저장 결과를 확인해 주세요." : "1개를 게시했고 1개는 검증 실패 또는 동시 변경으로 임시 저장 상태를 유지했습니다.",
+      description: accepted ? "1개 게시 완료 · 1개 게시 실패. 동시 변경이 발생했습니다." : "1개를 게시했고 1개는 검증 실패 또는 동시 변경으로 임시 저장 상태를 유지했습니다.",
     }));
     if (accepted) {
       const originalKey = publishPerformanceMock.mock.calls[1]![2];
@@ -3001,7 +3001,7 @@ describe("OtwPlayCatalogManager", () => {
   });
 
   it("keeps the registration step and chips after an integrated command failure", async () => {
-    createEntryMock.mockRejectedValueOnce(new ApiError("접수된 저장을 처리 중입니다.",409,{code:"CONTENT_ACCEPTED"}));
+    createEntryMock.mockRejectedValueOnce(new ApiError("저장 중 동시 변경이 발생했습니다.",409,{code:"CONTENT_CONFLICT"}));
     await openVideoRegistration();
     await screen.findByRole("region", { name: "등록 채널 상태" });
     fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
@@ -3021,7 +3021,7 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
 
-    expect((await screen.findByRole("alert")).textContent).toContain("접수된 저장을 처리 중입니다.");
+    expect((await screen.findByRole("alert")).textContent).toContain("저장 중 동시 변경이 발생했습니다.");
     expect(screen.getByRole("dialog", { name: "새 YouTube 영상 등록" })).toBeTruthy();
     expect(screen.getAllByText(/현재 멤버/).length).toBeGreaterThan(0);
     expect(screen.getByText("실패 후 보존 원곡")).toBeTruthy();

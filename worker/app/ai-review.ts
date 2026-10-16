@@ -8,24 +8,19 @@ import {
   GeminiReviewAnalyzer,
   YouTubeOtwPlayMetadataReader,
   AiReviewBroadcastMetadataReader,
-  D1AiReviewTransitionReadback,
 } from "../features/otw-play";
 import type { Env } from "../platform/types";
-import { D1AiUnknownControl, D1AiResumeControl, readTransitionMaintenance } from '../features/content-transition';
 import {parseSiteStorageResources} from '@contracts/site-definition';
-import { buildContentTransitionRepository } from './content-transition';
 
 export const createOtwPlayAiReviewService = (env: Env) => {
-  const {site,database}=parseSiteStorageResources(env);
-  const control=new D1AiUnknownControl(env.otw_db,site,database);
-  const resume=new D1AiResumeControl(env.otw_db,site,database);
-  const transitionRepository=buildContentTransitionRepository(env);
+  const {site}=parseSiteStorageResources(env);
+
   const model = env.OTW_PLAY_AI_REVIEW_MODEL || "gemini-3.8-flash";
   const metadata = new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY, fetch, {
     db: env.otw_db, siteId:site,priority: "core", origin: "otw_play_ai_review",
   });
   return new AiReviewService(
-    new D1AiReviewRepository(env.otw_db,control,(action,id,statements)=>transitionRepository.commitAiReviewBatch(action,id,statements),resume,site),
+    new D1AiReviewRepository(env.otw_db,site),
     metadata,
     new GeminiReviewAnalyzer(env.GEMINI_API_KEY ?? "", model),
     new D1AiReviewContext(env.otw_db),
@@ -66,7 +61,6 @@ export const createOtwPlayAiReviewService = (env: Env) => {
     () => crypto.randomUUID(),
     Date.now,
     new AiReviewBroadcastMetadataReader(metadata),
-    new D1AiReviewTransitionReadback(env.otw_db,transitionRepository,control,site,resume),
   );
 };
 export const isAiReviewMessage = (
@@ -85,17 +79,17 @@ export async function handleAiReviewQueue(
 ) {
   const service = createOtwPlayAiReviewService(env);
   const isDeadLetter = batch.queue === getWorkerSiteResources(env).queues.deadLetter;
-  const finishingSaved=(await readTransitionMaintenance(env.otw_db))?.state==='draining';
+
   for (const message of batch.messages) {
     if (isAiBatchMessage(message.body)) {
       const batches = createOtwPlayAiBatchService(env);
       try {
-        if (isDeadLetter&&!finishingSaved) await batches.dead(message.body.itemId, message.body.generation);
+        if (isDeadLetter) await batches.dead(message.body.itemId, message.body.generation);
         else {
-          const delay = await batches.process(message.body.itemId, message.body.generation,finishingSaved);
+          const delay = await batches.process(message.body.itemId, message.body.generation);
           if (delay) { message.retry({ delaySeconds: Math.min(43200, delay) }); continue; }
         }
-        if(!finishingSaved)await batches.recover();
+        await batches.recover();
         message.ack();
       } catch { message.retry({ delaySeconds: 60 }); }
       continue;
@@ -105,26 +99,15 @@ export async function handleAiReviewQueue(
       continue;
     }
     try {
-      const transition=await service.transitionState(message.body.reviewId);
-      if(transition) {
-        if(transition==='terminal'||transition==='transferred') message.ack();
-        else if(await service.resumeOriginalResponse(message.body.reviewId)) {
-          if(await service.transitionState(message.body.reviewId)==='terminal') message.ack();else message.retry({delaySeconds:60});
-        } else message.retry({delaySeconds:60});
-        continue;
-      }
+
       if (env.OTW_PLAY_AI_REVIEW_ENABLED !== "true" || !env.GEMINI_API_KEY || !env.OTW_PLAY_AI_REVIEW_QUEUE) {
-        // Ordinary pending jobs are recovered after re-enabling. Existing
-        // transition responsibility and recorded responses are handled above.
+        // Ordinary pending jobs are recovered after re-enabling.
         message.ack();continue;
       }
       if (isDeadLetter)
         await service.markDead(message.body.reviewId);
       else await service.process(message.body.reviewId);
-      // An administrator can close the exact uncertain attempt while its
-      // original callback is still returning. Its raw running row is evidence,
-      // so only the durable responsibility receipt permits acknowledgement.
-      if(await service.transitionState(message.body.reviewId)==='terminal') {message.ack();continue;}
+
       const state = await service.get(message.body.reviewId);
       if (
         !isDeadLetter &&
@@ -149,7 +132,7 @@ export async function handleAiReviewQueue(
 }
 
 export const createOtwPlayAiBatchService = (env: Env) => new AiBatchService(
-  new D1AiBatchRepository(env.otw_db,(action,id,statements)=>buildContentTransitionRepository(env).commitAiReviewBatch(action,id,statements)), createOtwPlayAiReviewService(env),
+  new D1AiBatchRepository(env.otw_db), createOtwPlayAiReviewService(env),
   async (itemId, generation) => {
     if (!env.OTW_PLAY_AI_REVIEW_QUEUE) throw new Error("AI queue unconfigured");
     await env.OTW_PLAY_AI_REVIEW_QUEUE.send({ kind: "otw_play_ai_batch", schemaVersion: 1, itemId, generation });

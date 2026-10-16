@@ -215,7 +215,7 @@ describe("ScheduleDialog", () => {
 
   it.each([
     ["CONTENT_MOVED","이 자료는 LuvDia Schedule로 이동했습니다. LuvDia에서 로그인한 뒤 편집해 주세요."],
-    ["CONTENT_ACCEPTED","저장 요청을 접수했습니다. 이관 처리 후 저장 결과를 확인해 주세요."],
+    ["CONTENT_CONFLICT","동시 변경이 발생했습니다. 최신 상태를 확인한 뒤 다시 저장해 주세요."],
     ["CONTENT_CONFLICT","다른 저장으로 일정이 변경되었습니다. 변경 내용을 확인해 주세요."],
   ])("%s 응답을 저장 성공으로 표시하지 않고 실제 후속 조치를 안내한다",async(code,message)=>{
     const {onSubmit}=renderDialog({onSubmit:async()=>{throw new ApiError(message,409,{code});}});

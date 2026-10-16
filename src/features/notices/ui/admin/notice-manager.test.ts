@@ -70,7 +70,7 @@ const makeThumbnailStatus = () => ({
 });
 
 describe("NoticeManager", () => {
-  it.each(["CONTENT_MOVED","CONTENT_ACCEPTED","CONTENT_CONFLICT"])("shows the actual %s response without featured success",async code=>{
+  it.each(["CONTENT_MOVED","CONTENT_CONFLICT"])("shows the actual %s response without featured success",async code=>{
     fetchNoticesMock.mockResolvedValue([{id:2,content:"선택 후보",related_member_uids:[],is_active:true,is_featured:false,type:"notice",created_at:"2026-10-14"}]);
     setFeaturedNoticeMock.mockRejectedValueOnce(new ApiError(`실제 ${code} 안내`,409,{code}));
     render(createElement(NoticeManager),{wrapper:createQueryWrapper()});
