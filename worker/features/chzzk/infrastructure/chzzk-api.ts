@@ -263,11 +263,14 @@ const getOrCreateInFlight = async <T>(
   }
 };
 
-export const fetchChzzkLiveStatusWithDebug = async (channelId: string) => {
+export const fetchChzzkLiveStatusWithDebug = async (
+  channelId: string,
+  options: Pick<ChzzkFetchOptions, "forceRefresh"> = {},
+) => {
   const cached = LIVE_STATUS_CACHE.get(channelId);
   const now = Date.now();
 
-  if (cached && now - cached.fetchedAt < LIVE_STATUS_TTL_MS) {
+  if (!options.forceRefresh && cached && now - cached.fetchedAt < LIVE_STATUS_TTL_MS) {
     return {
       content: cached.content,
       debug: {
@@ -314,6 +317,13 @@ export const fetchChzzkLiveStatusWithDebug = async (channelId: string) => {
           res.status,
           errorBody.slice(0, 500),
         );
+        try {
+          const body: unknown = JSON.parse(errorBody);
+          if (body && typeof body === "object" && "code" in body && body.code === 9004) {
+            lastError = "region_restricted";
+            break;
+          }
+        } catch { /* Non-JSON failures retain their normal HTTP retry policy. */ }
         if ([500, 502, 503, 504].includes(res.status)) {
           continue;
         }
@@ -324,6 +334,11 @@ export const fetchChzzkLiveStatusWithDebug = async (channelId: string) => {
         code: number;
         content: CachedLiveStatus["content"];
       };
+      if (data?.code === 9004) {
+        lastError = "region_restricted";
+        lastErrorBody = JSON.stringify(data).slice(0, 1000);
+        break;
+      }
 
       const content = data?.content ?? null;
       LIVE_STATUS_CACHE.set(channelId, {
@@ -359,6 +374,35 @@ export const fetchChzzkLiveStatusWithDebug = async (channelId: string) => {
       errorBody: lastErrorBody,
     } as LiveStatusDebug & { errorBody?: string | null },
   };
+};
+
+export const fetchChzzkLiveStatusForScan = async (channelId: string): Promise<{
+  content: Pick<NonNullable<CachedLiveStatus["content"]>, "status" | "openDate"> | null;
+  debug: LiveStatusDebug;
+}> => {
+  const live = await fetchChzzkLiveStatusWithDebug(channelId, { forceRefresh: true });
+  if (live.debug.error !== "region_restricted") return live;
+  try {
+    const response = await fetch(`https://api.chzzk.naver.com/service/v1/channels/${channelId}`, {
+      headers: { Accept: "application/json", "Cache-Control": "no-cache" },
+    });
+    const data = await response.json() as {
+      code?: unknown;
+      content?: { channelId?: unknown; openLive?: unknown } | null;
+    };
+    const channel = data?.content;
+    if (response.ok && data.code === 200 && channel?.channelId === channelId && typeof channel.openLive === "boolean") {
+      return {
+        // Public channel metadata proves state, never a stream's opening time or title.
+        content: { status: channel.openLive ? "OPEN" : "CLOSE", openDate: null },
+        debug: {
+          cacheHit: false, cacheAgeMs: null, fetchedAt: Date.now(), httpStatus: response.status,
+          error: null, staleCacheUsed: false,
+        },
+      };
+    }
+  } catch { /* Unavailable metadata cannot turn restricted polling into absence. */ }
+  return { ...live, content: null };
 };
 
 export const fetchChzzkLiveStatus = async (channelId: string) => {
@@ -703,6 +747,7 @@ export const fetchChzzkClips = async (
 };
 
 export const clearChzzkServiceCachesForTests = () => {
+  LIVE_STATUS_CACHE.clear();
   CHZZK_VIDEOS_CACHE.clear();
   CHZZK_CLIPS_CACHE.clear();
   CHZZK_VIDEOS_IN_FLIGHT.clear();
