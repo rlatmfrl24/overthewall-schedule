@@ -1,5 +1,5 @@
 import type { SiteId } from "@contracts/site-definition";
-import { publicationHiddenSql,publicationChannelHiddenSql,isPublicationCutoffSqlError } from "../../content-transition";
+import { publicationHiddenSql, publicationChannelHiddenSql, isPublicationCutoffSqlError } from "../../content-access";
 import type {
   OtwPlayChannelMonitorCandidateDto,
   OtwPlayChannelMonitorDto,
@@ -160,23 +160,16 @@ const toDto = (row: MonitorRow): OtwPlayChannelMonitorDto => ({
   updatedAt: Number(row.updated_at),
 });
 
-export type ChannelMonitorBatchAction = 'create'|'updateStatus'|'updateTarget'|'resetWatermark'|'revokeApproval'|'remove'|'claim'|'recordCandidates'|'complete'|'saveContinuation'|'completeSupplemental'|'markGapSuspected'|'fail';
-export type ChannelMonitorBatchWriter = (action:ChannelMonitorBatchAction,statements:D1PreparedStatement[])=>Promise<D1Result[]>;
-
 export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   private readonly database: D1Database;
   private readonly siteId: SiteId;
 
-  private readonly write:ChannelMonitorBatchWriter;
-  constructor(database: D1Database, write:ChannelMonitorBatchWriter = (_action,statements)=>database.batch(statements), siteId: SiteId = "luvdia") {
-    this.write=async(action,statements)=>{
-      try{return await write(action,statements);}catch(error){
-        if(isPublicationCutoffSqlError(error instanceof Error?error.message:String(error))) throw new IngestionRepositoryError('validation_failed','이관된 멤버의 신규 수집은 종료되었습니다.',{policy:'publication_cutoff'});
-        throw error;
-      }
-    };
-    this.database = database;
-    this.siteId = siteId;
+  constructor(database:D1Database,siteId:SiteId="luvdia") {this.database=database;this.siteId=siteId;}
+  private async writeBatch(statements:D1PreparedStatement[]) {
+    try{return await this.database.batch(statements);}catch(error){
+      if(isPublicationCutoffSqlError(error instanceof Error?error.message:String(error))) throw new IngestionRepositoryError('validation_failed','이관된 멤버의 신규 수집은 종료되었습니다.',{policy:'publication_cutoff'});
+      throw error;
+    }
   }
   private collectionChannelSql() { return `(SELECT iif(NOT (${publicationChannelHiddenSql('channel.external_channel_id',this.siteId)}),channel.id,json_extract('{}','publication_cutoff')) FROM music_channels channel WHERE channel.id=?)`; }
 
@@ -345,7 +338,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   }
 
   async create(input: Parameters<ChannelMonitorRepository["create"]>[0]) {
-    await this.write('create',[
+    await this.writeBatch([
       this.database.prepare(
         `INSERT INTO music_channel_automation_approvals (
           channel_id, scope, status, operator_reference, approval_reference,
@@ -432,7 +425,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   async updateStatus(
     input: Parameters<ChannelMonitorRepository["updateStatus"]>[0],
   ) {
-    const [result] = await this.write('updateStatus',[
+    const [result] = await this.writeBatch([
       this.database.prepare(
         `UPDATE music_channel_upload_monitors
          SET status = ?, next_check_at = ?, lease_until = NULL,
@@ -483,7 +476,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   }
 
   async updateTarget(input: Parameters<ChannelMonitorRepository["updateTarget"]>[0]) {
-    const [updateResult] = await this.write('updateTarget',[
+    const [updateResult] = await this.writeBatch([
       this.database.prepare(
         `UPDATE music_channel_upload_monitors
          SET channel_id = ${this.collectionChannelSql()}, uploads_playlist_id = ?, last_checked_at = NULL,
@@ -528,7 +521,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   async resetWatermark(
     input: Parameters<ChannelMonitorRepository["resetWatermark"]>[0],
   ) {
-    const [result] = await this.write('resetWatermark',[
+    const [result] = await this.writeBatch([
       this.database.prepare(
         `UPDATE music_channel_upload_monitors
          SET status = 'active', last_checked_at = NULL, next_check_at = ?,
@@ -577,7 +570,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   async revokeApproval(
     input: Parameters<ChannelMonitorRepository["revokeApproval"]>[0],
   ) {
-    const results = await this.write('revokeApproval',[
+    const results = await this.writeBatch([
       this.database.prepare(
         `UPDATE music_channel_automation_approvals
          SET status = 'revoked', revoked_by_user_id = ?, revoked_at = ?,
@@ -670,7 +663,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   }
 
   async remove(input: Parameters<ChannelMonitorRepository["remove"]>[0]) {
-    const [result] = await this.write('remove',[
+    const [result] = await this.writeBatch([
       this.database.prepare(
         `UPDATE music_channel_upload_monitors
          SET status = 'paused', lease_until = NULL, deleted_at = ?,
@@ -717,7 +710,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   }
 
   async claim(id: string, now: number) {
-    const [result] = await this.write('claim',[this.database.prepare(
+    const [result] = await this.writeBatch([this.database.prepare(
       `UPDATE music_channel_upload_monitors
         SET lease_until = ?, version = version + 1, updated_at = ?
        WHERE id = ? AND status = 'active' AND deleted_at IS NULL
@@ -902,7 +895,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
           ),
         );
       }
-      if (statements.length > 0) await this.write('recordCandidates',statements);
+      if (statements.length > 0) await this.writeBatch(statements);
     }
     const claim = await this.database.prepare(
       `SELECT 1 AS matched FROM music_channel_upload_monitors
@@ -934,7 +927,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   }
 
   async complete(input: Parameters<ChannelMonitorRepository["complete"]>[0]) {
-    const [result] = await this.write('complete',[this.database.prepare(
+    const [result] = await this.writeBatch([this.database.prepare(
       `UPDATE music_channel_upload_monitors
        SET last_checked_at = ?, next_check_at = ?, last_seen_video_id = ?,
          last_seen_published_at = ?, last_error_code = NULL, lease_until = NULL,
@@ -974,7 +967,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   async saveContinuation(
     input: Parameters<ChannelMonitorRepository["saveContinuation"]>[0],
   ) {
-    const [result] = await this.write('saveContinuation',[this.database.prepare(
+    const [result] = await this.writeBatch([this.database.prepare(
       `UPDATE music_channel_upload_monitors SET
          sync_page_token = ?, sync_base_video_id = ?, sync_newest_video_id = ?,
          sync_started_at = COALESCE(sync_started_at, ?), last_checked_at = ?,
@@ -1003,7 +996,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   async completeSupplemental(
     input: Parameters<ChannelMonitorRepository["completeSupplemental"]>[0],
   ) {
-    const [result] = await this.write('completeSupplemental',[this.database.prepare(
+    const [result] = await this.writeBatch([this.database.prepare(
       `UPDATE music_channel_upload_monitors
        SET last_recent_reconciled_at = ?, lease_until = NULL,
          version = version + 1, updated_at = ?
@@ -1035,7 +1028,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   async markGapSuspected(
     input: Parameters<ChannelMonitorRepository["markGapSuspected"]>[0],
   ) {
-    const [result] = await this.write('markGapSuspected',[this.database.prepare(
+    const [result] = await this.writeBatch([this.database.prepare(
       `UPDATE music_channel_upload_monitors
        SET status = 'paused', last_checked_at = ?, next_check_at = ?,
          last_error_code = 'gap_suspected', lease_until = NULL,
@@ -1060,7 +1053,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   }
 
   async fail(input: Parameters<ChannelMonitorRepository["fail"]>[0]) {
-    await this.write('fail',[this.database.prepare(
+    await this.writeBatch([this.database.prepare(
       `UPDATE music_channel_upload_monitors
        SET last_error_code = ?, next_check_at = ?, lease_until = NULL,
           consecutive_failures = consecutive_failures + 1,

@@ -1,7 +1,8 @@
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import { type SiteId } from "@contracts/site-definition";
 import type { AssetAccessReader } from "../application/ports/asset-reader";
-import { readContentAccessRevision,currentRowFileIndexSql,selectedFileRowSql } from "../../content-transition";
+import { readContentAccessRevision } from "../../content-access";
+import { currentRowFileIndexSql, selectedFileRowSql } from "./file-reference-integrity";
 
 export class D1AssetAccessReader implements AssetAccessReader {
   private readonly db:D1Database;

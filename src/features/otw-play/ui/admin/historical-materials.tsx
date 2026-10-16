@@ -1,4 +1,4 @@
-import type { HistoricalContentMaterial, HistoricalJsonValue } from "@contracts/content-transition";
+import type { HistoricalContentMaterial, HistoricalJsonValue } from "../../../../../contracts/content-history";
 import React from "react";
 
 const kinds: Record<HistoricalContentMaterial["kind"],string> = {origin:"이전 수집 출처",event:"이전 변경 기록",review:"이전 AI 검토",attempt:"이전 분석 시도",batch:"이전 일괄 검토",job:"이전 수집 기록",work:"이전 검토 작업",approval:"이전 채널 승인"};

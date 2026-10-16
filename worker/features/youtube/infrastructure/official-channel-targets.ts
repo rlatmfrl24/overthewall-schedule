@@ -1,4 +1,4 @@
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import type { SiteId } from "@contracts/site-definition";
 // Channel ownership for collection; public endpoints retain their own audience filters.
 export const officialChannelTargetsSql = (siteId: SiteId) => `

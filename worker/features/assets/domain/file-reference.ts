@@ -1,4 +1,8 @@
-import type {TransitionPlan} from "@contracts/content-transition";
+import type {SiteId} from "@contracts/site-definition";
+export interface AssetReferenceScope {
+ sourceSite:SiteId;targetSite:SiteId;assetBuckets?:{source:string;target:string};
+ fileOrigins?:readonly ({kind:"site";origin:string;site:SiteId}|{kind:"r2";origin:string;site:SiteId;resource:string}|{kind:"external";origin:string;reason:string})[];
+}
 import {getAssetContentType,isStaticProfileAsset} from "./asset-key-policy";
 
 /** SQL form of the owning path allowlist for the final atomic manifest gate. */
@@ -14,7 +18,7 @@ export function ownedFilePathSql(value:string):string {
       json_array_length(s)=7 AND ${part(2)}='members' AND (${code(member)}) AND ${part(4)}='backgrounds' AND ${background} GLOB '[a-z0-9]*' AND ${background} NOT GLOB '*[^a-z0-9_-]*' AND ${part(6)} IN ('original.webp','w960.webp','w1280.webp','w1672.webp')) FROM parts)`;
 }
 
-export function validateFileOrigins(plan:TransitionPlan) {
+export function validateFileOrigins(plan:AssetReferenceScope) {
   const seen=new Set<string>();
   for(const entry of plan.fileOrigins??[]) {
     const url=new URL(entry.origin);
@@ -30,7 +34,7 @@ export function validateFileOrigins(plan:TransitionPlan) {
     }
   }
 }
-export function classifyFileReference(raw:string,plan:TransitionPlan):{kind:"owned";path:string;site:typeof plan.sourceSite;resource:string}|{kind:"external";url:string} {
+export function classifyFileReference(raw:string,plan:AssetReferenceScope):{kind:"owned";path:string;site:typeof plan.sourceSite;resource:string}|{kind:"external";url:string} {
   const value=raw.trim();
   const relative=value.startsWith("/")&&!value.startsWith("//");
   const url=new URL(value,"https://selected-assets.invalid");

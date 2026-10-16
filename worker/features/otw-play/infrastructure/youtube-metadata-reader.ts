@@ -1,5 +1,5 @@
 import { parseISO8601Duration } from "../../../platform/http-helpers";
-import {isArchivedYouTubeVideo} from '../../content-transition';
+import { isArchivedYouTubeVideo } from './archived-youtube-video';
 import type {SiteId} from '@contracts/site-definition';
 import {
   reserveYouTubeQuota,

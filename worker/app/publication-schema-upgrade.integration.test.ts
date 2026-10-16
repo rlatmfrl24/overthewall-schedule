@@ -1,10 +1,11 @@
+import { readSiteSchemaMigrations } from "../test-support/site-schema";
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { expect, it, vi } from "vitest";
 import { handleWorkerFetch } from "./fetch";
 import { siteEnv } from "../test-support/site-env";
 import type { Env } from "../platform/types";
 
-const bindings = env as unknown as Env & { CONTENT_TRANSITION_MIGRATIONS: D1Migration[]; transition_target_db: D1Database };
+const bindings = env as unknown as Env & { transition_target_db: D1Database };
 let db = bindings.otw_db;
 const number = (migration: D1Migration) => Number(migration.name.slice(0, 4));
 const totals: Record<string, { rowsRead: number; rowsWritten: number }> = {};
@@ -44,12 +45,12 @@ async function seed() {
 
 it.each(["otw", "luvdia"] as const)("upgrades the actual %s migration order without losing legacy writes, proposal children or X repair state", async site => {
   db = site === "otw" ? bindings.otw_db : bindings.transition_target_db;
-  for (const migration of bindings.CONTENT_TRANSITION_MIGRATIONS.filter(m => number(m) <= 101)) await apply(migration);
+  for (const migration of (await readSiteSchemaMigrations()).filter(m => number(m) <= 101)) await apply(migration);
   await seed();
   const raw = await db.prepare("SELECT value FROM x_posts WHERE id='101000000000000091'").first("value");
   const participants = (await db.prepare("SELECT * FROM music_cover_proposal_participants WHERE proposal_id='release-proposal'").all()).results;
   const artists = (await db.prepare("SELECT * FROM music_cover_proposal_original_artists WHERE proposal_id='release-proposal'").all()).results;
-  const next = bindings.CONTENT_TRANSITION_MIGRATIONS.filter(m => number(m) > 101);
+  const next = (await readSiteSchemaMigrations()).filter(m => number(m) > 101);
   const order = site === "otw"
     ? [...next.filter(m => [137, 138].includes(number(m))), ...next.filter(m => ![137, 138].includes(number(m)))]
     : next;

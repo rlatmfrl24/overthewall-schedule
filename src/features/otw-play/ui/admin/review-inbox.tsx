@@ -1,5 +1,5 @@
 import { QueryReadback } from "@/shared/ui/query-readback";
-import {ApiError,getContentTransitionMessage} from '@/shared/api/client';
+import {getContentWriteMessage} from '@/shared/api/client';
 import { refreshReviewInbox } from "../../queries/refresh-review-inbox";
 import { useIngestionBudget } from "../../queries/use-ingestion-budget";
 import { useConfirmation } from "@/shared/lib/confirmation";
@@ -24,7 +24,7 @@ import { fetchWorkBatch, workQueueQueryKey } from "../../api/work-queue";
 const statusLabels: Record<string, string> = { withdrawn: "철회", discovered: "검수 대기", needs_input: "정보 입력 필요", ready: "등록 준비 완료", blocked: "확인 필요", converted: "등록 완료", ignored: "제외됨", pending_review: "제안 검수 대기", approved: "승인됨", rejected: "거절됨" };
 const allPlaylistImports = "all-playlist-imports";
 const sourceLabels = { playlist: "플레이리스트", automatic: "자동 수집", user: "사용자 제안" };
-type ReviewActionResult = { action: "conversion" | "kind-correction"; outcome: "success" | "error" | "pending"; message: string };
+type ReviewActionResult = { action: "conversion" | "kind-correction"; outcome: "success" | "error"; message: string };
 export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalog, active = true }: { active?: boolean; catalog: OtwPlayAdminCatalogDto | null; onProposal: (id: string) => void; onManageChannel: (id: string, kind?: "official_video" | "singing_clip") => void; onOpenCatalog: () => void }) {
   const [search, update] = useConsoleSearch();
   const workScope = useQuery({ queryKey: ["otw-play-work-batch", search.workBatch], queryFn: () => fetchWorkBatch(search.workBatch!), enabled: active && Boolean(search.workBatch), retry: false });
@@ -162,7 +162,6 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
   const conversionResults = Object.values(results).filter(result => result.action === "conversion");
   const conversionSuccessCount = conversionResults.filter(result => result.outcome === "success").length;
   const conversionFailureCount = conversionResults.filter(result=>result.outcome==='error').length;
-  const conversionPendingCount = conversionResults.filter(result=>result.outcome==='pending').length;
   const refresh = async (allScopes = false) => { await Promise.all([refreshReviewInbox(client, allScopes ? undefined : filters), client.invalidateQueries({ queryKey: queryKeys.otwPlay.importJobs(), exact: true }), client.invalidateQueries({ queryKey: allScopes ? ["otw-play-review-kind-conflicts"] : ["otw-play-review-kind-conflicts", jobId] }),
     ...(jobId ? [client.invalidateQueries({ queryKey: queryKeys.otwPlay.importJob(jobId), exact: true })] : [])]); };
   const filterKey = JSON.stringify(filters);
@@ -186,7 +185,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
           const ok = result.outcome === "created" || result.outcome === "duplicate";
           setResults(current => ({ ...current, [id]: { action: "conversion", outcome: ok ? "success" : "error", message: ok ? "임시 등록 완료" : `등록 실패: ${result.errorCode ?? result.outcome}` } }));
           if (ok) setSelected(current => { const next = { ...current }; delete next[id]; return next; });
-        } catch(error) { setResults(current => ({ ...current, [id]: { action: "conversion", outcome: error instanceof ApiError&&error.code==='CONTENT_ACCEPTED'?'pending':"error", message: getContentTransitionMessage(error)??"등록 실패 · 최신 후보를 확인하고 재시도하세요." } })); }
+        } catch(error) { setResults(current => ({ ...current, [id]: { action: "conversion", outcome: "error", message: getContentWriteMessage(error)??"등록 실패 · 최신 후보를 확인하고 재시도하세요." } })); }
       }
       await client.invalidateQueries({ queryKey: queryKeys.otwPlay.adminCatalog(), refetchType: "none" });
       await refresh();
@@ -297,7 +296,7 @@ export function ReviewInbox({ catalog, onProposal, onManageChannel, onOpenCatalo
         {(source !== "user" || selectableRows.length > 0) && <><Button variant="outline" disabled={busy || selectableRows.length === 0} onClick={toggleAllSelectableRows}>{allSelectableRowsSelected ? `일괄 선택 해제 (${selectableRows.length}개)` : `등록 가능 ${selectableRows.length}개 일괄 선택`}</Button><Button disabled={busy || !Object.keys(selected).length} onClick={() => void convert()}>선택 {Object.keys(selected).length}개 일괄 임시 등록</Button></>}<Button variant="ghost" onClick={() => onOpenCatalog()}>카탈로그 확인</Button>
       </div>
     </section>}
-    {conversionResults.length > 0 && <div role="status" aria-label="일괄 임시 등록 결과" className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-muted/30 px-3 py-2 text-sm"><span className="font-medium">일괄 임시 등록 결과</span><span>완료 <strong className="tabular-nums">{conversionSuccessCount}개</strong></span>{conversionPendingCount>0&&<span>접수 대기 <strong className="tabular-nums">{conversionPendingCount}개</strong></span>}<span className={conversionFailureCount > 0 ? "text-destructive" : "text-muted-foreground"}>실패 <strong className="tabular-nums">{conversionFailureCount}개</strong></span></div>}
+    {conversionResults.length > 0 && <div role="status" aria-label="일괄 임시 등록 결과" className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-muted/30 px-3 py-2 text-sm"><span className="font-medium">일괄 임시 등록 결과</span><span>완료 <strong className="tabular-nums">{conversionSuccessCount}개</strong></span><span className={conversionFailureCount > 0 ? "text-destructive" : "text-muted-foreground"}>실패 <strong className="tabular-nums">{conversionFailureCount}개</strong></span></div>}
     {query.isError && !query.isFetchNextPageError && <p role="alert">검수 목록을 불러오지 못했습니다. <Button variant="link" onClick={() => void query.refetch()}>다시 시도</Button></p>}
     {query.isLoading && <p role="status">검수 목록을 불러오는 중입니다.</p>}
     {!query.isLoading && !query.isError && !rows.length && <p className="rounded-lg border border-dashed p-6 text-center text-sm">해당 조건의 검수 항목이 없습니다.</p>}

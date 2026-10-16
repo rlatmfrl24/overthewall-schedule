@@ -1,9 +1,9 @@
 import { type Env } from "../../../platform/types";
-import { contentRowHeldSql, publicationHiddenSql, nativeChzzkReadPrunableSql,nativeYouTubeChannelReadPrunableSql } from "../../content-transition";
+import { contentRowHeldSql, publicationHiddenSql } from "../../content-access";
 import { parseSiteId, type SiteId } from "@contracts/site-definition";
 
 const DAY_MS = 24 * 60 * 60_000;
-const nativeReadPrunableSql=(request?:string)=>`((${nativeChzzkReadPrunableSql(request)}) OR (${nativeYouTubeChannelReadPrunableSql(request)}))`;
+
 const RETENTION_LAST_PRUNE_SETTING_KEY = "data_retention_last_prune";
 const D1_DATABASE_MAX_BYTES_SETTING_KEY = "d1_database_max_bytes";
 const DEFAULT_D1_DATABASE_MAX_BYTES = 500 * 1024 * 1024;
@@ -79,16 +79,6 @@ export type DataRetentionStatusResult = DataRetentionPruneResult & {
 };
 
 export const DATA_RETENTION_POLICIES = [
-  {
-    id: "native-chzzk-read-detail",
-    category: "scheduled_operations",
-    table: "content_transition_chzzk_requests",
-    label: "전체 처리가 완료된 소유 사이트 메타데이터 읽기 상세",
-    timestampColumn: "settled_at",
-    timestampKind: "epoch_ms",
-    retentionDays: 30,
-    extraWhere: nativeReadPrunableSql(),
-  },
   {
     id: "scheduled-outbox",
     category: "scheduled_operations",
@@ -331,29 +321,21 @@ export const runDataRetentionPolicyPrune = async (
   const cutoff = getPolicyCutoff(policy, now);
   // Each request deletion also cascades its actual attempt rows. Bound their
   // combined cost in this one statement under the existing scheduled budget.
-  const nativeReads=policy.id==="native-chzzk-read-detail";
-  const result = await env.otw_db.prepare(nativeReads ? `
-    WITH candidates AS (
-      SELECT rowid,settled_at,1+(SELECT count(*) FROM content_transition_chzzk_attempts a
-        WHERE a.transition_id=r.transition_id AND a.operation_id=r.operation_id AND a.request_key=r.request_key) AS cost
-      FROM content_transition_chzzk_requests r WHERE ${getPolicyWhereClause({...policy,extraWhere:nativeReadPrunableSql("r")}, parseSiteId(env.SITE_ID))}
-      ORDER BY settled_at,rowid LIMIT ?
-    ), bounded AS (SELECT rowid,sum(cost) OVER (ORDER BY settled_at,rowid) AS writes FROM candidates)
-    DELETE FROM content_transition_chzzk_requests WHERE rowid IN (SELECT rowid FROM bounded WHERE writes<=?) RETURNING rowid` :
-    `DELETE FROM ${policy.table}
+
+  const result = await env.otw_db.prepare(`DELETE FROM ${policy.table}
      WHERE rowid IN (
        SELECT rowid FROM ${policy.table}
        WHERE ${getPolicyWhereClause(policy, parseSiteId(env.SITE_ID))}
        ORDER BY ${policy.timestampColumn}
        LIMIT ?
      ) RETURNING rowid`,
-  ).bind(getPolicyBindValue(policy, cutoff), limit,...(nativeReads?[limit]:[])).all();
+  ).bind(getPolicyBindValue(policy, cutoff), limit,...([])).all();
   const deletedRows = result.results.length;
   return {
     policyId,
     cutoff,
     deletedRows,
-    hasMore: (nativeReads || deletedRows >= limit) && await readPrunableCount(env, policy, cutoff) > 0,
+    hasMore: (deletedRows >= limit) && await readPrunableCount(env, policy, cutoff) > 0,
   };
 };
 

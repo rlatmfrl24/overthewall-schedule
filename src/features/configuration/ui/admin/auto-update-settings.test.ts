@@ -460,7 +460,7 @@ describe("AutoUpdateSettingsManager", () => {
       description: "거부 제외 처리에 실패했습니다: 실패 2건",
     });
   });
-  it.each(["CONTENT_MOVED","CONTENT_ACCEPTED","CONTENT_CONFLICT"])("이관 응답 %s는 성공에서 제외하고 실제 안내를 표시한다",code=>{
+  it.each(["CONTENT_MOVED","CONTENT_CONFLICT"])("이관 응답 %s는 성공에서 제외하고 실제 안내를 표시한다",code=>{
     expect(summarizePendingRejectionBatch({success:false,totalRequested:2,successCount:1,failedCount:1,results:[{id:101,success:true},{id:102,success:false,error:code,message:"현재 사이트에서 저장 완료되지 않았습니다."}]})).toEqual({successfulIds:[101],variant:"info",description:"거부 제외 처리: 성공 1건, 실패 1건 · 현재 사이트에서 저장 완료되지 않았습니다."});
   });
 

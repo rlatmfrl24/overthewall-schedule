@@ -1,5 +1,5 @@
 import { getHiddenMemberCodes } from "@contracts/site-publication";
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import { parseSiteId, type SiteId } from "@contracts/site-definition";
 import {
   normalizeXCollectionIntervalHours,

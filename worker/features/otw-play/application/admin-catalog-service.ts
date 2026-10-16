@@ -21,10 +21,8 @@ import type {
   AdminCatalogRepository,
 } from "./ports/admin-catalog-repository";
 import type { OtwPlayYouTubeMetadataReader } from "./ports/youtube-metadata";
-import type {ChannelTransitionPort} from "./ports/channel-transition";
 import type {VideoCatalogCommand,VideoEntryIds,CandidateConversionInput} from "../domain/video-catalog-command";
-import type {CandidateConversionCommand} from './ports/candidate-conversion-transition';
-import type {VideoCatalogTransitionPort} from "./ports/video-catalog-transition";
+type CandidateConversionCommand=Extract<VideoCatalogCommand,{action:"candidate_convert"}>;
 import type {ChannelMutationCommand} from "../domain/channel-mutation";
 
 export type AdminCatalogServiceErrorCode =
@@ -93,8 +91,6 @@ export class AdminCatalogService {
   private readonly clock: () => number;
   private readonly createId: () => string;
   private readonly officialCoverPolicyEnabled: boolean;
-  private readonly channelTransition?:ChannelTransitionPort;
-  private readonly videoTransition?:VideoCatalogTransitionPort;
 
   constructor(
     repository: AdminCatalogRepository,
@@ -103,8 +99,6 @@ export class AdminCatalogService {
     createId: () => string,
     officialCoverPolicyEnabled: boolean,
     clock: () => number = Date.now,
-    channelTransition?:ChannelTransitionPort,
-    videoTransition?:VideoCatalogTransitionPort,
   ) {
     this.repository = repository;
     this.youtube = youtube;
@@ -112,7 +106,6 @@ export class AdminCatalogService {
     this.clock = clock;
     this.createId = createId;
     this.officialCoverPolicyEnabled = officialCoverPolicyEnabled;
-    this.channelTransition=channelTransition;this.videoTransition=videoTransition;
   }
 
   readCatalog(scope?: import("./ports/admin-catalog-repository").AdminCatalogScope) {
@@ -237,30 +230,22 @@ export class AdminCatalogService {
     return {...this.videoEntityIds(subjects),channelId:this.createId(),channelEventId:this.createId(),songId:this.createId(),songEventId:this.createId(),performanceId:this.createId(),performanceEventId:this.createId(),sourceId:this.createId()};
   }
   /** Only the validated retained Queue command supplies a null transferred actor. */
-  resumeVideoCatalog(command:VideoCatalogCommand) {
-    switch(command.action) {
-      case 'performance_create':return this.runCreatePerformance(command);
-      case 'performance_update':return this.runUpdatePerformance(command);
-      case 'catalog_create':return this.runCreateCatalogEntry(command);
-      case 'proposal_approve':return this.runApproveProposal(command);
-      case 'candidate_convert':throw new Error('Candidate conversion requires its original ingestion service');
-    }
-  }
+
   private runCreatePerformance(command:Extract<VideoCatalogCommand,{action:'performance_create'}>) {
     const execute=(actual:VideoCatalogCommand,reader:OtwPlayYouTubeMetadataReader)=>{if(actual.action!=='performance_create') throw new Error('Original performance command mismatch');return this.createPerformanceOriginal(actual.input,actual.actor,actual,reader);};
-    return this.videoTransition?this.videoTransition.run(command,execute):execute(command,this.youtube);
+    return execute(command,this.youtube);
   }
   private runUpdatePerformance(command:Extract<VideoCatalogCommand,{action:'performance_update'}>) {
     const execute=(actual:VideoCatalogCommand,reader:OtwPlayYouTubeMetadataReader)=>{if(actual.action!=='performance_update') throw new Error('Original performance command mismatch');return this.updatePerformanceOriginal(actual.input,actual.actor,actual,reader);};
-    return this.videoTransition?this.videoTransition.run(command,execute):execute(command,this.youtube);
+    return execute(command,this.youtube);
   }
   private runCreateCatalogEntry(command:Extract<VideoCatalogCommand,{action:'catalog_create'}>) {
     const execute=(actual:VideoCatalogCommand,reader:OtwPlayYouTubeMetadataReader)=>{if(actual.action!=='catalog_create') throw new Error('Original catalog command mismatch');return this.createCatalogEntryOriginal(actual.input,actual.actor,undefined,actual,reader);};
-    return this.videoTransition?this.videoTransition.run(command,execute):execute(command,this.youtube);
+    return execute(command,this.youtube);
   }
   private runApproveProposal(command:Extract<VideoCatalogCommand,{action:'proposal_approve'}>) {
     const execute=(actual:VideoCatalogCommand,reader:OtwPlayYouTubeMetadataReader)=>{if(actual.action!=='proposal_approve') throw new Error('Original approval command mismatch');return this.approveProposalOriginal(actual.proposalId,actual.input,actual.actor,actual,reader);};
-    return this.videoTransition?this.videoTransition.run(command,execute):execute(command,this.youtube);
+    return execute(command,this.youtube);
   }
   async createCatalogEntry(input:OtwPlayAdminCreateCatalogEntryRequest,actor:AdminCatalogActor,candidateConversion?:Parameters<AdminCatalogRepository['createCatalogEntry']>[0]['candidateConversion']) {
     if(candidateConversion) return this.createCatalogEntryOriginal(input,actor,candidateConversion);
@@ -774,10 +759,6 @@ export class AdminCatalogService {
 
   /** Internal Queue entry. Its transition port verifies the retained operation
    * and original command before admitting a nullable transferred-source actor. */
-  executeAcceptedChannel(command:ChannelMutationCommand) {
-    if(!this.channelTransition) throw new Error("Missing accepted channel executor");
-    return this.runChannel(command);
-  }
 
   private runChannel(command:ChannelMutationCommand) {
     const execute=async(original:ChannelMutationCommand,reader:OtwPlayYouTubeMetadataReader)=>{
@@ -788,8 +769,8 @@ export class AdminCatalogService {
       if(original.actor) await bestEffortAudit(this.audit,{eventType:`otw_play.channel.${original.action==="create"?"created":"updated"}`,resourceType:"music_channel",resourceId:result.data.id,actor:original.actor});
       return result;
     };
-    if(!this.channelTransition && !command.actor) throw new Error("Transferred actor requires an original transition receipt");
-    return this.channelTransition?this.channelTransition.run(command,execute):execute(command,this.youtube);
+    if(!command.actor) throw new Error("Channel writes require their own authenticated actor");
+    return execute(command,this.youtube);
   }
 
   async deleteChannel(

@@ -2,8 +2,6 @@ import { apiRoutes } from "@contracts/api-routes";
 import type {
   AiReviewDto,
   AiReviewRequest,
-  AiReviewCloseUnknownRequest,
-  AiReviewResumeRequest,
 } from "@contracts/otw-play-ai-review";
 import { apiFetch } from "@/shared/api/client";
 
@@ -17,12 +15,7 @@ export const getAiReview = (id: string) =>
   apiFetch<{ data: AiReviewDto }>(apiRoutes.otwPlay.admin.aiReview.build(id), {
     auth: "required",
   });
-export const closeUnknownAiReview = (id: string, input: AiReviewCloseUnknownRequest) =>
-  apiFetch<{ data: AiReviewDto }>(apiRoutes.otwPlay.admin.aiReviewCloseUnknown.build(id), {
-    method: 'POST', auth: 'required', json: input,
-  });
-export const resumeUnissuedAiReview = (id:string,input:AiReviewResumeRequest) =>
-  apiFetch<{data:AiReviewDto}>(apiRoutes.otwPlay.admin.aiReviewResume.build(id),{method:'POST',auth:'required',json:input});
+
 export const latestAiReview = (
   input: Pick<AiReviewRequest, "target" | "range">,
 ) => {

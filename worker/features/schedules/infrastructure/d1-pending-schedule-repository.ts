@@ -11,8 +11,6 @@ import {
   type PendingScheduleRow,
 } from "../domain/pending-schedule";
 import type { ScheduleActor } from "../domain/schedule";
-import type {PendingCommand} from "../domain/pending-command";
-import type {D1PendingTransitionWriter,PendingNativeBatch} from "./d1-pending-transition-writer";
 import { holidayEligibleSql } from "./holiday-suggestions";
 import {
   AUTO_UPDATE_ADDITIONAL_SCHEDULE_MINUTES,
@@ -95,16 +93,9 @@ export class D1PendingScheduleRepository
   implements PendingScheduleRepository
 {
   private readonly db: D1Database;
-  private readonly transition?:D1PendingTransitionWriter;
-  private readonly nativeBatch?:PendingNativeBatch;
 
-  constructor(db: D1Database,transition?:D1PendingTransitionWriter,nativeBatch?:PendingNativeBatch) {
+  constructor(db: D1Database) {
     this.db = db;
-    this.transition=transition;this.nativeBatch=nativeBatch;
-  }
-  private batch(statements:D1PreparedStatement[]) {return this.nativeBatch?this.nativeBatch(statements):this.db.batch(statements);}
-  private own(command:PendingCommand,item:Record<string,unknown>,actor:ScheduleActor,execute:(repository:D1PendingScheduleRepository)=>Promise<PendingActionOutcome>) {
-    return this.transition!.run(command,item,actor,batch=>execute(new D1PendingScheduleRepository(this.db,undefined,batch??undefined)));
   }
 
   findById(id: number): Promise<PendingScheduleRow | null> {
@@ -147,7 +138,7 @@ export class D1PendingScheduleRepository
     options: PendingApprovalOptions | null,
     actor: ScheduleActor,
   ): Promise<PendingActionOutcome> {
-    if(this.transition) return this.own({action:"approve",id:item.id,options},item,actor,repository=>repository.approve(item,options,actor));
+
     if (item.candidate_kind === "holiday_suggestion") {
       return this.approveHoliday(item, actor);
     }
@@ -214,7 +205,7 @@ export class D1PendingScheduleRepository
     target: EmptyTargetRow,
     actor: ScheduleActor,
   ): Promise<PendingActionOutcome> {
-    if(this.transition) return this.own({action:"apply_empty",id:item.id,targetId:target.id},item,actor,repository=>repository.applyToEmptyTarget(item,target,actor));
+
     if (item.candidate_kind === "holiday_suggestion") return staleOutcome();
     if (item.candidate_kind) {
       const options: PendingApprovalOptions = {
@@ -239,7 +230,7 @@ export class D1PendingScheduleRepository
       timeMode: "nearest_half_hour",
       targetScheduleId: target.id,
     });
-    const results = await this.batch([
+    const results = await this.db.batch([
       this.db
         .prepare(
           `UPDATE schedules
@@ -287,11 +278,11 @@ export class D1PendingScheduleRepository
     actor: ScheduleActor,
     options: PendingRejectionOptions | null,
   ): Promise<PendingActionOutcome> {
-    if(this.transition) return this.own({action:"reject",id:item.id,options},item,actor,repository=>repository.reject(item,actor,options));
+
     const reasonCode = options?.reasonCode ?? null;
     const reasonNote = options?.reasonNote?.trim() || null;
     if (item.candidate_kind === "holiday_suggestion") {
-      const results = await this.batch([
+      const results = await this.db.batch([
         this.db.prepare(`UPDATE schedule_day_assessments SET decision = 'rejected',
           decided_at = ?, decided_by = ?, rejection_reason = ?
           WHERE member_uid = ? AND date = ? AND EXISTS (
@@ -305,7 +296,7 @@ export class D1PendingScheduleRepository
       ]);
       return results[2].results.length === 1 ? { success: true, action: "reject" } : staleOutcome();
     }
-    const results = await this.batch([
+    const results = await this.db.batch([
       this.db
         .prepare(
           `INSERT INTO schedule_candidate_rejections (
@@ -429,11 +420,8 @@ export class D1PendingScheduleRepository
     id: number,
     actor: ScheduleActor,
   ): Promise<PendingActionOutcome> {
-    if(this.transition) {
-      const item=await this.db.prepare("SELECT id,member_uid,date,candidate_kind FROM schedule_candidate_rejections WHERE id=?").bind(id).first<Record<string,unknown>>();
-      if(item) return this.own({action:"reopen_rejection",id},item,actor,repository=>repository.reopenRejection(id,actor));
-    }
-    const results = await this.batch([
+
+    const results = await this.db.batch([
       this.db
         .prepare(
           `INSERT INTO update_logs (${LOG_COLUMNS})
@@ -477,9 +465,9 @@ export class D1PendingScheduleRepository
     item: PendingScheduleRow,
     actor: ScheduleActor,
   ): Promise<PendingActionOutcome> {
-    if(this.transition) return this.own({action:"reset_processed",id:item.id},item,actor,repository=>repository.resetProcessed(item,actor));
+
     const resetAt = new Date().toISOString();
-    const results = await this.batch([
+    const results = await this.db.batch([
       this.db
         .prepare(
           "UPDATE pending_schedules SET processed_reset_at = ? WHERE id = ? RETURNING id",
@@ -515,7 +503,7 @@ export class D1PendingScheduleRepository
   }
 
   private async approveHoliday(item: PendingScheduleRow, actor: ScheduleActor): Promise<PendingActionOutcome> {
-    const results = await this.batch([
+    const results = await this.db.batch([
       this.db.prepare(`INSERT INTO schedules (member_uid, date, status)
         SELECT pending.member_uid, pending.date, '휴방'
         FROM pending_schedules pending JOIN schedule_day_assessments assessment
@@ -559,7 +547,7 @@ export class D1PendingScheduleRepository
     const conflictWindow = item.candidate_kind
       ? AUTO_UPDATE_TIME_WINDOW_MINUTES
       : 30;
-    const results = await this.batch([
+    const results = await this.db.batch([
       this.db
         .prepare(
           `INSERT INTO schedules (member_uid, date, start_time, title, status)
@@ -736,7 +724,7 @@ export class D1PendingScheduleRepository
       }
     }
 
-    const results = await this.batch([
+    const results = await this.db.batch([
       this.db
         .prepare(
           `UPDATE schedules
@@ -900,7 +888,7 @@ export class D1PendingScheduleRepository
     scheduleId: number | null,
     actor: ScheduleActor,
   ): Promise<PendingActionOutcome> {
-    const results = await this.batch([
+    const results = await this.db.batch([
       this.db
         .prepare(
           `INSERT INTO update_logs (${LOG_COLUMNS})

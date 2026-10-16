@@ -1,7 +1,7 @@
 import type { PlayWorkCommand, PlayWorkDisposition, PlayWorkItem, PlayWorkQueue, PlayWorkQueueAction } from "@contracts/otw-play-work-queue";
 import type { OtwPlayYouTubePlaylistSummary } from "../application/ports/youtube-metadata";
 import { historicalReviewDeletedSql } from "./historical-review-sql";
-import { publicationHiddenSql,publicationChannelHiddenSql } from '../../content-transition';
+import { publicationHiddenSql, publicationChannelHiddenSql } from '../../content-access';
 import type {SiteId} from '@contracts/site-definition';
 import { WorkQueueError, type WorkQueueBatchRecord, type WorkQueueMessage, type WorkQueueRepository, type WorkQueueSource } from "../application/ports/work-queue";
 
@@ -69,15 +69,14 @@ const item = (r: Row): PlayWorkItem => ({ id: String(r.id), batchId: String(r.ba
   metadataExpiresAt:r.metadata_checked_at == null ? null : Math.min(Number(r.retention_expires_at),Number(r.metadata_checked_at)+30*86400000) });
 const table = (m: WorkQueueMessage) => m.target === "queue" ? "music_playlist_work_queues" : "music_playlist_work_batches";
 
-export type PlaylistWorkBatchWriter=(action:'add' | 'commandSource' | 'saveSummary' | 'observeSummary' | 'reserve' | 'snapshot' | 'reviewed' | 'disposition' | 'beginCompletion' | 'itemError' | 'close' | 'linkNext' | 'claim' | 'release' | 'failed' | 'retryBatch' | 'dispatched' | 'clearExpired',statements:D1PreparedStatement[])=>Promise<D1Result[]>;
 export class D1WorkQueueRepository implements WorkQueueRepository {
   private readonly db: D1Database;
-  private readonly writer?: PlaylistWorkBatchWriter;
+
   private readonly siteId:SiteId;
-  constructor(db: D1Database,writer?:PlaylistWorkBatchWriter,siteId:SiteId='otw') { this.db=db;this.writer=writer;this.siteId=siteId; }
-  private write(action:Parameters<PlaylistWorkBatchWriter>[0],statements:D1PreparedStatement[]) {return this.writer?this.writer(action,statements):this.db.batch(statements);}
+  constructor(db:D1Database,siteId:SiteId="otw") {this.db=db;this.siteId=siteId;}
+
   async add(id: string, playlistId: string, url: string, actor: string, now: number) {
-    await this.write('add',[this.db.prepare(`INSERT OR IGNORE INTO music_playlist_work_queues(id,playlist_id,source_url,actor,created_at,updated_at) VALUES(?,?,?,?,?,?)`).bind(id, playlistId, url, actor, now, now)]);
+    await this.db.batch([this.db.prepare(`INSERT OR IGNORE INTO music_playlist_work_queues(id,playlist_id,source_url,actor,created_at,updated_at) VALUES(?,?,?,?,?,?)`).bind(id, playlistId, url, actor, now, now)]);
     const row = await this.db.prepare(`${sourceSql} WHERE q.playlist_id=?`).bind(playlistId).first<Row>();
     return source(row!);
   }
@@ -98,7 +97,7 @@ export class D1WorkQueueRepository implements WorkQueueRepository {
       return true;
     };
     if(await replay())return;
-    const results = await this.write('commandSource',[
+    const results = await this.db.batch([
       this.db.prepare(`UPDATE music_playlist_work_batches SET status='completed',start_next=0,version=version+1,updated_at=?
         WHERE queue_id=? AND status='preparing' AND page_recorded=0 AND error_message IS NOT NULL AND COALESCE(lease_until,0)<=?
         AND EXISTS(SELECT 1 FROM music_playlist_work_queues WHERE id=? AND version=?)
@@ -115,12 +114,12 @@ export class D1WorkQueueRepository implements WorkQueueRepository {
     if (!results[1].meta.changes && !await replay()) throw new WorkQueueError("stale_write", "진행 중인 묶음을 먼저 처리하거나 최신 상태를 불러오세요.");
   }
   async saveSummary(id: string, token: string, s: OtwPlayYouTubePlaylistSummary, now: number) {
-    await this.write('saveSummary',[this.db.prepare(`UPDATE music_playlist_work_queues SET title=?,owner_channel_id=?,owner_channel_title=?,item_count=?,metadata_checked_at=?,
+    await this.db.batch([this.db.prepare(`UPDATE music_playlist_work_queues SET title=?,owner_channel_id=?,owner_channel_title=?,item_count=?,metadata_checked_at=?,
       scan_item_count=?,scan_checked_at=?,progress_uncertain=0,
       status='waiting',error_message=NULL,version=version+1,updated_at=? WHERE id=? AND lease_token=? AND status='checking'`).bind(s.title,s.ownerChannelId,s.ownerChannelTitle,s.itemCount,now,s.itemCount,now,now,id,token)]);
   }
   async observeSummary(id:string,s:OtwPlayYouTubePlaylistSummary,now:number) {
-    await this.write('observeSummary',[this.db.prepare(`UPDATE music_playlist_work_queues SET item_count=?,metadata_checked_at=?,progress_uncertain=CASE WHEN scan_item_count!=? OR scan_checked_at IS NULL THEN 1 ELSE progress_uncertain END WHERE id=?`).bind(s.itemCount,now,s.itemCount,id)]);
+    await this.db.batch([this.db.prepare(`UPDATE music_playlist_work_queues SET item_count=?,metadata_checked_at=?,progress_uncertain=CASE WHEN scan_item_count!=? OR scan_checked_at IS NULL THEN 1 ELSE progress_uncertain END WHERE id=?`).bind(s.itemCount,now,s.itemCount,id)]);
   }
   async reserve(id: string, queueId: string, actor: string, command: PlayWorkCommand, now: number) {
     const key = `${actor}:${command.idempotencyKey}`;
@@ -130,7 +129,7 @@ export class D1WorkQueueRepository implements WorkQueueRepository {
       return record(existing);
     }
     try {
-      await this.write('reserve',[
+      await this.db.batch([
         this.db.prepare(`UPDATE music_playlist_work_queues SET version=version+1,updated_at=? WHERE id=? AND version=? AND status='waiting'`).bind(now,queueId,command.expectedVersion),
         this.db.prepare(`INSERT INTO music_playlist_work_batches(id,queue_id,job_id,request_key,actor,page_token,scan_generation,created_at,updated_at)
           SELECT ?,q.id,?,?,?,q.page_token,q.scan_generation,?,? FROM music_playlist_work_queues q WHERE q.id=? AND changes()=1`).bind(id,`work-${id}`,key,actor,now,now,queueId),
@@ -165,7 +164,7 @@ export class D1WorkQueueRepository implements WorkQueueRepository {
   }
   async snapshot(id: string, now: number) {
     const blocked=`(c.content_access='admin_archive' OR ${publicationHiddenSql('music_ingestion_candidates','c',this.siteId)} OR ${publicationChannelHiddenSql('c.channel_id',this.siteId)} OR EXISTS(SELECT 1 FROM music_ingestion_events response,json_each(response.detail_json,'$.observations') observed WHERE response.job_id=b.job_id AND response.event_type='ingestion.response' AND json_extract(observed.value,'$.videoId')=c.external_video_id AND ${publicationChannelHiddenSql("json_extract(observed.value,'$.video.channelId')",this.siteId)}))`;
-    await this.write('snapshot',[this.db.prepare(`INSERT OR IGNORE INTO music_playlist_work_items(id,batch_id,candidate_id,playlist_item_id,playlist_position,disposition,reason,created_at,updated_at)
+    await this.db.batch([this.db.prepare(`INSERT OR IGNORE INTO music_playlist_work_items(id,batch_id,candidate_id,playlist_item_id,playlist_position,disposition,reason,created_at,updated_at)
       SELECT o.id,b.id,o.candidate_id,o.playlist_item_id,o.playlist_position,
         CASE WHEN ${blocked} THEN 'excluded' WHEN o.is_playlist_duplicate=1 OR c.classification='existing_catalog' OR EXISTS(SELECT 1 FROM music_catalog_events e WHERE e.aggregate_type='review_candidate' AND e.aggregate_id=c.id AND e.event_type='review_item.deleted') OR ${historicalReviewDeletedSql("review_candidate","c.id")} THEN 'duplicate'
           ELSE COALESCE((SELECT prior.disposition FROM music_playlist_work_items prior WHERE prior.candidate_id=c.id AND prior.batch_id!=b.id AND prior.disposition!='duplicate' ORDER BY prior.updated_at DESC,prior.rowid DESC LIMIT 1),'pending') END,
@@ -174,12 +173,12 @@ export class D1WorkQueueRepository implements WorkQueueRepository {
       FROM music_playlist_work_batches b JOIN music_ingestion_candidate_origins o ON o.job_id=b.job_id JOIN music_ingestion_candidates c ON c.id=o.candidate_id WHERE b.id=?`).bind(now,now,id)]);
   }
   async reviewed(id: string, token: string, aiId: string | null, now: number) {
-    await this.write('reviewed',[this.db.prepare(`UPDATE music_playlist_work_batches SET status='review',ai_batch_id=?,error_message=NULL,version=version+1,updated_at=? WHERE id=? AND lease_token=? AND status='preparing'`).bind(aiId,now,id,token)]);
+    await this.db.batch([this.db.prepare(`UPDATE music_playlist_work_batches SET status='review',ai_batch_id=?,error_message=NULL,version=version+1,updated_at=? WHERE id=? AND lease_token=? AND status='preparing'`).bind(aiId,now,id,token)]);
   }
   async disposition(id: string, version: number, value: PlayWorkDisposition, reason: string | null, actor: string, now: number) {
     const current = await this.db.prepare("SELECT i.*,b.job_id,b.status FROM music_playlist_work_items i JOIN music_playlist_work_batches b ON b.id=i.batch_id WHERE i.id=?").bind(id).first<Row>();
     if (!current || current.status === "completing") throw new WorkQueueError("stale_write", "등록 중인 항목은 변경할 수 없습니다.");
-    const results=await this.write('disposition',[
+    const results=await this.db.batch([
       this.db.prepare(`UPDATE music_playlist_work_items SET disposition=?,reason=?,error_message=NULL,version=version+1,updated_at=MAX(updated_at+1,?) WHERE id=? AND version=?
         AND EXISTS(SELECT 1 FROM music_playlist_work_batches b WHERE b.id=music_playlist_work_items.batch_id AND b.status!='completing')
         AND NOT EXISTS(SELECT 1 FROM music_playlist_work_items shared JOIN music_playlist_work_batches b ON b.id=shared.batch_id
@@ -195,13 +194,13 @@ export class D1WorkQueueRepository implements WorkQueueRepository {
     const b = await this.record(id), key = `${actor}:${c.idempotencyKey}`;
     if (b.completionKey === key && b.startNext === c.startNext) return;
     if (b.completionKey === key) throw new WorkQueueError("idempotency_conflict", "완료 요청의 다음 작업 설정이 변경되었습니다.");
-    const [result] = await this.write('beginCompletion',[this.db.prepare(`UPDATE music_playlist_work_batches SET status='completing',completion_key=?,start_next=?,actor=?,error_message=NULL,dispatch_until=NULL,version=version+1,updated_at=?
+    const [result] = await this.db.batch([this.db.prepare(`UPDATE music_playlist_work_batches SET status='completing',completion_key=?,start_next=?,actor=?,error_message=NULL,dispatch_until=NULL,version=version+1,updated_at=?
       WHERE id=? AND version=? AND status='review'`).bind(key,Number(c.startNext),actor,now,id,c.expectedVersion)]);
     if (!result.meta.changes) throw new WorkQueueError("stale_write", "현재 묶음의 최신 상태를 확인하세요.");
   }
-  async itemError(id: string, message: string | null, now: number) { await this.write('itemError',[this.db.prepare("UPDATE music_playlist_work_items SET error_message=?,updated_at=? WHERE id=?").bind(message,now,id)]); }
+  async itemError(id: string, message: string | null, now: number) { await this.db.batch([this.db.prepare("UPDATE music_playlist_work_items SET error_message=?,updated_at=? WHERE id=?").bind(message,now,id)]); }
   async close(id: string, token: string, now: number) {
-    const results=await this.write('close',[
+    const results=await this.db.batch([
       this.db.prepare(`UPDATE music_playlist_work_queues SET page_token=(SELECT next_page_token FROM music_playlist_work_batches WHERE id=?),
         status=CASE WHEN (SELECT next_page_token FROM music_playlist_work_batches WHERE id=?) IS NULL THEN 'exhausted' ELSE 'waiting' END,
         version=version+1,updated_at=? WHERE id=(SELECT queue_id FROM music_playlist_work_batches WHERE id=? AND lease_token=? AND status='completing')
@@ -210,16 +209,16 @@ export class D1WorkQueueRepository implements WorkQueueRepository {
     ]);
     if (!results[1].meta.changes) throw new WorkQueueError("stale_write","등록 결과가 변경되었습니다. 현재 묶음을 다시 확인하세요.");
   }
-  async linkNext(id: string, nextId: string, now: number) { await this.write('linkNext',[this.db.prepare("UPDATE music_playlist_work_batches SET next_batch_id=?,updated_at=? WHERE id=? AND next_batch_id IS NULL").bind(nextId,now,id)]); }
+  async linkNext(id: string, nextId: string, now: number) { await this.db.batch([this.db.prepare("UPDATE music_playlist_work_batches SET next_batch_id=?,updated_at=? WHERE id=? AND next_batch_id IS NULL").bind(nextId,now,id)]); }
   async nextSource() { const row=await this.db.prepare(`${sourceSql} WHERE q.status='waiting' ORDER BY q.created_at,q.id LIMIT 1`).first<Row>(); return row ? source(row) : null; }
   async claim(m: WorkQueueMessage, token: string, now: number) {
     const condition=m.target === "queue" ? "status='checking'" : "(status IN ('preparing','completing') OR (status='completed' AND start_next=1 AND next_batch_id IS NULL))";
-    const [result] = await this.write('claim',[this.db.prepare(`UPDATE ${table(m)} SET lease_token=?,lease_until=? WHERE id=? AND ${condition} AND (lease_until IS NULL OR lease_until<=?) AND error_message IS NULL`).bind(token,now+300000,m.id,now)]);
+    const [result] = await this.db.batch([this.db.prepare(`UPDATE ${table(m)} SET lease_token=?,lease_until=? WHERE id=? AND ${condition} AND (lease_until IS NULL OR lease_until<=?) AND error_message IS NULL`).bind(token,now+300000,m.id,now)]);
     return Boolean(result.meta.changes);
   }
-  async release(m: WorkQueueMessage, token: string, now: number) { await this.write('release',[this.db.prepare(`UPDATE ${table(m)} SET lease_token=NULL,lease_until=NULL,updated_at=? WHERE id=? AND lease_token=?`).bind(now,m.id,token)]); }
+  async release(m: WorkQueueMessage, token: string, now: number) { await this.db.batch([this.db.prepare(`UPDATE ${table(m)} SET lease_token=NULL,lease_until=NULL,updated_at=? WHERE id=? AND lease_token=?`).bind(now,m.id,token)]); }
   async failed(m: WorkQueueMessage, token: string, message: string, now: number) {
-    await this.write('failed',[this.db.prepare(`UPDATE ${table(m)} SET error_message=?,${m.target === "queue" ? "status='failed'," : ""}version=version+1,updated_at=? WHERE id=? AND lease_token=?${m.target === "queue" ? " AND status='checking'" : ""}`).bind(message,now,m.id,token)]);
+    await this.db.batch([this.db.prepare(`UPDATE ${table(m)} SET error_message=?,${m.target === "queue" ? "status='failed'," : ""}version=version+1,updated_at=? WHERE id=? AND lease_token=?${m.target === "queue" ? " AND status='checking'" : ""}`).bind(message,now,m.id,token)]);
   }
   async retryBatch(id: string, command: PlayWorkCommand, actor: string, now: number) {
     const eventId=`playlist-work-batch-command:${actor}:${command.idempotencyKey}`;
@@ -230,7 +229,7 @@ export class D1WorkQueueRepository implements WorkQueueRepository {
       return true;
     };
     if(await replay())return;
-    const results=await this.write('retryBatch',[
+    const results=await this.db.batch([
       this.db.prepare(`UPDATE music_playlist_work_batches SET status=CASE WHEN status='completing' THEN 'review' ELSE status END,completion_key=NULL,start_next=0,error_message=NULL,dispatch_until=NULL,version=version+1,updated_at=?
         WHERE id=? AND version=? AND status!='completed' AND (lease_until IS NULL OR lease_until<=?)
         AND NOT EXISTS(SELECT 1 FROM music_catalog_events WHERE id=?)`).bind(now,id,command.expectedVersion,now,eventId),
@@ -244,8 +243,8 @@ export class D1WorkQueueRepository implements WorkQueueRepository {
       UNION ALL SELECT 'batch',id FROM music_playlist_work_batches WHERE (status IN ('preparing','completing') OR (status='completed' AND start_next=1 AND next_batch_id IS NULL)) AND error_message IS NULL AND COALESCE(dispatch_until,0)<=? AND COALESCE(lease_until,0)<=? LIMIT 20`).bind(now,now,now,now).all<{ target:WorkQueueMessage["target"]; id:string }>()).results;
     return rows.map(r=>({kind:"otw_play_work_queue" as const,schemaVersion:1 as const,...r}));
   }
-  async dispatched(m: WorkQueueMessage, now: number) { await this.write('dispatched',[this.db.prepare(`UPDATE ${table(m)} SET dispatch_until=? WHERE id=?`).bind(now+60000,m.id)]); }
-  async clearExpired(now: number) { await this.write('clearExpired',[this.db.prepare("UPDATE music_playlist_work_queues SET title=NULL,owner_channel_title=NULL,item_count=NULL,metadata_checked_at=NULL,scan_item_count=NULL,scan_checked_at=NULL,progress_uncertain=1 WHERE metadata_checked_at<=?").bind(now-30*86400000)]); }
+  async dispatched(m: WorkQueueMessage, now: number) { await this.db.batch([this.db.prepare(`UPDATE ${table(m)} SET dispatch_until=? WHERE id=?`).bind(now+60000,m.id)]); }
+  async clearExpired(now: number) { await this.db.batch([this.db.prepare("UPDATE music_playlist_work_queues SET title=NULL,owner_channel_title=NULL,item_count=NULL,metadata_checked_at=NULL,scan_item_count=NULL,scan_checked_at=NULL,progress_uncertain=1 WHERE metadata_checked_at<=?").bind(now-30*86400000)]); }
   async hasExpired(now: number) { return Boolean(await this.db.prepare("SELECT id FROM music_playlist_work_queues WHERE metadata_checked_at<=? LIMIT 1").bind(now-30*86400000).first()); }
   async hasRecoveryWork(now: number, allowCollection: boolean) {
     return Boolean(await this.db.prepare(`SELECT id FROM music_playlist_work_batches WHERE (status='completing' OR (status='completed' AND start_next=1 AND next_batch_id IS NULL) OR (?=1 AND status='preparing'))

@@ -5,8 +5,7 @@ import { isSiteContentPath } from "@contracts/site-public-content";
 import { createSiteSeoDependencies } from "./site-seo";
 import { getWorkerSiteResources } from "../platform/site";
 import { handleAsset } from "./assets";
-import { TransitionWriteError,TransitionMaintenanceError,isTransitionMaintenanceError } from "../features/content-transition";
-import { readTransitionAccess,privateTransitionResponse } from "./content-transition-access";
+import { ContentWriteError } from "../features/content-access";
 import { readSitePublicationAccess } from "./site-publication";
 import { SITE_OPENS_AT } from "@contracts/site-publication";
 import { apiRoutes } from "@contracts/api-routes";
@@ -52,11 +51,8 @@ const isLocalApiRequest = (request: Request) => {
 };
 
 const handleApiRouteError = (request: Request, error: unknown) => {
-  if(isTransitionMaintenanceError(error)) {
-    const maintenance=new TransitionMaintenanceError();
-    return Response.json({error:{code:maintenance.code,message:maintenance.message}},{status:503,headers:{'Cache-Control':'no-store','Retry-After':'60'}});
-  }
-  if(error instanceof TransitionWriteError) return Response.json({error:{code:error.code,message:error.message,fields:{targetSite:error.targetSite,...(error.operationId?{operationId:error.operationId}:{})}}},{status:409,headers:{"Cache-Control":"no-store"}});
+
+  if(error instanceof ContentWriteError) return Response.json({error:{code:error.code,message:error.message,fields:{targetSite:error.targetSite,...(error.operationId?{operationId:error.operationId}:{})}}},{status:409,headers:{"Cache-Control":"no-store"}});
   const url = new URL(request.url);
   const includeDetails = isLocalApiRequest(request);
   const details = serializeError(error, includeDetails);
@@ -99,11 +95,9 @@ const handleFetch = async (
     try { assetPath=new URL(decodeURIComponent(url.pathname),url.origin).pathname; }
     catch { return new Response(null,{status:404,headers:{"Cache-Control":"private, no-store"}}); }
     if(assetPath==="/profile/__artifact.json") return new Response(null,{status:404,headers:{"Cache-Control":"private, no-store"}});
-    const access=await readTransitionAccess(request,env,assetPath);
-    if(access.response) return access.response;
-    const visible=(response:Response)=>access.inactive?privateTransitionResponse(response,request.method==="HEAD"):response;
+
     const { site } = getWorkerSiteResources(env);
-    if (assetPath.startsWith("/profile/") && /\.[a-z0-9]+$/i.test(assetPath) || assetPath.startsWith("/r2-assets/")) return visible(await handleAsset(request, env));
+    if (assetPath.startsWith("/profile/") && /\.[a-z0-9]+$/i.test(assetPath) || assetPath.startsWith("/r2-assets/")) return await handleAsset(request, env);
     const seoResponse = await handleSiteSeo(request, env);
     const contentPath = url.pathname.replace(/\/+$/, "") || "/";
     if (isSiteContentPath(contentPath) && (!seoResponse || seoResponse.status === 200)) {
@@ -117,13 +111,13 @@ const handleFetch = async (
           const asset = source ?? await env.ASSETS!.fetch(new Request(new URL("/", request.url), { method: "GET" }));
           if (asset.status !== 200) return asset;
           const response = rewriteSiteContent(asset, content, site);
-          return visible(request.method === "HEAD" ? new Response(null, response) : response);
+          return request.method === "HEAD" ? new Response(null, response) : response;
         }
       } catch (error) { console.error("[site-content] HTML failed", error); const response = siteContentUnavailable(); return request.method === "HEAD" ? new Response(null, response) : response; }
     }
-    if (seoResponse) return visible(seoResponse);
+    if (seoResponse) return seoResponse;
     const routedResponse = await workerRouteRegistry.dispatch(request, env, ctx);
-    if (routedResponse) return visible(routedResponse);
+    if (routedResponse) return routedResponse;
   } catch (error) {
     if (url.pathname.startsWith("/api/")) {
       return handleApiRouteError(request, error);

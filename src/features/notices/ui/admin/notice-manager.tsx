@@ -31,7 +31,7 @@ import {
 } from "../../api/notices";
 import { queryKeys } from "@/shared/query/query-keys";
 import { useToast } from "@/shared/ui/toast";
-import { getContentTransitionMessage } from "@/shared/api/client";
+import { getContentWriteMessage } from "@/shared/api/client";
 import { AdminSectionHeader } from "@/app/admin";
 import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
 import { getOwnedNoticeThumbnailKey } from "../../model/notice-thumbnails";
@@ -289,7 +289,7 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
       console.error("Delete failed:", error);
       toast({
         variant: "error",
-        description: getContentTransitionMessage(error) ?? "공지사항 삭제에 실패했습니다.",
+        description: getContentWriteMessage(error) ?? "공지사항 삭제에 실패했습니다.",
       });
     } finally {
       setDeletingNotice(null);
@@ -324,7 +324,7 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
       console.error("Failed to save notice:", error);
       toast({
         variant: "error",
-        description: getContentTransitionMessage(error) ?? "공지사항 저장에 실패했습니다.",
+        description: getContentWriteMessage(error) ?? "공지사항 저장에 실패했습니다.",
       });
       throw error;
     } finally {
@@ -346,7 +346,7 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
       console.error("Failed to set featured notice:", error);
       toast({
         variant: "error",
-        description: getContentTransitionMessage(error) ?? "대표 공지 지정에 실패했습니다.",
+        description: getContentWriteMessage(error) ?? "대표 공지 지정에 실패했습니다.",
       });
     } finally {
       setFeaturingNoticeId(null);

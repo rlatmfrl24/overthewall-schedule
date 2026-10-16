@@ -242,8 +242,8 @@ export interface OtwPlayChannelMonitorDto {
 }
 
 export interface OtwPlayChannelMonitorCandidateDto {
-  contentAccess?: import("./content-transition").ContentAccess;
-  historicalMaterials?: import("./content-transition").HistoricalContentMaterial[];
+  contentAccess?: import("./site-publication").ContentAccess;
+  historicalMaterials?: import("./content-history").HistoricalContentMaterial[];
   candidateId: string;
   candidateVersion: number;
   videoId: string;
@@ -321,8 +321,8 @@ export interface OtwPlayChannelMonitorReconcileDto {
 }
 
 export interface OtwPlayIngestionCandidateItemDto {
-  contentAccess?: import("./content-transition").ContentAccess;
-  historicalMaterials?: import("./content-transition").HistoricalContentMaterial[];
+  contentAccess?: import("./site-publication").ContentAccess;
+  historicalMaterials?: import("./content-history").HistoricalContentMaterial[];
   candidateKind?: OtwPlayIngestionCandidateKind;
   originId: string;
   candidateId: string;
@@ -353,8 +353,8 @@ export interface OtwPlayIngestionCandidateItemDto {
 }
 
 export interface OtwPlayIngestionReviewCandidateDto {
-  contentAccess?: import("./content-transition").ContentAccess;
-  historicalMaterials?: import("./content-transition").HistoricalContentMaterial[];
+  contentAccess?: import("./site-publication").ContentAccess;
+  historicalMaterials?: import("./content-history").HistoricalContentMaterial[];
   catalogChanges?: Pick<OtwPlayAdminCatalogDto, "songs" | "entities" | "revision">;
   id: string;
   version: number;
@@ -443,7 +443,6 @@ export interface OtwPlayIgnoreIngestionCandidatesRequest {
 
 export const OTW_PLAY_INGESTION_IGNORE_OUTCOMES = [
   "ignored",
-  "accepted",
   "stale",
   "failed",
 ] as const;
@@ -469,7 +468,7 @@ export interface OtwPlayIngestionConversionResultDto {
 }
 
 export interface OtwPlayConvertIngestionCandidatesResponse {
-  results: (OtwPlayIngestionConversionResultDto | {candidateId:string;outcome:'accepted'|'moved'|'conflicted';performanceId:null;errorCode:'CONTENT_ACCEPTED'|'CONTENT_MOVED'|'CONTENT_CONFLICT'})[];
+  results: (OtwPlayIngestionConversionResultDto | {candidateId:string;outcome:'moved'|'conflicted';performanceId:null;errorCode:'CONTENT_MOVED'|'CONTENT_CONFLICT'})[];
 }
 
 export interface OtwPlayRetryIngestionJobResponse {
@@ -1213,7 +1212,7 @@ export type OtwPlayAdminSourceRecheckResponse =
   };
 
 export interface OtwPlayAdminPerformanceDto {
-  contentAccess?: import("./content-transition").ContentAccess;
+  contentAccess?: import("./site-publication").ContentAccess;
   broadcast?: OtwPlayBroadcastMetadata | null;
   id: string;
   songId: string;
@@ -1244,13 +1243,13 @@ export interface OtwPlayAdminPerformanceDto {
 }
 
 export interface OtwPlayAdminProposalDto {
-  contentAccess?: import("./content-transition").ContentAccess;
-  historicalMaterials?: import("./content-transition").HistoricalContentMaterial[];
+  contentAccess?: import("./site-publication").ContentAccess;
+  historicalMaterials?: import("./content-history").HistoricalContentMaterial[];
   submissionKind?: OtwPlaySubmissionKind;
   broadcast?: OtwPlayBroadcastMetadata | null;
   id: string;
   submittedByUserId: string | null;
-  historicalProvenance: import("./content-transition").HistoricalContentProvenance | null;
+  historicalProvenance: import("./content-history").HistoricalContentProvenance | null;
   historicalReview: boolean;
   submittedUrl: string;
   youtubeVideoId: string;
@@ -1560,7 +1559,7 @@ export interface OtwPlayReviewFilters {
   cursor?: string;
 }
 export interface OtwPlayReviewItemDto {
-  contentAccess?: import("./content-transition").ContentAccess;
+  contentAccess?: import("./site-publication").ContentAccess;
   workBatchId?: string;
   id: string;
   kind: "candidate" | "proposal";

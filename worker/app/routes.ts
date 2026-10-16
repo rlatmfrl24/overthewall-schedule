@@ -6,7 +6,7 @@ import { apiRoutes } from "@contracts/api-routes";
 import { readSitePublicationStatus } from "./site-publication";
 import { createAiReviewHandler, createAiBatchHandler, createWorkQueueHandler } from "../features/otw-play";
 import { createOtwPlayWorkQueueService } from "./work-queue";
-import { buildScheduleTransitionWriter,buildNoticeTransitionWriter,buildDDayTransitionWriter,buildPendingTransitionWriter,buildLiveScheduleTransitionWriter } from "./content-transition";
+import { buildLiveScheduleWriter } from "./schedule-writers";
 import { createOtwPlayAiReviewService, createOtwPlayAiBatchService } from "./ai-review";
 import { createAuthStatusHandler } from "../features/auth";
 import { handleAsset,handleProtectedAssetReference, buildAssetFileStore } from "./assets";
@@ -144,14 +144,14 @@ const handleScheduleRequest = createScheduleRequestHandler(
   (env, includeArchived) =>
     new ScheduleService(
       new D1ScheduleQueryRepository(env.otw_db, includeArchived, getWorkerSiteResources(env).site.id),
-      new D1ScheduleWriteRepository(env.otw_db,buildScheduleTransitionWriter(env)),
+      new D1ScheduleWriteRepository(env.otw_db),
       new PublicScheduleWritePolicy(),
     ),
 );
 const handlePendingScheduleCommand = createPendingScheduleCommandHandler(
   (env) =>
     new PendingScheduleService(
-      new D1PendingScheduleRepository(env.otw_db,buildPendingTransitionWriter(env)),
+      new D1PendingScheduleRepository(env.otw_db),
       new D1PendingBulkAudit(env.otw_db),
     ),
 );
@@ -189,7 +189,7 @@ const handleAdminAuditLogs = createHandleAdminAuditLogs(
   (env) => new D1AdminAuditLogReader(getDb(env)),
 );
 const handleDDays = createHandleDDays(
-  (env, includeArchived,identity) => new D1DDayRepository(getDb(env), includeArchived,identity?buildDDayTransitionWriter(env,identity):undefined, getWorkerSiteResources(env).site.id),
+  (env, includeArchived) => new D1DDayRepository(getDb(env), includeArchived, getWorkerSiteResources(env).site.id),
 );
 const handleMembers = createHandleMembers(
   (env, includeArchived) => new D1MemberReader(getDb(env), env.ASSET_BUCKET, includeArchived, getWorkerSiteResources(env).site.id),
@@ -271,7 +271,7 @@ const handleOtwPlayWebsubAdmin = withPlayOperationsTelemetry(
 const handleNotices = createHandleNotices(
   (env, includeArchived) =>
     new NoticeUseCases(
-      new D1NoticeGateway(getDb(env), env.ASSET_BUCKET, includeArchived, env.ASSET_BUCKET?buildAssetFileStore(env):undefined,buildNoticeTransitionWriter(env), getWorkerSiteResources(env).site.id),
+      new D1NoticeGateway(getDb(env), env.ASSET_BUCKET, includeArchived, env.ASSET_BUCKET?buildAssetFileStore(env):undefined, getWorkerSiteResources(env).site.id),
     ),
 );
 const handleScheduleBoard = createHandleScheduleBoard(
@@ -288,7 +288,7 @@ const handleOperations = createOperationsHandler({
       collectNaverCafePostsForSources,
     ),
 });
-const handleXPosts = createXPostsHandler(buildOwnedXPostsApplication);
+const handleXPosts = createXPostsHandler(buildXPostsApplication);
 const handleManualXCollection = createManualXCollectionHandler(
   buildXPostsApplication,
   (env, actor, idempotencyKey) =>
@@ -311,7 +311,7 @@ const buildChzzkRouteApplication = (env: Parameters<
 >[0]) => {
   const database = getDb(env);
   const liveScheduleAutoFill =
-    createLiveScheduleAutoFillService(database,buildLiveScheduleTransitionWriter(env));
+    createLiveScheduleAutoFillService(database,buildLiveScheduleWriter(env));
   return buildChzzkApplication(env, {
     autoFillLiveSchedules: (items) =>
       liveScheduleAutoFill.run(items),
@@ -730,8 +730,6 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
   { id: "otw-play.admin.ai-draft", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviewDraft.pattern, methods: methods(get(ADMIN_NO_STORE)), handler: handleOtwPlayAiBatch },
   { id: "otw-play.admin.ai-reviews", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviews.pattern, methods: methods(get(ADMIN_NO_STORE), post({ ...ADMIN_NO_STORE, successStatus: 202 })), handler: handleOtwPlayAiReview },
   { id: "otw-play.admin.ai-review", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReview.pattern, methods: methods(get(ADMIN_NO_STORE)), handler: handleOtwPlayAiReview },
-  { id: "otw-play.admin.ai-review-close-unknown", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviewCloseUnknown.pattern, methods: methods(post(ADMIN_NO_STORE)), handler: handleOtwPlayAiReview },
-  { id: "otw-play.admin.ai-review-resume", owner: "otw-play", path: apiRoutes.otwPlay.admin.aiReviewResume.pattern, methods: methods(post(ADMIN_NO_STORE)), handler: handleOtwPlayAiReview },
   {
     id: "otw-play.admin.import-budget",
     owner: "otw-play",
@@ -1451,4 +1449,3 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
 
 export const workerRouteRegistry = createRouteRegistry(routeDefinitions);
 export const workerRouteManifest = workerRouteRegistry.manifest;
-import { buildOwnedXPostsApplication } from "./x-posts";

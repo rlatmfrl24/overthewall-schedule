@@ -13,7 +13,7 @@ import {
   SourceHealthServiceError,
 } from "../application/source-health-service";
 import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metadata";
-import {TransitionWriteError,isTransitionMaintenanceError} from "../../content-transition";
+import { ContentWriteError } from "../../content-access";
 import {
   parseCatalogEntryPreflight,
   parseCreateCatalogEntry,
@@ -492,8 +492,7 @@ export const createAdminCatalogHandler =
 
       return new Response(null, { status: 404 });
     } catch (error) {
-      if(isTransitionMaintenanceError(error)) throw error;
-      if(error instanceof TransitionWriteError) return responseJson({error:{code:error.code,message:error.message,requestId,fields:{targetSite:error.targetSite,...(error.operationId?{operationId:error.operationId}:{})}}},409);
+      if(error instanceof ContentWriteError) return responseJson({error:{code:error.code,message:error.message,requestId,fields:{targetSite:error.targetSite,...(error.operationId?{operationId:error.operationId}:{})}}},409);
       if (error instanceof SourceHealthServiceError) {
         const mapping = {
           invalid_request: [400, "PLAY_ADMIN_INVALID_REQUEST"],

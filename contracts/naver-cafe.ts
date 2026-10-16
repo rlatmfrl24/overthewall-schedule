@@ -1,7 +1,7 @@
 export type NaverCafePostsVisibility = "public" | "members" | "private";
 
 export interface NaverCafePostDto {
-  contentAccess?: import("./content-transition").ContentAccess;
+  contentAccess?: import("./site-publication").ContentAccess;
   id: string;
   articleId: number;
   cafeId: string;

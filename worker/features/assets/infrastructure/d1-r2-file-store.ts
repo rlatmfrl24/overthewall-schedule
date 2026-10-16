@@ -6,11 +6,7 @@ import { fileProtectedSql, releaseLegacyFileSql, NOTICE_FILE_GRACE_MS } from "./
 export interface FileWriteInput { operationId: string; logicalKey: string; contentType: string; bytes: Uint8Array }
 export interface DurableFileIntent { operationId: string; logicalKey: string; versionKey: string; previousVersion: string | null; hash: string; size: number; contentType: string; memberUid:number|null;memberCode:string|null; generation: number; transitionId: string | null }
 export interface VerifiedFile { objectVersion: string; hash: string; size: number }
-export interface FileTransitionWriter {
-  admit(intent: DurableFileIntent): Promise<{ transitionId: string; generation: number;versionKey:string;previousVersion:string|null } | null>;
-  observe(intent: DurableFileIntent, observed: VerifiedFile): Promise<string>;
-  commit(intent: DurableFileIntent, evidenceId: string, statements: D1PreparedStatement[]): Promise<void>;
-}
+
 type Row = { operation_id:string; logical_key:string; version_key:string; previous_version:string|null; hash:string; size:number; content_type:string; member_uid:number|null;member_code:string|null; generation:number; transition_id:string|null; site_id:string; resource:string; object_version:string|null; reference_committed_at:number|null; acknowledged_at:number|null;released_at:number|null;created_at:number };
 const fromRow = (row: Row): DurableFileIntent => ({ operationId:row.operation_id, logicalKey:row.logical_key, versionKey:row.version_key, previousVersion:row.previous_version, hash:row.hash, size:row.size, contentType:row.content_type,memberUid:row.member_uid,memberCode:row.member_code, generation:row.generation, transitionId:row.transition_id });
 export const hashFileBytes = async (bytes: Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes as BufferSource)), value=>value.toString(16).padStart(2,"0")).join("");
@@ -21,9 +17,9 @@ export class D1R2FileStore {
   private readonly bucket:R2Bucket;
   private readonly site:SiteId;
   private readonly resource:string;
-  private readonly transition?:FileTransitionWriter;
-  constructor(db:D1Database, bucket:R2Bucket, site:SiteId, resource:string, transition?:FileTransitionWriter) {
-    this.db=db;this.bucket=bucket;this.site=site;this.resource=resource;this.transition=transition;
+
+  constructor(db:D1Database, bucket:R2Bucket, site:SiteId, resource:string) {
+    this.db=db;this.bucket=bucket;this.site=site;this.resource=resource;
     if(!["otw","luvdia"].includes(site) || !resource) throw new Error("Explicit file site/resource required");
   }
   private row(operationId:string) { return this.db.prepare("SELECT * FROM asset_file_versions WHERE operation_id=?").bind(operationId).first<Row>(); }
@@ -38,22 +34,14 @@ export class D1R2FileStore {
     const existing=await this.row(input.operationId);
     if(existing) {
       if(existing.site_id!==this.site || existing.resource!==this.resource || existing.logical_key!==input.logicalKey || existing.hash!==hash || existing.size!==input.bytes.byteLength || existing.content_type!==input.contentType || existing.member_uid!==memberUid || existing.member_code!==memberCode) throw new Error("File operation identity conflict");
-      if(!existing.transition_id && existing.reference_committed_at===null && this.transition) {
-        const adoption=await this.transition.admit(fromRow(existing));
-        if(adoption) {
-          if(adoption.versionKey!==existing.version_key || adoption.previousVersion!==existing.previous_version) throw new Error("Existing file admission cannot change immutable identity");
-          await this.db.prepare("UPDATE asset_file_versions SET transition_id=?,transition_operation_id=operation_id,generation=? WHERE operation_id=? AND transition_id IS NULL AND reference_committed_at IS NULL")
-            .bind(adoption.transitionId,adoption.generation,input.operationId).run();
-          return fromRow((await this.row(input.operationId))!);
-        }
-      }
+
+      if(existing.transition_id) throw new Error("Retained transfer file responsibility requires recovery before writing");
       return fromRow(existing);
     }
     const previousVersion=await this.db.prepare("SELECT version_key FROM asset_file_references WHERE logical_key=?").bind(input.logicalKey).first<string>("version_key");
     const intent:DurableFileIntent={operationId:input.operationId,logicalKey:input.logicalKey,versionKey:`_versions/${this.site}/${input.operationId}.${input.logicalKey.split('.').pop()}`,previousVersion,hash,size:input.bytes.byteLength,contentType:input.contentType,memberUid,memberCode,generation:1,transitionId:null};
     if(!parseFileReplacement(intent)) throw new Error("Invalid file replacement");
-    const admission=await this.transition?.admit(intent);
-    if(admission) Object.assign(intent,admission);
+
     await this.db.prepare(`INSERT OR IGNORE INTO asset_file_versions(version_key,operation_id,logical_key,site_id,generation,resource,previous_version,hash,size,content_type,member_uid,member_code,transition_id,transition_operation_id,created_at)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(intent.versionKey,intent.operationId,intent.logicalKey,this.site,intent.generation,this.resource,intent.previousVersion,hash,intent.size,intent.contentType,intent.memberUid,intent.memberCode,intent.transitionId,intent.transitionId?intent.operationId:null,Date.now()).run();
     const stored=(await this.row(input.operationId))!;
@@ -63,6 +51,7 @@ export class D1R2FileStore {
 
   async verifyPut(intent:DurableFileIntent, bytes:Uint8Array):Promise<VerifiedFile> {
     const stored=await this.row(intent.operationId);
+    if(intent.transitionId) throw new Error("Retained transfer file responsibility requires recovery before writing");
     if(!stored || JSON.stringify(fromRow(stored))!==JSON.stringify(intent) || stored.site_id!==this.site || stored.resource!==this.resource) throw new Error("File intent identity mismatch");
     if(await this.db.prepare("SELECT 1 FROM asset_file_cleanup WHERE object_key=?").bind(intent.versionKey).first()) throw new Error("File version has a durable cleanup claim; use a new operation");
     if(bytes.byteLength!==intent.size || await hashFileBytes(bytes)!==intent.hash) throw new Error("File input byte hash/size mismatch");
@@ -97,11 +86,8 @@ export class D1R2FileStore {
       this.db.prepare("UPDATE asset_file_retention_releases SET held=1 WHERE logical_key=? AND held=0").bind(intent.logicalKey),
     ];
     try {
-      if(intent.transitionId) {
-        if(!this.transition) throw new Error("Transition file writer not connected");
-        const evidenceId=await this.transition.observe(intent,observed);
-        await this.transition.commit(intent,evidenceId,statements);
-      } else await this.db.batch(statements);
+      if(intent.transitionId) throw new Error("Retained transfer file responsibility requires recovery before writing");
+      await this.db.batch(statements);
     } catch(error) {
       if(String(error).includes("asset_file_identity")) throw new Error("File reference version conflict",{cause:error});
       throw error;

@@ -1,11 +1,11 @@
-import { readFileSync, mkdirSync, cpSync, writeFileSync } from "node:fs";
-import { writeStaticAssetManifest } from "./scripts/static-asset-manifest.mjs";
+import { readFileSync } from "node:fs";
 import {
   cloudflareTest,
   readD1Migrations,
 } from "@cloudflare/vitest-pool-workers";
 import path from "node:path";
 import {createRequire} from "node:module";
+import { gzipSync } from "node:zlib";
 import { defineConfig } from "vitest/config";
 import { testAliases, testMaxWorkers } from "./vitest.shared";
 
@@ -71,25 +71,32 @@ const OTW_PLAY_PERFORMANCE_TAGS_MIGRATION_NAME =
   "0070_otw-play-performance-tags.sql";
 const SCHEDULED_OPERATIONS_MIGRATION_NAME = "0068_fixed_amazoness.sql";
 const SCHEDULED_OPERATIONS_PARTIAL_MIGRATION_NAME = "0071_gifted_romulus.sql";
+let schemaMigrations: ReturnType<typeof readD1Migrations> | undefined;
+const schemaTests = [
+  "worker/app/archive-access.integration.test.ts",
+  "worker/app/publication-schema-upgrade.integration.test.ts",
+  "worker/features/assets/infrastructure/file-projection.integration.test.ts",
+  "worker/features/assets/infrastructure/file-recovery.integration.test.ts",
+  "worker/features/operations/infrastructure/retained-content.integration.test.ts",
+];
+const workflowTest = "worker/features/scheduled-operations/infrastructure/native-workflow.integration.test.ts";
 
-export default defineConfig({
+export const workerTestConfig = (mode: "feature" | "schema" | "workflow" = "feature") => {
+const nativeWorkflow = mode === "workflow";
+return defineConfig({
   resolve: { alias: testAliases },
   plugins: [
     cloudflareTest(async () => {
       const dependencyRequire=createRequire(createRequire(import.meta.url).resolve("wrangler/package.json"));
+      const migrations = await (schemaMigrations ??= readD1Migrations(path.resolve(__dirname, "./drizzle")));
       // Compile the actual Worker locally with the installed library, never a
-      // deploy/upload CLI. The two services share only task-owned D1 fixtures.
-      const relayScript=dependencyRequire("esbuild").buildSync({entryPoints:[path.resolve(__dirname,"worker/index.ts")],bundle:true,write:false,format:"esm",platform:"browser",external:["cloudflare:*","node:*"],tsconfig:path.resolve(__dirname,"tsconfig.worker.json")}).outputFiles[0].text;
-      const relayWorkers=(["otw","luvdia"] as const).map(site=>({name:`transition-${site}`,modules:true,script:relayScript,compatibilityDate:"2025-11-25",compatibilityFlags:["nodejs_compat"],d1Databases:{otw_db:site==="otw"?"otw_db":"transition_target_db"},bindings:{SITE_ID:site,SITE_D1_DATABASE_NAME:`${site}-db`,SITE_ASSET_BUCKET_NAME:`${site}-bucket`,SITE_PUBLIC_ORIGIN:site==="otw"?"https://otw-schedule.info":"http://localhost:5174",...Object.fromEntries(["control","critical","background"].map(lane=>[`SITE_${lane.toUpperCase()}_QUEUE_NAME`,`${site}-ops-${lane}`])),SITE_INGESTION_QUEUE_NAME:`${site}-play-ingestion`,SITE_AI_REVIEW_QUEUE_NAME:`${site}-play-ai-review`,SITE_DEAD_LETTER_QUEUE_NAME:`${site}-dead-letter`,PLAY_ANALYTICS_DATASET:`${site}_play_events`},serviceBindings:{CONTENT_TRANSITION_PEER:{name:`transition-${site==="otw"?"luvdia":"otw"}`,entrypoint:"ContentTransitionRelay"}}}));
-      const migrations = await readD1Migrations(
-        path.resolve(__dirname, "./drizzle"),
-      );
+      // deploy/upload CLI. The native Workflow shares only task-owned D1 fixtures.
+      const workerScript=nativeWorkflow ? dependencyRequire("esbuild").buildSync({entryPoints:[path.resolve(__dirname,"worker/index.ts")],bundle:true,write:false,format:"esm",platform:"browser",external:["cloudflare:*","node:*"],tsconfig:path.resolve(__dirname,"tsconfig.worker.json")}).outputFiles[0].text : "";
       const nativeWorkflowWorker = {
-        ...relayWorkers[0], name: "transition-native-workflow",
-        workflows: { SCHEDULED_OPERATIONS_WORKFLOW: { name: "transition-native-scheduled", className: "ScheduledOperationsWorkflow" } },
-        queueProducers: { OTW_OPS_BACKGROUND_QUEUE: "otw-ops-background" },
-        queueConsumers: { "otw-ops-background": { maxBatchSize: 1, maxBatchTimeout: 0, maxRetries: 0 } },
-        outboundService: "native-workflow-provider",
+        name:"scheduled-test-worker",modules:true,script:workerScript,compatibilityDate:"2025-11-25",compatibilityFlags:["nodejs_compat"],
+        d1Databases:{otw_db:"otw_db"},bindings:{SITE_ID:"otw",SITE_D1_DATABASE_NAME:"otw-db",SITE_ASSET_BUCKET_NAME:"otw-schedule",SITE_PUBLIC_ORIGIN:"https://otw-schedule.info",...Object.fromEntries(["control","critical","background"].map(lane=>[`SITE_${lane.toUpperCase()}_QUEUE_NAME`,`otw-ops-${lane}`])),SITE_INGESTION_QUEUE_NAME:"otw-play-ingestion",SITE_AI_REVIEW_QUEUE_NAME:"otw-play-ai-review",SITE_DEAD_LETTER_QUEUE_NAME:"otw-dead-letter",PLAY_ANALYTICS_DATASET:"otw_play_events"},
+        workflows:{SCHEDULED_OPERATIONS_WORKFLOW:{name:"scheduled-native-test",className:"ScheduledOperationsWorkflow"}},
+        queueProducers:{OTW_OPS_BACKGROUND_QUEUE:"otw-ops-background"},queueConsumers:{"otw-ops-background":{maxBatchSize:1,maxBatchTimeout:0,maxRetries:0}},outboundService:"native-workflow-provider",
       };
       // Small feature fixtures consume the exact canonical access DDL for their tables.
       // Stable per-table migration names let combined fixtures deduplicate members.
@@ -254,28 +261,17 @@ export default defineConfig({
 
       return {
         miniflare: {
-          // Miniflare's assets:storage service is global within one runtime.
-          // Select distinct actual artifact directories through one real ASSETS
-          // binding; no synthetic bytes or ETag/version substitutions.
-          workers: [{name:"file-asset-storage",modules:true,script:"export default {fetch(request,env){return env.ASSETS.fetch(request)}}",compatibilityDate:"2025-11-25",assets:{binding:"ASSETS",directory:(()=>{
-            const root=path.resolve(__dirname,".tmp/sul36-file-assets-bundle");
-            for(const side of ["source","target","changed-body","missing-manifest"]) {
-              const directory=path.join(root,side);
-              mkdirSync(directory,{recursive:true});
-              cpSync(path.resolve(__dirname,"public/profile"),path.join(directory,"profile"),{recursive:true});
-              if(side!=="missing-manifest") writeStaticAssetManifest(directory);
-              if(side==="changed-body") writeFileSync(path.join(directory,"profile/bing_hayu.webp"),"changed actual static body after manifest");
-            }
-            return root;
-          })()}},...["source","target","changed-body","missing-manifest"].map(side=>({name:`file-assets-${side}`,modules:true,script:`export default {fetch(request,env){const url=new URL(request.url);url.pathname='/${side}'+url.pathname;return env.FILES.fetch(new Request(url,request));}}`,compatibilityDate:"2025-11-25",serviceBindings:{FILES:"file-asset-storage"}})),...relayWorkers,nativeWorkflowWorker,{name:"native-workflow-provider",modules:true,script:dependencyRequire("esbuild").buildSync({entryPoints:[path.resolve(__dirname,"worker/test-support/native-workflow-provider.ts")],bundle:true,write:false,format:"esm",platform:"browser"}).outputFiles[0].text,compatibilityDate:"2025-11-25"}],
-          workflows: { NATIVE_SCHEDULED_WORKFLOW: { name: "transition-native-scheduled", className: "ScheduledOperationsWorkflow", scriptName: "transition-native-workflow" } },
-          serviceBindings: { NATIVE_WORKFLOW_PROVIDER:"native-workflow-provider",SOURCE_ASSETS:"file-assets-source",TARGET_ASSETS:"file-assets-target",CHANGED_ASSETS:"file-assets-changed-body",MISSING_MANIFEST_ASSETS:"file-assets-missing-manifest",SOURCE_RELAY:{name:"transition-otw",entrypoint:"ContentTransitionRelay"},TARGET_RELAY:{name:"transition-luvdia",entrypoint:"ContentTransitionRelay"},SOURCE_WORKER:"transition-otw",TARGET_WORKER:"transition-luvdia" },
+          ...(nativeWorkflow ? {
+            workers:[nativeWorkflowWorker,{name:"native-workflow-provider",modules:true,script:dependencyRequire("esbuild").buildSync({entryPoints:[path.resolve(__dirname,"worker/test-support/native-workflow-provider.ts")],bundle:true,write:false,format:"esm",platform:"browser"}).outputFiles[0].text,compatibilityDate:"2025-11-25"}],
+            workflows:{NATIVE_SCHEDULED_WORKFLOW:{name:"scheduled-native-test",className:"ScheduledOperationsWorkflow",scriptName:"scheduled-test-worker"}},
+            serviceBindings:{NATIVE_WORKFLOW_PROVIDER:"native-workflow-provider"},
+          } : {}),
           compatibilityDate: "2025-11-25",
           compatibilityFlags: ["nodejs_compat"],
           d1Databases: ["otw_db", "transition_target_db"],
-          r2Buckets: ["ASSET_BUCKET", "TRANSITION_TARGET_BUCKET"],
+          r2Buckets: ["ASSET_BUCKET"],
           bindings: {
-            CONTENT_TRANSITION_MIGRATIONS: migrations,
+            ...(mode !== "feature" ? { SITE_SCHEMA_MIGRATIONS_GZIP: gzipSync(JSON.stringify(migrations)).toString("base64") } : {}),
             CONTENT_TRANSITION_CONTROL_MIGRATIONS: accessMigrations(["content_transitions"]),
             SCHEDULE_DAY_MIGRATION_SQL: readFileSync(path.resolve(__dirname, "drizzle/0096_unknown_hex.sql"), "utf8"),
             OTW_PLAY_SEARCH_INTEGRITY_SQL: readFileSync(path.resolve(__dirname, "scripts/otw-play-search-integrity.sql"), "utf8"),
@@ -342,9 +338,13 @@ export default defineConfig({
     }),
   ],
   test: {
-    name: "worker-integration",
+    name: mode === "schema" ? "worker-schema" : nativeWorkflow ? "worker-workflow" : "worker-integration",
     reporters: ["dot"],
     maxWorkers: testMaxWorkers,
-    include: ["worker/**/*.integration.test.ts"],
+    include: mode === "schema" ? schemaTests : nativeWorkflow ? [workflowTest] : ["worker/**/*.integration.test.ts"],
+    exclude: mode === "feature" ? [...schemaTests, workflowTest] : [],
   },
 });
+};
+
+export default workerTestConfig();

@@ -357,18 +357,7 @@ export class D1ScheduledJobRepository {
       id: this.createId(),
     }));
     const statements: D1PreparedStatement[] = [];
-    for(const item of records) if(item.phase==="match" && item.continuation?.transition) {
-      const reference=item.continuation.transition as {transitionId:string;operationId:string;childKey:string};
-      statements.push(this.db.prepare(`SELECT iif(EXISTS(SELECT 1 FROM content_transition_chzzk_stages s
-        JOIN content_transition_chzzk_children c ON c.transition_id=s.transition_id AND c.operation_id=s.operation_id
-        JOIN scheduled_job_items scan ON scan.id=json_extract(s.parent_json,'$.itemId') AND scan.run_id=json_extract(s.parent_json,'$.runId')
-        WHERE s.transition_id=? AND s.operation_id=? AND c.child_key=? AND scan.run_id=? AND scan.phase='scan'
-          AND scan.status IN ('succeeded','partial') AND scan.result_json IS NOT NULL AND s.completion_json IS NOT NULL
-          AND NOT EXISTS(SELECT 1 FROM json_each(s.completion_json,'$.completion.result.channelResults') actual
-            WHERE NOT EXISTS(SELECT 1 FROM json_each(scan.result_json,'$.channelResults') retained WHERE json_extract(retained.value,'$.channelId')=json_extract(actual.value,'$.channelId') AND json_extract(retained.value,'$.status')=json_extract(actual.value,'$.status')))
-          AND json_extract(c.result_json,'$.notAdmitted') IS NULL AND c.member_uid=? AND c.date=?),1,json('original_match_admission_conflict'))`)
-        .bind(reference.transitionId,reference.operationId,reference.childKey,runId,item.continuation.memberUid,item.continuation.date));
-    }
+
     for (let index = 0; index < records.length; index += 10) {
       const chunk = records.slice(index, index + 10);
       const placeholders = chunk.map(() =>
@@ -787,47 +776,6 @@ export class D1ScheduledJobRepository {
       item.lease_token,
     ).run();
     return Number(result.meta.changes ?? 0) > 0;
-  }
-
-  async hasOriginalTransitionWork(itemId:string) {
-    const row=await this.db.prepare(`SELECT EXISTS(SELECT 1 FROM scheduled_job_items i JOIN content_transition_chzzk_stages s
-      ON json_extract(s.parent_json,'$.runId')=i.run_id JOIN content_transition_operations o
-      ON o.transition_id=s.transition_id AND o.operation_id=s.operation_id
-      WHERE i.id=? AND o.outcome_json IS NULL AND (i.phase='finalize' OR json_extract(s.parent_json,'$.itemId')=i.id OR
-        (i.phase='match' AND json_extract(i.continuation_json,'$.transition.transitionId')=s.transition_id
-        AND json_extract(i.continuation_json,'$.transition.operationId')=s.operation_id))) pending`).bind(itemId).first<number>("pending");
-    return row===1;
-  }
-
-  async recoverOriginalTransitionDelivery(runId:string) {
-    const now=this.clock();
-    await this.db.batch([
-      this.db.prepare(`UPDATE scheduled_job_items AS i SET status='queued',available_at=?,lease_token=NULL,lease_until=NULL,
-        finished_at=NULL,last_error_code='content_transition_pending',last_error='Original accepted responsibility recovered after delivery failure',updated_at=?
-        WHERE i.run_id=? AND i.status IN ('failed','throttled') AND i.result_json IS NULL
-        AND EXISTS(SELECT 1 FROM content_transition_chzzk_stages s JOIN content_transition_operations o ON o.transition_id=s.transition_id AND o.operation_id=s.operation_id
-          WHERE json_extract(s.parent_json,'$.runId')=i.run_id AND o.outcome_json IS NULL
-            AND (i.phase='finalize' OR json_extract(s.parent_json,'$.itemId')=i.id OR i.phase='match' AND json_extract(i.continuation_json,'$.transition.transitionId')=s.transition_id AND json_extract(i.continuation_json,'$.transition.operationId')=s.operation_id))`)
-        .bind(now,now,runId),
-      this.db.prepare(`UPDATE scheduled_outbox SET status='pending',available_at=?,dispatched_at=NULL,lease_token=NULL,lease_until=NULL,updated_at=?
-        WHERE run_id=? AND EXISTS(SELECT 1 FROM scheduled_job_items i WHERE i.id=scheduled_outbox.item_id AND i.status='queued' AND i.last_error_code='content_transition_pending' AND i.updated_at=?)`)
-        .bind(now,now,runId,now),
-    ]);
-  }
-
-  async deferOriginalTransitionItem(item:ScheduledJobItemRecord,claim=false) {
-    if(!await this.hasOriginalTransitionWork(item.id)) return false;
-    const now=this.clock();
-    const [changed]=await this.db.batch([
-      this.db.prepare(`UPDATE scheduled_job_items SET status='queued',available_at=?,lease_token=NULL,lease_until=NULL,
-        last_error_code='content_transition_pending',last_error='Original accepted responsibility awaits durable recovery',updated_at=?
-        WHERE id=? AND ${claim?"status='running' AND lease_token=?":"(status='queued' OR (status='running' AND lease_until<?))"}`)
-        .bind(now+60000,now,item.id,claim?item.lease_token:now),
-      this.db.prepare(`UPDATE scheduled_outbox SET status='pending',available_at=?,dispatched_at=NULL,lease_token=NULL,lease_until=NULL,updated_at=?
-        WHERE item_id=? AND EXISTS(SELECT 1 FROM scheduled_job_items WHERE id=? AND status='queued' AND last_error_code='content_transition_pending' AND updated_at=?)`)
-        .bind(now+60000,now,item.id,item.id,now),
-    ]);
-    return Number(changed.meta.changes??0)>0;
   }
 
   async markItemDeadLetter(itemId: string, error = "queue_retries_exhausted") {

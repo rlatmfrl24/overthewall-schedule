@@ -16,3 +16,5 @@ export const getSitePublication = (siteId: SiteId, nowMs: number, hold = false):
 });
 export const getHiddenMemberCodes = (siteId: SiteId, nowMs: number): readonly string[] =>
   siteId === "otw" && nowMs >= Date.parse(SITE_OPENS_AT) ? ["bing_hayu", "u_lili", "yang_mei"] : [];
+
+export type ContentAccess="normal"|"admin_archive";

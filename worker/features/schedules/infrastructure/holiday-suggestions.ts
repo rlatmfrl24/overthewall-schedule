@@ -1,5 +1,5 @@
 import type {ChzzkScanProvider} from "./chzzk-scan-types";
-import {editableCollectorSql} from "../../content-transition";
+import { editableCollectorSql } from "../../content-access";
 import type {CollectorCommand} from "../domain/collector-command";
 import type {CollectorWriter,CollectorBatchResult} from "./collector-writer";
 import { extractChzzkChannelId, getKSTDateString } from "../../../platform/http-helpers";

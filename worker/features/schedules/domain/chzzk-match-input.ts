@@ -1,4 +1,4 @@
-import type {ChzzkChildResult} from "@contracts/content-transition-chzzk";
+import type {ChzzkChildResult} from "@contracts/chzzk-scan";
 
 /** Positive, local decision input retained for one original derived member/day.
  * It contains no actor or runnable job and cannot choose a transition owner. */

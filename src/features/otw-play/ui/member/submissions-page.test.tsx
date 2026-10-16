@@ -54,7 +54,7 @@ describe("OtwPlaySubmissionsPage", () => {
     const proposal={id:'own-proposal',title:'내 제보',status:'pending_review',version:0,createdAt:1,youtubeVideoId:'abcdefghijk',youtubeUrl:'https://youtu.be/abcdefghijk',participants:[],originalArtists:[],tags:[],editable:true,withdrawable:true};
     mocks.list.mockReturnValue({isPending:false,data:{pages:[{items:[proposal]}]}});
     mocks.detail.mockReturnValue({isPending:false,data:proposal,refetch:vi.fn()});
-    mocks.withdraw.mockRejectedValue(new ApiError('접수된 철회 결과를 기다리고 있습니다.',409,{code:'CONTENT_ACCEPTED'}));
+    mocks.withdraw.mockRejectedValue(new ApiError('접수된 철회 결과를 기다리고 있습니다.',409,{code:'CONTENT_CONFLICT'}));
     renderPage();fireEvent.click(screen.getByRole('button',{name:/내 제보/}));fireEvent.click(screen.getByRole('button',{name:'철회'}));
     const confirmation=screen.getByRole('alertdialog');fireEvent.click(within(confirmation).getByRole('button',{name:'제안 철회'}));
     await within(confirmation).findByText('접수된 철회 결과를 기다리고 있습니다.');expect(screen.queryByText('제안을 철회했습니다.')).toBeNull();

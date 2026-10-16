@@ -79,7 +79,7 @@ export const handleScheduledJobQueue = async (
       message.retry({ delaySeconds: 60 });
       return;
     }
-    if(await repository.hasOriginalTransitionWork(item.id)) {message.ack();return;}
+
     await repository.markRunFailed(
       item.run_id,
       `post_completion_reconciliation_failed:${getErrorText(error)}`,
@@ -100,14 +100,12 @@ export const handleScheduledJobQueue = async (
     }
     if (isDeadLetter) {
       const existing = await repository.readItem(message.body.itemId);
-      if(existing && await repository.hasOriginalTransitionWork(existing.id) && !isTerminalItemStatus(existing.status)) {
-        await repository.deferOriginalTransitionItem(existing);message.ack();continue;
-      }
+
       if (existing && isTerminalItemStatus(existing.status)) {
         try {
           await reconcileTerminalItem(existing);
         } catch (error) {
-          if(!await repository.hasOriginalTransitionWork(existing.id)) await repository.markRunFailed(
+          await repository.markRunFailed(
             existing.run_id,
             `post_completion_reconciliation_dead_letter:${getErrorText(error)}`,
             true,
@@ -157,11 +155,7 @@ export const handleScheduledJobQueue = async (
         await retryReconciliation(message, current, error);
         continue;
       }
-      if(await repository.hasOriginalTransitionWork(item.id)) {
-        await repository.deferOriginalTransitionItem(item,true);
-        message.ack();
-        continue;
-      }
+
       if (item.attempts < 3) {
         const reserved = await repository.reserveQueueOperations(item.lane);
         if (reserved) {

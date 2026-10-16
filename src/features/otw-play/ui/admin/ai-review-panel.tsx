@@ -1,7 +1,7 @@
 import { useAiReviewSession } from "./use-ai-review-session";
 import { useAiReviewSound } from "./use-ai-review-sound";
 import type { AiBatchDraft } from "@contracts/otw-play-ai-batch";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AI_REVIEW_FIELDS,
@@ -17,15 +17,12 @@ import {
   startAiReview,
   getAiReview,
   latestAiReview,
-  closeUnknownAiReview,
-  resumeUnissuedAiReview,
 } from "../../api/ai-review";
 import type { AiReviewForm } from "./ai-review-form";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { SelectField } from "@/shared/ui/select-field";
 import { useToast } from "@/shared/ui/toast";
-import { useConfirmation } from '@/shared/lib/confirmation';
 
 const labels: Record<AiReviewField, string> = {
   song: "곡·원곡 가수",
@@ -123,9 +120,7 @@ export function AiReviewPanel({
   storedDraft?: AiBatchDraft | null;
 }) {
   const client = useQueryClient();
-  const confirm = useConfirmation();
-  const [closing, setClosing] = useState(false);
-  const closeRequest = useRef<{ evidence: string; key: string } | null>(null);
+
   const { toast } = useToast();
   const { prepare: prepareSound, play: playSound } = useAiReviewSound();
   const localSession = useAiReviewSession(videoId);
@@ -186,10 +181,10 @@ export function AiReviewPanel({
         : false,
   });
   const data = job.data?.data ?? (jobId ? null : recent.data?.data);
-  const unresolved = recent.data?.data?.recovery?.state === 'outcome_unknown'||recent.data?.data?.continuation?.state==='confirmation_required' ? recent.data.data : null;
+
   useEffect(() => {
     if (disabled || !data) return;
-    if (data.recovery||data.continuation?.state==='confirmation_required') { notificationJob.current = null; return; }
+
     if (isAiReviewPending(data.status)) {
       notificationJob.current = data.id;
       return;
@@ -256,7 +251,7 @@ export function AiReviewPanel({
     }
   }, [data, result, apply, disabled, launching, appliedJob, autoJob, setSelected]);
   const launch = async (force: boolean) => {
-    if ((data?.recovery || unresolved) && !await confirm({ title: '별도 새 분석을 요청할까요?', description: '원래 분석 결과의 복구는 보장되지 않으며 중복 비용이 발생할 수 있습니다. 미확인 작업의 종결은 새 분석을 자동 시작하지 않습니다.', confirmLabel: '새 분석 요청' })) return;
+
     prepareSound();
     const ticket = ++generation.current;
     setLaunching(true);
@@ -284,40 +279,9 @@ export function AiReviewPanel({
       if (ticket === generation.current) setLaunching(false);
     }
   };
-  const closeUnknown = async () => {
-    const recovery = data?.recovery;
-    if (!data || recovery?.state !== 'outcome_unknown' || closing) return;
-    if (!await confirm({ title: '미확인 분석의 복구 책임을 종결할까요?', description: '원래 시도와 미확인 기록을 보존합니다. 분석 성공이나 실패를 확정하는 결정이 아니며, 새 분석을 시작하지 않습니다.', confirmLabel: '미확인 작업 종결' })) return;
-    const evidence = JSON.stringify([data.id, recovery]);
-    if (closeRequest.current?.evidence !== evidence) closeRequest.current = { evidence, key: crypto.randomUUID() };
-    const ticket = generation.current;
-    setClosing(true); setError(null);
-    try {
-      const { state: _state, ...identity } = recovery; void _state;
-      const response = await closeUnknownAiReview(data.id, { ...identity, decision: 'close_unknown', idempotencyKey: closeRequest.current.key });
-      client.setQueryData(['otw-play-ai-review', data.id], response);
-      await client.invalidateQueries({ queryKey: ['otw-play-ai-review-latest', scope] });
-    } catch (e) { if (ticket === generation.current) setError(e instanceof Error ? e.message : '종결 결정을 저장하지 못했습니다.'); }
-    finally { setClosing(false); }
-  };
-  const resumeUnissued = async () => {
-    const continuation=data?.continuation;
-    if(!data||continuation?.state!=='confirmation_required'||closing)return;
-    if(!await confirm({title:'원래 대기 분석을 이어 실행할까요?',description:'아직 발행하지 않은 다음 분석을 원래 입력과 남은 시도 한도로 실행합니다. 현재 사이트의 호출 한도와 비용이 적용됩니다.',confirmLabel:'확인 후 이어 실행'}))return;
-    const evidence=JSON.stringify([data.id,continuation]);
-    if(closeRequest.current?.evidence!==evidence)closeRequest.current={evidence,key:crypto.randomUUID()};
-    const ticket=generation.current;setClosing(true);setError(null);
-    try{
-      const {state:_state,...identity}=continuation;void _state;
-      const response=await resumeUnissuedAiReview(data.id,{...identity,decision:'resume_unissued',idempotencyKey:closeRequest.current.key});
-      if(ticket!==generation.current)return;
-      client.setQueryData(['otw-play-ai-review',response.data.id],response);setJobId(response.data.id);
-      await client.invalidateQueries({queryKey:['otw-play-ai-review-latest',scope]});
-    }catch(e){if(ticket===generation.current)setError(e instanceof Error?e.message:'재개 확인을 저장하지 못했습니다.');}
-    finally{setClosing(false);}
-  };
+
   const suggestion = selected !== null ? result?.songs[selected] : null;
-  const pending = launching || closing || Boolean(data && isAiReviewExecuting(data));
+  const pending = launching || Boolean(data && isAiReviewExecuting(data));
   const unavailable = (field: AiReviewField) =>
     (field === "segment" && !segmentEnabled) ||
     (candidateKind !== "singing_clip" &&
@@ -332,7 +296,7 @@ export function AiReviewPanel({
       className="min-w-0 space-y-2 break-words rounded-lg border bg-muted/10 p-3 text-sm"
     >
       <div className="flex flex-wrap items-center gap-2">
-        {unresolved && unresolved.id !== data?.id && <Button type="button" variant="outline" size="sm" disabled={disabled || closing} onClick={() => setJobId(unresolved.id)}>{unresolved.continuation?.state==='confirmation_required'?'대기 분석 보기':'미확인 분석 보기'}</Button>}
+
         <Button
           type="button"
           size="sm"
@@ -378,15 +342,11 @@ export function AiReviewPanel({
       </label>
       {data && !batchDraft && (
         <span role="status" className="rounded bg-muted px-2 py-1 text-xs">
-          {data.recovery ? data.recovery.state === 'closed_by_admin' ? '관리자 결정으로 복구 책임 종결' : data.recovery.issuance === 'issuance_unknown' ? '발행 여부 미확인 · 관리자 확인 필요' : '응답 미확인 · 관리자 확인 필요' : data.continuation?.state==='confirmation_required'?'미발행 대기 · 관리자 재개 확인 필요':statuses[data.status]}
+          {statuses[data.status]}
         </span>
       )}
       </div>
-      {data?.recovery && <div className="space-y-2" role="status">
-        <p>원래 분석의 결과를 확인할 수 없어 자동으로 다시 호출하지 않습니다. 원래 기록은 보존되며 별도 새 분석에는 중복 비용이 발생할 수 있습니다.</p>
-        {data.recovery.state === 'outcome_unknown' ? <Button type="button" variant="outline" size="sm" disabled={disabled || pending} onClick={() => void closeUnknown()}>미확인 작업 종결</Button> : <p>종결 결정 저장: {new Date(data.recovery.decidedAt).toLocaleString('ko-KR')}</p>}
-      </div>}
-      {data?.continuation?.state==='confirmation_required'&&<div className="space-y-2" role="status"><p>이전 사이트에서 접수한 대기 분석입니다. 자동 실행하지 않으며 현재 관리자가 확인한 뒤 원래 요청을 이어 실행합니다.</p><Button type="button" variant="outline" size="sm" disabled={disabled||pending} onClick={()=>void resumeUnissued()}>대기 분석 이어 실행</Button></div>}
+
       {rangeEnabled && (
         <div className="flex max-w-xs items-center gap-2">
           <Input

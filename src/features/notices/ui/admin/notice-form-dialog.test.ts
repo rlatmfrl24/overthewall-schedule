@@ -29,7 +29,7 @@ const makeClipboardItem = (file: File) => ({
 });
 
 describe("NoticeFormDialog", () => {
-  it.each(["CONTENT_MOVED","CONTENT_ACCEPTED","CONTENT_CONFLICT"])("keeps the notice draft and displays %s",async code=>{
+  it.each(["CONTENT_MOVED","CONTENT_CONFLICT"])("keeps the notice draft and displays %s",async code=>{
     const onSubmit=vi.fn().mockRejectedValue(new ApiError(`실제 ${code} 안내`,409,{code}));
     render(createElement(NoticeFormDialog,{open:true,onOpenChange:vi.fn(),onSubmit,members:[]}));
     fireEvent.change(screen.getByLabelText("내용"),{target:{value:"유지할 공지 내용"}});

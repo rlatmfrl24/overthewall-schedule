@@ -288,7 +288,7 @@ describe("OtwPlaySubmissionPage", () => {
   });
 
   it("ignores an old edit draft and uses the saved proposal with its server version", async () => {
-    mocks.update.mockRejectedValue(new ApiError('접수된 수정 결과를 기다리고 있습니다.',409,{code:'CONTENT_ACCEPTED'}));
+    mocks.update.mockRejectedValue(new ApiError('접수된 수정 결과를 기다리고 있습니다.',409,{code:'CONTENT_CONFLICT'}));
     sessionStorage.setItem(
       "otw-play:member-submission-draft:v1:edit:proposal-one",
       JSON.stringify({

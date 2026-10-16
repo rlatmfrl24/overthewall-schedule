@@ -441,14 +441,6 @@ describe("OTW Play admin catalog handler", () => {
     });
   });
 
-  it.each([
-    new Error('D1_ERROR: content_transition_maintenance_stopped: SQLITE_CONSTRAINT'),
-    new Error('Catalog batch failed',{cause:new Error('content_transition_maintenance_admission')}),
-  ])('preserves the final SQL maintenance refusal for the shared HTTP mapper: %s',async error=>{
-    const handler=createAdminCatalogHandler(()=>({readCatalog:async()=>{throw error;}}) as unknown as AdminCatalogService);
-    await expect(handler(new Request('https://example.com/api/play/admin/catalog'),env)).rejects.toBe(error);
-  });
-
   it("preserves the legacy policy error mapping for a valid approval command", async () => {
     const approveProposal = vi.fn(async () => {
       throw new AdminCatalogServiceError(

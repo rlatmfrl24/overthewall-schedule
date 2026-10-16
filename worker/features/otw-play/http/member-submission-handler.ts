@@ -7,7 +7,7 @@ import {
 } from "../application/member-submission-service";
 import { MemberSubmissionRepositoryError } from "../application/ports/member-submission-repository";
 import { MemberSubmissionCursorError } from "../domain/member-submission-cursor";
-import {TransitionWriteError} from "../../content-transition";
+import { ContentWriteError } from "../../content-access";
 import {
   parseCreateSubmission,
   parseSubmissionPreflight,
@@ -305,7 +305,7 @@ export const createMemberSubmissionHandler = (
     }
     return new Response(null, { status: 404, headers: JSON_HEADERS });
   } catch (error) {
-    if(error instanceof TransitionWriteError) return responseJson({error:{code:error.code,message:error.code==='CONTENT_MOVED'?'이 제보 자료는 LuvDia Schedule로 이동하여 원본 사이트에서 조회하거나 변경할 수 없습니다.':error.message,requestId,fields:{targetSite:error.targetSite,...(error.operationId?{operationId:error.operationId}:{})}}},409);
+    if(error instanceof ContentWriteError) return responseJson({error:{code:error.code,message:error.code==='CONTENT_MOVED'?'이 제보 자료는 LuvDia Schedule로 이동하여 원본 사이트에서 조회하거나 변경할 수 없습니다.':error.message,requestId,fields:{targetSite:error.targetSite,...(error.operationId?{operationId:error.operationId}:{})}}},409);
     if (error instanceof MemberSubmissionCursorError) {
       return errorResponse(
         requestId,

@@ -17,7 +17,7 @@
     "typecheck:test": "tsc -p tsconfig.test.json --noEmit && tsc -p tsconfig.worker.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "test": "vitest run --config vitest.all.config.ts",
     "test:unit": "vitest run",
-    "test:worker-integration": "vitest run --config vitest.worker.config.ts",
+    "test:worker-integration": "vitest run --config vitest.all.config.ts --project=worker-integration --project=worker-schema --project=worker-workflow",
     "test:coverage": "vitest run --coverage --config vitest.all.config.ts",
     "preflight": "node scripts/preflight.mjs",
     "preflight:release": "pnpm run preflight",

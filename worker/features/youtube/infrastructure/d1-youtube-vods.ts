@@ -1,4 +1,4 @@
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import { parseSiteId, type SiteId } from "@contracts/site-definition";
 import type { YouTubeVodsRequest, YouTubeVodsResponseDto } from "@contracts/youtube";
 import type { Env } from "../../../platform/types";

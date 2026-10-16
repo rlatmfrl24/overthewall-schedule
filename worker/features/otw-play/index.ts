@@ -1,5 +1,3 @@
-export {D1CandidateChannelWriter} from './infrastructure/d1-candidate-channel-writer';
-export type {CandidateChannelContinuation} from './infrastructure/candidate-channel-continuation';
 export { createPerformanceDedupeKeyMaterial, createSongDedupeKeyMaterial, createVideoBackedSongDedupeKeyMaterial } from "./domain/duplicate-policy";
 export type { PerformanceDedupeKeyInput, SongDedupeKeyInput, VideoBackedSongDedupeKeyInput } from "./domain/duplicate-policy";
 export { normalizeOtwPlaySearchText } from "./domain/search-normalization";
@@ -12,8 +10,6 @@ export { createAiReviewHandler } from "./http/ai-review-handler";
 export { D1AiReviewRepository } from "./infrastructure/d1-ai-review-repository";
 export { D1AiReviewContext } from "./infrastructure/d1-ai-review-context";
 export { GeminiReviewAnalyzer } from "./infrastructure/gemini-review-analyzer";
-
-
 
 export { AdminCatalogService } from "./application/admin-catalog-service";
 export { ChannelMonitorService } from "./application/channel-monitor-service";
@@ -83,8 +79,6 @@ export {
   createPublicCatalogEtag
 } from "./infrastructure/cloudflare-public-catalog-cache";
 export { D1AdminCatalogRepository } from "./infrastructure/d1-admin-catalog-repository";
-export {D1EntityTransitionWriter} from "./infrastructure/d1-entity-transition-writer";
-export {D1PublicationTransitionWriter} from "./infrastructure/d1-publication-transition-writer";
 export { D1ChannelMonitorRepository } from "./infrastructure/d1-channel-monitor-repository";
 export { D1IngestionRepository } from "./infrastructure/d1-ingestion-repository";
 export { D1MemberSubmissionRepository } from "./infrastructure/d1-member-submission-repository";
@@ -109,18 +103,5 @@ export { D1WorkQueueRepository } from "./infrastructure/d1-work-queue-repository
 export { createWorkQueueHandler } from "./http/work-queue-handler";
 
 export {parseUpdateSong} from "./domain/admin-catalog-input";
-export {D1SongTransitionWriter} from "./infrastructure/d1-song-transition-writer";
-export {D1CatalogDeleteWriter} from "./infrastructure/d1-catalog-delete-writer";
-export {D1ChannelTransitionWriter} from "./infrastructure/d1-channel-transition-writer";
-export {D1ProposalRejectionWriter} from "./infrastructure/d1-proposal-rejection-writer";
-export {D1MemberSubmissionWriter} from "./infrastructure/d1-member-submission-writer";
-export {catalogImportProjection} from "./infrastructure/catalog-import-projection";
 
-export {D1VideoCatalogWriter} from "./infrastructure/d1-video-catalog-writer";
-
-export {D1ReviewDeletionWriter} from './infrastructure/d1-review-deletion-writer';
-export {D1CandidateReviewWriter} from './infrastructure/d1-candidate-review-writer';
-
-export { D1CandidateMetadataWriter } from './infrastructure/d1-candidate-metadata-writer';
-export {D1AiReviewAdoption} from './infrastructure/d1-ai-review-adoption';
-export {D1AiReviewTransitionReadback} from './infrastructure/d1-ai-review-transition-readback';
+export {isArchivedYouTubeVideo,archivedYouTubeVideoSql} from "./infrastructure/archived-youtube-video";

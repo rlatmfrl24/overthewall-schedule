@@ -634,7 +634,7 @@ export const notices = sqliteTable(
       .notNull()
       .default(sql`'[]'`),
     historical_related_people: text("historical_related_people", { mode: "json" })
-      .$type<import("../../contracts/content-transition").HistoricalPersonCredit[]>().notNull().default(sql`'[]'`),
+      .$type<import("../../contracts/content-history").HistoricalPersonCredit[]>().notNull().default(sql`'[]'`),
     url: text(),
     thumbnail_url: text("thumbnail_url"),
     type: text("type").notNull().default("notice"),

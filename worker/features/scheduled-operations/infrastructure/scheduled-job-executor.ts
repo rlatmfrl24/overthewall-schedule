@@ -34,10 +34,7 @@ import type {
   ScheduledJobItemRecord,
 } from "../../../platform/scheduled-jobs";
 import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
-import {buildChzzkScanTransitionWriter,buildCollectorTransitionWriter,transitionPeer} from "../../../app/content-transition";
-import {buildContentTransitionRepository} from "../../../app/content-transition";
-import {executeOriginalChzzkChild} from "../../../app/content-transition-chzzk";
-import {parseSiteStorageResources} from "@contracts/site-definition";
+import {buildChzzkScanWriter,buildCollectorWriter} from "../../../app/schedule-writers";
 
 export type ScheduledJobExecutionOutcome = {
   status: "succeeded" | "partial" | "failed" | "skipped" | "throttled";
@@ -362,17 +359,14 @@ export class ScheduledJobExecutor {
             channelIds,
             this.env.otw_db,
             undefined,
-            buildChzzkScanTransitionWriter(this.env),
-            item.id,
+            buildChzzkScanWriter(this.env),
             {kind:"scheduled",runId:item.run_id,itemId:item.id},
           );
-          if(result.channelResults.some(channel=>channel.status==="accepted")) {
-            const pending=new Error("Original scan awaits durable owner stage handover");pending.name="content_transition_pending";throw pending;
-          }
+
           const completed = result.channelResults.filter(channel => channel.status === "complete").length;
           const failed = result.channelResults.filter(channel => channel.status === "failed").length;
           const incomplete = result.channelResults.filter(channel => channel.status === "incomplete").length;
-          const moved=result.channelResults.filter(channel=>channel.status==="moved" || channel.status==="conflicted").length;
+
           // The queue retries exceptions up to three attempts. Successful channel
           // observations are already persisted and safe to upsert on the retry.
           if (failed > 0 && item.attempts < 3) {
@@ -380,9 +374,9 @@ export class ScheduledJobExecutor {
             error.name = "schedule_scan_failed";
             throw error;
           }
-          const unresolved = failed + incomplete + moved;
+          const unresolved = failed + incomplete;
           const errorCode = failed > 0 ? "schedule_scan_failed"
-            : incomplete > 0 ? "schedule_scan_incomplete" : moved>0?"schedule_scan_owner_moved":null;
+            : incomplete > 0 ? "schedule_scan_incomplete" : null;
           return {
             status: unresolved === 0 ? "succeeded"
                 : completed > 0 ? "partial" : "failed",
@@ -400,20 +394,11 @@ export class ScheduledJobExecutor {
           if (!Number.isSafeInteger(memberUid) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
             throw new Error("invalid_auto_update_match_target");
           }
-          if(continuation.transition) {
-            const reference=continuation.transition as {transitionId?:unknown;operationId?:unknown;childKey?:unknown};
-            if(typeof reference.transitionId!=="string" || typeof reference.operationId!=="string" || typeof reference.childKey!=="string") throw new Error("Invalid original match reference");
-            const repository=buildContentTransitionRepository(this.env);
-            const stage=await repository.readChzzkScanStage(reference.transitionId,reference.operationId);
-            if(stage?.parent.runId!==item.run_id || !stage.targets.some(target=>target.key===reference.childKey && target.date===date)) throw new Error("Wrong original match parent");
-            const args=[reference.transitionId,reference.operationId,reference.childKey] as const;
-            const result=await executeOriginalChzzkChild(this.env,...args);
-            return {...result,errorCode:result.status==="succeeded"?null:"original_match_partial_or_failed",error:result.status==="succeeded"?null:"Original match contains incomplete or conflicted work"};
-          }
+
           return succeeded(await autoUpdateSchedules(getDb(this.env), rangeDays, {
             skipScan: true,
             matchTarget: { memberUid, date },
-            collectorWriter:buildCollectorTransitionWriter(this.env),
+            collectorWriter:buildCollectorWriter(this.env),
           }));
         }
         if (item.phase === "finalize") {
@@ -559,14 +544,6 @@ export class ScheduledJobExecutor {
         retentionPrune: await summarizeDataRetentionRun(this.env, runId),
       });
       await writeSetting(this.env, "data_retention_last_prune", completedAt);
-    } else if(run.jobType==="schedule_auto_update") {
-      const {site}=parseSiteStorageResources(this.env);
-      const repository=buildContentTransitionRepository(this.env);
-      await repository.settleChzzkRun(runId);
-      for(const original of await repository.chzzkRunContinuations(runId)) {
-        const owner=await repository.readTransition(original.transitionId);
-        if(owner.sourceSite===site && owner.phase==="source_fenced") await (await transitionPeer(this.env,owner.id,"source")).peer.finishChzzkParent(owner.id,original.operationId);
-      }
     }
   }
 }

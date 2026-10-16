@@ -54,7 +54,7 @@ export interface LiveScheduleAutoFillResponseDto {
 
 export interface LiveScheduleAutoFillFeedback {
   memberUid: number;
-  code: "CONTENT_MOVED" | "CONTENT_ACCEPTED" | "CONTENT_CONFLICT";
+  code: "CONTENT_MOVED" | "CONTENT_CONFLICT";
   message: string;
   operationId: string | null;
   targetSite: "otw" | "luvdia";

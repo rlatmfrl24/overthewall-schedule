@@ -91,8 +91,7 @@ export const recordAutoUpdateResultWithHistory = async (
         db.$client.prepare(`SELECT iif(EXISTS(SELECT 1 FROM scheduled_job_items i JOIN scheduled_job_runs r ON r.id=i.run_id
           WHERE i.id=? AND i.run_id=? AND i.phase='finalize' AND r.job_type='schedule_auto_update' AND r.source=?
           AND i.status='running' AND i.lease_token=? AND i.result_json IS NULL
-          AND NOT EXISTS(SELECT 1 FROM scheduled_job_items pending WHERE pending.run_id=r.id AND pending.phase IN ('scan','match') AND pending.status IN ('queued','running'))
-          AND NOT EXISTS(SELECT 1 FROM content_transition_chzzk_stages s JOIN content_transition_chzzk_children c ON c.transition_id=s.transition_id AND c.operation_id=s.operation_id WHERE json_extract(s.parent_json,'$.runId')=r.id AND c.result_json IS NULL)),1,json('original_finalizer_identity_conflict'))`).bind(original.id,original.runId,options.source,original.leaseToken),
+          AND NOT EXISTS(SELECT 1 FROM scheduled_job_items pending WHERE pending.run_id=r.id AND pending.phase IN ('scan','match') AND pending.status IN ('queued','running'))),1,json('original_finalizer_identity_conflict'))`).bind(original.id,original.runId,options.source,original.leaseToken),
         db.$client.prepare(query.sql).bind(...query.params),
         db.$client.prepare("INSERT INTO settings(key,value,updated_at) VALUES('auto_update_last_run',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(String(finishedAt),String(finishedAt)),
         db.$client.prepare("UPDATE scheduled_job_items SET result_json=? WHERE id=? AND run_id=? AND result_json IS NULL").bind(JSON.stringify(result),original.id,original.runId),

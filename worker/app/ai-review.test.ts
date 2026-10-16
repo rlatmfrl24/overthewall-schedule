@@ -7,7 +7,6 @@ import type { Env } from "../platform/types";
 afterEach(() => vi.restoreAllMocks());
 it.each(["otw", "luvdia"] as const)("keeps %s AI review and batch DLQ semantics", async site => {
   const markDead = vi.spyOn(AiReviewService.prototype, "markDead").mockResolvedValue(undefined);
-  vi.spyOn(AiReviewService.prototype,'transitionState').mockResolvedValue(null);
   const process = vi.spyOn(AiReviewService.prototype, "process").mockResolvedValue(undefined);
   vi.spyOn(AiReviewService.prototype, "get").mockResolvedValue({ id: "review", candidateId: null, videoId: "abc12345678", candidateKind: "official_video", range: null, status: "failed", result: null, model: "model", attempts: 3, errorCode: "queue_retries_exhausted", errorMessage: null, retryable: false, createdAt: 1, updatedAt: 1, expiresAt: 2, nextRetryAt: null, usage: null });
   const deadBatch = vi.spyOn(AiBatchService.prototype, "dead").mockResolvedValue(undefined);

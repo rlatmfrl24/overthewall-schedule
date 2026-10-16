@@ -7,14 +7,12 @@ import {
   waitFor,
   cleanup,
   act,
-  within,
 } from "@testing-library/react";
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import { createQueryWrapper, createTestQueryClient } from "@/test/query-client";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { SingingClipReviewDialog } from "./singing-clip-review-dialog";
 import { CatalogEntryDialog } from "./catalog-entry-dialog";
-import { InteractionProvider } from '@/app/providers/interaction-provider';
 import type {
   OtwPlayAdminCatalogDto,
   OtwPlayChannelMonitorCandidateDto,
@@ -166,46 +164,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe("AI suggestions through actual admin forms", () => {
-  it('ai_unissued_panel requires current administrator confirmation before continuing the original request',async()=>{
-    const pending:AiReviewDto={...result(true),id:'original-pending',candidateId:candidate.candidateId,status:'queued',attempts:0,result:null,continuation:{state:'confirmation_required',operationId:'original-operation',attemptId:'pending-attempt',requestHash:'a'.repeat(64),evidenceHash:'b'.repeat(64),issuance:'unissued'}};
-    const executing:AiReviewDto={...pending,id:'own-execution',continuation:undefined};
-    mocks.latest.mockResolvedValue({data:pending});mocks.get.mockImplementation(async(id:string)=>({data:id===pending.id?pending:executing}));mocks.resume.mockResolvedValue({data:executing});
-    const client=createTestQueryClient();
-    render(createElement(QueryClientProvider,{client},createElement(InteractionProvider,null,createElement(SingingClipReviewDialog,{candidate,catalog,reviewOnly:true,onOpenChange:vi.fn(),onConverted:vi.fn(),onReviewStateChanged:async()=>{}}))));
-    await screen.findByText('미발행 대기 · 관리자 재개 확인 필요');
-    expect(mocks.start).not.toHaveBeenCalled();expect(mocks.resume).not.toHaveBeenCalled();expect(mocks.toast).not.toHaveBeenCalled();
-    expect(screen.queryByRole('button',{name:'미확인 작업 종결'})).toBeNull();
-    fireEvent.click(screen.getByRole('button',{name:'대기 분석 이어 실행'}));
-    const dialog=await screen.findByRole('alertdialog');expect(dialog.textContent).toContain('남은 시도 한도');expect(mocks.resume).not.toHaveBeenCalled();
-    fireEvent.click(within(dialog).getByRole('button',{name:'확인 후 이어 실행'}));
-    await waitFor(()=>expect(mocks.resume).toHaveBeenCalledExactlyOnceWith(pending.id,expect.objectContaining({decision:'resume_unissued',operationId:'original-operation',attemptId:'pending-attempt',issuance:'unissued'})));
-    await waitFor(()=>expect(mocks.get).toHaveBeenCalledWith(executing.id));
-    expect(mocks.start).not.toHaveBeenCalled();expect(mocks.closeUnknown).not.toHaveBeenCalled();expect(mocks.save).not.toHaveBeenCalled();client.clear();
-  });
-  it('ai_unknown_panel keeps the original decision discoverable after a separate new analysis',async()=>{
-    const unknown:AiReviewDto={...result(true),id:'original-unknown',candidateId:candidate.candidateId,status:'running',result:null,recovery:{state:'outcome_unknown',operationId:'original-operation',attemptId:'original-attempt',requestHash:'a'.repeat(64),evidenceHash:'b'.repeat(64),issuance:'issuance_unknown'}};
-    const newer={...result(true),id:'new-analysis'};
-    let current=unknown;
-    mocks.latest.mockImplementation(async()=>({data:current}));
-    mocks.get.mockImplementation(async(id:string)=>({data:id===unknown.id?current:newer}));
-    mocks.start.mockResolvedValue({data:newer});
-    mocks.closeUnknown.mockImplementation(async()=>{current={...unknown,recovery:{...unknown.recovery!,state:'closed_by_admin',decisionId:'saved-decision',decidedAt:Date.now()}};return{data:current};});
-    const client=createTestQueryClient();
-    render(createElement(QueryClientProvider,{client},createElement(InteractionProvider,null,createElement(SingingClipReviewDialog,{candidate,catalog,reviewOnly:true,onOpenChange:vi.fn(),onConverted:vi.fn(),onReviewStateChanged:async()=>{}}))));
-    await screen.findByText('발행 여부 미확인 · 관리자 확인 필요');
-    expect(mocks.start).not.toHaveBeenCalled();expect(mocks.toast).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button',{name:'AI로 자동 채우기'}));
-    const newDialog=await screen.findByRole('alertdialog');expect(newDialog.textContent).toContain('중복 비용');
-    fireEvent.click(within(newDialog).getByRole('button',{name:'새 분석 요청'}));
-    const reopen=await screen.findByRole('button',{name:'미확인 분석 보기'});expect(mocks.start).toHaveBeenCalledOnce();
-    fireEvent.click(reopen);await screen.findByText('발행 여부 미확인 · 관리자 확인 필요');
-    fireEvent.click(screen.getByRole('button',{name:'미확인 작업 종결'}));
-    const closeDialog=await screen.findByRole('alertdialog');expect(mocks.closeUnknown).not.toHaveBeenCalled();
-    fireEvent.click(within(closeDialog).getByRole('button',{name:'미확인 작업 종결'}));
-    await screen.findByText('관리자 결정으로 복구 책임 종결');
-    expect(mocks.closeUnknown).toHaveBeenCalledExactlyOnceWith(unknown.id,expect.objectContaining({decision:'close_unknown',operationId:'original-operation',attemptId:'original-attempt',evidenceHash:'b'.repeat(64)}));
-    expect(mocks.start).toHaveBeenCalledOnce();expect(mocks.save).not.toHaveBeenCalled();client.clear();
-  });
+
   it.each(["stale", "human"])("does not automatically replace %s review state with a batch draft", async mode => {
     const protectedCandidate = mode === "human" ? { ...candidate, reviewInput: {
       song: { kind: "create" as const, title: "저장한 곡", isOtwOriginal: false, originalReleaseDate: null, originalReleasePrecision: "unknown" as const, aliases: [], originalArtists: [], tags: [] },

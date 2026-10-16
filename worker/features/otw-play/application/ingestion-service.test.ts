@@ -759,7 +759,7 @@ describe("IngestionService", () => {
     expect(preflightCatalogEntry).toHaveBeenCalledWith({
       youtubeUrl: "https://www.youtube.com/watch?v=AAAAAAAAAAA",
       startSeconds: 12,
-    }, undefined);
+    });
     expect(createCatalogEntry).toHaveBeenCalledWith(
       expect.objectContaining({
         startSeconds: 12,
@@ -852,25 +852,11 @@ describe("IngestionService", () => {
     expect(repo.recordConversionOutcome).not.toHaveBeenCalled();
   });
 
-  it('conversion_bulk_acceptance continues independent rows without recording pending work as failure',async()=>{
-    const repo=repository(),runConversion=vi.fn(async(identity:{candidateId:string})=>{
-      if(identity.candidateId==='pending') throw new IngestionRepositoryError('content_accepted','Pending');
-      if(identity.candidateId==='moved') throw new IngestionRepositoryError('content_moved','Moved');
-      return {candidateId:identity.candidateId,outcome:'created' as const,performanceId:'created-performance',errorCode:null};
-    });
-    const service=new IngestionService(repo,youtube(),{send:vi.fn(async()=>undefined)},()=> 'event',()=>100,{} as AdminCatalogService,undefined,{runConversion});
-    await expect(service.convertCandidates('job-1',{candidates:[{id:'pending',expectedVersion:1},{id:'moved',expectedVersion:1},{id:'ordinary',expectedVersion:1}]},{userId:'admin',displayName:null,ipAddress:null})).resolves.toEqual({results:[
-      {candidateId:'pending',outcome:'accepted',performanceId:null,errorCode:'CONTENT_ACCEPTED'},
-      {candidateId:'moved',outcome:'moved',performanceId:null,errorCode:'CONTENT_MOVED'},
-      {candidateId:'ordinary',outcome:'created',performanceId:'created-performance',errorCode:null},
-    ]});
-    expect(runConversion).toHaveBeenCalledTimes(3);expect(repo.recordConversionOutcome).not.toHaveBeenCalled();
-  });
-  it("bulk ignores job-owned candidates and preserves stale and accepted outcomes", async () => {
+  it("bulk ignores job-owned candidates and preserves stale and conflict outcomes", async () => {
     const repo = repository();
     repo.ignoreCandidate.mockImplementation(async ({candidateId}) => {
       if (candidateId === "candidate-stale") throw new IngestionRepositoryError("stale_message", "Candidate changed");
-      if (candidateId === "candidate-pending") throw new IngestionRepositoryError("content_accepted", "Accepted for target", {targetSite:"luvdia"});
+      if (candidateId === "candidate-pending") throw new IngestionRepositoryError("content_conflict", "Accepted for target", {targetSite:"luvdia"});
       return {
       id: candidateId, version: 2, videoId: "AAAAAAAAAAA",
       candidateKind: "official_video" as const,
@@ -906,7 +892,7 @@ describe("IngestionService", () => {
           outcome: "stale",
           errorCode: "stale_write",
         },
-        { candidateId: "candidate-pending", outcome: "accepted", errorCode: "CONTENT_ACCEPTED" },
+        { candidateId: "candidate-pending", outcome: "failed", errorCode: "CONTENT_CONFLICT" },
       ],
     });
     expect(repo.getJobContext).toHaveBeenCalledWith("job-1");
@@ -919,7 +905,6 @@ describe("IngestionService", () => {
     expect(repo.ignoreCandidate).toHaveBeenCalledTimes(3);
   });
 });
-
 
 describe("ingestion read budget", () => {
   const snapshot = (status: "available" | "blocked" | "unavailable") => ({ status,

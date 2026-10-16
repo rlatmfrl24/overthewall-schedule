@@ -19,5 +19,7 @@ export {
   isStaticProfileAsset,
 } from "./domain/asset-key-policy";
 export { D1R2FileStore } from "./infrastructure/d1-r2-file-store";
-export { D1TransitionFileWriter } from "./infrastructure/d1-transition-file-writer";
-export { D1FileAvailability } from "./infrastructure/d1-file-availability";
+
+export {fileProtectedSql,liveFileReferencesSql,historicalFileReferencesSql,recoveryFileHeldSql,fileReferenceGuardTriggers,releaseLegacyFileSql} from "./infrastructure/file-retention";
+export {currentFileIndexSql,currentRowFileIndexSql,selectedFileRowSql} from "./infrastructure/file-reference-integrity";
+export {fileOriginSql,filePathSql} from "./infrastructure/file-reference-index";

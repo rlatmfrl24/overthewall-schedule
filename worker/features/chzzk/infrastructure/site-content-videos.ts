@@ -1,4 +1,4 @@
-import { publicationHiddenSql } from "../../content-transition";
+import { publicationHiddenSql } from "../../content-access";
 import { type SiteId } from "@contracts/site-definition";
 import type { ChzzkVideoDto, ChzzkClipDto } from "@contracts/chzzk";
 import type { SiteContentItem, SiteContentSection } from "@contracts/site-public-content";
