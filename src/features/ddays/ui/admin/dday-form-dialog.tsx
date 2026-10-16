@@ -122,7 +122,7 @@ export function DDayFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(async (values) => { setSaveError(null); try { await onSubmit(values); } catch { setSaveError("저장하지 못했습니다. 입력 내용을 확인하고 다시 시도해 주세요."); } })} className="space-y-6 py-4">
+        <form onSubmit={handleSubmit(async (values) => { setSaveError(null); try { await onSubmit(values); } catch(error) { setSaveError(getContentTransitionMessage(error)??"저장하지 못했습니다. 입력 내용을 확인하고 다시 시도해 주세요."); } })} className="space-y-6 py-4">
           {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
           {isSaving && <p role="status" className="text-sm text-muted-foreground">저장 후 서버 응답을 확인하고 있습니다.</p>}
           <LabeledField label="제목" htmlFor="title" error={errors.title?.message}>
@@ -317,3 +317,4 @@ export function DDayFormDialog({
     </Dialog>
   );
 }
+import { getContentTransitionMessage } from "@/shared/api/client";

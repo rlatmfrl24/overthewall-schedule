@@ -19,6 +19,7 @@ const makeDb = (
   },
 ) => ({
   prepare: vi.fn((sql: string) => ({
+    first: async () => null,
     bind: (...values: unknown[]) => ({
       all: async () => ({
         results: sql.includes("FROM settings WHERE key IN")
@@ -74,10 +75,10 @@ describe("scheduled Workflow cron bridge", () => {
     ]);
   });
 
-  it("starts one generic Workflow instance for every selected job", async () => {
+  it.each(["otw", "luvdia"] as const)("starts one generic Workflow instance per selected job on normal %s without a transition peer", async (site) => {
     const create = vi.fn().mockResolvedValue(undefined);
     const env = {
-      ...siteEnv(),
+      ...siteEnv(site),
       otw_db: makeDb(),
       SCHEDULED_OPERATIONS_WORKFLOW: { create },
     } as unknown as Env;
@@ -142,7 +143,7 @@ describe("scheduled Workflow cron bridge", () => {
     await expect(handleScheduledWorkflowCron({
       cron: SCHEDULED_WORKFLOW_CRON,
       scheduledTime: utc(5, 33),
-    } as ScheduledController, siteEnv() as Env)).rejects.toThrow(
+    } as ScheduledController, {...siteEnv(),otw_db:makeDb()} as unknown as Env)).rejects.toThrow(
       "Missing scheduled Workflow binding: SCHEDULED_OPERATIONS_WORKFLOW",
     );
   });

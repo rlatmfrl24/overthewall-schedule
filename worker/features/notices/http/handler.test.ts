@@ -34,6 +34,13 @@ const makeEnv = (overrides: Partial<Env> = {}): Env =>
     ...overrides,
   }) as Env;
 
+// HTTP normalization tests stop at the gateway's prepared-statement boundary;
+// the owning SQL/transaction is exercised against real D1 in transition tests.
+const mutationQuery = () => ({toSQL:()=>({sql:"notice mutation fixture",params:[]})});
+const mutationClient = (batch=vi.fn(async (statements:unknown[])=>statements.map(()=>({success:true})))) => ({
+  prepare:()=>({bind:()=>({})}),batch,
+});
+
 const selectThumbnailQuery = (
   thumbnailUrl: string | null,
   imageUrls: string[] = thumbnailUrl ? [thumbnailUrl] : [],
@@ -58,12 +65,13 @@ const makeDeleteDb = (
   references: string[] = [],
   imageUrls?: string[],
 ) => ({
+  $client:mutationClient(),
   select: vi
     .fn()
     .mockReturnValueOnce(selectThumbnailQuery(thumbnailUrl, imageUrls))
     .mockImplementation(() => selectThumbnailReferencesQuery(references)),
   delete: vi.fn(() => ({
-    where: async () => ({ success: true }),
+    where: mutationQuery,
   })),
 });
 
@@ -71,13 +79,14 @@ const makeUpdateDb = (
   thumbnailUrl: string | null,
   references: string[] = [],
 ) => ({
+  $client:mutationClient(),
   select: vi
     .fn()
     .mockReturnValueOnce(selectThumbnailQuery(thumbnailUrl))
     .mockImplementation(() => selectThumbnailReferencesQuery(references)),
   update: vi.fn(() => ({
     set: () => ({
-      where: async () => ({ success: true }),
+      where: mutationQuery,
     }),
   })),
 });
@@ -99,8 +108,9 @@ const makeReadDb = (rows: unknown[] = []) => ({
 });
 
 const makeCreateDb = () => {
-  const values = vi.fn(async () => ({ success: true }));
+  const values = vi.fn(mutationQuery);
   return {
+    $client:mutationClient(),
     insert: vi.fn(() => ({ values })),
     values,
   };
@@ -108,8 +118,9 @@ const makeCreateDb = () => {
 
 const makeFeaturedDb = (exists = true) => {
   const updates: Array<{ is_featured: boolean }> = [];
-  const batch = vi.fn(async () => []);
+  const batch = vi.fn(async (statements:unknown[])=>statements.map(()=>({success:true})));
   return {
+    $client:mutationClient(batch),
     select: vi.fn(() => ({
       from: () => ({
         where: () => ({
@@ -120,7 +131,7 @@ const makeFeaturedDb = (exists = true) => {
     update: vi.fn(() => ({
       set: (values: { is_featured: boolean }) => {
         updates.push(values);
-        return { where: () => ({}) };
+        return { where: mutationQuery };
       },
     })),
     batch,

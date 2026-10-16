@@ -1,3 +1,4 @@
+import type { SiteId } from "@contracts/site-definition";
 import type {
   ScheduleQuery,
   ScheduleQueryRepository,
@@ -9,13 +10,15 @@ export class D1ScheduleQueryRepository implements ScheduleQueryRepository {
 
   private readonly includeArchived: boolean;
 
-  constructor(database: D1Database, includeArchived = false) {
+  private readonly siteId: SiteId;
+  constructor(database: D1Database, includeArchived = false, siteId: SiteId = "otw") {
     this.database = database;
+    this.siteId = siteId;
     this.includeArchived = includeArchived;
   }
 
   async read(query: ScheduleQuery) {
-    const result = await readSchedulesByDate(this.database, query, this.includeArchived);
+    const result = await readSchedulesByDate(this.database, query, this.includeArchived, this.siteId);
     return result.results;
   }
 }

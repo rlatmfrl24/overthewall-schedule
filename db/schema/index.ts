@@ -48,6 +48,11 @@ export const contentTransitions = sqliteTable("content_transitions", {
   generation: integer().notNull(), protocol: integer().notNull(),
   manifest_digest: text().notNull(), manifest_revision:integer().notNull().default(0), plan_json: text().notNull(),
   phase: text().notNull().default("prepared"),
+  maintenance_state: text().notNull().default("open"),
+  maintenance_started_at: integer(),
+  maintenance_stopped_at: integer(),
+  maintenance_proof_json: text(),
+  aborted_at: integer(),
   protection_receipt_json: text(), readiness_json: text(), readiness_expires_at: integer(),
   fence_json: text(), installation_json: text(), archive_receipt_json: text(),
   checkpoint_revision: integer().notNull().default(0),
@@ -59,7 +64,7 @@ export const contentTransitions = sqliteTable("content_transitions", {
   check("content_transition_protocol", sql`${table.protocol} = 1 AND ${table.generation} >= 2 AND ${table.checkpoint_revision} >= 0`),
   check("content_transition_phase", sql`${table.phase} IN ('prepared','protected','copying','replaying','target_ingress_ready','source_fenced','target_owned','complete')`),
   check("content_transition_json", sql`json_valid(${table.plan_json}) AND json_type(${table.plan_json})='object' AND json_valid(${table.checkpoints_json}) AND json_type(${table.checkpoints_json})='array'`),
-  uniqueIndex("uidx_content_transition_active").on(sql`(1)`).where(sql`${table.phase} <> 'complete'`),
+  uniqueIndex("uidx_content_transition_active").on(sql`(1)`).where(sql`${table.phase} <> 'complete' AND ${table.aborted_at} IS NULL`),
 ]);
 export const contentTransitionOperations = sqliteTable("content_transition_operations", {
   seq: integer().primaryKey({ autoIncrement: true }),
@@ -142,6 +147,7 @@ export const contentTransitionDirtyRoots = sqliteTable("content_transition_dirty
 export const contentTransitionMembership = sqliteTable("content_transition_membership", {
   transition_id: text().notNull().references(() => contentTransitions.id, { onDelete: "cascade" }),
   root_table: text().notNull(), root_key: text().notNull(), row_table: text().notNull(), row_key: text().notNull(),
+  archive_previous_access: text(),
 }, table => [
   primaryKey({ columns: [table.transition_id, table.root_table, table.root_key, table.row_table, table.row_key] }),
   index("idx_content_transition_membership_row").on(table.transition_id, table.row_table, table.row_key),
@@ -197,6 +203,48 @@ export const musicAiReviewBatches = sqliteTable("music_ai_review_batches", {
   selection_json: text().notNull(),
   created_at: integer().notNull(),
 });
+export const contentTransitionChzzkRequests = sqliteTable("content_transition_chzzk_requests", {
+  transition_id:text().notNull(),operation_id:text().notNull(),request_key:text().notNull(),request_hash:text().notNull(),request_json:text().notNull(),
+  response_hash:text(),response_json:text(),attempt:integer().notNull().default(0),claim:text(),retry_at:integer().notNull().default(0),
+  disposition:text(),settled_outcome_digest:text(),settled_at:integer(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.operation_id,table.request_key]}),
+  foreignKey({columns:[table.transition_id,table.operation_id],foreignColumns:[contentTransitionOperations.transition_id,contentTransitionOperations.operation_id]}).onDelete("cascade"),
+  check("content_transition_chzzk_request_state",sql`length(${table.request_hash})=64 AND json_valid(${table.request_json}) AND ${table.attempt}>=0 AND ${table.retry_at}>=0 AND (${table.response_hash} IS NULL)=(${table.response_json} IS NULL) AND (${table.response_hash} IS NULL OR (length(${table.response_hash})=64 AND json_valid(${table.response_json})))`),
+]);
+export const contentTransitionChzzkAttempts = sqliteTable("content_transition_chzzk_attempts", {
+  transition_id:text().notNull(),operation_id:text().notNull(),request_key:text().notNull(),attempt:integer().notNull(),claim:text().notNull(),
+  started_at:integer().notNull(),uncertain_at:integer(),finished_at:integer(),state:text().notNull().default("started"),response_hash:text(),
+  superseded_by_response_hash:text(),resolved_at:integer(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.operation_id,table.request_key,table.attempt]}),
+  foreignKey({columns:[table.transition_id,table.operation_id,table.request_key],foreignColumns:[contentTransitionChzzkRequests.transition_id,contentTransitionChzzkRequests.operation_id,contentTransitionChzzkRequests.request_key]}).onDelete("cascade"),
+  check("content_transition_chzzk_attempt_state",sql`${table.attempt}>0 AND length(${table.claim})>0 AND ${table.started_at}>=0 AND ${table.state} IN ('started','uncertain','response_committed','superseded','failed') AND (${table.response_hash} IS NULL OR length(${table.response_hash})=64)`),
+]);
+export const contentTransitionChzzkStages=sqliteTable("content_transition_chzzk_stages",{
+  transition_id:text().notNull(),operation_id:text().notNull(),parent_json:text().notNull(),
+  completion_json:text(),handover_acknowledged:integer({mode:"boolean"}).notNull().default(false),finalizer_json:text(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.operation_id]}),
+  foreignKey({columns:[table.transition_id,table.operation_id],foreignColumns:[contentTransitionOperations.transition_id,contentTransitionOperations.operation_id]}).onDelete("cascade"),
+  check("content_chzzk_stage_json",sql`json_valid(${table.parent_json}) AND (${table.completion_json} IS NULL OR json_valid(${table.completion_json})) AND (${table.finalizer_json} IS NULL OR json_valid(${table.finalizer_json}))`),
+]);
+export const contentTransitionChzzkChildren=sqliteTable("content_transition_chzzk_children",{
+  transition_id:text().notNull(),operation_id:text().notNull(),child_key:text().notNull(),member_uid:integer().notNull(),member_code:text().notNull(),date:text().notNull(),
+  input_json:text(),result_json:text(),accounted_at:integer(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.operation_id,table.child_key]}),
+  foreignKey({columns:[table.transition_id,table.operation_id],foreignColumns:[contentTransitionChzzkStages.transition_id,contentTransitionChzzkStages.operation_id]}).onDelete("cascade"),
+  check("content_chzzk_child_result",sql`${table.member_uid}>0 AND length(${table.child_key})>0 AND length(${table.member_code})>0 AND (${table.result_json} IS NULL OR json_valid(${table.result_json})) AND (${table.accounted_at} IS NULL OR ${table.result_json} IS NOT NULL)`),
+]);
+export const contentTransitionChzzkBatches=sqliteTable("content_transition_chzzk_batches",{
+  transition_id:text().notNull(),operation_id:text().notNull(),child_key:text().notNull(),batch_key:text().notNull(),
+  command_json:text().notNull(),before_json:text().notNull(),result_json:text(),
+},table=>[
+  primaryKey({columns:[table.transition_id,table.operation_id,table.child_key,table.batch_key]}),
+  foreignKey({columns:[table.transition_id,table.operation_id,table.child_key],foreignColumns:[contentTransitionChzzkChildren.transition_id,contentTransitionChzzkChildren.operation_id,contentTransitionChzzkChildren.child_key]}).onDelete("cascade"),
+  check("content_chzzk_batch_json",sql`json_valid(${table.command_json}) AND json_valid(${table.before_json}) AND (${table.result_json} IS NULL OR json_valid(${table.result_json}))`),
+]);
 
 export const assetFileCleanup = sqliteTable("asset_file_cleanup", {
   object_key:text().primaryKey(),logical_key:text().notNull(),site_id:text().notNull(),resource:text().notNull(),
@@ -790,6 +838,23 @@ export const xPostReferences = sqliteTable(
     ),
   ],
 );
+
+export const xPostRepairWork = sqliteTable("x_post_repair_work", {
+  post_id: text().primaryKey().references(() => xPosts.id, { onDelete: "cascade" }),
+  facts_pending: integer().notNull().default(1),
+  references_pending: integer().notNull().default(1),
+  generation: integer().notNull().default(1),
+  checked_at: integer().notNull().default(0),
+}, table => [
+  index("idx_x_post_repair_facts").on(table.checked_at, table.post_id).where(sql`${table.facts_pending}=1`),
+  index("idx_x_post_repair_references").on(table.checked_at, table.post_id).where(sql`${table.references_pending}=1`),
+]);
+
+export const xQuoteBodyWork = sqliteTable("x_quote_body_work", {
+  source_post_id: text().primaryKey().references(() => xPosts.id, { onDelete: "cascade" }),
+  due_at: integer().notNull(),
+  created_at: integer().notNull(),
+}, table => [index("idx_x_quote_body_work_due").on(table.due_at, table.created_at, table.source_post_id)]);
 
 export const xApiResourceDaily = sqliteTable(
   "x_api_resource_daily",
@@ -3875,6 +3940,7 @@ export const scheduledOutbox = sqliteTable(
     lease_token: text("lease_token"),
     lease_until: integer("lease_until"),
     dispatched_at: integer("dispatched_at"),
+    reconciled_at: integer("reconciled_at"),
     last_error: text("last_error"),
     created_at: integer("created_at").notNull(),
     updated_at: integer("updated_at").notNull(),
@@ -3887,6 +3953,9 @@ export const scheduledOutbox = sqliteTable(
     index("idx_scheduled_outbox_status_available").on(
       table.status,
       table.available_at,
+    ),
+    index("idx_scheduled_outbox_unresolved").on(table.available_at, table.id).where(
+      sql`(${table.event_type} = 'reconcile' AND ${table.reconciled_at} IS NULL) OR (${table.event_type} = 'execute' AND ${table.status} IN ('pending', 'failed', 'dispatching'))`,
     ),
     check(
       "scheduled_outbox_status_check",

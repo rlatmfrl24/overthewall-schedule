@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {siteEnv} from "../../../test-support/site-env";
 import type { XReferenceHydrationResultDto } from "@contracts/x-posts";
 import type { Env } from "../../../platform/types";
 import type { ScheduledJobItemRecord } from "../../../platform/scheduled-jobs";
@@ -45,7 +46,7 @@ describe("scheduled job executor outcomes", () => {
       .mockResolvedValue({ channels: statuses.length, observations: 0, channelResults });
     const statement = { bind: vi.fn(), first: vi.fn(async () => ({ value: "1" })) };
     statement.bind.mockReturnValue(statement);
-    const env = { otw_db: { prepare: vi.fn(() => statement) } } as unknown as Env;
+    const env = { ...siteEnv(),otw_db: { prepare: vi.fn(() => statement) } } as unknown as Env;
     const repository = { readRun: vi.fn(async () => ({ job_type: "schedule_auto_update", source: "scheduled" })) };
     return new ScheduledJobExecutor(env, repository as never).execute({
       run_id: "run", phase: "scan", attempts,
@@ -95,7 +96,7 @@ describe("scheduled job executor outcomes", () => {
   });
 
   it("continues common recovery and metadata cleanup while Play automation is paused", async () => {
-    const env = { otw_db: {}, YOUTUBE_API_KEY: "test-key" } as Env;
+    const env = { ...siteEnv(), otw_db: {}, YOUTUBE_API_KEY: "test-key" } as Env;
     const repository = {
       readRun: vi.fn(async () => ({ job_type: "ingestion_recovery", source: "scheduled" })),
       recoverStaleItems: vi.fn(async () => 1),
@@ -117,7 +118,7 @@ describe("scheduled job executor outcomes", () => {
   it("executes AI-only recovery planned while ingestion is paused and read-budget blocked", async () => {
     const statement = { bind: vi.fn(), first: vi.fn(async () => ({ value: "true" })) };
     statement.bind.mockReturnValue(statement);
-    const env = { otw_db: { prepare: vi.fn(() => statement) }, YOUTUBE_API_KEY: "test", OTW_PLAY_AI_REVIEW_ENABLED: "true", GEMINI_API_KEY: "test", OTW_PLAY_AI_REVIEW_QUEUE: { send: vi.fn() } } as unknown as Env;
+    const env = { ...siteEnv(), otw_db: { prepare: vi.fn(() => statement) }, YOUTUBE_API_KEY: "test", OTW_PLAY_AI_REVIEW_ENABLED: "true", GEMINI_API_KEY: "test", OTW_PLAY_AI_REVIEW_QUEUE: { send: vi.fn() } } as unknown as Env;
     const repository = { readRun: vi.fn(async () => ({ job_type: "ingestion_recovery", source: "scheduled" })), hasRecoveryWork: async () => false };
     vi.spyOn(D1IngestionRepository.prototype, "hasExpiredApiData").mockResolvedValue(false);
     vi.spyOn(D1AiBatchRepository.prototype, "hasRecoveryWork").mockResolvedValue(true);
@@ -174,7 +175,7 @@ describe("scheduled job executor outcomes", () => {
     let paused = false;
     const statement = { bind: vi.fn(), first: vi.fn(async () => ({ value: String(paused) })) };
     statement.bind.mockReturnValue(statement);
-    const env = { otw_db: { prepare: vi.fn(() => statement) }, YOUTUBE_API_KEY: "test-key" } as unknown as Env;
+    const env = { ...siteEnv(), otw_db: { prepare: vi.fn(() => statement) }, YOUTUBE_API_KEY: "test-key" } as unknown as Env;
     const repository = { readRun: vi.fn(async () => ({ job_type: "ingestion_recovery", source: "scheduled" })) };
     vi.spyOn(IngestionService.prototype, "requeuePendingWithOutcome")
       .mockImplementation(async (_limit, canContinue) => {

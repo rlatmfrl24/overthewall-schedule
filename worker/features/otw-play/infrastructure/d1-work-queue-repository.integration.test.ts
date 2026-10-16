@@ -13,6 +13,7 @@ import type { OtwPlayIngestionQueueMessage } from "../application/ports/ingestio
 import type { OtwPlayYouTubeIngestionReader, OtwPlayYouTubePlaylistPage } from "../application/ports/youtube-metadata";
 import { AdminCatalogService } from "../application/admin-catalog-service";
 import { D1AdminCatalogRepository } from "./d1-admin-catalog-repository";
+import { SITE_OPENS_AT } from "@contracts/site-publication";
 const db=env.otw_db, now=Date.UTC(2026,9,13), repo=new D1WorkQueueRepository(db), imports=new D1IngestionRepository(db);
 let ids=0;
 const id=()=>`work-id-${++ids}`;
@@ -315,4 +316,26 @@ it("starts a new scan after metadata expiration without accumulating previous sc
   await service.action(q.id,"rescan",{expectedVersion:q.version,idempotencyKey:"expired-rescan"},"admin");
   await service.process({kind:"otw_play_work_queue",schemaVersion:1,target:"queue",id:q.id});
   expect((await repo.source(q.id)).progress).toMatchObject({scanGeneration:2,inspected:0});
+});
+it.each([false,true])('continues a mixed cutoff-only partial batch, retaining other failure=%s as blocked',async otherFailure=>{
+  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT));
+  try {
+    await db.prepare("INSERT INTO members(uid,code,name,youtube_channel_id,content_access) VALUES(700001,'bing_hayu','Selected','UCaaaaaaaaaaaaaaaaaaaaaa','normal')").run();
+    reader.readPlaylistPage.mockResolvedValueOnce({items:[{playlistItemId:'cutoff-selected',videoId:'PPPPPPPPPP1',position:0},{playlistItemId:'cutoff-remaining',videoId:'PPPPPPPPPP2',position:1}],nextPageToken:null});
+    reader.readVideos.mockImplementationOnce(async videos=>videos.map(videoId=>({videoId,availabilityStatus:'playable' as const,video:{videoId,channelId:videoId==='PPPPPPPPPP1'?'UCaaaaaaaaaaaaaaaaaaaaaa':'UCkkkkkkkkkkkkkkkkkkkkkk',channelTitle:'Clips',title:videoId,thumbnailUrl:null,durationSeconds:180,publishedAt:now,availabilityStatus:'playable' as const}})));
+    const q=await sourceReady(),b=await service.action(q.id,'start',{expectedVersion:q.version,idempotencyKey:'cutoff-batch'},'admin');
+    await service.process({kind:'otw_play_work_queue',schemaVersion:1,target:'batch',id:b!.id});
+    await ingestion.process(ingestionSent.shift()!);
+    expect((await imports.getJob(b!.jobId)).status).toBe('partial');
+    if(otherFailure) await db.prepare("UPDATE music_ingestion_messages SET last_error_code='provider_unavailable' WHERE job_id=? AND status='failed'").bind(b!.jobId).run();
+    await service.afterIngestion(b!.jobId);
+    const current=await service.batch(b!.id);
+    if(otherFailure) {expect(current.status).toBe('preparing');expect(current.errorMessage).toBeTruthy();expect(current.ai).toBeNull();}
+    else {
+      expect(current.status,current.errorMessage??'review').toBe('review');
+      expect(current.items.find(item=>item.playlistItemId==='cutoff-selected')).toMatchObject({outcome:'excluded',reason:'publication_cutoff'});
+      expect(current.items.find(item=>item.videoId==='PPPPPPPPPP2')).toMatchObject({outcome:'pending',candidateId:'youtube:PPPPPPPPPP2'});
+      expect(current.ai?.total).toBe(1);
+    }
+  } finally {clock.mockRestore();await db.prepare('DELETE FROM members WHERE uid=700001').run();}
 });

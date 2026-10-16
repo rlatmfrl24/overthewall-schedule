@@ -443,6 +443,7 @@ export interface OtwPlayIgnoreIngestionCandidatesRequest {
 
 export const OTW_PLAY_INGESTION_IGNORE_OUTCOMES = [
   "ignored",
+  "accepted",
   "stale",
   "failed",
 ] as const;
@@ -468,7 +469,7 @@ export interface OtwPlayIngestionConversionResultDto {
 }
 
 export interface OtwPlayConvertIngestionCandidatesResponse {
-  results: OtwPlayIngestionConversionResultDto[];
+  results: (OtwPlayIngestionConversionResultDto | {candidateId:string;outcome:'accepted'|'moved'|'conflicted';performanceId:null;errorCode:'CONTENT_ACCEPTED'|'CONTENT_MOVED'|'CONTENT_CONFLICT'})[];
 }
 
 export interface OtwPlayRetryIngestionJobResponse {

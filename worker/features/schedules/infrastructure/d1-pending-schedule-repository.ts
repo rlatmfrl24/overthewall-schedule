@@ -11,6 +11,8 @@ import {
   type PendingScheduleRow,
 } from "../domain/pending-schedule";
 import type { ScheduleActor } from "../domain/schedule";
+import type {PendingCommand} from "../domain/pending-command";
+import type {D1PendingTransitionWriter,PendingNativeBatch} from "./d1-pending-transition-writer";
 import { holidayEligibleSql } from "./holiday-suggestions";
 import {
   AUTO_UPDATE_ADDITIONAL_SCHEDULE_MINUTES,
@@ -93,9 +95,16 @@ export class D1PendingScheduleRepository
   implements PendingScheduleRepository
 {
   private readonly db: D1Database;
+  private readonly transition?:D1PendingTransitionWriter;
+  private readonly nativeBatch?:PendingNativeBatch;
 
-  constructor(db: D1Database) {
+  constructor(db: D1Database,transition?:D1PendingTransitionWriter,nativeBatch?:PendingNativeBatch) {
     this.db = db;
+    this.transition=transition;this.nativeBatch=nativeBatch;
+  }
+  private batch(statements:D1PreparedStatement[]) {return this.nativeBatch?this.nativeBatch(statements):this.db.batch(statements);}
+  private own(command:PendingCommand,item:Record<string,unknown>,actor:ScheduleActor,execute:(repository:D1PendingScheduleRepository)=>Promise<PendingActionOutcome>) {
+    return this.transition!.run(command,item,actor,batch=>execute(new D1PendingScheduleRepository(this.db,undefined,batch??undefined)));
   }
 
   findById(id: number): Promise<PendingScheduleRow | null> {
@@ -138,6 +147,7 @@ export class D1PendingScheduleRepository
     options: PendingApprovalOptions | null,
     actor: ScheduleActor,
   ): Promise<PendingActionOutcome> {
+    if(this.transition) return this.own({action:"approve",id:item.id,options},item,actor,repository=>repository.approve(item,options,actor));
     if (item.candidate_kind === "holiday_suggestion") {
       return this.approveHoliday(item, actor);
     }
@@ -204,6 +214,7 @@ export class D1PendingScheduleRepository
     target: EmptyTargetRow,
     actor: ScheduleActor,
   ): Promise<PendingActionOutcome> {
+    if(this.transition) return this.own({action:"apply_empty",id:item.id,targetId:target.id},item,actor,repository=>repository.applyToEmptyTarget(item,target,actor));
     if (item.candidate_kind === "holiday_suggestion") return staleOutcome();
     if (item.candidate_kind) {
       const options: PendingApprovalOptions = {
@@ -228,7 +239,7 @@ export class D1PendingScheduleRepository
       timeMode: "nearest_half_hour",
       targetScheduleId: target.id,
     });
-    const results = await this.db.batch([
+    const results = await this.batch([
       this.db
         .prepare(
           `UPDATE schedules
@@ -240,7 +251,7 @@ export class D1PendingScheduleRepository
              AND COALESCE(TRIM(title), '') = ''
              AND EXISTS (
                SELECT 1 FROM pending_schedules WHERE id = ?
-             )`,
+             ) RETURNING id`,
         )
         .bind(
           values.startTime,
@@ -260,12 +271,12 @@ export class D1PendingScheduleRepository
       this.db
         .prepare(
           `DELETE FROM pending_schedules
-           WHERE id = ? AND changes() = 1`,
+           WHERE id = ? AND changes() = 1 RETURNING id`,
         )
         .bind(item.id),
     ]);
 
-    if (results[0].meta.changes !== 1) {
+    if (results[0].results.length !== 1) {
       return staleOutcome();
     }
     return { success: true, action: "update", scheduleId: target.id };
@@ -276,10 +287,11 @@ export class D1PendingScheduleRepository
     actor: ScheduleActor,
     options: PendingRejectionOptions | null,
   ): Promise<PendingActionOutcome> {
+    if(this.transition) return this.own({action:"reject",id:item.id,options},item,actor,repository=>repository.reject(item,actor,options));
     const reasonCode = options?.reasonCode ?? null;
     const reasonNote = options?.reasonNote?.trim() || null;
     if (item.candidate_kind === "holiday_suggestion") {
-      const results = await this.db.batch([
+      const results = await this.batch([
         this.db.prepare(`UPDATE schedule_day_assessments SET decision = 'rejected',
           decided_at = ?, decided_by = ?, rejection_reason = ?
           WHERE member_uid = ? AND date = ? AND EXISTS (
@@ -289,11 +301,11 @@ export class D1PendingScheduleRepository
           SELECT NULL, member_uid, member_name, ?, ?, ?, date, 'reject', title,
             previous_status, NULL, ?, ? FROM pending_schedules WHERE id = ? AND changes() = 1`)
           .bind(...actorBindings(actor), reasonCode, reasonNote, item.id),
-        this.db.prepare("DELETE FROM pending_schedules WHERE id = ? AND changes() = 1").bind(item.id),
+        this.db.prepare("DELETE FROM pending_schedules WHERE id = ? AND changes() = 1 RETURNING id").bind(item.id),
       ]);
-      return results[2].meta.changes === 1 ? { success: true, action: "reject" } : staleOutcome();
+      return results[2].results.length === 1 ? { success: true, action: "reject" } : staleOutcome();
     }
-    const results = await this.db.batch([
+    const results = await this.batch([
       this.db
         .prepare(
           `INSERT INTO schedule_candidate_rejections (
@@ -402,12 +414,12 @@ export class D1PendingScheduleRepository
       this.db
         .prepare(
           `DELETE FROM pending_schedules
-           WHERE id = ? AND changes() = 1`,
+           WHERE id = ? AND changes() = 1 RETURNING id`,
         )
         .bind(item.id),
     ]);
 
-    if (results[2].meta.changes !== 1) {
+    if (results[2].results.length !== 1) {
       return staleOutcome();
     }
     return { success: true, action: "reject" };
@@ -417,7 +429,11 @@ export class D1PendingScheduleRepository
     id: number,
     actor: ScheduleActor,
   ): Promise<PendingActionOutcome> {
-    const results = await this.db.batch([
+    if(this.transition) {
+      const item=await this.db.prepare("SELECT id,member_uid,date,candidate_kind FROM schedule_candidate_rejections WHERE id=?").bind(id).first<Record<string,unknown>>();
+      if(item) return this.own({action:"reopen_rejection",id},item,actor,repository=>repository.reopenRejection(id,actor));
+    }
+    const results = await this.batch([
       this.db
         .prepare(
           `INSERT INTO update_logs (${LOG_COLUMNS})
@@ -442,12 +458,12 @@ export class D1PendingScheduleRepository
       this.db
         .prepare(
           `DELETE FROM schedule_candidate_rejections
-           WHERE id = ? AND changes() = 1`,
+           WHERE id = ? AND changes() = 1 RETURNING id`,
         )
         .bind(id),
     ]);
 
-    if (results[1].meta.changes !== 1) {
+    if (results[1].results.length !== 1) {
       return {
         success: false,
         error: "not_found",
@@ -461,11 +477,12 @@ export class D1PendingScheduleRepository
     item: PendingScheduleRow,
     actor: ScheduleActor,
   ): Promise<PendingActionOutcome> {
+    if(this.transition) return this.own({action:"reset_processed",id:item.id},item,actor,repository=>repository.resetProcessed(item,actor));
     const resetAt = new Date().toISOString();
-    const results = await this.db.batch([
+    const results = await this.batch([
       this.db
         .prepare(
-          "UPDATE pending_schedules SET processed_reset_at = ? WHERE id = ?",
+          "UPDATE pending_schedules SET processed_reset_at = ? WHERE id = ? RETURNING id",
         )
         .bind(resetAt, item.id),
       this.db
@@ -491,20 +508,20 @@ export class D1PendingScheduleRepository
         .bind(...actorBindings(actor), item.id),
     ]);
 
-    if (results[0].meta.changes !== 1) {
+    if (results[0].results.length !== 1) {
       return staleOutcome();
     }
     return { success: true, action: "reset_processed", resetAt };
   }
 
   private async approveHoliday(item: PendingScheduleRow, actor: ScheduleActor): Promise<PendingActionOutcome> {
-    const results = await this.db.batch([
+    const results = await this.batch([
       this.db.prepare(`INSERT INTO schedules (member_uid, date, status)
         SELECT pending.member_uid, pending.date, '휴방'
         FROM pending_schedules pending JOIN schedule_day_assessments assessment
           ON assessment.member_uid = pending.member_uid AND assessment.date = pending.date
         WHERE pending.id = ? AND pending.candidate_kind = 'holiday_suggestion'
-          AND ${holidayEligibleSql}`).bind(item.id),
+          AND ${holidayEligibleSql} RETURNING id`).bind(item.id),
       this.db.prepare(`INSERT INTO update_logs (${LOG_COLUMNS})
         SELECT last_insert_rowid(), member_uid, member_name, ?, ?, ?, date,
           'approve', title, previous_status, NULL, 'no_broadcast_observed', NULL
@@ -515,11 +532,11 @@ export class D1PendingScheduleRepository
         .bind(Date.now(), actor.actorId, item.member_uid, item.date),
       this.db.prepare("DELETE FROM pending_schedules WHERE id = ? AND changes() = 1").bind(item.id),
     ]);
-    if (results[0].meta.changes !== 1) return {
+    if (results[0].results.length !== 1) return {
       success: false, error: "stale",
       message: "일정이나 방송 근거가 변경된 오래된 휴방 요청입니다. 목록을 새로고침해 주세요.",
     };
-    return { success: true, action: "create", scheduleId: Number(results[0].meta.last_row_id) };
+    return { success: true, action: "create", scheduleId: Number((results[0].results[0] as IdRow).id) };
   }
 
   private async createFromPending(
@@ -542,7 +559,7 @@ export class D1PendingScheduleRepository
     const conflictWindow = item.candidate_kind
       ? AUTO_UPDATE_TIME_WINDOW_MINUTES
       : 30;
-    const results = await this.db.batch([
+    const results = await this.batch([
       this.db
         .prepare(
           `INSERT INTO schedules (member_uid, date, start_time, title, status)
@@ -584,7 +601,7 @@ export class D1PendingScheduleRepository
                      ) - ?
                    ) <= ?
                )
-             )`,
+             ) RETURNING id`,
         )
         .bind(
           startTime,
@@ -620,12 +637,12 @@ export class D1PendingScheduleRepository
       this.db
         .prepare(
           `DELETE FROM pending_schedules
-           WHERE id = ? AND changes() = 1`,
+           WHERE id = ? AND changes() = 1 RETURNING id`,
         )
         .bind(item.id),
     ]);
 
-    if (results[0].meta.changes !== 1) {
+    if (results[0].results.length !== 1) {
       const current = await this.findById(item.id);
       if (current && minutes !== null) {
         const conflict = await this.findTimeConflict(
@@ -645,7 +662,7 @@ export class D1PendingScheduleRepository
       return staleOutcome();
     }
 
-    const scheduleId = Number(results[0].meta.last_row_id);
+    const scheduleId = Number((results[0].results[0] as IdRow).id);
     return {
       success: true,
       action: "create",
@@ -719,7 +736,7 @@ export class D1PendingScheduleRepository
       }
     }
 
-    const results = await this.db.batch([
+    const results = await this.batch([
       this.db
         .prepare(
           `UPDATE schedules
@@ -734,7 +751,7 @@ export class D1PendingScheduleRepository
              }
              AND EXISTS (
                SELECT 1 FROM pending_schedules WHERE id = ?
-             )`,
+             ) RETURNING id`,
         )
         .bind(
           ...bindings,
@@ -752,12 +769,12 @@ export class D1PendingScheduleRepository
       this.db
         .prepare(
           `DELETE FROM pending_schedules
-           WHERE id = ? AND changes() = 1`,
+           WHERE id = ? AND changes() = 1 RETURNING id`,
         )
         .bind(item.id),
     ]);
 
-    if (results[0].meta.changes !== 1) {
+    if (results[0].results.length !== 1) {
       return staleOutcome();
     }
     return { success: true, action: "update", scheduleId: targetId };
@@ -883,7 +900,7 @@ export class D1PendingScheduleRepository
     scheduleId: number | null,
     actor: ScheduleActor,
   ): Promise<PendingActionOutcome> {
-    const results = await this.db.batch([
+    const results = await this.batch([
       this.db
         .prepare(
           `INSERT INTO update_logs (${LOG_COLUMNS})
@@ -912,11 +929,11 @@ export class D1PendingScheduleRepository
       this.db
         .prepare(
           `DELETE FROM pending_schedules
-           WHERE id = ? AND changes() = 1`,
+           WHERE id = ? AND changes() = 1 RETURNING id`,
         )
         .bind(item.id),
     ]);
-    if (results[1].meta.changes !== 1) return staleOutcome();
+    if (results[1].results.length !== 1) return staleOutcome();
     return {
       success: true,
       action: "candidate_obsolete",

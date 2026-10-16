@@ -142,7 +142,7 @@ export class D1FileInventory {
     try { await this.db.batch([
       // The manifest/phase/fence check shares the transaction with page writes.
       // A pre-read followed by a revision or fence race cannot install a page.
-      this.db.prepare("SELECT iif(coalesce((SELECT local_site=? AND local_resource=? AND plan_json=? AND manifest_revision=? AND fence_json IS ? AND phase IN ('target_ingress_ready','source_fenced') FROM content_transitions WHERE id=?),0),1,json('inventory_context_conflict'))")
+      this.db.prepare("SELECT iif(coalesce((SELECT local_site=? AND local_resource=? AND plan_json=? AND manifest_revision=? AND fence_json IS ? AND phase IN ('prepared','target_ingress_ready','source_fenced') FROM content_transitions WHERE id=?),0),1,json('inventory_context_conflict'))")
         .bind(this.site,context.plan.targetResource,JSON.stringify(context.plan),context.manifestRevision,"fence" in context?JSON.stringify(context.fence):null,context.plan.id),
       this.db.prepare("SELECT iif(coalesce((SELECT state='receiving' AND staged_rows=? AND staged_digest=? FROM content_transition_file_inventories WHERE transition_id=? AND inventory_id=?),0),1,json('inventory_page_predecessor_conflict'))").bind(page.start.ordinal,page.start.digest,h.plan.id,h.inventoryId),
       ...page.records.map(record=>this.db.prepare("INSERT INTO content_transition_file_inventory_rows(transition_id,inventory_id,kind,identity,value_json) VALUES(?,?,?,?,?)").bind(h.plan.id,h.inventoryId,record.kind,record.identity,record.value)),

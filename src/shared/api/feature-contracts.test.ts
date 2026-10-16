@@ -121,7 +121,7 @@ describe("api wrapper modules", () => {
 
     await fetchMemberProfile("member code");
 
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/members/member%20code");
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/members/member%20code", {cache: "no-store"});
   });
 
   it("dday CRUD는 올바른 경로/메서드로 요청한다", async () => {

@@ -46,7 +46,7 @@ describe("YouTube media queries", () => {
     vi.useRealTimers();
   });
 
-  it("키리누키 재조회 실패 시 기존 콘텐츠를 유지한다", async () => {
+  it("키리누키 접근 재확인이 실패하면 기존 콘텐츠를 숨긴다", async () => {
     fetchKirinukiVideosMock.mockResolvedValueOnce({
       videos: [{ videoId: "v1" }],
       shorts: [{ videoId: "s1" }],
@@ -70,8 +70,8 @@ describe("YouTube media queries", () => {
     await waitFor(() =>
       expect(fetchKirinukiVideosMock).toHaveBeenCalledTimes(2),
     );
-    expect(result.current.error).toBeNull();
-    expect(result.current.videos).toEqual([{ videoId: "v1" }]);
+    expect(result.current.error).toBe('키리누키 영상을 불러오는데 실패했습니다.');
+    expect(result.current.videos).toEqual([]);
     errorSpy.mockRestore();
   });
 

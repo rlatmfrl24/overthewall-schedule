@@ -1,3 +1,5 @@
+import { publicationHiddenSql } from "../../content-transition";
+import { parseSiteId, type SiteId } from "@contracts/site-definition";
 import { asc, sql } from "drizzle-orm";
 import type { MemberPostsPageRequest } from "@contracts/member-posts";
 import { members, naverCafeSources } from "@db/schema";
@@ -18,6 +20,7 @@ export type XFeedService = {
   fetchPosts(
     handles: string[],
     options: {
+      siteId: SiteId;
       bearerToken?: string;
       cacheDb: D1Database;
       maxResults: number;
@@ -34,7 +37,7 @@ export type XFeedService = {
 
 export type NaverCafeReader = (
   sources: NaverCafeSourceRecord[],
-  options: { cacheDb: D1Database; size: number; page?: MemberPostsPageRequest },
+  options: { cacheDb: D1Database; size: number; page?: MemberPostsPageRequest; siteId?: import("@contracts/site-definition").SiteId },
 ) => Promise<NaverCafePostsContent>;
 
 const normalizeVisibility = (
@@ -88,7 +91,7 @@ export class D1MemberPostsPort implements MemberPostsPort {
       .select()
       .from(members)
       .where(
-        sql`${members.content_access} = 'normal' AND (${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0)`,
+        sql`${members.content_access} = 'normal' AND NOT (${sql.raw(publicationHiddenSql("members","members",parseSiteId(this.env.SITE_ID)))}) AND (${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0)`,
       )
       .orderBy(asc(members.uid));
   }
@@ -97,7 +100,7 @@ export class D1MemberPostsPort implements MemberPostsPort {
     return this.db
       .select()
       .from(naverCafeSources)
-      .where(sql`NOT EXISTS (SELECT 1 FROM members archive_member WHERE archive_member.uid = ${naverCafeSources.member_uid} AND archive_member.content_access = 'admin_archive')`)
+      .where(sql`NOT EXISTS (SELECT 1 FROM members archive_member WHERE archive_member.uid = ${naverCafeSources.member_uid} AND (archive_member.content_access = 'admin_archive' OR ${sql.raw(publicationHiddenSql("members","archive_member",parseSiteId(this.env.SITE_ID)))}))`)
       .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));
   }
 
@@ -115,6 +118,7 @@ export class D1MemberPostsPort implements MemberPostsPort {
     },
   ) {
     return this.xFeed.fetchPosts(handles, {
+      siteId: parseSiteId(this.env.SITE_ID),
       bearerToken: this.env.X_BEARER_TOKEN,
       cacheDb: this.env.otw_db,
       maxResults: options.maxResults,
@@ -151,6 +155,7 @@ export class D1MemberPostsPort implements MemberPostsPort {
   readNaverCafePosts(sources: NaverCafeSourceRecord[], size: number, page?: MemberPostsPageRequest) {
     return this.readNaverCafe(sources, {
       cacheDb: this.env.otw_db,
+      siteId: parseSiteId(this.env.SITE_ID),
       size,
       ...(page ? { page } : {}),
     });

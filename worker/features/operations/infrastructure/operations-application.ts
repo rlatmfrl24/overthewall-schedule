@@ -1,5 +1,8 @@
+import type { SiteId } from "@contracts/site-definition";
+import { parseSiteId } from "@contracts/site-definition";
 import { readAdminReviewSummary } from "../../otw-play";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, and, sql } from "drizzle-orm";
+import { publicationHiddenSql } from "../../content-transition";
 import { naverCafeSources } from "@db/schema";
 import {
   normalizeAutoUpdateIntervalHours,
@@ -1087,6 +1090,7 @@ type CollectNaverCafePosts = (
     cacheDb: D1Database;
     size: number;
     trigger: "manual";
+    siteId?: SiteId;
   },
 ) => Promise<{
   checkedAt: number;
@@ -1109,7 +1113,7 @@ const runNaverCafeCheck = async (
   const sources = await db
     .select()
     .from(naverCafeSources)
-    .where(eq(naverCafeSources.enabled, true))
+    .where(and(eq(naverCafeSources.enabled, true), sql.raw(`NOT (${publicationHiddenSql("naver_cafe_sources", "naver_cafe_sources", parseSiteId(env.SITE_ID))})`)))
     .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));
 
   if (sources.length === 0) {
@@ -1124,6 +1128,7 @@ const runNaverCafeCheck = async (
   const startedAt = Date.now();
   const result = await collectNaverCafePostsForSources(sources, {
     cacheDb: env.otw_db,
+    siteId: parseSiteId(env.SITE_ID),
     size: NaverCafeCheckSize,
     trigger: "manual",
   });

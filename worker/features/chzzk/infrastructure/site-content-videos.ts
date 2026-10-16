@@ -1,8 +1,10 @@
+import { publicationHiddenSql } from "../../content-transition";
+import { type SiteId } from "@contracts/site-definition";
 import type { ChzzkVideoDto, ChzzkClipDto } from "@contracts/chzzk";
 import type { SiteContentItem, SiteContentSection } from "@contracts/site-public-content";
 
-export async function readSiteContentChzzk(db: D1Database): Promise<SiteContentSection[]> {
-  const members = (await db.prepare("SELECT name, url_chzzk FROM members WHERE content_access = 'normal' AND (is_deprecated IS NULL OR is_deprecated = 0)").all<{ name: string; url_chzzk: string | null }>()).results;
+export async function readSiteContentChzzk(db: D1Database, siteId: SiteId = "otw"): Promise<SiteContentSection[]> {
+  const members = (await db.prepare(`SELECT name, url_chzzk FROM members WHERE content_access = 'normal' AND NOT (${publicationHiddenSql("members","members",siteId)}) AND (is_deprecated IS NULL OR is_deprecated = 0)`).all<{ name: string; url_chzzk: string | null }>()).results;
   const channels = members.flatMap(m => {
     try { const id = new URL(m.url_chzzk ?? "").pathname.split("/").filter(Boolean).pop(); return id ? [{ id, name: m.name }] : []; } catch { return []; }
   });

@@ -3,8 +3,25 @@ import { act, cleanup, render, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { AuthenticatedImage } from "./authenticated-image";
+import { ContentSessionContext } from "@/shared/hooks/content-session";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+it("uses the own login for normal workspace images without requesting admin archive access",async()=>{
+  vi.stubGlobal("window",Object.assign(window,{Clerk:{session:{getToken:async()=>"own-user-session"}}}));
+  let counter=0;URL.createObjectURL=()=>`blob:workspace-${++counter}`;const revoke=vi.fn();URL.revokeObjectURL=revoke;
+  const fetcher=vi.fn<typeof fetch>(async(input,init)=>{
+    expect(String(input)).toBe("/profile/bing_hayu.webp");expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer own-user-session");expect(init?.cache).toBe("no-store");
+    return new Response(new Uint8Array([1]));
+  });vi.stubGlobal("fetch",fetcher);
+  const images=<><AuthenticatedImage protectedImage={false} src="/profile/bing_hayu.webp" srcSet="/profile/bing_hayu.webp 2x" alt="workspace"/><AuthenticatedImage protectedImage={false} src="https://external.example/image.webp" alt="external"/></>;
+  const view=render(<ContentSessionContext.Provider value="own-session">{images}</ContentSessionContext.Provider>);
+  expect(view.getByAltText("workspace").getAttribute("src")).toBeNull();expect(view.getByAltText("workspace").getAttribute("srcset")).toBeNull();
+  await waitFor(()=>expect(view.getByAltText("workspace").getAttribute("src")).toBe("blob:workspace-1"));
+  expect(view.getByAltText("external").getAttribute("src")).toBe("https://external.example/image.webp");expect(fetcher).toHaveBeenCalledOnce();
+  view.rerender(<ContentSessionContext.Provider value="other-session">{images}</ContentSessionContext.Provider>);
+  expect(view.getByAltText("workspace").getAttribute("src")).toBeNull();expect(revoke).toHaveBeenCalledWith("blob:workspace-1");
+  await waitFor(()=>expect(view.getByAltText("workspace").getAttribute("src")).toBe("blob:workspace-2"));
+});
 it("rechecks the same external URL when its owning notice context changes and never falls back after rejection", async () => {
   vi.stubGlobal("window", Object.assign(window, { Clerk: { session: { getToken: async () => "session" } } }));
   const raw = "https://external.example/notice.webp";

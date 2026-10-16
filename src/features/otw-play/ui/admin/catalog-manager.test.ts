@@ -414,7 +414,7 @@ describe("OtwPlayCatalogManager", () => {
     await waitFor(() => expect(createEntryMock).toHaveBeenCalledWith(expect.objectContaining({ relationType: "singing_clip", releaseType: "broadcast", publicationTarget: "draft",
       startSeconds: 0, endSeconds: 180, channel: { kind: "existing", channelId: "clip-channel" },
       song: expect.objectContaining({ kind: "create", title: "새 클립 곡" }),
-      broadcast: { performedOn: null, dateEvidence: null, originalUrl: null, extent: null } })));
+      broadcast: { performedOn: null, dateEvidence: null, originalUrl: null, extent: null } }), expect.any(String)));
     expect(publishPerformanceMock).not.toHaveBeenCalled();
   });
 
@@ -810,7 +810,7 @@ describe("OtwPlayCatalogManager", () => {
             expect.objectContaining({ participantRole: "featured_vocal" }),
           ],
         }),
-      ),
+       expect.any(String),),
     );
     expect(confirm).toHaveBeenCalledOnce();
     confirm.mockRestore();
@@ -934,7 +934,7 @@ describe("OtwPlayCatalogManager", () => {
           }),
         ],
       }),
-    );
+     expect.any(String),);
     confirm.mockRestore();
   });
 
@@ -1011,7 +1011,7 @@ describe("OtwPlayCatalogManager", () => {
           owners: [expect.objectContaining({ displayName: "보컬 B" })],
         }),
       }),
-    ));
+     expect.any(String),));
     confirm.mockRestore();
   });
 
@@ -1083,11 +1083,12 @@ describe("OtwPlayCatalogManager", () => {
           subject: { kind: "member", memberUid: 1 },
         })],
       }),
-    ));
+     expect.any(String),));
     confirm.mockRestore();
   });
 
-  it("rejects with an internal reason and then refetches authoritative state", async () => {
+  it.each([false,true])("rejects with an internal reason and then refetches authoritative state (accepted=%s)", async accepted => {
+    if(accepted) rejectProposalMock.mockRejectedValueOnce(new ApiError("저장 요청을 접수했습니다. 이관 처리 후 저장 결과를 확인해 주세요.",409,{code:"CONTENT_ACCEPTED"}));
     renderCatalogManager();
 
     fireEvent.click(await screen.findByRole("tab", { name: "가져오기/검수" }));
@@ -1101,11 +1102,20 @@ describe("OtwPlayCatalogManager", () => {
     });
     fireEvent.click(rejectButton);
 
+    if(accepted) {
+      await waitFor(()=>expect(toastMock).toHaveBeenCalledWith({variant:"info",description:expect.stringContaining("접수")}));
+      expect(screen.getByLabelText("검수할 공식 커버 거절 코드")).toHaveProperty("value","duplicate");
+      const original=rejectProposalMock.mock.calls.at(-1)!;
+      const attempts=rejectProposalMock.mock.calls.length;
+      fireEvent.click(screen.getByRole("button",{name:"제안 거절"}));
+      await waitFor(()=>expect(rejectProposalMock).toHaveBeenCalledTimes(attempts+1));expect(rejectProposalMock.mock.calls.at(-1)).toEqual(original);
+    }
+
     await waitFor(() =>
       expect(rejectProposalMock).toHaveBeenCalledWith("proposal-1", {
         expectedVersion: 2,
         resultCode: "duplicate",
-      }),
+      },expect.any(String)),
     );
     await waitFor(() => {
       expect(fetchCatalogMock.mock.calls.length).toBeGreaterThan(1);
@@ -1117,7 +1127,7 @@ describe("OtwPlayCatalogManager", () => {
     });
   });
 
-  it("keeps external identity edits in the unified channel screen after a failed command", async () => {
+  it.each([false,true])("keeps external identity edits in the unified channel screen after a failed command (accepted=%s)", async accepted => {
     fetchCatalogMock.mockResolvedValueOnce({
       ...catalog,
       entities: [
@@ -1133,7 +1143,7 @@ describe("OtwPlayCatalogManager", () => {
         },
       ],
     });
-    updateEntityMock.mockRejectedValueOnce(new Error("write failed"));
+    updateEntityMock.mockRejectedValueOnce(accepted?new ApiError("저장 요청을 접수했습니다. 이관 처리 후 저장 결과를 확인해 주세요.",409,{code:"CONTENT_ACCEPTED"}):new Error("write failed"));
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -1151,13 +1161,14 @@ describe("OtwPlayCatalogManager", () => {
     expect(screen.queryByLabelText(/slug/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "수정 저장" }));
 
-    await waitFor(() =>
-      expect(toastMock).toHaveBeenCalledWith({
-        variant: "error",
-        description: "외부 identity 수정 작업에 실패했습니다.",
-      }),
-    );
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(accepted?{variant:"info",description:expect.stringContaining("접수")}:{variant:"error",description:"외부 identity 수정 작업에 실패했습니다."}));
     expect(nameInput.value).toBe("입력 보존");
+    if(accepted) {
+      const original=updateEntityMock.mock.calls[0];expect(original[1]).toMatch(/^[A-Za-z0-9_-]{16,100}$/);
+      updateEntityMock.mockResolvedValueOnce({});fireEvent.click(screen.getByRole("button",{name:"수정 저장"}));
+      await waitFor(()=>expect(updateEntityMock).toHaveBeenCalledTimes(2));expect(updateEntityMock.mock.calls[1]).toEqual(original);
+      await waitFor(()=>expect(screen.queryByLabelText("외부 identity 표시명")).toBeNull());
+    }
     consoleError.mockRestore();
   });
 
@@ -1220,6 +1231,7 @@ describe("OtwPlayCatalogManager", () => {
     await waitFor(() => expect(deleteEntityMock).toHaveBeenCalledWith(
       "external-1",
       { expectedVersion: 2 },
+      expect.any(String),
     ));
     expect(toastMock).toHaveBeenCalledWith({
       variant: "success",
@@ -1295,11 +1307,12 @@ describe("OtwPlayCatalogManager", () => {
       displayName: "정리된 공식 채널",
       channelRole: "approved_kirinuki",
       entityIds: [],
-    }));
+    },expect.any(String)));
     expect(screen.getByText("등록된 채널")).toBeTruthy();
   });
 
-  it("approves and activates a registered kirinuki channel from the channel tab", async () => {
+  it.each([false,true])("approves a channel and preserves the same accepted editor retry (%s)", async accepted => {
+    if(accepted) updateChannelMock.mockRejectedValueOnce(new ApiError("저장 요청을 접수했습니다. 이관 처리 후 저장 결과를 확인해 주세요.",409,{code:"CONTENT_ACCEPTED"}));
     const channelId = `UC${"K".repeat(22)}`;
     fetchCatalogMock.mockResolvedValue({
       ...catalog,
@@ -1333,7 +1346,14 @@ describe("OtwPlayCatalogManager", () => {
       entityIds: [],
       verificationStatus: "approved",
       active: true,
-    }));
+    },expect.any(String)));
+    if(accepted) {
+      await screen.findByText("채널을 저장하지 못했습니다. 입력은 유지되어 있으니 다시 시도하세요.");
+      const originalKey=updateChannelMock.mock.calls[0]![1];
+      fireEvent.click(screen.getByRole("button",{name:"채널 수정 저장"}));
+      await waitFor(()=>expect(updateChannelMock).toHaveBeenCalledTimes(2));
+      expect(updateChannelMock.mock.calls[1]![1]).toBe(originalKey);
+    }
   });
 
   it("corrects an existing channel subject link after explicit confirmation", async () => {
@@ -1403,10 +1423,11 @@ describe("OtwPlayCatalogManager", () => {
       entityIds: ["member-correct"],
       verificationStatus: "approved",
       active: true,
-    }));
+    },expect.any(String)));
   });
 
-  it("edits original artists as reusable chips without exposing the original release date", async () => {
+  it.each([false,true])("edits original artists as reusable chips and preserves an accepted retry (%s)", async acceptedRetry => {
+    if(acceptedRetry) updateSongMock.mockRejectedValueOnce(new ApiError("저장 요청을 접수했습니다. 이관 처리 후 저장 결과를 확인해 주세요.",409,{code:"CONTENT_ACCEPTED"}));
     fetchCatalogMock.mockResolvedValue({
       ...catalog,
       performances: [{ ...linkedPerformance, songId: "song-edit" }],
@@ -1483,7 +1504,18 @@ describe("OtwPlayCatalogManager", () => {
           },
         ],
       }),
+      expect.stringMatching(/^[A-Za-z0-9_-]{16,100}$/),
     );
+    if(acceptedRetry) {
+      await waitFor(()=>expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({variant:"info",description:expect.stringContaining("접수")})));
+      expect(within(dialog).getByLabelText("곡명")).toHaveProperty("value","수정한 곡");
+      expect(screen.getByRole("dialog",{name:"곡 정보 수정"})).toBeTruthy();
+      const first=updateSongMock.mock.calls[0];
+      fireEvent.click(within(dialog).getByRole("button",{name:"저장"}));
+      await waitFor(()=>expect(updateSongMock).toHaveBeenCalledTimes(2));
+      expect(updateSongMock.mock.calls[1]).toEqual(first);
+      await waitFor(()=>expect(screen.queryByRole("dialog",{name:"곡 정보 수정"})).toBeNull());
+    }
   });
 
   it("edits the linked song, participants, classifications, source, and notes in one performance form", async () => {
@@ -1692,7 +1724,7 @@ describe("OtwPlayCatalogManager", () => {
         priority: 0,
         isPrimary: true,
       }],
-    });
+    }, expect.any(String));
   });
 
   it("disables catalog writes while the public read model revision is stale", async () => {
@@ -1820,6 +1852,7 @@ describe("OtwPlayCatalogManager", () => {
       expect(deletePerformanceMock).toHaveBeenCalledWith(
         "performance-draft",
         { expectedVersion: 3 },
+        expect.any(String),
       ),
     );
 
@@ -1830,7 +1863,7 @@ describe("OtwPlayCatalogManager", () => {
     await waitFor(() =>
       expect(deleteSongMock).toHaveBeenCalledWith("song-draft", {
         expectedVersion: 2,
-      }),
+      },expect.any(String)),
     );
 
     fireEvent.click(screen.getByRole("button", { name: "철회 곡 가창 펼치기" }));
@@ -1846,6 +1879,7 @@ describe("OtwPlayCatalogManager", () => {
       expect(deletePerformanceMock).toHaveBeenCalledWith(
         "performance-withdrawn",
         { expectedVersion: 6 },
+        expect.any(String),
       ),
     );
 
@@ -1860,11 +1894,11 @@ describe("OtwPlayCatalogManager", () => {
     await waitFor(() =>
       expect(deleteSongMock).toHaveBeenCalledWith("song-withdrawn", {
         expectedVersion: 5,
-      }),
+      },expect.any(String)),
     );
   });
 
-  it("publishes every visible draft from one catalog action and preserves failed drafts", async () => {
+  it.each([false, true])("publishes every visible draft from one catalog action and preserves failed or accepted drafts (accepted=%s)", async accepted => {
     fetchCatalogMock.mockResolvedValue({
       ...catalog,
       songs: [
@@ -1945,7 +1979,7 @@ describe("OtwPlayCatalogManager", () => {
       .mockImplementationOnce(() => new Promise((resolve) => {
         resolveFirstPublish = () => resolve({});
       }))
-      .mockRejectedValueOnce(new Error("channel approval changed"));
+      .mockRejectedValueOnce(accepted ? new ApiError("Accepted", 409, { code: "CONTENT_ACCEPTED" }) : new Error("channel approval changed"));
     renderCatalogManager();
 
     expect(await screen.findByText("미게시 가창 2개 · 2곡")).toBeTruthy();
@@ -1959,6 +1993,7 @@ describe("OtwPlayCatalogManager", () => {
       1,
       "performance-draft-one",
       { expectedVersion: 3 },
+      expect.any(String),
     );
     expect(publishPerformanceMock).not.toHaveBeenCalledWith(
       "performance-draft-two",
@@ -1971,6 +2006,7 @@ describe("OtwPlayCatalogManager", () => {
       2,
       "performance-draft-two",
       { expectedVersion: 5 },
+      expect.any(String),
     );
     expect(publishPerformanceMock).not.toHaveBeenCalledWith(
       "performance-withdrawn",
@@ -1978,8 +2014,15 @@ describe("OtwPlayCatalogManager", () => {
     );
     await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
       variant: "info",
-      description: "1개를 게시했고 1개는 검증 실패 또는 동시 변경으로 임시 저장 상태를 유지했습니다.",
+      description: accepted ? "1개 게시 완료 · 1개 접수 대기 · 0개 게시 실패. 이관 처리 후 저장 결과를 확인해 주세요." : "1개를 게시했고 1개는 검증 실패 또는 동시 변경으로 임시 저장 상태를 유지했습니다.",
     }));
+    if (accepted) {
+      const originalKey = publishPerformanceMock.mock.calls[1]![2];
+      fireEvent.click(screen.getByRole("button", { name: "미게시 곡 모두 게시" }));
+      fireEvent.click(screen.getByRole("button", { name: "2개 게시" }));
+      await waitFor(() => expect(publishPerformanceMock).toHaveBeenCalledTimes(4));
+      expect(publishPerformanceMock.mock.calls[3]![2]).toBe(originalKey);
+    }
   });
 
   it("shows only workflow sections and suggests current members without a prerequisite identity screen", async () => {
@@ -2071,7 +2114,7 @@ describe("OtwPlayCatalogManager", () => {
             ],
           },
         }),
-      ),
+       expect.any(String),),
     );
   });
 
@@ -2116,7 +2159,7 @@ describe("OtwPlayCatalogManager", () => {
       song: { kind: "existing", songId: "existing-song" }, relationType: "cover",
       performanceTags: ["라이브"], internalNote: "현장 라이브 버전", publicationTarget: "draft",
       participants: [expect.objectContaining({ participantRole: "other" })],
-    })));
+    }), expect.any(String)));
   });
 
   it("closes URL-only source inspection without confirmation and protects an actual registration draft", async () => {
@@ -2231,7 +2274,7 @@ describe("OtwPlayCatalogManager", () => {
             subject: expect.objectContaining({ kind: "new_external", displayName: "새 원곡 가수" }),
           })],
         }),
-      })));
+      }), expect.any(String)));
     },
   );
 
@@ -2391,7 +2434,7 @@ describe("OtwPlayCatalogManager", () => {
           song: { kind: "existing", songId: "song-medley" },
           publicationTarget: "draft",
         }),
-      ),
+       expect.any(String),),
     );
     const savedRequest = createEntryMock.mock.calls.at(-1)?.[0];
     expect(savedRequest).not.toHaveProperty("performanceTags");
@@ -2539,7 +2582,7 @@ describe("OtwPlayCatalogManager", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "채널 등록" }));
     await screen.findByRole("button", { name: "채널 수정 저장" });
-    expect(createChannelMock).toHaveBeenCalledWith(expect.objectContaining({ channelRole: channel.channelRole, externalChannelId: channel.externalChannelId }));
+    expect(createChannelMock).toHaveBeenCalledWith(expect.objectContaining({ channelRole: channel.channelRole, externalChannelId: channel.externalChannelId }),expect.any(String));
     expect(updateChannelMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("combobox", { name: "채널 검수 상태" }));
     fireEvent.click(await screen.findByRole("option", { name: "승인됨" }));
@@ -2602,7 +2645,7 @@ describe("OtwPlayCatalogManager", () => {
     await waitFor(() => expect(screen.getByLabelText("채널 표시명")).toHaveProperty("value", "수정한 채널"));
     updateChannelMock.mockImplementationOnce(async () => { fetchCatalogMock.mockResolvedValue({ ...catalog, channels: [{ ...channel, displayName: "수정한 채널", version: 4 }] }); return {}; });
     fireEvent.click(screen.getByRole("button", { name: "채널 수정 저장" }));
-    await waitFor(() => expect(updateChannelMock).toHaveBeenCalledWith(expect.objectContaining({ id: channel.id, expectedVersion: 3, displayName: "수정한 채널" })));
+    await waitFor(() => expect(updateChannelMock).toHaveBeenCalledWith(expect.objectContaining({ id: channel.id, expectedVersion: 3, displayName: "수정한 채널" }),expect.any(String)));
     await screen.findByText("version 4");
     fireEvent.click(screen.getByRole("button", { name: "작성 중인 검수로 돌아가기" }));
     const review = await screen.findByRole("region", { name: "노래 클립 검수 화면" });
@@ -2642,7 +2685,7 @@ describe("OtwPlayCatalogManager", () => {
     renderCatalogManager();
     fireEvent.click(await screen.findByRole("tab", { name: "채널" }));
     fireEvent.click(await openSecondaryAction("삭제 대상 채널 삭제"));
-    await waitFor(() => expect(deleteChannelMock).toHaveBeenCalledWith(channel.id, { expectedVersion: 3 }));
+    await waitFor(() => expect(deleteChannelMock).toHaveBeenCalledWith(channel.id, { expectedVersion: 3 },expect.any(String)));
     expect(confirmationMock).toHaveBeenCalledWith(expect.objectContaining({ title: "삭제 대상 채널을 삭제할까요?" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "삭제 대상 채널 삭제 메뉴" })).toBeNull());
   });
@@ -2749,7 +2792,7 @@ describe("OtwPlayCatalogManager", () => {
           startSeconds: 0,
           endSeconds: 180,
         }),
-      ),
+       expect.any(String),),
     );
   });
 
@@ -2788,7 +2831,7 @@ describe("OtwPlayCatalogManager", () => {
         })],
       }),
       participants: [expect.objectContaining({ subject: { kind: "member", memberUid: 1 } })],
-    })));
+    }), expect.any(String)));
   });
 
   it("requires clip channel approval when switching to karaoke without losing the video", async () => {
@@ -2856,7 +2899,7 @@ describe("OtwPlayCatalogManager", () => {
       startSeconds: 10, endSeconds: 90, channel: { kind: "existing", channelId: "clip-channel" },
       song: expect.objectContaining({ kind: "create", title: "방송 첫 곡", isOtwOriginal: false }),
       broadcast: { performedOn: "2026-09-15", dateEvidence: null, originalUrl: null, extent: "partial" },
-    }));
+    }), expect.any(String));
     fireEvent.click(screen.getByRole("button", { name: "같은 영상의 다음 곡 추가" }));
     expect([...dirtyStates.values()].some(Boolean)).toBe(true);
     expect(screen.getByLabelText("시작 위치(초)")).toHaveProperty("value", "90");
@@ -2880,7 +2923,7 @@ describe("OtwPlayCatalogManager", () => {
       registrationMode: "standard", relationType: "singing_clip", releaseType: "broadcast", startSeconds: 90, endSeconds: 180,
       song: expect.objectContaining({ title: "방송 다음 곡" }),
       broadcast: expect.objectContaining({ extent: null }),
-    }));
+    }), expect.any(String));
     expect(screen.getByRole("button", { name: "같은 영상의 다음 곡 추가" })).toHaveProperty("disabled", true);
     fireEvent.click(screen.getByRole("button", { name: "완료" }));
     await waitFor(() => expect(screen.getByLabelText("카탈로그 영상 종류").textContent).toBe("노래 클립"));
@@ -2953,12 +2996,12 @@ describe("OtwPlayCatalogManager", () => {
             owners: [{ kind: "member", memberUid: 1 }],
           }),
         }),
-      ),
+       expect.any(String),),
     );
   });
 
   it("keeps the registration step and chips after an integrated command failure", async () => {
-    createEntryMock.mockRejectedValueOnce(new Error("stale revision"));
+    createEntryMock.mockRejectedValueOnce(new ApiError("접수된 저장을 처리 중입니다.",409,{code:"CONTENT_ACCEPTED"}));
     await openVideoRegistration();
     await screen.findByRole("region", { name: "등록 채널 상태" });
     fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
@@ -2978,10 +3021,15 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
 
-    expect((await screen.findByRole("alert")).textContent).toContain("stale revision");
+    expect((await screen.findByRole("alert")).textContent).toContain("접수된 저장을 처리 중입니다.");
     expect(screen.getByRole("dialog", { name: "새 YouTube 영상 등록" })).toBeTruthy();
     expect(screen.getAllByText(/현재 멤버/).length).toBeGreaterThan(0);
     expect(screen.getByText("실패 후 보존 원곡")).toBeTruthy();
     expect(screen.getByText(/입력 보존 가수/)).toBeTruthy();
+    const requestId=createEntryMock.mock.calls[0][1];expect(requestId).toEqual(expect.any(String));
+    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
+    await waitFor(()=>expect(createEntryMock).toHaveBeenCalledTimes(2));
+    expect(createEntryMock.mock.calls[1][1]).toBe(requestId);
+    await waitFor(()=>expect(screen.queryByRole("dialog",{name:"새 YouTube 영상 등록"})).toBeNull());
   });
 });

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {siteEnv} from '../../../test-support/site-env';
 import type { Env } from "../../../platform/types";
 import {
   DATA_RETENTION_POLICIES,
@@ -40,6 +41,7 @@ const isPrunableRow = (
 const makeEnv = (state: FakeD1State): Env => {
   let lastChanges = 0;
   return ({
+    ...siteEnv(),
     otw_db: {
       batch: async (statements: Array<{ all: () => Promise<unknown> }>) => {
         const results = [];

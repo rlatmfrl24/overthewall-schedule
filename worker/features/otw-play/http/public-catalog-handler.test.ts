@@ -171,9 +171,7 @@ describe("OTW Play public catalog HTTP handler", () => {
       nextCursor: null,
       catalogRevision: 7,
     });
-    expect(response.headers.get("Cache-Control")).toBe(
-      "public, max-age=60, s-maxage=1800",
-    );
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 
   it("fails closed for catalog and facets while disabled", async () => {

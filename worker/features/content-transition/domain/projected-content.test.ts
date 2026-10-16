@@ -52,6 +52,12 @@ describe("the versioned content projection boundary", () => {
     const work=await projectCapturedRecord("music_ingestion_events",'["work-event"]',{id:"work-event",detail_json:'{"disposition":"held","reason":"Keep original review"}'},context);
     expect(work?.value.detail_json).toEqual({disposition:"held",reason:"Keep original review"});
   });
+  it('retains original ingestion response evidence without transferring dispatch keys',async()=>{
+    const detail={kind:'video_batch',messageKey:'source-execution-key',nextPageToken:'source-page-token',skippedVideoIds:['selected-video'],observations:[{videoId:'other-video',availabilityStatus:'playable',video:{videoId:'other-video',channelId:'public-channel',title:'Original observation'}}]};
+    const record=await projectCapturedRecord('music_ingestion_events','["response"]',{id:'response',detail_json:JSON.stringify(detail)},context);
+    expect(record?.value.detail_json).toEqual({kind:'video_batch',skippedVideoIds:detail.skippedVideoIds,observations:detail.observations});
+    await expect(projectCapturedRecord('music_ingestion_events','["response"]',{id:'response',detail_json:JSON.stringify({...detail,unreviewedAuthority:'deny'})},context)).rejects.toThrow(/shape/);
+  });
   it("requires approved classification and preserves mapped mixed notice credits", async () => {
     const classification={table:"ddays",key:"[1]",disposition:"include" as const,reason:"Reviewed selected anniversary"};
     await expect(projectCapturedRecord("ddays","[1]",{id:1,title:"Anniversary"},context)).rejects.toThrow(/classification/);

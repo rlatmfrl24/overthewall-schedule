@@ -10,7 +10,8 @@ import { SiteContentSelectedDateContext } from "./date-context";
 // The server's readable fallback is replaced by the existing app at startup.
 // Keep public metadata fresh without adding a second content surface to the UI.
 export function SiteContentMetadata({ path }: { path: string }) {
-  const date = useContext(SiteContentSelectedDateContext);
+  const selectedDate = useContext(SiteContentSelectedDateContext);
+  const date = path === '/' || path === '/weekly' ? selectedDate : undefined;
   return <CurrentSiteContentMetadata key={`${path}:${date ?? ""}`} path={path} date={date} />;
 }
 

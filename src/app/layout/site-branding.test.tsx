@@ -15,7 +15,7 @@ it("keeps schedule/content navigation and member Play policy with no unconfigure
   const items = sections.flatMap(s => s.items);
   expect(items.find(i => i.id === "otw-play")).toMatchObject({ label: "LuvDia Play", to: "/play/submit", requiresAuth: true });
   expect(items.find(i => i.id === "feed")).toMatchObject({ to: "/feed", requiresAuth: true });
-  expect(items.find(i => i.id === "multiview")).toMatchObject({ label: "LuvDia Schedule 멀티뷰" });
+  expect(items.find(i => i.id === "multiview")).toMatchObject({ label: "멀티뷰" });
   expect(items.some(i => i.id === "fan-cafe")).toBe(false);
 });
 

@@ -9,6 +9,8 @@ const sourceRoots = ["src", "worker", "contracts", "db"]
 const errors = [];
 const publicWorkerCommandEntries = new Set([
   "worker/features/schedules/commands.ts",
+  "worker/features/notices/commands.ts",
+  "worker/features/ddays/commands.ts",
   "worker/features/otw-play/commands.ts",
   "worker/features/assets/commands.ts",
   "worker/features/x-posts/commands.ts",

@@ -1,12 +1,6 @@
-import type { DDayDto, DDayType } from "../../../../../contracts/ddays";
-
-export interface DDayWriteInput {
-  title: string;
-  date: string;
-  description: string | null;
-  color: string | null;
-  type: DDayType;
-}
+import type { DDayDto } from "../../../../../contracts/ddays";
+import type { DDayWriteInput } from "../../domain/dday-command";
+export type { DDayWriteInput } from "../../domain/dday-command";
 
 export interface DDayRepository {
   list(): Promise<DDayDto[]>;

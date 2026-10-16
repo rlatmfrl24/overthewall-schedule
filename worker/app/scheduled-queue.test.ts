@@ -7,10 +7,13 @@ const mocks = vi.hoisted(() => ({
   readItem: vi.fn(),
   completeItem: vi.fn(),
   releaseItemForRetry: vi.fn(),
+  hasOriginalTransitionWork:vi.fn(),
+  deferOriginalTransitionItem:vi.fn(),
   reserveQueueOperations: vi.fn(),
   markRunFailed: vi.fn(),
   markItemDeadLetter: vi.fn(),
   refreshRun: vi.fn(),
+  acknowledgeReconciliation: vi.fn(),
   execute: vi.fn(),
   finalizeLegacyState: vi.fn(),
   advanceRun: vi.fn(),
@@ -23,10 +26,13 @@ vi.mock("../platform/scheduled-jobs", () => ({
     readItem = mocks.readItem;
     completeItem = mocks.completeItem;
     releaseItemForRetry = mocks.releaseItemForRetry;
+    hasOriginalTransitionWork=mocks.hasOriginalTransitionWork;
+    deferOriginalTransitionItem=mocks.deferOriginalTransitionItem;
     reserveQueueOperations = mocks.reserveQueueOperations;
     markRunFailed = mocks.markRunFailed;
     markItemDeadLetter = mocks.markItemDeadLetter;
     refreshRun = mocks.refreshRun;
+    acknowledgeReconciliation = mocks.acknowledgeReconciliation;
   },
 }));
 
@@ -61,8 +67,12 @@ describe("scheduled job queue", () => {
       status: "succeeded",
       result: { ok: true },
     });
-    mocks.completeItem.mockResolvedValue(true);
+    mocks.completeItem.mockImplementation(async (current, outcome) => {
+      mocks.readItem.mockResolvedValue({ ...current, status: outcome.status });
+      return true;
+    });
     mocks.releaseItemForRetry.mockResolvedValue(true);
+    mocks.hasOriginalTransitionWork.mockResolvedValue(false);
     mocks.reserveQueueOperations.mockResolvedValue(true);
     mocks.advanceRun.mockResolvedValue(false);
     mocks.dispatchRun.mockResolvedValue({ dispatched: 1 });

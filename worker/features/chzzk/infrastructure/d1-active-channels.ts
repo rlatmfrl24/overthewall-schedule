@@ -1,3 +1,5 @@
+import { publicationHiddenSql } from "../../content-transition";
+import { type SiteId } from "@contracts/site-definition";
 import {
   CHZZK_CHANNEL_ID_PATTERN,
 } from "../domain/channel-targets";
@@ -29,6 +31,7 @@ const extractChannelId = (value: string | null) => {
 
 export const readActiveChzzkChannels = async (
   database: D1Database,
+  siteId: SiteId = "otw",
 ): Promise<ReadonlySet<string>> => {
 
   try {
@@ -37,7 +40,7 @@ export const readActiveChzzkChannels = async (
          FROM members
          WHERE url_chzzk IS NOT NULL
            AND TRIM(url_chzzk) <> ''
-           AND content_access = 'normal'
+           AND content_access = 'normal' AND NOT (${publicationHiddenSql("members","members",siteId)})
            AND (is_deprecated IS NULL OR is_deprecated != 1)`,
     );
     const executable =

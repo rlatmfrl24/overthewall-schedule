@@ -1,24 +1,26 @@
+import { publicationHiddenSql } from "../../content-transition";
+import { parseSiteId, type SiteId } from "@contracts/site-definition";
 import type { YouTubeVodsRequest, YouTubeVodsResponseDto } from "@contracts/youtube";
 import type { Env } from "../../../platform/types";
 import { YOUTUBE_CHANNEL_ID_PATTERN } from "../domain/channel-targets";
 import { decodeVodCursor, encodeVodCursor } from "../domain/vod-cursor";
 
 type LinkRow = { member_uid: number; name: string; label: string; youtube_channel_id: string | null; initialization_completed_at: number | null; last_success_at: number | null; last_error_code: string | null; source_id: number | null };
-const readLinks = async (db: D1Database) => (await db.prepare(`
+const readLinks = async (db: D1Database, siteId: SiteId) => (await db.prepare(`
   SELECT member.uid AS member_uid, member.name, link.label, link.youtube_channel_id,
     source.id AS source_id, source.initialization_completed_at, source.last_success_at, source.last_error_code
   FROM member_links link JOIN members member ON member.uid = link.member_uid
   LEFT JOIN youtube_feed_sources source ON source.youtube_channel_id = link.youtube_channel_id
     AND source.source_kind = 'official' AND source.enabled = 1
   WHERE link.type = 'youtube_vod' AND link.enabled = 1
-    AND member.content_access = 'normal' AND (member.is_deprecated IS NULL OR member.is_deprecated != 1)
+    AND member.content_access = 'normal' AND NOT (${publicationHiddenSql("members","member",siteId)}) AND (member.is_deprecated IS NULL OR member.is_deprecated != 1)
   ORDER BY member.uid, link.sort_order, link.id
 `).all<LinkRow>()).results ?? [];
 
 export const readYouTubeVods = async (env: Env, input: YouTubeVodsRequest): Promise<YouTubeVodsResponseDto> => {
   const filter = [...new Set(input.memberUids)].sort((a, b) => a - b);
   const cursor = decodeVodCursor(input.cursor, filter);
-  const links = (await readLinks(env.otw_db)).filter((link) => link.youtube_channel_id && YOUTUBE_CHANNEL_ID_PATTERN.test(link.youtube_channel_id));
+  const links = (await readLinks(env.otw_db, parseSiteId(env.SITE_ID))).filter((link) => link.youtube_channel_id && YOUTUBE_CHANNEL_ID_PATTERN.test(link.youtube_channel_id));
   const availableMemberUids = [...new Set(links.map((link) => link.member_uid))];
   const selected = links.filter((link) => !filter.length || filter.includes(link.member_uid));
   const channels = [...new Set(selected.map((link) => link.youtube_channel_id!))];

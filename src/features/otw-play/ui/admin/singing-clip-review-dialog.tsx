@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import {ApiError,getContentTransitionMessage} from '@/shared/api/client';
 import { applyReviewCatalogChanges } from "../../queries/review-catalog-changes";
 import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
 import { ReviewPublicationPreview } from "./review-publication-preview";
@@ -415,14 +416,15 @@ export function SingingClipReviewDialog({
       setSaveMessage("저장 완료 · 서버 결과 확인 중");
       onOpenChange(false);
       await onConverted(converted.performanceId);
-    } catch {
-      setSaveMessage(reviewSaved && reviewOnly ? "검수 저장 완료 · 다음 항목을 불러오지 못했습니다. 다시 시도해 주세요." : "저장 실패 · 입력값과 최신 후보를 확인하고 다시 저장해 주세요.");
+    } catch(error) {
+      const transitionMessage=getContentTransitionMessage(error);
+      setSaveMessage(transitionMessage??(reviewSaved && reviewOnly ? "검수 저장 완료 · 다음 항목을 불러오지 못했습니다. 다시 시도해 주세요." : "저장 실패 · 입력값과 최신 후보를 확인하고 다시 저장해 주세요."));
       if (reviewSaved) {
         await onReviewStateChanged().catch(() => undefined);
       }
       toast({
-        variant: "error",
-        description: reviewSaved && reviewOnly ? "검수는 저장됐습니다. 다음 항목을 불러오려면 다시 시도해 주세요." : "검수 영상을 임시 항목으로 저장하지 못했습니다. 최신 후보와 입력값을 확인해 주세요.",
+        variant: error instanceof ApiError&&error.code==='CONTENT_ACCEPTED'?'info':"error",
+        description: transitionMessage??(reviewSaved && reviewOnly ? "검수는 저장됐습니다. 다음 항목을 불러오려면 다시 시도해 주세요." : "검수 영상을 임시 항목으로 저장하지 못했습니다. 최신 후보와 입력값을 확인해 주세요."),
       });
     } finally {
       setSaving(false);

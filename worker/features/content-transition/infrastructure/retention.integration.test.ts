@@ -1,3 +1,4 @@
+import {catalogImportProjection} from "../../otw-play";
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { beforeAll, beforeEach, expect, it } from "vitest";
 import { D1TransitionRepository } from "./d1-transition-repository";
@@ -12,7 +13,7 @@ import { D1IngestionRepository } from "../../otw-play/infrastructure/d1-ingestio
 
 const runtime = env as unknown as Env & { CONTENT_TRANSITION_MIGRATIONS: D1Migration[];transition_target_db:D1Database };
 const db = runtime.otw_db;
-const source = new D1TransitionRepository(db, "otw", "otw-db");
+const source = new D1TransitionRepository(db, "otw", "otw-db", null, null, catalogImportProjection);
 const classifications: TransitionPlan["classifications"][number][] = [];
 const plan: TransitionPlan = { id: "retention", sourceSite: "otw", targetSite: "luvdia", sourceResource: "otw-db", targetResource: "luvdia-db", generation: 2, protocol: 1, manifestDigest: "held-content", members: [
   { code: "bing_hayu", uid: 1, targetUid: 1 }, { code: "u_lili", uid: 2, targetUid: 2 }, { code: "yang_mei", uid: 3, targetUid: 3 },
@@ -48,10 +49,15 @@ beforeEach(async ({task}) => {
 
 it("does not reschedule moved source work through stale metadata, registry status, or old enabled flags",async()=>{
   await runtime.transition_target_db.batch([runtime.transition_target_db.prepare("DELETE FROM member_links"),runtime.transition_target_db.prepare("DELETE FROM music_entities"),runtime.transition_target_db.prepare("DELETE FROM members")]);
-  const target=new D1TransitionRepository(runtime.transition_target_db,"luvdia","luvdia-db");
+  const target=new D1TransitionRepository(runtime.transition_target_db,"luvdia","luvdia-db", null, null, catalogImportProjection);
   const stored=JSON.parse((await db.prepare("SELECT plan_json FROM content_transitions WHERE id=?").bind(plan.id).first<string>("plan_json"))!);
   await target.prepare(stored);
   await source.beginCopy(plan.id);await source.beginReplay(plan.id);
+  const header=await source.describeBaseline(plan.id);await target.beginBaseline(header);
+  let cursor:Awaited<ReturnType<typeof source.exportBaselinePage>>["next"]|0=0;
+  do {const page=await source.exportBaselinePage(header,cursor);await target.stageBaselinePage(page);cursor=page.next;}while(cursor.ordinal<header.rows);
+  while(await target.materializeBaselinePage(plan.id)) { /* actual inactive installation */ }
+  await target.finalizeBaseline(plan.id);
   await source.acknowledgeIngress(await target.openIngress(plan.id,"ready",Date.now()+60000),Date.now());
   await source.freeze(plan.id,Date.now());
   expect(await hasScheduledYouTubeFeedWork({...runtime,YOUTUBE_API_KEY:"fixture-not-used"},Date.now())).toBe(false);

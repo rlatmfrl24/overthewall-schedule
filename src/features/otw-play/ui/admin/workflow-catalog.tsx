@@ -7,6 +7,7 @@ import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type {
+  OtwPlayAdminUpdatePerformanceRequest,
   OtwPlayAdminCatalogDto,
   OtwPlayAdminPerformanceDto,
   OtwPlayAdminPerformanceSourceInput,
@@ -134,6 +135,8 @@ export function WorkflowCatalog({
   run,
   onPublishDrafts,
   onAddPerformance,
+  publicationRequestId,
+  deletionRequestId,
 }: {
   scope?: "official" | "broadcast" | "all";
   catalog: OtwPlayAdminCatalogDto;
@@ -141,6 +144,8 @@ export function WorkflowCatalog({
   run: Run;
   onPublishDrafts: (performances: OtwPlayAdminPerformanceDto[]) => Promise<void>;
   onAddPerformance: (songId: string) => void;
+  publicationRequestId: (performance: OtwPlayAdminPerformanceDto, target: "published" | "withdrawn") => string;
+  deletionRequestId: (kind: "song" | "performance", id: string, version: number) => string;
 }) {
   const scopedPerformances = catalog.performances.filter(performance => scope === "all" || (scope === "broadcast" ? performance.releaseType === "broadcast" : performance.releaseType !== "broadcast"));
   const scopedSongIds = new Set(scopedPerformances.map(performance => performance.songId));
@@ -237,7 +242,7 @@ export function WorkflowCatalog({
         <DropdownMenuItem disabled={saving !== null} onSelect={() => setConfirmation({
           title: "가창을 게시할까요?",
           description: "승인 채널, 가창 정보와 재생 구간을 다시 확인한 뒤 공개 상태로 전환합니다.",
-          action: async () => { await run("가창 게시", () => publishOtwPlayPerformance(performance.id, { expectedVersion: performance.version })); },
+          action: async () => { await run("가창 게시", () => publishOtwPlayPerformance(performance.id, { expectedVersion: performance.version }, publicationRequestId(performance, "published"))); },
         })}>게시</DropdownMenuItem>
       )}
       <div role="separator" className="my-1 border-t" />
@@ -251,7 +256,7 @@ export function WorkflowCatalog({
             description: "이 가창과 연결 정보를 영구 삭제합니다. 승인 제안과 작업 이력은 보존됩니다. 이 작업은 되돌릴 수 없습니다.",
             destructive: true,
             confirmLabel: "삭제",
-            action: async () => { await run("가창 삭제", () => deleteOtwPlayPerformance(performance.id, { expectedVersion: performance.version })); },
+            action: async () => { await run("가창 삭제", () => deleteOtwPlayPerformance(performance.id, { expectedVersion: performance.version }, deletionRequestId("performance",performance.id,performance.version))); },
           })}
         >
           <Trash2 className="h-3.5 w-3.5" /> 삭제
@@ -262,7 +267,7 @@ export function WorkflowCatalog({
           title: "가창을 철회할까요?",
           description: "공개 카탈로그에서 내려가며 기존 metadata와 event 이력은 보존됩니다.",
           destructive: true,
-          action: async () => { await run("가창 철회", () => withdrawOtwPlayPerformance(performance.id, { expectedVersion: performance.version })); },
+          action: async () => { await run("가창 철회", () => withdrawOtwPlayPerformance(performance.id, { expectedVersion: performance.version }, publicationRequestId(performance, "withdrawn"))); },
         })}>철회</DropdownMenuItem>
       )}
         </DropdownMenuContent>
@@ -294,7 +299,7 @@ export function WorkflowCatalog({
             : "곡 정보를 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.",
           destructive: true,
           confirmLabel: "삭제",
-          action: async () => { await run("곡 삭제", () => deleteOtwPlaySong(song.id, { expectedVersion: song.version })); },
+          action: async () => { await run("곡 삭제", () => deleteOtwPlaySong(song.id, { expectedVersion: song.version }, deletionRequestId("song",song.id,song.version))); },
         })}
       >
         <Trash2 className="h-3.5 w-3.5" /> 곡 삭제
@@ -500,9 +505,18 @@ function SongEditDialog({ catalog, song, onOpenChange, run }: { catalog: OtwPlay
       return memberUid != null ? {kind: "member", memberUid} : {kind: "entity", entityId: artist.entityId};
     }))
   )));
+  const requestIdentity=useRef<{body:string;id:string}|null>(null);
+  const save=async()=>{
+    if(!song) return;
+    const input={id:song.id,expectedVersion:song.version,slug:song.slug,title:title.trim(),isOtwOriginal:original,originalReleaseDate:song.originalReleaseDate,originalReleasePrecision:song.originalReleasePrecision,aliases:song.aliases.map(alias=>({alias:alias.alias,locale:alias.locale,aliasKind:alias.aliasKind})),originalArtists:artists.map((artist,index)=>({subject:artist.subject,creditOrder:index,isPrimary:index===0})),tags};
+    const body=JSON.stringify(input);
+    if(requestIdentity.current?.body!==body) requestIdentity.current={body,id:crypto.randomUUID()};
+    const ok=await run("곡 정보 수정",()=>updateOtwPlaySong(input,requestIdentity.current!.id));
+    if(ok) {requestIdentity.current=null;onOpenChange(false);}
+  };
   const close = async (open: boolean) => { if (open || await canDiscard()) onOpenChange(open); };
   const open = song !== null;
-  return <Dialog open={open} onOpenChange={(open) => void close(open)}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>곡 정보 수정</DialogTitle></DialogHeader>{song && <div className="space-y-3"><div className="space-y-1.5"><Label htmlFor="edit-song-title">곡명</Label><Input id="edit-song-title" value={title} onChange={(event) => setTitle(event.target.value)} /></div><SongTagPicker tags={tags} onChange={setTags} /><SubjectPicker label="원곡 가수" placeholder="멤버 또는 기존 원곡 가수 검색" helpText="기존 가수를 선택하거나 새 외부 인물·그룹을 칩으로 추가할 수 있습니다. 첫 번째 가수를 대표 원곡 가수로 저장합니다." members={members} entities={catalog.entities} selected={artists} onChange={setArtists} /><label className="flex items-center gap-2 text-sm"><Checkbox checked={original} onCheckedChange={(checked) => setOriginal(checked === true)} /> OTW 오리지널곡</label></div>}<DialogFooter><Button variant="outline" onClick={() => void close(false)}>취소</Button><Button disabled={!title.trim() || artists.length === 0} onClick={() => { if (!song) return; void run("곡 정보 수정", () => updateOtwPlaySong({ id: song.id, expectedVersion: song.version, slug: song.slug, title: title.trim(), isOtwOriginal: original, originalReleaseDate: song.originalReleaseDate, originalReleasePrecision: song.originalReleasePrecision, aliases: song.aliases.map((alias) => ({ alias: alias.alias, locale: alias.locale, aliasKind: alias.aliasKind })), originalArtists: artists.map((artist, index) => ({ subject: artist.subject, creditOrder: index, isPrimary: index === 0 })), tags })).then((ok) => ok && onOpenChange(false)); }}>저장</Button></DialogFooter></DialogContent></Dialog>;
+  return <Dialog open={open} onOpenChange={(open) => void close(open)}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>곡 정보 수정</DialogTitle><DialogDescription>곡명, 원곡 가수와 태그를 수정합니다.</DialogDescription></DialogHeader>{song && <div className="space-y-3"><div className="space-y-1.5"><Label htmlFor="edit-song-title">곡명</Label><Input id="edit-song-title" value={title} onChange={(event) => setTitle(event.target.value)} /></div><SongTagPicker tags={tags} onChange={setTags} /><SubjectPicker label="원곡 가수" placeholder="멤버 또는 기존 원곡 가수 검색" helpText="기존 가수를 선택하거나 새 외부 인물·그룹을 칩으로 추가할 수 있습니다. 첫 번째 가수를 대표 원곡 가수로 저장합니다." members={members} entities={catalog.entities} selected={artists} onChange={setArtists} /><label className="flex items-center gap-2 text-sm"><Checkbox checked={original} onCheckedChange={(checked) => setOriginal(checked === true)} /> OTW 오리지널곡</label></div>}<DialogFooter><Button variant="outline" onClick={() => void close(false)}>취소</Button><Button disabled={!title.trim() || artists.length === 0} onClick={() => void save()}>저장</Button></DialogFooter></DialogContent></Dialog>;
 }
 
 type EditableParticipant = SelectedSubject & {
@@ -539,6 +553,7 @@ function PerformanceEditDialog({
   run: Run;
 }) {
   const initializedPerformance = useRef<OtwPlayAdminPerformanceDto | null>(null);
+  const saveRequests=useRef(new Map<string,string>());
   const [sameSingingConfirmed, setSameSingingConfirmed] = useState(false);
   const [broadcast, setBroadcast] = useState(EMPTY_BROADCAST);
   const [songId, setSongId] = useState("");
@@ -1050,8 +1065,7 @@ function PerformanceEditDialog({
               const releasedTimestamp = releasedAt
                 ? new Date(releasedAt).getTime()
                 : null;
-              void run("가창 정보 수정", () =>
-                updateOtwPlayPerformance({
+              const command:OtwPlayAdminUpdatePerformanceRequest={
                   id: performance.id,
                   expectedVersion: performance.version,
                   songId,
@@ -1075,8 +1089,10 @@ function PerformanceEditDialog({
                       participant.creditNameSnapshot.trim() || participant.label,
                   })),
                   sources: parsedSources,
-                }),
-              ).then((ok) => ok && onOpenChange(false));
+                };
+              const key=JSON.stringify(command),requestId=saveRequests.current.get(key)??crypto.randomUUID();
+              saveRequests.current.set(key,requestId);
+              void run("가창 정보 수정", () => updateOtwPlayPerformance(command,requestId)).then((ok) => ok && onOpenChange(false));
             }}
           >
             전체 정보 저장

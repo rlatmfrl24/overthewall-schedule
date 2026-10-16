@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { siteEnv } from "../../test-support/site-env";
 import { clearAuthCachesForTests } from "../../platform/auth";
 import {
   buildXPostsApplication,
@@ -196,15 +197,16 @@ const makeCacheDb = (
               return null as T | null;
             },
             async all<T>() {
+              if (sql.includes("NULL AS handle FROM x_posts")) return { results: [] as T[] };
               if (sql.includes("FROM x_post_sources")) {
                 return { results: args.flatMap((handle) => {
                   const source = sources.get(String(handle));
                   return source ? [source] : [];
                 }) as T[] };
               }
-              if (sql.includes("FROM members")) {
+              if (sql.trim().startsWith("SELECT url_twitter") && sql.includes("FROM members")) {
                 return {
-                  results: [
+                  results: sql.includes("content_access='admin_archive'") ? [] : [
                     { url_twitter: "https://x.com/otw_member" },
                   ] as T[],
                 };
@@ -472,6 +474,7 @@ describe("x worker service", () => {
     overrides: Partial<Parameters<typeof handleXPosts>[1]> = {},
   ) =>
     ({
+      ...siteEnv(),
       YOUTUBE_API_KEY: "",
       X_BEARER_TOKEN: "token",
       CLERK_ISSUER: AUTH_ISSUER,
@@ -2753,6 +2756,7 @@ describe("x worker service", () => {
     const response = await handleXPosts(
       new Request("https://example.com/api/x/posts?handles=otw_member"),
       {
+        ...siteEnv(),
         YOUTUBE_API_KEY: "",
         X_BEARER_TOKEN: "token",
         otw_db: makeCacheDb(publicXSettings).db,
@@ -2975,6 +2979,7 @@ describe("x worker service", () => {
     const response = await handleXPosts(
       new Request("https://example.com/api/x/posts?handles=otw_member"),
       {
+        ...siteEnv(),
         YOUTUBE_API_KEY: "",
         X_BEARER_TOKEN: "token",
         otw_db: makeCacheDb(publicXSettings).db,
@@ -2983,7 +2988,7 @@ describe("x worker service", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe(
-      "public, max-age=300, s-maxage=1800, stale-while-revalidate=3600",
+      "no-store",
     );
     await expect(response.json()).resolves.toMatchObject({
       posts: [],

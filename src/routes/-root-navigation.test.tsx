@@ -9,6 +9,9 @@ import { resolveSiteSeo } from "@contracts/site-seo";
 import { useSiteContentDate } from "@/features/site-content";
 import { apiFetch } from "@/shared/api/client";
 import { Route } from "./__root";
+import {SITE_OPENS_AT} from '@contracts/site-publication';
+
+vi.mock('@clerk/clerk-react',()=>({useAuth:()=>({isLoaded:true,sessionId:null})}));
 
 vi.mock("@/app/layout", () => ({
   getAppChromeMode: () => "public",
@@ -41,6 +44,7 @@ function Schedule({ date }: { date: string }) {
 function renderApp(initialPath = "/play") {
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   vi.mocked(apiFetch).mockImplementation(async url => {
+    if(new URL(url,'http://localhost').pathname==='/api/publication-status') return {siteId:'otw',phase:'open',canPreview:false,opensAt:SITE_OPENS_AT,serverNow:new Date().toISOString()};
     const path = new URL(url, "http://localhost").searchParams.get("path")!;
     return {
       path, date: "2026-09-29", metadata: resolveSiteSeo(path, site),

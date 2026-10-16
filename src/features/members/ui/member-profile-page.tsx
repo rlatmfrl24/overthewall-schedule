@@ -18,6 +18,7 @@ import { buildNotFoundSiteSeo, buildProfileSiteSeo } from "@contracts/site-seo";
 import { useSiteSeo } from "@/shared/seo";
 import { Button } from "@/shared/ui/button";
 import { useAuthenticatedImage, useAuthenticatedImages } from "@/shared/hooks/use-authenticated-image";
+import { useContentSession } from "@/shared/hooks/content-session";
 import {
   ArrowLeft,
   Cake,
@@ -497,6 +498,7 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
   );
 
   const activeImageUrl = useAuthenticatedImage(profileImages[0]?.imageUrl, includeArchived);
+  const authenticatedProfile=Boolean(useContentSession()) || includeArchived;
   const activeImage = activeImageUrl && profileImages[0] ? { ...profileImages[0], imageUrl: activeImageUrl } : null;
   const profileBackgroundSourceSets = useMemo(
     () =>
@@ -504,10 +506,10 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
         ? buildProfileBackgroundImageSourceSets(
           member.code,
           member.backgroundImages,
-          includeArchived ? "/r2-assets" : undefined,
+          authenticatedProfile ? "/r2-assets" : undefined,
         ).filter((background) => !failedProfileBackgroundIds.includes(background.id))
         : [],
-    [failedProfileBackgroundIds, member, includeArchived],
+    [failedProfileBackgroundIds, member, authenticatedProfile],
   );
   const authenticatedBackground = useAuthenticatedImages(profileBackgroundSourceSets.flatMap(background => [background.sources.src, background.sources.fallbackSrc]), includeArchived);
   const resolvedProfileBackgroundSourceSets = useMemo(
@@ -519,7 +521,7 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
           ? background.sources.src
           : background.sources.fallbackSrc;
         const src = authenticatedBackground(source);
-        const srcSet = usesOptimized && !includeArchived ? background.sources.srcSet : undefined;
+        const srcSet = usesOptimized && !authenticatedProfile ? background.sources.srcSet : undefined;
         const sizes = usesOptimized ? background.sources.sizes : undefined;
 
         return {
@@ -533,7 +535,7 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
           usesOptimized,
         };
       }).filter((background): background is typeof background & {image: {src:string}} => Boolean(background.image.src)),
-    [failedOptimizedProfileBackgroundIds, profileBackgroundSourceSets, authenticatedBackground, includeArchived],
+    [failedOptimizedProfileBackgroundIds, profileBackgroundSourceSets, authenticatedBackground, authenticatedProfile],
   );
   const loadedProfileBackgroundSourceSets = useMemo(
     () =>

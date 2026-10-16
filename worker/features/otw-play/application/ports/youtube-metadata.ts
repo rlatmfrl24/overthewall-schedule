@@ -44,13 +44,13 @@ export type OtwPlayYouTubeMetadataErrorCode =
   | "invalid_request";
 
 export interface OtwPlayYouTubeMetadataReader {
-  readChannel(channelId: string): Promise<OtwPlayYouTubeChannelMetadata | null>;
-  readVideo(videoId: string): Promise<OtwPlayYouTubeVideoMetadata | null>;
+  readChannel(channelId: string,attempt?:{beforeHttp:()=>Promise<void>}): Promise<OtwPlayYouTubeChannelMetadata | null>;
+  readVideo(videoId: string,attempt?:{beforeHttp:()=>Promise<void>}): Promise<OtwPlayYouTubeVideoMetadata | null>;
 }
 
 export interface OtwPlayYouTubeBatchMetadataReader
   extends OtwPlayYouTubeMetadataReader {
-  readVideos(videoIds: readonly string[]): Promise<OtwPlayYouTubeVideoObservation[]>;
+  readVideos(videoIds: readonly string[],attempt?:{beforeHttp:()=>Promise<void>}): Promise<OtwPlayYouTubeVideoObservation[]>;
 }
 
 export interface OtwPlayYouTubePlaylistSummary {

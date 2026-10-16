@@ -58,17 +58,19 @@ export const fetchMyOtwPlaySubmission = (id: string) =>
 export const updateOtwPlaySubmission = (
   id: string,
   json: OtwPlayUpdateSubmissionRequest,
+  requestId?:string,
 ) =>
   memberRequest<{ data: OtwPlayMemberSubmissionDto }>(
     apiRoutes.otwPlay.submissions.detail.build(id),
-    { method: "PATCH", json },
+    { method: "PATCH", json,...(requestId?{headers:{'Idempotency-Key':requestId}}:{}) },
   ).then((response) => response.data);
 
 export const withdrawOtwPlaySubmission = (
   id: string,
   json: OtwPlayWithdrawSubmissionRequest,
+  requestId?:string,
 ) =>
   memberRequest<{ data: OtwPlayMemberSubmissionDto }>(
     apiRoutes.otwPlay.submissions.withdraw.build(id),
-    { method: "POST", json },
+    { method: "POST", json,...(requestId?{headers:{'Idempotency-Key':requestId}}:{}) },
   ).then((response) => response.data);

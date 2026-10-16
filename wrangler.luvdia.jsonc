@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "luvdia-schedule",
+  "keep_vars": true,
   "main": "worker/index.ts",
   "compatibility_date": "2025-11-25",
   "assets": {
@@ -8,26 +9,7 @@
     "binding": "ASSETS",
     "html_handling": "drop-trailing-slash",
     "not_found_handling": "404-page",
-    "run_worker_first": [
-      "/*%*",
-      "/api/*",
-      "/",
-      "/weekly",
-      "/weekly/",
-      "/notice",
-      "/notice/",
-      "/vods",
-      "/vods/",
-      "/rights",
-      "/rights/",
-      "/r2-assets/*",
-      "/feed",
-      "/feed/",
-      "/play",
-      "/play/*",
-      "/profile/*",
-      "/sitemap.xml"
-    ]
+    "run_worker_first": true
   },
   "observability": {
     "enabled": true
@@ -43,8 +25,9 @@
     "SITE_ID": "luvdia",
     "SITE_D1_DATABASE_NAME": "luvdia-db",
     "SITE_ASSET_BUCKET_NAME": "luvdia-schedule",
-    "SITE_RESOURCES_PROVISIONED": "false",
-    "OTW_PLAY_AI_REVIEW_ENABLED": "false"
+    "SITE_RESOURCES_PROVISIONED": "true",
+    "OTW_PLAY_AI_REVIEW_ENABLED": "false",
+    "SITE_PUBLIC_ORIGIN": "https://luvdia-schedule.info"
   },
   "analytics_engine_datasets": [
     {
@@ -56,7 +39,8 @@
     {
       "binding": "otw_db",
       "database_name": "luvdia-db",
-      "migrations_dir": "drizzle"
+      "migrations_dir": "drizzle",
+      "database_id": "ce8eec7f-0922-4119-ab75-f67133b94312"
     }
   ],
   "r2_buckets": [
@@ -74,6 +58,21 @@
         "limit": 3,
         "period": 60
       }
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "3,13,23,33,53 * * * *"
+    ]
+  },
+  "placement": {
+    "region": "aws:ap-northeast-2"
+  },
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "luvdia-schedule.info",
+      "custom_domain": true
     }
   ],
   "queues": {
@@ -158,14 +157,5 @@
         "steps": 3
       }
     }
-  ],
-  "triggers": {
-    "crons": [
-      "3,13,23,33,53 * * * *"
-    ]
-  },
-  "placement": {
-    "region": "aws:ap-northeast-2"
-  },
-  "workers_dev": false
+  ]
 }

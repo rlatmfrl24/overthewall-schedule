@@ -48,7 +48,16 @@ export interface LiveScheduleAutoFillResponseDto {
   checkedChannelCount: number;
   scheduleAutoFill: {
     updated: number;
+    feedback?: LiveScheduleAutoFillFeedback[];
   };
+}
+
+export interface LiveScheduleAutoFillFeedback {
+  memberUid: number;
+  code: "CONTENT_MOVED" | "CONTENT_ACCEPTED" | "CONTENT_CONFLICT";
+  message: string;
+  operationId: string | null;
+  targetSite: "otw" | "luvdia";
 }
 
 export type ChzzkLiveStatusMap = Record<

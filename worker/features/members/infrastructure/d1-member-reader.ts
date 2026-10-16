@@ -1,3 +1,5 @@
+import { publicationHiddenSql } from "../../content-transition";
+import type { SiteId } from "@contracts/site-definition";
 import { and, eq, sql } from "drizzle-orm";
 import {
   memberLinks,
@@ -48,12 +50,15 @@ export class D1MemberReader implements MemberReader {
 
   private readonly includeArchived: boolean;
 
+  private readonly siteId: SiteId;
   constructor(
     db: DbInstance,
     assetBucket?: R2Bucket,
     includeArchived = false,
+    siteId: SiteId = "otw",
   ) {
     this.db = db;
+    this.siteId = siteId;
     this.includeArchived = includeArchived;
     this.assetBucket = assetBucket;
   }
@@ -62,7 +67,7 @@ export class D1MemberReader implements MemberReader {
     return this.db
       .select()
       .from(members)
-      .where(this.includeArchived ? undefined : and(activeCondition, eq(members.content_access, "normal"))) as Promise<MemberDto[]>;
+      .where(this.includeArchived ? undefined : and(activeCondition, sql.raw(`members.content_access = 'normal' AND NOT (${publicationHiddenSql("members","members",this.siteId)})`))) as Promise<MemberDto[]>;
   }
 
   async findProfileByCode(code: string): Promise<MemberProfileDto | null> {
@@ -70,7 +75,7 @@ export class D1MemberReader implements MemberReader {
     const data = await this.db
       .select()
       .from(members)
-      .where(and(eq(members.code, code), this.includeArchived ? undefined : and(activeCondition, eq(members.content_access, "normal"))))
+      .where(and(eq(members.code, code), this.includeArchived ? undefined : and(activeCondition, sql.raw(`members.content_access = 'normal' AND NOT (${publicationHiddenSql("members","members",this.siteId)})`))))
       .limit(1);
 
     let member: MemberRow | undefined = data[0];
@@ -78,7 +83,7 @@ export class D1MemberReader implements MemberReader {
       const allMembers = await this.db
         .select()
         .from(members)
-        .where(this.includeArchived ? undefined : and(activeCondition, eq(members.content_access, "normal")));
+        .where(this.includeArchived ? undefined : and(activeCondition, sql.raw(`members.content_access = 'normal' AND NOT (${publicationHiddenSql("members","members",this.siteId)})`)));
       member = allMembers.find(
         (candidate) =>
           candidate.code?.trim().toLowerCase() === normalizedCode,

@@ -5,6 +5,7 @@ import type {
   ScheduledJobRunRecord,
 } from "../../../platform/scheduled-jobs";
 import type { Env } from "../../../platform/types";
+import { siteEnv } from "../../../test-support/site-env";
 
 const mocks = vi.hoisted(() => ({
   getScheduledXCollectionDecision: vi.fn(),
@@ -69,7 +70,7 @@ const makeEnv = (
     })),
   }));
   return {
-    env: { otw_db: { prepare } } as unknown as Env,
+    env: { ...siteEnv("otw"), otw_db: { prepare } } as unknown as Env,
     prepare,
   };
 };

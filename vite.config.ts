@@ -15,8 +15,7 @@ import {
   resolveClerkEnvironmentTarget,
 } from "./scripts/clerk-environment.mjs";
 import { getSiteDefinition, parseSiteId } from "./contracts/site-definition";
-import { resolveSiteSeo } from "./contracts/site-seo";
-import { renderRobots, renderSeoDocument } from "./scripts/generate-seo-assets";
+import { renderRobots, createSeoHtmlTransform } from "./scripts/generate-seo-assets";
 import { getSiteTarget, getSiteEnvDirectory, loadSiteEnvironment, resolveSiteOrigin } from "./scripts/site-target.mjs";
 import { writeLocalSiteConfig } from "./scripts/local-site-config.mjs";
 
@@ -74,7 +73,7 @@ export default defineConfig(({ command, mode, isPreview }) => {
     plugins: [
       {
         name: "site-seo-shell",
-        transformIndexHtml: (html: string) => renderSeoDocument(html, resolveSiteSeo("/", site), site),
+        transformIndexHtml: createSeoHtmlTransform(site),
         configureServer(server) {
           server.middlewares.use((request, response, next) => {
             if (request.url?.split("?")[0] !== "/robots.txt") return next();

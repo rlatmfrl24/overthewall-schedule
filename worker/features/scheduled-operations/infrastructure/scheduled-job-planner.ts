@@ -1,3 +1,4 @@
+import { parseSiteId } from "@contracts/site-definition";
 import { isRetiredScheduledJob, type ScheduledJobType } from "@contracts/scheduled-operations";
 import { parseAutoUpdateIntervalHours } from "@contracts/configuration";
 import { readDueDataRetentionPolicyIds } from "../../operations";
@@ -18,6 +19,7 @@ import {
   readActiveXHandles,
 } from "../../x-posts";
 import { hasScheduledYouTubeFeedWork } from "../../youtube";
+import {editableCollectorSql, publicationHiddenSql} from "../../content-transition";
 import { getDb } from "../../../platform/db";
 import type { Env } from "../../../platform/types";
 import { extractChzzkChannelId } from "../../../platform/http-helpers";
@@ -52,7 +54,7 @@ const planXCollection = async (
     );
     if (!decision.shouldRun) return [];
   }
-  const handles = await readActiveXHandles(getDb(env));
+  const handles = await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID));
   return chunk(handles, 4).map((shard, index) => ({
     targetKey: `handles:${index}:${shard.join(",")}`,
     phase: "collect",
@@ -135,7 +137,7 @@ const planAutoUpdate = async (
   }
   const rows = await env.otw_db.prepare(
     `SELECT url_chzzk AS urlChzzk FROM members
-     WHERE is_deprecated IS NULL OR is_deprecated != 1`,
+     WHERE (is_deprecated IS NULL OR is_deprecated != 1) AND ${editableCollectorSql("members","members",parseSiteId(env.SITE_ID))}`,
   ).all<{ urlChzzk: string | null }>();
   const channelIds = Array.from(new Set(rows.results.flatMap((row) => {
     const channelId = extractChzzkChannelId(row.urlChzzk)?.toLowerCase();
@@ -221,7 +223,7 @@ const planSimpleJob = async (
     case "source_health": {
       const row = await env.otw_db.prepare(
         `SELECT COUNT(*) AS count FROM music_media_sources
-         WHERE next_check_at <= ?`,
+         WHERE next_check_at <= ? AND NOT (${publicationHiddenSql("music_media_sources", "music_media_sources", parseSiteId(env.SITE_ID))})`,
       ).bind(timestamp).first<{ count: number | string }>();
       return makeIndexedItems(
         Math.ceil(Number(row?.count ?? 0) / 2),
@@ -231,7 +233,7 @@ const planSimpleJob = async (
       );
     }
     case "channel_reconcile": {
-      const ids = await new D1ChannelMonitorRepository(env.otw_db).listDueIds(timestamp, 10);
+      const ids = await new D1ChannelMonitorRepository(env.otw_db, undefined, parseSiteId(env.SITE_ID)).listDueIds(timestamp, 10);
       // Each item claims the next currently due monitor at execution time.
       // Keep slot keys so a queued item never claims to have checked a stale ID.
       return makeIndexedItems(ids.length, "monitor", "reconcile", lane);

@@ -335,6 +335,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
 
   const members = useQuery({ queryKey: queryKeys.members.active(), queryFn: fetchActiveMembers });
   const preflightMutation = useMutation({ mutationFn: preflightOtwPlaySubmission });
+  const editRequestKeys=useRef(new Map<string,string>());
   const submitMutation = useMutation({
     mutationFn: async (input: Parameters<typeof createOtwPlaySubmission>[0]) => {
       if (!editId) {
@@ -343,6 +344,9 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
       if (expectedVersion === null) {
         throw new Error("수정 기준 버전을 불러오지 못했습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.");
       }
+      const identity=JSON.stringify([editId,expectedVersion,input]);
+      const requestKey=editRequestKeys.current.get(identity)??newClientRequestId();
+      editRequestKeys.current.set(identity,requestKey);
       const data = await updateOtwPlaySubmission(editId, {
         expectedVersion,
         submissionKind: input.submissionKind,
@@ -354,7 +358,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
         originalArtists: input.originalArtists,
         participants: input.participants,
         note: input.note,
-      });
+      },requestKey);
       return { data };
     },
     onSuccess: async (result) => {

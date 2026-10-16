@@ -21,6 +21,9 @@ export type IngestionRepositoryErrorCode =
   | "stale_write"
   | "stale_message"
   | "validation_failed"
+  | "content_accepted"
+  | "content_moved"
+  | "content_conflict"
   | "unavailable";
 
 export class IngestionRepositoryError extends Error {
@@ -87,6 +90,9 @@ export interface SaveCandidateReviewCommand {
 }
 
 export interface IngestionRepository {
+  collectableVideoIds(message:IngestionMessageRecord):Promise<string[]>;
+  assertCandidateCollectionAllowed(candidateId:string,channelId?:string|null):Promise<void>;
+  hasOnlyPublicationCutoffFailures(jobId:string):Promise<boolean>;
   listReviewItems(filters: import("@contracts/otw-play").OtwPlayReviewFilters): Promise<import("@contracts/otw-play").OtwPlayReviewPageDto>;
   deleteReviewItem(command: import("@contracts/otw-play").OtwPlayDeleteReviewItemRequest & { id: string; actorUserId: string; eventId: string; now: number }): Promise<void>;
   findPreviousImport(
@@ -117,6 +123,7 @@ export interface IngestionRepository {
     message: IngestionMessageRecord,
     observations: OtwPlayYouTubeVideoObservation[],
     now: number,
+    skippedVideoIds?:string[],
   ): Promise<void>;
   recordMessageFailure(
     idempotencyKey: string,
@@ -136,6 +143,7 @@ export interface IngestionRepository {
     command: SaveCandidateReviewCommand,
   ): Promise<IngestionReviewCandidate>;
   ignoreCandidate(command: {
+    jobId?: string;
     candidateId: string;
     expectedVersion: number;
     actorUserId: string;
@@ -146,7 +154,7 @@ export interface IngestionRepository {
     candidateId: string;
     expectedVersion: number;
     observation: OtwPlayYouTubeVideoObservation;
-    actorUserId: string;
+    actorUserId: string|null;
     eventId: string;
     now: number;
   }): Promise<IngestionReviewCandidate>;
@@ -157,7 +165,7 @@ export interface IngestionRepository {
     outcome: Exclude<OtwPlayIngestionConversionOutcome, "created">;
     performanceId: string | null;
     errorCode: string | null;
-    actorUserId: string;
+    actorUserId: string|null;
     eventId: string;
     now: number;
   }): Promise<Exclude<OtwPlayIngestionConversionOutcome, "created">>;

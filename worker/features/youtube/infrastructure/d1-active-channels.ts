@@ -1,3 +1,5 @@
+import { publicationHiddenSql } from "../../content-transition";
+import { type SiteId } from "@contracts/site-definition";
 import { YOUTUBE_CHANNEL_ID_PATTERN } from "../domain/channel-targets";
 
 
@@ -18,6 +20,7 @@ export class YouTubeAllowlistUnavailableError extends Error {
 
 export const readActiveYouTubeChannels = async (
   database: D1Database,
+  siteId: SiteId = "otw",
 ): Promise<ReadonlySet<string>> => {
 
   try {
@@ -26,7 +29,7 @@ export const readActiveYouTubeChannels = async (
          FROM members
          WHERE youtube_channel_id IS NOT NULL
            AND TRIM(youtube_channel_id) <> ''
-           AND content_access = 'normal'
+           AND content_access = 'normal' AND NOT (${publicationHiddenSql("members","members",siteId)})
            AND (is_deprecated IS NULL OR is_deprecated != 1)`,
     );
     const executable =

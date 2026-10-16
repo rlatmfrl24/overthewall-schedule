@@ -2,10 +2,12 @@ import { D1WorkQueueRepository, WorkQueueService, D1IngestionRepository, YouTube
 import { createOtwPlayIngestionService } from "./ingestion";
 import { createOtwPlayAiBatchService } from "./ai-review";
 import type { Env } from "../platform/types";
+import {buildContentTransitionRepository} from './content-transition';
+import {parseSiteStorageResources} from '@contracts/site-definition';
 
 export const createOtwPlayWorkQueueService=(env:Env)=>new WorkQueueService(
-  new D1WorkQueueRepository(env.otw_db),new D1IngestionRepository(env.otw_db),createOtwPlayIngestionService(env),createOtwPlayAiBatchService(env),
-  new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY,fetch,{db:env.otw_db,priority:"core",origin:"otw_play_ingestion"}),
+  new D1WorkQueueRepository(env.otw_db,(action,statements)=>buildContentTransitionRepository(env).commitPlaylistWorkBatch(action,statements),parseSiteStorageResources(env).site),new D1IngestionRepository(env.otw_db,undefined,undefined,undefined,undefined,(action,id,statements)=>buildContentTransitionRepository(env).commitIngestionBatch(action,id,statements),parseSiteStorageResources(env).site),createOtwPlayIngestionService(env),createOtwPlayAiBatchService(env),
+  new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY,fetch,{db:env.otw_db,siteId:parseSiteStorageResources(env).site,priority:"core",origin:"otw_play_ingestion"}),
   async message=>{
     if (!env.OTW_PLAY_INGESTION_QUEUE) throw new Error("OTW Play ingestion queue is not configured");
     await env.OTW_PLAY_INGESTION_QUEUE.send(message);

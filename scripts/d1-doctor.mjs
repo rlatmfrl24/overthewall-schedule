@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   REQUIRED_D1_COLUMNS,
+  getD1DoctorChecks,
   getMusicCatalogMetaStatus,
   getMusicPublicReadModelMetaStatus,
   getMusicPublicSortKeyStatus,
@@ -65,6 +66,7 @@ Options:
   --persist-to=<dir>           Use a specific local D1 persistence directory
   --remote                     Include remote D1 checks
   --skip-remote                Skip remote D1 checks (default)
+  --schema-only                Check migrations and required columns without business-data scans
 
 Environment:
   OTW_DEV_PORT                 Shared Vite and local API port override
@@ -74,7 +76,6 @@ Environment:
 
 const explicitBaseUrl = getArgValue("--url", null);
 const baseUrl = (explicitBaseUrl ?? getLocalDevOrigin(getSiteLocalEnvironment(target.siteId), target.siteId)).replace(/\/$/, "");
-if (includeRemote && target.siteId === "luvdia") throw new Error("LuvDia remote D1 checks require provisioned resources and deployment guards.");
 
 const stripAnsi = (value) =>
   value.replace(
@@ -166,45 +167,30 @@ const checkMigrations = async (scope) => {
   return getMigrationListStatus(output);
 };
 
-const readTableColumns = async (scope, tableName) => {
-  const result = await runWrangler([
-    "d1",
-    "execute",
-    "otw_db",
-    ...buildD1LocationArgs(scope, persistTo),
-    "--command",
-    `PRAGMA table_info(${tableName});`,
-  ]);
-
-  if (!result.ok) {
-    return { ok: false, message: summarizeCommandFailure(result) };
-  }
-
-  const parsed = extractJsonArray(`${result.stdout}\n${result.stderr}`);
-  const rows = parsed?.[0]?.results;
-  if (!Array.isArray(rows)) {
-    return { ok: false, message: "could not parse wrangler JSON output" };
-  }
-
-  return { ok: true, columns: rows.map((row) => row.name).filter(Boolean) };
-};
-
 const checkSchema = async (scope) => {
   let failures = 0;
-
-  for (const [tableName, columns] of Object.entries(REQUIRED_D1_COLUMNS)) {
-    const result = await readTableColumns(scope, tableName);
-    if (!result.ok) {
-      const isLocked = /SQLITE_BUSY|database is locked/i.test(result.message);
+  const tables = Object.entries(REQUIRED_D1_COLUMNS);
+  const result = await runWrangler(["d1", "execute", "otw_db", ...buildD1LocationArgs(scope, persistTo),
+    "--command", tables.map(([name]) => `PRAGMA table_info("${name}");`).join("\n")]);
+  const parsed = result.ok ? extractJsonArray(`${result.stdout}\n${result.stderr}`) : null;
+  if (!parsed || parsed.length !== tables.length) {
+    printResult("fail", `${scope} schema: ${result.ok ? "incomplete schema metadata response" : summarizeCommandFailure(result)}`);
+    return 1;
+  }
+  for (const [index, [tableName, columns]] of tables.entries()) {
+    const rows = parsed[index]?.results;
+    const tableResult = { ok: Array.isArray(rows), columns: Array.isArray(rows) ? rows.map(row => row.name) : [], message: "could not read table metadata" };
+    if (!tableResult.ok) {
+      const isLocked = /SQLITE_BUSY|database is locked/i.test(tableResult.message);
       printResult(
         isLocked ? "warn" : "fail",
-        `${scope} ${tableName}: ${result.message}`,
+        `${scope} ${tableName}: ${tableResult.message}`,
       );
       if (!isLocked) failures += 1;
       continue;
     }
 
-    const missing = columns.filter((column) => !result.columns.includes(column));
+    const missing = columns.filter((column) => !tableResult.columns.includes(column));
     if (missing.length > 0) {
       printResult(
         "fail",
@@ -414,31 +400,28 @@ if (!skipApi) {
   }
 }
 
+const diagnostics = {
+  migrations: async (scope) => {
+    const result = await checkMigrations(scope);
+    printResult(result.ok ? "ok" : "fail", `${scope} migrations: ${result.message}`);
+    return result.ok ? 0 : 1;
+  },
+  schema: checkSchema,
+  catalog: checkCatalogMeta,
+  readModel: checkPublicReadModelMeta,
+  sortKeys: checkPublicSortKeys,
+  searchGrams: checkSearchGramStats,
+  submissionLimit: checkOtwPlaySubmissionDailyLimit,
+  youtubeQuota: (scope) => runReadModelDiagnostic(scope, "YouTube canonical quota",
+    "SELECT value FROM settings WHERE key = 'youtube_api_daily_quota_units'", getYouTubeDailyQuotaStatus),
+};
+
 for (const scope of ["remote", "local"]) {
   if ((scope === "remote" && skipRemote) || (scope === "local" && skipLocal)) {
     continue;
   }
 
-  const migrations = await checkMigrations(scope);
-  if (migrations.ok) {
-    printResult("ok", `${scope} migrations: ${migrations.message}`);
-  } else {
-    printResult("fail", `${scope} migrations: ${migrations.message}`);
-    failures += 1;
-  }
-
-  failures += await checkSchema(scope);
-  failures += await checkCatalogMeta(scope);
-  failures += await checkPublicReadModelMeta(scope);
-  failures += await checkPublicSortKeys(scope);
-  failures += await checkSearchGramStats(scope);
-  failures += await checkOtwPlaySubmissionDailyLimit(scope);
-  failures += await runReadModelDiagnostic(
-    scope,
-    "YouTube canonical quota",
-    "SELECT value FROM settings WHERE key = 'youtube_api_daily_quota_units'",
-    getYouTubeDailyQuotaStatus,
-  );
+  for (const name of getD1DoctorChecks(hasArg("--schema-only"))) failures += await diagnostics[name](scope);
 }
 
 if (failures > 0) {

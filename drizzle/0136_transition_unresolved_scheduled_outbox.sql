@@ -1,0 +1,1 @@
+CREATE INDEX `idx_scheduled_outbox_unresolved` ON `scheduled_outbox` (`available_at`,`id`) WHERE ("scheduled_outbox"."event_type" = 'reconcile' AND "scheduled_outbox"."reconciled_at" IS NULL) OR ("scheduled_outbox"."event_type" = 'execute' AND "scheduled_outbox"."status" IN ('pending', 'failed', 'dispatching'));

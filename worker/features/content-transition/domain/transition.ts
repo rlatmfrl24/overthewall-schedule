@@ -3,9 +3,12 @@ import {
   type ActivationEvidence, type IngressReadiness, type SourceFence,
   type TerminalOutcome, type TransitionIdentity, type TransitionPhase,
 } from "../../../../contracts/content-transition";
+import { TRANSITION_RECEIVER_CONTRACT } from "./receiver-contract";
 
 const sourcePhases: readonly TransitionPhase[] = ["prepared", "protected", "copying", "replaying", "target_ingress_ready"];
 const ingressPhases: readonly TransitionPhase[] = ["target_ingress_ready", "source_fenced", "target_owned", "complete"];
+// Protocol reception also installs frozen records before activation. Fresh
+// business admission additionally requires the repository's maintenance/owner CAS.
 export function canAdmit(side: "source" | "target", phase: TransitionPhase): boolean {
   return (side === "source" ? sourcePhases : ingressPhases).includes(phase);
 }
@@ -22,6 +25,7 @@ export function assertSameTransition(expected: TransitionIdentity, actual: Trans
 }
 export function assertReadiness(identity: TransitionIdentity, readiness: IngressReadiness | null, now: number): void {
   if (!readiness || !readiness.receiptId || readiness.expiresAt <= now) throw new Error("Missing or expired durable ingress readiness");
+  if(readiness.receiverContract!==TRANSITION_RECEIVER_CONTRACT) throw new Error("Incompatible compiled receiver readiness contract");
   assertSameTransition(identity, readiness);
 }
 export function assertActivation(identity: TransitionIdentity, evidence: ActivationEvidence): void {

@@ -25,7 +25,7 @@ export type AutoUpdateResult = Awaited<ReturnType<typeof autoUpdateSchedules>>;
 type AutoUpdateHistoryOptions = Pick<
   AutoUpdateRunOptions,
   "source" | "rangeDays" | "actor"
->;
+> & {originalItem?:{id:string;runId:string;leaseToken:string|null};failed?:boolean;error?:string|null};
 
 const getErrorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -49,12 +49,17 @@ export const recordAutoUpdateResultWithHistory = async (
   result: AutoUpdateResult,
   startedAt: number,
 ) => {
+  const original=options.originalItem;
+  if(original) {
+    const prior=await db.$client.prepare("SELECT result_json FROM scheduled_job_items WHERE id=? AND run_id=? AND phase='finalize'").bind(original.id,original.runId).first<string>("result_json");
+    if(prior) return JSON.parse(prior) as AutoUpdateResult;
+  }
   const finishedAt = Date.now();
   const summary = summarizeDetails(result.details);
 
-  await db.insert(autoUpdateRuns).values({
+  const insert=db.insert(autoUpdateRuns).values({
     source: options.source,
-    status: "success",
+    status: options.failed?"failed":"success",
     started_at: startedAt,
     finished_at: finishedAt,
     range_days: options.rangeDays,
@@ -75,9 +80,31 @@ export const recordAutoUpdateResultWithHistory = async (
     actor_id: options.actor?.actorId ?? null,
     actor_name: options.actor?.actorName ?? null,
     actor_ip: options.actor?.actorIp ?? null,
-    error: null,
+    error: options.error??null,
     detail: serializeDetail(result),
   });
+
+  if(original) {
+    const query=insert.toSQL();
+    try {
+      await db.$client.batch([
+        db.$client.prepare(`SELECT iif(EXISTS(SELECT 1 FROM scheduled_job_items i JOIN scheduled_job_runs r ON r.id=i.run_id
+          WHERE i.id=? AND i.run_id=? AND i.phase='finalize' AND r.job_type='schedule_auto_update' AND r.source=?
+          AND i.status='running' AND i.lease_token=? AND i.result_json IS NULL
+          AND NOT EXISTS(SELECT 1 FROM scheduled_job_items pending WHERE pending.run_id=r.id AND pending.phase IN ('scan','match') AND pending.status IN ('queued','running'))
+          AND NOT EXISTS(SELECT 1 FROM content_transition_chzzk_stages s JOIN content_transition_chzzk_children c ON c.transition_id=s.transition_id AND c.operation_id=s.operation_id WHERE json_extract(s.parent_json,'$.runId')=r.id AND c.result_json IS NULL)),1,json('original_finalizer_identity_conflict'))`).bind(original.id,original.runId,options.source,original.leaseToken),
+        db.$client.prepare(query.sql).bind(...query.params),
+        db.$client.prepare("INSERT INTO settings(key,value,updated_at) VALUES('auto_update_last_run',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(String(finishedAt),String(finishedAt)),
+        db.$client.prepare("UPDATE scheduled_job_items SET result_json=? WHERE id=? AND run_id=? AND result_json IS NULL").bind(JSON.stringify(result),original.id,original.runId),
+      ]);
+    } catch(error) {
+      const committed=await db.$client.prepare("SELECT result_json FROM scheduled_job_items WHERE id=? AND run_id=? AND phase='finalize'").bind(original.id,original.runId).first<string>("result_json");
+      if(committed) return JSON.parse(committed) as AutoUpdateResult;
+      throw error;
+    }
+    return result;
+  }
+  await insert;
 
   await updateSetting(db, "auto_update_last_run", String(finishedAt));
   return result;

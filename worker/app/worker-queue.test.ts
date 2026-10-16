@@ -18,6 +18,7 @@ vi.mock("./scheduled-queue", () => ({
 
 import { handleWorkerQueue } from "./worker-queue";
 import { isAiBatchMessage } from "./ai-review";
+const routingEnv=(site:'otw'|'luvdia'='otw')=>({...siteEnv(site),otw_db:{prepare:()=>({first:async()=>null})}}) as unknown as Env;
 
 describe("consolidated Worker queue routing", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -28,7 +29,7 @@ describe("consolidated Worker queue routing", () => {
       messages: [{ body: { messageType: "scheduled_job_control" } }],
     } as unknown as MessageBatch<unknown>;
 
-    await handleWorkerQueue(batch, siteEnv() as Env);
+    await handleWorkerQueue(batch, routingEnv());
 
     expect(mocks.handleScheduledControlQueue).toHaveBeenCalledWith(
       batch,
@@ -43,7 +44,7 @@ describe("consolidated Worker queue routing", () => {
     async (queue) => {
       const batch = { queue, messages: [] } as unknown as MessageBatch<unknown>;
 
-      await handleWorkerQueue(batch, siteEnv() as Env);
+      await handleWorkerQueue(batch, routingEnv());
 
       expect(mocks.handleScheduledJobQueue).toHaveBeenCalledWith(
         batch,
@@ -58,7 +59,7 @@ describe("consolidated Worker queue routing", () => {
     async (queue) => {
       const batch = { queue, messages: [] } as unknown as MessageBatch<unknown>;
 
-      await handleWorkerQueue(batch, siteEnv() as Env);
+      await handleWorkerQueue(batch, routingEnv());
 
       expect(mocks.handleQueue).toHaveBeenCalledWith(batch, expect.anything());
       expect(mocks.handleScheduledJobQueue).not.toHaveBeenCalled();
@@ -94,7 +95,7 @@ describe("consolidated Worker queue routing", () => {
     await handleWorkerQueue({
       queue: `${site}-dead-letter`,
       messages: [ingestionMessage, scheduledMessage, controlMessage, aiMessage],
-    } as unknown as MessageBatch<unknown>, siteEnv(site) as Env);
+    } as unknown as MessageBatch<unknown>, routingEnv(site));
 
     expect(mocks.handleScheduledJobQueue).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -121,7 +122,7 @@ describe("consolidated Worker queue routing", () => {
     await handleWorkerQueue({
       queue: "unknown-queue",
       messages: [{ body: {}, ack, retry }],
-    } as unknown as MessageBatch<unknown>, siteEnv() as Env);
+    } as unknown as MessageBatch<unknown>, routingEnv());
 
     expect(ack).not.toHaveBeenCalled();
     expect(retry).toHaveBeenCalledOnce();
@@ -145,7 +146,7 @@ it.each([
   vi.clearAllMocks();
   const ack = vi.fn(), retry = vi.fn();
   const batch = { queue, messages: [{ body: {}, ack, retry }] } as unknown as MessageBatch<unknown>;
-  await handleWorkerQueue(batch, siteEnv("luvdia") as Env);
+  await handleWorkerQueue(batch, routingEnv('luvdia'));
   expect(mocks[handler]).toHaveBeenCalledWith(batch, expect.objectContaining({ SITE_ID: "luvdia" }));
   expect(ack).not.toHaveBeenCalled();
   expect(retry).not.toHaveBeenCalled();

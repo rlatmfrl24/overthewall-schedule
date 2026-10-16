@@ -2,9 +2,10 @@ import { getSiteDefinition } from "../contracts/site-definition";
 import { describe, expect, it } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { build } from "vite";
 import { buildProfileSiteSeo, buildFixedSiteSeo } from "../contracts/site-seo";
-import { generateSeoAssets, renderNotFoundDocument, renderSeoDocument } from "./generate-seo-assets";
+import { createSeoHtmlTransform, generateSeoAssets, renderNotFoundDocument, renderSeoDocument } from "./generate-seo-assets";
 
 const shell = `<!doctype html><html lang="ko"><head><title>old</title>
 <meta data-site-seo="description" name="description" content="old">
@@ -19,6 +20,27 @@ const shell = `<!doctype html><html lang="ko"><head><title>old</title>
 </head><body></body></html>`;
 
 describe("SEO asset generation", () => {
+  it("renders site metadata before Vite processes HTML asset URLs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "site-seo-vite-"));
+    if (dirname(root) !== tmpdir()) throw new Error("Unexpected temporary build directory");
+    const selected = { ...getSiteDefinition("luvdia"), publicOrigin: "https://luvdia-schedule.info" };
+    try {
+      await writeFile(join(root, "index.html"), shell.replace('href="old"', 'href="/"'));
+      const built = await build({
+        configFile: false, root, publicDir: false, logLevel: "silent",
+        plugins: [{ name: "site-seo-shell", transformIndexHtml: createSeoHtmlTransform(selected) }],
+        build: { write: false },
+      });
+      const result = Array.isArray(built) ? built[0] : built;
+      if (!("output" in result)) throw new Error("Expected a completed HTML build");
+      const html = result.output.find(item => item.type === "asset" && item.fileName === "index.html");
+      if (!html || html.type !== "asset") throw new Error("Missing built HTML");
+      expect(String(html.source)).toContain('rel="canonical" href="https://luvdia-schedule.info/"');
+      expect(String(html.source)).toContain(selected.siteName);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it.each(["otw", "luvdia"] as const)("authors %s static HTML, robots and 404 from the same definition", async id => {
     const selected = { ...getSiteDefinition(id), publicOrigin: id === "otw" ? "http://localhost:5173" : "http://localhost:5174" };
     const root = await mkdtemp(join(tmpdir(), "site-seo-assets-"));

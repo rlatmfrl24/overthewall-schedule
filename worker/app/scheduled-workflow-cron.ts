@@ -3,6 +3,8 @@ import { isRetiredScheduledJob, type ScheduledJobType } from "@contracts/schedul
 import { ScheduledJobCoordinator } from "../features/scheduled-operations";
 import type { Env } from "../platform/types";
 import { getWorkerSiteResources } from "../platform/site";
+import {recoverTransitionWork} from "./content-transition-recovery";
+import {readTransitionMaintenance} from '../features/content-transition';
 
 export const SCHEDULED_WORKFLOW_CRON = "3,13,23,33,53 * * * *";
 
@@ -91,6 +93,16 @@ export async function handleScheduledWorkflowCron(
   env: Env,
 ): Promise<void> {
   getWorkerSiteResources(env);
+  if(event.cron!==SCHEDULED_WORKFLOW_CRON) return;
+  // Suppression creates no run/history/next-due mutation or recovery dispatch.
+  if(await readTransitionMaintenance(env.otw_db)) return;
+  const results=await Promise.allSettled([recoverTransitionWork(env),dispatchScheduledWorkflows(event,env)]);
+  const failures=results.flatMap(result=>result.status==="rejected"?[result.reason]:[]);
+  if(failures.length===1) throw failures[0];
+  if(failures.length) throw new AggregateError(failures,"Scheduled admission or accepted-work recovery failed");
+}
+
+async function dispatchScheduledWorkflows(event:ScheduledController,env:Env):Promise<void> {
   const jobs = selectScheduledWorkflowJobs(
     event.cron,
     event.scheduledTime,

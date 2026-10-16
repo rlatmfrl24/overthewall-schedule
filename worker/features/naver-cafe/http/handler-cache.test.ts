@@ -231,6 +231,7 @@ describe("naver cafe posts route cache", () => {
       cacheDb: env.otw_db,
       size: 10,
       includeArchived: true,
+      siteId: "otw",
     });
     expect(collectNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
   });

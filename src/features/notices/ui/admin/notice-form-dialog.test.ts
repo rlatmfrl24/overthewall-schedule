@@ -7,6 +7,7 @@ import type { Member } from "@/features/members";
 import { NoticeFormDialog } from "./notice-form-dialog";
 import { NOTICE_THUMBNAIL_ACCEPT, NOTICE_THUMBNAIL_MAX_BYTES } from "../../model/notice-thumbnails";
 import type { Notice } from "../../model/types";
+import { ApiError } from "@/shared/api/client";
 
 const uploadNoticeThumbnailMock = vi.hoisted(() => vi.fn());
 const deleteNoticeThumbnailMock = vi.hoisted(() => vi.fn());
@@ -28,6 +29,14 @@ const makeClipboardItem = (file: File) => ({
 });
 
 describe("NoticeFormDialog", () => {
+  it.each(["CONTENT_MOVED","CONTENT_ACCEPTED","CONTENT_CONFLICT"])("keeps the notice draft and displays %s",async code=>{
+    const onSubmit=vi.fn().mockRejectedValue(new ApiError(`실제 ${code} 안내`,409,{code}));
+    render(createElement(NoticeFormDialog,{open:true,onOpenChange:vi.fn(),onSubmit,members:[]}));
+    fireEvent.change(screen.getByLabelText("내용"),{target:{value:"유지할 공지 내용"}});
+    fireEvent.click(screen.getByRole("button",{name:"공지 등록"}));
+    expect(await screen.findByText(`실제 ${code} 안내`)).toBeTruthy();
+    expect((screen.getByLabelText("내용") as HTMLTextAreaElement).value).toBe("유지할 공지 내용");
+  });
   beforeAll(() => {
     class ResizeObserverMock {
       observe() {}

@@ -1,4 +1,6 @@
-import { holidayTargetDate, recordHolidayAssessments, reconcileHolidaySuggestions, type ScanCoverage } from "./holiday-suggestions";
+import type { SiteId } from "@contracts/site-definition";
+import { publicationHiddenSql } from "../../content-transition";
+import { holidayTargetDate, recordHolidayAssessments, reconcileHolidaySuggestions,executeHolidayCollectorCommand, type ScanCoverage } from "./holiday-suggestions";
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { type DbInstance } from "../../../platform/db";
 import {
@@ -10,7 +12,6 @@ import {
 } from "@db/schema";
 import type {
   AutoUpdateDetail,
-  CachedChzzkVideos,
   NewPendingSchedule,
   NewUpdateLog,
 } from "../../../platform/types";
@@ -29,11 +30,20 @@ import {
   type AutoUpdateSessionDecision,
   type BroadcastObservation,
 } from "../domain/auto-update-matcher";
+import type {ChzzkScanCommand} from "@contracts/content-transition-chzzk";
+import type {D1ChzzkScanTransitionWriter} from "./d1-chzzk-scan-transition-writer";
+import type {ChzzkScanResult} from "@contracts/content-transition-chzzk";
+import type {ChzzkScanProvider,ScanVideo} from "./chzzk-scan-types";
+import {CHZZK_SESSION_RESUME_MARGIN_MS} from "../domain/chzzk-scan-command";
+import {parseCollectorCommand,type CollectorCommand} from "../domain/collector-command";
+import type {CollectorWriter} from "./collector-writer";
+import type {ChzzkMatchInput} from "../domain/chzzk-match-input";
+import {editableCollectorSql} from "../../content-transition";
 
 const CHZZK_SCAN_PAGE_SIZE = 5;
 const CHZZK_SCAN_MAX_PAGES = 3;
 
-type ChzzkVideo = NonNullable<NonNullable<CachedChzzkVideos["content"]>["data"]>[number];
+type ChzzkVideo = ScanVideo;
 
 export type AutoUpdateMatchTarget = {
   memberUid: number;
@@ -63,6 +73,8 @@ const insertPendingSchedule = async (
   db: DbInstance,
   item: NewPendingSchedule,
   logItem: NewUpdateLog,
+  transitionWriter?:CollectorWriter,
+  expectedSchedules:Extract<CollectorCommand,{action:"insert_candidate"}>["schedules"]=[],
 ) => {
   const insertStatement = db.$client
     .prepare(
@@ -104,7 +116,7 @@ const insertPendingSchedule = async (
               WHERE source.value = rejection.vod_id
             )
        )
-    ON CONFLICT DO NOTHING`,
+    ON CONFLICT DO NOTHING RETURNING id`,
     )
     .bind(
       item.member_uid,
@@ -161,10 +173,10 @@ const insertPendingSchedule = async (
       logItem.vod_id ?? null,
       logItem.actor_name ?? "system",
     );
-  const [insertResult] = await db.$client.batch([
-    insertStatement,
-    logStatement,
-  ]);
+  const statements=[insertStatement,logStatement];
+  const command=parseCollectorCommand({action:"insert_candidate",item,log:logItem,schedules:expectedSchedules});
+  if(!command) throw new Error("Invalid original candidate");
+  const [insertResult] = await transitionWriter?.write(command,statements)??await db.$client.batch(statements);
   return insertResult;
 };
 
@@ -176,11 +188,14 @@ const deleteObsoletePending = async (
     date: string;
     existing_schedule_id: number | null;
     vod_id: string | null;
+    action_type:string;
+    candidate_kind:string|null;
   },
   memberName: string | null,
+  transitionWriter?:CollectorWriter,
 ) => {
   const deleteStatement = db.$client
-    .prepare("DELETE FROM pending_schedules WHERE id = ?")
+    .prepare("DELETE FROM pending_schedules WHERE id = ? RETURNING id")
     .bind(pending.id);
   const logStatement = db.$client
     .prepare(
@@ -206,14 +221,22 @@ const deleteObsoletePending = async (
       pending.date,
       pending.vod_id,
     );
-  const [deleteResult] = await db.$client.batch([
-    deleteStatement,
-    logStatement,
-  ]);
-  return deleteResult.meta.changes === 1;
+  const statements=[deleteStatement,logStatement];
+  const command=parseCollectorCommand({action:"obsolete_candidate",pending,memberName});if(!command) throw new Error("Invalid original obsolete candidate");
+  const [deleteResult] = await transitionWriter?.write(command,statements)??await db.$client.batch(statements);
+  return deleteResult.results.length === 1;
 };
 
 const D1_MAX_BOUND_PARAMETERS = 100;
+export async function executeCollectorCommand(db:DbInstance,command:CollectorCommand,writer:CollectorWriter) {
+  if(command.action==="insert_candidate") {
+    const item:NewPendingSchedule={...command.item,member_uid:Number(command.item.member_uid),member_name:String(command.item.member_name),date:String(command.item.date),action_type:String(command.item.action_type)};
+    const log:NewUpdateLog={...command.log,action:String(command.log.action),schedule_date:String(command.log.schedule_date)};
+    return insertPendingSchedule(db,item,log,writer,command.schedules);
+  }
+  if(command.action==="obsolete_candidate") return deleteObsoletePending(db,command.pending,command.memberName,writer);
+  return executeHolidayCollectorCommand(db.$client,command,writer);
+}
 const OBSERVATION_BOUND_PARAMETERS_PER_ROW = 10;
 const OBSERVATION_UPSERT_BOUND_PARAMETERS = 1;
 
@@ -223,7 +246,7 @@ export const OBSERVATION_CHUNK_SIZE = Math.floor(
   (D1_MAX_BOUND_PARAMETERS - OBSERVATION_UPSERT_BOUND_PARAMETERS) /
     OBSERVATION_BOUND_PARAMETERS_PER_ROW,
 );
-const SESSION_RESUME_MARGIN_MS = 60 * 60 * 1000;
+const SESSION_RESUME_MARGIN_MS = CHZZK_SESSION_RESUME_MARGIN_MS;
 
 const toObservation = (
   member: { uid: number; name: string },
@@ -250,8 +273,9 @@ const toObservation = (
 const persistObservations = async (
   db: DbInstance,
   observations: Array<BroadcastObservation & { channelId: string }>,
+  statements?: D1PreparedStatement[],
+  observedAt = Date.now(),
 ) => {
-  const observedAt = Date.now();
   for (
     let index = 0;
     index < observations.length;
@@ -259,7 +283,7 @@ const persistObservations = async (
   ) {
     const chunk = observations.slice(index, index + OBSERVATION_CHUNK_SIZE);
     if (chunk.length === 0) continue;
-    await db
+    const query = db
       .insert(scheduleBroadcastObservations)
       .values(
         chunk.map((item) => ({
@@ -288,6 +312,8 @@ const persistObservations = async (
           last_seen_at: observedAt,
         },
       });
+    if(statements) { const native=query.toSQL();statements.push(db.$client.prepare(native.sql).bind(...native.params)); }
+    else await query;
   }
 };
 
@@ -426,9 +452,10 @@ export const scanRecentChzzkVideosForChannels = async (
   startDate: string,
   today: string,
   cacheDb?: Pick<D1Database, "prepare">,
-  fetchVideosBatch: ChzzkVideoCatalog["fetchVideosBatch"] =
+  fetchVideosBatch: ChzzkScanProvider["fetchVideosBatch"] =
     chzzkVideoCatalog.fetchVideosBatch,
   coverage = new Map<string, ScanCoverage>(),
+  siteId: SiteId = "otw",
 ) => {
   const collectedByChannel = new Map<string, ChzzkVideo[]>();
   let activeChannelIds = Array.from(new Set(channelIds));
@@ -451,7 +478,7 @@ export const scanRecentChzzkVideosForChannels = async (
         cacheable: true,
       })),
       cacheDb,
-      { forceRefresh: true, requireFresh: true },
+      { forceRefresh: true, requireFresh: true, siteId },
     ).catch(() => []);
     const nextChannelIds: string[] = [];
     for (const id of activeChannelIds) coverage.set(id, "failed");
@@ -501,6 +528,9 @@ export const scanAndPersistRecentChzzkObservations = async (
   requestedChannelIds: string[],
   cacheDb?: Pick<D1Database, "prepare">,
   videoCatalog: ChzzkVideoCatalog = chzzkVideoCatalog,
+  transitionWriter?: D1ChzzkScanTransitionWriter,
+  operationKey?: string,
+  parent?:ChzzkScanCommand["parent"],
 ) => {
   const scanStartedAt = Date.now();
   const today = getKSTDateString(new Date(scanStartedAt));
@@ -512,6 +542,7 @@ export const scanAndPersistRecentChzzkObservations = async (
   const activeMembers = await db
     .select({
       uid: members.uid,
+      code: members.code,
       name: members.name,
       url_chzzk: members.url_chzzk,
     })
@@ -527,6 +558,17 @@ export const scanAndPersistRecentChzzkObservations = async (
   });
   const channelIds = Array.from(new Set(targets.map((target) => target.channelId)));
   if (channelIds.length === 0) return { channels: 0, observations: 0, channelResults: [] };
+  const command:ChzzkScanCommand={members:targets.map(({member,channelId})=>({uid:member.uid,code:member.code,name:member.name,channelId})),rangeDays:Math.max(1,Math.floor(rangeDays)),startedAt:scanStartedAt,startDate,today,...(parent?{parent}:{})};
+  const execute=(original:ChzzkScanCommand,catalog:ChzzkScanProvider,commit?:(statements:D1PreparedStatement[],result:ChzzkScanResult)=>Promise<void>)=>executeChzzkObservationScan(db,original,cacheDb,catalog,commit,transitionWriter?.siteId??"otw");
+  return transitionWriter?transitionWriter.run(command,videoCatalog,execute,operationKey):execute(command,videoCatalog);
+};
+
+export const executeChzzkObservationScan = async (
+  db:DbInstance,command:ChzzkScanCommand,cacheDb:Pick<D1Database,"prepare">|undefined,
+  videoCatalog:ChzzkScanProvider,commit?:(statements:D1PreparedStatement[],result:ChzzkScanResult)=>Promise<void>,
+  siteId: SiteId = "otw",
+):Promise<ChzzkScanResult>=>{
+  const {startDate,today,startedAt}=command,channelIds=command.members.map(member=>member.channelId);
   const coverage = new Map<string, ScanCoverage>();
   const videosByChannel = await scanRecentChzzkVideosForChannels(
     channelIds,
@@ -535,26 +577,32 @@ export const scanAndPersistRecentChzzkObservations = async (
     cacheDb,
     videoCatalog.fetchVideosBatch,
     coverage,
+    siteId,
   );
-  const observations = targets.flatMap(({ member, channelId }) =>
-    (videosByChannel.get(channelId) ?? []).map((video) =>
-      toObservation(member, channelId, video)
+  const observations = command.members.flatMap(member =>
+    (videosByChannel.get(member.channelId) ?? []).map((video) =>
+      toObservation(member, member.channelId, video)
     )
   );
-  await persistObservations(db, observations);
-  await recordHolidayAssessments(db.$client, targets.map(target => target.member), coverage, videoCatalog.fetchLiveStatus, scanStartedAt);
-  return {
+  const statements=commit?[] as D1PreparedStatement[]:undefined;
+  await persistObservations(db, observations,statements,startedAt);
+  await recordHolidayAssessments(db.$client, command.members.map(member=>({...member,url_chzzk:`https://chzzk.naver.com/${member.channelId}`})), coverage, videoCatalog.fetchLiveStatus, startedAt,statements);
+  const result={
     channels: channelIds.length,
     observations: observations.length,
     channelResults: channelIds.map(channelId => ({
       channelId, status: coverage.get(channelId) ?? ("incomplete" as ScanCoverage),
     })),
   };
+  if(commit) await commit(statements!,result);
+  return result;
 };
 
 export const readAutoUpdateMatchTargets = async (
   db: DbInstance,
   rangeDays: number,
+  admittedChannels?:readonly string[],
+  siteId:SiteId="otw",
 ): Promise<AutoUpdateMatchTarget[]> => {
   const today = getKSTDateString();
   const daysBack = Math.max(holidayTargetDate() ? 1 : 0, Math.floor(rangeDays) - 1);
@@ -564,12 +612,12 @@ export const readAutoUpdateMatchTargets = async (
   const rangeStartMs =
     Date.parse(`${startDate}T00:00:00+09:00`) - SESSION_RESUME_MARGIN_MS;
   const rangeEndMs = Date.parse(`${today}T23:59:59.999+09:00`);
-  const [activeMembers, rows] = await Promise.all([
+  const [membersInScope, rows] = await Promise.all([
     db
       .select({ uid: members.uid, url_chzzk: members.url_chzzk })
       .from(members)
       .where(
-        sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} != 1`,
+        and(sql`(${members.is_deprecated} IS NULL OR ${members.is_deprecated} != 1)`,sql.raw(editableCollectorSql("members","members",siteId))),
       ),
     db
       .select({
@@ -584,6 +632,7 @@ export const readAutoUpdateMatchTargets = async (
         ),
       ),
   ]);
+  const activeMembers=admittedChannels?membersInScope.filter(member=>admittedChannels.includes(extractChzzkChannelId(member.url_chzzk)?.toLowerCase()??"")):membersInScope;
   const activeMemberUids = new Set(activeMembers.map((member) => member.uid));
   const targets = new Map<string, AutoUpdateMatchTarget>();
   for (const row of rows) {
@@ -612,6 +661,8 @@ export const autoUpdateSchedules = async (
     videoCatalog?: ChzzkVideoCatalog;
     skipScan?: boolean;
     matchTarget?: AutoUpdateMatchTarget;
+    collectorWriter?:CollectorWriter;
+    originalInput?:ChzzkMatchInput;
   } = {},
 ): Promise<{
   updated: number;
@@ -627,7 +678,8 @@ export const autoUpdateSchedules = async (
   obsoletePending: number;
   details: AutoUpdateDetail[];
 }> => {
-  const scanStartedAt = Date.now();
+  if(options.originalInput && (!options.skipScan || !options.matchTarget || !Number.isSafeInteger(options.originalInput.startedAt) || options.originalInput.members.some(member=>member.uid!==options.matchTarget!.memberUid))) throw new Error("Invalid original match input scope");
+  const scanStartedAt = options.originalInput?.startedAt??Date.now();
   const today = getKSTDateString(new Date(scanStartedAt));
   const daysBack = Math.max(holidayTargetDate(scanStartedAt) ? 1 : 0, Math.floor(rangeDays) - 1);
   const startDate = getKSTDateString(
@@ -636,8 +688,8 @@ export const autoUpdateSchedules = async (
 
   // 1. 모든 활성 멤버 조회 (is_deprecated가 아닌 것)
   const activeMemberCondition =
-    sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} != 1`;
-  const allMembers = await db
+    sql`(${members.is_deprecated} IS NULL OR ${members.is_deprecated} != 1) AND NOT (${sql.raw(publicationHiddenSql("members","members",options.collectorWriter?.siteId??"otw"))})`;
+  const allMembers = options.originalInput?.members??await db
     .select({
       uid: members.uid,
       name: members.name,
@@ -675,7 +727,7 @@ export const autoUpdateSchedules = async (
     gte(schedules.date, startDate),
     lte(schedules.date, today),
   );
-  const existingSchedules = await db
+  const existingSchedules = options.originalInput?.schedules??await db
     .select()
     .from(schedules)
     .where(
@@ -708,6 +760,7 @@ export const autoUpdateSchedules = async (
       options.cacheDb,
       options.videoCatalog?.fetchVideosBatch,
       coverage,
+      options.collectorWriter?.siteId??"otw",
     );
     const fetchedObservations = allMembers.flatMap((member) => {
       const channelId = extractChzzkChannelId(member.url_chzzk)?.toLowerCase();
@@ -731,7 +784,7 @@ export const autoUpdateSchedules = async (
     gte(scheduleBroadcastObservations.ended_at, rangeStartMs),
     lte(scheduleBroadcastObservations.started_at, rangeEndMs),
   );
-  const persistedRows = await db
+  const persistedRows = options.originalInput?.observations??await db
     .select()
     .from(scheduleBroadcastObservations)
     .where(
@@ -794,7 +847,7 @@ export const autoUpdateSchedules = async (
   const decisions = matchBroadcastSessions(sessionsInRange, matcherSchedules);
 
   // 4. 기존 거부와 pending을 세션 대표 ID 및 모든 조각 ID로 비교한다.
-  const rejectedRows = await db
+  const rejectedRows = options.originalInput?.rejections??await db
     .select({
       vod_id: scheduleCandidateRejections.vod_id,
       source_vod_ids: scheduleCandidateRejections.source_vod_ids,
@@ -818,14 +871,14 @@ export const autoUpdateSchedules = async (
       vod_id: pendingSchedules.vod_id,
     })
     .from(pendingSchedules);
-  const pendingRows = options.matchTarget
+  const pendingRows = options.originalInput?.pending??(options.matchTarget
     ? await pendingQuery.where(
         and(
           eq(pendingSchedules.member_uid, options.matchTarget.memberUid),
           eq(pendingSchedules.date, options.matchTarget.date),
         ),
       )
-    : await pendingQuery;
+    : await pendingQuery);
   const candidateDecisions = decisions.filter(
     (
       decision,
@@ -866,6 +919,7 @@ export const autoUpdateSchedules = async (
       db,
       pending,
       memberNameMap.get(pending.member_uid) ?? null,
+      options.collectorWriter,
     );
     if (deleted) obsoletePendingCount += 1;
   }
@@ -945,10 +999,13 @@ export const autoUpdateSchedules = async (
       db,
       candidate.pendingItem,
       candidate.logItem,
+      options.collectorWriter,
+      existingSchedules.filter(row=>row.member_uid===candidate.pendingItem.member_uid && row.date===candidate.pendingItem.date).map(row=>({id:row.id,member_uid:row.member_uid,date:row.date,start_time:row.start_time,title:row.title,status:row.status})),
     );
     newVodIds.add(candidate.vodId);
     newPendingKeys.add(candidate.pendingKey);
-    if (insertResult.meta.changes !== 1) {
+    if("conflicted" in insertResult && insertResult.conflicted) continue;
+    if (insertResult.results.length !== 1) {
       const currentRejections = await db
         .select({
           vod_id: scheduleCandidateRejections.vod_id,
@@ -976,7 +1033,7 @@ export const autoUpdateSchedules = async (
     allDetails.push(candidate.detail);
   }
 
-  const holidays = await reconcileHolidaySuggestions(db.$client, options.matchTarget);
+  const holidays = await reconcileHolidaySuggestions(db.$client, options.matchTarget,options.originalInput?.startedAt??Date.now(),options.collectorWriter);
   allDetails.push(...holidays.createdItems.map(item => ({
     memberUid: item.member_uid, memberName: item.member_name, scheduleDate: item.date,
     scheduleId: null, action: "auto_collected", title: "휴방 추정", previousStatus: null,

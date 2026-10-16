@@ -72,18 +72,18 @@ const makeCacheDb = (
         writeCount += 1;
         if (options.failWrite) throw new Error("write failed");
         expect(sql).toContain("INSERT INTO chzzk_api_cache");
-        for (let index = 0; index < bindings.length; index += 8) {
+        for (let index = 0; index < bindings.length; index += 9) {
           const row: CacheRow = {
             key: String(bindings[index]),
-            type: String(bindings[index + 1]) as CacheRow["type"],
-            value: String(bindings[index + 2]),
-            fetched_at: Number(bindings[index + 3]),
-            expires_at: Number(bindings[index + 4]),
-            stale_until: Number(bindings[index + 5]),
+            type: String(bindings[index + 2]) as CacheRow["type"],
+            value: String(bindings[index + 3]),
+            fetched_at: Number(bindings[index + 4]),
+            expires_at: Number(bindings[index + 5]),
+            stale_until: Number(bindings[index + 6]),
             last_status:
-              bindings[index + 6] === null ? null : Number(bindings[index + 6]),
+              bindings[index + 7] === null ? null : Number(bindings[index + 7]),
             last_error:
-              bindings[index + 7] === null ? null : String(bindings[index + 7]),
+              bindings[index + 8] === null ? null : String(bindings[index + 8]),
           };
           cache.set(row.key, row);
         }

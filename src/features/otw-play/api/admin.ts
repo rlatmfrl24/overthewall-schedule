@@ -265,10 +265,11 @@ export const preflightOtwPlayCatalogEntry = (
 
 export const createOtwPlayCatalogEntry = (
   json: OtwPlayAdminCreateCatalogEntryRequest,
+  requestId?:string,
 ) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminCatalogEntryResultDto>>(
     apiRoutes.otwPlay.admin.catalogEntries.build(),
-    { method: "POST", json },
+    { method: "POST", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
 
 export const fetchOtwPlayAdminProposals = (status?: string) => {
@@ -279,84 +280,91 @@ export const fetchOtwPlayAdminProposals = (status?: string) => {
   ).then((response) => response.data);
 };
 
-export const createOtwPlayEntity = (json: OtwPlayAdminCreateEntityRequest) =>
+export const createOtwPlayEntity = (json: OtwPlayAdminCreateEntityRequest,requestId?:string) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminEntityDto>>(
     apiRoutes.otwPlay.admin.entities.build(),
-    { method: "POST", json },
+    { method: "POST", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
-export const updateOtwPlayEntity = (json: OtwPlayAdminUpdateEntityRequest) =>
+export const updateOtwPlayEntity = (json: OtwPlayAdminUpdateEntityRequest,requestId?:string) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminEntityDto>>(
     apiRoutes.otwPlay.admin.entities.build(),
-    { method: "PUT", json },
+    { method: "PUT", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
 export const deleteOtwPlayEntity = (
   id: string,
   json: OtwPlayAdminExpectedVersionRequest,
+  requestId?:string,
 ) =>
   adminRequest<OtwPlayAdminCommandResponse<{ id: string }>>(
     apiRoutes.otwPlay.admin.deleteEntity.build(id),
-    { method: "DELETE", json },
+    { method: "DELETE", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
-export const createOtwPlaySong = (json: OtwPlayAdminCreateSongRequest) =>
+export const createOtwPlaySong = (json: OtwPlayAdminCreateSongRequest,requestId?:string) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminSongDto>>(
     apiRoutes.otwPlay.admin.songs.build(),
-    { method: "POST", json },
+    { method: "POST", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
-export const updateOtwPlaySong = (json: OtwPlayAdminUpdateSongRequest) =>
+export const updateOtwPlaySong = (json: OtwPlayAdminUpdateSongRequest,requestId?:string) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminSongDto>>(
     apiRoutes.otwPlay.admin.songs.build(),
-    { method: "PUT", json },
+    { method: "PUT", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
 export const deleteOtwPlaySong = (
   id: string,
   json: OtwPlayAdminExpectedVersionRequest,
+  requestId?:string,
 ) =>
   adminRequest<OtwPlayAdminCommandResponse<{ id: string }>>(
     apiRoutes.otwPlay.admin.deleteSong.build(id),
-    { method: "DELETE", json },
+    { method: "DELETE", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
 export const createOtwPlayPerformance = (
   json: OtwPlayAdminCreatePerformanceRequest,
+  requestId?:string,
 ) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminPerformanceDto>>(
     apiRoutes.otwPlay.admin.performances.build(),
-    { method: "POST", json },
+    { method: "POST", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
 export const updateOtwPlayPerformance = (
   json: OtwPlayAdminUpdatePerformanceRequest,
+  requestId?:string,
 ) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminPerformanceDto>>(
     apiRoutes.otwPlay.admin.performances.build(),
-    { method: "PUT", json },
+    { method: "PUT", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
 export const deleteOtwPlayPerformance = (
   id: string,
   json: OtwPlayAdminExpectedVersionRequest,
+  requestId?:string,
 ) =>
   adminRequest<OtwPlayAdminCommandResponse<{ id: string }>>(
     apiRoutes.otwPlay.admin.deletePerformance.build(id),
-    { method: "DELETE", json },
+    { method: "DELETE", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
 export const publishOtwPlayPerformance = (
   id: string,
   json: OtwPlayAdminExpectedVersionRequest,
+  requestId?:string,
 ) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminPerformanceDto>>(
     apiRoutes.otwPlay.admin.publishPerformance.build(id),
-    { method: "POST", json },
+    { method: "POST", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
 export const withdrawOtwPlayPerformance = (
   id: string,
   json: OtwPlayAdminExpectedVersionRequest,
+  requestId?:string,
 ) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminPerformanceDto>>(
     apiRoutes.otwPlay.admin.withdrawPerformance.build(id),
-    { method: "POST", json },
+    { method: "POST", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
-export const createOtwPlayChannel = (json: OtwPlayAdminCreateChannelRequest) =>
+export const createOtwPlayChannel = (json: OtwPlayAdminCreateChannelRequest,requestId?:string) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminChannelDto>>(
     apiRoutes.otwPlay.admin.channels.build(),
-    { method: "POST", json },
+    { method: "POST", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
 export const lookupOtwPlayChannel = (externalChannelId: string) =>
   adminRequest<{ data: OtwPlayAdminChannelLookupDto }>(
@@ -365,21 +373,22 @@ export const lookupOtwPlayChannel = (externalChannelId: string) =>
       new URLSearchParams({ externalChannelId }),
     ),
   ).then((response) => response.data);
-export const updateOtwPlayChannel = (json: OtwPlayAdminUpdateChannelRequest) =>
+export const updateOtwPlayChannel = (json: OtwPlayAdminUpdateChannelRequest,requestId?:string) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminChannelDto>>(
     apiRoutes.otwPlay.admin.channels.build(),
-    { method: "PUT", json },
+    { method: "PUT", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
 export const deleteOtwPlayChannel = (
   id: string,
   json: OtwPlayAdminExpectedVersionRequest,
+  requestId?:string,
 ) =>
   adminRequest<OtwPlayAdminCommandResponse<{ id: string }>>(
     withRouteSearch(
       apiRoutes.otwPlay.admin.channels.build(),
       new URLSearchParams({ id }),
     ),
-    { method: "DELETE", json },
+    { method: "DELETE", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
 export const recheckOtwPlaySource = (
   id: string,
@@ -392,19 +401,21 @@ export const recheckOtwPlaySource = (
 export const rejectOtwPlayProposal = (
   id: string,
   json: OtwPlayAdminRejectProposalRequest,
+  requestId?:string,
 ) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminProposalDto>>(
     apiRoutes.otwPlay.admin.rejectSubmission.build(id),
-    { method: "POST", json },
+    { method: "POST", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
 
 export const approveOtwPlayProposal = (
   id: string,
   json: OtwPlayAdminApproveProposalRequest,
+  requestId?:string,
 ) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminProposalDto>>(
     apiRoutes.otwPlay.admin.approveSubmission.build(id),
-    { method: "POST", json },
+    { method: "POST", json,...(requestId?{headers:{"Idempotency-Key":requestId}}:{}) },
   );
 
 export const fetchOtwPlayReviewItems = (filters: import("@contracts/otw-play").OtwPlayReviewFilters = {}) => {

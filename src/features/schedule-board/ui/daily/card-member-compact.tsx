@@ -73,7 +73,7 @@ export const CardMemberCompact = ({
         data-member-card-header="true"
       >
         <div className="relative shrink-0">
-          <img
+          <AuthenticatedImage protectedImage={false}
             src={`/profile/${member.code}.webp`}
             alt={member.name}
             className="h-12 w-12 rounded-full border-2 object-cover shadow-sm"
@@ -195,3 +195,4 @@ export const CardMemberCompact = ({
     </div>
   );
 };
+import { AuthenticatedImage } from "@/shared/ui/authenticated-image";

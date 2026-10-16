@@ -6,13 +6,11 @@ import {
   type OtwPlayConvertIngestionCandidatesRequest,
   type OtwPlayCreatePlaylistImportRequest,
   type OtwPlayIgnoreIngestionCandidatesRequest,
-  type OtwPlayIngestionReviewInput,
   type OtwPlayPlaylistPreflightRequest,
-  type OtwPlayPublicChannelRole,
   type OtwPlayUpdateIngestionCandidateRequest,
 } from "@contracts/otw-play";
-import { OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES } from "../domain/ingestion-channel-policy";
-import { parseCreateCatalogEntry } from "./admin-catalog-input";
+import {parseCandidateChannelInput} from "../domain/candidate-channel-command";
+import {parseCandidateReviewInput} from "../domain/candidate-review-input";
 
 export type IngestionInputResult<T> =
   | { ok: true; value: T }
@@ -122,67 +120,6 @@ export const parseCreatePlaylistImport = (
   return { ok: true, value: { ...parsed.value, idempotencyKey } };
 };
 
-const parseCandidateReviewInput = (
-  value: unknown,
-): IngestionInputResult<OtwPlayIngestionReviewInput> => {
-  if (
-    !isObject(value) ||
-    !hasExactKeys(value, [
-      "song",
-      "participants",
-      "relationType",
-      "releaseType",
-      "participationType",
-      "performanceTags",
-      "startSeconds",
-      "endSeconds",
-      "internalNote",
-      "broadcast",
-    ])
-  ) {
-    return { ok: false, fields: { input: "invalid_shape" } };
-  }
-  const parsed = parseCreateCatalogEntry({
-    expectedCatalogRevision: 0,
-    youtubeUrl: "https://www.youtube.com/watch?v=AAAAAAAAAAA",
-    startSeconds: value.startSeconds ?? 0,
-    endSeconds: value.endSeconds ?? null,
-    ...value,
-    channel: { kind: "existing", channelId: "candidate-channel" },
-    publicationTarget: "draft",
-  });
-  if (!parsed.ok) {
-    return { ok: false, fields: { input: "invalid_review_input" } };
-  }
-  const {
-    song,
-    participants,
-    relationType,
-    releaseType,
-    participationType,
-    performanceTags,
-    startSeconds,
-    endSeconds,
-    internalNote,
-    broadcast,
-  } = parsed.value;
-  return {
-    ok: true,
-    value: {
-      song,
-      participants,
-      relationType,
-      releaseType,
-      participationType,
-      ...(performanceTags === undefined ? {} : { performanceTags }),
-      ...(value.startSeconds !== undefined ? { startSeconds } : {}),
-      ...(value.endSeconds !== undefined ? { endSeconds } : {}),
-      internalNote,
-      ...(broadcast === undefined ? {} : { broadcast }),
-    },
-  };
-};
-
 export const parseConvertIngestionCandidate = (
   value: unknown,
 ): IngestionInputResult<OtwPlayConvertIngestionCandidateRequest> => {
@@ -274,93 +211,10 @@ export const parseUpdateIngestionCandidate = (
     ) {
       return { ok: false, fields: { body: "invalid_shape" } };
     }
-    const ownershipKind = value.channel.ownershipKind;
-    const externalApproval = ownershipKind === "external";
-    if (!hasExactKeys(
-      value.channel,
-      externalApproval
-        ? [
-            "ownershipKind",
-            "channelRole",
-            "entityIds",
-            "externalApprovalConfirmed",
-          ]
-        : ["ownershipKind", "channelRole", "entityIds"],
-    )) {
-      return { ok: false, fields: { channel: "invalid" } };
-    }
-    const channelRole = typeof value.channel.channelRole === "string" &&
-        OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES.includes(
-          value.channel.channelRole as OtwPlayPublicChannelRole,
-        )
-      ? value.channel.channelRole as OtwPlayPublicChannelRole
-      : null;
-    const entityIds = Array.isArray(value.channel.entityIds) &&
-        value.channel.entityIds.length <= 30
-      ? value.channel.entityIds.map((item) => text(item, 128))
-      : null;
-    if (
-      !channelRole ||
-      !entityIds ||
-      entityIds.some((item) => item === null) ||
-      new Set(entityIds).size !== entityIds.length ||
-      (
-        ownershipKind === "otw_official"
-          ? channelRole !== "otw_official" || entityIds.length !== 0
-          : ownershipKind === "member"
-            ? !["member_music", "member_main"].includes(channelRole) ||
-              entityIds.length === 0
-            : ownershipKind === "external"
-              ? channelRole !== "project_official" ||
-                entityIds.length === 0 ||
-                value.channel.externalApprovalConfirmed !== true
-              : true
-      )
-    ) {
-      return { ok: false, fields: { channel: "invalid" } };
-    }
-    if (ownershipKind === "otw_official") {
-      return {
-        ok: true,
-        value: {
-          expectedVersion: Number(expectedVersion),
-          action: "approve_channel",
-          channel: {
-            ownershipKind,
-            channelRole: "otw_official",
-            entityIds: [],
-          },
-        },
-      };
-    }
-    if (ownershipKind === "member") {
-      return {
-        ok: true,
-        value: {
-          expectedVersion: Number(expectedVersion),
-          action: "approve_channel",
-          channel: {
-            ownershipKind,
-            channelRole: channelRole as "member_music" | "member_main",
-            entityIds: entityIds as string[],
-          },
-        },
-      };
-    }
-    return {
-      ok: true,
-      value: {
-        expectedVersion: Number(expectedVersion),
-        action: "approve_channel",
-        channel: {
-          ownershipKind: "external",
-          channelRole: "project_official",
-          entityIds: entityIds as string[],
-          externalApprovalConfirmed: true,
-        },
-      },
-    };
+    const channel=parseCandidateChannelInput(value.channel);
+    return channel?{ok:true,value:{expectedVersion:Number(expectedVersion),action:'approve_channel',channel}}:{ok:false,fields:{channel:'invalid'}};
   }
+
   if (value.action === "ignore" || value.action === "refresh_metadata") {
     return hasExactKeys(value, ["expectedVersion", "action"])
       ? {

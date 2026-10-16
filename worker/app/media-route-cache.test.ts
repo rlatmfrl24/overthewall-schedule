@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../platform/types";
 import { workerRouteRegistry } from "./routes";
+import {siteEnv} from '../test-support/site-env';
 
 const fetchChzzkVideosBatchMock = vi.hoisted(() => vi.fn());
 const fetchChzzkClipsBatchMock = vi.hoisted(() => vi.fn());
@@ -31,6 +32,7 @@ vi.mock("../platform/db", () => ({
 
 const makeEnv = (): Env =>
   ({
+    ...siteEnv(),
     YOUTUBE_API_KEY: "youtube-key",
     X_BEARER_TOKEN: "x-token",
     otw_db: {
@@ -60,7 +62,7 @@ describe("media route cache headers", () => {
     readStoredYouTubeFeedMock.mockReset();
   });
 
-  it("sets public cache headers for chzzk vods and clips", async () => {
+  it("prevents stale public caching for chzzk vods and clips", async () => {
     const channelId = chzzkChannelId;
     fetchChzzkVideosBatchMock.mockResolvedValue([
       { channelId, content: { data: [] } },
@@ -76,8 +78,9 @@ describe("media route cache headers", () => {
       new Request(`https://example.com/api/clips/chzzk?channelIds=${channelId}`),
     );
 
-    const expectedCacheControl =
-      "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
+    const expectedCacheControl = "no-store";
+    expect(vodResponse.status).toBe(200);
+    expect(clipResponse.status).toBe(200);
     expect(vodResponse.headers.get("Cache-Control")).toBe(expectedCacheControl);
     expect(clipResponse.headers.get("Cache-Control")).toBe(expectedCacheControl);
     expect(await vodResponse.json()).toMatchObject({
@@ -90,7 +93,7 @@ describe("media route cache headers", () => {
     });
   });
 
-  it("sets public cache headers for youtube and kirinuki videos", async () => {
+  it("prevents stale public caching for youtube and kirinuki videos", async () => {
     readStoredYouTubeFeedMock.mockResolvedValue({
       videos: [{ videoId: "one", channelId: youtubeChannelId }], shorts: [],
       oldestRetainedAt: new Date().toISOString(),
@@ -105,7 +108,9 @@ describe("media route cache headers", () => {
       new Request("https://example.com/api/kirinuki/videos"),
     );
 
-    expect(youtubeResponse.headers.get("Cache-Control")).toContain("public");
-    expect(kirinukiResponse.headers.get("Cache-Control")).toContain("public");
+    expect(youtubeResponse.status).toBe(200);
+    expect(kirinukiResponse.status).toBe(200);
+    expect(youtubeResponse.headers.get("Cache-Control")).toBe("no-store");
+    expect(kirinukiResponse.headers.get("Cache-Control")).toBe("no-store");
   });
 });

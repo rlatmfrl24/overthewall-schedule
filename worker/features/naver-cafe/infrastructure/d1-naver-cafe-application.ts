@@ -1,3 +1,5 @@
+import { publicationHiddenSql } from "../../content-transition";
+import { parseSiteId } from "@contracts/site-definition";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { naverCafePosts, naverCafeSources } from "@db/schema";
 import { getDb } from "../../../platform/db";
@@ -44,13 +46,13 @@ export class D1NaverCafeApplication implements NaverCafeApplication {
     }
   }
 
-  readAccessRevision() { return readContentAccessRevision(this.env.otw_db); }
+  readAccessRevision() { return readContentAccessRevision(this.env.otw_db, parseSiteId(this.env.SITE_ID)); }
 
   async listSources(includeArchived = false): Promise<NaverCafeSourceRecord[]> {
     return this.db
       .select()
       .from(naverCafeSources)
-      .where(and(isNull(naverCafeSources.archived_at), includeArchived ? undefined : sql`NOT EXISTS (SELECT 1 FROM members archive_member WHERE archive_member.uid = ${naverCafeSources.member_uid} AND archive_member.content_access = 'admin_archive')`))
+      .where(and(isNull(naverCafeSources.archived_at), includeArchived ? undefined : sql`NOT EXISTS (SELECT 1 FROM members archive_member WHERE archive_member.uid = ${naverCafeSources.member_uid} AND (archive_member.content_access = 'admin_archive' OR ${sql.raw(publicationHiddenSql("members","archive_member",parseSiteId(this.env.SITE_ID)))}))`))
       .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));
   }
 
@@ -193,6 +195,7 @@ export class D1NaverCafeApplication implements NaverCafeApplication {
     return readStoredNaverCafePostsForSources(sources, {
       cacheDb: this.env.otw_db,
       includeArchived,
+      siteId: parseSiteId(this.env.SITE_ID),
       size,
     });
   }

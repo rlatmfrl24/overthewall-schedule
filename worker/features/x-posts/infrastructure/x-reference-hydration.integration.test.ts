@@ -25,7 +25,7 @@ import { connectStoredReplyReferences } from "./x-reply-reference";
 import type { XPostDto } from "@contracts/x-posts";
 import { runXCollectionForHandles } from "./x-collection";
 
-const testEnv = env as Env & { X_REFERENCE_MIGRATIONS: D1Migration[] };
+const testEnv = { ...env, SITE_ID: "otw" } as Env & { X_REFERENCE_MIGRATIONS: D1Migration[] };
 const db = testEnv.otw_db;
 const tracker = (): XApiUsageTracker => ({
   apiCalls: 0,
@@ -66,7 +66,7 @@ const seed = async (id = "101", parent = "10", handle = "member") => {
       Date.now(),
     )
     .run();
-  await backfillXPostReferencesFromStoredPosts(db);
+  await backfillXPostReferencesFromStoredPosts(db,'otw');
   return post;
 };
 const getPost = async (id = "101") =>
@@ -81,14 +81,14 @@ const seedReply = async (id: string, parent: string, preview: XPostDto | null = 
     ? { ...preview, name: null, profileImageUrl: null } : null } };
   await db.prepare(`INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at)
     VALUES(?,'member','member',?,?,1,1)`).bind(id, JSON.stringify(post), post.createdAt).run();
-  await backfillXPostReferencesFromStoredPosts(db);
+  await backfillXPostReferencesFromStoredPosts(db,'otw');
   return post;
 };
 const run = (
   mode: "cached_author" | "post_only" | "link_only" = "cached_author",
   handles = ["member"],
 ) =>
-  hydrateXReferences({
+  hydrateXReferences({ siteId:'otw',
     db,
     handles,
     bearerToken: "test",
@@ -132,7 +132,7 @@ describe("X replies use stored context or a completed relation", () => {
     await db.prepare("UPDATE x_post_references SET resolution_state='pending',next_attempt_at=1,author_state='pending',author_id='2',author_next_attempt_at=1,last_error_code='x_api_503'").run();
     const before = await db.prepare("SELECT * FROM x_post_references").first();
     const usage = tracker();
-    expect(await hydrateXReferences({ db, handles: ["member"], bearerToken: "test", mode: "cached_author", tracker: usage }))
+    expect(await hydrateXReferences({ siteId:'otw', db, handles: ["member"], bearerToken: "test", mode: "cached_author", tracker: usage }))
       .toMatchObject({ scope: "quotes", status: "complete", scanned: 0, deferred: 0, retryAt: null });
     expect(usage).toMatchObject({ apiCalls: 0, reservedCostMicros: 0, estimatedCostMicros: 0 });
     expect(await db.prepare("SELECT * FROM x_post_references").first()).toEqual(before);
@@ -391,7 +391,7 @@ describe("X durable reference hydration", () => {
         }),
       )
       .run();
-    await backfillXPostReferencesFromStoredPosts(db);
+    await backfillXPostReferencesFromStoredPosts(db,'otw');
     await run("link_only");
     const hydrated = await getPost();
     expect(hydrated.reply?.post?.text).toBe(original.text);
@@ -549,7 +549,7 @@ describe("X durable reference hydration", () => {
       },
       batch: db.batch.bind(db),
     } as unknown as D1Database;
-    await hydrateXReferences({
+    await hydrateXReferences({ siteId:'otw',
       db: racingDb,
       handles: ["member"],
       bearerToken: "test",
@@ -754,8 +754,8 @@ describe("X durable reference hydration", () => {
           .bind(post.id, JSON.stringify(post), post.createdAt),
       ),
     );
-    await backfillXPostReferencesFromStoredPosts(db);
-    await backfillXPostReferencesFromStoredPosts(db);
+    await backfillXPostReferencesFromStoredPosts(db,'otw');
+    await backfillXPostReferencesFromStoredPosts(db,'otw');
     expect((await run("link_only")).hydrated).toBe(100);
     expect(
       (
@@ -1037,11 +1037,11 @@ describe("X durable reference hydration", () => {
 
   it("a newly inserted reference cannot bypass an existing target lease", async () => {
     await seed();
-    expect(await claimXReferenceTarget(db, "10", "first")).toBe(true);
+    expect(await claimXReferenceTarget(db, "10", "first",'otw')).toBe(true);
     await seed("102", "10", "other");
-    expect(await claimXReferenceTarget(db, "10", "second")).toBe(false);
+    expect(await claimXReferenceTarget(db, "10", "second",'otw')).toBe(false);
     await db.prepare("UPDATE x_post_references SET lease_until=0").run();
-    expect(await claimXReferenceTarget(db, "10", "second")).toBe(true);
+    expect(await claimXReferenceTarget(db, "10", "second",'otw')).toBe(true);
   });
 
   it("does not revive a post redacted while the provider request is running", async () => {
@@ -1099,8 +1099,8 @@ describe("X durable reference hydration", () => {
       .prepare("UPDATE x_posts SET value=? WHERE id='101'")
       .bind(JSON.stringify({ ...post, reply: { postId: "12", conversationId: "12", post: null } }))
       .run();
-    await backfillXPostReferencesFromStoredPosts(db);
-    await backfillXPostReferencesFromStoredPosts(db);
+    await backfillXPostReferencesFromStoredPosts(db,'otw');
+    await backfillXPostReferencesFromStoredPosts(db,'otw');
     expect(
       (
         await db
@@ -1134,7 +1134,7 @@ describe("X durable reference hydration", () => {
       source: "manual",
       maxResults: 5,
       afterTimeline: (track) =>
-        hydrateXReferences({
+        hydrateXReferences({ siteId:'otw',
           db,
           handles: ["member"],
           bearerToken: "test",

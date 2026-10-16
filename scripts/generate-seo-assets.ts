@@ -57,6 +57,12 @@ export const renderSeoDocument = (
   return document;
 };
 
+export const createSeoHtmlTransform = (site: SiteDefinition) => ({
+  // Resolve the shell's relative canonical before Vite treats link hrefs as assets.
+  order: "pre" as const,
+  handler: (html: string) => renderSeoDocument(html, resolveSiteSeo("/", site), site),
+});
+
 export const renderRobots = (site: SiteDefinition): string =>
   `User-agent: *\nAllow: /\n\nSitemap: ${requireSiteOrigin(site)}/sitemap.xml\n`;
 

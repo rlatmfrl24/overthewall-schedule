@@ -9,6 +9,8 @@ import { createQueryWrapper, createTestQueryClient } from "@/test/query-client";
 import { queryKeys } from "@/shared/query/query-keys";
 
 const autoFillLiveSchedulesForMembersMock = vi.hoisted(() => vi.fn());
+const toastMock = vi.hoisted(() => vi.fn());
+vi.mock("@/shared/ui/toast", () => ({useToast: () => ({toast: toastMock})}));
 
 vi.mock("@/features/chzzk", () => ({
   autoFillLiveSchedulesForMembers: autoFillLiveSchedulesForMembersMock,
@@ -20,6 +22,7 @@ const schedules = [{ id: 1 }] as ScheduleDto[];
 describe("useAdminLiveScheduleAutoFill", () => {
   beforeEach(() => {
     autoFillLiveSchedulesForMembersMock.mockReset();
+    toastMock.mockReset();
   });
 
   it("관리자에게 새 live-status 결과가 도착할 때 한 번만 POST를 실행한다", async () => {
@@ -111,6 +114,19 @@ describe("useAdminLiveScheduleAutoFill", () => {
         queryKey: queryKeys.schedules.all,
       }),
     );
+  });
+
+  it.each(["CONTENT_ACCEPTED", "CONTENT_MOVED", "CONTENT_CONFLICT"])("접수와 이동 결과를 저장 성공으로 표시하지 않는다: %s", async (code) => {
+    autoFillLiveSchedulesForMembersMock.mockResolvedValue({scheduleAutoFill: {updated: 0, feedback: [{memberUid: 1, code, message: `${code} 안내`, targetSite: "luvdia", operationId: "original"}]}});
+    const client=createTestQueryClient(), invalidate=vi.spyOn(client,"invalidateQueries");
+    const wrapper=({children}:{children:ReactNode})=>createElement(QueryClientProvider,{client},children);
+    const {useAdminLiveScheduleAutoFill}=await import("./use-admin-live-schedule-auto-fill");
+    const props={enabled:true,sourceReady:true,snapshotVersion:"pending",members,schedules};
+    const {rerender}=renderHook(options=>useAdminLiveScheduleAutoFill(options),{initialProps:props,wrapper});
+    await waitFor(()=>expect(toastMock).toHaveBeenCalledWith({description:`${code} 안내`,variant:code==="CONTENT_ACCEPTED"?"info":"error"}));
+    expect(invalidate).not.toHaveBeenCalled();
+    rerender({...props,members:[...members]});
+    await act(async()=>{await Promise.resolve();});expect(autoFillLiveSchedulesForMembersMock).toHaveBeenCalledOnce();
   });
 
   it("같은 snapshot의 일시 실패는 다음 렌더에서 다시 시도한다", async () => {

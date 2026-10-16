@@ -5,6 +5,7 @@ import { historicalStatements } from "./historical-statements";
 
 const quote=(name:string)=>`"${name}"`;
 const scalar=(value:unknown):string|number|null=>typeof value==="boolean"?Number(value):value===null?null:typeof value==="object"?JSON.stringify(value):value as string|number;
+const all=(parts:readonly string[]):string=>parts.length===1?parts[0]:`(${all(parts.slice(0,Math.floor(parts.length/2)))} AND ${all(parts.slice(Math.floor(parts.length/2)))})`;
 /** Narrow final persistence adapter. Only parser-issued images enter SQL. */
 export function projectedStatements(db:D1Database, transitionId:string, record:ProjectedRecord, remove=false):D1PreparedStatement[] {
   assertProjectedRecord(record);
@@ -12,7 +13,7 @@ export function projectedStatements(db:D1Database, transitionId:string, record:P
     if(remove) return [db.prepare("DELETE FROM content_historical_relations WHERE source_site=? AND ((from_table=? AND from_key=?) OR (to_table=? AND to_key=?))").bind(record.sourceSite,record.table,record.sourceRecordId,record.table,record.sourceRecordId),db.prepare("DELETE FROM content_historical_records WHERE source_site=? AND source_table=? AND source_key=?").bind(record.sourceSite,record.table,record.sourceRecordId)];
     const candidate=record.value.candidate_id;
     const aggregate=record.value.aggregate_type,aggregateId=record.value.aggregate_id;
-    const table=aggregate==="review_candidate"?"music_ingestion_candidates":aggregate==="review_proposal"?"music_cover_proposals":aggregate==="performance"?"music_performances":null;
+    const table=aggregate==="review_candidate"?"music_ingestion_candidates":["review_proposal","proposal"].includes(String(aggregate))?"music_cover_proposals":aggregate==="performance"?"music_performances":null;
     return historicalStatements(db,record,typeof candidate==="string"?[{table:"music_ingestion_candidates",key:JSON.stringify([candidate])}]:table && typeof aggregateId==="string"?[{table,key:JSON.stringify([aggregateId])}]:[]);
   }
   const table=contentDispositionRegistry[record.table];
@@ -71,7 +72,9 @@ export function groupedProjectedStatements(db:D1Database,id:string,records:reado
     const columns=Object.keys(first.value),assignments=columns.filter(column=>!(registry.primaryKey as readonly string[]).includes(column)).map(column=>`${quote(column)}=excluded.${quote(column)}`).join(",");
     const owned=`EXISTS(SELECT 1 FROM content_transition_materialized_rows WHERE transition_id=? AND row_table=? AND row_key=${key("excluded")}) OR EXISTS(SELECT 1 FROM content_transition_baseline_rows WHERE transition_id=? AND row_table=? AND row_key=${key("excluded")} AND installed=1)`;
     statements.push(db.prepare(`INSERT INTO ${quote(first.table)}(${columns.map(quote).join(",")}) SELECT ${columns.map(column=>`json_extract(r.value,'$.value.${column}')`).join(",")} FROM json_each(?) r WHERE 1 ON CONFLICT(${registry.primaryKey.map(quote).join(",")}) DO UPDATE SET ${assignments||`${quote(registry.primaryKey[0])}=excluded.${quote(registry.primaryKey[0])}`} WHERE ${owned}`).bind(json,id,first.table,id,first.table));
-    statements.push(db.prepare(`UPDATE content_transition_permits SET version_matches=NOT EXISTS(SELECT 1 FROM json_each(?) r WHERE NOT EXISTS(SELECT 1 FROM ${quote(first.table)} a WHERE ${columns.map(column=>`a.${quote(column)} IS json_extract(r.value,'$.value.${column}')`).join(" AND ")})) WHERE transition_id=?`).bind(json,id));
+    // Preserve every null-safe comparison without a linear expression tree;
+    // wider candidate rows otherwise exceed D1's depth100 limit in this query.
+    statements.push(db.prepare(`UPDATE content_transition_permits SET version_matches=NOT EXISTS(SELECT 1 FROM json_each(?) r WHERE NOT EXISTS(SELECT 1 FROM ${quote(first.table)} a WHERE ${all(columns.map(column=>`a.${quote(column)} IS json_extract(r.value,'$.value.${column}')`))})) WHERE transition_id=?`).bind(json,id));
     statements.push(db.prepare("INSERT OR IGNORE INTO content_transition_materialized_rows(transition_id,row_table,row_key) SELECT ?,?,json_extract(value,'$.key') FROM json_each(?)").bind(id,first.table,json));
   }
   return statements;

@@ -229,6 +229,7 @@ describe("members route", () => {
       orderedRowsQuery([]),
       orderedRowsQuery([]),
       orderedRowsQuery([]),
+      rowsQuery([]),
     ]);
     const list = vi.fn(async () => ({
       objects: [

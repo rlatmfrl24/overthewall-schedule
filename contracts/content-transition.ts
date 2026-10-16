@@ -35,14 +35,18 @@ export type FileOriginClassification =
   | {kind:"site";origin:string;site:SiteId}
   | {kind:"r2";origin:string;site:SiteId;resource:string}
   | {kind:"external";origin:string;reason:string};
-export interface IngressReadiness extends TransitionIdentity { receiptId: string; expiresAt: number }
-export interface SourceArchiveReceipt extends TransitionIdentity { boundary:number; archivedRoots:number }
+export interface IngressReadiness extends TransitionIdentity { receiptId: string; expiresAt: number; receiverContract: string }
+export interface SourceArchiveReceipt extends TransitionIdentity { boundary:number; archivedRoots:number; restoreEvidence?:1 }
 export interface SourceCheckpoint {
   sourceKey: string;
   revision: number;
   state: Readonly<Record<string, string | number | boolean | null>>;
 }
 export interface SourceFence extends TransitionIdentity {
+  /** Hash of the actual source maintenance stop proof, sealed with this fence. */
+  maintenanceDigest?:string;
+  /** Actual own source counter witnessed in the successful fence transaction. */
+  sourceCatalogRevision?:number;
   boundary: number;
   checkpointDigest: string;
   checkpoints: SourceCheckpoint[];
@@ -51,14 +55,22 @@ export interface SourceFence extends TransitionIdentity {
   fileIntentBoundary:number;
   fileIntentCount:number;
 }
-export interface CommittedStateInstallation { boundary: number; checkpointDigest: string; committedFilesAvailable: boolean }
+export interface CommittedStateInstallation { boundary: number; checkpointDigest: string; committedFilesAvailable: boolean; catalogRevisionAnchor?:number }
+export interface TargetActivationReceipt extends TransitionIdentity {
+  kind:'target_activated';
+  fence:SourceFence;
+  installation:CommittedStateInstallation;
+  archive:SourceArchiveReceipt;
+}
+/** Target has irreversibly declined this generation before any owner activation. */
+export interface TargetAbortReceipt extends TransitionIdentity { kind:'target_aborted'; fence:SourceFence|null; abortedAt:number }
 export interface ActivationEvidence extends CommittedStateInstallation {
   fence: SourceFence;
   transferredOperations:number;
   transferredFileIntents:number;
 }
 export type TerminalOutcome = "committed" | "conflicted" | "failed";
-export interface OperationOutcome { outcome: TerminalOutcome; sideEffectReconciled: boolean; detail: string }
+export interface OperationOutcome { outcome: TerminalOutcome | 'administratively_closed'; sideEffectReconciled: boolean; detail: string; chzzkScan?: import("./content-transition-chzzk").ChzzkScanCompletion; youtubeChannel?:import("./content-transition-youtube").YouTubeChannelCompletion; youtubeVideo?:import("./content-transition-youtube").YouTubeVideoCompletion; aiReview?:import('./content-transition-ai').AiReviewUnknownClosure; aiReviewResult?:import('./content-transition-ai').AiReviewRecordedCompletion; aiResume?:import('./content-transition-ai').AiReviewResumeCompletion }
 export interface OutcomeReceipt extends TransitionIdentity {
   kind:"operation"|"file"; recordId:string; sourceSequence:number;
   fingerprint:string; outcome:OperationOutcome; outcomeDigest:string;

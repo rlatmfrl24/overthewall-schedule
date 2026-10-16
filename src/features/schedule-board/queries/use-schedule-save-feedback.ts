@@ -13,6 +13,7 @@ export type ScheduleSaveFeedback = SaveInput & {
 export function useScheduleSaveFeedback() {
   const queryClient = useQueryClient();
   const latestSave = useRef<ScheduleSaveFeedback | null>(null);
+  const request = useRef<{body:string;id:string}|null>(null);
   const [feedback, setFeedback] = useState<ScheduleSaveFeedback | null>(null);
 
   const refreshSchedules = async (saved: ScheduleSaveFeedback) => {
@@ -34,8 +35,11 @@ export function useScheduleSaveFeedback() {
   };
 
   const save = async (data: SaveInput) => {
-    const result = await saveScheduleWithConflicts(data);
+    const body=JSON.stringify(data);
+    if(request.current?.body!==body) request.current={body,id:crypto.randomUUID()};
+    const result = await saveScheduleWithConflicts(data,request.current.id);
     if (!result.success) throw new Error("Schedule save failed");
+    request.current=null;
     const saved: ScheduleSaveFeedback = {
       ...data,
       scheduleId: result.scheduleId,

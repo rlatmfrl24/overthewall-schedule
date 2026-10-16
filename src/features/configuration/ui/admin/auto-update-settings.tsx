@@ -845,7 +845,7 @@ export function AutoUpdateSettingsManager({
       await loadPending();
       setPendingApprovalOptions((prev) => {
         const next = { ...prev };
-        for (const id of targetIds) {
+        for (const id of result.results.filter(item => item.success).map(item => item.id)) {
           delete next[id];
         }
         return next;
@@ -858,7 +858,7 @@ export function AutoUpdateSettingsManager({
         description:
           action === "approve"
             ? `일괄 승인 완료: 성공 ${result.successCount}건, 실패 ${result.failedCount}건${failures ? ` · ${failures}` : ""}`
-            : `일괄 거부 완료: 성공 ${result.successCount}건, 실패 ${result.failedCount}건`,
+            : `일괄 거부 완료: 성공 ${result.successCount}건, 실패 ${result.failedCount}건${failures ? ` · ${failures}` : ""}`,
       });
     } catch (error) {
       console.error("Failed to process pending schedules in batch:", error);

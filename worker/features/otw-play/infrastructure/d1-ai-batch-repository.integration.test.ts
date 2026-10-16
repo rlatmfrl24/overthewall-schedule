@@ -1,6 +1,5 @@
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { beforeEach, expect, it, vi } from "vitest";
-import aiMigration from "../../../../drizzle/0092_perfect_manta.sql?raw";
 import { D1IngestionRepository } from "./d1-ingestion-repository";
 import { D1AiBatchRepository } from "./d1-ai-batch-repository";
 import { D1AiReviewRepository } from "./d1-ai-review-repository";
@@ -26,8 +25,7 @@ async function candidates(count: number) {
   }
 }
 beforeEach(async () => {
-  await applyD1Migrations(db, (env as unknown as { OTW_PLAY_INGESTION_MIGRATIONS: D1Migration[] }).OTW_PLAY_INGESTION_MIGRATIONS);
-  await applyD1Migrations(db, [aiMigration].map((sql, n) => ({ name: `batch-${n}`, queries: sql.split("--> statement-breakpoint").map(s => s.trim()).filter(Boolean) })));
+  await applyD1Migrations(db, (env as unknown as { OTW_PLAY_AI_REVIEW_MIGRATIONS: D1Migration[] }).OTW_PLAY_AI_REVIEW_MIGRATIONS);
   await db.batch([
     db.prepare("DELETE FROM music_ai_review_batches"), db.prepare("DELETE FROM music_ai_reviews"),
     db.prepare("DELETE FROM music_cover_proposals WHERE id='batch-proposal'"),

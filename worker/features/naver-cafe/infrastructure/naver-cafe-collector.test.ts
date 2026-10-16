@@ -136,6 +136,7 @@ const makeD1Store = (
         throw new Error(`Unexpected D1 first SQL: ${sql}`);
       }),
       run: vi.fn(async () => {
+        if (sql.trim().startsWith("SELECT iif(")) return { success: true };
         if (
           sql.includes("INSERT INTO naver_cafe_usage_daily") ||
           sql.includes("UPDATE naver_cafe_sources")
@@ -219,7 +220,11 @@ const makeD1Store = (
   });
 
   return {
-    db: { prepare } as unknown as D1Database,
+    db: { prepare, batch: async (statements: D1PreparedStatement[]) => {
+      const results = [];
+      for (const statement of statements) results.push(await statement.run());
+      return results;
+    } } as unknown as D1Database,
     posts,
     checks,
   };

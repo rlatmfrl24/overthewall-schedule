@@ -5,6 +5,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "overthewall-schedule",
+  "keep_vars": true,
   "main": "worker/index.ts",
   "compatibility_date": "2025-11-25",
   "assets": {
@@ -12,26 +13,7 @@
     "binding": "ASSETS",
     "html_handling": "drop-trailing-slash",
     "not_found_handling": "404-page",
-    "run_worker_first": [
-      "/*%*",
-      "/api/*",
-      "/",
-      "/weekly",
-      "/weekly/",
-      "/notice",
-      "/notice/",
-      "/vods",
-      "/vods/",
-      "/rights",
-      "/rights/",
-      "/r2-assets/*",
-      "/feed",
-      "/feed/",
-      "/play",
-      "/play/*",
-      "/profile/*",
-      "/sitemap.xml",
-    ],
+    "run_worker_first": true,
   },
   "routes": [
     {

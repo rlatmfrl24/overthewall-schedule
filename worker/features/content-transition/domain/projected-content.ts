@@ -5,7 +5,8 @@ import { historicalReferences } from "./historical-references";
 import {normalizeOtwPlaySearchText} from "../../../../contracts/otw-play-search";
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-export type Shape = "scalar" | "drop" | "subject" | { array: Shape } | { fields: Record<string, Shape> };
+export type Shape = "scalar" | "drop" | "subject" | "member_changed_field" | { array: Shape } | { fields: Record<string, Shape> };
+export const memberChangedFields:readonly string[]=["submissionKind","broadcast","youtubeUrl","title","suggestedSongId","tags","originalArtists","participants","note"];
 export const subjectFields={member:["kind","memberUid"],entity:["kind","entityId"],new_external:["kind","clientKey","displayName","entityKind"]} as const;
 const object = (fields: Record<string, Shape>): Shape => ({ fields });
 const array = (item: Shape): Shape => ({ array:item });
@@ -26,6 +27,7 @@ const metrics = object(scalars("likeCount replyCount repostCount quoteCount"));
 const linkedPost = object({...scalars("id text createdAt url username name profileImageUrl"),metrics,media});
 const snapshot = object({...scalars("performanceId songId songTitle relationType releaseType publicationStatus deletedAt deletionEventId"),deletedBy:"drop",broadcast,sources:array(object(scalars("sourceId videoId startSeconds endSeconds")))});
 const video = object({...scalars("videoId channelId channelTitle title thumbnailUrl durationSeconds publishedAt availabilityStatus madeForKids scopeReview description privacyStatus actualStartTime"),tags:array("scalar")});
+const observation=object({...scalars('videoId availabilityStatus'),video});
 export const shapes: Record<string, Shape> = {
   strings:array("scalar"),member_uids:array("scalar"),schedule_ids:array("scalar"),notice_links:array(object(scalars("label url"))),
   historical_people:array(object(scalars("sourceSite sourceRecordId name"))), broadcast,range,review_input:review,approved_snapshot:snapshot,
@@ -33,8 +35,8 @@ export const shapes: Record<string, Shape> = {
   ai_result:aiResult,
   ai_selection:object({candidates:array(object(scalars("id version"))),filters:object(scalars("source jobId candidateKind"))}),
   x_post:object({...scalars("id text createdAt url username"),metrics,media,links:array(object({...scalars("url expandedUrl displayUrl resolvedUrl domain title description imageUrl siteName previewStatus"),linkedPost})),quote:object({postId:"scalar",post:linkedPost}),reply:object({...scalars("postId conversationId inReplyToUserId targetUsername"),post:linkedPost})}),
-  ingestion_event:object({...scalars("sourceKind candidateKind sourceExternalId sourceUrl sourceTitle importMode playlistId mode disposition requestedItemCount rangeStartPosition status reason code outcome linkedPerformanceId performanceId candidateId beforeKind afterKind title version expectedVersion errorCode messageCount classification"),changedFields:array("scalar"),catalogMaterialized:object(scalars("entityCount songCreated")),beforeReview:review,reviewInput:review}),
-  catalog_event:object({...scalars("id entityId songId performanceId proposalId candidateId title displayName normalizedName slug entityKind memberUid version status relationType releaseType participationType publicationStatus qualityStatus internalNote updatedAt createdAt reviewedAt reviewResultCode reviewNote submittedTitle submittedUrl youtubeVideoId reason code previousStatus nextStatus expectedVersion deletedAt deletionEventId songTitle archived draftPerformanceCount withdrawnPerformanceCount sourceCount externalChannelId verificationStatus creationMode videoId channelRole active resultCode"),historicalMember:object(scalars("sourceSite sourceRecordId name")),actorUserId:"drop",submittedByUserId:"drop",reviewedByUserId:"drop",deletedBy:"drop",broadcast,reviewInput:review,beforeReview:review,participants:array(participant),originalArtists:array(artist),tags:array("scalar"),entityIds:array("scalar"),sources:array(object(scalars("sourceId videoId startSeconds endSeconds sourceRole priority isPrimary")))}),
+  ingestion_event:object({...scalars("sourceKind candidateKind sourceExternalId sourceUrl sourceTitle importMode playlistId mode disposition requestedItemCount rangeStartPosition status reason code outcome linkedPerformanceId performanceId candidateId beforeKind afterKind title version expectedVersion errorCode messageCount classification kind incomplete totalResults"),messageKey:'drop',nextPageToken:'drop',items:array(object(scalars('videoId playlistItemId position'))),unavailableItems:array(object(scalars('playlistItemId position'))),skippedVideoIds:array('scalar'),observations:array(observation),observation,changedFields:array("scalar"),catalogMaterialized:object(scalars("entityCount songCreated")),beforeReview:review,reviewInput:review}),
+  catalog_event:object({changedFields:array("member_changed_field"),...scalars("id entityId songId performanceId proposalId candidateId title displayName normalizedName slug entityKind memberUid version status relationType releaseType participationType publicationStatus qualityStatus internalNote updatedAt createdAt reviewedAt reviewResultCode reviewNote submittedTitle submittedUrl youtubeVideoId reason code previousStatus nextStatus expectedVersion deletedAt deletionEventId songTitle archived draftPerformanceCount withdrawnPerformanceCount sourceCount externalChannelId verificationStatus creationMode videoId channelRole active resultCode"),historicalMember:object(scalars("sourceSite sourceRecordId name")),actorUserId:"drop",submittedByUserId:"drop",reviewedByUserId:"drop",deletedBy:"drop",broadcast,reviewInput:review,beforeReview:review,participants:array(participant),originalArtists:array(artist),tags:array("scalar"),entityIds:array("scalar"),sources:array(object(scalars("sourceId videoId startSeconds endSeconds sourceRole priority isPrimary")))}),
 };
 export const cacheShapes:Record<string,Record<string,Shape>>={
   chzzk_cache:{
@@ -94,6 +96,11 @@ function classification(table:string,key:string,value:Record<string,unknown>,con
 }
 function parseShape(value: unknown, shape: Shape, context: ProjectionContext, path: string): JsonValue | undefined {
   if (shape==="drop") return undefined;
+  if(typeof shape==='object' && 'array' in shape && shape.array==='member_changed_field' && !Array.isArray(value)) throw new Error(`Invalid member changed fields at ${path}`);
+  if(shape==="member_changed_field") {
+    if(typeof value!=="string" || !memberChangedFields.includes(value)) throw new Error(`Unknown member changed field at ${path}`);
+    return value;
+  }
   if (value===null) return null;
   if (shape==="scalar") {
     if (["string","boolean"].includes(typeof value) || typeof value==="number" && Number.isFinite(value)) return value as string|number|boolean;

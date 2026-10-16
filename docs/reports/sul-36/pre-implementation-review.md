@@ -1,5 +1,9 @@
 # SUL-36 구현 실행 전 결정·고려사항 점검
 
+**2026-10-15 현행 우선 정책:** [실제 초기 서비스 개통 목표와 실행 기록](initial-service-launch.md)이 아래와 충돌하는 이전 조건을 대체한다. 10월 17일 KST 이내 개통을 우선하고 필수 원격 자원·초기 복사·Clerk/도메인·최초 수동 배포가 허용됐다. OTW 중단은 가능하며 Task 4.4 전체·실시간 인계·모든 자동화는 개통 선행 조건에서 제외한다.
+
+**2026-10-15 정책 변경:** 아래는 10월14일의 실행 전 점검 기록이다. 현재는 [점검 전환 정책](../../superpowers/specs/2026-10-13-luvdia-independent-deployments-design.md#2026-10-15-확정-변경-점검-전환-정책)을 적용한다. 준비 중 정상 OTW, 최종 일관 정지·복사/readback·안전 복구와 binding 제거 뒤 독립 운영으로 완료 기준을 변경했으며 이전 무중단 검증은 현행 필수 조건이 아니다. 실제 운영 실행은 별도 지시 전 보류한다.
+
 - 점검일: 2026-10-14, Asia/Seoul
 - 코드 기준: `bf0c8159412d283996e04c6d6147de52dbd10ba5`
 - 대상: [확정 정책·설계](../../superpowers/specs/2026-10-13-luvdia-independent-deployments-design.md), [구현 계획](../../superpowers/plans/2026-10-13-luvdia-independent-deployments.md), 현재 source/config/schema와 공식 플랫폼 문서.

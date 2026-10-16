@@ -35,7 +35,7 @@ export const siteContentUnavailable = () => new Response("일시적으로 페이
   status: 503, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "Retry-After": "300", "X-Robots-Tag": "noindex,nofollow" },
 });
 
-export const createSiteContentHandler = (resolve: (env: Env) => SiteContentService) => async (request: Request, env: Env) => {
+export const createSiteContentHandler = (resolve: (env: Env,request:Request) => SiteContentService) => async (request: Request, env: Env) => {
   const url = new URL(request.url);
   if (request.method !== "GET") return new Response(null, { status: 405, headers: { Allow: "GET", "Cache-Control": "no-store" } });
   const path = url.searchParams.get("path") ?? "/";
@@ -51,7 +51,7 @@ export const createSiteContentHandler = (resolve: (env: Env) => SiteContentServi
   }
   try { decodeURIComponent(path); } catch { return Response.json({ error: "Invalid path" }, { status: 400, headers: { "Cache-Control": "no-store" } }); }
   try {
-    const content = await resolve(env).read(path, date);
+    const content = await resolve(env,request).read(path, date);
     return content ? Response.json(content, { headers: { "Cache-Control": siteContentCacheControl(content), "X-Robots-Tag": "noindex" } }) : Response.json({ error: "Not found" }, { status: 404, headers: { "Cache-Control": "no-store" } });
   } catch (error) { console.error("[site-content] read failed", error); return siteContentUnavailable(); }
 };

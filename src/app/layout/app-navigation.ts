@@ -193,7 +193,7 @@ export function getPublicNavigationSections({
           : []),
         {
           id: "multiview",
-          label: `${site.siteName} 멀티뷰`,
+          label: site.id === "luvdia" ? "멀티뷰" : `${site.siteName} 멀티뷰`,
           icon: MonitorPlay,
           group: "content",
           to: "/multiview",

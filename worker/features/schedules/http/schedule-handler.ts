@@ -29,8 +29,10 @@ const resolveAuthorizedActor = async (
   service: ScheduleService,
 ): Promise<{ authorized: boolean; actor: ScheduleActor }> => {
   const authenticatedUser = await authenticateOptionalRequest(request, env);
-  const actor = getActorInfo(request, authenticatedUser);
-  const authorized = await service.canWrite(operation, actor);
+  const actor:ScheduleActor = getActorInfo(request, authenticatedUser);
+  const requestId=request.headers.get("Idempotency-Key");
+  if(requestId && /^[A-Za-z0-9_-]{16,100}$/.test(requestId)) actor.requestId=requestId;
+  const authorized = (env.SITE_ID!=="luvdia" || authenticatedUser!==null) && await service.canWrite(operation, actor);
   return { authorized, actor };
 };
 
@@ -38,6 +40,8 @@ export const createScheduleRequestHandler =
   (resolveService: ResolveScheduleService) =>
   async (request: Request, env: Env) => {
   const url = new URL(request.url);
+  const requestId=request.headers.get("Idempotency-Key");
+  if(request.method!=="GET" && requestId!==null && !/^[A-Za-z0-9_-]{16,100}$/.test(requestId)) return badRequest("Invalid Idempotency-Key");
   const includeArchived = request.method === "GET" && url.searchParams.get("archive") === "1";
   if (includeArchived) {
     const admin = await requireAdminUser(request, env);

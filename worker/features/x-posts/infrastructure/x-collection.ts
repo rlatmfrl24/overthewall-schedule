@@ -1,3 +1,6 @@
+import { getHiddenMemberCodes } from "@contracts/site-publication";
+import { publicationHiddenSql } from "../../content-transition";
+import { parseSiteId, type SiteId } from "@contracts/site-definition";
 import {
   normalizeXCollectionIntervalHours,
   parseXCollectionIntervalHours,
@@ -183,7 +186,7 @@ const claimXSourceLeases = async (env: Env, handles: string[], currentTime: numb
       `UPDATE x_post_sources
        SET lease_token = ?, lease_until = ?, generation = generation + 1,
            updated_at = ?
-       WHERE handle = ? AND (lease_until IS NULL OR lease_until <= ?)
+       WHERE handle = ? AND NOT (${publicationHiddenSql("x_post_sources","x_post_sources",parseSiteId(env.SITE_ID))}) AND (lease_until IS NULL OR lease_until <= ?)
        RETURNING handle`,
     ).bind(token, currentTime + X_SOURCE_LEASE_MS, currentTime, handle, currentTime)
       .first<{ handle: string }>();
@@ -224,8 +227,8 @@ export const getXCollectionScheduleDecision = (
   };
 };
 
-export const readActiveXHandles = async (db: DbInstance) => {
-  const activeCondition = sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0`;
+export const readActiveXHandles = async (db: DbInstance, siteId: SiteId = "otw") => {
+  const activeCondition = sql`(${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0) AND NOT (${sql.raw(publicationHiddenSql("members","members",siteId))})`;
   const rows = await db
     .select({ urlTwitter: members.url_twitter })
     .from(members)
@@ -251,14 +254,21 @@ export const runXCollectionForHandles = async (
   handles: string[],
   source: XCollectionSource,
 ): Promise<XCollectionRunResult> => {
-  await backfillXPostFactsFromStoredPosts(env.otw_db, 100);
-  await backfillXPostReferencesFromStoredPosts(env.otw_db, 100);
+  if (getHiddenMemberCodes(parseSiteId(env.SITE_ID), Date.now()).length) {
+    const allowed = new Set(await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID)));
+    handles = handles.filter(handle => allowed.has(handle.toLowerCase()));
+  }
   const policy = await resolveXEffectiveCollectionPolicy(env);
   const lease = await claimXSourceLeases(env, handles, Date.now());
   try {
+    if (lease.claimed.length) {
+      await backfillXPostFactsFromStoredPosts(env.otw_db,parseSiteId(env.SITE_ID),100);
+      await backfillXPostReferencesFromStoredPosts(env.otw_db,parseSiteId(env.SITE_ID),100);
+    }
     const result = await collectXPostsForHandles(lease.claimed, {
       bearerToken: env.X_BEARER_TOKEN,
       cacheDb: env.otw_db,
+      siteId: parseSiteId(env.SITE_ID),
       maxResults: policy.optimizerEnabled
         ? X_OPTIMIZED_FIRST_PAGE_RESULTS
         : X_COLLECTION_MAX_RESULTS,
@@ -268,7 +278,7 @@ export const runXCollectionForHandles = async (
       effectiveIntervalMinutes: policy.effectiveIntervalMinutes,
       referencePreviewMode: policy.referencePreviewMode,
       coalescedHandles: lease.coalesced,
-      afterTimeline: (tracker) => hydrateXReferences({ db: env.otw_db, handles: lease.claimed,
+      afterTimeline: (tracker) => hydrateXReferences({ db: env.otw_db,siteId:parseSiteId(env.SITE_ID), handles: lease.claimed,
         bearerToken: env.X_BEARER_TOKEN ?? "", mode: policy.referencePreviewMode, tracker }),
     });
     return normalizeCollectionResult({
@@ -287,7 +297,7 @@ export const runXCollection = async (
   source: XCollectionSource,
 ): Promise<XCollectionRunResult> => {
   const db = getDb(env);
-  const handles = await readActiveXHandles(db);
+  const handles = await readActiveXHandles(db, parseSiteId(env.SITE_ID));
   const result = await runXCollectionForHandles(env, handles, source);
   const updatedAtMs = Date.now();
 

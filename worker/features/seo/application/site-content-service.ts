@@ -5,6 +5,7 @@ import type { SiteContentReader } from "./ports/site-content-reader";
 import type { SiteSeoReader } from "./ports/site-seo-reader";
 import { SiteSeoService } from "./site-seo-service";
 import type { SiteContentCache } from "./ports/site-content-cache";
+import { SITE_OPENS_AT } from "@contracts/site-publication";
 
 const section = (id: string, title: string, items: SiteContentSection["items"], updatedAt: string | null = null): SiteContentSection =>
   ({ id, title, items, updatedAt, status: items.length ? "available" : "empty" });
@@ -91,7 +92,8 @@ export class SiteContentService {
 
     sections = sections.map(s => ({ ...s, items: s.items.map(item => ({ ...item, url: safeSiteContentUrl(item.url, this.site), image: safeSiteContentUrl(item.image, this.site) })) }));
     const midnight = Date.parse(`${today}T00:00:00+09:00`) + 86_400_000;
-    const expiresAt = new Date(Math.min(now + 300_000, midnight)).toISOString();
+    const cutoff = Date.parse(SITE_OPENS_AT);
+    const expiresAt = new Date(Math.min(now + 300_000, midnight, this.site.id === "otw" && now < cutoff ? cutoff : Infinity)).toISOString();
     const structuredData = metadata.robots !== "index,follow" ? null : {
       "@context": "https://schema.org",
       "@graph": [

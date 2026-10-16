@@ -1,4 +1,6 @@
 import { parseISO8601Duration } from "../../../platform/http-helpers";
+import {isArchivedYouTubeVideo} from '../../content-transition';
+import type {SiteId} from '@contracts/site-definition';
 import {
   reserveYouTubeQuota,
   YouTubeQuotaAdmissionError,
@@ -169,6 +171,7 @@ export class YouTubeOtwPlayMetadataReader
   private readonly quotaDb: Pick<D1Database, "prepare"> | undefined;
   private readonly quotaPriority: YouTubeQuotaPriority;
   private readonly usageOrigin: string;
+  private readonly siteId:SiteId|undefined;
 
   constructor(
     apiKey: string,
@@ -177,6 +180,7 @@ export class YouTubeOtwPlayMetadataReader
       db?: Pick<D1Database, "prepare">;
       priority?: YouTubeQuotaPriority;
       origin?: string;
+      siteId?:SiteId;
     },
   ) {
     this.apiKey = apiKey.trim();
@@ -184,6 +188,10 @@ export class YouTubeOtwPlayMetadataReader
     this.quotaDb = quota?.db;
     this.quotaPriority = quota?.priority ?? "core";
     this.usageOrigin = quota?.origin ?? "otw_play";
+    this.siteId=quota?.siteId;
+  }
+  private async assertCollection(videoId:string,channelId:string|null=null) {
+    if(this.quotaDb&&this.siteId&&await isArchivedYouTubeVideo(this.quotaDb,videoId,this.siteId,channelId)) throw new OtwPlayYouTubeMetadataError('이관된 멤버의 신규 수집은 종료되었습니다.','invalid_request',false);
   }
 
   private async recordUsage(path: string, status: number, startedAt: number, quotaUnits: number, error: string | null) {
@@ -210,7 +218,7 @@ export class YouTubeOtwPlayMetadataReader
     }
   }
 
-  private async read<T>(path: string, parameters: Record<string, string>) {
+  private async read<T>(path: string, parameters: Record<string, string>,beforeHttp?:()=>Promise<void>) {
     if (!this.apiKey) {
       throw new OtwPlayYouTubeMetadataError(
         "YouTube API key is not configured",
@@ -226,17 +234,22 @@ export class YouTubeOtwPlayMetadataReader
     );
     let response: Response;
     const startedAt = Date.now();
+    let admissionFailed=false;
     try {
       await reserveYouTubeQuota(
         this.quotaDb,
         this.quotaPriority,
       );
+      if(beforeHttp) {
+        try {await beforeHttp();} catch(error) {admissionFailed=true;throw error;}
+      }
       const fetcher = this.fetcher;
       response = await fetcher(
         `https://www.googleapis.com/youtube/v3/${path}?${search.toString()}`,
         { signal: controller.signal },
       );
     } catch (error) {
+      if(admissionFailed) throw error;
       if (error instanceof YouTubeQuotaConfigurationError) {
         throw new OtwPlayYouTubeMetadataError(
           "YouTube quota configuration is missing or invalid",
@@ -329,14 +342,16 @@ export class YouTubeOtwPlayMetadataReader
 
   async readChannel(
     channelId: string,
+    attempt?:{beforeHttp:()=>Promise<void>},
   ): Promise<OtwPlayYouTubeChannelMetadata | null> {
     const data = await this.read<ChannelResponse>("channels", {
       part: "snippet",
       id: channelId,
       maxResults: "1",
-    });
+    },async()=>{await attempt?.beforeHttp();await this.assertCollection('',channelId);});
     const item = data.items?.[0];
     if (item?.id !== channelId || !item.snippet?.title?.trim()) return null;
+    if(!attempt)await this.assertCollection('',channelId);
     return { channelId, displayName: item.snippet.title.trim() };
   }
 
@@ -345,10 +360,11 @@ export class YouTubeOtwPlayMetadataReader
       part: "snippet,contentDetails",
       id: channelId,
       maxResults: "1",
-    });
+    },()=>this.assertCollection('',channelId));
     const item = data.items?.[0];
     const displayName = item?.snippet?.title?.trim();
     const uploadsPlaylistId = item?.contentDetails?.relatedPlaylists?.uploads?.trim();
+    await this.assertCollection('',channelId);
     if (
       item?.id !== channelId ||
       !displayName ||
@@ -362,6 +378,7 @@ export class YouTubeOtwPlayMetadataReader
 
   async readVideos(
     videoIds: readonly string[],
+    attempt?:{beforeHttp:()=>Promise<void>},
   ): Promise<OtwPlayYouTubeVideoObservation[]> {
     const ids = [...new Set(videoIds.map((id) => id.trim()).filter(Boolean))]
       .sort((left, right) => left.localeCompare(right));
@@ -377,7 +394,7 @@ export class YouTubeOtwPlayMetadataReader
       part: "snippet,contentDetails,status,player,liveStreamingDetails",
       id: ids.join(","),
       maxWidth: "480",
-    });
+    },attempt?.beforeHttp);
     if (!Array.isArray(data.items)) {
       throw new OtwPlayYouTubeMetadataError(
         "YouTube metadata response was invalid",
@@ -418,8 +435,9 @@ export class YouTubeOtwPlayMetadataReader
 
   async readVideo(
     videoId: string,
+    attempt?:{beforeHttp:()=>Promise<void>},
   ): Promise<OtwPlayYouTubeVideoMetadata | null> {
-    return (await this.readVideos([videoId]))[0]?.video ?? null;
+    return (await this.readVideos([videoId],{beforeHttp:async()=>{await attempt?.beforeHttp();await this.assertCollection(videoId);}}))[0]?.video ?? null;
   }
 
   async readPlaylistSummary(playlistId: string) {

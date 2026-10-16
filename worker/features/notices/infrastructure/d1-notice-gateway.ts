@@ -1,3 +1,5 @@
+import { publicationHiddenSql } from "../../content-transition";
+import type { SiteId } from "@contracts/site-definition";
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { members, notices } from "@db/schema";
 import type {
@@ -12,6 +14,9 @@ import {
   type D1R2FileStore,
 } from "../../assets";
 import type { DbInstance } from "../../../platform/db";
+import { contentRowMovedSql } from "../../content-transition";
+import type { NoticeCommand } from "../domain/notice-command";
+import type { D1NoticeTransitionWriter } from "./d1-notice-transition-writer";
 import type {
   NoticeGateway,
   NoticeMutationResult,
@@ -82,17 +87,28 @@ export class D1NoticeGateway implements NoticeGateway {
 
   private readonly includeArchived: boolean;
   private readonly fileStore?:NoticeFileStore;
+  private readonly transitionWriter?:D1NoticeTransitionWriter;
 
+  private readonly siteId: SiteId;
   constructor(
     db: DbInstance,
     bucket?: R2Bucket,
     includeArchived = false,
     fileStore?:NoticeFileStore,
+    transitionWriter?:D1NoticeTransitionWriter,
+    siteId: SiteId = "otw",
   ) {
     this.db = db;
+    this.siteId = siteId;
     this.includeArchived = includeArchived;
     this.bucket = bucket;
     this.fileStore=fileStore;
+    this.transitionWriter=transitionWriter;
+  }
+
+  private async write(command:NoticeCommand,statements:Array<{toSQL():{sql:string;params:unknown[]}}>):Promise<Array<Pick<D1Result,"success">>> {
+    const prepared=statements.map(statement=>{const query=statement.toSQL();return this.db.$client.prepare(query.sql).bind(...query.params);});
+    return this.transitionWriter?this.transitionWriter.write(command,prepared):this.db.$client.batch(prepared);
   }
 
   isThumbnailStorageConfigured() {
@@ -104,7 +120,7 @@ export class D1NoticeGateway implements NoticeGateway {
     type: "notice" | "event" | null;
     today: string;
   }): Promise<NoticeDto[]> {
-    const filters: SQL[] = this.includeArchived ? [] : [eq(notices.content_access, "normal")];
+    const filters: SQL[] = this.includeArchived ? [] : [sql.raw(`notices.content_access = 'normal' AND NOT (${publicationHiddenSql("notices","notices",this.siteId)})`),sql.raw(`NOT (${contentRowMovedSql("notices")})`)];
     if (!input.includeInactive) {
       filters.push(eq(notices.is_active, true));
       filters.push(
@@ -127,7 +143,7 @@ export class D1NoticeGateway implements NoticeGateway {
     if (!(await this.areRelatedMembersValid(input.relatedMemberUids))) {
       return { status: "related_member_not_found" };
     }
-    const result = await this.db.insert(notices).values({
+    const [result] = await this.write({action:"create",input},[this.db.insert(notices).values({
       content: input.content,
       links: input.links,
       image_urls: input.imageUrls,
@@ -141,7 +157,7 @@ export class D1NoticeGateway implements NoticeGateway {
       is_featured: false,
       started_at: input.startedAt,
       ended_at: input.endedAt,
-    });
+    })]);
     return { status: result.success ? "success" : "failed" };
   }
 
@@ -160,7 +176,7 @@ export class D1NoticeGateway implements NoticeGateway {
       .from(notices)
       .where(eq(notices.id, id))
       .limit(1);
-    const result = await this.db
+    const [result] = await this.write({action:"update",id,input},[this.db
       .update(notices)
       .set({
         content: input.content,
@@ -176,7 +192,7 @@ export class D1NoticeGateway implements NoticeGateway {
         started_at: input.startedAt,
         ended_at: input.endedAt,
       })
-      .where(eq(notices.id, id));
+      .where(eq(notices.id, id))]);
 
     if (!result.success) return { status: "failed" };
     await this.deleteImagesIfUnused(
@@ -195,7 +211,7 @@ export class D1NoticeGateway implements NoticeGateway {
       .from(notices)
       .where(eq(notices.id, id))
       .limit(1);
-    const result = await this.db.delete(notices).where(eq(notices.id, id));
+    const [result] = await this.write({action:"delete",id},[this.db.delete(notices).where(eq(notices.id, id))]);
     if (!result.success) return { status: "failed" };
     await this.deleteImagesIfUnused(
       previousRows[0] ? getNoticeImageUrls(previousRows[0]) : [],
@@ -211,12 +227,13 @@ export class D1NoticeGateway implements NoticeGateway {
       .limit(1);
     if (!existingRows[0]) return false;
 
-    await this.db.batch([
-      this.db.update(notices).set({ is_featured: false }),
+    const editable=and(eq(notices.content_access,"normal"),sql.raw(`NOT (${contentRowMovedSql("notices")})`));
+    await this.write({action:"feature",id},[
+      this.db.update(notices).set({ is_featured: false }).where(editable),
       this.db
         .update(notices)
         .set({ is_featured: true })
-        .where(eq(notices.id, id)),
+        .where(and(eq(notices.id, id),editable)),
     ]);
     return true;
   }

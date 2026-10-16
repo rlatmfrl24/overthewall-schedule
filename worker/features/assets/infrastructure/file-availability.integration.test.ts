@@ -1,3 +1,4 @@
+import {catalogImportProjection} from "../../otw-play";
 import { applyD1Migrations,env,type D1Migration } from "cloudflare:test";
 import { beforeAll,beforeEach,expect,it,vi } from "vitest";
 import { D1TransitionRepository } from "../../content-transition";
@@ -17,8 +18,8 @@ const runtime=env as unknown as {otw_db:D1Database;transition_target_db:D1Databa
 const sourceDb=runtime.otw_db,targetDb=runtime.transition_target_db;
 const sourceAvailability=new D1FileAvailability(sourceDb,runtime.ASSET_BUCKET,runtime.SOURCE_ASSETS,"otw","otw-schedule");
 const targetAvailability=new D1FileAvailability(targetDb,runtime.TRANSITION_TARGET_BUCKET,runtime.TARGET_ASSETS,"luvdia","luvdia-schedule");
-const source=new D1TransitionRepository(sourceDb,"otw","otw-db","otw-schedule",sourceAvailability);
-const target=new D1TransitionRepository(targetDb,"luvdia","luvdia-db","luvdia-schedule",targetAvailability);
+const source=new D1TransitionRepository(sourceDb,"otw","otw-db","otw-schedule",sourceAvailability, catalogImportProjection);
+const target=new D1TransitionRepository(targetDb,"luvdia","luvdia-db","luvdia-schedule",targetAvailability, catalogImportProjection);
 beforeAll(async()=>{
   for(const db of [sourceDb,targetDb]) {
     for(const migration of runtime.CONTENT_TRANSITION_MIGRATIONS) {
@@ -55,7 +56,7 @@ it("fix1 holds legacy bytes before baseline and atomically rejects stale invento
     if(property==="batch") return async(statements:D1PreparedStatement[])=>{if(!competed){competed=true;await db.prepare("UPDATE notices SET image_urls=? WHERE id=90").bind(JSON.stringify([`/r2-assets/${next}`])).run();}return db.batch(statements);};
     const value=Reflect.get(db,property);return typeof value==="function"?value.bind(db):value;
   }});
-  await expect(new D1TransitionRepository(concurrent,"otw","otw-db","otw-schedule",sourceAvailability).protect(plan.id,{receiptId:"race",protocol:1,manifestDigest:plan.manifestDigest,inventoryId:"original"})).rejects.toThrow(/Protection failed/);
+  await expect(new D1TransitionRepository(concurrent,"otw","otw-db","otw-schedule",sourceAvailability, catalogImportProjection).protect(plan.id,{receiptId:"race",protocol:1,manifestDigest:plan.manifestDigest,inventoryId:"original"})).rejects.toThrow(/Protection failed/);
   expect(await sourceDb.prepare("SELECT phase FROM content_transitions WHERE id=?").bind(plan.id).first("phase")).toBe("prepared");
   expect(await sourceDb.prepare("SELECT count(*) n FROM content_transition_commits WHERE transition_id=?").bind(plan.id).first("n")).toBe(0);
   await expect(sourceAvailability.observeArmedInventory(plan.id,"original")).rejects.toThrow(/Stale/);
@@ -89,8 +90,6 @@ it.each(["notice","implicit background"])("fix1 covers a real unmanaged %s from 
   await sourceAvailability.observeArmedInventory(plan.id,"legacy-inventory");
   await source.protect(plan.id,{receiptId:"legacy-hold",protocol:1,manifestDigest:plan.manifestDigest,inventoryId:"legacy-inventory"});
   await source.beginCopy(plan.id);await source.beginReplay(plan.id);
-  await source.acknowledgeIngress(await target.openIngress(plan.id,"legacy-ready",Date.now()+60000),Date.now());
-  const fence=await source.freeze(plan.id,Date.now());await target.installFence(fence);
   const header=await source.describeBaseline(plan.id);
   await expect(target.beginBaseline({...header,fileInventory:undefined})).rejects.toThrow(/seal/);
   await expect(target.beginBaseline({...header,fileInventory:{...header.fileInventory!,plan:{...plan,fileOrigins:[{kind:"external",origin:"https://forged.example",reason:"Unapproved fixture origin"}]}}})).rejects.toThrow(/plan conflict/);
@@ -101,6 +100,8 @@ it.each(["notice","implicit background"])("fix1 covers a real unmanaged %s from 
   do{const page=await source.exportBaselinePage(header,cursor);await target.stageBaselinePage(page);cursor=page.next;}while(cursor.ordinal<header.rows);
   while(await target.materializeBaselinePage(plan.id)){ /* actual installer */ }
   await target.finalizeBaseline(plan.id);
+  await source.acknowledgeIngress(await target.openIngress(plan.id,"legacy-ready",Date.now()+60000),Date.now());
+  const fence=await source.freeze(plan.id,Date.now());await target.installFence(fence);
   const context:FileAvailabilityContext={plan,manifestRevision:0,fence};
   for(const proof of await sourceAvailability.observeStatic(context)) await targetAvailability.receiveSourceStatic(context,proof);
   await expect(target.installCommittedState(plan.id)).rejects.toThrow(/Missing.*inventory/);
@@ -171,10 +172,10 @@ it("copies the sealed legacy inventory and live replay before source fence throu
   await source.armFileInventory(plan.id,"early-original");await sourceAvailability.observeArmedInventory(plan.id,"early-original");
   await source.protect(plan.id,{receiptId:"hold",protocol:1,manifestDigest:plan.manifestDigest,inventoryId:"early-original"});
   await source.beginCopy(plan.id);
-  await target.openIngress(plan.id,"early-ready",Date.now()+60000);
+  await expect(target.openIngress(plan.id,"early-ready",Date.now()+60000)).rejects.toThrow(/baseline/);
   const header=await source.describeBaseline(plan.id);
   const page=await sourceAvailability.exportBaselineInventoryPage(early);
-  await expect(targetAvailability.receiveBaselineInventoryPage(early,page)).rejects.toThrow(/baseline/);
+  await expect(targetAvailability.receiveBaselineInventoryPage(early,page)).rejects.toThrow(/[Bb]aseline/);
   await target.beginBaseline(header);
   await expect(targetAvailability.receiveBaselineInventoryPage(early,{...page,header:{...page.header,inventoryId:"forged"}})).rejects.toThrow(/seal/);
   await expect(targetAvailability.receiveBaselineInventoryPage({...early,manifestRevision:1},page)).rejects.toThrow(/Stale/);
@@ -208,6 +209,7 @@ it("copies the sealed legacy inventory and live replay before source fence throu
   do{const baselinePage=await source.exportBaselinePage(header,cursor);await target.stageBaselinePage(baselinePage);cursor=baselinePage.next;}while(cursor.ordinal<header.rows);
   while(await target.materializeBaselinePage(plan.id)){ /* normal inactive baseline installer */ }
   await target.finalizeBaseline(plan.id);
+  await target.openIngress(plan.id,"early-baseline-ready",Date.now()+60000);
   await source.beginReplay(plan.id);
   await source.admit({transitionId:plan.id,operationId:"early-live",idempotencyKey:"early-live",codec:{id:"schedules.save",version:1},kind:"content_edit",subject:{table:"schedules",key:"[200]"},expectedVersion:null,validation:{contract:1,validatedAt:Date.now()},admittedAt:Date.now(),payload:{id:200,member_uid:1,date:"2026-10-14",start_time:null,title:"ordinary live edit during copy",status:"방송"}});
   const command=await source.readExecutableCommand(plan.id,"early-live");
@@ -249,16 +251,16 @@ it("installs pre-transition immutable bytes and real source/target static ASSETS
   const pending=await sourceStore.begin(pendingInput);
   const pendingObservation=await sourceStore.verifyPut(pending,pendingInput.bytes);
   await source.beginCopy(plan.id);await source.beginReplay(plan.id);
-  await source.acknowledgeIngress(await target.openIngress(plan.id,"ready",Date.now()+60_000),Date.now());
-  const fence=await source.freeze(plan.id,Date.now());await target.installFence(fence);
-  await expect(sourceStore.commitReference(pending,pendingObservation)).rejects.toThrow(/owner|fenced/);
-  for(const operation of await source.exportFrozenOperations(plan.id)) await target.receiveOperation(operation);
-  for(const intent of await source.exportFrozenFileIntents(plan.id)) await target.receiveFileIntent(intent);
   const header=await source.describeBaseline(plan.id);await target.beginBaseline(header);
   let cursor:Awaited<ReturnType<typeof source.exportBaselinePage>>["next"]|0=0;
   do{const page=await source.exportBaselinePage(header,cursor);await target.stageBaselinePage(page);cursor=page.next;}while(cursor.ordinal<header.rows);
   while(await target.materializeBaselinePage(plan.id)){ /* bounded normal installer */ }
   await target.finalizeBaseline(plan.id);
+  await source.acknowledgeIngress(await target.openIngress(plan.id,"ready",Date.now()+60_000),Date.now());
+  const fence=await source.freeze(plan.id,Date.now());await target.installFence(fence);
+  await expect(sourceStore.commitReference(pending,pendingObservation)).rejects.toThrow(/owner|fenced/);
+  for(const operation of await source.exportFrozenOperations(plan.id)) await target.receiveOperation(operation);
+  for(const intent of await source.exportFrozenFileIntents(plan.id)) await target.receiveFileIntent(intent);
   const manifestRevision=await sourceDb.prepare("SELECT manifest_revision FROM content_transitions WHERE id=?").bind(plan.id).first<number>("manifest_revision");
   const context:FileAvailabilityContext={plan,manifestRevision:manifestRevision!,fence};
   for(let offset=0;;) {const page=await sourceAvailability.exportInventoryPage(context,offset);await targetAvailability.receiveInventoryPage(context,page);offset=page.next.ordinal;if(offset===page.header.rows) break;}

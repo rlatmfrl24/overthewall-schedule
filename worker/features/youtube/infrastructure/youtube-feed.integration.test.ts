@@ -1,6 +1,7 @@
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../../platform/types";
+import { siteEnv } from "../../../test-support/site-env";
 import { createYouTubeHandler } from "../http/youtube";
 import { buildYouTubeApplication } from "./youtube-adapters";
 import { clearActiveYouTubeChannelsCacheForTests } from "./d1-active-channels";
@@ -10,7 +11,7 @@ import {
   runScheduledYouTubeFeedCollection,
 } from "./youtube-feed";
 
-const testEnv = env as unknown as Env & { YOUTUBE_FEED_MIGRATIONS: D1Migration[] };
+const testEnv = { ...env, ...siteEnv() } as unknown as Env & { YOUTUBE_FEED_MIGRATIONS: D1Migration[] };
 const database = testEnv.otw_db;
 const channelId = `UC${"A".repeat(22)}`;
 const otherChannelId = `UC${"B".repeat(22)}`;
@@ -136,16 +137,15 @@ describe("YouTube public Shorts storage cost", () => {
     ).first())?.initialization_completed_at).toBeGreaterThan(0);
   });
 
-  it("does not advance the source frontier after a failed chunk and repairs the partial write on retry", async () => {
+  it("rolls back videos and frontier together after a failed batch and repairs the page on retry", async () => {
     fakeYouTube(50);
     await database.prepare(
       `CREATE TRIGGER fail_feed_video BEFORE INSERT ON youtube_feed_videos
        WHEN NEW.video_id = 'video-9' BEGIN SELECT RAISE(ABORT, 'storage unavailable'); END`,
     ).run();
     const failed = await requestShorts();
-    expect(failed.status).toBe(200);
-    expect(await failed.json()).toMatchObject({ hasMore: true, collection: { state: "partial" } });
-    expect((await database.prepare("SELECT COUNT(*) AS total FROM youtube_feed_videos").first())?.total).toBe(9);
+    expect(failed.status).toBe(503);
+    expect((await database.prepare("SELECT COUNT(*) AS total FROM youtube_feed_videos").first())?.total).toBe(0);
     expect(await database.prepare(
       "SELECT initialization_completed_at, last_seen_video_id FROM youtube_feed_sources WHERE source_kind = 'official'",
     ).first()).toEqual({ initialization_completed_at: null, last_seen_video_id: null });

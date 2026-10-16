@@ -1,3 +1,4 @@
+import type {CatalogImportProjection} from "./catalog-import-projection";
 import type { BaselineFileInventoryHeader, ManifestRevision, TransitionIdentity, TransitionPlan } from "../../../../contracts/content-transition";
 import { assertSameTransition } from "../domain/transition";
 import { assertProjectedRecord, decodeProjectedRecord, projectCapturedRecord, type ProjectedRecord, type ProjectionContext } from "../domain/projected-content";
@@ -6,11 +7,28 @@ import { projectedStatements } from "./projected-statements";
 import {assertD1Row} from "./d1-size-bounds";
 import {fileReferenceProjection} from "./file-reference-projection";
 import {readFileInventoryHeader} from "./file-inventory-header";
+import {importCatalogEffects} from "./import-catalog-effects";
 
 export interface BaselineHeader { identity:TransitionIdentity; boundary:number; rows:number; digest:string; fileInventory?:BaselineFileInventoryHeader }
 interface Cursor { sequence:number; ordinal:number; digest:string }
 export interface BaselinePage { header:BaselineHeader; start:Cursor; next:Cursor; records:readonly ProjectedRecord[] }
 type Stored={ordinal:number;row_digest:string;record_json:string};
+/** Evaluated again by the readiness CAS, so a complete historical baseline and
+ * live valid target references belong to the same admission decision. */
+export const nativeIngressBaselineSql = (alias:string) => `EXISTS(
+  SELECT 1 FROM content_transition_baselines b WHERE b.transition_id=${alias}.id
+  AND b.expected_rows=b.staged_rows AND b.expected_digest=b.staged_digest
+  AND b.receipt_json IS NOT NULL
+  AND json_extract(b.receipt_json,'$.manifestDigest')=b.manifest_digest
+  AND json_extract(b.receipt_json,'$.boundary')=b.source_boundary
+  AND json_extract(b.receipt_json,'$.rows')=b.expected_rows
+  AND json_extract(b.receipt_json,'$.digest')=b.expected_digest
+  AND (SELECT count(*) FROM content_transition_baseline_rows r WHERE r.transition_id=b.transition_id AND r.installed=1)=b.expected_rows
+  AND NOT EXISTS(SELECT 1 FROM content_transition_baseline_rows r WHERE r.transition_id=b.transition_id AND r.installed<>1))
+  AND NOT EXISTS(SELECT 1 FROM json_each(${alias}.plan_json,'$.members') selected WHERE NOT EXISTS(
+    SELECT 1 FROM members m WHERE m.uid=json_extract(selected.value,'$.targetUid') AND m.code=json_extract(selected.value,'$.code')
+    AND (m.is_deprecated IS NULL OR m.is_deprecated=0) AND m.content_access='normal'))
+  AND EXISTS(SELECT 1 FROM music_catalog_meta c JOIN music_public_read_model_meta r ON r.id=c.id WHERE c.id=1 AND c.revision=r.revision)`;
 const zero:Cursor={sequence:0,ordinal:0,digest:"0"};
 export async function digestText(text:string):Promise<string> {
   return [...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text)))].map(byte=>byte.toString(16).padStart(2,"0")).join("");
@@ -27,11 +45,12 @@ function rank(table:keyof typeof contentDispositionRegistry,seen=new Set<string>
  * Ordinary business commits use the separate indivisible replay adapter. */
 export class D1BaselineStore {
   private db:D1Database;
+  private readonly catalogProjection:CatalogImportProjection|null;
   private identity:TransitionIdentity;
   private context:ProjectionContext;
   private plan:TransitionPlan;
-  constructor(db:D1Database,identity:TransitionIdentity,plan:TransitionPlan) {
-    this.db=db;this.identity=identity;this.plan=plan;
+  constructor(db:D1Database,identity:TransitionIdentity,plan:TransitionPlan,catalogProjection:CatalogImportProjection|null=null) {
+    this.db=db;this.catalogProjection=catalogProjection;this.identity=identity;this.plan=plan;
     this.context={sourceSite:identity.sourceSite,classifications:plan.classifications,files:fileReferenceProjection(plan),members:plan.members.map(member=>({uid:member.targetUid,targetUid:member.targetUid,name:member.code,externalEntityId:null}))};
   }
   private async acceptedIdentity(other:TransitionIdentity):Promise<void> {
@@ -85,7 +104,7 @@ export class D1BaselineStore {
     if(existing && JSON.stringify(inventory??null)!==JSON.stringify(await readFileInventoryHeader(this.db,this.identity.id,"target"))) throw new Error("Conflicting original baseline inventory seal");
     try { await this.db.batch([
       this.db.prepare(`SELECT iif(NOT EXISTS(SELECT 1 FROM content_transition_baselines WHERE transition_id=?) OR EXISTS(SELECT 1 FROM content_transition_baselines b WHERE b.transition_id=? AND b.manifest_digest=? AND b.source_boundary=? AND b.expected_rows=? AND b.expected_digest=? AND (? IS NULL AND NOT EXISTS(SELECT 1 FROM content_transition_file_inventories i WHERE i.transition_id=b.transition_id) OR EXISTS(SELECT 1 FROM content_transition_file_inventories i WHERE i.transition_id=b.transition_id AND i.inventory_id=json_extract(?,'$.inventoryId') AND i.plan_json=json_extract(?,'$.plan') AND i.manifest_revision=json_extract(?,'$.manifestRevision') AND i.source_boundary=b.source_boundary AND i.coverage_json=json_extract(?,'$.coverage') AND i.expected_rows=json_extract(?,'$.rows') AND i.expected_digest=json_extract(?,'$.digest')))),1,json('baseline_inventory_header_conflict'))`).bind(this.identity.id,this.identity.id,header.identity.manifestDigest,header.boundary,header.rows,header.digest,...Array.from({length:7},()=>inventory?JSON.stringify(inventory):null)),
-      this.db.prepare("INSERT OR IGNORE INTO content_transition_baselines(transition_id,manifest_digest,source_boundary,expected_rows,expected_digest) SELECT id,?,?,?,? FROM content_transitions WHERE id=? AND local_site=target_site AND phase IN ('target_ingress_ready','source_fenced')").bind(header.identity.manifestDigest,header.boundary,header.rows,header.digest,this.identity.id),
+      this.db.prepare("INSERT OR IGNORE INTO content_transition_baselines(transition_id,manifest_digest,source_boundary,expected_rows,expected_digest) SELECT id,?,?,?,? FROM content_transitions WHERE id=? AND local_site=target_site AND phase IN ('prepared','target_ingress_ready','source_fenced')").bind(header.identity.manifestDigest,header.boundary,header.rows,header.digest,this.identity.id),
       ...(inventory?[this.db.prepare("INSERT OR IGNORE INTO content_transition_file_inventories(transition_id,inventory_id,plan_json,manifest_revision,state,coverage_json,source_boundary,expected_rows,expected_digest) SELECT ?,?,?,?,'receiving',?,?,?,? WHERE EXISTS(SELECT 1 FROM content_transition_baselines WHERE transition_id=?)").bind(this.identity.id,inventory.inventoryId,JSON.stringify(inventory.plan),inventory.manifestRevision,JSON.stringify(inventory.coverage),inventory.sourceBoundary,inventory.rows,inventory.digest,this.identity.id)]:[]),
     ]); } catch(error) {throw new Error("Baseline identity conflict",{cause:error});}
     if(JSON.stringify(inventory??null)!==JSON.stringify(await readFileInventoryHeader(this.db,this.identity.id,"target"))) throw new Error("Conflicting original baseline inventory seal");
@@ -140,17 +159,22 @@ export class D1BaselineStore {
       return 0;
     }
     const mutations:D1PreparedStatement[]=[];
+    const catalogImages:ProjectedRecord[]=[];
     for(const row of rows) {
       if(await digestText(row.record_json)!==row.row_digest) throw new Error("Baseline stored digest drift");
       const record=decodeProjectedRecord(JSON.parse(row.record_json),this.context);
+      catalogImages.push(record);
       mutations.push(...projectedStatements(this.db,this.identity.id,record));
       mutations.push(this.db.prepare("UPDATE content_transition_baseline_rows SET installed=1 WHERE transition_id=? AND ordinal=? AND row_digest=?").bind(this.identity.id,row.ordinal,row.row_digest));
     }
+    const catalog=await importCatalogEffects(this.db,catalogImages.map(after=>({before:null,after})),Date.now(),this.catalogProjection);
     await this.db.batch([
       this.db.prepare("PRAGMA defer_foreign_keys=ON"),
+      this.db.prepare(`SELECT iif((SELECT count(*) FROM content_transition_baseline_rows WHERE transition_id=? AND installed=0 AND ordinal IN (SELECT value FROM json_each(?)))=?,1,json('baseline_install_page_race'))`).bind(this.identity.id,JSON.stringify(rows.map(row=>row.ordinal)),rows.length),
+      ...catalog.guard,
       this.db.prepare("INSERT OR IGNORE INTO content_transition_commits(transition_id,operation_id) VALUES(?,'baseline-install')").bind(this.identity.id),
-      this.db.prepare("INSERT INTO content_transition_permits(id,transition_id,operation_id,generation,mode,commit_seq) SELECT 1,id,'baseline-install',generation,'baseline',(SELECT seq FROM content_transition_commits WHERE transition_id=? AND operation_id='baseline-install') FROM content_transitions WHERE id=? AND local_site=target_site AND phase IN ('target_ingress_ready','source_fenced')").bind(this.identity.id,this.identity.id),
-      ...mutations,
+      this.db.prepare("INSERT INTO content_transition_permits(id,transition_id,operation_id,generation,mode,commit_seq) SELECT 1,id,'baseline-install',generation,'baseline',(SELECT seq FROM content_transition_commits WHERE transition_id=? AND operation_id='baseline-install') FROM content_transitions WHERE id=? AND local_site=target_site AND phase IN ('prepared','target_ingress_ready','source_fenced')").bind(this.identity.id,this.identity.id),
+      ...catalog.before,...mutations,...catalog.after,
       this.db.prepare("DELETE FROM content_transition_dirty_rows WHERE transition_id=?").bind(this.identity.id),
       this.db.prepare("DELETE FROM content_transition_permits WHERE transition_id=?").bind(this.identity.id),
       this.db.prepare("PRAGMA defer_foreign_keys=OFF"),

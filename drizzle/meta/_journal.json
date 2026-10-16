@@ -820,6 +820,167 @@
       "when": 1791991752419,
       "tag": "0117_asset_file_decode_validity",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "6",
+      "when": 1791996720633,
+      "tag": "0118_schedule_audit_capture_independence",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "6",
+      "when": 1792000188582,
+      "tag": "0119_inactive_target_baseline_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "6",
+      "when": 1792001462747,
+      "tag": "0120_native_dday_owning_receipt",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "6",
+      "when": 1792004515531,
+      "tag": "0121_chzzk_read_request_journal",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "6",
+      "when": 1792004765316,
+      "tag": "0122_chzzk_read_attempt_uncertainty",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "6",
+      "when": 1792005465453,
+      "tag": "0123_chzzk_read_resolution_receipt",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "6",
+      "when": 1792007003661,
+      "tag": "0124_chzzk_original_continuation_stage",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "6",
+      "when": 1792007530431,
+      "tag": "0125_chzzk_original_batch_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "6",
+      "when": 1792019110559,
+      "tag": "0126_admitted_channel_dependency_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "6",
+      "when": 1792020640361,
+      "tag": "0127_original_proposal_event_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "6",
+      "when": 1792021300178,
+      "tag": "0128_member_submission_event_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "6",
+      "when": 1792023634414,
+      "tag": "0129_admitted_video_dependency_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "6",
+      "when": 1792028958638,
+      "tag": "0130_admitted_conversion_dependency_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "6",
+      "when": 1792031698372,
+      "tag": "0131_admitted_candidate_metadata_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "6",
+      "when": 1792034212225,
+      "tag": "0132_admitted_channel_approval_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "6",
+      "when": 1792038553760,
+      "tag": "0133_transition_maintenance_stop",
+      "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "6",
+      "when": 1792040841707,
+      "tag": "0134_transition_abort_evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "6",
+      "when": 1792050767433,
+      "tag": "0135_transition_scheduled_reconciliation",
+      "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "6",
+      "when": 1792051624837,
+      "tag": "0136_transition_unresolved_scheduled_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "6",
+      "when": 1792109762292,
+      "tag": "0137_x-repair-pending",
+      "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "6",
+      "when": 1792109763796,
+      "tag": "0138_x-repair-invalidation",
+      "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "6",
+      "when": 1792110176316,
+      "tag": "0139_x-repair-maintenance-guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "6",
+      "when": 1792125356709,
+      "tag": "0140_publication-ingestion-evidence",
+      "breakpoints": true
     }
   ]
 }

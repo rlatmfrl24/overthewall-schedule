@@ -20,6 +20,7 @@ import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type {
+  OtwPlayAdminApproveProposalRequest,
   OtwPlayAdminChannelDto,
   OtwPlayAdminEntityDto,
   OtwPlayChannelRole,
@@ -36,7 +37,7 @@ import type {
 } from "@contracts/otw-play";
 import { AdminSectionHeader } from "@/app/admin";
 import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
-import { ApiError } from "@/shared/api/client";
+import { ApiError,getContentTransitionMessage } from "@/shared/api/client";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -210,6 +211,20 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
   );
   const releaseQuery = useOtwPlayAdminRelease(section === "operations");
   const [saving, setSaving] = useState<string | null>(null);
+  const publicationRequests = useRef(new Map<string, string>());
+  const deletionRequests = useRef(new Map<string, string>());
+  const deletionRequestId = (kind: "song" | "performance", id: string, version: number) => {
+    const key = JSON.stringify([kind, id, version]);
+    const requestId = deletionRequests.current.get(key) ?? crypto.randomUUID();
+    deletionRequests.current.set(key, requestId);
+    return requestId;
+  };
+  const publicationRequestId = (performance: OtwPlayAdminPerformanceDto, target: "published" | "withdrawn") => {
+    const key = JSON.stringify([performance.id, performance.version, target]);
+    const id = publicationRequests.current.get(key) ?? crypto.randomUUID();
+    publicationRequests.current.set(key, id);
+    return id;
+  };
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [registrationClip, setRegistrationClip] = useState(false);
   const [registeredScope, setRegisteredScope] = useState<"official" | "broadcast" | null>(null);
@@ -309,6 +324,8 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
       }
       return true;
     } catch (error) {
+      const transitionMessage=getContentTransitionMessage(error);
+      if(transitionMessage) {toast({variant:error instanceof ApiError && error.code==="CONTENT_ACCEPTED"?"info":"error",description:transitionMessage});return false;}
       console.error("OTW Play admin command failed", error);
       const description =
         error instanceof ApiError && error.fields?.broadcast === "extent_required"
@@ -346,20 +363,32 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
     if (saving !== null || performances.length === 0) return;
     let published = 0;
     let failed = 0;
+    let pending = 0;
+    const transitionErrors = new Set<string>();
     try {
       for (const [index, performance] of performances.entries()) {
         setSaving(`미게시 가창 게시 ${index + 1}/${performances.length}`);
         try {
           await publishOtwPlayPerformance(performance.id, {
             expectedVersion: performance.version,
-          });
+          }, publicationRequestId(performance, "published"));
           published += 1;
-        } catch {
-          failed += 1;
+        } catch (error) {
+          if (error instanceof ApiError && error.code === "CONTENT_ACCEPTED") pending += 1;
+          else {
+            failed += 1;
+            const message = getContentTransitionMessage(error);
+            if (message) transitionErrors.add(message);
+          }
         }
       }
       await refresh();
-      if (failed === 0) {
+      if (pending > 0 || transitionErrors.size > 0) {
+        toast({
+          variant: published > 0 || pending > 0 ? "info" : "error",
+          description: `${published}개 게시 완료 · ${pending}개 접수 대기 · ${failed}개 게시 실패.${pending > 0 ? " 이관 처리 후 저장 결과를 확인해 주세요." : ""}${transitionErrors.size ? ` ${[...transitionErrors].join(" ")}` : ""}`,
+        });
+      } else if (failed === 0) {
         toast({
           variant: "success",
           description: `미게시 가창 ${published}개를 모두 게시했습니다.`,
@@ -474,6 +503,8 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
       </div>}
       {(section === "catalog") && reviewSearch.view !== "entities" && catalog && (
         <WorkflowCatalog
+          publicationRequestId={publicationRequestId}
+          deletionRequestId={deletionRequestId}
           scope={catalogScope}
           catalog={catalog}
           saving={effectiveSaving}
@@ -565,6 +596,13 @@ function ProposalSection({
   const confirm = useConfirmation();
   const [proposalBaseline, setProposalBaseline] = useState<string | null>(null);
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  const rejectionRequests=useRef(new Map<string,string>());
+  const approvalRequests=useRef(new Map<string,string>());
+  const rejectionRequestId=(id:string,version:number,reason:string)=>{
+    const command=JSON.stringify([id,version,reason]);
+    if(!rejectionRequests.current.has(command)) rejectionRequests.current.set(command,crypto.randomUUID());
+    return rejectionRequests.current.get(command)!;
+  };
   const selectedId = proposalId;
   const [approvalPreflight, setApprovalPreflight] =
     useState<OtwPlayAdminCatalogEntryPreflightDto | null>(null);
@@ -786,8 +824,7 @@ function ProposalSection({
           })),
         };
     if (!await confirm({ title: "제안을 승인하고 게시할까요?", description: "최신 영상·채널 metadata와 실제 가창 credit을 확인하고 게시할까요?", confirmLabel: "승인하고 게시" })) return;
-    const approved = await run("제안 승인", () =>
-      approveOtwPlayProposal(selected.id, {
+    const command:OtwPlayAdminApproveProposalRequest={
         expectedVersion: reviewVersion ?? selected.version,
         expectedCatalogRevision: approvalPreflight.catalogRevision,
         song,
@@ -802,8 +839,10 @@ function ProposalSection({
           : {}),
         singingCreditConfirmed: true,
         publish: true,
-      }),
-    );
+      };
+    const key=JSON.stringify([selected.id,command]),requestId=approvalRequests.current.get(key)??crypto.randomUUID();
+    approvalRequests.current.set(key,requestId);
+    const approved = await run("제안 승인", () => approveOtwPlayProposal(selected.id,command,requestId));
     if (approved) { setProposalBaseline(proposalSnapshot); setApprovalPreflight(null); setSingingCreditConfirmed(false); onClose(); }
   };
   if (loading) return <Loader2 className="mx-auto h-7 w-7 animate-spin" />;
@@ -835,7 +874,7 @@ function ProposalSection({
         <div className="flex flex-wrap items-center justify-between gap-3"><Button variant="outline" onClick={onClose}>검수 목록으로</Button><span className="text-xs text-muted-foreground">사용자 제안 · 영상 확인 → 승인·게시</span></div>
         <h2 className="text-xl font-semibold">{selected?.submittedTitle ?? "사용자 제안 검수"}</h2>
         {selected && reviewVersion !== null && selected.version !== reviewVersion && <p role="alert">다른 관리자가 이 제안을 변경했습니다. 입력을 보존했습니다. <Button variant="link" onClick={async () => { if (await confirm({ title: "최신 제안으로 다시 시작할까요?", description: "작성 중인 입력을 버리고 서버의 최신 제안을 불러옵니다.", confirmLabel: "다시 불러오기" })) { initializedProposal.current = null; setProposalBaseline(null); setReviewVersion(null); await refetch(); } }}>최신 제안 다시 불러오기</Button></p>}
-        {selected && <div className="flex flex-wrap items-end gap-2 border-b pb-4"><Field label="거절 사유 코드"><Input aria-label={`${selected.submittedTitle} 거절 코드`} value={reasons[selected.id] ?? ""} onChange={event => setReasons(current => ({ ...current, [selected.id]: event.target.value }))} /></Field><Button variant="outline" disabled={selected.status !== "pending_review" || !reasons[selected.id]?.trim() || saving !== null} onClick={async () => { if (await confirm({ title: "제안을 거절할까요?", description: "입력한 사유를 기록하고 이 제안을 종료합니다.", confirmLabel: "거절" }) && await run("제안 거절", () => rejectOtwPlayProposal(selected.id, { expectedVersion: reviewVersion ?? selected.version, resultCode: reasons[selected.id]!.trim() }))) { setProposalBaseline(proposalSnapshot); onClose(); } }}>제안 거절</Button></div>}
+        {selected && <div className="flex flex-wrap items-end gap-2 border-b pb-4"><Field label="거절 사유 코드"><Input aria-label={`${selected.submittedTitle} 거절 코드`} value={reasons[selected.id] ?? ""} onChange={event => setReasons(current => ({ ...current, [selected.id]: event.target.value }))} /></Field><Button variant="outline" disabled={selected.status !== "pending_review" || !reasons[selected.id]?.trim() || saving !== null} onClick={async () => { if (await confirm({ title: "제안을 거절할까요?", description: "입력한 사유를 기록하고 이 제안을 종료합니다.", confirmLabel: "거절" }) && await run("제안 거절", () => rejectOtwPlayProposal(selected.id, { expectedVersion: reviewVersion ?? selected.version, resultCode: reasons[selected.id]!.trim() },rejectionRequestId(selected.id,reviewVersion ?? selected.version,reasons[selected.id]!.trim())))) { setProposalBaseline(proposalSnapshot); onClose(); } }}>제안 거절</Button></div>}
         <p className="text-sm text-muted-foreground">
           영상·채널과 실제 가창자를 확인한 뒤 신청 유형에 맞게 게시합니다. 노래 클립은 승인된 클리퍼 채널과 완곡 여부를 확인해 주세요.
         </p>
@@ -1390,6 +1429,8 @@ function EntitySection({
   const [deleting, setDeleting] = useState<OtwPlayAdminEntityDto | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [archived, setArchived] = useState(false);
+  const entityRequest=useRef<{body:string;id:string}|null>(null);
+  const entityDeletionRequests=useRef(new Map<string,string>());
 
   const beginEdit = (item: OtwPlayAdminEntityDto) => {
     setEditing(item);
@@ -1399,8 +1440,7 @@ function EntitySection({
 
   const submit = async () => {
     if (!editing) return;
-    const succeeded = await run("외부 identity 수정", () =>
-      updateOtwPlayEntity({
+    const input={
         id: editing.id,
         expectedVersion: editing.version,
         displayName: displayName.trim(),
@@ -1408,9 +1448,11 @@ function EntitySection({
         entityKind: editing.entityKind,
         memberUid: null,
         archived,
-      }),
-    );
-    if (succeeded) setEditing(null);
+      };
+    const body=JSON.stringify(input);
+    if(entityRequest.current?.body!==body) entityRequest.current={body,id:crypto.randomUUID()};
+    const succeeded = await run("외부 identity 수정", () => updateOtwPlayEntity(input,entityRequest.current!.id));
+    if (succeeded) {entityRequest.current=null;setEditing(null);}
   };
 
   return (
@@ -1556,10 +1598,13 @@ function EntitySection({
           const target = deleting;
           setDeleting(null);
           if (!target) return;
+          const key=JSON.stringify([target.id,target.version]);
+          const requestId=entityDeletionRequests.current.get(key)??crypto.randomUUID();
+          entityDeletionRequests.current.set(key,requestId);
           void run("외부 identity 삭제", () =>
             deleteOtwPlayEntity(target.id, {
               expectedVersion: target.version,
-            })
+            },requestId)
           ).then((succeeded) => {
             if (succeeded && editing?.id === target.id) setEditing(null);
           });
@@ -1633,6 +1678,7 @@ function ChannelSection({
   const [saveError, setSaveError] = useState<string | null>(null);
   const autoLookupTarget = useRef<string | null>(null);
   const lookupRequestRef = useRef(0);
+  const channelRequests = useRef(new Map<string,string>());
   const initializedExternalId = useRef<string | null>(null);
   const targetExternalId = initialExternalChannelId ?? (["play-monitor", "clip-channels"].includes(search.tab ?? "") ? monitors.find(monitor => monitor.id === search.category)?.externalChannelId : undefined);
   useEffect(() => {
@@ -1680,6 +1726,9 @@ function ChannelSection({
       channelRole: clipOnly ? "approved_kirinuki" as const : form.channelRole,
       entityIds: editing ? form.entityIds : [],
     };
+    const command=editing?{...core,id:editing.id,expectedVersion:editing.version,verificationStatus:form.verificationStatus,active:form.active}:core;
+    const logicalKey=JSON.stringify(command),requestId=channelRequests.current.get(logicalKey)??crypto.randomUUID();
+    channelRequests.current.set(logicalKey,requestId);
     const succeeded = await run(editing ? "채널 수정" : "채널 등록", () =>
       editing
         ? updateOtwPlayChannel({
@@ -1688,8 +1737,8 @@ function ChannelSection({
             expectedVersion: editing.version,
             verificationStatus: form.verificationStatus,
             active: form.active,
-          })
-        : createOtwPlayChannel(core),
+          },requestId)
+        : createOtwPlayChannel(core,requestId),
     );
     if (!succeeded) {
       setSaveError("채널을 저장하지 못했습니다. 입력은 유지되어 있으니 다시 시도하세요.");
@@ -1759,7 +1808,9 @@ function ChannelSection({
       destructive: true,
     })) return;
     const current = items.find(item => item.id === channel.id) ?? channel;
-    if (!await run("채널 삭제", () => deleteOtwPlayChannel(current.id, { expectedVersion: current.version }))) return;
+    const key=`delete:${current.id}:${current.version}`,requestId=channelRequests.current.get(key)??crypto.randomUUID();
+    channelRequests.current.set(key,requestId);
+    if (!await run("채널 삭제", () => deleteOtwPlayChannel(current.id, { expectedVersion: current.version },requestId))) return;
     if (editing?.id === channel.id) {
       lookupRequestRef.current += 1;
       setEditing(null);

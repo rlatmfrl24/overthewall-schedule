@@ -34,6 +34,7 @@ export interface AiReviewRecord extends AiReviewDto {
   leaseToken: string | null;
 }
 export interface AiReviewRepository {
+  assertCollectionAllowed(candidateId: string | null, videoId: string, channelId?: string | null): Promise<void>;
   get(id: string): Promise<AiReviewRecord | null>;
   latest(targetKey: string, now: number): Promise<AiReviewRecord | null>;
   request(key: string): Promise<{ hash: string; id: string } | null>;
@@ -50,6 +51,13 @@ export interface AiReviewRepository {
     now: number,
     dailyLimit: number,
   ): Promise<AiReviewRecord | null>;
+  beginRequest?(id:string,token:string,now:number):Promise<void>;
+  /** Retain an admitted original response before catalog/source follow-up reads.
+   * Storage failure propagates and must never become a provider failure. */
+  retainResponse?(
+    id: string, token: string, result: AiReviewResult | null,
+    usage: AiReviewDto['usage'], error: AiReviewError | null, now: number,
+  ): Promise<boolean>;
   finish(
     id: string,
     token: string,

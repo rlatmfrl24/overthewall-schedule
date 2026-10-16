@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { canAdmit, canCommit, canComplete, assertActivation, assertReadiness, resolveManagedMembers } from "./transition";
+import { TRANSITION_RECEIVER_CONTRACT } from "./receiver-contract";
 
 const transition = {
   id: "move-1", sourceSite: "otw", targetSite: "luvdia", sourceResource: "source-db",
   targetResource: "target-db", generation: 2, protocol: 1, manifestDigest: "approved-manifest",
 } as const;
-const readiness = { ...transition, receiptId: "ready-1", expiresAt: 1000 };
+const readiness = { ...transition, receiptId: "ready-1", expiresAt: 1000,receiverContract:TRANSITION_RECEIVER_CONTRACT };
 const fence = { ...transition, boundary: 8, checkpointDigest: "exact-checkpoint", checkpoints: [], operationBoundary:1,operationCount:1,fileIntentBoundary:1,fileIntentCount:1 };
 const activation = { fence, boundary: 8, checkpointDigest: "exact-checkpoint", committedFilesAvailable: true, transferredOperations:1,transferredFileIntents:1 };
 
@@ -19,12 +20,14 @@ describe("content transition authority", () => {
     expect(canCommit("source", "replaying", 1, 2)).toBe(true);
   });
 
-  it("keeps target admission continuous from readiness while target execution stays fenced", () => {
+  it("keeps internal transfer reception open while business commits require the final owner", () => {
     for (const phase of ["target_ingress_ready", "source_fenced", "target_owned", "complete"] as const) {
       expect(canAdmit("target", phase)).toBe(true);
     }
     expect(canCommit("target", "target_ingress_ready", 2, 2)).toBe(false);
     expect(canCommit("target", "source_fenced", 2, 2)).toBe(false);
+    expect(canCommit("target", "target_owned", 2, 2)).toBe(true);
+    expect(canCommit("target", "complete", 2, 2)).toBe(true);
   });
 
   it("activates from transfer receipts without waiting for old provider or R2 outcomes", () => {

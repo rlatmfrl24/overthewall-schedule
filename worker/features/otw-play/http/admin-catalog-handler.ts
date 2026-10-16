@@ -13,6 +13,7 @@ import {
   SourceHealthServiceError,
 } from "../application/source-health-service";
 import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metadata";
+import {TransitionWriteError} from "../../content-transition";
 import {
   parseCatalogEntryPreflight,
   parseCreateCatalogEntry,
@@ -33,7 +34,7 @@ import {
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 
-export type ResolveAdminCatalogService = (env: Env) => AdminCatalogService;
+export type ResolveAdminCatalogService = (env: Env,requestKey?:string) => AdminCatalogService;
 export type ResolveSourceHealthService = (env: Env) => SourceHealthService;
 
 const responseJson = (value: unknown, status = 200) =>
@@ -105,7 +106,9 @@ export const createAdminCatalogHandler =
 
     const admin = await requireAdminUser(request, env);
     if (!admin.ok) return admin.response;
-    const service = resolveService(env);
+    const requestKey=request.headers.get("Idempotency-Key");
+    if(request.method!=="GET" && requestKey!==null && !/^[A-Za-z0-9_-]{16,100}$/.test(requestKey)) return errorResponse(requestId,400,"PLAY_ADMIN_INVALID_REQUEST","Invalid Idempotency-Key");
+    const service = resolveService(env,requestKey??undefined);
     const sourceHealthService = resolveSourceHealthService?.(env);
     const actor = adminActor(request, admin.user);
 
@@ -489,6 +492,7 @@ export const createAdminCatalogHandler =
 
       return new Response(null, { status: 404 });
     } catch (error) {
+      if(error instanceof TransitionWriteError) return responseJson({error:{code:error.code,message:error.message,requestId,fields:{targetSite:error.targetSite,...(error.operationId?{operationId:error.operationId}:{})}}},409);
       if (error instanceof SourceHealthServiceError) {
         const mapping = {
           invalid_request: [400, "PLAY_ADMIN_INVALID_REQUEST"],
@@ -564,6 +568,7 @@ export const createAdminCatalogHandler =
         return errorResponse(requestId, status, code, error.message, error.fields);
       }
       if (error instanceof OtwPlayYouTubeMetadataError) {
+        if(error.code==='invalid_request') return errorResponse(requestId,422,'PLAY_ADMIN_VALIDATION_FAILED',error.message,{youtube:error.code});
         console.warn("OTW Play YouTube metadata request failed", {
           path: url.pathname,
           method: request.method,

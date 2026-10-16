@@ -56,7 +56,7 @@ describe("CloudflarePublicCatalogCache", () => {
     expect(cache.put).toHaveBeenCalledOnce();
     const [request, response] = cache.put.mock.calls[0];
     expect(request.url).toBe(
-      "https://otw.internal/cache/play/v2/17/catalog?member=2&member=7&sort=title",
+      "https://otw.internal/cache/play/v3/17/catalog?member=2&member=7&sort=title",
     );
     expect(response.headers.get("Cache-Control")).toBe(
       "public, max-age=60, s-maxage=300",
@@ -99,7 +99,7 @@ describe("CloudflarePublicCatalogCache", () => {
     await adapter.write(configKey, configEntry, 1800);
 
     expect(cache.put.mock.calls[0][0].url).toBe(
-      "https://otw.internal/cache/play/v2/21/config?public=0&navigation=0&updatedAt=1786406400000",
+      "https://otw.internal/cache/play/v3/21/config?public=0&navigation=0&updatedAt=1786406400000",
     );
     expect(cache.put.mock.calls[0][1].headers.get("Cache-Control")).toBe(
       "public, max-age=60, s-maxage=1800",
@@ -111,7 +111,7 @@ describe("CloudflarePublicCatalogCache", () => {
     const adapter = new CloudflarePublicCatalogCache(getSiteDefinition("otw"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const cacheUrl =
-      "https://otw.internal/cache/play/v2/17/catalog?member=2&member=7&sort=title";
+      "https://otw.internal/cache/play/v3/17/catalog?member=2&member=7&sort=title";
 
     store.set(cacheUrl, new Response("not json"));
     await expect(adapter.read(key)).resolves.toBeNull();
@@ -131,7 +131,7 @@ describe("CloudflarePublicCatalogCache", () => {
     const adapter = new CloudflarePublicCatalogCache(getSiteDefinition("otw"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const cacheUrl =
-      "https://otw.internal/cache/play/v2/17/catalog?member=2&member=7&sort=title";
+      "https://otw.internal/cache/play/v3/17/catalog?member=2&member=7&sort=title";
     const invalidEntry = {
       ...entry,
       document: { ...entry.document, data: null },
@@ -159,7 +159,7 @@ describe("CloudflarePublicCatalogCache", () => {
     const adapter = new CloudflarePublicCatalogCache(getSiteDefinition("otw"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const cacheUrl =
-      "https://otw.internal/cache/play/v2/17/catalog?member=2&member=7&sort=title";
+      "https://otw.internal/cache/play/v3/17/catalog?member=2&member=7&sort=title";
 
     store.set(cacheUrl, Response.json(entry));
     await expect(adapter.read(key)).resolves.toBeNull();
@@ -208,7 +208,7 @@ describe("CloudflarePublicCatalogCache", () => {
     const adapter = new CloudflarePublicCatalogCache(getSiteDefinition("otw"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const cacheUrl =
-      "https://otw.internal/cache/play/v2/17/catalog?member=2&member=7&sort=title";
+      "https://otw.internal/cache/play/v3/17/catalog?member=2&member=7&sort=title";
     store.set(
       cacheUrl,
       Response.json(entry, {

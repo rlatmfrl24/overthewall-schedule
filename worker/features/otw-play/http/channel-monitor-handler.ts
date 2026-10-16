@@ -276,6 +276,7 @@ export const createChannelMonitorHandler = (
       return errorJson(requestId, 503, "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE", error.message);
     }
     if (error instanceof OtwPlayYouTubeMetadataError) {
+      if(error.code==='invalid_request') return errorJson(requestId,422,'PLAY_ADMIN_VALIDATION_FAILED',error.message);
       return errorJson(
         requestId,
         error.retryable ? 503 : 502,

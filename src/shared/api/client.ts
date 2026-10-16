@@ -24,6 +24,9 @@ export class ApiError extends Error {
   }
 }
 
+export const getContentTransitionMessage = (error: unknown): string | null =>
+  error instanceof ApiError && ["CONTENT_MOVED", "CONTENT_ACCEPTED", "CONTENT_CONFLICT"].includes(error.code ?? "") ? error.message : null;
+
 type ApiOptions = RequestInit & {
   json?: unknown;
   auth?: ApiAuthMode;

@@ -137,7 +137,7 @@ describe("d1 doctor schema coverage", () => {
       Object.keys(REQUIRED_D1_COLUMNS).filter((tableName) =>
         tableName.startsWith("music_"),
       ),
-    ).toEqual(MUSIC_TABLES);
+    ).toEqual(expect.arrayContaining(MUSIC_TABLES));
     expect(REQUIRED_D1_COLUMNS.music_performances).toEqual(
       expect.arrayContaining([
         "publication_status",

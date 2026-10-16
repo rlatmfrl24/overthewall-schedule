@@ -1,4 +1,7 @@
-import { isArchivedYouTubeVideo } from "../../content-transition";
+import type { SiteId } from "@contracts/site-definition";
+import { publicationHiddenSql } from "../../content-transition";
+import type {D1MemberSubmissionWriter} from "./d1-member-submission-writer";
+import { isArchivedYouTubeVideo,TransitionWriteError } from "../../content-transition";
 import type {
   OtwPlaySubmissionArtistDto,
   OtwPlayCreateSubmissionRequest,
@@ -117,7 +120,7 @@ const proposalSelect = `SELECT proposal.content_access, proposal.id, proposal.id
   meta.public_read_enabled
 FROM music_cover_proposals AS proposal
 LEFT JOIN music_performances AS approved_performance
-  ON approved_performance.id = proposal.approved_performance_id AND approved_performance.content_access = 'normal'
+  ON approved_performance.id = proposal.approved_performance_id AND approved_performance.content_access = 'normal' AND NOT (${publicationHiddenSql("music_performances","approved_performance","otw","__PUBLICATION_TIME__")})
 LEFT JOIN music_songs AS song ON song.id = approved_performance.song_id
 LEFT JOIN music_catalog_meta AS meta ON meta.id = 1`;
 
@@ -126,20 +129,26 @@ export class D1MemberSubmissionRepository
 {
   private readonly database: D1Database;
 
-  constructor(database: D1Database) {
+  private readonly transition?:D1MemberSubmissionWriter;
+  private readonly siteId: SiteId;
+  constructor(database: D1Database,transition?:D1MemberSubmissionWriter,siteId:SiteId="otw") {
+    this.transition=transition;
     this.database = database;
+    this.siteId=siteId;
   }
+
+  private prepare(sql: string) { return this.database.prepare(sql.replaceAll("__PUBLICATION_TIME__",this.siteId==="otw"?`max(unixepoch(),${Math.floor(Date.now()/1000)})`:"0")); }
 
   async preflight(
     _userId: string,
     videoId: string,
     title: string | null,
+    channelId: string | null = null,
   ) {
-    if (await isArchivedYouTubeVideo(this.database, videoId)) {
+    if (await isArchivedYouTubeVideo(this.database, videoId,this.siteId,channelId)) {
       throw new MemberSubmissionRepositoryError("not_found", "Video not found");
     }
-    const duplicate = await this.database
-      .prepare(
+    const duplicate = await this.prepare(
         `SELECT CASE
           WHEN EXISTS (
             SELECT 1 FROM music_media_sources
@@ -160,8 +169,7 @@ export class D1MemberSubmissionRepository
       return { duplicate: duplicate?.duplicate_kind ?? null, songCandidates: [] };
     }
     const normalized = normalizeOtwPlaySearchText(title);
-    const candidateResult = await this.database
-      .prepare(
+    const candidateResult = await this.prepare(
         `SELECT song.id, song.title,
           COALESCE((
             SELECT json_group_array(artist.display_name)
@@ -175,6 +183,7 @@ export class D1MemberSubmissionRepository
           AND EXISTS (
             SELECT 1 FROM music_performances AS performance
             WHERE performance.song_id = song.id AND performance.content_access = 'normal'
+              AND NOT (${publicationHiddenSql("music_performances", "performance", "otw", "__PUBLICATION_TIME__")})
               AND performance.publication_status = 'published'
               AND performance.release_type IN ('official_mv', 'official_video')
           )
@@ -217,7 +226,7 @@ export class D1MemberSubmissionRepository
 
   async searchArtists(query: string): Promise<OtwPlaySubmissionArtistDto[]> {
     const normalized = normalizeOtwPlaySearchText(query);
-    const rows = await this.database.prepare(`
+    const rows = await this.prepare(`
       SELECT entity.id AS entityId, entity.display_name AS displayName,
         entity.member_uid AS memberUid, entity.entity_kind AS entityKind,
         (entity.normalized_name = ? OR EXISTS (
@@ -227,7 +236,7 @@ export class D1MemberSubmissionRepository
       FROM music_entities AS entity
       LEFT JOIN members AS member ON member.uid = entity.member_uid
       WHERE entity.archived_at IS NULL
-        AND (entity.member_uid IS NULL OR (member.uid IS NOT NULL AND coalesce(member.is_deprecated, 0) = 0 AND member.content_access = 'normal'))
+        AND (entity.member_uid IS NULL OR (member.uid IS NOT NULL AND coalesce(member.is_deprecated, 0) = 0 AND member.content_access = 'normal' AND NOT (${publicationHiddenSql("members", "member", "otw", "__PUBLICATION_TIME__")})))
         AND (instr(entity.normalized_name, ?) > 0 OR EXISTS (
           SELECT 1 FROM music_entity_aliases alias
           WHERE alias.entity_id = entity.id AND instr(alias.normalized_alias, ?) > 0
@@ -254,14 +263,13 @@ export class D1MemberSubmissionRepository
       { name: string; entity_id: string | null }
     >();
     if (memberUids.length > 0) {
-      const result = await this.database
-        .prepare(
+      const result = await this.prepare(
           `SELECT member.uid, member.name, entity.id AS entity_id
           FROM members AS member
           LEFT JOIN music_entities AS entity
             ON entity.member_uid = member.uid AND entity.archived_at IS NULL
           WHERE member.uid IN (${placeholders(memberUids.length)})
-            AND member.content_access = 'normal' AND (member.is_deprecated IS NULL OR member.is_deprecated = 0)`,
+            AND member.content_access = 'normal' AND NOT (${publicationHiddenSql("members", "member", "otw", "__PUBLICATION_TIME__")}) AND (member.is_deprecated IS NULL OR member.is_deprecated = 0)`,
         )
         .bind(...memberUids)
         .all<{ uid: number; name: string; entity_id: string | null }>();
@@ -280,7 +288,7 @@ export class D1MemberSubmissionRepository
     }
 
     const entityIds = [...new Set(subjects.flatMap(subject => subject.kind === "external" && subject.entityId ? [subject.entityId] : []))];
-    const entities = entityIds.length ? resultsOf(await this.database.prepare(
+    const entities = entityIds.length ? resultsOf(await this.prepare(
       `SELECT id, display_name FROM music_entities
        WHERE id IN (${placeholders(entityIds.length)}) AND archived_at IS NULL AND member_uid IS NULL`,
     ).bind(...entityIds).all<{ id: string; display_name: string }>()) : [];
@@ -309,8 +317,7 @@ export class D1MemberSubmissionRepository
     if (rows.length === 0) return [];
     const ids = rows.map((row) => row.id);
     const [participantResult, artistResult] = await this.database.batch([
-      this.database
-        .prepare(
+      this.prepare(
           `SELECT proposal_id, credit_order, submitted_name_snapshot, submitted_member_uid, resolved_entity_id,
              participant_role
            FROM music_cover_proposal_participants
@@ -318,8 +325,7 @@ export class D1MemberSubmissionRepository
            ORDER BY proposal_id, credit_order`,
         )
         .bind(...ids),
-      this.database
-        .prepare(
+      this.prepare(
           `SELECT proposal_id, credit_order, submitted_name_snapshot, submitted_member_uid, resolved_entity_id
            FROM music_cover_proposal_original_artists
            WHERE proposal_id IN (${placeholders(ids.length)})
@@ -390,8 +396,7 @@ export class D1MemberSubmissionRepository
   }
 
   private async readByIdempotency(userId: string, key: string) {
-    const row = await this.database
-      .prepare(
+    const row = await this.prepare(
         `${proposalSelect}
          WHERE proposal.submitted_by_user_id = ? AND proposal.idempotency_key = ?
            AND proposal.status IN ('pending_review', 'approved', 'rejected', 'withdrawn')`,
@@ -410,12 +415,12 @@ export class D1MemberSubmissionRepository
     artists: ResolvedSubject[],
   ) {
     const [participantResult, artistResult] = await this.database.batch([
-      this.database.prepare(
+      this.prepare(
         `SELECT resolved_entity_id, submitted_member_uid, submitted_name_snapshot, participant_role
          FROM music_cover_proposal_participants
          WHERE proposal_id = ? ORDER BY credit_order`,
       ).bind(existing.id),
-      this.database.prepare(
+      this.prepare(
         `SELECT resolved_entity_id, submitted_member_uid, submitted_name_snapshot
          FROM music_cover_proposal_original_artists
          WHERE proposal_id = ? ORDER BY credit_order`,
@@ -462,6 +467,16 @@ export class D1MemberSubmissionRepository
   }
 
   async create(command: CreateMemberSubmissionCommand) {
+    return this.transition?this.transition.execute({action:"create",...command},original=>this.createOriginal(original)):this.createOriginal(command);
+  }
+  private async writeBatch(statements:D1PreparedStatement[]) {
+    if(this.transition) await this.transition.batch(statements,()=>this.database.batch(statements));else await this.database.batch(statements);
+  }
+  private memberGuard(subjects: ResolvedSubject[]) {
+    return this.prepare(`SELECT iif(NOT EXISTS(SELECT 1 FROM members member WHERE member.uid IN (SELECT value FROM json_each(?)) AND ${publicationHiddenSql("members", "member", "otw", "__PUBLICATION_TIME__")}),1,json('site_member_cutover'))`)
+      .bind(JSON.stringify(subjects.flatMap(subject => subject.submittedMemberUid === null ? [] : [subject.submittedMemberUid])));
+  }
+  private async createOriginal(command: CreateMemberSubmissionCommand) {
     const { userId, input, canonicalUrl, videoId, now, dayStart, dayEnd } = command;
     const existing = await this.readByIdempotency(userId, input.clientRequestId);
     const [resolvedParticipants, artists] = await Promise.all([
@@ -485,8 +500,7 @@ export class D1MemberSubmissionRepository
     }
 
     if (input.suggestedSongId) {
-      const song = await this.database
-        .prepare(
+      const song = await this.prepare(
           `SELECT id FROM music_songs
            WHERE id = ? AND archived_at IS NULL AND merged_into_song_id IS NULL`,
         )
@@ -500,8 +514,7 @@ export class D1MemberSubmissionRepository
       }
     }
 
-    const setting = await this.database
-      .prepare(
+    const setting = await this.prepare(
         `SELECT value, typeof(value) AS value_type FROM settings
          WHERE key = 'otw_play_submission_daily_limit'`,
       )
@@ -520,8 +533,7 @@ export class D1MemberSubmissionRepository
     }
     const dailyLimit = Number(setting.value);
 
-    const duplicate = await this.database
-      .prepare(
+    const duplicate = await this.prepare(
         `SELECT 1 AS found WHERE EXISTS (
            SELECT 1 FROM music_media_sources
            WHERE provider = 'youtube' AND external_id = ?
@@ -540,8 +552,7 @@ export class D1MemberSubmissionRepository
       );
     }
 
-    const parent = this.database
-      .prepare(
+    const parent = this.prepare(
         `INSERT INTO music_cover_proposals (
           id, submitted_by_user_id, idempotency_key, submitted_url,
           youtube_video_id, segment_start_seconds, submitted_title,
@@ -573,14 +584,14 @@ export class D1MemberSubmissionRepository
         dailyLimit,
       );
     const childGuard = `SELECT ?, ?, ?, ?, ?, ? WHERE EXISTS (
-      SELECT 1 FROM music_cover_proposals WHERE content_access = 'normal' AND id = ? AND submitted_by_user_id = ?
+      SELECT 1 FROM music_cover_proposals WHERE content_access = 'normal' AND NOT (${publicationHiddenSql("music_cover_proposals","music_cover_proposals","otw","__PUBLICATION_TIME__")}) AND id = ? AND submitted_by_user_id = ?
     )`;
     try {
-      await this.database.batch([
+      await this.writeBatch([
+        this.memberGuard([...participants, ...artists]),
         parent,
         ...participants.map((participant, index) =>
-          this.database
-            .prepare(
+          this.prepare(
               `INSERT INTO music_cover_proposal_participants
                (proposal_id, credit_order, resolved_entity_id,
                 submitted_member_uid, submitted_name_snapshot, participant_role)
@@ -598,13 +609,12 @@ export class D1MemberSubmissionRepository
             ),
         ),
         ...artists.map((artist, index) =>
-          this.database
-            .prepare(
+          this.prepare(
               `INSERT INTO music_cover_proposal_original_artists
                (proposal_id, credit_order, resolved_entity_id,
                 submitted_member_uid, submitted_name_snapshot)
                SELECT ?, ?, ?, ?, ? WHERE EXISTS (
-                 SELECT 1 FROM music_cover_proposals WHERE content_access = 'normal' AND id = ? AND submitted_by_user_id = ?
+                 SELECT 1 FROM music_cover_proposals WHERE content_access = 'normal' AND NOT (${publicationHiddenSql("music_cover_proposals","music_cover_proposals","otw","__PUBLICATION_TIME__")}) AND id = ? AND submitted_by_user_id = ?
                )`,
             )
             .bind(
@@ -619,6 +629,7 @@ export class D1MemberSubmissionRepository
         ),
       ]);
     } catch (error) {
+      if(error instanceof TransitionWriteError || error instanceof MemberSubmissionRepositoryError) throw error;
       const raced = await this.readByIdempotency(userId, input.clientRequestId);
       if (raced) {
         if (await this.samePayload(raced, input, canonicalUrl, participants, artists)) {
@@ -663,6 +674,8 @@ export class D1MemberSubmissionRepository
     input: OtwPlayCreateSubmissionRequest,
     canonicalUrl: string,
   ) {
+    const receipt=await this.transition?.replay({action:"create",proposalId:"original-request",userId,input,canonicalUrl,videoId:canonicalUrl.slice(-11),now:0,dayStart:0,dayEnd:86400000});
+    if(receipt) return {...receipt,idempotentReplay:true as const};
     const existing = await this.readByIdempotency(userId, input.clientRequestId);
     if (!existing) return null;
     const [resolvedParticipants, artists] = await Promise.all([
@@ -692,9 +705,9 @@ export class D1MemberSubmissionRepository
     const cursorSql = cursor
       ? "AND (proposal.created_at < ? OR (proposal.created_at = ? AND proposal.id < ?))"
       : "";
-    const statement = this.database.prepare(
+    const statement = this.prepare(
       `${proposalSelect}
-       WHERE proposal.content_access = 'normal' AND proposal.submitted_by_user_id = ?
+       WHERE proposal.content_access = 'normal' AND NOT (${publicationHiddenSql("music_cover_proposals","proposal","otw","__PUBLICATION_TIME__")}) AND proposal.submitted_by_user_id = ?
          AND proposal.status IN ('pending_review', 'approved', 'rejected', 'withdrawn')
          ${cursorSql}
        ORDER BY proposal.created_at DESC, proposal.id DESC
@@ -713,10 +726,9 @@ export class D1MemberSubmissionRepository
   }
 
   async readMine(userId: string, proposalId: string) {
-    const row = await this.database
-      .prepare(
+    const row = await this.prepare(
         `${proposalSelect}
-         WHERE proposal.content_access = 'normal' AND proposal.id = ? AND proposal.submitted_by_user_id = ?
+         WHERE proposal.content_access = 'normal' AND NOT (${publicationHiddenSql("music_cover_proposals","proposal","otw","__PUBLICATION_TIME__")}) AND proposal.id = ? AND proposal.submitted_by_user_id = ?
            AND proposal.status IN ('pending_review', 'approved', 'rejected', 'withdrawn')`,
       )
       .bind(proposalId, userId)
@@ -731,6 +743,9 @@ export class D1MemberSubmissionRepository
   }
 
   async update(command: UpdateMemberSubmissionCommand) {
+    return this.transition?(await this.transition.execute({action:"update",...command},async original=>({data:await this.updateOriginal(original),idempotentReplay:false}))).data:this.updateOriginal(command);
+  }
+  private async updateOriginal(command: UpdateMemberSubmissionCommand) {
     const { userId, proposalId, input, canonicalUrl, videoId, now } = command;
     const current = await this.readMine(userId, proposalId);
     if (
@@ -744,8 +759,7 @@ export class D1MemberSubmissionRepository
     }
 
     if (input.suggestedSongId) {
-      const song = await this.database
-        .prepare(
+      const song = await this.prepare(
           `SELECT id FROM music_songs
            WHERE id = ? AND archived_at IS NULL AND merged_into_song_id IS NULL`,
         )
@@ -816,14 +830,13 @@ export class D1MemberSubmissionRepository
       (current.note ?? null) !== (input.note?.trim() || null) ? "note" : null,
     ].filter((field): field is string => field !== null);
     const nextVersion = input.expectedVersion + 1;
-    const updatedParent = this.database
-      .prepare(
+    const updatedParent = this.prepare(
         `UPDATE music_cover_proposals
          SET submitted_url = ?, youtube_video_id = ?, submitted_title = ?,
              submission_kind = ?, submitted_broadcast_json = ?,
              submitted_tags_json = ?, suggested_song_id = ?, submitted_note = ?, version = version + 1,
              updated_at = ?
-         WHERE content_access = 'normal' AND id = ? AND submitted_by_user_id = ?
+         WHERE content_access = 'normal' AND NOT (${publicationHiddenSql("music_cover_proposals","music_cover_proposals","otw","__PUBLICATION_TIME__")}) AND id = ? AND submitted_by_user_id = ?
            AND status = 'pending_review' AND version = ?
            AND NOT EXISTS (
              SELECT 1 FROM music_media_sources
@@ -860,10 +873,10 @@ export class D1MemberSubmissionRepository
         AND event_type = 'proposal.updated'
     )`;
     try {
-      await this.database.batch([
+      await this.writeBatch([
+        this.memberGuard([...participants, ...artists]),
         updatedParent,
-        this.database
-          .prepare(
+        this.prepare(
             `INSERT INTO music_catalog_events
              (id, aggregate_type, aggregate_id, event_type, actor_kind,
               actor_user_id, detail_json, created_at)
@@ -877,21 +890,18 @@ export class D1MemberSubmissionRepository
             JSON.stringify({ changedFields }),
             now,
           ),
-        this.database
-          .prepare(
+        this.prepare(
             `DELETE FROM music_cover_proposal_participants
              WHERE proposal_id = ? AND ${updateGuard}`,
           )
           .bind(proposalId, command.eventId, proposalId),
-        this.database
-          .prepare(
+        this.prepare(
             `DELETE FROM music_cover_proposal_original_artists
              WHERE proposal_id = ? AND ${updateGuard}`,
           )
           .bind(proposalId, command.eventId, proposalId),
         ...participants.map((participant, index) =>
-          this.database
-            .prepare(
+          this.prepare(
               `INSERT INTO music_cover_proposal_participants
                (proposal_id, credit_order, resolved_entity_id,
                 submitted_member_uid, submitted_name_snapshot, participant_role)
@@ -909,8 +919,7 @@ export class D1MemberSubmissionRepository
             ),
         ),
         ...artists.map((artist, index) =>
-          this.database
-            .prepare(
+          this.prepare(
               `INSERT INTO music_cover_proposal_original_artists
                (proposal_id, credit_order, resolved_entity_id,
                 submitted_member_uid, submitted_name_snapshot)
@@ -928,6 +937,7 @@ export class D1MemberSubmissionRepository
         ),
       ]);
     } catch (error) {
+      if(error instanceof TransitionWriteError || error instanceof MemberSubmissionRepositoryError) throw error;
       if (/UNIQUE constraint|constraint failed/i.test(String(error))) {
         throw new MemberSubmissionRepositoryError(
           "duplicate",
@@ -948,8 +958,7 @@ export class D1MemberSubmissionRepository
     ) {
       return updated;
     }
-    const duplicate = await this.database
-      .prepare(
+    const duplicate = await this.prepare(
         `SELECT 1 AS found WHERE EXISTS (
            SELECT 1 FROM music_media_sources
            WHERE provider = 'youtube' AND external_id = ?
@@ -970,13 +979,15 @@ export class D1MemberSubmissionRepository
   }
 
   async withdraw(command: WithdrawMemberSubmissionCommand) {
+    return this.transition?(await this.transition.execute({action:"withdraw",...command},async original=>({data:await this.withdrawOriginal(original),idempotentReplay:false}))).data:this.withdrawOriginal(command);
+  }
+  private async withdrawOriginal(command: WithdrawMemberSubmissionCommand) {
     const nextVersion = command.expectedVersion + 1;
-    await this.database.batch([
-      this.database
-        .prepare(
+    await this.writeBatch([
+      this.prepare(
           `UPDATE music_cover_proposals
            SET status = 'withdrawn', version = version + 1, updated_at = ?
-           WHERE content_access = 'normal' AND id = ? AND submitted_by_user_id = ?
+           WHERE content_access = 'normal' AND NOT (${publicationHiddenSql("music_cover_proposals","music_cover_proposals","otw","__PUBLICATION_TIME__")}) AND id = ? AND submitted_by_user_id = ?
              AND status = 'pending_review' AND version = ?`,
         )
         .bind(
@@ -985,8 +996,7 @@ export class D1MemberSubmissionRepository
           command.userId,
           command.expectedVersion,
         ),
-      this.database
-        .prepare(
+      this.prepare(
           `INSERT INTO music_catalog_events
            (id, aggregate_type, aggregate_id, event_type, actor_kind,
             actor_user_id, created_at)

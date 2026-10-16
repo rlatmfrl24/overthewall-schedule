@@ -20,6 +20,7 @@ const useScheduleBoardMock = vi.hoisted(() => vi.fn());
 const fetchLiveStatusesMock = vi.hoisted(() => vi.fn());
 const fetchLiveStatusDiagnosticsMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
+vi.mock('@/shared/ui/toast',()=>({useToast:()=>({toast:vi.fn()})}));
 
 vi.mock("../../queries/use-schedule-board", () => ({
   useScheduleBoard: useScheduleBoardMock,

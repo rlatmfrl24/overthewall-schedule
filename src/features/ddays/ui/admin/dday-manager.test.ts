@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestQueryClient } from "@/test/query-client";
 import { queryKeys } from "@/shared/query/query-keys";
 import { DDayManager } from "./dday-manager";
+import { ApiError } from "@/shared/api/client";
 
 const fetchDDaysMock = vi.hoisted(() => vi.fn());
 const createDDayMock = vi.hoisted(() => vi.fn());
@@ -56,7 +57,7 @@ describe("DDayManager", () => {
     render(createElement(DDayManager), { wrapper });
 
     await waitFor(() =>
-      expect(fetchDDaysMock).toHaveBeenCalledWith({ noCache: true }),
+      expect(fetchDDaysMock).toHaveBeenCalledWith({ noCache: true,includeArchived:true }),
     );
     expect(fetchDDaysMock).toHaveBeenCalledTimes(1);
     expect(await screen.findByText("관리자 최신 D-Day")).toBeTruthy();
@@ -77,8 +78,24 @@ describe("DDayManager", () => {
     fireEvent.click(await screen.findByTitle("수정"));
     fireEvent.change(screen.getByLabelText("설명 (선택)"), {target: {value: ""}});
     fireEvent.click(screen.getByRole("button", {name: "수정 완료"}));
-    await waitFor(() => expect(updateDDayMock).toHaveBeenCalledWith(expect.objectContaining({id: 2, description: null})));
+    await waitFor(() => expect(updateDDayMock).toHaveBeenCalledWith(expect.objectContaining({id: 2, description: null}),expect.any(String)));
     await waitFor(() => expect(fetchDDaysMock).toHaveBeenCalledTimes(2));
+  });
+  it.each(["CONTENT_MOVED","CONTENT_ACCEPTED","CONTENT_CONFLICT"])("keeps the draft and original key after %s",async code=>{
+    updateDDayMock.mockRejectedValue(new ApiError(`실제 ${code} 안내`,409,{code}));
+    const client=createTestQueryClient();
+    render(createElement(QueryClientProvider,{client},createElement(DDayManager)));
+    fireEvent.click(await screen.findByTitle("수정"));
+    fireEvent.change(screen.getByLabelText("설명 (선택)"),{target:{value:"유지할 내용"}});
+    fireEvent.click(screen.getByRole("button",{name:"수정 완료"}));
+    expect((await screen.findByRole("alert")).textContent).toContain(`실제 ${code} 안내`);
+    expect((screen.getByLabelText("설명 (선택)") as HTMLTextAreaElement).value).toBe("유지할 내용");
+    const original=updateDDayMock.mock.calls[0][1];expect(original).toMatch(/^[a-f0-9-]{36}$/);
+    fireEvent.click(screen.getByRole("button",{name:"수정 완료"}));
+    await waitFor(()=>expect(updateDDayMock).toHaveBeenCalledTimes(2));expect(updateDDayMock.mock.calls[1][1]).toBe(original);
+    fireEvent.change(screen.getByLabelText("설명 (선택)"),{target:{value:"변경된 내용"}});
+    fireEvent.click(screen.getByRole("button",{name:"수정 완료"}));
+    await waitFor(()=>expect(updateDDayMock).toHaveBeenCalledTimes(3));expect(updateDDayMock.mock.calls[2][1]).not.toBe(original);
   });
 
 });

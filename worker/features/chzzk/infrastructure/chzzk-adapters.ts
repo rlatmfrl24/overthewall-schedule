@@ -1,3 +1,4 @@
+import { parseSiteId } from "@contracts/site-definition";
 import type { Env } from "../../../platform/types";
 import {
   createChzzkApplication,
@@ -28,14 +29,14 @@ export const buildChzzkApplication = (
   externalPorts: ChzzkExternalApplicationPorts,
 ) => {
   return createChzzkApplication({
-    readAllowedChannelIds: () => readActiveChzzkChannels(env.otw_db),
+    readAllowedChannelIds: () => readActiveChzzkChannels(env.otw_db, parseSiteId(env.SITE_ID)),
     fetchLiveStatus: (channelId) => fetchChzzkLiveStatus(channelId),
     fetchLiveStatusWithDebug: (channelId) =>
       fetchChzzkLiveStatusWithDebug(channelId),
     fetchVideosBatch: (requests) =>
-      fetchChzzkVideosBatch(requests, env.otw_db),
+      fetchChzzkVideosBatch(requests, env.otw_db, { siteId: parseSiteId(env.SITE_ID) }),
     fetchClipsBatch: (requests) =>
-      fetchChzzkClipsBatch(requests, env.otw_db),
+      fetchChzzkClipsBatch(requests, env.otw_db, { siteId: parseSiteId(env.SITE_ID) }),
     ...externalPorts,
   });
 };

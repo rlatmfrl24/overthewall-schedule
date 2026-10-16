@@ -1,3 +1,4 @@
+import { parseSiteId } from "@contracts/site-definition";
 import {
   collectNaverCafePostsForSources,
   NAVER_CAFE_COLLECTION_SIZE,
@@ -33,6 +34,10 @@ import type {
   ScheduledJobItemRecord,
 } from "../../../platform/scheduled-jobs";
 import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
+import {buildChzzkScanTransitionWriter,buildCollectorTransitionWriter,transitionPeer} from "../../../app/content-transition";
+import {buildContentTransitionRepository} from "../../../app/content-transition";
+import {executeOriginalChzzkChild} from "../../../app/content-transition-chzzk";
+import {parseSiteStorageResources} from "@contracts/site-definition";
 
 export type ScheduledJobExecutionOutcome = {
   status: "succeeded" | "partial" | "failed" | "skipped" | "throttled";
@@ -221,7 +226,7 @@ const writeSetting = (env: Env, key: string, value: string) =>
   env.otw_db.prepare(
     `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value,
-       updated_at = excluded.updated_at`,
+       updated_at = excluded.updated_at WHERE CAST(settings.value AS INTEGER)<CAST(excluded.value AS INTEGER)`,
   ).bind(key, value, String(Date.now())).run();
 
 const isAutoUpdateResult = (value: unknown): value is AutoUpdateResult => {
@@ -324,6 +329,7 @@ export class ScheduledJobExecutor {
         );
         const result = await collectNaverCafePostsForSources(sources, {
           cacheDb: this.env.otw_db,
+          siteId: parseSiteId(this.env.SITE_ID),
           size: Number(continuation.size) || NAVER_CAFE_COLLECTION_SIZE,
           trigger: run.source,
         });
@@ -355,10 +361,18 @@ export class ScheduledJobExecutor {
             rangeDays,
             channelIds,
             this.env.otw_db,
+            undefined,
+            buildChzzkScanTransitionWriter(this.env),
+            item.id,
+            {kind:"scheduled",runId:item.run_id,itemId:item.id},
           );
+          if(result.channelResults.some(channel=>channel.status==="accepted")) {
+            const pending=new Error("Original scan awaits durable owner stage handover");pending.name="content_transition_pending";throw pending;
+          }
           const completed = result.channelResults.filter(channel => channel.status === "complete").length;
           const failed = result.channelResults.filter(channel => channel.status === "failed").length;
           const incomplete = result.channelResults.filter(channel => channel.status === "incomplete").length;
+          const moved=result.channelResults.filter(channel=>channel.status==="moved" || channel.status==="conflicted").length;
           // The queue retries exceptions up to three attempts. Successful channel
           // observations are already persisted and safe to upsert on the retry.
           if (failed > 0 && item.attempts < 3) {
@@ -366,9 +380,9 @@ export class ScheduledJobExecutor {
             error.name = "schedule_scan_failed";
             throw error;
           }
-          const unresolved = failed + incomplete;
+          const unresolved = failed + incomplete + moved;
           const errorCode = failed > 0 ? "schedule_scan_failed"
-            : incomplete > 0 ? "schedule_scan_incomplete" : null;
+            : incomplete > 0 ? "schedule_scan_incomplete" : moved>0?"schedule_scan_owner_moved":null;
           return {
             status: unresolved === 0 ? "succeeded"
                 : completed > 0 ? "partial" : "failed",
@@ -386,9 +400,20 @@ export class ScheduledJobExecutor {
           if (!Number.isSafeInteger(memberUid) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
             throw new Error("invalid_auto_update_match_target");
           }
+          if(continuation.transition) {
+            const reference=continuation.transition as {transitionId?:unknown;operationId?:unknown;childKey?:unknown};
+            if(typeof reference.transitionId!=="string" || typeof reference.operationId!=="string" || typeof reference.childKey!=="string") throw new Error("Invalid original match reference");
+            const repository=buildContentTransitionRepository(this.env);
+            const stage=await repository.readChzzkScanStage(reference.transitionId,reference.operationId);
+            if(stage?.parent.runId!==item.run_id || !stage.targets.some(target=>target.key===reference.childKey && target.date===date)) throw new Error("Wrong original match parent");
+            const args=[reference.transitionId,reference.operationId,reference.childKey] as const;
+            const result=await executeOriginalChzzkChild(this.env,...args);
+            return {...result,errorCode:result.status==="succeeded"?null:"original_match_partial_or_failed",error:result.status==="succeeded"?null:"Original match contains incomplete or conflicted work"};
+          }
           return succeeded(await autoUpdateSchedules(getDb(this.env), rangeDays, {
             skipScan: true,
             matchTarget: { memberUid, date },
+            collectorWriter:buildCollectorTransitionWriter(this.env),
           }));
         }
         if (item.phase === "finalize") {
@@ -396,22 +421,26 @@ export class ScheduledJobExecutor {
             item.run_id,
             "match",
           );
-          return succeeded(await recordAutoUpdateResultWithHistory(
+          const failure=await this.env.otw_db.prepare("SELECT count(*) n FROM scheduled_job_items WHERE run_id=? AND phase<>'finalize' AND status IN ('partial','failed','throttled')").bind(run.id).first<number>("n");
+          const status=failure?results.length?"partial":"failed":"succeeded";
+          const result=await recordAutoUpdateResultWithHistory(
             getDb(this.env),
-            { source: run.source, rangeDays },
+            { source: run.source, rangeDays,actor:await this.env.otw_db.prepare("SELECT actor_id AS actorId,actor_name AS actorName,actor_ip AS actorIp FROM scheduled_job_runs WHERE id=?").bind(run.id).first()??undefined,originalItem:{id:item.id,runId:item.run_id,leaseToken:item.lease_token},failed:Boolean(failure),error:failure?"Original auto-update contains failed or partial work":null },
             aggregateAutoUpdateResults(results),
             run.started_at ?? run.accepted_at,
-          ));
+          );
+          return {status,result,errorCode:failure?"auto_update_partial_or_failed":null,error:failure?"Original auto-update contains failed or partial work":null};
         }
         throw new Error("invalid_auto_update_phase");
       }
       case "source_health":
         return toSourceHealthOutcome(await new SourceHealthService(
-          new D1SourceHealthRepository(this.env.otw_db),
+          new D1SourceHealthRepository(this.env.otw_db, parseSiteId(this.env.SITE_ID)),
           new YouTubeOtwPlayMetadataReader(this.env.YOUTUBE_API_KEY, fetch, {
             db: this.env.otw_db,
             priority: "low",
             origin: "otw_play_source_health",
+            siteId:parseSiteId(this.env.SITE_ID),
           }),
           () => crypto.randomUUID(),
           Date.now,
@@ -530,6 +559,14 @@ export class ScheduledJobExecutor {
         retentionPrune: await summarizeDataRetentionRun(this.env, runId),
       });
       await writeSetting(this.env, "data_retention_last_prune", completedAt);
+    } else if(run.jobType==="schedule_auto_update") {
+      const {site}=parseSiteStorageResources(this.env);
+      const repository=buildContentTransitionRepository(this.env);
+      await repository.settleChzzkRun(runId);
+      for(const original of await repository.chzzkRunContinuations(runId)) {
+        const owner=await repository.readTransition(original.transitionId);
+        if(owner.sourceSite===site && owner.phase==="source_fenced") await (await transitionPeer(this.env,owner.id,"source")).peer.finishChzzkParent(owner.id,original.operationId);
+      }
     }
   }
 }

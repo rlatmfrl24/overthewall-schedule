@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { verifyClientBuildForDeploy } from "./client-build-deploy-guard.mjs";
 import { getSiteTarget, parseSiteArgument } from "./site-target.mjs";
 import { verifySiteBuildManifest } from "./site-build-manifest.mjs";
@@ -8,8 +8,10 @@ const isWindows = process.platform === "win32";
 const dryRun = process.argv.includes("--dry-run");
 const siteId = parseSiteArgument();
 const target = getSiteTarget(siteId);
-if (siteId === "luvdia") throw new Error("LuvDia remote operations require provisioned resources and Task 5's deployment guards.");
 const manifest = verifySiteBuildManifest(siteId);
+if (manifest.gitCommit !== execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim()) {
+  throw new Error("Artifact commit differs from the reviewed deployment checkout.");
+}
 const configs = [manifest.workerConfigPath];
 
 const verifiedClientBuild = verifyClientBuildForDeploy(resolve(target.outputRoot, "client"), { siteId, issuer: manifest.clerkIssuer });
@@ -39,19 +41,10 @@ const run = (args, options = {}) => {
 };
 
 if (!dryRun) {
-  const doctor = spawnSync(process.execPath, ["scripts/d1-doctor.mjs", `--site=${siteId}`, "--remote", "--skip-local"], {
-    cwd: process.cwd(), stdio: "inherit",
+  const doctor = spawnSync(process.execPath, ["scripts/d1-doctor.mjs", `--site=${siteId}`, "--remote", "--skip-local", "--schema-only"], {
+    cwd: process.cwd(), stdio: "inherit", env: { ...process.env, ...(process.env.CLOUDFLARE_D1_TOKEN ? { CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_D1_TOKEN } : {}) },
   });
   if (doctor.status !== 0) throw new Error("Remote D1 schema and configuration checks failed");
-  const pending = run(
-    ["d1", "migrations", "list", "otw-db", "--remote"],
-    { capture: true },
-  );
-  if (/\b\d{4}_[^\s|]+\.sql\b/.test(pending)) {
-    throw new Error(
-      "Remote D1 has unapplied migrations. Apply and read back migrations before deploying Workers.",
-    );
-  }
 }
 
 for (const config of configs) {

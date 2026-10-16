@@ -7,13 +7,13 @@ export function contentRowHeldSql(table: ContentTable, alias: string = table): s
     ? `${alias}.content_access='admin_archive' OR ` : "";
   return `(${archived}EXISTS(SELECT 1 FROM content_transition_membership held
     JOIN content_transitions transition ON transition.id=held.transition_id
-    WHERE transition.local_site=transition.source_site AND transition.phase<>'prepared'
+    WHERE transition.aborted_at IS NULL AND transition.local_site=transition.source_site AND transition.phase<>'prepared'
       AND held.row_table='${table}' AND held.row_key=${keySql(table, alias)}))`;
 }
 
 export function contentRowMovedSql(table: ContentTable, alias: string = table): string {
   return `EXISTS(SELECT 1 FROM content_transition_membership held
     JOIN content_transitions transition ON transition.id=held.transition_id
-    WHERE transition.local_site=transition.source_site AND transition.phase IN ('source_fenced','target_owned','complete')
+    WHERE transition.aborted_at IS NULL AND transition.local_site=transition.source_site AND transition.phase IN ('source_fenced','target_owned','complete')
       AND held.row_table='${table}' AND held.row_key=${keySql(table, alias)})`;
 }

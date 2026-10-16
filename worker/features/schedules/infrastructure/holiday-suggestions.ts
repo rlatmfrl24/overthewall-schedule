@@ -1,4 +1,7 @@
-import type { ChzzkVideoCatalog } from "../../chzzk";
+import type {ChzzkScanProvider} from "./chzzk-scan-types";
+import {editableCollectorSql} from "../../content-transition";
+import type {CollectorCommand} from "../domain/collector-command";
+import type {CollectorWriter,CollectorBatchResult} from "./collector-writer";
 import { extractChzzkChannelId, getKSTDateString } from "../../../platform/http-helpers";
 
 export type ScanCoverage = "complete" | "failed" | "incomplete";
@@ -28,8 +31,9 @@ export const recordHolidayAssessments = async (
   db: D1Database,
   members: { uid: number; url_chzzk: string | null }[],
   coverage: Map<string, ScanCoverage>,
-  fetchLive: ChzzkVideoCatalog["fetchLiveStatus"],
+  fetchLive: ChzzkScanProvider["fetchLiveStatus"],
   now = Date.now(),
+  statements?: D1PreparedStatement[],
 ) => {
   const date = holidayTargetDate(now);
   if (!date) return;
@@ -54,7 +58,7 @@ export const recordHolidayAssessments = async (
       } catch { status = "failed"; }
     } else status = "failed";
     coverage.set(channelId, status);
-    await db.prepare(`INSERT INTO schedule_day_assessments
+    const statement = db.prepare(`INSERT INTO schedule_day_assessments
       (member_uid, date, channel_id, checked_at, range_start, range_end, scan_status, broadcast_seen)
       VALUES (?, ?, ?, ?, ?, ?, ?, MAX(?, EXISTS (
         SELECT 1 FROM schedule_broadcast_observations
@@ -63,7 +67,8 @@ export const recordHolidayAssessments = async (
         checked_at = excluded.checked_at, scan_status = excluded.scan_status,
         broadcast_seen = MAX(schedule_day_assessments.broadcast_seen, excluded.broadcast_seen)
       WHERE excluded.checked_at >= schedule_day_assessments.checked_at`)
-      .bind(member.uid, date, channelId, now, start, end, status, liveSeen ? 1 : 0, member.uid, end, start).run();
+      .bind(member.uid, date, channelId, now, start, end, status, liveSeen ? 1 : 0, member.uid, end, start);
+    if (statements) statements.push(statement); else await statement.run();
   }
 };
 
@@ -71,30 +76,46 @@ export const reconcileHolidaySuggestions = async (
   db: D1Database,
   target?: { memberUid: number; date: string },
   now = Date.now(),
+  transitionWriter?:CollectorWriter,
 ) => {
+  const removed=await executeHolidayCollectorCommand(db,{action:"holiday_obsolete",now,target:target??null},transitionWriter);
+  const date = holidayTargetDate(now);
+  const withdrawn=removed[1].affectedCount??removed[1].results.length;
+  if (!date || (target && target.date !== date)) return { created: 0, withdrawn, createdItems: [] };
+  const result=await executeHolidayCollectorCommand(db,{action:"holiday_create",now,target:target??null},transitionWriter);
+  return { created: result[0].results.length, withdrawn,
+    createdItems: result[0].results as { member_uid: number; member_name: string; date: string }[] };
+};
+
+export const executeHolidayCollectorCommand=async(db:D1Database,command:Extract<CollectorCommand,{action:"holiday_obsolete"|"holiday_create"}>,transitionWriter?:CollectorWriter):Promise<CollectorBatchResult[]>=>{
+  const {now}=command,target=command.target??undefined;
+  const editable=(table:Parameters<typeof editableCollectorSql>[0],alias:string)=>transitionWriter?` AND ${editableCollectorSql(table,alias,transitionWriter.siteId??"otw")}${transitionWriter.memberScope?` AND ${alias}.member_uid IN (${transitionWriter.memberScope.map(uid=>{if(!Number.isSafeInteger(uid)||uid<1) throw new Error("Invalid original owner member scope");return uid;}).join(",")||"NULL"})`:""}`:"";
   const obsolete = `pending.candidate_kind = 'holiday_suggestion'
+    ${editable("pending_schedules","pending")}
     AND NOT EXISTS (SELECT 1 FROM schedule_day_assessments assessment
       WHERE assessment.member_uid = pending.member_uid AND assessment.date = pending.date AND ${holidayEligibleSql})`;
-  const removed = await db.batch([
+  const removal = [
     db.prepare(`INSERT INTO update_logs (member_uid, member_name, schedule_date, action, title, reason_code)
       SELECT pending.member_uid, pending.member_name, pending.date, 'candidate_obsolete', pending.title, 'holiday_evidence_changed'
       FROM pending_schedules pending WHERE ${obsolete}`),
-    db.prepare(`DELETE FROM pending_schedules AS pending WHERE ${obsolete}`),
+    db.prepare(`DELETE FROM pending_schedules AS pending WHERE ${obsolete} RETURNING id`),
     db.prepare(`UPDATE schedule_day_assessments SET decision = 'none'
-      WHERE decision = 'pending' AND NOT EXISTS (SELECT 1 FROM pending_schedules pending
+      WHERE decision = 'pending' ${editable("schedule_day_assessments","schedule_day_assessments")} AND NOT EXISTS (SELECT 1 FROM pending_schedules pending
         WHERE pending.member_uid = schedule_day_assessments.member_uid
-          AND pending.date = schedule_day_assessments.date AND pending.candidate_kind = 'holiday_suggestion')`),
-  ]);
+          AND pending.date = schedule_day_assessments.date AND pending.candidate_kind = 'holiday_suggestion' ${editable("pending_schedules","pending")})`),
+  ];
+  if(command.action==="holiday_obsolete") return await transitionWriter?.write(command,removal)??await db.batch(removal);
   const date = holidayTargetDate(now);
-  if (!date || (target && target.date !== date)) return { created: 0, withdrawn: removed[1].meta.changes, createdItems: [] };
+  if(!date || target && target.date!==date) throw new Error("Invalid original holiday creation window");
   const cutoff = Date.parse(`${getKSTDateString(new Date(now))}T09:00:00+09:00`);
-  const result = await db.batch([
+  const creation = [
     db.prepare(`INSERT INTO pending_schedules
       (member_uid, member_name, date, title, status, action_type, candidate_kind, match_reason, match_confidence, vod_segment_count)
       SELECT assessment.member_uid, member.name, assessment.date, '휴방 추정', '휴방', 'create',
         'holiday_suggestion', 'no_broadcast_observed', 'low', 0
       FROM schedule_day_assessments assessment JOIN members member ON member.uid = assessment.member_uid
       WHERE assessment.date = ? AND assessment.checked_at >= ? AND ${holidayEligibleSql}
+        ${editable("schedule_day_assessments","assessment")}
         ${target ? "AND assessment.member_uid = ?" : ""}
         AND NOT EXISTS (SELECT 1 FROM pending_schedules pending
           WHERE pending.member_uid = assessment.member_uid AND pending.date = assessment.date)
@@ -104,12 +125,11 @@ export const reconcileHolidaySuggestions = async (
       SELECT pending.member_uid, pending.member_name, pending.date, 'auto_collected', pending.title, 'no_broadcast_observed'
       FROM pending_schedules pending JOIN schedule_day_assessments assessment
         ON assessment.member_uid = pending.member_uid AND assessment.date = pending.date
-      WHERE pending.candidate_kind = 'holiday_suggestion' AND assessment.decision = 'none'`),
+      WHERE pending.candidate_kind = 'holiday_suggestion' AND assessment.decision = 'none' ${editable("pending_schedules","pending")} ${editable("schedule_day_assessments","assessment")}`),
     db.prepare(`UPDATE schedule_day_assessments SET decision = 'pending'
-      WHERE decision = 'none' AND EXISTS (SELECT 1 FROM pending_schedules pending
+      WHERE decision = 'none' ${editable("schedule_day_assessments","schedule_day_assessments")} AND EXISTS (SELECT 1 FROM pending_schedules pending
         WHERE pending.member_uid = schedule_day_assessments.member_uid AND pending.date = schedule_day_assessments.date
-          AND pending.candidate_kind = 'holiday_suggestion')`),
-  ]);
-  return { created: result[0].meta.changes, withdrawn: removed[1].meta.changes,
-    createdItems: result[0].results as { member_uid: number; member_name: string; date: string }[] };
+          AND pending.candidate_kind = 'holiday_suggestion' ${editable("pending_schedules","pending")})`),
+  ];
+  return await transitionWriter?.write(command,creation)??await db.batch(creation);
 };

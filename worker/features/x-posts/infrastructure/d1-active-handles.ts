@@ -1,3 +1,5 @@
+import { publicationHiddenSql } from "../../content-transition";
+import type { SiteId } from "@contracts/site-definition";
 import {
   extractXHandle,
   X_HANDLE_PATTERN,
@@ -21,6 +23,7 @@ export class XAllowlistUnavailableError extends Error {
 
 export const readActiveXHandles = async (
   database: D1Database,
+  siteId: SiteId = "otw",
 ): Promise<ReadonlySet<string>> => {
 
   try {
@@ -29,7 +32,7 @@ export const readActiveXHandles = async (
          FROM members
          WHERE url_twitter IS NOT NULL
            AND TRIM(url_twitter) <> ''
-           AND content_access = 'normal'
+           AND content_access = 'normal' AND NOT (${publicationHiddenSql("members","members",siteId)})
            AND (is_deprecated IS NULL OR is_deprecated != 1)`,
     );
     const executable =

@@ -1,3 +1,4 @@
+import { parseSiteId } from "@contracts/site-definition";
 import { getDb } from "../../../platform/db";
 import type { Env } from "../../../platform/types";
 import { createYouTubeApplication } from "../application/youtube-service";
@@ -12,7 +13,7 @@ export const buildYouTubeApplication = (env: Env) => {
   return createYouTubeApplication({
     readVods: (input) => readYouTubeVods(env, input),
     readFeedStatus: (hours) => readYouTubeFeedStatus(env, hours),
-    readAllowedChannelIds: () => readActiveYouTubeChannels(env.otw_db),
+    readAllowedChannelIds: () => readActiveYouTubeChannels(env.otw_db, parseSiteId(env.SITE_ID)),
     readStoredFeed: (ids, limit, source) => readStoredYouTubeFeed(env, ids, limit, source),
     readShorts: (ids, limit, cursor, ctx) => readOfficialYouTubeShorts(env, ids, limit, cursor, ctx),
     listKirinukiChannels: () => repository.list(),

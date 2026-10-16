@@ -69,9 +69,13 @@ export function OtwPlaySubmissionsPage() {
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
   const detail = useMyOtwPlaySubmission(selectedId);
   const selectedDetail = detail.data?.id === selectedId ? detail.data : null;
+  const withdrawRequestKeys=useRef(new Map<string,string>());
   const withdrawMutation = useMutation({
-    mutationFn: ({ id, expectedVersion }: { id: string; expectedVersion: number }) =>
-      withdrawOtwPlaySubmission(id, { expectedVersion }),
+    mutationFn: ({ id, expectedVersion }: { id: string; expectedVersion: number }) => {
+      const identity=JSON.stringify([id,expectedVersion]),key=withdrawRequestKeys.current.get(identity)??crypto.randomUUID();
+      withdrawRequestKeys.current.set(identity,key);
+      return withdrawOtwPlaySubmission(id, { expectedVersion },key);
+    },
     onSuccess: async (updated) => {
       setWithdrawOpen(false);
       setCommandMessage("제안을 철회했습니다.");
@@ -253,7 +257,7 @@ export function OtwPlaySubmissionsPage() {
             ) : null}
           </div>
         ) : null}
-        {commandMessage ? (
+        {commandMessage && !withdrawOpen ? (
           <p role="status" className="mt-4 rounded-lg border p-3 text-sm">
             {commandMessage}
           </p>
@@ -271,6 +275,7 @@ export function OtwPlaySubmissionsPage() {
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {commandMessage ? <p role="status" className="rounded-lg border p-3 text-sm">{commandMessage}</p> : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={withdrawMutation.isPending}>계속 검토 대기</AlertDialogCancel>
             <AlertDialogAction

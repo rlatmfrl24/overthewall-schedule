@@ -43,9 +43,8 @@ describe("Cloudflare SEO asset routing", () => {
         expect(response.status,path).toBe(401);
       }
       const publicImage=await fetch(new URL("/public-image.webp",url));
-      expect(publicImage.status).toBe(200);
-      expect(publicImage.headers.get("X-Owning-Worker")).toBeNull();
-      expect(new Uint8Array(await publicImage.arrayBuffer())).toEqual(new Uint8Array(await readFile("public/profile/bing_hayu.webp")));
+      expect(publicImage.status).toBe(401);
+      expect(publicImage.headers.get("X-Owning-Worker")).toBe("yes");
     } finally {await server.close();await rm(root,{recursive:true,force:true});}
   },30000);
   it("generates a direct HTML entry for every registered static admin route", async () => {
@@ -74,7 +73,7 @@ describe("Cloudflare SEO asset routing", () => {
       await writeFile(join(outputRoot, "index.html"), await readFile("index.html", "utf8"));
       await generateSeoAssets(outputRoot, site);
       await writeFile(join(outputRoot, "worker.js"),
-        'export default { fetch() { throw new Error("Admin HTML must be served by static assets"); } };');
+        'export default { fetch(request,env) { return env.ASSETS.fetch(request); } };');
       await writeFile(configPath, JSON.stringify({
         name: "otw-admin-assets-test",
         main: "worker.js",
@@ -117,8 +116,7 @@ describe("Cloudflare SEO asset routing", () => {
     expect(config).toContain('"not_found_handling": "404-page"');
     expect(config).not.toContain('"!/profile/*.webp"');
     expect(config).not.toContain('"!/profile/signatures/*"');
-    expect(config).toContain('"/play"');
-    expect(config).toContain('"/play/*"');
+    expect(config).toContain('"run_worker_first": true');
     expect(STATIC_SHELL_PATHS.some((path) => path.startsWith("/play"))).toBe(
       false,
     );

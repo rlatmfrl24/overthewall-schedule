@@ -36,7 +36,8 @@ owned("x_posts", "x_post_references", "id", "source_post_id");
 owned("x_posts", "x_post_facts", "id", "post_id");
 owned("x_posts", "x_post_sources", "handle", "handle");
 owned("x_post_references", "x_posts", "referenced_post_id", "id");
-owned("update_logs", "schedules", "schedule_id", "id");
+// update_logs.schedule_id is a historical soft identifier. Audit reads never
+// join the current schedule, which may have moved to an unrelated member.
 owned("pending_schedules", "schedules", "existing_schedule_id", "id");
 owned("schedule_candidate_rejections", "schedules", "existing_schedule_id", "id");
 // No schema FK exists for these historical materialization identities.
@@ -48,7 +49,7 @@ captureEdges.push(edge("music_catalog_events", "music_songs", "a.aggregate_type=
 captureEdges.push(edge("music_performances", "music_catalog_events", "b.aggregate_type='performance' AND b.aggregate_id=a.id"));
 captureEdges.push(edge("music_songs", "music_catalog_events", "b.aggregate_type='song' AND b.aggregate_id=a.id"));
 captureEdges.push(edge("music_ingestion_candidates","music_catalog_events","b.aggregate_type='review_candidate' AND b.aggregate_id=a.id"));
-captureEdges.push(edge("music_cover_proposals","music_catalog_events","b.aggregate_type='review_proposal' AND b.aggregate_id=a.id"));
+captureEdges.push(edge("music_cover_proposals","music_catalog_events","b.aggregate_type IN ('review_proposal','proposal') AND b.aggregate_id=a.id"));
 captureEdges.push(edge("music_ingestion_jobs","music_ingestion_events","b.job_id=a.id AND b.candidate_id IS NULL"));
 for(const [type,table] of [["entity","music_entities"],["channel","music_channels"]] as const) {
   captureEdges.push(edge(table,"music_catalog_events",`b.aggregate_type='${type}' AND b.aggregate_id=a.id`));
@@ -77,6 +78,7 @@ export const keySql = (table: ContentTable, alias: string) => `json_array(${cont
 export const matchKey = (table: ContentTable, alias: string, expression: string) => contentDispositionRegistry[table].primaryKey
   .map((key, i) => `${alias}."${key}"=json_extract(${expression},'$[${i}]')`).join(" AND ");
 const selectedUid = (expression: string) => `${expression} IN (SELECT iif(t.local_site=t.source_site,json_extract(value,'$.uid'),json_extract(value,'$.targetUid')) FROM json_each(t.plan_json,'$.members'))`;
+export function memberRootPredicates(selectedUid: (expression: string) => string): Partial<Record<ContentTable, string>> {
 const selectedChannel = (expression: string) => `EXISTS(SELECT 1 FROM music_channel_entities ce JOIN music_entities e ON e.id=ce.entity_id WHERE ce.channel_id=${expression} AND ${selectedUid("e.member_uid")}) OR EXISTS(SELECT 1 FROM music_channels ch JOIN members m ON m.youtube_channel_id=ch.external_channel_id WHERE ch.id=${expression} AND ${selectedUid("m.uid")}) OR EXISTS(SELECT 1 FROM music_channels ch JOIN member_links ml ON ml.youtube_channel_id=ch.external_channel_id WHERE ch.id=${expression} AND ${selectedUid("ml.member_uid")})`;
 const selectedPerformance = (expression: string) => `EXISTS(SELECT 1 FROM music_performance_participants p JOIN music_entities e ON e.id=p.entity_id WHERE p.performance_id=${expression} AND ${selectedUid("e.member_uid")})`;
 const selectedHandle = (expression:string) => {
@@ -88,7 +90,7 @@ const selectedHandle = (expression:string) => {
 };
 // Ambiguous/global rows only enter through a persisted, reviewed classification.
 // The manifest validator must reject unresolved rows, including unknown JSON.
-export const rootPredicates: Partial<Record<ContentTable, string>> = {
+return {
   asset_file_references: `EXISTS(SELECT 1 FROM members m WHERE ${selectedUid("m.uid")} AND (a.logical_key LIKE 'members/'||m.code||'/backgrounds/%' OR a.logical_key='profile/'||m.code||'.webp' OR a.logical_key='profile/signatures/'||m.code||'.png' OR EXISTS(SELECT 1 FROM member_profile_images image WHERE image.member_uid=m.uid AND ${fileReferenceEdge("member_profile_images","image","a.logical_key")}))) OR EXISTS(SELECT 1 FROM notices n WHERE ${fileReferenceEdge("notices","n","a.logical_key")} AND (${selectedUid("n.publisher_member_uid")} OR EXISTS(SELECT 1 FROM json_each(n.related_member_uids) member WHERE ${selectedUid("member.value")}))) OR EXISTS(SELECT 1 FROM naver_cafe_posts p WHERE ${fileReferenceEdge("naver_cafe_posts","p","a.logical_key")} AND ${selectedUid("p.member_uid")})`,
   members: selectedUid("a.uid"),
   schedules: selectedUid("a.member_uid"), pending_schedules: selectedUid("a.member_uid"),
@@ -107,6 +109,9 @@ export const rootPredicates: Partial<Record<ContentTable, string>> = {
   x_posts: `${selectedHandle("a.handle")} OR EXISTS(SELECT 1 FROM x_post_facts f WHERE f.post_id=a.id AND ${selectedUid("f.member_uid")})`,
   x_post_sources:selectedHandle("a.handle"),
 };
+
+}
+export const rootPredicates = memberRootPredicates(selectedUid);
 
 // Ownership is deliberately smaller than capture closure. Shared song/entity/
 // channel/source metadata stays editable by legitimate remaining OTW content;

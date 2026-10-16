@@ -2,6 +2,8 @@ import {
   isAiReviewPending,
   type AiReviewDto,
   type AiReviewRequest,
+  type AiReviewCloseUnknownRequest,
+  type AiReviewResumeRequest,
 } from "@contracts/otw-play-ai-review";
 import {
   AiReviewError,
@@ -17,6 +19,7 @@ import { extractYouTubeVideoId } from "../domain/youtube-video-id";
 import { resolveAiReviewCatalog } from "../domain/ai-review-result";
 import { AI_REVIEW_PROMPT_VERSION, isAiReviewPromptSupported } from "../domain/ai-review-policy";
 import { buildAiReviewData } from "./ai-review-input";
+import type { AiReviewTransitionReadback } from './ports/ai-review-transition';
 
 export class AiReviewService {
   private readonly repository: AiReviewRepository;
@@ -33,6 +36,7 @@ export class AiReviewService {
   private readonly id: () => string;
   private readonly clock: () => number;
   private readonly broadcastReader?: AiReviewBroadcastReader;
+  private readonly transition?: AiReviewTransitionReadback;
   constructor(
     repository: AiReviewRepository,
     metadata: OtwPlayYouTubeMetadataReader,
@@ -44,6 +48,7 @@ export class AiReviewService {
     id: () => string,
     clock: () => number,
     broadcastReader?: AiReviewBroadcastReader,
+    transition?: AiReviewTransitionReadback,
   ) {
     this.repository = repository;
     this.metadata = metadata;
@@ -55,6 +60,7 @@ export class AiReviewService {
     this.id = id;
     this.clock = clock;
     this.broadcastReader = broadcastReader;
+    this.transition = transition;
   }
   private enabled() {
     if (!this.config.enabled)
@@ -105,6 +111,7 @@ export class AiReviewService {
     void _hash;
     void _target;
     void _lease;
+    if (dto.recovery) return { ...dto, result: null, retryable: false, nextRetryAt: null };
     if (!isAiReviewPromptSupported(r.input?.promptVersion))
       return { ...dto, result: null, status: "failed", errorCode: "analysis_outdated", errorMessage: "분석 기준이 개선되었습니다. 재분석을 실행하세요.", retryable: false };
     if (dto.expiresAt <= this.clock())
@@ -124,16 +131,42 @@ export class AiReviewService {
     return dto;
   }
   async get(id: string) {
-    const r = await this.repository.get(id);
+    const r = await this.transition?.get(id) ?? await this.repository.get(id);
     if (!r)
       throw new AiReviewError("not_found", "분석을 찾을 수 없습니다.", 404);
     return this.dto(r);
   }
   async latest(request: Pick<AiReviewRequest, "target" | "range">) {
-    this.enabled();
     const t = await this.target(request);
-    const r = await this.repository.latest(t.targetKey, this.clock());
+    const transferred = await this.transition?.latest(t.targetKey);
+    // Recovery remains reachable when new provider execution is disabled. A
+    // newer analysis must not hide an older unresolved administrator decision.
+    if (transferred?.recovery?.state === 'outcome_unknown'||transferred?.continuation?.state==='confirmation_required') return this.dto(transferred);
+    if (!transferred) this.enabled();
+    const local = await this.repository.latest(t.targetKey, this.clock());
+    const r = transferred && (!local || transferred.createdAt >= local.createdAt) ? transferred : local;
     return r ? this.dto(r) : null;
+  }
+  async closeUnknown(id: string, input: AiReviewCloseUnknownRequest, actor: string) {
+    if (!this.transition) throw new AiReviewError('not_found', '종결할 미확인 분석을 찾을 수 없습니다.', 404);
+    const r = await this.transition.get(id);
+    if (!r?.recovery || !r.candidateId) throw new AiReviewError('not_found', '종결할 미확인 분석을 찾을 수 없습니다.', 404);
+    const current = await this.context.candidate(r.candidateId);
+    if (current.videoId !== r.videoId || current.candidateKind !== r.candidateKind)
+      throw new AiReviewError('stale_review', '분석 대상이 변경되었습니다. 최신 내용을 확인하세요.', 409);
+    return this.dto(await this.transition.closeUnknown(id, input, actor));
+  }
+  async confirmResume(id:string,input:AiReviewResumeRequest,actor:string) {
+    this.enabled();
+    const original=await this.transition?.get(id);
+    if(!original?.continuation||!original.candidateId||!this.transition?.confirmResume)throw new AiReviewError('not_found','이어 실행할 원래 분석을 찾을 수 없습니다.',404);
+    const current=await this.context.candidate(original.candidateId);
+    if(current.videoId!==original.videoId||current.candidateKind!==original.candidateKind||['converted','ignored'].includes(current.status))throw new AiReviewError('stale_review','분석 대상이 변경되었습니다. 최신 내용을 확인하세요.',409);
+    if(!isAiReviewPromptSupported(original.input?.promptVersion))throw new AiReviewError('analysis_outdated','원래 분석 기준이 만료되었습니다. 별도 새 분석을 요청하세요.',409);
+    const executionId=await this.transition.confirmResume(id,input,actor);
+    const currentExecution=await this.get(executionId);
+    if(isAiReviewPending(currentExecution.status))try{await this.queue.send(executionId);}catch{/* The confirmed own execution remains durable. */}
+    return currentExecution;
   }
   async start(request: AiReviewRequest, actor: string) {
     this.enabled();
@@ -159,7 +192,9 @@ export class AiReviewService {
         );
       return this.get(previous.id);
     }
+    await this.repository.assertCollectionAllowed(t.candidateId,t.videoId);
     const video = await this.metadata.readVideo(t.videoId);
+    await this.repository.assertCollectionAllowed(t.candidateId,t.videoId,video?.channelId);
     if (!video || video.privacyStatus !== "public")
       throw new AiReviewError(
         "video_unavailable",
@@ -232,6 +267,7 @@ export class AiReviewService {
   }
   async process(id: string) {
     if (!this.config.enabled) return;
+    if (await this.transitionState(id) !== null) return;
     const token = this.id();
     const r = await this.repository.claim(
       id,
@@ -240,26 +276,14 @@ export class AiReviewService {
       this.config.dailyLimit,
     );
     if (!r?.input) return;
+    // A persistence failure before an admitted continuation's POST must escape
+    // the provider-error classifier; it cannot become a model outcome.
+    await this.repository.beginRequest?.(id,token,this.clock());
     let output: Awaited<ReturnType<AiReviewAnalyzer["analyze"]>>;
     try {
       if (!isAiReviewPromptSupported(r.input.promptVersion))
         throw new AiReviewError("analysis_outdated", "분석 기준이 개선되었습니다. 재분석을 실행하세요.", 409);
       output = await this.analyzer.analyze(r.input, r.model);
-      try {
-        const catalog = await this.context.catalog();
-        output.result = resolveAiReviewCatalog(output.result, catalog);
-        await this.verifyBroadcastSources(output.result, catalog);
-      }
-      catch {
-        // Preserve the expensive video result. dto() must successfully recheck
-        // the current catalog before any result is exposed to the form.
-        for (const song of output.result.songs) {
-          if (!song.values.originalUrl) continue;
-          delete song.values.originalUrl;
-          delete song.evidence.originalUrl;
-          song.warnings.push("원본 방송 링크: 출처 확인이 일시적으로 불가능해 제외했습니다. 다른 분석 결과는 유지했습니다.");
-        }
-      }
     } catch (error) {
       await this.repository.finish(
         id,
@@ -277,6 +301,10 @@ export class AiReviewService {
       );
       return;
     }
+    // The admitted original response survives a crash before any catalog or
+    // broadcast lookup. Its owning continuation performs those remaining steps.
+    if(await this.repository.retainResponse?.(id,token,output.result,output.usage,null,this.clock())) return;
+    output.result=await this.reconcileResult(output.result,r);
     // Persistence errors must leave the lease recoverable, not become model failures.
     await this.repository.finish(
       id,
@@ -287,9 +315,34 @@ export class AiReviewService {
       this.clock(),
     );
   }
+  async transitionState(id: string) { return await this.transition?.state(id) ?? null; }
+  async resumeOriginalResponse(id:string) {
+    const record=await this.transition?.recordedResponse(id);
+    if(!record) return false;
+    const result=record.result?await this.reconcileResult(record.result,record):null;
+    await this.transition!.finishResponse(id,result);
+    return true;
+  }
+  private async reconcileResult(result:NonNullable<AiReviewDto['result']>,review:AiReviewRecord) {
+    try {
+      const catalog=await this.context.catalog();
+      result=resolveAiReviewCatalog(result,catalog);
+      await this.verifyBroadcastSources(result,catalog,review);
+    } catch {
+      // Preserve the expensive video result. dto() must successfully recheck
+      // the current catalog before any result is exposed to the form.
+      for(const song of result.songs) {
+        if(!song.values.originalUrl)continue;
+        delete song.values.originalUrl;delete song.evidence.originalUrl;
+        song.warnings.push('원본 방송 링크: 출처 확인이 일시적으로 불가능해 제외했습니다. 다른 분석 결과는 유지했습니다.');
+      }
+    }
+    return result;
+  }
   private async verifyBroadcastSources(
     result: Awaited<ReturnType<AiReviewAnalyzer["analyze"]>>["result"],
     catalog: Awaited<ReturnType<AiReviewContext["catalog"]>>,
+    review:AiReviewRecord,
   ) {
     if (!result.songs.some((song) => song.values.originalUrl)) return;
     const sources = new Map<string, Awaited<ReturnType<AiReviewBroadcastReader["read"]>>>();
@@ -299,7 +352,10 @@ export class AiReviewService {
       // Shared source URLs across a medley cost one metadata read. Bound extra work
       // within the execution lease; an unavailable link must not rerun Gemini.
       if (!sources.has(url) && sources.size < 3) {
-        try { sources.set(url, await this.broadcastReader?.read(url) ?? null); }
+        try {
+          await this.repository.assertCollectionAllowed(review.candidateId,review.videoId,review.input?.video.channelId);
+          sources.set(url, await this.broadcastReader?.read(url) ?? null);
+        }
         catch { sources.set(url, null); }
       }
       const source = sources.get(url);

@@ -1,0 +1,1 @@
+ALTER TABLE `content_transition_chzzk_attempts` ADD `uncertain_at` integer;

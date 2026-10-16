@@ -1,4 +1,9 @@
 import type { IngestionReadBudget } from "./ports/ingestion-read-budget";
+import type {CandidateConversionTransitionPort,CandidateConversionCommand,CandidateConversionExecution} from './ports/candidate-conversion-transition';
+import type {CandidateMetadataTransitionPort} from './ports/candidate-metadata-transition';
+import type {CandidateMetadataCommand} from '../domain/candidate-metadata-command';
+import type {CandidateChannelCommand,CandidateChannelInput} from '../domain/candidate-channel-command';
+import type {CandidateChannelTransitionPort,CandidateChannelExecution} from './ports/candidate-channel-transition';
 import type {
   OtwPlayAdminCatalogSubjectInput,
   OtwPlayIngestionBudgetDto,
@@ -105,6 +110,9 @@ export class IngestionService {
   private readonly createId: () => string;
   private readonly clock: () => number;
   private readonly catalog: AdminCatalogService | null;
+  private readonly conversion?:CandidateConversionTransitionPort;
+  private readonly metadataTransition?:CandidateMetadataTransitionPort;
+  private readonly channelApproval?:CandidateChannelTransitionPort;
   private readonly budgetReader?: IngestionReadBudget;
 
   constructor(
@@ -115,6 +123,9 @@ export class IngestionService {
     clock: () => number = Date.now,
     catalog: AdminCatalogService | null = null,
     budgetReader?: IngestionReadBudget,
+    conversion?:CandidateConversionTransitionPort,
+    metadataTransition?:CandidateMetadataTransitionPort,
+    channelApproval?:CandidateChannelTransitionPort,
   ) {
     this.repository = repository;
     this.youtube = youtube;
@@ -123,6 +134,9 @@ export class IngestionService {
     this.clock = clock;
     this.catalog = catalog;
     this.budgetReader = budgetReader;
+    this.conversion=conversion;
+    this.metadataTransition=metadataTransition;
+    this.channelApproval=channelApproval;
   }
 
   readBudget(): Promise<OtwPlayIngestionBudgetDto> {
@@ -316,8 +330,10 @@ export class IngestionService {
         }
         return;
       }
-      const observations = await this.youtube.readVideos(stored.videoIds);
-      await this.repository.recordVideoBatch(stored, observations, this.clock());
+      const videoIds = await this.repository.collectableVideoIds(stored);
+      const skippedVideoIds=stored.videoIds.filter(id=>!videoIds.includes(id));
+      const observations = videoIds.length ? await this.youtube.readVideos(videoIds) : [];
+      await this.repository.recordVideoBatch(stored, observations, this.clock(),skippedVideoIds);
     } catch (error) {
       const now = this.clock();
       const youtubeError = error instanceof OtwPlayYouTubeMetadataError
@@ -460,44 +476,42 @@ export class IngestionService {
     };
   }
 
-  private async approveCandidateChannel(
-    candidateId: string,
-    expectedVersion: number,
-    channelInput: Extract<
-      OtwPlayUpdateIngestionCandidateRequest,
-      { action: "approve_channel" }
-    >["channel"],
-    actor: AdminCatalogActor,
-  ) {
-    if (!this.catalog) {
-      throw new IngestionServiceError(
-        "unavailable",
-        "Official channel approval is unavailable",
-      );
-    }
-    const candidate = await this.repository.readReviewCandidate(
-      null,
-      candidateId,
-    );
-    if (candidate.version !== expectedVersion) {
-      throw new IngestionRepositoryError(
-        "stale_message",
-        "Ingestion candidate changed during channel approval",
-      );
-    }
-    if (candidate.status === "converted" || candidate.status === "ignored") {
-      throw new IngestionRepositoryError(
-        "validation_failed",
-        "Completed ingestion candidates cannot approve a channel",
-      );
-    }
+  private approveCandidateChannel(candidateId:string,expectedVersion:number,channel:CandidateChannelInput,actor:AdminCatalogActor) {
+    return this.runCandidateChannel(candidateId,expectedVersion,channel,actor);
+  }
 
+  /** Exact admitted parent only; its port retains the original private actor. */
+  resumeCandidateChannel(command:CandidateChannelCommand) {
+    if(!this.channelApproval) throw new Error('Missing admitted channel approval executor');
+    return this.runCandidateChannel(command.candidateId,command.expectedVersion,command.channel,command.actor);
+  }
+
+  private async runCandidateChannel(candidateId:string,expectedVersion:number,channel:CandidateChannelInput,actor:AdminCatalogActor|null) {
+    if(!this.catalog) throw new IngestionServiceError('unavailable','Official channel approval is unavailable');
+    const prepare=async():Promise<CandidateChannelCommand>=>{
+      const candidate=await this.repository.readReviewCandidate(null,candidateId);
+      if(candidate.version!==expectedVersion) throw new IngestionRepositoryError('stale_message','Ingestion candidate changed during channel approval');
+      if(candidate.status==='converted'||candidate.status==='ignored') throw new IngestionRepositoryError('validation_failed','Completed ingestion candidates cannot approve a channel');
+      return {action:'candidate_channel_approve',candidateId,expectedVersion,videoId:candidate.videoId,channel,actor,now:this.clock()};
+    };
+    const execute=(command:CandidateChannelCommand,execution?:CandidateChannelExecution)=>this.approveCandidateChannelOriginal(command,execution);
+    if(this.channelApproval) return this.channelApproval.run({candidateId,expectedVersion,channel,actor},prepare,execute);
+    if(!actor) throw new Error('Channel approval requires its own administrator');
+    return execute(await prepare());
+  }
+
+  private async approveCandidateChannelOriginal(command:CandidateChannelCommand,execution?:CandidateChannelExecution) {
+    if(!this.catalog) throw new IngestionServiceError('unavailable','Official channel approval is unavailable');
+    const {candidateId,channel:channelInput,actor}=command;
+    if(!execution&&!actor) throw new Error('Channel approval requires its own administrator');
     try {
-      const preflight = await this.catalog.preflightCatalogEntry({
-        youtubeUrl: `https://www.youtube.com/watch?v=${candidate.videoId}`,
-        startSeconds: 0,
-      });
-      const snapshot = await this.catalog.readCatalog({ entityIds: channelInput.entityIds, externalChannelIds: [preflight.video.channelId] });
+      const preflightInput={youtubeUrl:`https://www.youtube.com/watch?v=${command.videoId}`,startSeconds:0};
+      const preflight=execution?await execution.preflight(reader=>this.catalog!.preflightCatalogEntry(preflightInput,reader)):await this.catalog.preflightCatalogEntry(preflightInput);
+      const readSnapshot=async()=>{
+        const snapshot=await this.catalog!.readCatalog({entityIds:channelInput.entityIds,externalChannelIds:[preflight.video.channelId]});
+        return {entities:snapshot.entities.map(entity=>({id:entity.id,archivedAt:entity.archivedAt,isMember:entity.memberUid!==null})),channels:snapshot.channels};
+      };
+      const snapshot=execution?await execution.snapshot(readSnapshot):await readSnapshot();
       const ownershipEntities = channelInput.entityIds.map((entityId) =>
         snapshot.entities.find((entity) => entity.id === entityId)
       );
@@ -508,14 +522,14 @@ export class IngestionService {
           ? ["member_music", "member_main"].includes(channelInput.channelRole) &&
             ownershipEntities.length > 0 &&
             ownershipEntities.every((entity) =>
-              entity?.archivedAt === null && entity.memberUid !== null
+              entity?.archivedAt === null && entity.isMember
             )
           : channelInput.ownershipKind === "external"
             ? channelInput.channelRole === "project_official" &&
               channelInput.externalApprovalConfirmed === true &&
               ownershipEntities.length > 0 &&
               ownershipEntities.every((entity) =>
-                entity?.archivedAt === null && entity.memberUid === null
+                entity?.archivedAt === null && !entity.isMember
               )
             : false;
       if (!ownershipIsValid) {
@@ -536,12 +550,10 @@ export class IngestionService {
         );
       }
 
-      const createdOrExisting = existing ?? (await this.catalog.createChannel({
-        externalChannelId: preflight.video.channelId,
-        displayName: preflight.video.channelTitle,
-        channelRole: channelInput.channelRole,
-        entityIds: channelInput.entityIds,
-      }, actor)).data;
+      const createInput={externalChannelId:preflight.video.channelId,displayName:preflight.video.channelTitle,channelRole:channelInput.channelRole,entityIds:channelInput.entityIds};
+      const createdOrExisting=existing??(execution
+        ?await execution.channel('create',{action:'create',id:this.createId(),input:createInput,actor,eventId:this.createId(),now:this.clock()},child=>this.catalog!.executeAcceptedChannel(child))
+        :await this.catalog.createChannel(createInput,actor!)).data;
       const expectedOwnerIds = new Set<string>(channelInput.entityIds);
       const sameOwners = createdOrExisting.entityIds.length ===
           channelInput.entityIds.length &&
@@ -554,16 +566,9 @@ export class IngestionService {
         createdOrExisting.channelRole !== channelInput.channelRole ||
         !sameOwners
       ) {
-        await this.catalog.updateChannel({
-          id: createdOrExisting.id,
-          externalChannelId: preflight.video.channelId,
-          displayName: preflight.video.channelTitle,
-          channelRole: channelInput.channelRole,
-          entityIds: channelInput.entityIds,
-          verificationStatus: "approved",
-          active: true,
-          expectedVersion: createdOrExisting.version,
-        }, actor);
+        const input={id:createdOrExisting.id,externalChannelId:preflight.video.channelId,displayName:preflight.video.channelTitle,channelRole:channelInput.channelRole,entityIds:channelInput.entityIds,verificationStatus:'approved' as const,active:true,expectedVersion:createdOrExisting.version};
+        if(execution) await execution.channel('update',{action:'update',id:input.id,input,actor,eventId:this.createId(),now:this.clock()},child=>this.catalog!.executeAcceptedChannel(child));
+        else await this.catalog.updateChannel(input,actor!);
       }
     } catch (error) {
       if (error instanceof IngestionRepositoryError) throw error;
@@ -594,6 +599,13 @@ export class IngestionService {
       throw error;
     }
 
+    if(execution) return execution.refresh(async()=>{
+      const latest=await this.repository.readReviewCandidate(null,candidateId);
+      // Channel children never mutate this candidate. Adopting a newer version
+      // here would turn an admitted old command into permission for a new edit.
+      if(latest.version!==command.expectedVersion||latest.videoId!==command.videoId) throw new IngestionRepositoryError('stale_message','Ingestion candidate changed during channel approval');
+      return {action:'candidate_refresh',candidateId,expectedVersion:latest.version,videoId:latest.videoId,eventId:this.createId(),now:this.clock(),actor};
+    },child=>this.resumeCandidateMetadata(child));
     const latest = await this.repository.readReviewCandidate(null, candidateId);
     return this.refreshCandidate(candidateId, latest.version, actor);
   }
@@ -601,8 +613,20 @@ export class IngestionService {
   private async refreshCandidate(
     candidateId: string,
     expectedVersion: number,
-    actor: AdminCatalogActor,
+    actor: AdminCatalogActor|null,
   ) {
+    if(this.metadataTransition) return this.metadataTransition.runRefresh({candidateId,expectedVersion,actor},async()=>{
+      await this.repository.assertCandidateCollectionAllowed(candidateId);
+      const candidate=await this.repository.readReviewCandidate(null,candidateId);
+      if(candidate.version!==expectedVersion) throw new IngestionRepositoryError('stale_message','Ingestion candidate changed during metadata refresh');
+      return {action:'candidate_refresh',candidateId,expectedVersion,videoId:candidate.videoId,eventId:this.createId(),now:this.clock(),actor};
+    },async(command,read)=>{
+      const observation=await read();
+      if(!observation||observation.videoId!==command.videoId) throw new IngestionServiceError('unavailable','YouTube candidate metadata is unavailable');
+      return this.repository.refreshCandidateMetadata({candidateId:command.candidateId,expectedVersion:command.expectedVersion,observation,actorUserId:command.actor?.userId??null,eventId:command.eventId,now:command.now});
+    });
+    if(!actor) throw new Error('Original refresh requires its own administrator');
+    await this.repository.assertCandidateCollectionAllowed(candidateId);
     const candidate = await this.repository.readReviewCandidate(null, candidateId);
     if (candidate.version !== expectedVersion) {
       throw new IngestionRepositoryError(
@@ -625,6 +649,11 @@ export class IngestionService {
       eventId: this.createId(),
       now: this.clock(),
     });
+  }
+
+  resumeCandidateMetadata(command:CandidateMetadataCommand) {
+    if(!this.metadataTransition) throw new Error('Missing admitted refresh executor');
+    return this.refreshCandidate(command.candidateId,command.expectedVersion,command.actor);
   }
 
   private conversionOutcome(error: unknown): {
@@ -658,41 +687,29 @@ export class IngestionService {
     const results: OtwPlayIngestionIgnoreResultDto[] = [];
     for (const selection of input.candidates) {
       try {
-        const candidate = await this.repository.readReviewCandidate(
-          jobId,
-          selection.id,
-        );
-        if (candidate.version !== selection.expectedVersion) {
-          throw new IngestionRepositoryError(
-            "stale_message",
-            "Ingestion candidate changed during bulk ignore",
-          );
-        }
-        if (candidate.status === "converted" || candidate.status === "ignored") {
-          throw new IngestionRepositoryError(
-            "validation_failed",
-            "Ingestion candidate cannot be ignored",
-          );
-        }
         await this.repository.ignoreCandidate({
-          candidateId: candidate.id,
-          expectedVersion: candidate.version,
+          jobId,
+          candidateId: selection.id,
+          expectedVersion: selection.expectedVersion,
           actorUserId: actor.userId,
           eventId: this.createId(),
           now: this.clock(),
         });
         results.push({
-          candidateId: candidate.id,
+          candidateId: selection.id,
           outcome: "ignored",
           errorCode: null,
         });
       } catch (error) {
         const stale = error instanceof IngestionRepositoryError &&
           error.code === "stale_message";
+        const ownership = error instanceof IngestionRepositoryError &&
+          (error.code === "content_accepted" || error.code === "content_moved" ||
+            error.code === "content_conflict") ? error.code : null;
         results.push({
           candidateId: selection.id,
-          outcome: stale ? "stale" : "failed",
-          errorCode: stale ? "stale_write" : "validation_failed",
+          outcome: ownership === "content_accepted" ? "accepted" : stale ? "stale" : "failed",
+          errorCode: ownership?.toUpperCase() ?? (stale ? "stale_write" : "validation_failed"),
         });
       }
     }
@@ -705,7 +722,16 @@ export class IngestionService {
     actor: AdminCatalogActor,
   ) {
     await this.repository.getJobContext(jobId);
-    return this.convertCandidateSelections(jobId, input.candidates, actor);
+    const results:import('@contracts/otw-play').OtwPlayConvertIngestionCandidatesResponse['results']=[];
+    for(const selection of input.candidates) {
+      try {results.push(await this.convertCandidateSelection(jobId,selection,actor));}
+      catch(error) {
+        if(!(error instanceof IngestionRepositoryError)||!['content_accepted','content_moved','content_conflict'].includes(error.code)) throw error;
+        const code=error.code==='content_accepted'?'CONTENT_ACCEPTED':error.code==='content_moved'?'CONTENT_MOVED':'CONTENT_CONFLICT';
+        results.push({candidateId:selection.id,outcome:code==='CONTENT_ACCEPTED'?'accepted':code==='CONTENT_MOVED'?'moved':'conflicted',performanceId:null,errorCode:code});
+      }
+    }
+    return {results};
   }
 
   async convertCandidate(
@@ -713,62 +739,51 @@ export class IngestionService {
     input: OtwPlayConvertIngestionCandidateRequest,
     actor: AdminCatalogActor,
   ) {
-    const response = await this.convertCandidateSelections(
-      null,
-      [{ id: candidateId, expectedVersion: input.expectedVersion }],
-      actor,
-    );
-    return response.results[0]!;
+    return this.convertCandidateSelection(null,{id:candidateId,expectedVersion:input.expectedVersion},actor);
   }
 
-  private async convertCandidateSelections(
-    jobId: string | null,
-    selections: OtwPlayConvertIngestionCandidatesRequest["candidates"],
-    actor: AdminCatalogActor,
+  private async convertCandidateSelection(
+    jobId:string|null,
+    selection:OtwPlayConvertIngestionCandidatesRequest["candidates"][number],
+    actor:AdminCatalogActor,
   ) {
-    if (!this.catalog) {
-      throw new IngestionServiceError(
-        "unavailable",
-        "Catalog draft conversion is unavailable",
-      );
+      if(!this.conversion) return this.convertSelectionOriginal(jobId,selection,actor);
+      return this.conversion.runConversion({jobId,candidateId:selection.id,expectedVersion:selection.expectedVersion,actor},async()=>{
+        const candidate=await this.readConversionCandidate(jobId,selection);
+        if(!this.catalog||!candidate.reviewInput||!candidate.catalogChannelId) throw new IngestionRepositoryError('validation_failed','Candidate is not ready for draft conversion');
+        return this.catalog.prepareCandidateConversion({jobId,candidateId:candidate.id,expectedVersion:selection.expectedVersion,videoId:candidate.videoId,candidateKind:candidate.candidateKind,catalogChannelId:candidate.catalogChannelId,reviewInput:candidate.reviewInput},actor);
+      },(command,execution)=>this.convertSelectionOriginal(command.input.jobId,{id:command.input.candidateId,expectedVersion:command.input.expectedVersion},command.actor,{...execution,command}),error=>this.convertSelectionOriginal(jobId,selection,actor,undefined,error));
+  }
+  resumeCandidateConversion(command:CandidateConversionCommand) {
+    if(!this.conversion) throw new Error('Missing original conversion executor');
+    return this.conversion.runConversion({jobId:command.input.jobId,candidateId:command.input.candidateId,expectedVersion:command.input.expectedVersion,actor:command.actor},async()=>command,(original,execution)=>this.convertSelectionOriginal(original.input.jobId,{id:original.input.candidateId,expectedVersion:original.input.expectedVersion},original.actor,{...execution,command:original}),async error=>{throw error;});
+  }
+  async resumeConversionOutcome(command:import('../domain/conversion-outcome-command').ConversionOutcomeCommand) {
+    const outcome=await this.repository.recordConversionOutcome(command);
+    return {candidateId:command.candidateId,outcome,performanceId:command.performanceId,errorCode:outcome===command.outcome?command.errorCode:'stale_write'};
+  }
+  private async readConversionCandidate(jobId:string|null,selection:{id:string;expectedVersion:number}) {
+    const candidate=await this.repository.readReviewCandidate(jobId,selection.id);
+    const review=candidate.reviewInput,start=review?.startSeconds??0,end=review?.endSeconds??null;
+    if(candidate.version!==selection.expectedVersion||candidate.status!=='ready'||candidate.classification!=='eligible'||!review||
+      (candidate.candidateKind==='official_video'?!['official_mv','official_video'].includes(review.releaseType):review.releaseType!=='broadcast')||
+      !Number.isSafeInteger(start)||start<0||(end!==null&&(!Number.isSafeInteger(end)||end<=start))) throw new IngestionRepositoryError(candidate.version!==selection.expectedVersion?'stale_message':'validation_failed','Candidate is not ready for draft conversion');
+    return candidate;
+  }
+  private async convertSelectionOriginal(jobId:string|null,selection:{id:string;expectedVersion:number},actor:AdminCatalogActor|null,execution?:CandidateConversionExecution & {command:CandidateConversionCommand},initialFailure?:unknown):Promise<OtwPlayIngestionConversionResultDto> {
+    if(!this.catalog) throw new IngestionServiceError('unavailable','Catalog draft conversion is unavailable');
+    if(execution?.preparedOutcome) {
+      const prepared=execution.preparedOutcome;
+      const outcome=await this.repository.recordConversionOutcome({jobId,candidateId:selection.id,expectedVersion:selection.expectedVersion,...prepared,actorUserId:actor?.userId??null,eventId:execution.command.ids.outcomeEventId,now:execution.command.now});
+      return {candidateId:selection.id,outcome,performanceId:prepared.performanceId,errorCode:outcome===prepared.outcome?prepared.errorCode:'stale_write'};
     }
-    const results: OtwPlayIngestionConversionResultDto[] = [];
-    for (const selection of selections) {
       try {
-        const candidate = await this.repository.readReviewCandidate(
-          jobId,
-          selection.id,
-        );
-        const releaseType = candidate.reviewInput?.releaseType;
-        const candidateKindMatchesReview =
-          candidate.candidateKind === "official_video"
-            ? releaseType === "official_mv" || releaseType === "official_video"
-            : releaseType === "broadcast";
-        const startSeconds = candidate.reviewInput?.startSeconds ?? 0;
-        const endSeconds = candidate.reviewInput?.endSeconds ?? null;
-        if (
-          candidate.version !== selection.expectedVersion ||
-          candidate.status !== "ready" ||
-          candidate.classification !== "eligible" ||
-          !candidate.reviewInput ||
-          !candidateKindMatchesReview ||
-          !Number.isSafeInteger(startSeconds) ||
-          startSeconds < 0 ||
-          (endSeconds !== null &&
-            (!Number.isSafeInteger(endSeconds) || endSeconds <= startSeconds))
-        ) {
-          throw new IngestionRepositoryError(
-            candidate.version !== selection.expectedVersion
-              ? "stale_message"
-              : "validation_failed",
-            "Candidate is not ready for draft conversion",
-          );
-        }
+        if(initialFailure!==undefined) throw initialFailure;
+        const candidate=await this.readConversionCandidate(jobId,selection);
+        const startSeconds=candidate.reviewInput!.startSeconds??0,endSeconds=candidate.reviewInput!.endSeconds??null;
         const youtubeUrl = `https://www.youtube.com/watch?v=${candidate.videoId}`;
-        const preflight = await this.catalog.preflightCatalogEntry({
-          youtubeUrl,
-          startSeconds,
-        });
+        const readPreflight=()=>this.catalog!.preflightCatalogEntry({youtubeUrl,startSeconds},execution?.reader);
+        const preflight=execution?await execution.preflight(readPreflight):await readPreflight();
         const channelRoleAllowed = candidate.candidateKind === "singing_clip"
           ? preflight.channel.channelRole === "approved_kirinuki"
           : isOtwPlayIngestionOfficialChannelRole(preflight.channel.channelRole);
@@ -791,46 +806,31 @@ export class IngestionService {
             outcome: "duplicate",
             performanceId: preflight.duplicate.performanceId,
             errorCode: "duplicate_source",
-            actorUserId: actor.userId,
-            eventId: this.createId(),
-            now: this.clock(),
+            actorUserId: actor?.userId ?? null,
+            eventId: execution?.command.ids.outcomeEventId ?? this.createId(),
+            now: execution?.command.now ?? this.clock(),
           });
-          results.push({
+          return {
             candidateId: candidate.id,
             outcome,
             performanceId: preflight.duplicate.performanceId,
             errorCode: outcome === "duplicate" ? "duplicate_source" : "stale_write",
-          });
-          continue;
+          };
         }
-        const created = await this.catalog.createCatalogEntry(
-          {
-            expectedCatalogRevision: preflight.catalogRevision,
-            youtubeUrl,
-            startSeconds,
-            endSeconds,
-            ...candidate.reviewInput,
-            channel: {
-              kind: "existing",
-              channelId: preflight.channel.catalogChannelId,
-            },
-            publicationTarget: "draft",
-          },
-          actor,
-          {
-            jobId,
-            candidateId: candidate.id,
-            expectedVersion: candidate.version,
-            eventId: this.createId(),
-          },
-        );
-        results.push({
+        const input={
+          expectedCatalogRevision:preflight.catalogRevision,youtubeUrl,startSeconds,endSeconds,
+          ...candidate.reviewInput!,channel:{kind:'existing' as const,channelId:preflight.channel.catalogChannelId},publicationTarget:'draft' as const,
+        };
+        if(!actor&&!execution) throw new Error('Missing original conversion actor');
+        const created=execution?await this.catalog.createConvertedCatalogEntry(input,execution.command,execution.reader):await this.catalog.createCatalogEntry(input,actor!,{jobId,candidateId:candidate.id,expectedVersion:candidate.version,eventId:this.createId()});
+        return {
           candidateId: candidate.id,
           outcome: "created",
           performanceId: created.data.performance.id,
           errorCode: null,
-        });
+        };
       } catch (error) {
+        if (error instanceof IngestionRepositoryError && ['content_accepted','content_moved','content_conflict'].includes(error.code)) throw error;
         if (
           jobId === null &&
           error instanceof IngestionRepositoryError &&
@@ -850,17 +850,16 @@ export class IngestionService {
             outcome: "duplicate",
             performanceId,
             errorCode: "duplicate_source",
-            actorUserId: actor.userId,
-            eventId: this.createId(),
-            now: this.clock(),
+            actorUserId: actor?.userId ?? null,
+            eventId: execution?.command.ids.outcomeEventId ?? this.createId(),
+            now: execution?.command.now ?? this.clock(),
           });
-          results.push({
+          return {
             candidateId: selection.id,
             outcome,
             performanceId,
             errorCode: outcome === "duplicate" ? "duplicate_source" : "stale_write",
-          });
-          continue;
+          };
         }
         const failure = this.conversionOutcome(error);
         const outcome = await this.repository.recordConversionOutcome({
@@ -870,19 +869,17 @@ export class IngestionService {
           outcome: failure.outcome,
           performanceId: null,
           errorCode: failure.errorCode,
-          actorUserId: actor.userId,
-          eventId: this.createId(),
-          now: this.clock(),
+          actorUserId: actor?.userId ?? null,
+          eventId: execution?.command.ids.outcomeEventId ?? this.createId(),
+          now: execution?.command.now ?? this.clock(),
         });
-        results.push({
+        return {
           candidateId: selection.id,
           outcome,
           performanceId: null,
           errorCode: outcome === failure.outcome ? failure.errorCode : "stale_write",
-        });
+        };
       }
-    }
-    return { results };
   }
 
   async retryJob(jobId: string, actor: AdminCatalogActor) {

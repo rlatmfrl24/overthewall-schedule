@@ -34,6 +34,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 });
 
 import { OtwPlaySubmissionPage } from "./submission-page";
+import {ApiError} from "@/shared/api/client";
 
 const member = createMemberFixture({
     uid: 1,
@@ -287,6 +288,7 @@ describe("OtwPlaySubmissionPage", () => {
   });
 
   it("ignores an old edit draft and uses the saved proposal with its server version", async () => {
+    mocks.update.mockRejectedValue(new ApiError('접수된 수정 결과를 기다리고 있습니다.',409,{code:'CONTENT_ACCEPTED'}));
     sessionStorage.setItem(
       "otw-play:member-submission-draft:v1:edit:proposal-one",
       JSON.stringify({
@@ -341,8 +343,14 @@ describe("OtwPlaySubmissionPage", () => {
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(
       "proposal-one",
       expect.objectContaining({ expectedVersion: 7, title: "테스트 커버" }),
+      expect.any(String),
     ));
     expect(mocks.create).not.toHaveBeenCalled();
+    await screen.findByText('접수된 수정 결과를 기다리고 있습니다.');
+    const original=mocks.update.mock.calls[0];
+    fireEvent.click(screen.getByRole('button',{name:'수정 저장'}));
+    await waitFor(()=>expect(mocks.update).toHaveBeenCalledTimes(2));
+    expect(mocks.update.mock.calls[1]).toEqual(original);
   });
 
   it("searches candidates explicitly, prefills the snapshot, and clears the selection", async () => {

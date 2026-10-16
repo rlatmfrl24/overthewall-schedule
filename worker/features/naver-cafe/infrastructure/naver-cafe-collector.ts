@@ -1,3 +1,6 @@
+import { publicationHiddenSql } from "../../content-transition";
+import { parseSiteId, type SiteId } from "@contracts/site-definition";
+import { getHiddenMemberCodes } from "@contracts/site-publication";
 import { naverCafeSources, type NaverCafeSource } from "@db/schema";
 import { and, asc, isNull, sql } from "drizzle-orm";
 import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
@@ -460,7 +463,7 @@ const reserveNaverCafeRequest = async (cacheDb: D1Database | undefined) => {
 
 const writeNaverSourceState = async (
   cacheDb: D1Database | undefined,
-  sourceId: number,
+  source: NaverCafeSourceInput,
   values: {
     initializedAt?: number | null;
     collectionStartedAt?: number;
@@ -473,9 +476,11 @@ const writeNaverSourceState = async (
     nextCheckAt: number;
     errorCode?: string | null;
   },
+  siteId: SiteId,
+  posts: NaverCafePostItem[] = [],
 ) => {
   if (!cacheDb) return;
-  await cacheDb.prepare(
+  const progress = cacheDb.prepare(
     `UPDATE naver_cafe_sources SET
        collection_started_at = COALESCE(collection_started_at, ?),
        initialization_completed_at = COALESCE(?, initialization_completed_at),
@@ -484,7 +489,7 @@ const writeNaverSourceState = async (
        last_success_at = COALESCE(?, last_success_at), next_check_at = ?,
        consecutive_failures = CASE WHEN ? IS NULL THEN 0 ELSE consecutive_failures + 1 END,
        last_error_code = ?, updated_at = CURRENT_TIMESTAMP
-     WHERE id = ?`,
+     WHERE id = ? AND NOT (${publicationHiddenSql("naver_cafe_sources","naver_cafe_sources",siteId)})`,
   ).bind(
     values.collectionStartedAt ?? values.attemptedAt,
     values.initializedAt ?? null,
@@ -497,15 +502,20 @@ const writeNaverSourceState = async (
     values.nextCheckAt,
     values.errorCode ?? null,
     values.errorCode ?? null,
-    sourceId,
-  ).run();
+    source.id,
+  );
+  await writeStoredNaverCafeSourcePosts(cacheDb, [source], posts, values.attemptedAt, siteId, progress);
 };
 
 const collectNaverSourceNewFeed = async (
   source: NaverCafeSourceInput,
   cacheDb: D1Database | undefined,
+  siteId: SiteId,
 ) => {
   const attemptedAt = now();
+  if (cacheDb && getHiddenMemberCodes(siteId, attemptedAt).length && await cacheDb.prepare(
+    `SELECT 1 FROM naver_cafe_sources s WHERE s.id=? AND ${publicationHiddenSql("naver_cafe_sources", "s", siteId)}`,
+  ).bind(source.id).first()) throw new NaverCafeSourceError("source_cutover", "disabled");
   const initialized = source.initialization_completed_at != null;
   const startPage = initialized ? Math.max(1, source.sync_page ?? 1) : 1;
   const baseId = source.sync_base_article_id ?? source.last_seen_article_id ?? null;
@@ -529,14 +539,14 @@ const collectNaverSourceNewFeed = async (
       newestId ??= posts[0]?.articleId ?? null;
 
       if (!initialized) {
-        await writeNaverSourceState(cacheDb, source.id, {
+        await writeNaverSourceState(cacheDb, source, {
           initializedAt: attemptedAt,
           collectionStartedAt: startedAt,
           lastSeen: newestId,
           attemptedAt,
           succeededAt: now(),
           nextCheckAt: now() + 60 * 60_000,
-        });
+        }, siteId);
         return { posts: [], pagesRead, initialized: true };
       }
 
@@ -556,7 +566,7 @@ const collectNaverSourceNewFeed = async (
     }
 
     const complete = watermarkFound || pagesRead < NAVER_CAFE_MAX_PAGES_PER_RUN;
-    await writeNaverSourceState(cacheDb, source.id, {
+    await writeNaverSourceState(cacheDb, source, {
       collectionStartedAt: startedAt,
       lastSeen: complete ? newestId : source.last_seen_article_id ?? null,
       syncPage: complete ? null : startPage + pagesRead,
@@ -565,13 +575,13 @@ const collectNaverSourceNewFeed = async (
       attemptedAt,
       succeededAt: now(),
       nextCheckAt: now() + (collected.length > 0 ? 60 : 180) * 60_000,
-    });
+    }, siteId, collected);
     return { posts: collected, pagesRead, initialized: false };
   } catch (error) {
     const errorCode = error instanceof NaverCafeSourceError
       ? error.message.includes("budget") ? "daily_budget_exhausted" : "provider_error"
       : "provider_error";
-    await writeNaverSourceState(cacheDb, source.id, {
+    await writeNaverSourceState(cacheDb, source, {
       collectionStartedAt: startedAt,
       lastSeen: source.last_seen_article_id ?? null,
       syncPage: source.sync_page ?? null,
@@ -580,7 +590,7 @@ const collectNaverSourceNewFeed = async (
       attemptedAt,
       nextCheckAt: now() + 60 * 60_000,
       errorCode,
-    });
+    }, siteId);
     throw error;
   }
 };
@@ -757,6 +767,7 @@ const readStoredPostsForSources = async (
   size: number,
   page?: import("@contracts/member-posts").MemberPostsPageRequest,
   includeArchived = false,
+  siteId: SiteId = "otw",
 ) => {
   if (!cacheDb) return [];
   const sourceIds = sources
@@ -772,7 +783,7 @@ const readStoredPostsForSources = async (
                 comment_count, read_count, like_count, is_new, fetched_at,
                 hidden_at
          FROM naver_cafe_posts
-         WHERE ${includeArchived ? "1" : "content_access = 'normal'"} AND source_id IN (${sourceIds.map(() => "?").join(", ")})
+         WHERE ${includeArchived ? "1" : `content_access = 'normal' AND NOT (${publicationHiddenSql("naver_cafe_posts","naver_cafe_posts",siteId)})`} AND source_id IN (${sourceIds.map(() => "?").join(", ")})
            AND hidden_at IS NULL
            ${page?.memberUid !== undefined ? "AND member_uid = ?" : ""}
            ${page?.cursor ? "AND created_at <= ? AND (created_at < ? OR ('cafe:' || id) < ?)" : ""}
@@ -823,12 +834,13 @@ export const readStoredNaverCafePostsForSources = async (
     size?: number;
     page?: import("@contracts/member-posts").MemberPostsPageRequest;
     includeArchived?: boolean;
+    siteId?: SiteId;
   } = {},
 ): Promise<NaverCafePostsResult> => {
   const size = clampMaxResults(options.size);
   const sourceIds = sources.map((source) => source.id);
   const latestChecks = await readLatestSourceChecks(options.cacheDb, sourceIds);
-  const posts = await readStoredPostsForSources(options.cacheDb, sources, size, options.page, options.includeArchived);
+  const posts = await readStoredPostsForSources(options.cacheDb, sources, size, options.page, options.includeArchived, options.siteId);
   const sourceIdByBoard = new Map(
     sources.map((source) => [`${source.cafe_id}:${source.menu_id}`, source.id]),
   );
@@ -859,8 +871,10 @@ const writeStoredNaverCafeSourcePosts = async (
   sources: NaverCafeSourceInput[],
   posts: NaverCafePostItem[],
   fetchedAt: number,
+  siteId: SiteId,
+  progress: D1PreparedStatement,
 ) => {
-  if (!cacheDb || posts.length === 0) return;
+  if (!cacheDb) return;
 
   const sourceKeyToId = new Map(
     sources.map((source) => [`${source.cafe_id}:${source.menu_id}`, source.id]),
@@ -870,6 +884,9 @@ const writeStoredNaverCafeSourcePosts = async (
     return sourceId ? [{ post, sourceId }] : [];
   });
 
+  const statements: D1PreparedStatement[] = [cacheDb.prepare(
+    `SELECT iif(NOT EXISTS(SELECT 1 FROM naver_cafe_sources s WHERE s.id IN (SELECT value FROM json_each(?)) AND ${publicationHiddenSql("naver_cafe_sources", "s", siteId)}),1,json('cafe_source_no_longer_collectable'))`,
+  ).bind(JSON.stringify(sources.map(source => source.id)))];
   // A post uses 18 bindings. Five rows keep each D1 statement below the
   // 100-bind ceiling while collapsing the former per-post write loop.
   for (let index = 0; index < records.length; index += 5) {
@@ -897,7 +914,7 @@ const writeStoredNaverCafeSourcePosts = async (
       fetchedAt,
       fetchedAt,
     ]);
-    await cacheDb
+    statements.push(cacheDb
       .prepare(
         `INSERT INTO naver_cafe_posts (
            id, article_id, source_id, source_name, cafe_id, menu_id,
@@ -905,7 +922,7 @@ const writeStoredNaverCafeSourcePosts = async (
            comment_count, read_count, like_count, is_new, first_seen_at,
            fetched_at, hidden_at, hidden_reason, content_removed_at
          )
-         VALUES ${placeholders}
+         SELECT * FROM (VALUES ${placeholders}) incoming WHERE 1
          ON CONFLICT(id) DO UPDATE SET
            source_id = excluded.source_id,
            source_name = excluded.source_name,
@@ -942,9 +959,10 @@ const writeStoredNaverCafeSourcePosts = async (
             OR naver_cafe_posts.is_new IS NOT excluded.is_new
             OR naver_cafe_posts.hidden_at IS NOT NULL)`,
       )
-      .bind(...bindings)
-      .run();
+      .bind(...bindings));
   }
+  statements.push(progress);
+  await cacheDb.batch(statements);
 };
 
 const writeNaverCafeSourceChecks = async (
@@ -1006,6 +1024,7 @@ export const collectNaverCafePostsForSources = async (
     cacheDb?: D1Database;
     size?: number;
     trigger: NaverCafeCollectionTrigger;
+    siteId?: SiteId;
   },
 ): Promise<NaverCafeCollectionResult> => {
   const startedAt = now();
@@ -1040,7 +1059,7 @@ export const collectNaverCafePostsForSources = async (
           return { posts: [], source: sourceToStatus(source, "disabled") };
         }
         try {
-          const result = await collectNaverSourceNewFeed(source, options.cacheDb);
+          const result = await collectNaverSourceNewFeed(source, options.cacheDb, options.siteId??"otw");
           return {
             posts: result.posts,
             source: sourceToStatus(source, "ok", {
@@ -1078,12 +1097,6 @@ export const collectNaverCafePostsForSources = async (
 
   const checkedAt = now();
   const durationMs = checkedAt - startedAt;
-  await writeStoredNaverCafeSourcePosts(
-    options.cacheDb,
-    sources,
-    posts,
-    checkedAt,
-  );
   await writeNaverCafeSourceChecks(
     options.cacheDb,
     options.trigger,
@@ -1112,6 +1125,7 @@ export const readEnabledNaverCafeSources = async (env: Env) =>
       and(
         sql`${naverCafeSources.enabled} IS NULL OR ${naverCafeSources.enabled} = 1`,
         isNull(naverCafeSources.archived_at),
+        sql.raw(`NOT (${publicationHiddenSql("naver_cafe_sources","naver_cafe_sources",parseSiteId(env.SITE_ID))})`),
       ),
     )
     .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));

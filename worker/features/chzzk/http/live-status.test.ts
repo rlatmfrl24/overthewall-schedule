@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {siteEnv} from '../../../test-support/site-env';
 import {
   buildChzzkApplication,
   createLiveScheduleAutoFillHandler,
@@ -51,6 +52,7 @@ const cacheStore = new Map<string, Response>();
 
 const makeEnv = (): Env =>
   ({
+    ...siteEnv(),
     YOUTUBE_API_KEY: "",
     X_BEARER_TOKEN: "",
     otw_db: {

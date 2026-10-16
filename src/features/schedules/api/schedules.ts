@@ -51,9 +51,10 @@ export async function deleteSchedule(id: number) {
   );
 }
 
-export async function saveSchedule(payload: UpsertSchedulePayload) {
+export async function saveSchedule(payload: UpsertSchedulePayload, requestId?:string) {
   return apiFetch<SaveScheduleResult>(apiRoutes.schedules.save.build(), {
     method: "POST",
     json: payload,
+    ...(requestId?{headers:{"Idempotency-Key":requestId}}:{}),
   });
 }

@@ -194,7 +194,7 @@ export const createLiveScheduleAutoFillHandler =
   const response: LiveScheduleAutoFillResponseDto = {
     updatedAt: new Date().toISOString(),
     checkedChannelCount: parsed.channelIds.length,
-    scheduleAutoFill: { updated: result.updated },
+    scheduleAutoFill: { updated: result.updated, ...(result.feedback?.length ? { feedback: result.feedback } : {}) },
   };
   return json(
     response,

@@ -1,11 +1,12 @@
 import type { SiteDefinition } from "@contracts/site-definition";
 import type { SitePublicContent } from "@contracts/site-public-content";
 import type { SiteContentCache } from "../application/ports/site-content-cache";
+import { getHiddenMemberCodes } from "@contracts/site-publication";
 
 export class CloudflareSiteContentCache implements SiteContentCache {
   private readonly site: SiteDefinition;
   constructor(site: SiteDefinition) { this.site = site; }
-  private key(path: string, date: string, accessRevision: number) { return `https://${this.site.id}.internal/site-content/v2/${accessRevision}?${new URLSearchParams({ path, date })}`; }
+  private key(path: string, date: string, accessRevision: number) { return `https://${this.site.id}.internal/site-content/v3/${Number(getHiddenMemberCodes(this.site.id, Date.now()).length > 0)}/${accessRevision}?${new URLSearchParams({ path, date })}`; }
   async get(path: string, date: string, accessRevision: number): Promise<SitePublicContent | null> {
     try {
       const response = await caches.default.match(this.key(path, date, accessRevision));

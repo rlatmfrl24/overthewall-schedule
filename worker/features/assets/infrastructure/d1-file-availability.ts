@@ -47,8 +47,11 @@ export class D1FileAvailability implements CommittedFileAvailability {
       .first<{local_site:string;local_resource:string;plan_json:string;manifest_revision:number;phase:string;fence_json:string|null}>();
     const side=this.site===context.plan.sourceSite?"source":this.site===context.plan.targetSite?"target":null;
     if(!row || !side || row.local_site!==this.site || row.local_resource!==(side==="source"?context.plan.sourceResource:context.plan.targetResource) || row.plan_json!==JSON.stringify(context.plan) || row.manifest_revision!==context.manifestRevision) throw new Error("Stale baseline inventory transition/manifest/resource");
-    if(row.fence_json!==null || !(side==="source"?["protected","copying","replaying","target_ingress_ready"]:["target_ingress_ready"]).includes(row.phase)) throw new Error("Baseline inventory is not in an unfenced copy phase");
+    if(row.fence_json!==null || !(side==="source"?["protected","copying","replaying","target_ingress_ready"]:["prepared","target_ingress_ready"]).includes(row.phase)) throw new Error("Baseline inventory is not in an unfenced copy phase");
     if(!context.plan.assetBuckets || context.plan.assetBuckets[side]!==this.resource) throw new Error("Baseline inventory bucket differs from approved manifest resource");
+    if(side==="target" && !await this.db.prepare(`SELECT 1 ready FROM content_transition_baselines b JOIN content_transition_file_inventories i ON i.transition_id=b.transition_id
+      WHERE b.transition_id=? AND i.source_boundary=b.source_boundary AND i.state IN ('receiving','received')
+      AND json_extract(i.plan_json,'$.manifestDigest')=b.manifest_digest AND i.expected_rows>=3 AND i.expected_digest IS NOT NULL`).bind(context.plan.id).first("ready")) throw new Error("Baseline inventory requires its approved original receiving header");
   }
   async exportInventoryPage(context:FileAvailabilityContext,offset=0) {
     await this.validateContext(context);const page=await this.inventory.exportPage(context,offset);await this.validateContext(context);return page;

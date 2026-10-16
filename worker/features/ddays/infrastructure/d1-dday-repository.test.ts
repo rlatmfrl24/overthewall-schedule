@@ -14,17 +14,21 @@ describe("D1 D-Day repository", () => {
   it("조회와 생성·수정·삭제를 persistence adapter에서 수행한다", async () => {
     const rows = [{ id: 1, ...input, created_at: null }];
     const orderBy = vi.fn(async () => rows);
-    const values = vi.fn(async () => ({ success: true }));
-    const updateWhere = vi.fn(async () => ({ success: true }));
+    const statement={toSQL:()=>({sql:'fixture statement',params:[]})};
+    const run=vi.fn(async()=>({success:true}));
+    const prepared={bind:()=>({run})};
+    const values = vi.fn(() => statement);
+    const updateWhere = vi.fn(() => statement);
     const set = vi.fn(() => ({ where: updateWhere }));
-    const deleteWhere = vi.fn(async () => ({ success: true }));
+    const deleteWhere = vi.fn(() => statement);
     const db = {
       select: vi.fn(() => ({
-        from: () => ({ orderBy }),
+        from: () => ({where:()=>({orderBy})}),
       })),
       insert: vi.fn(() => ({ values })),
       update: vi.fn(() => ({ set })),
       delete: vi.fn(() => ({ where: deleteWhere })),
+      $client:{prepare:vi.fn(()=>prepared)},
     } as unknown as DbInstance;
     const repository = new D1DDayRepository(db);
 
@@ -37,5 +41,6 @@ describe("D1 D-Day repository", () => {
     expect(set).toHaveBeenCalledWith(input);
     expect(updateWhere).toHaveBeenCalled();
     expect(deleteWhere).toHaveBeenCalled();
+    expect(run).toHaveBeenCalledTimes(3);
   });
 });

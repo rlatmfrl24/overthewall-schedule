@@ -1,7 +1,8 @@
 import { SecondaryAction } from "@/shared/ui/secondary-action";
 import { getAdminDDayOccurrence } from "../../model/admin-dday";
 import { QueryReadback } from "@/shared/ui/query-readback";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { getContentTransitionMessage } from "@/shared/api/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DDayItem as DDay } from "../../model/types";
 import { PiSpinnerGapBold as Loader2, PiPlusCircleBold as PlusCircle, PiPencilSimpleBold as Pencil, PiTrashBold as Trash2, PiCalendarBold as Calendar, PiArrowsClockwiseBold as RefreshCw, PiFlagBold as Flag, PiSparkleBold as Sparkles } from "react-icons/pi";
@@ -74,6 +75,12 @@ export function DDayManager() {
   const [editingDDay, setEditingDDay] = useState<DDay | null>(null);
   const [deletingDDay, setDeletingDDay] = useState<DDay | null>(null);
   const [ddaySort, setDDaySort] = useState<DDaySortKey>("next");
+  const requestIdentity=useRef<{command:string;key:string}|null>(null);
+  const requestKey=(command:unknown)=>{
+    const encoded=JSON.stringify(command);
+    if(requestIdentity.current?.command!==encoded) requestIdentity.current={command:encoded,key:crypto.randomUUID()};
+    return requestIdentity.current.key;
+  };
 
   const ddaysQuery = useQuery<DDay[]>({
     queryKey: queryKeys.ddays.admin(),
@@ -113,11 +120,13 @@ export function DDayManager() {
   }, [ddays, ddaySort]);
 
   const handleOpenCreate = () => {
+    requestIdentity.current=null;
     setEditingDDay(null);
     setIsDialogOpen(true);
   };
 
   const handleOpenEdit = (dday: DDay) => {
+    requestIdentity.current=null;
     setEditingDDay(dday);
     setIsDialogOpen(true);
   };
@@ -125,7 +134,8 @@ export function DDayManager() {
   const handleDelete = async () => {
     if (!deletingDDay?.id) return;
     try {
-      await deleteDDay(deletingDDay.id);
+      await deleteDDay(deletingDDay.id,requestKey({action:"delete",id:deletingDDay.id}));
+      requestIdentity.current=null;
       await invalidateDDayConsumers(queryClient);
       toast({
         variant: "success",
@@ -135,7 +145,7 @@ export function DDayManager() {
       console.error("Delete failed:", error);
       toast({
         variant: "error",
-        description: "D-Day 삭제에 실패했습니다.",
+        description: getContentTransitionMessage(error)??"D-Day 삭제에 실패했습니다.",
       });
     } finally {
       setDeletingDDay(null);
@@ -156,10 +166,11 @@ export function DDayManager() {
       };
 
       if (editingDDay?.id) {
-        await updateDDay({ ...payload, id: editingDDay.id });
+        await updateDDay({ ...payload, id: editingDDay.id },requestKey({action:"update",id:editingDDay.id,payload}));
       } else {
-        await createDDay(payload);
+        await createDDay(payload,requestKey({action:"create",payload}));
       }
+      requestIdentity.current=null;
 
       await invalidateDDayConsumers(queryClient);
       setIsDialogOpen(false);
@@ -173,7 +184,7 @@ export function DDayManager() {
       console.error("Failed to save d-day:", error);
       toast({
         variant: "error",
-        description: "D-Day 저장에 실패했습니다.",
+        description: getContentTransitionMessage(error)??"D-Day 저장에 실패했습니다.",
       });
       throw error;
     } finally {

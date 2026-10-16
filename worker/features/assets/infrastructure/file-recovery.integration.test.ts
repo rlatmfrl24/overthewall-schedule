@@ -1,3 +1,4 @@
+import {catalogImportProjection} from "../../otw-play";
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { beforeAll, beforeEach, expect, it } from "vitest";
 import { D1R2FileStore } from "./d1-r2-file-store";
@@ -128,7 +129,7 @@ it("does not borrow another row's external-origin classification to release a cu
     const rows=(await db.prepare(`SELECT ${keySql(table,"a")} identity FROM "${table}" a`).all<{identity:string}>()).results;
     classifications.push(...rows.map(row=>({table,key:row.identity,disposition:"exclude" as const,reason:"Unrelated fixture configuration"})));
   }
-  const repository=new D1TransitionRepository(db,"otw","otw-db","otw-schedule");
+  const repository=new D1TransitionRepository(db,"otw","otw-db","otw-schedule", null, catalogImportProjection);
   await repository.prepare({id:"origin-scope",sourceSite:"otw",targetSite:"luvdia",sourceResource:"otw-db",targetResource:"luvdia-db",generation:2,protocol:1,manifestDigest:"origins",members,classifications,fileOrigins:[{kind:"external",origin:"https://remote.example",reason:"Selected manifest external image"}]});
   const first=await store.put(input("external-selected"));
   const raw=`https://remote.example/r2-assets/${first.logicalKey}`;
@@ -164,7 +165,7 @@ it("captures selected profile replacement through the normal composed store and 
     const rows=(await db.prepare(`SELECT ${keySql(table,"a")} identity FROM "${table}" a`).all<{identity:string}>()).results;
     classifications.push(...rows.map(row=>({table,key:row.identity,disposition:"exclude" as const,reason:"Unrelated fixture configuration"})));
   }
-  const repository=new D1TransitionRepository(db,"otw","otw-db","otw-schedule");
+  const repository=new D1TransitionRepository(db,"otw","otw-db","otw-schedule", null, catalogImportProjection);
   await repository.prepare({id:"files",sourceSite:"otw",targetSite:"luvdia",sourceResource:"otw-db",targetResource:"luvdia-db",generation:2,protocol:1,manifestDigest:"files",members,classifications});
   await repository.protect("files",{receiptId:"hold",protocol:1,manifestDigest:"files"});
   const composed=buildAssetFileStore({...runtime,SITE_ID:"otw",SITE_D1_DATABASE_NAME:"otw-db",SITE_ASSET_BUCKET_NAME:"otw-schedule"} as unknown as Env);
