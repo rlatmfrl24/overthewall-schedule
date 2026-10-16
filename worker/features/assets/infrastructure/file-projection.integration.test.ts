@@ -1,6 +1,8 @@
 import { readSiteSchemaMigrations } from "../../../test-support/site-schema";
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeAll, expect, it } from "vitest";
+import { commitPublicationBatch } from "../../content-access";
+import { SITE_OPENS_AT } from "@contracts/site-publication";
 
 const runtime = env as unknown as { otw_db: D1Database; };
 const db = runtime.otw_db;
@@ -65,4 +67,29 @@ it("keeps reference projection and retention changes in the original notice tran
   await db.prepare("UPDATE notices SET image_urls='[]' WHERE id=906").run();
   expect(await read()).toBeNull();
   expect(await db.prepare("SELECT held,released_at FROM asset_file_retention_releases WHERE logical_key='notices/thumbnails/legacy.webp'").first()).toMatchObject({ held: 0, released_at: expect.any(Number) });
+});
+
+it("rolls back every owned write when D1 time crosses publication inside the batch", async () => {
+  const cutoff = Date.parse(SITE_OPENS_AT) / 1000;
+  await db.batch([
+    db.prepare("CREATE TABLE publication_clock(epoch INTEGER NOT NULL)"),
+    db.prepare("INSERT INTO publication_clock VALUES(?)").bind(cutoff - 1),
+  ]);
+  const memberUid = await db.prepare("SELECT uid FROM members WHERE code='bing_hayu'").first<number>("uid");
+  expect(memberUid).not.toBeNull();
+  // Only the database clock input changes; both guards and all writes execute in real D1.
+  const controlled = new Proxy(db, { get(target, property) {
+    if (property === "prepare") return (sql: string) => target.prepare(sql.replaceAll("unixepoch()", "(SELECT epoch FROM publication_clock)"));
+    const value = Reflect.get(target, property, target);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
+  await expect(commitPublicationBatch(controlled, "otw", [memberUid!], [
+    db.prepare("INSERT INTO notices(id,content,image_urls) VALUES(908,'late owning response','[\"/r2-assets/notices/thumbnails/late.webp\"]')"),
+    db.prepare("UPDATE publication_clock SET epoch=?").bind(cutoff),
+  ])).rejects.toThrow();
+  expect(await db.prepare("SELECT 1 FROM notices WHERE id=908").first()).toBeNull();
+  expect(await db.prepare("SELECT 1 FROM asset_file_reference_paths WHERE row_table='notices' AND row_key='[908]'").first()).toBeNull();
+  expect(await db.prepare("SELECT epoch FROM publication_clock").first("epoch")).toBe(cutoff - 1);
+  const normal = await commitPublicationBatch(controlled, "otw", [], [db.prepare("UPDATE publication_clock SET epoch=?").bind(cutoff)]);
+  expect(normal).toHaveLength(1);
 });
