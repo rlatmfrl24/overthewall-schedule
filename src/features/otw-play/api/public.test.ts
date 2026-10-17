@@ -14,6 +14,8 @@ import {
 } from "./public";
 
 const apiFetchMock = vi.hoisted(() => vi.fn());
+const siteState = vi.hoisted(() => ({ id: "otw" }));
+vi.mock("@/shared/config/site", () => ({ get site() { return siteState; } }));
 
 vi.mock("@/shared/api/client", () => ({
   apiFetch: apiFetchMock,
@@ -21,6 +23,7 @@ vi.mock("@/shared/api/client", () => ({
 
 describe("OTW Play public API client", () => {
   beforeEach(() => {
+    siteState.id = "otw";
     apiFetchMock.mockReset();
     apiFetchMock.mockResolvedValue({
       data: null,
@@ -32,9 +35,9 @@ describe("OTW Play public API client", () => {
 
   it("uses the member path and only songbook query fields in public and preview requests", async () => {
     await fetchOtwPlayMembers();
-    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/members", { auth: "required" });
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/members", { auth: "omit" });
     await fetchOtwPlayMemberSongbook("Alpha", { category: "collaboration", participantRole: "chorus", cursor: "next", limit: 60 });
-    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/members/Alpha/songbook?category=collaboration&participantRole=chorus&limit=60&cursor=next", { auth: "required" });
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/members/Alpha/songbook?category=collaboration&participantRole=chorus&limit=60&cursor=next", { auth: "omit" });
     await fetchOtwPlayMemberSongbook("Alpha", {}, { adminPreview: true });
     expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/members/Alpha/songbook", { auth: "required", headers: { [OTW_PLAY_ADMIN_PREVIEW_HEADER]: "1" } });
   });
@@ -100,7 +103,7 @@ describe("OTW Play public API client", () => {
     );
   });
 
-  it("설정은 익명으로, 카탈로그는 회원 인증으로 호출한다", async () => {
+  it("OTW 설정과 공식 카탈로그를 인증 없이 호출한다", async () => {
     await fetchOtwPlayConfig();
     await fetchOtwPlayCatalog({ member: [2, 1], relation: "original" });
     await fetchOtwPlayFacets();
@@ -115,23 +118,29 @@ describe("OTW Play public API client", () => {
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       2,
       `${apiRoutes.otwPlay.catalog.build()}?member=1&member=2&relation=original`,
-      { auth: "required" },
+      { auth: "omit" },
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       3,
       apiRoutes.otwPlay.facets.build(),
-      { auth: "required" },
+      { auth: "omit" },
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       4,
       "/api/play/songs/%ED%95%9C%20%EA%B3%A1-slug",
-      { auth: "required" },
+      { auth: "omit" },
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       5,
       "/api/play/performances/performance-id",
-      { auth: "required" },
+      { auth: "omit" },
     );
+  });
+
+  it("retains LuvDia catalog authentication", async () => {
+    siteState.id = "luvdia";
+    await fetchOtwPlayCatalog();
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/catalog", { auth: "required" });
   });
 
   it("관리자 미리보기는 required auth와 전용 header를 사용한다", async () => {

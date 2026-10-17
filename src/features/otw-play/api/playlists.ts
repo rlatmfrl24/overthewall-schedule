@@ -2,22 +2,24 @@ import { apiRoutes, withRouteSearch } from "@contracts/api-routes";
 import { OTW_PLAY_ADMIN_PREVIEW_HEADER, type OtwPlayPublicEnvelope, type OtwPlayPublicPerformanceResponseDto } from "@contracts/otw-play";
 import type { PlayAdminDefaultPlaylist, PlayDefaultPlaylistWrite, PlayDefaultPlaylist, PlayPerformanceQuery, PlayPlaylist, PlayPlaylistSummary, PlayPlaylistWrite, PlayResolvedPerformances } from "@contracts/otw-play-playlists";
 import { apiFetch } from "@/shared/api/client";
+import { site } from "@/shared/config/site";
+import { requiresOtwPlayMembership } from "@contracts/otw-play-access";
 
 export interface PlaylistRequestOptions { adminPreview?: boolean; signal?: AbortSignal }
-const options = (request: PlaylistRequestOptions) => ({ signal: request.signal,
-  auth: "required" as const,
+const options = (request: PlaylistRequestOptions, publicRead = false) => ({ signal: request.signal,
+  auth: publicRead && !request.adminPreview && !requiresOtwPlayMembership(site.id) ? "omit" as const : "required" as const,
   headers: request.adminPreview ? { [OTW_PLAY_ADMIN_PREVIEW_HEADER]: "1" } : undefined });
 export const fetchDefaultPlaylists = (request: PlaylistRequestOptions = {}) =>
-  apiFetch<OtwPlayPublicEnvelope<{ items: PlayDefaultPlaylist[] }>>(apiRoutes.otwPlay.playlistDefaults.build(), options(request));
+  apiFetch<OtwPlayPublicEnvelope<{ items: PlayDefaultPlaylist[] }>>(apiRoutes.otwPlay.playlistDefaults.build(), options(request, true));
 export const fetchPlaylistPerformances = (query: PlayPerformanceQuery, request: PlaylistRequestOptions = {}) => {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== "" && value !== false) params.set(key, key === "dateUnknown" ? (value ? "1" : "") : String(value));
   return apiFetch<OtwPlayPublicEnvelope<{ items: OtwPlayPublicPerformanceResponseDto[] }>>(
-    withRouteSearch(apiRoutes.otwPlay.performances.build(), params), options(request));
+    withRouteSearch(apiRoutes.otwPlay.performances.build(), params), options(request, true));
 };
 export const resolvePlaylistPerformances = (performanceIds: string[], request: PlaylistRequestOptions = {}) =>
   apiFetch<OtwPlayPublicEnvelope<PlayResolvedPerformances>>(apiRoutes.otwPlay.resolvePerformances.build(),
-    { ...options(request), method: "POST", json: { performanceIds } });
+    { ...options(request, true), method: "POST", json: { performanceIds } });
 export const fetchMyPlaylists = (request: PlaylistRequestOptions = {}) =>
   apiFetch<{ data: PlayPlaylistSummary[] }>(apiRoutes.otwPlay.myPlaylists.build(), options(request));
 export const fetchMyPlaylist = (id: string, request: PlaylistRequestOptions = {}) =>

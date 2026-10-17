@@ -44,9 +44,25 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); });
 
-it.each(["/api/play/playlists/defaults", "/api/play/performances", "/api/play/performances/resolve"])("requires membership before playlist reads: %s", async path => {
+it.each(["/api/play/playlists/defaults", "/api/play/performances", "/api/play/performances/resolve"])("keeps LuvDia playlist reads member-only: %s", async path => {
   auth.authenticateRequest.mockResolvedValue({ ok: false, response: new Response(null, { status: 401 }) });
-  expect((await handler(request(path), env)).status).toBe(401);
+  expect((await handler(request(path), { ...env, SITE_ID: "luvdia" })).status).toBe(401);
+  expect(readPublicState).not.toHaveBeenCalled();
+});
+
+it("allows anonymous OTW default lists and official queue resolution while keeping personal lists authenticated", async () => {
+  const publicEnv = { ...env, SITE_ID: "otw" };
+  auth.authenticateRequest.mockResolvedValue({ ok: false, response: new Response(null, { status: 401 }) });
+  reader.readPlaylistPerformances.mockResolvedValue([]);
+  expect((await handler(request("/api/play/playlists/defaults"), publicEnv)).status).toBe(200);
+  expect((await handler(request("/api/play/performances"), publicEnv)).status).toBe(200);
+  const resolved = await handler(request("/api/play/performances/resolve", "POST", { performanceIds: ["clip"] }), publicEnv);
+  expect(resolved.status).toBe(200);
+  expect(reader.resolvePlaylistPerformances).toHaveBeenLastCalledWith(["clip"], "official");
+  expect(auth.authenticateRequest).not.toHaveBeenCalled();
+  expect((await handler(request("/api/play/performances?scope=broadcast"), publicEnv)).status).toBe(403);
+  readPublicState.mockClear();
+  expect((await handler(request("/api/play/me/playlists"), publicEnv)).status).toBe(401);
   expect(readPublicState).not.toHaveBeenCalled();
 });
 

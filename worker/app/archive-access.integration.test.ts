@@ -525,6 +525,32 @@ async function archiveCatalog() {
   ]);
 }
 
+it("opens anonymous OTW official music through Worker HTTP while keeping clips and personal lists private", async () => {
+  await catalog();
+  await db.batch([
+    db.prepare("INSERT INTO music_channels(id,provider,external_channel_id,display_name,channel_role,verification_status,active,version,created_at,updated_at) VALUES('clip-channel','youtube','UCkkkkkkkkkkkkkkkkkkkkkk','Clip Channel','approved_kirinuki','approved',1,0,100,100)"),
+    db.prepare("UPDATE music_media_sources SET channel_id='clip-channel',duration_seconds=60 WHERE id='source-2'"),
+    db.prepare("UPDATE music_performance_sources SET source_role='kirinuki',end_seconds=60 WHERE performance_id='secret-performance'"),
+    db.prepare("UPDATE music_performances SET relation_type='singing_clip',release_type='broadcast',broadcast_metadata='{\"performedOn\":null,\"dateEvidence\":null,\"originalUrl\":null,\"extent\":\"full\"}' WHERE id='secret-performance'"),
+    ...projectionStatements(db, "secret"),
+  ]);
+  for (const path of ["/api/play/catalog", "/api/play/songs/shared-song?scope=all", "/api/play/playlists/defaults", "/api/play/performances"]) {
+    const response = await request(path);
+    expect(response.status, path).toBe(200);
+    expect(await response.text(), path).not.toContain("secret-performance");
+  }
+  expect((await request("/api/play/performances/secret-performance")).status).toBe(404);
+  expect((await request("/api/play/performances?scope=broadcast")).status).toBe(403);
+  const resolved = await request("/api/play/performances/resolve", undefined, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ performanceIds: ["public-performance", "secret-performance"] }) });
+  expect(resolved.status).toBe(200);
+  expect(await resolved.json()).toMatchObject({ data: { items: [{ performance: { id: "public-performance" } }], unavailableIds: ["secret-performance"] } });
+  expect((await request("/api/play/me/playlists")).status).toBe(401);
+  expect((await request("/api/play/performances?scope=broadcast", undefined, { headers: { "X-OTW-Play-Admin-Preview": "1" } })).status).toBe(401);
+  const admin = await request("/api/play/performances?scope=broadcast", "archive-admin", { headers: { "X-OTW-Play-Admin-Preview": "1" } });
+  expect(admin.status).toBe(200);
+  expect(await admin.text()).toContain("secret-performance");
+});
+
 it("uses current root access for catalog/detail/search/facets and shared-song ranking", async () => {
   await catalog();
   await archiveCatalog();

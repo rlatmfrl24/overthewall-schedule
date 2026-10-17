@@ -27,15 +27,16 @@ application은 유스케이스를, infrastructure는 D1·외부 시스템 접근
 
 ## 인증과 읽기
 
-`/api/play/config`를 제외한 catalog 요청은 회원 인증을 요구한다.
-[API client](../src/features/otw-play/api/public.ts)는 catalog에 인증을 붙이고,
-[Play shell](../src/features/otw-play/ui/public/play-shell.tsx)은 로그인·관리자 확인·회원 flag를 처리한다.
+2026-10-17 결정에 따라 OTW의 공식 catalog와 기본 playlist·공식 가창 resolve는 익명 요청을 허용한다.
+사이트별 [접근 정책](../contracts/otw-play-access.ts)을 API client·Worker·Play shell·SEO에서 공유한다.
+LuvDia catalog와 개인 playlist·회원 제안에는 회원 인증을 유지한다. Play shell은 공개 flag를 확인하되
+OTW의 공개 경로는 Clerk 인증 완료를 기다리지 않는다.
 관리자 preview header는 서버 `requireAdminUser` 검증을 거친다.
 [catalog handler](../worker/features/otw-play/http/public-catalog-handler.ts)는 preview에만
-broadcast 읽기를 허용한다. 일반 회원 공식 catalog·상세·일괄 resolve·제안 검색에서 clip을 분리한다.
+broadcast 읽기를 허용한다. 익명·일반 회원의 공식 catalog·상세·일괄 resolve·제안 검색에서 clip을 분리한다.
 
-인증 catalog 응답은 `no-store`다. 과거 익명 catalog Cache API 설계를 현재 인증 응답에
-그대로 적용하지 않는다. config와 서비스 내부 read model·cache의 책임은 별개다.
+catalog 응답의 기존 `no-store`·권한별 cache 경계를 유지한다. 이번 비회원 공개를 이유로
+관리자·개인 응답을 공유 캐시에 넣지 않는다. config와 서비스 내부 read model·cache의 책임은 별개다.
 revision 일치, flag-off 차단, strict query·cursor 검증과 unpublished 데이터 격리를 유지한다.
 파생 search projection은 권위 catalog를 대체하지 않는다.
 

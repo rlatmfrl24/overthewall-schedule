@@ -56,8 +56,10 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
     return <OtwPlayConfigError onRetry={() => void publicConfig.refetch()} />;
   }
 
-  if (!requiresOtwPlayMembership() && publicConfig.data.data.publicReadEnabled &&
-      (pathname === "/play" || pathname === "/play/songs" || /^\/play\/songs\/[^/]+$/.test(pathname))) {
+  const isAdmin = isLoaded && isSignedIn && adminStatusQuery.data?.isAdmin;
+  if (!requiresOtwPlayMembership(site.id) && publicConfig.data.data.publicReadEnabled && !isAdmin &&
+      (pathname === "/play" || pathname === "/play/songs" || /^\/play\/(?:songs|members)\/[^/]+$/.test(pathname) ||
+        /^\/play\/playlists(?:\/defaults\/[^/]+)?\/?$/.test(pathname))) {
     return <OtwPlayCatalogRequestProvider><OtwPlayExperience>{children}</OtwPlayExperience></OtwPlayCatalogRequestProvider>;
   }
 

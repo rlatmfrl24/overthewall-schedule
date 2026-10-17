@@ -46,7 +46,7 @@ export const createSiteSeoDependencies = (env: Env,privateRead=false) => {
       return members.findProfileByCode(code);
     },
     async readPlayState() {
-      return { ...await play.readSeoState(), requiresMembership: requiresOtwPlayMembership() };
+      return { ...await play.readSeoState(), requiresMembership: requiresOtwPlayMembership(site.id) };
     },
     readPlayMemberSummaries() { return play.readMemberSummaries(); },
     listPublishedPlaySongSlugs() {

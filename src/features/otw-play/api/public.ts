@@ -1,4 +1,5 @@
 import { requiresOtwPlayMembership } from "@contracts/otw-play-access";
+import { site } from "@/shared/config/site";
 import type { OtwPlayPublicMemberDto, OtwPlayMemberSongbookDto, OtwPlayMemberSongbookQuery } from "@contracts/otw-play-members";
 import { apiRoutes, withRouteSearch } from "@contracts/api-routes";
 import type {
@@ -114,7 +115,7 @@ const publicGet = <T>(
           auth: "required",
           headers: { [OTW_PLAY_ADMIN_PREVIEW_HEADER]: "1" },
         }
-      : { auth: path === apiRoutes.otwPlay.config.build() || !requiresOtwPlayMembership() ? "omit" : "required" },
+      : { auth: path === apiRoutes.otwPlay.config.build() || !requiresOtwPlayMembership(site.id) ? "omit" : "required" },
   );
 
 export function fetchOtwPlayConfig(options: OtwPlayPublicRequestOptions = {}) {

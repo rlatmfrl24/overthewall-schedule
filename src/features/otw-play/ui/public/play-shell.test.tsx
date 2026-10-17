@@ -316,7 +316,8 @@ describe("OtwPlayShell config gate", () => {
     expect(screen.getByRole("menuitem", { name: "내 제안" })).toBeTruthy();
   });
 
-  it("requires login even when catalog reads are enabled", () => {
+  it.each(["otw", "luvdia"] as const)("uses the %s audience when catalog reads are enabled", (siteId) => {
+    mocks.siteId = siteId;
     mocks.useUser.mockReturnValue({
       isLoaded: true,
       isSignedIn: false,
@@ -329,9 +330,25 @@ describe("OtwPlayShell config gate", () => {
       refetch: vi.fn(),
     });
     render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
-    expect(screen.getByText("로그인하고 OTW Play를 만나보세요")).toBeTruthy();
-    expect(mocks.childMounted).not.toHaveBeenCalled();
-    expect(mocks.playerModes).toEqual([]);
+    if (siteId === "otw") {
+      expect(screen.getByText("catalog child")).toBeTruthy();
+      expect(mocks.providerModes).toEqual([false]);
+      expect(mocks.playerModes).toEqual([false]);
+      expect(screen.queryByRole("link", { name: "노래 클립" })).toBeNull();
+    } else {
+      expect(screen.getByText("로그인하고 LuvDia Play를 만나보세요")).toBeTruthy();
+      expect(mocks.childMounted).not.toHaveBeenCalled();
+      expect(mocks.playerModes).toEqual([]);
+    }
+  });
+
+  it.each(["/play/playlists", "/play/playlists/defaults/originals"])("opens anonymous default playlist routes before Clerk loads: %s", (pathname) => {
+    mocks.pathname = pathname;
+    mocks.useUser.mockReturnValue({ isLoaded: false, isSignedIn: false, user: null });
+    mocks.useConfig.mockReturnValue({ isPending: false, isError: false, data: { data: { publicReadEnabled: true, navigationVisible: true } } });
+    render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+    expect(screen.getByText("catalog child")).toBeTruthy();
+    expect(mocks.providerModes).toEqual([false]);
   });
 
   it("uses the same public API/cache experience for signed-in members in 1/0", () => {
