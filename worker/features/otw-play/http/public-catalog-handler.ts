@@ -512,7 +512,7 @@ export const createPublicCatalogHandler = (
   }
 
   try {
-    if (url.pathname !== "/api/play/config" && requiresOtwPlayMembership()) {
+    if (url.pathname !== "/api/play/config" && requiresOtwPlayMembership(env.SITE_ID)) {
       const auth = await authenticateRequest(request, env);
       if (!auth.ok) return tracked(Response.json({ error: {
         code: "PLAY_AUTH_REQUIRED", message: "OTW Play는 로그인한 회원만 이용할 수 있습니다.", requestId,

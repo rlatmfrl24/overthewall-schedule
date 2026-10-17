@@ -56,9 +56,21 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
     return <OtwPlayConfigError onRetry={() => void publicConfig.refetch()} />;
   }
 
-  if (!requiresOtwPlayMembership() && publicConfig.data.data.publicReadEnabled &&
-      (pathname === "/play" || pathname === "/play/songs" || /^\/play\/songs\/[^/]+$/.test(pathname))) {
-    return <OtwPlayCatalogRequestProvider><OtwPlayExperience>{children}</OtwPlayExperience></OtwPlayCatalogRequestProvider>;
+  const isAdmin = isLoaded && isSignedIn && adminStatusQuery.data?.isAdmin;
+  const needsAdminCheck = isSignedIn && (adminStatusQuery.isPending || adminStatusQuery.isError);
+  if (!requiresOtwPlayMembership(site.id) && !isAdmin &&
+      (publicConfig.data.data.publicReadEnabled || !needsAdminCheck) &&
+      (pathname === "/play" || pathname === "/play/songs" || /^\/play\/(?:songs|members)\/[^/]+$/.test(pathname) ||
+        /^\/play\/playlists(?:\/defaults\/[^/]+)?\/?$/.test(pathname))) {
+    if (publicConfig.data.data.publicReadEnabled) {
+      return <OtwPlayCatalogRequestProvider><OtwPlayExperience>{children}</OtwPlayExperience></OtwPlayCatalogRequestProvider>;
+    }
+    return <OtwPlayAccessCard title={`${site.playName} 공개 준비 중입니다`}
+      description="공개 후 이곳에서 노래와 기본 플레이리스트를 만나보세요.">
+      {isSignedIn && !mobile && <Button asChild className="w-full rounded-full">
+        <Link to="/play/submit" search={{ edit: undefined, submissionKind: pathname.startsWith("/play/songs") ? "official_cover" : undefined }}>곡 제안하기</Link>
+      </Button>}
+    </OtwPlayAccessCard>;
   }
 
   if (!isLoaded) {

@@ -1,5 +1,6 @@
 import { PLAY_PLAYLIST_MAX_ITEMS, type PlayDefaultPlaylistWrite, type PlayPlaylistWrite } from "@contracts/otw-play-playlists";
 import { OTW_PLAY_ADMIN_PREVIEW_HEADER } from "@contracts/otw-play";
+import { requiresOtwPlayMembership } from "@contracts/otw-play-access";
 import { authenticateRequest, requireAdminUser } from "../../../platform/auth";
 import { getActorInfo } from "../../../platform/http-helpers";
 import type { Env } from "../../../platform/types";
@@ -61,8 +62,9 @@ export const createPlaylistHandler = (resolve: (env: Env) => PlaylistService) =>
       return json({ data: await service.saveDefault(id, parseDefaultPlaylistWrite(input), version(input.expectedVersion),
         { userId: admin.user.id, displayName: actor.actorName, ipAddress: actor.actorIp }) });
     }
-    const auth = await authenticateRequest(request, env);
-    if (!auth.ok) return json({ error: { code: "PLAY_AUTH_REQUIRED", message: "로그인이 필요합니다." } }, auth.response.status);
+    const publicRead = ["/api/play/playlists/defaults", "/api/play/performances", "/api/play/performances/resolve"].includes(url.pathname);
+    const auth = requiresOtwPlayMembership(env.SITE_ID) || !publicRead ? await authenticateRequest(request, env) : null;
+    if (auth && !auth.ok) return json({ error: { code: "PLAY_AUTH_REQUIRED", message: "로그인이 필요합니다." } }, auth.response.status);
     const preview = request.headers.get(OTW_PLAY_ADMIN_PREVIEW_HEADER) === "1";
     if (preview) { const admin = await requireAdminUser(request, env); if (!admin.ok) return json({ error: { code: "PLAY_AUTH_REQUIRED", message: "관리자 미리보기 권한이 필요합니다." } }, admin.response.status); }
     const context = { allowDisabledRead: preview, allowSharedCache: false, allowBroadcastRead: preview };
@@ -82,6 +84,7 @@ export const createPlaylistHandler = (resolve: (env: Env) => PlaylistService) =>
       return json({ ...result, data: { ...result.data, items: result.data.items.map(toPerformanceResponse) } });
     }
     if (url.searchParams.size) return invalid();
+    if (!auth?.ok) return json({ error: { code: "PLAY_AUTH_REQUIRED", message: "로그인이 필요합니다." } }, 401);
     const owner = auth.user.id;
     if (url.pathname === "/api/play/me/playlists") {
       if (request.method === "GET") return json({ data: await service.list(context, owner) });
