@@ -26,6 +26,19 @@ it("renders the public countdown without waiting for Clerk, app assets or D1", a
   expect(await response!.text()).toContain("2026년 10월 19일 오전 0시 공개");
 });
 
+it.each(["/launch/countdown.css", "/launch/luvdia-members-silhouette.webp", "/launch/outfit-latin.woff2"])("serves only explicitly public launch assets before opening: %s", async path => {
+  const fetch = vi.fn(async () => new Response("launch asset"));
+  const response = await readSitePublicationAccess(request(path), { ...env(), ASSETS: { fetch } } as unknown as Env);
+  expect(await response!.text()).toBe("launch asset");
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(authenticateOptionalRequest).not.toHaveBeenCalled();
+});
+
+it.each(["/launch/private.webp", "/launch/private.json", "/launch/../profile/bing_hayu.webp", "/launch/luvdia-heart.webp", "/launch/luvdia-opening.ics"])("does not widen the launch asset exception: %s", async path => {
+  expect((await readSitePublicationAccess(request(path), env()))?.status).toBe(403);
+});
+
+
 it.each(["/api/members", "/api/play/config", "/api/settings", "/r2-assets/members/a.webp", "/profile/bing_hayu.webp", "/%61pi/members"])("blocks anonymous content without D1: %s", async path => {
   const response = await readSitePublicationAccess(request(path), env());
   expect(response?.status).toBe(403);
