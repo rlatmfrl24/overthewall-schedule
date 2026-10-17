@@ -518,6 +518,7 @@ describe("D1 scheduled job state machine", () => {
     // The provider result is complete, but the original coordinator/finalizer
     // responsibility is still durable until its separate completion receipt.
     expect((await repository.readRunDto(run.id))!.status).toBe('partial');
+    const finishedAt = timestamp;
     timestamp += SCHEDULED_JOB_LEASE_MS + 1;
     const [reconciliation] = await repository.claimPendingOutbox(run.id, 1);
     expect(reconciliation).toBeDefined();
@@ -568,7 +569,7 @@ describe("D1 scheduled job state machine", () => {
     })).map((entry) => entry.runId)).not.toContain(run.id);
     expect(await repository.readLatestSuccessfulRunTimes()).toContainEqual({
       jobType: "youtube_feed_collection",
-      latestSuccessAt: timestamp,
+      latestSuccessAt: finishedAt,
     });
   });
 

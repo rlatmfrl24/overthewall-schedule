@@ -3,7 +3,8 @@ import { SITE_OPENS_AT } from "@contracts/site-publication";
 import { memberRootPredicates } from "./member-roots";
 
 const cutoffSeconds = Date.parse(SITE_OPENS_AT) / 1000;
-const hiddenUids = "SELECT uid FROM members WHERE code IN ('bing_hayu','u_lili','yang_mei')";
+const hiddenCodes = "'bing_hayu','u_lili','yang_mei'";
+const hiddenUids = `SELECT uid FROM members WHERE code IN (${hiddenCodes})`;
 const predicates = memberRootPredicates(expression => `${expression} IN (${hiddenUids})`);
 // OTW row identities explicitly confirmed by the operator; titles are not selectors.
 const reviewedDdayIds = [4, 9, 10, 11];
@@ -11,8 +12,11 @@ export const publicationCutoffSql=(siteId:SiteId)=>siteId==='otw'?`max(unixepoch
 export const isPublicationCutoffSqlError=(message:string)=>/^D1_ERROR: (?:bad JSON path: 'publication_cutoff'|JSON path error near 'publication_cutoff'): SQLITE_ERROR$/.test(message);
 
 function channelOwnerSql(channelSql: string, remaining: boolean): string {
-  const owns = `publication_owner.youtube_channel_id=${channelSql} OR EXISTS(SELECT 1 FROM member_links publication_link WHERE publication_link.member_uid=publication_owner.uid AND publication_link.youtube_channel_id=${channelSql}${remaining?' AND publication_link.enabled=1':''}) OR EXISTS(SELECT 1 FROM music_channels publication_channel JOIN music_channel_entities publication_credit ON publication_credit.channel_id=publication_channel.id JOIN music_entities publication_entity ON publication_entity.id=publication_credit.entity_id WHERE publication_channel.provider='youtube' AND publication_channel.external_channel_id=${channelSql} AND publication_entity.member_uid=publication_owner.uid${remaining?" AND publication_channel.active=1 AND publication_channel.verification_status='approved' AND publication_entity.archived_at IS NULL":''})`;
-  return `EXISTS(SELECT 1 FROM members publication_owner WHERE publication_owner.uid ${remaining?'NOT IN':'IN'} (${hiddenUids})${remaining?" AND publication_owner.content_access='normal' AND coalesce(publication_owner.is_deprecated,0)=0":''} AND (${owns}))`;
+  // Keep the ownership alternatives flat enough for D1's expression-depth limit.
+  const owners = `SELECT uid FROM members WHERE youtube_channel_id=${channelSql}
+    UNION SELECT member_uid FROM member_links WHERE youtube_channel_id=${channelSql}${remaining?' AND enabled=1':''}
+    UNION SELECT publication_entity.member_uid FROM music_channels publication_channel JOIN music_channel_entities publication_credit ON publication_credit.channel_id=publication_channel.id JOIN music_entities publication_entity ON publication_entity.id=publication_credit.entity_id WHERE publication_channel.provider='youtube' AND publication_channel.external_channel_id=${channelSql}${remaining?" AND publication_channel.active=1 AND publication_channel.verification_status='approved' AND publication_entity.archived_at IS NULL":''}`;
+  return `EXISTS(SELECT 1 FROM members publication_owner WHERE coalesce(publication_owner.code,'') ${remaining?'NOT IN':'IN'} (${hiddenCodes})${remaining?" AND publication_owner.content_access='normal' AND coalesce(publication_owner.is_deprecated,0)=0":''} AND publication_owner.uid IN (${owners}))`;
 }
 const hiddenChannelSql = (channelSql: string) => `(${channelOwnerSql(channelSql,false)} AND NOT ${channelOwnerSql(channelSql,true)})`;
 export function publicationChannelHiddenSql(channelSql: string, siteId: SiteId): string {

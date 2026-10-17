@@ -919,7 +919,7 @@ it.each([
   ['archived shared owner', 'main', "UPDATE members SET content_access='admin_archive' WHERE uid=2", true],
   ['deprecated shared owner', 'main', 'UPDATE members SET is_deprecated=1 WHERE uid=2', true],
   ['archived shared entity', 'catalog', "UPDATE music_entities SET archived_at=100 WHERE member_uid=2", true],
-  ['unapproved shared channel', 'catalog', "UPDATE music_channels SET verification_status='pending' WHERE id='publication-shared-channel'", true],
+  ['unapproved shared channel', 'catalog', "UPDATE music_channels SET verification_status='pending',active=0 WHERE id='publication-shared-channel'", true],
   ['inactive shared channel', 'catalog', "UPDATE music_channels SET active=0 WHERE id='publication-shared-channel'", true],
 ] as const)('uses the same publication ownership for %s candidates, monitors and feed rows', async (_name, sharedOwner, invalidate, hidden) => {
   const now=Date.parse(SITE_OPENS_AT);
