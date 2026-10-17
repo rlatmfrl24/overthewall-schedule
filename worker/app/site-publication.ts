@@ -12,6 +12,7 @@ const privateHeaders = {
   Vary: "Authorization, Cookie",
 };
 const handleAdminStatus = createAuthStatusHandler();
+const countdownAssets = new Set(["/launch/countdown.css", "/launch/luvdia-members-silhouette.webp", "/launch/outfit-latin.woff2"]);
 
 export async function readSitePublicationStatus(request: Request, env: Env): Promise<Response> {
   const { site } = getWorkerSiteResources(env);
@@ -31,7 +32,7 @@ export async function readSitePublicationAccess(request: Request, env: Env): Pro
     return request.method === "HEAD" ? new Response(null, response) : response;
   }
   // These contain application code/brand only. Content-bearing files never bypass the gate.
-  const bootstrap = path === "/logo_luvdia.webp" || path === "/favicon.ico" || /^\/assets\/[a-zA-Z0-9_.-]+\.(?:js|css|woff2?)$/.test(path);
+  const bootstrap = path === "/logo_luvdia.webp" || path === "/favicon.ico" || /^\/assets\/[a-zA-Z0-9_.-]+\.(?:js|css|woff2?)$/.test(path) || (site.id === "luvdia" && countdownAssets.has(path));
   if (bootstrap) return env.ASSETS ? env.ASSETS.fetch(request) : new Response(null, { status: 404 });
   if (path === apiRoutes.auth.adminStatus.pattern) return handleAdminStatus(request, env);
   if (getSitePublication(site.id, Date.now(), env.SITE_PUBLICATION_HOLD === "true").phase === "open") return null;
