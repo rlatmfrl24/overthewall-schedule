@@ -8,6 +8,7 @@ import {
   clearChzzkServiceCachesForTests,
   fetchChzzkClipsBatch,
   fetchChzzkLiveStatus,
+  fetchChzzkLiveStatusForScan,
   fetchChzzkLiveStatusWithDebug,
   fetchChzzkVideos,
   fetchChzzkVideosBatch,
@@ -46,7 +47,7 @@ export const clearChzzkRouteCachesForTests = () => {
 };
 
 export type ChzzkVideoCatalog = {
-  fetchLiveStatus?: typeof fetchChzzkLiveStatusWithDebug;
+  fetchLiveStatus?: typeof fetchChzzkLiveStatusForScan;
   fetchVideos(
     channelId: string,
     page: number,
@@ -60,7 +61,7 @@ export type ChzzkVideoCatalog = {
 };
 
 export const chzzkVideoCatalog: ChzzkVideoCatalog = {
-  fetchLiveStatus: (channelId) => fetchChzzkLiveStatusWithDebug(channelId),
+  fetchLiveStatus: (channelId) => fetchChzzkLiveStatusForScan(channelId),
   fetchVideos: (channelId, page, size) =>
     fetchChzzkVideos(channelId, page, size),
   fetchVideosBatch: (requests, cacheDb, options) =>

@@ -909,6 +909,78 @@ it('allows independent LuvDia and shared-owner AI collection after midnight',asy
   const shared=cutoffReview('publication-ai-shared');await otw.create(shared,shared.id,shared.id,false,Date.now());expect(await otw.claim(shared.id,'shared-lease',Date.now(),500)).not.toBeNull();
 });
 
+it.each([
+  ['selected only', null, null, true],
+  ['shared main channel', 'main', null, false],
+  ['shared enabled link', 'link', null, false],
+  ['shared supplemental link', 'sub', null, false],
+  ['shared catalog owner', 'catalog', null, false],
+  ['disabled shared link', 'link', "UPDATE member_links SET enabled=0 WHERE member_uid=2", true],
+  ['archived shared owner', 'main', "UPDATE members SET content_access='admin_archive' WHERE uid=2", true],
+  ['deprecated shared owner', 'main', 'UPDATE members SET is_deprecated=1 WHERE uid=2', true],
+  ['archived shared entity', 'catalog', "UPDATE music_entities SET archived_at=100 WHERE member_uid=2", true],
+  ['unapproved shared channel', 'catalog', "UPDATE music_channels SET verification_status='pending',active=0 WHERE id='publication-shared-channel'", true],
+  ['inactive shared channel', 'catalog', "UPDATE music_channels SET active=0 WHERE id='publication-shared-channel'", true],
+] as const)('uses the same publication ownership for %s candidates, monitors and feed rows', async (_name, sharedOwner, invalidate, hidden) => {
+  const now=Date.parse(SITE_OPENS_AT);
+  vi.spyOn(Date,'now').mockReturnValue(now);
+  await db.batch([
+    db.prepare("UPDATE members SET content_access='normal' WHERE uid=1"),
+    db.prepare("INSERT INTO music_entities(id,member_uid,entity_kind,display_name,normalized_name,slug,version,created_at,updated_at) VALUES('publication-selected-owner',1,'person','Selected','selected','publication-selected-owner',0,100,100),('publication-shared-owner',2,'person','Remaining','remaining','publication-shared-owner',0,100,100)"),
+    db.prepare("INSERT INTO music_channels(id,provider,external_channel_id,display_name,channel_role,verification_status,active,version,created_at,updated_at) VALUES('publication-shared-channel','youtube','UCaaaaaaaaaaaaaaaaaaaaaa','Shared','approved_kirinuki','approved',1,0,100,100),('publication-unrelated-channel','youtube','UCbbbbbbbbbbbbbbbbbbbbbb','Unrelated','approved_kirinuki','approved',1,0,100,100)"),
+    db.prepare("INSERT INTO music_ingestion_candidates(id,external_video_id,channel_id,first_discovered_at,last_discovered_at,retention_expires_at,created_at,updated_at) VALUES('youtube:PPPPPPPPPP1','PPPPPPPPPP1','UCaaaaaaaaaaaaaaaaaaaaaa',100,100,9999999999999,100,100),('youtube:PPPPPPPPPP2','PPPPPPPPPP2','UCbbbbbbbbbbbbbbbbbbbbbb',100,100,9999999999999,100,100)"),
+    db.prepare("INSERT INTO music_channel_automation_approvals(channel_id,scope,status,operator_reference,approval_reference,revocation_procedure,approved_by_user_id,approved_at,created_at,updated_at) VALUES('publication-shared-channel','candidate_collection','approved','operator','approval','pause','archive-admin',100,100,100)"),
+    db.prepare("INSERT INTO music_channel_upload_monitors(id,channel_id,uploads_playlist_id,next_check_at,created_by_user_id,created_at,updated_at) VALUES('publication-shared-monitor','publication-shared-channel','UUaaaaaaaaaaaaaaaaaaaaaa',100,'archive-admin',100,100)"),
+    db.prepare("INSERT INTO youtube_feed_sources(id,source_kind,member_uid,youtube_channel_id,collection_started_at,initialization_completed_at,next_check_at,backfill_exhausted_at,created_at,updated_at) VALUES(1,'official',1,'UCaaaaaaaaaaaaaaaaaaaaaa',100,100,?,100,100,100),(2,'official',2,'UCbbbbbbbbbbbbbbbbbbbbbb',100,100,?,100,100,100)").bind(now+86400000,now+86400000),
+    db.prepare("INSERT INTO youtube_feed_videos(video_id,source_id,title,published_at,fetched_at) VALUES('PPPPPPPPPP1',1,'Shared feed',100,?)").bind(now),
+  ]);
+  if(sharedOwner==='main') await db.prepare("UPDATE members SET youtube_channel_id='UCaaaaaaaaaaaaaaaaaaaaaa' WHERE uid=2").run();
+  else if(sharedOwner==='link'||sharedOwner==='sub') await db.prepare("INSERT INTO member_links(member_uid,type,label,url,youtube_channel_id,enabled) VALUES(2,?,'Shared','https://youtube.com/shared','UCaaaaaaaaaaaaaaaaaaaaaa',1)").bind(sharedOwner==='link'?'youtube_vod':'youtube_sub').run();
+  else if(sharedOwner==='catalog') await db.prepare("INSERT INTO music_channel_entities(channel_id,entity_id) VALUES('publication-shared-channel','publication-selected-owner'),('publication-shared-channel','publication-shared-owner')").run();
+  if(invalidate) await db.prepare(invalidate).run();
+
+  const channels=(await db.prepare(`SELECT ch.id FROM music_channels ch WHERE ${publicationHiddenSql('music_channels','ch','otw')} ORDER BY ch.id`).all<{id:string}>()).results.map(row=>row.id);
+  expect(channels).toEqual(hidden?['publication-shared-channel']:[]);
+  const candidates=(await db.prepare(`SELECT candidate.id FROM music_ingestion_candidates candidate WHERE ${publicationHiddenSql('music_ingestion_candidates','candidate','otw')} ORDER BY candidate.id`).all<{id:string}>()).results.map(row=>row.id);
+  expect(candidates).toEqual(hidden?['youtube:PPPPPPPPPP1']:[]);
+  for(const [table,alias] of [['youtube_feed_sources','source'],['youtube_feed_videos','video']] as const) {
+    expect(Boolean(await db.prepare(`SELECT 1 FROM ${table} ${alias} WHERE ${publicationHiddenSql(table,alias,'otw')}`).first())).toBe(hidden);
+    expect(await db.prepare(`SELECT 1 FROM ${table} ${alias} WHERE ${publicationHiddenSql(table,alias,'luvdia')}`).first()).toBeNull();
+  }
+  expect(await db.prepare('SELECT member_uid FROM youtube_feed_sources WHERE id=1').first('member_uid')).toBe(1);
+  const ai=new D1AiReviewRepository(db,'otw');
+  const collection=ai.assertCollectionAllowed('youtube:PPPPPPPPPP1','PPPPPPPPPP1','UCaaaaaaaaaaaaaaaaaaaaaa');
+  if(hidden) await expect(collection).rejects.toMatchObject({code:'publication_cutoff'});
+  else await expect(collection).resolves.toBeUndefined();
+  const monitor=new D1ChannelMonitorRepository(db,'otw');
+  expect(await monitor.listDueIds(now,10)).toEqual(hidden?[]:['publication-shared-monitor']);
+  if(!hidden) expect(await monitor.claim('publication-shared-monitor',now)).not.toBeNull();
+
+  if(sharedOwner&&!invalidate) {
+    // Fix only the SQL clock input; the normal registry still performs its real D1 upsert.
+    const timed=new Proxy(db,{get(target,property){
+      if(property==='prepare') return (sql:string)=>target.prepare(sql.replaceAll('unixepoch()',String(now/1000)));
+      const value=Reflect.get(target,property,target);return typeof value==='function'?value.bind(target):value;
+    }});
+    const result=await runScheduledYouTubeFeedCollection({...runtime,otw_db:timed,YOUTUBE_API_KEY:'test-key'});
+    expect(result.failed).toBe(0);
+    expect(await db.prepare('SELECT member_uid FROM youtube_feed_sources WHERE id=1').first('member_uid')).toBe(sharedOwner==='main'||sharedOwner==='link'?2:1);
+    expect(await db.prepare("SELECT source_id FROM youtube_feed_videos WHERE video_id='PPPPPPPPPP1'").first('source_id')).toBe(1);
+  }
+});
+
+it.each(['linked performance','review member'] as const)('retains direct candidate hiding through its %s on a legitimate shared channel', async direct => {
+  await catalog();
+  vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await db.batch([
+    db.prepare("UPDATE members SET content_access='normal' WHERE uid=1"),
+    db.prepare("UPDATE members SET youtube_channel_id='UCaaaaaaaaaaaaaaaaaaaaaa' WHERE uid=2"),
+    db.prepare("INSERT INTO music_ingestion_candidates(id,external_video_id,channel_id,linked_performance_id,review_input_json,first_discovered_at,last_discovered_at,retention_expires_at,created_at,updated_at) VALUES('youtube:PPPPPPPPPP1','PPPPPPPPPP1','UCaaaaaaaaaaaaaaaaaaaaaa',?,?,100,100,9999999999999,100,100)").bind(direct==='linked performance'?'archived-performance':null,direct==='review member'?JSON.stringify({participants:[{subject:{kind:'member',memberUid:1}}]}):null),
+  ]);
+  expect(await db.prepare(`SELECT 1 FROM music_ingestion_candidates candidate WHERE ${publicationHiddenSql('music_ingestion_candidates','candidate','otw')}`).first()).not.toBeNull();
+  await expect(new D1AiReviewRepository(db,'otw').assertCollectionAllowed('youtube:PPPPPPPPPP1','PPPPPPPPPP1','UCaaaaaaaaaaaaaaaaaaaaaa')).rejects.toMatchObject({code:'publication_cutoff'});
+});
+
 it("refuses an unissued AI lease crossing midnight but preserves an already issued original response", async () => {
   const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(SITE_OPENS_AT) - 1);
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();

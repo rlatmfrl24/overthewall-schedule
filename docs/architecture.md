@@ -1,5 +1,11 @@
 # OTW Schedule 아키텍처
 
+현재 작업과 운영 중단 조건은 [단일 작업 목록](current-work.md)에서 확인한다. 이 문서는 변경할 기능의 구조를 대조할 때만 참조한다.
+
+## 2026-10-16 공개·저장 책임 분리
+
+PR161 반영 후 공개 시점·멤버 숨김·수집 차단·아카이브 선택·캐시 revision은 Worker의 content-access가 소유한다. 일반 파일 참조·원본 보호·보존 기간·업로드 복구는 assets, 과거 자료 DTO는 contracts/content-history.ts가 소유한다. 일정·공지·D-day·Play·AI·X의 일반 저장과 감사·lease·재시도·원자성은 각 기능에 남는다. 이관 repository·relay/RPC·이관 메시지/Cron 복구·전용 writer는 제거됐으며 일반 기능의 의존성으로 복원하지 않는다. [현행 공개 정책](operations/site-publication.md)과 [배포 근거](reports/sul-36/2026-10-16-content-transition-retirement.md)를 따른다.
+
 ## 문서 상태
 
 - 상태: 현재 구현의 기준 문서

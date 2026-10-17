@@ -96,3 +96,84 @@ it("keeps protected originals out of img requests and revokes Blob URLs on repla
   view.unmount();
   expect(revoked).toEqual(["blob:protected-1", "blob:protected-2"]);
 });
+
+it("shares identical private image bytes until the last mounted consumer leaves", async () => {
+  vi.stubGlobal("window", Object.assign(window, { Clerk: { session: { getToken: async () => "own-session" } } }));
+  let finish: ((response: Response) => void) | undefined;
+  let signal: AbortSignal | null | undefined;
+  const fetcher = vi.fn<typeof fetch>(async (_path, init) => {
+    signal = init?.signal;
+    return new Promise<Response>(resolve => { finish = resolve; });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const create = vi.fn(() => "blob:shared-profile");
+  const revoke = vi.fn(); URL.createObjectURL = create; URL.revokeObjectURL = revoke;
+  const image = (key: string) => <AuthenticatedImage key={key} protectedImage={false} src="/profile/signatures/bing_hayu.png" alt={key} />;
+  const view = render(<ContentSessionContext.Provider value="same-session">{image("first")}{image("second")}</ContentSessionContext.Provider>);
+  await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+  view.rerender(<ContentSessionContext.Provider value="same-session">{image("second")}</ContentSessionContext.Provider>);
+  expect(signal?.aborted).toBe(false);
+  await act(async () => finish!(new Response(new Uint8Array([1, 2, 3]))));
+  await waitFor(() => expect(view.getByAltText("second").getAttribute("src")).toBe("blob:shared-profile"));
+  expect(create).toHaveBeenCalledOnce();expect(revoke).not.toHaveBeenCalled();
+  view.unmount();expect(revoke).toHaveBeenCalledOnce();expect(signal?.aborted).toBe(true);
+});
+
+it("never shares protected image bytes between content sessions", async () => {
+  vi.stubGlobal("window", Object.assign(window, { Clerk: { session: { getToken: async () => "token" } } }));
+  const fetcher = vi.fn<typeof fetch>(async () => new Response(new Uint8Array([1])));
+  vi.stubGlobal("fetch", fetcher);
+  let count=0;URL.createObjectURL=()=>`blob:isolated-${++count}`;URL.revokeObjectURL=()=>{};
+  const view=render(<>
+    <ContentSessionContext.Provider value="session-a"><AuthenticatedImage protectedImage={false} src="/profile/bing_hayu.webp" alt="a" /></ContentSessionContext.Provider>
+    <ContentSessionContext.Provider value="session-b"><AuthenticatedImage protectedImage={false} src="/profile/bing_hayu.webp" alt="b" /></ContentSessionContext.Provider>
+  </>);
+  await waitFor(()=>expect(view.getByAltText("a").getAttribute("src")).toBeTruthy());
+  await waitFor(()=>expect(view.getByAltText("b").getAttribute("src")).toBeTruthy());
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(view.getByAltText("a").getAttribute("src")).not.toBe(view.getByAltText("b").getAttribute("src"));
+});
+
+it("keeps simultaneous reference permissions isolated within one session", async () => {
+  vi.stubGlobal("window", Object.assign(window, { Clerk: { session: { getToken: async () => "token" } } }));
+  const raw = "https://external.example/image.webp";
+  const fetcher = vi.fn<typeof fetch>(async input => {
+    const context = JSON.parse(new URL(String(input), window.location.origin).searchParams.get("context")!);
+    return context.relatedMemberUids.length ? new Response("Unresolved", { status: 400 }) : Response.json({ path: null });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(<ContentSessionContext.Provider value="session">
+    <AuthenticatedImage src={raw} alt="allowed" referenceContext={{ kind: "notice-draft", relatedMemberUids: [] }} />
+    <AuthenticatedImage src={raw} alt="denied" referenceContext={{ kind: "notice-draft", relatedMemberUids: [1] }} />
+  </ContentSessionContext.Provider>);
+  await waitFor(() => expect(view.getByAltText("allowed").getAttribute("src")).toBe(raw));
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(view.getByAltText("denied").getAttribute("src")).toBeNull();
+});
+
+it("retries failed bytes for a new consumer without an old consumer releasing its request", async () => {
+  vi.stubGlobal("window", Object.assign(window, { Clerk: { session: { getToken: async () => "token" } } }));
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response("Failed", { status: 500 })).mockResolvedValueOnce(new Response(new Uint8Array([1])));
+  vi.stubGlobal("fetch", fetcher);
+  URL.createObjectURL = () => "blob:retry"; const revoke = vi.fn(); URL.revokeObjectURL = revoke;
+  const image = (key: string) => <AuthenticatedImage key={key} protectedImage={false} src="/profile/bing_hayu.webp" alt={key} />;
+  const view = render(<ContentSessionContext.Provider value="session">{image("failed")}</ContentSessionContext.Provider>);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  expect(view.getByAltText("failed").getAttribute("src")).toBeNull();
+  view.rerender(<ContentSessionContext.Provider value="session">{image("failed")}{image("retry")}</ContentSessionContext.Provider>);
+  await waitFor(() => expect(view.getByAltText("retry").getAttribute("src")).toBe("blob:retry"));
+  view.rerender(<ContentSessionContext.Provider value="session">{image("retry")}</ContentSessionContext.Provider>);
+  expect(revoke).not.toHaveBeenCalled();expect(fetcher).toHaveBeenCalledTimes(2);
+  view.unmount();expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:retry");
+});
+
+it("does not create private object URLs when the last consumer leaves before bytes arrive", async () => {
+  vi.stubGlobal("window", Object.assign(window, { Clerk: { session: { getToken: async () => "token" } } }));
+  let finish: ((response: Response) => void) | undefined;
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => new Promise<Response>(resolve => { finish = resolve; })));
+  const create = vi.fn();URL.createObjectURL = create;const revoke = vi.fn();URL.revokeObjectURL = revoke;
+  const view = render(<ContentSessionContext.Provider value="session"><AuthenticatedImage protectedImage={false} src="/profile/bing_hayu.webp" alt="cancelled" /></ContentSessionContext.Provider>);
+  await waitFor(() => expect(finish).toBeDefined());view.unmount();
+  await act(async () => finish!(new Response(new Uint8Array([1]))));
+  expect(create).not.toHaveBeenCalled();expect(revoke).not.toHaveBeenCalled();
+});

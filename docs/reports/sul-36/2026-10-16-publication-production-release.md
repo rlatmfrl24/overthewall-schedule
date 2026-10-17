@@ -2,7 +2,7 @@
 
 ## 현재 판정
 
-2026-10-16 실행 중. [릴리스 PR160](https://github.com/rlatmfrl24/overthewall-schedule/pull/160)의 최초 HEAD는 `68fdf4f75b8da3afe98aa2e1d0c7ed9ca671f62b`다. 최종 정확한 검토 OID와 운영 readback은 해당 PR ledger에 기록한다. 원격 마이그레이션, PR 병합, 새 production Worker 배포와 실제 19일 전환은 각각의 증거가 생긴 뒤 판정한다.
+**2026-10-16 15:52 KST: 최소 운영 스키마 승격·PR160 병합·양 사이트 운영 배포 완료.** 검토 HEAD `6da550fc4da1577ef13a92f80617027a47764ccd`, 병합 소스 `037d4252278f17950b10be9af8b33a525027a9e6`다. 실제 19일 정각은 아직 관측 전이며 예약으로 확인한다. 전체 test suite PASS를 뜻하지 않는다. [PR160](https://github.com/rlatmfrl24/overthewall-schedule/pull/160)의 ledger와 아래 운영 결과를 최신 판정으로 사용한다.
 
 승인 계약: **2026-10-19 00:00 KST**에 LuvDia 공개 및 OTW `bing_hayu`, `u_lili`, `yang_mei` 일반 노출·신규 수집 종료. OTW D-day **4 러브다이아 데뷔, 9 빙하유 생일, 10 양메이 생일, 11 유리리 생일**도 운영자가 명시 확인했다. 원본과 관리자 열람, 다른 멤버와 정당한 공유 콘텐츠를 유지한다. 실제 전환은 서버 시간 정책이며 예약은 관측만 담당한다.
 
@@ -61,7 +61,7 @@
 
 19일00:01 KST 단일 관측 예약 `otw-luvdia-19`를 기존 목록 확인 후 생성·재조회했다. API/화면의 실제 전환을 읽기 전용으로 관측하고 완료·실패만 알린 뒤 중지한다. 실제 공개는 이 예약에 의존하지 않는다. 이전 `otw-9-d1`는 PAUSED를 유지한다.
 
-리뷰 최종 OID, Worker 미해결 회귀·0140 populated upgrade, 원격 승격 비용/readback, 배포 버전/산출물 해시, 정상 도메인/관리자 인증, 자연 예약 실행, 19일 실제 결과, 병합 증명된 branch 정리가 남았다. 로컬 fake clock·provider fixture를 실제 정각·운영 관리자 로그인·유료 AI 성공으로 대신하지 않는다. 운영 결과는 이 기록과 owning PR ledger에 실제 상태로 갱신한다.
+리뷰·0140 populated upgrade·원격 승격/readback·양 사이트 배포·정상 도메인/관리자 인증·증명된 branch 정리·X 배포 후 자연 실행은 아래 결과로 완료했다. 실제19일 전환과 고비용 후속은 남아 있다. 로컬 fake clock·provider fixture를 실제 정각이나 유료 AI 성공으로 대신하지 않는다.
 
 고비용 후속 작업은 [통합 작업 목록](2026-10-16-work-register.md)의 보류·재개 조건을 유지한다.
 
@@ -74,3 +74,26 @@
 승격 전 기록: OTW migration103개(0101+0137/0138), LuvDia136개, 제안 원본/참여자/원작자3/4/3행. 양 사이트 복구 북마크를 확보했고 합계1,549행 읽기·0행 쓰기였다. private 원본은 ignored 증거 파일에만 보관했다. 15:05 집계 계정236,004행 읽기에 로컬 승격 예상2,495,644행을 합하면 약273만 행이다. 실제 적용 직전 집계와 이력을 다시 확인한다.
 
 점검 경합의 공통 decoder 수정만으로는 HTTP handler의 일반500 변환을 통과하지 못하는 것을 실제 Worker에서 추가 확인했다. handler도 알려진 점검 오류를 원형 전파하도록 수정했고 단위 RED2→GREEN17을 확인했다. 실제 정상 HTTP 진입점에서 song/entity 마지막 SQL 경합2개는503·Retry-After·no-store 및 원본 전체 보존으로 PASS, 독립 LuvDia launch(일반 회원 저장·관리자 catalog 저장/공개·일반 readback·파일)는 별도1개 PASS다. 요청 fixture 수정 후 동일 계약을 재검증한 합성 결과이며 전체 CT280개 통과가 아니다. 최종 architecture·lint·test/Worker/Node 타입과 배포 manifest8시험도 PASS다. 과거 플랫폼 정리 시도 중 중단한 실행은 완료 PASS로 계산하지 않는다.
+
+## 운영 반영 결과
+
+| 항목 | 실제 결과 |
+| --- | --- |
+| GitHub | PR160은2026-10-16 06:38:42Z 병합. 검토6da550fc와 병합037d4252의 전체 tree 차이0. 독립 공개 범위 리뷰에 미해결 Critical/Important 없음. |
+| DB | OTW37개/LuvDia4개 최소 승격 완료, 양 사이트 migration140개와 canonical 목록 일치. aborted_at 및0140 view SQL 정확 일치. OTW 기존 제안3/참여4/원작자3행의 모든 기존 컬럼 보존. remote schema-only doctor 양 사이트 PASS. 전수 정합성 검사·재이관·백필 없음. |
+| OTW 배포 | 기존 master 자동 Build `7c97f79b-2c39-41f1-97e7-eb5b90772a3f` 성공. 활성100% version `0e140a70-3574-4af4-8b4f-261477ed766a`, deployment `213414a3-bc94-4504-a999-d12790e7b4b2`. 수동 중복 배포 없음. |
+| LuvDia 배포 | 동일 병합037d4252에서 재빌드하고 검증 스크립트로 배포. 활성100% version `16fb230c-210c-4501-a8e2-cb367614fa30`, deployment `88cf3054-8c48-4084-97ca-99e74e594681`. |
+| 소스 일치 | 양 사이트 Git commit037d4252, Git tree `ca454f34fd996220e35ef2d9edcd5620d1544c20`. canonical source SHA256 `3a5925d98e14e318d2507cfba35b9931b84479dc4d52f45c828eddb1762abf52`. Windows 실파일 hash `8277921c1262aa5d610a5fec46cb576acbd8e2b4f0993ee7a74351a918c61256`와 차이는1,431파일 CRLF/LF뿐임을 Git blob batch로 확인했고 canonical hash는 실제 OTW CI log와 정확히 일치했다. |
+| 산출물 | OTW 실제 CI artifact SHA256 `5852b857a09cd1d81414a2b2a6a49b9afa52dd082f18bc21e93546a8382d9526`; LuvDia `97fc99e09b26332ca8446fe380fdca44e5943963349e88dc674599d305a6b3f9`. 사이트별 branding/Clerk/config 때문에 artifact는 별도다. |
+| 리소스·인증 | OTW D1 `133b980d-1701-427e-93fd-8c9dcca1132e`/R2 `otw-schedule`, LuvDia D1 `ce8eec7f-0922-4119-ab75-f67133b94312`/R2 `luvdia-schedule`을 활성 버전 binding에서 재조회했다. 양 사이트 Clerk 관리자/issuer/authorized-parties secret binding 유지. 실제 도메인의 정상 Clerk 로그인과 관리자 대시보드 접근 확인. 값·토큰 출력 없음. |
+| 예약·Queue | 양 사이트 Cron `3,13,23,33,53 * * * *` 유지. 사이트별 Queue6개 모두 unpaused, 사고 전 snapshot과 Queue 설정·consumer ID/설정·retry·retention 모두 동일. 메시지 purge나 강제 실행 없음. LuvDia Play 자동화의 기존 의도적 중지는 유지. |
+| 실제 공개 흐름 | 익명 LuvDia `/` 카운트다운·정확한10/19 00:00 KST·관리자 링크 표시. 멤버/D-day/공지 API, profile/R2 직접 파일, 인코딩 경로403; HEAD body0; private/no-store와 Authorization/Cookie Vary 확인. status 기존 GET/HEAD200 계약 유지. 정상 Google 로그인→관리자 대시보드→사이트로 돌아가기→멤버3명 미리보기와 `멀티뷰`, 빙하유 이미지 실제480px 로드 확인. |
+| OTW 실제 흐름 | 공개 status=open, 멤버8명(정각 전 이관3명 포함), D-day4/9/10/11 정상 조회. 새 배포 화면에서 기존 관리자 세션→관리자 대시보드 정상 진입. 실제 숨김은 아직 미래인19일 서버 시간 정책에 따라 적용한다. |
+| D1 예산 | 06:46Z 기존 Cloudflare 집계 account3,127,313 reads/19,595 writes. 승격·schema 검사·정상 운영이 함께 포함된 값이며 migration 단독 비용이라고 주장하지 않는다. 원격 대량 작업은 계속 보류한다. |
+| 보존·정리 | 원본 WIP409파일 재해시 변경0. GitHub가 제거한 remote 릴리스 branch의 부재와 merge OID/포함 관계를 증명한 뒤 local codex/otw-publication-release6da550fc와 그 stale remote ref만 제거했다. master=origin/master037d4252. 원본397love 작업 branch·X 작업 트리·공개 관측용 작업 트리 모두 유지한다. |
+
+운영 readback은 ignored `.tmp/publication-release-20261016/`의 `promotion-readback.json`, `public-production-readback.json`, `production-operations-readback.json`, `otw-ci-provenance.json`, `source-parity-proof.json`, `branch-cleanup.json`에 보관했다. 카운트다운 실제 화면은 `luvdia-countdown-production.png`다. 운영 완료 후 이 문서와 통합 목록에 추가한 증거는 로컬 문서 갱신이며, 이를 배포 소스의 새 코드 변경이나 두 번째 운영 배포로 취급하지 않는다.
+
+기존 `otw-9-d1` 확인 예약은 중복 생성 없이10/16 15:55 KST 배포 후 X 자연 실행의 읽기 전용 확인으로 갱신했다. 15:55:27 최소 표본에서 새 버전의 정규 실행 **2310·2311 모두 success**, 각4개·총8개 handle 점검/갱신, error=null을 확인했다. 새 게시물 저장은0건이며 이를 새 데이터 저장 성공으로 확대 해석하지 않는다. 최신3행 읽기·0행 쓰기였고 강제 수집 없이 실제 scheduled 결과를 확인한 뒤 예약을PAUSED로 되돌렸다. 로컬 빈 작업11행·미래 재시도7행은 전체 X 비용 회귀9개에서 유지됐다. 운영 표본3행은 수집 job 전체의 총 읽기량이라는 뜻이 아니다.
+
+`otw-luvdia-19`는10/19 00:01 KST 관측 예약을 유지한다. 공개 전환 자체는 예약에 의존하지 않는다. 공개 배포 뒤 과거 이관 전용 코드 제거는 공개 정책·일반 저장·파일/과거 자료 보존을 담당 기능으로 먼저 분리하는 별도 후속이며 데이터·이력 삭제를 포함하지 않는다.

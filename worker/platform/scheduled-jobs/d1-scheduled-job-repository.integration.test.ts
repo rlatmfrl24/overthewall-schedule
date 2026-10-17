@@ -518,6 +518,29 @@ describe("D1 scheduled job state machine", () => {
     // The provider result is complete, but the original coordinator/finalizer
     // responsibility is still durable until its separate completion receipt.
     expect((await repository.readRunDto(run.id))!.status).toBe('partial');
+    const finishedAt = timestamp;
+    timestamp += SCHEDULED_JOB_LEASE_MS + 1;
+    const [reconciliation] = await repository.claimPendingOutbox(run.id, 1);
+    expect(reconciliation).toBeDefined();
+    await repository.markOutboxDispatched(reconciliation!.id);
+    await repository.refreshRun(run.id);
+    expect((await repository.readRun(run.id))!.status).toBe("partial");
+    expect((await repository.readRunDto(run.id))!.status).toBe("partial");
+    expect((await repository.listRunDtos({ status: "partial", limit: 10 }))
+      .map(entry => entry.runId)).toContain(run.id);
+    expect(await repository.readLatestSuccessfulRunTimes()).not.toContainEqual(
+      expect.objectContaining({ jobType: "youtube_feed_collection" }),
+    );
+    // Older code could persist success during this delivery/acknowledgment window.
+    await db.prepare("UPDATE scheduled_job_runs SET status='succeeded' WHERE id=?").bind(run.id).run();
+    expect((await repository.readRunDto(run.id))!.status).toBe("partial");
+    expect((await repository.listRunDtos({ status: "partial", limit: 10 }))
+      .map(entry => entry.runId)).toContain(run.id);
+    expect((await repository.listRunDtos({ status: "succeeded", limit: 10 }))
+      .map(entry => entry.runId)).not.toContain(run.id);
+    expect(await repository.readLatestSuccessfulRunTimes()).not.toContainEqual(
+      expect.objectContaining({ jobType: "youtube_feed_collection" }),
+    );
     await repository.acknowledgeReconciliation((await repository.readItem(item!.id))!);
 
     expect(await repository.readRun(run.id)).toMatchObject({
@@ -546,7 +569,30 @@ describe("D1 scheduled job state machine", () => {
     })).map((entry) => entry.runId)).not.toContain(run.id);
     expect(await repository.readLatestSuccessfulRunTimes()).toContainEqual({
       jobType: "youtube_feed_collection",
-      latestSuccessAt: timestamp,
+      latestSuccessAt: finishedAt,
+    });
+  });
+
+  it("keeps dispatched X reconciliation visible until its completion receipt", async () => {
+    const repository = createRepository();
+    const run = await repository.createRun({
+      jobType: "x_collection", source: "manual", idempotencyKey: "x:reconciliation-dispatched",
+    });
+    await repository.addItems(run.id, [{ targetKey: "handle:member", phase: "collect", lane: "x" }]);
+    const [execution] = await repository.claimPendingOutbox(run.id, 1);
+    await repository.markOutboxDispatched(execution!.id);
+    const item = (await repository.claimItem(execution!.item_id))!;
+    await repository.completeItem(item, { status: "succeeded" });
+    timestamp += SCHEDULED_JOB_LEASE_MS + 1;
+    const [reconciliation] = await repository.claimPendingOutbox(run.id, 1);
+    await repository.markOutboxDispatched(reconciliation!.id);
+
+    expect((await repository.readRunDto(run.id))!.xCollection!.items[0]).toMatchObject({
+      retryPending: true, nextRetryAt: expect.any(Number),
+    });
+    await repository.acknowledgeReconciliation((await repository.readItem(item.id))!);
+    expect((await repository.readRunDto(run.id))!.xCollection!.items[0]).toMatchObject({
+      retryPending: false, nextRetryAt: null,
     });
   });
 

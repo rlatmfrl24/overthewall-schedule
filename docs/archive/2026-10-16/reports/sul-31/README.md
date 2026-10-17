@@ -1,3 +1,5 @@
+> 2026-10-16 아카이브: 당시 계획·검증 기록입니다. 미완료 표기를 현재 실행 지시로 사용하지 않습니다. 남은 작업과 중단 조건은 [현재 작업](../../../../current-work.md)을 따릅니다.
+
 # SUL-31 구현 및 검증 결과
 
 2026-09-23 · 기준 commit `4e8daa61492a6ea42e82da3d7ca7885038314e1d` · Node 24.20.0
@@ -20,7 +22,7 @@
 
 ## D1 비용 측정
 
-[계측 결과](read-costs.json), [변경 전 실행계획](baseline-plans.json), [변경 후 실행계획](optimized-plans.json).
+[계측 결과](../../../../reports/sul-31/read-costs.json), [변경 전 실행계획](../../../../reports/sul-31/baseline-plans.json), [변경 후 실행계획](../../../../reports/sul-31/optimized-plans.json).
 
 | 가져오기 규모 | 검수·임시 등록·게시 수 | 수집만: 이전 → 이후 읽기 | 전체: 이전 → 이후 읽기 | 전체 SQL 수: 이전 → 이후 |
 | ---: | ---: | ---: | ---: | ---: |
@@ -61,7 +63,7 @@ Analytics 지연, 장애 시 진행 정책, 다른 기능의 사용량 때문에
 
 ## 실제 로컬 관리자 흐름
 
-[권위 DB readback](ui-readback.json).
+[권위 DB readback](../../../../reports/sul-31/ui-readback.json).
 
 1. `localhost:5173/admin`의 기존 관리자 진입점으로 가져오기/검수에 진입했다.
 2. 기존 후보 `youtube:lk4XWoTHiwM`을 Ready 저장한 뒤, 다음 같은 곡 후보에서 새 곡을 즉시 검색·선택했다. 첫 후보는 임시 등록 후 게시했고 UI 서버 새로고침과 D1에서 `converted`/`published`를 확인했다.

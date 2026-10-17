@@ -241,13 +241,16 @@ const toRunDto = (
 // Keep both the eligibility probe and atomic claim on unresolved deliveries.
 // Inline-acknowledged reconcile rows need never be sent; they also must not
 // accumulate in the old pending-status scan after their work is complete.
+const unresolvedOutboxSql = `((o.event_type='reconcile' AND o.reconciled_at IS NULL)
+  OR (o.event_type='execute' AND o.status IN ('pending','failed','dispatching')))`;
+
 const pendingOutboxSelection = (scopedToRun: boolean) => `
   SELECT o.id
   FROM scheduled_outbox AS o INDEXED BY idx_scheduled_outbox_unresolved
   INNER JOIN scheduled_job_items i ON i.id = o.item_id
   INNER JOIN scheduled_job_runs r ON r.id = o.run_id
   WHERE ${scopedToRun ? "o.run_id = ? AND" : ""}
-    ((o.event_type='reconcile' AND o.reconciled_at IS NULL) OR (o.event_type='execute' AND o.status IN ('pending','failed','dispatching')))
+    ${unresolvedOutboxSql}
     AND (o.status <> 'dispatching' OR o.lease_until < ?)
     AND o.available_at <= ?
     AND (
@@ -820,8 +823,7 @@ export class D1ScheduledJobRepository {
                   EXISTS(
                     SELECT 1 FROM scheduled_outbox o
                     WHERE o.item_id = i.id
-                      AND o.status IN ('pending', 'failed', 'dispatching')
-                      AND (o.event_type <> 'reconcile' OR o.reconciled_at IS NULL)
+                      AND ${unresolvedOutboxSql}
                   ) AS retry_pending
            FROM scheduled_job_items i
            WHERE i.run_id = ? AND i.status = 'partial'`,
@@ -967,8 +969,7 @@ export class D1ScheduledJobRepository {
                 EXISTS(
                   SELECT 1 FROM scheduled_outbox o
                   WHERE o.item_id = i.id
-                    AND o.status IN ('pending', 'failed', 'dispatching')
-                      AND (o.event_type <> 'reconcile' OR o.reconciled_at IS NULL)
+                    AND ${unresolvedOutboxSql}
                 ) AS retry_pending
          FROM scheduled_job_items i
          WHERE i.run_id = ? AND i.status = 'partial'`,
@@ -979,11 +980,9 @@ export class D1ScheduledJobRepository {
         `SELECT i.id, i.target_key, i.status, i.attempts, i.updated_at,
                 i.last_error_code, i.last_error, i.result_json,
                 EXISTS(SELECT 1 FROM scheduled_outbox o WHERE o.item_id = i.id AND i.attempts > 0
-                  AND o.status IN ('pending', 'failed', 'dispatching')
-                      AND (o.event_type <> 'reconcile' OR o.reconciled_at IS NULL)) AS retry_pending,
+                  AND ${unresolvedOutboxSql}) AS retry_pending,
                 (SELECT MIN(o.available_at) FROM scheduled_outbox o WHERE o.item_id = i.id AND i.attempts > 0
-                  AND o.status IN ('pending', 'failed', 'dispatching')
-                      AND (o.event_type <> 'reconcile' OR o.reconciled_at IS NULL)) AS next_retry_at
+                  AND ${unresolvedOutboxSql}) AS next_retry_at
          FROM scheduled_job_items i WHERE i.run_id = ? AND i.phase = 'collect'
          ORDER BY i.target_key, i.id`,
       ).bind(runId).all<XCollectionItemEvidence>()
@@ -999,8 +998,7 @@ export class D1ScheduledJobRepository {
                 EXISTS(
                   SELECT 1 FROM scheduled_outbox o
                   WHERE o.item_id = i.id
-                    AND o.status IN ('pending', 'failed', 'dispatching')
-                      AND (o.event_type <> 'reconcile' OR o.reconciled_at IS NULL)
+                    AND ${unresolvedOutboxSql}
                 ) AS retry_pending
          FROM scheduled_job_items i
          WHERE i.run_id = ? AND i.status = 'failed'
@@ -1048,8 +1046,11 @@ export class D1ScheduledJobRepository {
               lastAttemptAt: item.updated_at,
             }),
     ].slice(0, 20);
+    const effectiveStatus = normalizeYouTubePartial ? "succeeded"
+      : run.job_type === "youtube_feed_collection" && run.status === "succeeded" && partialCount > 0
+        ? "partial" : run.status;
     const dto = toRunDto(
-      normalizeYouTubePartial ? { ...run, status: "succeeded" } : run,
+      { ...run, status: effectiveStatus },
       progress,
       failures,
     );
@@ -1089,11 +1090,11 @@ export class D1ScheduledJobRepository {
       conditions.push("r.job_type = ?");
       bindings.push(input.jobType);
     }
-    if (input.status === "succeeded") {
+    if (input.status === "succeeded" || input.status === "partial") {
       conditions.push(
-        "(r.status = ? OR (r.job_type = 'youtube_feed_collection' AND r.status = 'partial'))",
+        "(r.status = ? OR (r.job_type = 'youtube_feed_collection' AND r.status = ?))",
       );
-      bindings.push(input.status);
+      bindings.push(input.status, input.status === "succeeded" ? "partial" : "succeeded");
     } else if (input.status) {
       conditions.push("r.status = ?");
       bindings.push(input.status);
@@ -1150,6 +1151,9 @@ export class D1ScheduledJobRepository {
        FROM scheduled_job_runs
        WHERE job_type IN (${scheduledJobTypes.map(() => "?").join(", ")})
          AND status = 'succeeded' AND finished_at IS NOT NULL
+         AND (job_type <> 'youtube_feed_collection' OR NOT EXISTS(
+           SELECT 1 FROM scheduled_job_items item WHERE item.run_id=scheduled_job_runs.id AND item.status='partial'
+         ))
        GROUP BY job_type`,
     ).bind(...scheduledJobTypes).all<{
       jobType: ScheduledJobType;
@@ -1161,8 +1165,8 @@ export class D1ScheduledJobRepository {
       latestByJobType.set(row.jobType, Number(row.latestSuccessAt));
     }
 
-    // Older YouTube runs can retain a raw `partial` status even when their
-    // nested source result proves that every target succeeded. Keep the
+    // Older YouTube runs can retain either raw status around reconciliation.
+    // Count partial items as success only after their full evidence resolves. Keep the
     // operator-facing latest-success timestamp aligned with readRunDto's
     // normalization without hydrating every historical run separately.
     const rawYouTubeSuccessAt = latestByJobType.get("youtube_feed_collection") ?? null;
@@ -1174,13 +1178,12 @@ export class D1ScheduledJobRepository {
               EXISTS(
                 SELECT 1 FROM scheduled_outbox o
                 WHERE o.item_id = i.id
-                  AND o.status IN ('pending', 'failed', 'dispatching')
-                      AND (o.event_type <> 'reconcile' OR o.reconciled_at IS NULL)
+                  AND ${unresolvedOutboxSql}
               ) AS retry_pending
        FROM scheduled_job_runs r
        INNER JOIN scheduled_job_items i ON i.run_id = r.id
        WHERE r.job_type = 'youtube_feed_collection'
-         AND r.status = 'partial'
+         AND r.status IN ('partial','succeeded')
          AND r.last_error IS NULL
          AND r.finished_at IS NOT NULL
          AND i.status = 'partial'

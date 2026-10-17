@@ -4,7 +4,9 @@
 
 후속 실행: 승인된 [스키마·PR·공개 릴리스 계획](../../superpowers/plans/2026-10-16-publication-production-release.md)에 따라 원본 WIP를 보존한 격리 작업 트리에서 진행 중이다. [실행·리뷰 기록](2026-10-16-publication-production-release.md)의 최신 상태를 우선한다. 19일 숨김 D-day는 운영자가 확인한 OTW ID **4, 9, 10, 11**이며 제목 추론이나 가짜 이관 기록을 사용하지 않는다.
 
-추가 최소 의존성0140은 발행 응답 보존에 맞춘 JSON 검증 view 갱신이며 백필은 없다. 로컬 적용·doctor·canonical parity 및 populated 양 사이트 upgrade가 통과했다. [Draft PR160](https://github.com/rlatmfrl24/overthewall-schedule/pull/160)은 공개 필수 검증·스키마 승격 후 병합한다. 사용자는 LuvDia 이관 완료와 재이관·재복사·대량 백필 금지를 재확인했다. 과거 이관 플랫폼 전체 완성·구형 시험 정리는 공개 선행 조건이 아니며 FAIL 근거를 후속으로 유지한다. 19일00:01 KST 실제 전환 관측 예약 `otw-luvdia-19`는 단일 등록했으며 배포·DB 변경을 수행하지 않는다.
+추가 최소 의존성0140은 발행 응답 보존에 맞춘 JSON 검증 view 갱신이며 백필은 없다. 로컬 적용·doctor·canonical parity 및 populated 양 사이트 upgrade를 검증한 뒤 양 운영 DB에도 적용했다. [PR160](https://github.com/rlatmfrl24/overthewall-schedule/pull/160)은 병합·운영 반영됐다. 사용자는 LuvDia 이관 완료와 재이관·재복사·대량 백필 금지를 재확인했다. 과거 이관 플랫폼 전체 완성·구형 시험 정리는 공개 선행 조건이 아니며 FAIL 근거를 후속으로 유지한다. 19일00:01 KST 실제 전환 관측 예약 `otw-luvdia-19`는 단일 등록했으며 배포·DB 변경을 수행하지 않는다.
+
+**10/16 15:56 KST 갱신:** PR160 병합037d4252와 최소 운영 schema140 승격, OTW 자동 배포0e140a70/LuvDia 동일 소스 배포16fb230c 완료. 익명 카운트다운·API/파일 차단과 양 사이트 실제 관리자 접근·원본 보존·Queue/Cron 설정 유지 확인. 배포 후 X 정규 실행2310/2311도 총8개 handle 정상 점검·success를 확인했다(최신3행 읽기/0행 쓰기, 신규 저장0건). [운영 증거](2026-10-16-publication-production-release.md#운영-반영-결과)가 위 중간 상태보다 우선한다. 원본 WIP409파일과 X 작업 트리는 보존했다. X 확인 예약은PAUSED로 되돌렸고19일 예약은 유지한다. 실제 정각 관측·고비용 검증·이관 코드 제거 후속은 완료로 올리지 않는다.
 
 ## 확정 범위
 
@@ -20,7 +22,7 @@
 | --- | --- | --- |
 | DONE-RECOVERY | 운영 완료 | 10/16 09:01 점검 해제, OTW Cron·Queue 6개 재개, 실제 API·브라우저 정상 확인. [사고·복구 기록](2026-10-16-otw-d1-incident.md). |
 | X-READS | 운영 완료 | 버전 `3a95078a-1ef5-4c44-91d0-9ece742620b2`의 정규 run 2300/2301이 10:53에 8개 handle 전체 갱신·success. 10:55 재조회는 3행 읽기/0행 쓰기, Cron·Queue·API 정상. 기존 `otw-9-d1`는 PAUSED. 배포 당시 로컬 빈 조회 3,075→9행, 운영 selector 11행 읽기/0행 쓰기였다. 공개 정책을 추가한 현재 로컬 코드의 비용은 별도 검증한다. |
-| PUB-LOCAL | 로컬 구현·최종 변경 검증 완료, 운영 미반영 | 카운트다운·관리자 예외·정각 공개·열린 탭 cache 전환·OTW 관계별 숨김·수집 저장 guard·메뉴명 구현. Workerd/D1 89건 PASS, 새 build의 로컬 HTTP 7진입점 확인. [증거와 한계](2026-10-15-publication-cutover-execution.md). 실제 운영 관리자 로그인·정각 관측은 남았다. |
+| PUB-LOCAL | 로컬 검증·운영 반영 완료, 실제 정각 관측 예정 | 카운트다운·관리자 예외·정각 공개·열린 탭 cache 전환·OTW 관계별 숨김·수집 저장 guard·메뉴명 반영. 기존 Workerd/D1 89건과 추가 공개/보존68건 PASS. 실제 운영 익명17진입점·양 사이트 정상 관리자·LuvDia 미리보기 확인. [이전 증거](2026-10-15-publication-cutover-execution.md), [최종 운영 결과](2026-10-16-publication-production-release.md#운영-반영-결과). |
 | PUB-BUILD | 양 사이트 최종 build PASS | root 개발 환경을 보존하고 ignored 사이트 production override로 Clerk issuer/JWKS/party를 분리했다. 모든 이번 코드 수정 뒤 양 사이트를 다시 빌드해 PASS. 비밀 값은 출력하지 않았다. |
 | PUB-COLLECTOR | 현 정책 회귀 2건 PASS | 기존 두 시험은 최종 maintenance stop 없이 지속 이관의 신규 접수를 전제했다. 독립 운영의 전체 후보/전역 휴방 batch와 정각 이후 선택 대상 raw 보존으로 교체해 기존 업무 assertion을 유지했다. 운영 보호 조건은 완화하지 않았다. |
 | PUB-X-BOUNDARY | 로컬 수정·회귀·독립 검토 완료 | 전역 repair의 사이트 문맥 누락, 정각을 넘긴 quote hydration 저장, LuvDia 일반 feed의 OTW 기본값을 실제 Worker/D1에서 재현했다. 최종 쓰기·ack/cache·결과 카운터까지 정책을 연결했다. 빈 읽기11행, 미래 재시도7행, 숨긴512개 후보는 매회 최대506행 읽기/100후보. |
@@ -31,8 +33,8 @@
 
 | 순서 / ID | 필요한 작업 | 비용·재개 조건 | 완료를 인정할 증거 / 소유 계획 |
 | --- | --- | --- | --- |
-| P0 / PUB-VERIFY | 로컬 최종 변경 검증 완료, 운영 역할·정각 검증 남음 | 로컬 완료; 운영은 호환 release 뒤 최소 확인 | 실패→수정→통과 로그, 관리자 로그인 한계와 운영 미반영을 구분. [공개 Task 1·2](../../superpowers/plans/2026-10-15-site-publication-cutover.md). |
-| P0 / PUB-RELEASE | 승인된 호환 스키마 승격 후 단일 공개 PR·양 사이트 배포 | 로컬 재현·비용 확인 후 원격 최소 migration | OTW 미적용0102~0136과0139~0140, LuvDia0137~0140. 0140은 발행 응답 보존의 최소 view-only 후속 의존성이다. 이미 적용된 SQL은 변경하지 않는다. 0102만으로는 aborted_at 등 정상 요청 의존성이 충족되지 않는다. 원본 전체 WIP를 무검토 배포하지 않고 필수 연결 범위를 리뷰·검증한다. 정상 도메인 countdown·관리자·OTW 사전 정상 및 artifact readback은 실제 반영 후 판정한다. [실행 기록](2026-10-16-publication-production-release.md). |
+| P0 / PUB-VERIFY | 로컬·운영 역할/경계 확인 완료, 실제 정각 관측 남음 | 완료된 검증 재실행 대신19일 관측 | 실패→수정→통과 로그와 정상 Google 관리자 인증을 확인했다. 실제 정각은 PUB-CUTOVER가 소유한다. [공개 Task 1·2](../../superpowers/plans/2026-10-15-site-publication-cutover.md). |
+| P0 / PUB-RELEASE | **완료:** 최소 스키마140·단일 PR160·양 사이트 동일 병합037d4252 배포 | 원격 최소 승격/readback 완료 | OTW0102~0136과0139~0140, LuvDia0137~0140 적용. immutable 이력 보존·schema-only doctor·원본3/4/3행·활성 Worker/D1/R2/Clerk/Queue/Cron readback 완료. OTW 자동 배포만 수행했고 LuvDia도 같은 병합 소스다. 상세 [운영 결과](2026-10-16-publication-production-release.md#운영-반영-결과). |
 | P0 / PUB-CUTOVER | 19일 실제 시각 이후 LuvDia 정상 공개, OTW 세 멤버 직접 링크/파일/API 차단, 관리자 보관 확인 | 최소; 실제 날짜에 관측 | 실제 진입 → 메뉴 → 콘텐츠, 기존 로그인 역할, 원본 보존 readback. 로컬 fake clock은 실제 정각 증거가 아니다. 관측 예약은 필요할 때 기존 것과 중복 없이 설정. |
 | P1 / D1-BUDGET | 계정 전체 읽기와 DB별 쓰기 ledger 구분, 고비용 SQL/원격 doctor/이관 실행의 예산 점검 | 로컬 쿼리 계획·기존 analytics 우선 | 비용 추정과 중지 기준, 빈 작업 반복 읽기 회귀, 관측에 추가 ledger 쓰기 없음. 자기 DB write guard 통과만으로 계정 읽기 여유를 판단하지 않는다. [성능·운영 계획](../../superpowers/plans/2026-10-15-site-performance-operations.md). |
 | P1 / PROFILE | LuvDia 프로필 초기 이미지 지연: 권한 조회·중복 Blob·fallback·배경 동시 요청 분리 | 로컬 구현 우선, 운영 3회 등 제한 표본 | 정상 profile 버튼 진입에서 주 이미지가 비선택 이미지/원본 fallback을 기다리지 않음. 동일 조건 median TTFB/요청 수와 권한/304/세션 회귀. 파일 크기만 줄여 해결로 판정하지 않는다. [성능 Task 1](../../superpowers/plans/2026-10-15-site-performance-operations.md). |

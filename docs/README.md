@@ -1,68 +1,23 @@
-# OTW Schedule 문서
+# OTW·LuvDia 작업 문서
 
-현재 계약·작업 상태·과거 증거를 구분한다. 새 작업은 현행 문서에서 시작하고,
-완료된 계획이나 과거 운영 snapshot을 현재 지침으로 사용하지 않는다.
+**새 작업은 [현재 작업과 내일 인계](current-work.md) 한 곳에서 시작한다.** 중단 조건과 남은 일의 최신 상태를 이 문서만 소유한다.
 
-## 프로젝트 기준
+## 지금 읽을 것
 
-| 문서 | 책임 |
+| 문서 | 읽는 경우 |
 | --- | --- |
-| [개요](../README.md) · [제품 결정](../PRODUCT.md) | 제공 범위·로컬 개발·승인된 방향 |
-| [개발·운영 상태](development-status.md) | 구현·종료·미완료·미승인 작업의 단일 상태표 |
-| [남은 작업 중요도 보고서](archive/remaining-work-priority-report-2026-09-17.md) | 9/17 기준 쉬운 설명·중요도·완료 조건·권장 순서 |
-| [Design](../Design.md) · [폰트 정책](font-consistency-review.md) | 현재 디자인·접근성·타이포그래피 |
-| [아키텍처](architecture.md) | capability·의존성·실제 연결 경로 |
-| [공개 페이지 AEO](aeo.md) | 서버 HTML 요약·공개 정책·Play 공개 대응·검증 |
-| [테스트](testing.md) · [D1 workflow](drizzle-workflow.md) | 검사·격리·migration |
-| [Agent 설정](../AGENTS.md) | `.agent` 권위와 생성 mirror |
+| [현재 작업](current-work.md) | 재개·조사·구현·운영 확인 전. D1 전면 중단과 10/17 실행 순서 |
+| [공개 정책](operations/site-publication.md) | 19일 경계·관리자·보관·파일/수집 차단을 확인할 때 |
+| [참조 문서](reference.md) | 실제 변경할 기능의 계약·검사·운영 가이드가 필요할 때 |
+| [아카이브](archive/README.md) | 과거 결정·실패·배포 identity가 증거로 필요할 때 |
 
-## Play
+## 문서 사용 원칙
 
-| 문서 | 책임 |
-| --- | --- |
-| [제품 요구사항](otw-play-product-requirements.md) | 역할·공개 범위·멤버 탐색·무결성·이전 ID 대체 관계 |
-| [시스템 설계](otw-play-system-design.md) | 인증→service→D1, 저장·재생·자동화 |
-| [UI/UX](otw-play-ui-ux-design.md) | 사용자·회원·관리자 동선과 상태 |
-| [유지보수 가이드](otw-play-implementation-guide.md) | 변경·검증·release·closeout |
-| [관리자 흐름](otw-play-admin-workflow-integration.md) | 통합 console·등록·가져오기·검수 |
-| [노래 클립 계약](otw-play-singing-clips-requirements-and-plan.md) | 수록·공개·구간 정책과 검증 기록 |
-| [AI 검수](otw-play-ai-review.md) | Gemini 보조 입력·수동 적용·예산·검증 한계 |
+- 현재 작업과 중단·재개 조건은 current-work.md만 갱신한다. development-status.md와 SUL-36 README는 이 문서의 진입점이며 독립 작업 목록을 만들지 않는다.
+- 기능 계약·법적 라이선스·마이그레이션 이력·원본 사고 증거는 보존한다. 과거 보고서의 체크박스를 새 의무나 현재 운영 상태로 해석하지 않는다.
+- 종료된 실행 계획과 날짜가 있는 조사/QA/상태표는 아카이브에서 읽는다. 잔여 요구는 현재 작업의 후순위/보류 범위에 먼저 인계한 뒤 이동한다.
+- 기존 미커밋 문서는 원문을 보존한다. 일부 과거 경로의 짧은 이동 안내는 기존 링크·실행 기록 호환을 위해 남겼다.
+- 문서 이동은 inbound/outbound 링크를 함께 검사한다. 문서 수정만으로 구현·운영 검증·배포를 완료 처리하지 않는다.
+- 이번 D1 중단 중에는 D1 검사·preflight·build·배포·병합을 실행하지 않는다. D1을 호출하지 않는 로컬 문서 검사·순수 단위 테스트는 허용 범위에서 실행한다.
 
-## 운영
-
-| 문서 | 책임 |
-| --- | --- |
-| [예약 작업](operations/scheduled-jobs-v2.md) | Cron → Workflow → Outbox → Queue, 상태·재시도 |
-| [채널 polling](operations/channel-upload-polling.md) | 승인 채널·pause·watermark·gap·backfill |
-| [비용 운영](operations/backend-cost-optimization.md) | 읽기 전용 관측·현재 비용 경계 |
-| [7일 최종 보고](operations/backend-cost-observation-final-2026-09-16.md) | 종료된 9/9~9/15 관측 증거 |
-| [종료 구현 유지](operations/retired-implementation-cleanup.md) | WebSub/warmup 재도입 방지·유지 제약 |
-| [X 비용](operations/x-api-cost-minimization-design.md) | 신규행 수집·cache·비용 추적 종료 기록 |
-| [X 이력·보관](operations/x-member-history-and-archive-design.md) · [게시물 저장](operations/member-post-storage-policy.md) | 보관·redaction·공개 읽기 |
-| [계정 이전](cloudflare-production-account-migration.md) | runtime 통합·남은 provisioning/cutover |
-| [Search Console 색인 점검](operations/search-console-indexing-2026-10-12.md) | 실제 대상 URL·재제출·수정 검증 접수·사이트맵 미해결·10/13 예약 점검 삭제 |
-| [AEO·SEO 최종 평가](operations/aeo-seo-final-evaluation-2026-10-13.md) | 10/13 운영 HTML·색인·웹 검색 및 생성형 AI 노출·잔여 한계 |
-| [편성 자동갱신](auto-update.md) · [YouTube](youtube-optimization.md) · [Cache](cache-policy.md) | 기능별 운영·캐시 |
-
-## 증거와 유지보수
-
-[러브다이아 사이트 운영 분리 기술 검토](reports/sul-36/README.md)는 SUL-36의
-공통 코드·독립 배포 선택과 2026-10-13 조사 근거를 정리한다.
-[상세 설계·확정 결정표](superpowers/specs/2026-10-13-luvdia-independent-deployments-design.md)와
-[구현 계획](superpowers/plans/2026-10-13-luvdia-independent-deployments.md)은
-전체 기능 유지·로그인 분리를 반영한 확정 정책과 실행 계획이다.
-승인된 코드·로컬 검증은 진행 중이며, 완료 범위와 남은 검증은
-[로컬 검증 기록](reports/sul-36/local-implementation-verification.md)에 갱신한다.
-운영 데이터 이관·배포는 실행하지 않았다.
-[실행 전 결정·고려사항 점검](reports/sul-36/pre-implementation-review.md)은
-2026-10-14 코드 대조에서 확인한 무중단 이관·보관·환경·배포의 선행 설계와 실제 입력을 정리한다.
-
-[아카이브](archive/README.md)는 과거 계획·조사·검증과 정리 전 원문을 제공한다.
-[이번 closeout](archive/documentation-closeout-2026-09-17.md)은 수정·검사·인계를 기록한다.
-[포스터 디자인 QA](archive/snapshot-poster-design-qa-2026-09.md)는 날짜가 있는 UI 증거이며 현행 계약은 `Design.md`다.
-
-- 계약은 소유 문서, 진행 상태는 개발 상태표, 당시 증거는 날짜가 있는 기록에 둔다.
-- 미구현 요구사항을 아카이브 이동만으로 삭제·완료 처리하지 않는다.
-- 문서 이동 시 inbound/outbound 링크를 갱신한다.
-- `.agent` 변경 뒤 `pnpm sync:agent-cursor`와 `pnpm sync:agent-cursor:check`를 실행한다.
-- 보고의 시각·배포 identity·readback 범위를 유지한다. 테스트나 graphify 연결은 운영 확인을 대신하지 않는다.
+[2026-10-16 전체 문서 점검·처분 목록](archive/documentation-audit-2026-10-16.md)

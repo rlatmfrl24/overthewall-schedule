@@ -1,0 +1,15 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "otw-schedule-maintenance",
+  "main": "worker.mjs",
+  "account_id": "46e1801b290196fbec7cfae87710ffcf",
+  "compatibility_date": "2025-11-25",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "otw-schedule.info/*",
+      "zone_id": "829450bafe9bc14f8acd9dd24705e8be"
+    }
+  ]
+}

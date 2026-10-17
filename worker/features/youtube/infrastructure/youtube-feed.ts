@@ -31,7 +31,9 @@ const VIDEO_WRITE_CHUNK_SIZE = Math.floor(100 / 11);
 const sourceMovedSql = (env: Env, alias: string) =>
   `(${contentRowMovedSql("youtube_feed_sources", alias)} OR ${publicationHiddenSql("youtube_feed_sources", alias, parseSiteId(env.SITE_ID))})`;
 const sourceHeldSql = (env: Env, alias = "youtube_feed_sources") =>
-  `(${contentRowHeldSql("youtube_feed_sources", alias)} OR ${publicationHiddenSql("youtube_feed_sources", alias, parseSiteId(env.SITE_ID))})`;
+  `(${contentRowHeldSql("youtube_feed_sources", alias)} OR ${publicationHiddenSql("youtube_feed_sources", alias, parseSiteId(env.SITE_ID))}
+    OR EXISTS(SELECT 1 FROM members retained_source_member WHERE retained_source_member.uid=${alias}.member_uid
+      AND ${publicationHiddenSql("members","retained_source_member",parseSiteId(env.SITE_ID))}))`;
 
 type YouTubeRequestOrigin = "demand" | "manual" | "scheduled";
 
