@@ -122,7 +122,7 @@ describe("OtwPlayShell config gate", () => {
     }
   });
 
-  it("reads anonymous config before waiting for administrator preview auth", () => {
+  it("shows OTW unavailability before waiting for Clerk", () => {
     mocks.useUser.mockReturnValue({
       isLoaded: false,
       isSignedIn: false,
@@ -131,8 +131,22 @@ describe("OtwPlayShell config gate", () => {
 
     render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
 
-    expect(screen.getByText("관리자 미리보기 권한 확인 중")).toBeTruthy();
+    expect(screen.getByText("OTW Play 공개 준비 중입니다")).toBeTruthy();
     expect(mocks.useConfig).toHaveBeenCalledWith();
+    expect(mocks.childMounted).not.toHaveBeenCalled();
+  });
+
+  it.each(["pending", "error"])("preserves signed-in administrator checks while OTW is disabled: %s", (state) => {
+    const refetch = vi.fn();
+    mocks.useAdminStatus.mockReturnValue({ data: undefined, isPending: state === "pending", isError: state === "error", refetch });
+    render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+    if (state === "pending") {
+      expect(screen.getByText("관리자 미리보기 권한 확인 중")).toBeTruthy();
+    } else {
+      expect(screen.getByText("관리자 권한을 확인하지 못했습니다")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "다시 확인" }));
+      expect(refetch).toHaveBeenCalledOnce();
+    }
     expect(mocks.childMounted).not.toHaveBeenCalled();
   });
 
@@ -145,8 +159,8 @@ describe("OtwPlayShell config gate", () => {
 
     render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
 
-    expect(screen.getByText("로그인하고 OTW Play를 만나보세요")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "로그인" })).toBeTruthy();
+    expect(screen.getByText("OTW Play 공개 준비 중입니다")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "로그인" })).toBeNull();
     expect(mocks.useConfig).toHaveBeenCalledWith();
     expect(mocks.childMounted).not.toHaveBeenCalled();
   });
@@ -156,9 +170,9 @@ describe("OtwPlayShell config gate", () => {
     ["otw", false, "OTW 회원이라면 노래를 듣고 플레이리스트와 곡 제안을 이용할 수 있어요."],
     ["luvdia", true, "LuvDia Schedule 회원이라면 노래를 듣고 플레이리스트를 이용할 수 있어요."],
     ["luvdia", false, "LuvDia Schedule 회원이라면 노래를 듣고 플레이리스트와 곡 제안을 이용할 수 있어요."],
-  ] as const)("uses %s membership wording in the signed-out card for mobile=%s", (siteId, mobile, description) => {
+  ] as const)("uses %s membership wording on protected routes for mobile=%s", (siteId, mobile, description) => {
     mocks.siteId = siteId;
-    mocks.pathname = "/play";
+    mocks.pathname = siteId === "otw" ? "/play/playlists/new" : "/play";
     mocks.useUser.mockReturnValue({ isLoaded: true, isSignedIn: false, user: null });
     vi.stubGlobal("matchMedia", () => ({ matches: mobile, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
     render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
