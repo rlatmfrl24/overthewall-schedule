@@ -5,6 +5,15 @@
 현재 계약은 [문서 인덱스](../README.md), 완료/미완료는 [개발 상태](../development-status.md)를 따른다.
 이동은 요구사항 삭제, 제안의 구현 승인 또는 운영 검증 완료를 뜻하지 않는다.
 
+## 2026-10-17~19 완료 관측
+
+아래는 완료된 관측의 원문이며 본문의 당시 ‘다음 관측’을 다시 예약하지 않는다. 최신 완료 여부와 남은 한계는 현재 작업 문서가 소유한다.
+
+- [양 사이트 자연 X·자동 일정 시각 확인](../reports/sul-36/2026-10-17-1925-natural-observation.md)
+- [LuvDia 자연 자동 일정](../reports/sul-36/2026-10-17-2310-luvdia-natural-schedule.md)
+- [OTW 자연 자동 일정·관측 예약 종료](../reports/sul-36/2026-10-18-1210-otw-natural-schedule.md)
+- [LuvDia 공개·OTW 멤버/D-day 숨김·원본 보존](../reports/sul-36/2026-10-19-publication-observation.md)
+
 ## 2026-09-22 정리 기록
 
 - [브랜치 통합·검증·운영 스키마 확인](branch-consolidation-2026-09-22.md)

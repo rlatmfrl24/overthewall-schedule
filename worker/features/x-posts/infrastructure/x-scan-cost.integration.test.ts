@@ -5,6 +5,7 @@ import { backfillXPostFactsFromStoredPosts, backfillXPostReferencesFromStoredPos
 import { hydrateXReferences } from "./x-reference-hydration";
 import { runXCollectionForHandles } from "./x-collection";
 import { normalizeXTimelineResponse } from "./x-api";
+import { createPublicationClock } from "../../../test-support/publication-clock";
 
 const testEnv = env as Env & { X_REFERENCE_MIGRATIONS: D1Migration[]; transition_target_db: D1Database };
 const db = testEnv.otw_db;
@@ -183,19 +184,31 @@ describe("X maintenance reads scale with pending work", { timeout: 15_000 }, () 
     expect(await backfillXPostReferencesFromStoredPosts(db, "otw")).toMatchObject({ scanned: 0 });
   });
 
-  it("does not remove an obsolete selected relation when its repair crosses publication cutoff", async () => {
+  it("does not remove an obsolete selected relation when D1 crosses publication before the application clock", async () => {
     await db.prepare("UPDATE members SET code='bing_hayu' WHERE uid=1").run();
-    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(SITE_OPENS_AT) - 1);
+    const cutoff = Date.parse(SITE_OPENS_AT);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(cutoff - 1);
+    let crossOnSelection = false;
+    let crossed = false;
+    const measured = meter(async sql => {
+      if (crossOnSelection && sql.includes("work.references_pending=1")) {
+        crossed = true;
+        await publicationClock.setTime(cutoff);
+      }
+    });
+    const publicationClock = createPublicationClock(measured.db);
+    await publicationClock.setTime(cutoff - 1);
     try {
       await db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at) VALUES('cutoff','member','member',?,'2026-10-15',1,1)")
         .bind(JSON.stringify(post("cutoff"))).run();
-      await backfillXPostReferencesFromStoredPosts(db, "otw");
+      await backfillXPostReferencesFromStoredPosts(publicationClock.db, "otw");
+      expect(await db.prepare("SELECT referenced_post_id FROM x_post_references WHERE source_post_id='cutoff'").first("referenced_post_id")).toBe("10");
       const replayed = JSON.stringify({ ...post("cutoff"), quote: null });
       await db.prepare("UPDATE x_posts SET value=? WHERE id='cutoff'").bind(replayed).run();
-      const measured = meter(async sql => {
-        if (sql.includes("work.references_pending=1")) clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
-      });
-      await backfillXPostReferencesFromStoredPosts(measured.db, "otw");
+      crossOnSelection = true;
+      await backfillXPostReferencesFromStoredPosts(publicationClock.db, "otw");
+      expect(crossed).toBe(true);
+      expect(Date.now()).toBe(cutoff - 1);
       expect(await db.prepare("SELECT referenced_post_id FROM x_post_references WHERE source_post_id='cutoff'").first("referenced_post_id")).toBe("10");
       expect(await db.prepare("SELECT references_pending FROM x_post_repair_work WHERE post_id='cutoff'").first("references_pending")).toBe(1);
       expect(await db.prepare("SELECT value FROM x_posts WHERE id='cutoff'").first("value")).toBe(replayed);

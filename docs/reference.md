@@ -20,6 +20,6 @@
 
 ## 날짜가 있는 증거
 
-현재 릴리스의 실패·수정·배포 identity는 [10/16 이관 정리 기록](reports/sul-36/2026-10-16-content-transition-retirement.md)과 해당 PR ledger를 따른다. [D1 사고 복구 기록](reports/sul-36/2026-10-16-otw-d1-incident.md)과 [R2 사고 기록](reports/sul-36/operational-upload-incident.md)은 원본 보존·복구 근거이며 재실행 지시가 아니다.
+현재 D1 수정과 Play 점검 결과는 [10/19 점검 기록](reports/sul-36/2026-10-19-d1-playback-closeout.md)을 따른다. 완료된 [공개 전환 관측](reports/sul-36/2026-10-19-publication-observation.md)과 [10/16 이관 정리 기록](reports/sul-36/2026-10-16-content-transition-retirement.md)은 해당 시점의 검증·배포 근거다. [D1 사고 복구 기록](reports/sul-36/2026-10-16-otw-d1-incident.md)과 [R2 사고 기록](reports/sul-36/operational-upload-incident.md)은 원본 보존·복구 근거이며 재실행 지시가 아니다.
 
 종료된 관측·기술 검토·기존 배포/구현 계획·구버전 상태표는 [아카이브 색인](archive/README.md)에서만 찾는다. 기존 미커밋 보고서와 실행 기록을 위한 일부 이전 경로는 짧은 이동 안내로 남겼다. 정책·스키마 이력·라이선스·현재 기능의 계약을 불필요한 문서로 삭제하지 않았다.

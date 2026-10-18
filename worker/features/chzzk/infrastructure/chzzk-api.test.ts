@@ -16,6 +16,8 @@ type CacheRow = {
   last_error: string | null;
 };
 
+const channelId = "a".repeat(32);
+
 const makeVideoContent = (videoId: string, extra: Record<string, unknown> = {}) => ({
   page: 0,
   size: 10,
@@ -52,7 +54,7 @@ const makeCacheRow = (
 
 const makeCacheDb = (
   initialRows: CacheRow[] = [],
-  options: { failRead?: boolean; failWrite?: boolean } = {},
+  options: { failRead?: boolean; failWrite?: boolean; failAllowlistRead?: boolean; activeChannelIds?: string[] } = {},
 ) => {
   const cache = new Map(initialRows.map((row) => [row.key, row]));
   let readCount = 0;
@@ -60,6 +62,14 @@ const makeCacheDb = (
   const prepare = vi.fn((sql: string) => ({
     bind: (...bindings: unknown[]) => ({
       all: async () => {
+        if (sql.includes("FROM members")) {
+          if (options.failAllowlistRead) throw new Error("allowlist read failed");
+          return {
+            results: (options.activeChannelIds ?? [channelId]).map((id) => ({
+              url_chzzk: `https://chzzk.naver.com/${id}`,
+            })),
+          };
+        }
         readCount += 1;
         if (options.failRead) throw new Error("read failed");
         return {
@@ -105,7 +115,6 @@ const makeCacheDb = (
 };
 
 describe("CHZZK worker service D1 cache", () => {
-  const channelId = "a".repeat(32);
   const cacheKey = `vods:v1:${channelId}:0:10`;
   const fetchMock = vi.fn();
 
@@ -147,7 +156,6 @@ describe("CHZZK worker service D1 cache", () => {
   });
 
   it("cache miss에서는 origin 결과를 한 번의 multi-row UPSERT로 저장한다", async () => {
-    const state = makeCacheDb();
     const content = makeVideoContent("fresh");
     fetchMock.mockImplementation(async (input: string | URL | Request) => {
       const url = new URL(String(input));
@@ -161,6 +169,7 @@ describe("CHZZK worker service D1 cache", () => {
       size: 10,
       cacheable: true,
     }));
+    const state = makeCacheDb([], { activeChannelIds: requests.map((request) => request.channelId) });
 
     const results = await fetchChzzkVideosBatch(requests, state.db);
 
@@ -272,7 +281,7 @@ describe("CHZZK worker service D1 cache", () => {
     expect(result?.content).toBeNull();
   });
 
-  it("D1 장애는 origin 성공 응답을 막지 않는다", async () => {
+  it("D1 캐시 장애는 허용된 채널의 origin 성공 응답을 막지 않는다", async () => {
     const state = makeCacheDb([], { failRead: true, failWrite: true });
     fetchMock.mockResolvedValue(
       Response.json({ content: makeVideoContent("origin") }),
@@ -284,6 +293,36 @@ describe("CHZZK worker service D1 cache", () => {
     );
 
     expect(result?.content?.data[0]?.videoId).toBe("origin");
+  });
+
+  it("비활성 채널은 fresh 캐시가 있어도 origin과 캐시에 접근하지 않는다", async () => {
+    const state = makeCacheDb([
+      makeCacheRow(cacheKey, "vods", makeVideoContent("cached"), { fresh: true }),
+    ], { activeChannelIds: [], failRead: true, failWrite: true });
+
+    const [result] = await fetchChzzkVideosBatch(
+      [{ channelId, page: 0, size: 10, cacheable: true }],
+      state.db,
+    );
+
+    expect(result?.content).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(state.readCount).toBe(0);
+    expect(state.writeCount).toBe(0);
+  });
+
+  it("허용 목록 장애는 fresh 캐시나 origin으로 우회하지 않는다", async () => {
+    const state = makeCacheDb([
+      makeCacheRow(cacheKey, "vods", makeVideoContent("cached"), { fresh: true }),
+    ], { failAllowlistRead: true });
+
+    await expect(fetchChzzkVideosBatch(
+      [{ channelId, page: 0, size: 10, cacheable: true }],
+      state.db,
+    )).rejects.toThrow("CHZZK channel allowlist is unavailable");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(state.readCount).toBe(0);
+    expect(state.writeCount).toBe(0);
   });
 
   it("512KB를 넘는 응답은 반환하되 D1에 저장하지 않는다", async () => {
@@ -337,13 +376,13 @@ describe("CHZZK worker service D1 cache", () => {
   });
 
   it("8채널 3페이지는 cache read 3회와 write 3회로 처리한다", async () => {
-    const state = makeCacheDb();
     fetchMock.mockImplementation(async () =>
       Response.json({ content: makeVideoContent("batched") }),
     );
     const channelIds = Array.from({ length: 8 }, (_, index) =>
       index.toString(16).padStart(32, "0"),
     );
+    const state = makeCacheDb([], { activeChannelIds: channelIds });
 
     for (let page = 0; page < 3; page += 1) {
       await fetchChzzkVideosBatch(

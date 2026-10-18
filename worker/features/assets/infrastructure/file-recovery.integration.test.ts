@@ -92,6 +92,77 @@ it("keeps ordinary file-reference writes bounded with 1000 unrelated references"
   expect(await db.prepare("SELECT count(*) n FROM asset_file_reference_paths WHERE row_table='notices'").first("n")).toBe(1001);
   console.info("actual file index ordinary costs",JSON.stringify({small:small.meta,large:large.meta}));
 });
+it("keeps asset authorization reads bounded with unrelated file references",async()=>{
+  await db.batch([
+    db.prepare("INSERT INTO members(uid,code,name) VALUES(90001,'asset_cost_public','Asset cost public')"),
+    db.prepare("INSERT INTO notices(id,content,image_urls) VALUES(1,'public asset','[\"/r2-assets/notices/thumbnails/access-cost.webp\"]')"),
+  ]);
+  const paths=["/profile/asset_cost_public.webp","/r2-assets/notices/thumbnails/access-cost.webp","/r2-assets/notices/thumbnails/missing.webp"];
+  const costs:number[][]=[];
+  for(const size of [10,1000]) {
+    await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<?) INSERT OR IGNORE INTO notices(id,content,image_urls) SELECT x+10,'unrelated',json_array('/r2-assets/notices/thumbnails/unrelated-'||x||'.webp') FROM n").bind(size).run();
+    const reads:Array<{sql:string;args:unknown[];rowsRead:number;rowsWritten:number}>=[];
+    const measured=new Proxy(db,{get(database,key){
+      if(key==="prepare") return (sql:string)=>{
+        const wrap=(statement:D1PreparedStatement,args:unknown[]=[]):D1PreparedStatement=>new Proxy(statement,{get(target,method){
+          if(method==="bind")return(...values:unknown[])=>wrap(target.bind(...values),values);
+          if(method==="all" || method==="first")return async(column?:string)=>{
+            const result=await target.all();
+            reads.push({sql,args,rowsRead:result.meta.rows_read,rowsWritten:result.meta.rows_written});
+            const row=result.results[0];
+            return method==="all"?result:column?row?.[column]??null:row??null;
+          };
+          const value=Reflect.get(target,method,target);return typeof value==="function"?value.bind(target):value;
+        }});
+        return wrap(database.prepare(sql));
+      };
+      const value=Reflect.get(database,key,database);return typeof value==="function"?value.bind(database):value;
+    }});
+    const reader=new D1AssetAccessReader(measured,"https://otw-schedule.info");
+    const sample:number[]=[];
+    for(const [index,path] of paths.entries()) {
+      const start=reads.length;
+      expect((await reader.readAccess(path)).restricted).toBe(index===2);
+      sample.push(reads.slice(start).reduce((sum,entry)=>sum+entry.rowsRead,0));
+    }
+    expect(reads.every(entry=>entry.rowsWritten===0)).toBe(true);
+    costs.push(sample);
+    const query=reads[0];
+    console.info("ASSET_ACCESS_READ_COST",JSON.stringify({size,paths,rowsRead:sample,plan:(await db.prepare(`EXPLAIN QUERY PLAN ${query.sql}`).bind(...query.args).all()).results}));
+  }
+  for(const index of paths.keys())expect(costs[1][index],JSON.stringify({paths,costs})).toBeLessThanOrEqual(costs[0][index]+20);
+});
+it("validates current profile and text-key Cafe references after path lookup",async()=>{
+  const path="/r2-assets/notices/thumbnails/shared-owner.webp";
+  await db.batch([
+    db.prepare("INSERT INTO members(uid,code,name) VALUES(90002,'asset_reference','Asset reference')"),
+    db.prepare("INSERT INTO member_profile_images(id,member_uid,image_url) VALUES(90002,90002,?)").bind(path),
+    db.prepare("INSERT INTO naver_cafe_sources(id,name,cafe_id,menu_id,cafe_url) VALUES(90002,'Asset reference','90002','1','https://cafe.naver.com/asset-reference')"),
+    db.prepare("INSERT INTO naver_cafe_posts(id,article_id,source_id,source_name,cafe_id,menu_id,title,summary,created_at,url,fetched_at,thumbnail_url) VALUES('asset-reference-text-key',1,90002,'Asset reference','90002','1','Reference','','2026-10-19','https://cafe.naver.com/asset-reference/1',1,?)").bind(path),
+  ]);
+  const reader=new D1AssetAccessReader(db,"https://otw-schedule.info");
+  expect((await reader.readAccess(path)).restricted).toBe(false);
+  await db.prepare("UPDATE naver_cafe_posts SET content_access='admin_archive' WHERE id='asset-reference-text-key'").run();
+  expect((await reader.readAccess(path)).restricted).toBe(false);
+  await db.prepare("UPDATE members SET content_access='admin_archive' WHERE uid=90002").run();
+  expect((await reader.readAccess(path)).restricted).toBe(true);
+  await db.prepare("UPDATE naver_cafe_posts SET content_access='normal' WHERE id='asset-reference-text-key'").run();
+  expect((await reader.readAccess(path)).restricted).toBe(false);
+  await db.prepare("UPDATE naver_cafe_posts SET thumbnail_url=NULL WHERE id='asset-reference-text-key'").run();
+  expect((await reader.readAccess(path)).restricted).toBe(true);
+});
+it("keeps R2 origin rebasing bound to the selected current owner",async()=>{
+  const path="/r2-assets/notices/thumbnails/rebased-owner.webp";
+  await db.batch([
+    db.prepare("INSERT INTO members(uid,code,name) VALUES(90003,'asset_rebased','Asset rebased')"),
+    db.prepare("INSERT INTO notices(id,content,related_member_uids,image_urls) VALUES(90003,'Rebased owner','[90003]','[\"https://approved-assets.example/notices/thumbnails/rebased-owner.webp\"]')"),
+    db.prepare("INSERT INTO content_transitions(id,source_site,target_site,source_resource,target_resource,local_site,local_resource,generation,protocol,manifest_digest,plan_json) VALUES('asset-rebase','otw','luvdia','otw-db','luvdia-db','otw','otw-db',2,1,'asset-rebase',?)").bind(JSON.stringify({sourceSite:"otw",targetSite:"luvdia",members:[{uid:90003,targetUid:90003,code:"asset_rebased"}],classifications:[],fileOrigins:[{kind:"r2",site:"otw",resource:"otw-schedule",origin:"https://approved-assets.example"}]})),
+  ]);
+  const reader=new D1AssetAccessReader(db,"https://otw-schedule.info");
+  expect((await reader.readAccess(path)).restricted).toBe(false);
+  await db.prepare("UPDATE notices SET related_member_uids='[]' WHERE id=90003").run();
+  expect((await reader.readAccess(path)).restricted).toBe(true);
+});
 it("starts legacy grace from actual final release and never treats an unknown old object as immediately eligible",async()=>{
   const key="notices/thumbnails/legacy-release.webp";
   const object=(await bucket.put(key,new Uint8Array([1,2,3])))!;
