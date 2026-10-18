@@ -172,7 +172,7 @@ describe("OtwPlayShell config gate", () => {
     ["luvdia", false, "LuvDia Schedule 회원이라면 노래를 듣고 플레이리스트와 곡 제안을 이용할 수 있어요."],
   ] as const)("uses %s membership wording on protected routes for mobile=%s", (siteId, mobile, description) => {
     mocks.siteId = siteId;
-    mocks.pathname = siteId === "otw" ? "/play/playlists/new" : "/play";
+    mocks.pathname = "/play/playlists/new";
     mocks.useUser.mockReturnValue({ isLoaded: true, isSignedIn: false, user: null });
     vi.stubGlobal("matchMedia", () => ({ matches: mobile, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
     render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
@@ -344,16 +344,28 @@ describe("OtwPlayShell config gate", () => {
       refetch: vi.fn(),
     });
     render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
-    if (siteId === "otw") {
-      expect(screen.getByText("catalog child")).toBeTruthy();
-      expect(mocks.providerModes).toEqual([false]);
-      expect(mocks.playerModes).toEqual([false]);
-      expect(screen.queryByRole("link", { name: "노래 클립" })).toBeNull();
-    } else {
-      expect(screen.getByText("로그인하고 LuvDia Play를 만나보세요")).toBeTruthy();
-      expect(mocks.childMounted).not.toHaveBeenCalled();
-      expect(mocks.playerModes).toEqual([]);
-    }
+    expect(screen.getByText("catalog child")).toBeTruthy();
+    expect(mocks.providerModes).toEqual([false]);
+    expect(mocks.playerModes).toEqual([false]);
+    expect(screen.queryByRole("link", { name: "노래 클립" })).toBeNull();
+  });
+
+  it.each(["otw", "luvdia"] as const)("keeps %s public entry free of login invitations through loading", siteId => {
+    mocks.siteId = siteId;
+    mocks.pathname = "/play";
+    mocks.useUser.mockReturnValue({ isLoaded: false, isSignedIn: undefined, user: null });
+    mocks.useConfig.mockReturnValue({ isPending: true, isError: false });
+    const view = render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+    expect(screen.getByText(`${getSiteDefinition(siteId).playName} 공개 상태 확인 중`)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "로그인" })).toBeNull();
+    mocks.useConfig.mockReturnValue({ isPending: false, isError: false, data: { data: { publicReadEnabled: true, navigationVisible: true } } });
+    view.rerender(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+    expect(screen.getByText("catalog child")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "로그인" })).toBeNull();
+    mocks.useUser.mockReturnValue({ isLoaded: true, isSignedIn: false, user: null });
+    view.rerender(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+    expect(screen.getByText("catalog child")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "로그인" })).toBeNull();
   });
 
   it.each(["/play/playlists", "/play/playlists/defaults/originals"])("opens anonymous default playlist routes before Clerk loads: %s", (pathname) => {

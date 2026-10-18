@@ -18,14 +18,12 @@ const dispatch = async (request: Request, siteId: "otw" | "luvdia" = "otw") => {
 
 describe("protected worker routes", () => {
   it.each([
-    ["GET", "/api/play/catalog", "luvdia"], ["GET", "/api/play/facets", "luvdia"],
-    ["GET", "/api/play/members", "luvdia"], ["GET", "/api/play/members/member/songbook", "luvdia"],
-    ["GET", "/api/play/songs/song?scope=all", "luvdia"], ["GET", "/api/play/performances/clip", "luvdia"],
-    ["GET", "/api/play/performances?scope=broadcast", "luvdia"], ["POST", "/api/play/performances/resolve", "luvdia"],
-    ["GET", "/api/play/playlists/defaults", "luvdia"], ["POST", "/api/play/admin/ai-reviews", "otw"],
+    ["POST", "/api/play/admin/ai-reviews", "otw"],
     ["DELETE", "/api/play/admin/review-items/candidate", "otw"],
     ["GET", "/api/play/me/playlists", "otw"], ["POST", "/api/play/me/playlists", "otw"],
     ["GET", "/api/play/submissions/mine", "otw"], ["POST", "/api/play/submissions", "otw"],
+    ["GET", "/api/play/me/playlists", "luvdia"], ["POST", "/api/play/me/playlists", "luvdia"],
+    ["GET", "/api/play/submissions/mine", "luvdia"], ["POST", "/api/play/submissions", "luvdia"],
   ] as const)("requires authentication through the real route dispatcher: %s %s (%s)", async (method, path, siteId) => {
     const response = await dispatch(new Request(`https://example.com${path}`, {
       method, headers: { "If-None-Match": "*" },

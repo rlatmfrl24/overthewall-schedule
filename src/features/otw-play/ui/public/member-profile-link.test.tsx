@@ -21,11 +21,20 @@ describe("profile Play search link", () => {
   it.each([
     { data: { data: { publicReadEnabled: false, navigationVisible: false } } },
     { data: { data: { publicReadEnabled: true, navigationVisible: false } } },
-    { isPending: true },
     { isError: true, data: { data: { publicReadEnabled: true, navigationVisible: true } } },
   ])("keeps the link hidden when public navigation is unavailable", state => {
     mocks.config.mockReturnValue(state);
     render(<OtwPlayMemberProfileLink memberUid={8} />);
     expect(screen.queryByRole("link")).toBeNull();
+  });
+  it("reserves the public entry while its flags load without showing a login invitation", () => {
+    mocks.config.mockReturnValue({ isPending: true });
+    const view = render(<OtwPlayMemberProfileLink memberUid={8} />);
+    expect(screen.getByRole("status").textContent).toContain("OTW Play");
+    expect(screen.queryByRole("link")).toBeNull();
+    mocks.config.mockReturnValue({ isPending: false, data: { data: { publicReadEnabled: true, navigationVisible: true } } });
+    view.rerender(<OtwPlayMemberProfileLink memberUid={8} />);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("link", { name: "OTW Play에서 노래 듣기" })).toBeTruthy();
   });
 });

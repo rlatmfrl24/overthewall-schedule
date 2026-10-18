@@ -21,9 +21,9 @@ export function usePlaylistPerformances(query: PlayPerformanceQuery, enabled = t
     getNextPageParam: page => page.nextCursor ?? undefined, enabled }));
 }
 export function usePlaylistOwner() {
-  const { user } = useUser();
+  const { isLoaded, isSignedIn, user } = useUser();
   const client = useQueryClient();
-  const owner = user?.id;
+  const owner = isLoaded && isSignedIn ? user?.id : undefined;
   useEffect(() => () => {
     if (owner) {
       void client.cancelQueries({ queryKey: ["otw-play-private", owner] });

@@ -137,10 +137,10 @@ describe("OTW Play public API client", () => {
     );
   });
 
-  it("retains LuvDia catalog authentication", async () => {
+  it("allows the LuvDia official catalog without authentication", async () => {
     siteState.id = "luvdia";
     await fetchOtwPlayCatalog();
-    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/catalog", { auth: "required" });
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/catalog", { auth: "omit" });
   });
 
   it("관리자 미리보기는 required auth와 전용 header를 사용한다", async () => {

@@ -11,9 +11,10 @@ vi.mock("@tanstack/react-router", () => ({ Link: ({ to, children, ...props }: { 
 afterEach(cleanup);
 
 it("keeps schedule/content navigation and member Play policy with no unconfigured community link", () => {
-  const sections = getPublicNavigationSections({ isAdmin: false, isSignedIn: true, memberPosts: { visible: true, requiresAuth: true } });
+  const sections = getPublicNavigationSections({ isAdmin: false, memberPosts: { visible: true, requiresAuth: true } });
   const items = sections.flatMap(s => s.items);
-  expect(items.find(i => i.id === "otw-play")).toMatchObject({ label: "LuvDia Play", to: "/play/submit", requiresAuth: true });
+  expect(items.find(i => i.id === "otw-play")).toMatchObject({ label: "LuvDia Play", to: "/play" });
+  expect(items.find(i => i.id === "otw-play")?.requiresAuth).toBeUndefined();
   expect(items.find(i => i.id === "feed")).toMatchObject({ to: "/feed", requiresAuth: true });
   expect(items.find(i => i.id === "multiview")).toMatchObject({ label: "멀티뷰" });
   expect(items.some(i => i.id === "fan-cafe")).toBe(false);

@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { AuthenticatedImage } from "./authenticated-image";
 import { ContentSessionContext } from "@/shared/hooks/content-session";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 it("uses the own login for normal workspace images without requesting admin archive access",async()=>{
   vi.stubGlobal("window",Object.assign(window,{Clerk:{session:{getToken:async()=>"own-user-session"}}}));
   let counter=0;URL.createObjectURL=()=>`blob:workspace-${++counter}`;const revoke=vi.fn();URL.revokeObjectURL=revoke;
@@ -176,4 +176,71 @@ it("does not create private object URLs when the last consumer leaves before byt
   await waitFor(() => expect(finish).toBeDefined());view.unmount();
   await act(async () => finish!(new Response(new Uint8Array([1]))));
   expect(create).not.toHaveBeenCalled();expect(revoke).not.toHaveBeenCalled();
+});
+
+it("keeps the portrait placeholder until bytes load, resets for a new source, and leaves a stable fallback on error", () => {
+  const view = render(<AuthenticatedImage protectedImage={false} showPlaceholder src="/profile/first.webp" alt="첫 멤버" className="size-12 rounded-full" />);
+  const frame = () => view.container.firstElementChild!;
+  expect(frame().getAttribute("aria-busy")).toBe("true");
+  expect(view.getByAltText("첫 멤버").getAttribute("src")).toBe("/profile/first.webp");
+  expect(view.getByAltText("첫 멤버").getAttribute("aria-hidden")).toBe("true");
+  fireEvent.load(view.getByAltText("첫 멤버"));
+  expect(frame().getAttribute("aria-busy")).toBe("false");
+  expect(view.getByAltText("첫 멤버").getAttribute("aria-hidden")).toBeNull();
+  expect(view.container.querySelector('[data-slot="skeleton"]')).toBeNull();
+
+  view.rerender(<AuthenticatedImage protectedImage={false} showPlaceholder src="/profile/next.webp" alt="다음 멤버" className="size-12 rounded-full" />);
+  expect(frame().getAttribute("aria-busy")).toBe("true");
+  fireEvent.error(view.getByAltText("다음 멤버"));
+  expect(frame().getAttribute("aria-busy")).toBe("false");
+  expect(view.getByRole("img", { name: "다음 멤버 이미지를 불러올 수 없습니다" })).toBeTruthy();
+  expect(view.getByAltText("다음 멤버").getAttribute("aria-hidden")).toBe("true");
+});
+
+it("recognizes a cached portrait without waiting for a second load event", () => {
+  vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+  vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(96);
+  const view = render(<AuthenticatedImage protectedImage={false} showPlaceholder src="/profile/cached.webp" alt="캐시된 멤버" />);
+  expect(view.container.firstElementChild!.getAttribute("aria-busy")).toBe("false");
+  expect(view.container.querySelector('[data-slot="skeleton"]')).toBeNull();
+});
+
+it("keeps the requested crop on the image and handles an already failed cached image without a broken-image flash", () => {
+  vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+  vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(0);
+  const view = render(<AuthenticatedImage protectedImage={false} showPlaceholder src="/profile/missing.webp" alt="사진" className="size-full object-[50%_18%]" style={{ objectFit: "contain", objectPosition: "25% 75%" }} />);
+  const frame = view.container.firstElementChild as HTMLElement;
+  const image = view.getByAltText("사진") as HTMLImageElement;
+  expect(frame.style.objectFit).toBe("contain");
+  expect(frame.style.objectPosition).toBe("25% 75%");
+  expect(image.style.objectFit).toBe("inherit");
+  expect(image.style.objectPosition).toBe("inherit");
+  expect(frame.getAttribute("aria-busy")).toBe("false");
+  expect(view.getByRole("img", { name: "사진 이미지를 불러올 수 없습니다" })).toBeTruthy();
+  expect(image.getAttribute("aria-hidden")).toBe("true");
+});
+
+it("shows a stable fallback after authenticated bytes fail and never displays a previous session portrait", async () => {
+  vi.stubGlobal("window", Object.assign(window, { Clerk: { session: { getToken: async () => "token" } } }));
+  let finish: ((response: Response) => void) | undefined;
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => new Promise<Response>(resolve => { finish = resolve; })));
+  URL.createObjectURL = () => "blob:portrait"; const revoke = vi.fn(); URL.revokeObjectURL = revoke;
+  const image = <AuthenticatedImage protectedImage={false} showPlaceholder src="/profile/member.webp" alt="멤버" />;
+  const view = render(<ContentSessionContext.Provider value="first">{image}</ContentSessionContext.Provider>);
+  expect(view.getByAltText("멤버").getAttribute("src")).toBeNull();
+  expect(view.container.firstElementChild!.getAttribute("aria-busy")).toBe("true");
+  await waitFor(() => expect(finish).toBeDefined());
+  await act(async () => finish!(new Response(new Uint8Array([1]))));
+  fireEvent.load(view.getByAltText("멤버"));
+  expect(view.container.firstElementChild!.getAttribute("aria-busy")).toBe("false");
+  finish = undefined;
+  view.rerender(<ContentSessionContext.Provider value="second">{image}</ContentSessionContext.Provider>);
+  expect(view.getByAltText("멤버").getAttribute("src")).toBeNull();
+  expect(view.container.firstElementChild!.getAttribute("aria-busy")).toBe("true");
+  expect(revoke).toHaveBeenCalledWith("blob:portrait");
+  await waitFor(() => expect(finish).toBeDefined());
+  await act(async () => finish!(new Response("Forbidden", { status: 403 })));
+  await waitFor(() => expect(view.container.firstElementChild!.getAttribute("aria-busy")).toBe("false"));
+  expect(view.getByRole("img", { name: "멤버 이미지를 불러올 수 없습니다" })).toBeTruthy();
+  expect(view.getByAltText("멤버").getAttribute("src")).toBeNull();
 });

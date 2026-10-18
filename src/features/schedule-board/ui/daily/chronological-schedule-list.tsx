@@ -240,7 +240,7 @@ const ScheduleBoardRow = ({
             className="h-10 w-1.5 shrink-0 rounded-full"
             style={{ backgroundColor: mainColor }}
           />
-          <AuthenticatedImage protectedImage={false}
+          <AuthenticatedImage protectedImage={false} showPlaceholder
             src={`/profile/${member.code}.webp`}
             alt={member.name}
             className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-border"
@@ -484,7 +484,7 @@ const SideScheduleItem = ({
       className="grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/30"
       aria-label={`${member.name} ${title}`}
     >
-      <AuthenticatedImage protectedImage={false}
+      <AuthenticatedImage protectedImage={false} showPlaceholder
         src={`/profile/${member.code}.webp`}
         alt={member.name}
         className="h-9 w-9 rounded-full object-cover ring-1 ring-border"
@@ -571,7 +571,7 @@ const NoScheduleMemberItem = ({
   const liveUrl = getNoScheduleLiveUrl(entry);
   const content = (
     <>
-      <AuthenticatedImage protectedImage={false}
+      <AuthenticatedImage protectedImage={false} showPlaceholder
         src={`/profile/${entry.member.code}.webp`}
         alt=""
         className={cn(

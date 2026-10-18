@@ -27,10 +27,11 @@ application은 유스케이스를, infrastructure는 D1·외부 시스템 접근
 
 ## 인증과 읽기
 
-2026-10-17 결정에 따라 OTW의 공식 catalog와 기본 playlist·공식 가창 resolve는 익명 요청을 허용한다.
+2026-10-17 OTW 및 2026-10-19 LuvDia 결정에 따라 양 사이트의 공식 catalog와 기본 playlist·공식 가창 resolve는 익명 요청을 허용한다.
 사이트별 [접근 정책](../contracts/otw-play-access.ts)을 API client·Worker·Play shell·SEO에서 공유한다.
-LuvDia catalog와 개인 playlist·회원 제안에는 회원 인증을 유지한다. Play shell은 공개 flag를 확인하되
-OTW의 공개 경로는 Clerk 인증 완료를 기다리지 않는다.
+개인 playlist·회원 제안에는 회원 인증을 유지한다. Play shell은 공개 flag를 확인하되
+양 사이트의 공개 경로는 Clerk 인증 완료를 기다리지 않는다. 공통 메뉴는 config 요청 없이 고정된 공개 Play 진입점을 표시한다.
+설정·개인 인증이 미확정인 동안은 로딩 상태를 표시하고 비회원용 로그인 제안을 먼저 표시하지 않는다.
 관리자 preview header는 서버 `requireAdminUser` 검증을 거친다.
 [catalog handler](../worker/features/otw-play/http/public-catalog-handler.ts)는 preview에만
 broadcast 읽기를 허용한다. 익명·일반 회원의 공식 catalog·상세·일괄 resolve·제안 검색에서 clip을 분리한다.

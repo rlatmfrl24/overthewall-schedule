@@ -16,6 +16,6 @@ it.each([ ["grid", "poster"], ["timeline", "poster"], ["timeline", "legacy"] ] a
   render(createElement(SnapshotSchedule, { date: "2026-10-14", mode, design, theme: "light" }));
   expect(screen.getByRole("img", { name: "LuvDia Schedule" }).getAttribute("src")).toBe("/logo_luvdia.webp");
   expect(screen.getByText("localhost:5174")).toBeTruthy();
-  expect(screen.getByText("개인 방송인")).toBeTruthy();
-  expect(screen.queryByText("러브다이아")).toBeNull();
+  expect(screen.getByText("러브다이아")).toBeTruthy();
+  expect(screen.queryByText("개인 방송인")).toBeNull();
 });

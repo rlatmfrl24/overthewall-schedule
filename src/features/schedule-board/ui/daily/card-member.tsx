@@ -157,7 +157,7 @@ export const CardMember = ({
             className="absolute -inset-1.5 rounded-full opacity-20 blur-sm"
             style={{ backgroundColor: mainColor }}
           />
-          <AuthenticatedImage protectedImage={false}
+          <AuthenticatedImage protectedImage={false} showPlaceholder
             src={`/profile/${member.code}.webp`}
             alt={member.name}
             className="relative h-[5.5rem] w-[5.5rem] rounded-full border-4 object-cover shadow-lg transition-transform duration-300 group-hover:scale-105"

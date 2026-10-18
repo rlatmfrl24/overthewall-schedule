@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { useNaverCafePostsConfig } from "@/features/naver-cafe";
 import { useXPostsConfig } from "@/features/x-posts";
-import { useOtwPlayConfig } from "@/features/otw-play";
 import { useAdminStatus } from "@/features/auth";
 import type { NaverCafePostsVisibility } from "@contracts/naver-cafe";
 import type { XPostsVisibility } from "@contracts/x-posts";
@@ -63,10 +62,7 @@ type MemberPostsNavState = {
 
 type PublicNavigationOptions = {
   isAdmin: boolean;
-  isSignedIn?: boolean;
   memberPosts: MemberPostsNavState;
-  otwPlayNavigationVisible?: boolean;
-  otwPlayAdminPreviewAvailable?: boolean;
 };
 
 
@@ -115,18 +111,8 @@ export function resolveMemberPostsNavState({
 
 export function getPublicNavigationSections({
   isAdmin,
-  isSignedIn = false,
   memberPosts,
-  otwPlayNavigationVisible = false,
-  otwPlayAdminPreviewAvailable = false,
 }: PublicNavigationOptions): NavSection[] {
-  const otwPlayDestination: InternalNavTo | null = otwPlayNavigationVisible
-    ? "/play"
-    : isAdmin && otwPlayAdminPreviewAvailable
-      ? "/play"
-      : !isAdmin && isSignedIn
-        ? "/play/submit"
-        : null;
   const sections: NavSection[] = [
     {
       id: "schedule",
@@ -166,19 +152,13 @@ export function getPublicNavigationSections({
           group: "content",
           to: "/vods",
         },
-        ...(otwPlayDestination
-          ? [
-              {
-                id: "otw-play",
-                label: `${site.playName}`,
-                icon: Music2,
-                group: "content" as const,
-                to: otwPlayDestination,
-                requiresAuth:
-                  otwPlayDestination === "/play/submit" ? true : undefined,
-              },
-            ]
-          : []),
+        {
+          id: "otw-play",
+          label: site.playName,
+          icon: Music2,
+          group: "content",
+          to: "/play",
+        },
         ...(memberPosts.visible
           ? [
               {
@@ -243,23 +223,13 @@ export function usePublicNavigationSections() {
   const { visibility: xPostsVisibility } = useXPostsConfig();
   const { enabled: cafePostsEnabled, visibility: cafePostsVisibility } =
     useNaverCafePostsConfig();
-  const otwPlayConfig = useOtwPlayConfig({
-    enabled: true,
-  });
-  const otwPlayFlags = otwPlayConfig.data?.data;
-
   return getPublicNavigationSections({
     isAdmin,
-    isSignedIn: Boolean(isLoaded && isSignedIn),
     memberPosts: resolveMemberPostsNavState({
       xVisibility: xPostsVisibility,
       cafeEnabled: cafePostsEnabled,
       cafeVisibility: cafePostsVisibility,
     }),
-    otwPlayNavigationVisible: Boolean(
-      otwPlayFlags?.publicReadEnabled && otwPlayFlags.navigationVisible,
-    ),
-    otwPlayAdminPreviewAvailable: Boolean(isAdmin && otwPlayFlags),
   });
 }
 
