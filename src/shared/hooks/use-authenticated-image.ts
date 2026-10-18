@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch,apiFetchBlob } from "@/shared/api/client";
 import {apiRoutes} from "@contracts/api-routes";
 import type {ProtectedAssetReferenceResponse,ProtectedAssetReferenceContext} from "@contracts/assets";
@@ -12,16 +12,17 @@ type ImageRequest = { users: number; controller: AbortController; promise: Promi
 // Private bytes live only while mounted consumers in the same content session own them.
 const imageRequests = new Map<string | symbol, ImageRequest>();
 
-export function useAuthenticatedImages(sources: readonly string[], protectedImage: boolean,context?:ProtectedAssetReferenceContext) {
+export function useAuthenticatedImageStates(sources: readonly string[], protectedImage: boolean,context?:ProtectedAssetReferenceContext) {
   const session=useContentSession();
   const key = JSON.stringify(sources);
   const contextKey=JSON.stringify(context??null);
   const identity = useMemo(() => ({ key, protectedImage,contextKey,session }), [key, protectedImage,contextKey,session]);
-  const [loaded, setLoaded] = useState<{ identity: typeof identity; urls: Record<string, string> } | null>(null);
+  const [loaded, setLoaded] = useState<{ identity: typeof identity; urls: Record<string, string>; failures: Set<string> } | null>(null);
   useEffect(() => {
     if (!identity.protectedImage && !identity.session) return;
     const controller = new AbortController();
     const urls: Record<string, string> = {};
+    const failures = new Set<string>();
     const releases: (() => void)[] = [];
     for (const src of new Set(JSON.parse(identity.key) as string[])) {
       if(!resolvable(src)) continue;
@@ -59,13 +60,27 @@ export function useAuthenticatedImages(sources: readonly string[], protectedImag
       void resource.promise.then(url => {
         if (controller.signal.aborted) return;
         urls[src] = url;
-        setLoaded({ identity, urls: { ...urls } });
-      }).catch(() => { /* Failed protected bytes remain unavailable. */ });
+        setLoaded({ identity, urls: { ...urls }, failures: new Set(failures) });
+      }).catch(() => {
+        if (controller.signal.aborted) return;
+        failures.add(src);
+        setLoaded({ identity, urls: { ...urls }, failures: new Set(failures) });
+      });
     }
     return () => { controller.abort(); releases.forEach(release => release()); };
   }, [identity]);
-  return (src: string | undefined) => src && (protectedImage && resolvable(src) || Boolean(session) && ownPath(src))
-    ? loaded?.identity === identity ? loaded.urls[src] : undefined : src;
+  return useCallback((src: string | undefined) => {
+    const requiresBytes = src && (protectedImage && resolvable(src) || Boolean(session) && ownPath(src));
+    return {
+      src: requiresBytes ? loaded?.identity === identity ? loaded.urls[src] : undefined : src,
+      failed: Boolean(requiresBytes && loaded?.identity === identity && loaded.failures.has(src)),
+    };
+  }, [identity, loaded, protectedImage, session]);
+}
+
+export function useAuthenticatedImages(sources: readonly string[], protectedImage: boolean,context?:ProtectedAssetReferenceContext) {
+  const images = useAuthenticatedImageStates(sources, protectedImage, context);
+  return useCallback((src: string | undefined) => images(src).src, [images]);
 }
 
 export const useAuthenticatedImage = (src: string | undefined, protectedImage: boolean,context?:ProtectedAssetReferenceContext) => useAuthenticatedImages(src ? [src] : [], protectedImage,context)(src);

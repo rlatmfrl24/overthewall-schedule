@@ -7,13 +7,13 @@ import { DefaultPlaylistCard } from "./playlist-components";
 
 export function OtwPlayPlaylistsPage() {
   const defaults = usePlaylistDefaults();
-  const mine = useMyPlaylists(), { isSignedIn } = useUser();
+  const mine = useMyPlaylists(), { isLoaded, isSignedIn } = useUser();
   return <div className="playlist-page"><header className="playlist-heading"><div><p>골라 듣는 즐거움</p><h1>플레이리스트</h1></div>
     <Button asChild><Link to="/play/playlists/new" search={{}}>새 플레이리스트</Link></Button></header>
     {defaults.isPending ? <PlaylistCardsSkeleton /> : defaults.isError ? <div role="alert">기본 목록을 불러오지 못했습니다. <Button onClick={() => void defaults.refetch()}>다시 시도</Button></div> :
       <div className="playlist-grid">{defaults.data.data.items.map(playlist => <DefaultPlaylistCard key={playlist.id} playlist={playlist} />)}</div>}
     <section className="space-y-4"><h2 className="text-xl font-semibold">내 플레이리스트</h2>
-      {!isSignedIn ? <p className="text-muted-foreground">로그인하고 나만의 목록을 만들어 보세요.</p> : mine.isPending ? <PlaylistCardsSkeleton personal /> : mine.isError ? <Button onClick={() => void mine.refetch()}>내 목록 다시 불러오기</Button> :
+      {!isLoaded ? <PlaylistCardsSkeleton personal /> : !isSignedIn ? <p className="text-muted-foreground">로그인하고 나만의 목록을 만들어 보세요.</p> : mine.isPending ? <PlaylistCardsSkeleton personal /> : mine.isError ? <Button onClick={() => void mine.refetch()}>내 목록 다시 불러오기</Button> :
         mine.data.data.length ? <div className="playlist-grid">{mine.data.data.map(playlist => <Link className="playlist-saved-card playlist-card-main" key={playlist.id} to="/play/playlists/$playlistId" params={{ playlistId: playlist.id }}>
           <div className="playlist-art" data-playlist-hero={`/play/playlists/${encodeURIComponent(playlist.id)}`} data-hero-kind="card"><img src={playlist.imageUrl || "/images/otw-play/glass-note.png"} alt="" onError={event => { if (!event.currentTarget.src.endsWith("/images/otw-play/glass-note.png")) event.currentTarget.src = "/images/otw-play/glass-note.png"; }} loading="lazy" /></div>
           <div className="playlist-card-copy"><span className="playlist-card-kicker">MY PLAYLIST</span>

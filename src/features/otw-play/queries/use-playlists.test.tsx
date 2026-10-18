@@ -3,14 +3,14 @@ import React from "react";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ collect: vi.fn(), append: vi.fn(() => "추가 완료"), owner: "first" }));
+const mocks = vi.hoisted(() => ({ collect: vi.fn(), append: vi.fn(() => "추가 완료"), owner: "first", isLoaded: true, isSignedIn: true }));
 vi.mock("../use-cases/resolve-playlist", () => ({ collectPlaylist: mocks.collect }));
 vi.mock("./use-public-catalog", () => ({ usePublicRequestOptions: () => ({}) }));
 vi.mock("../player/play-player-context", () => ({ useOtwPlayPlayer: () => ({ enqueueBatch: mocks.append }) }));
-vi.mock("@clerk/clerk-react", () => ({ useUser: () => ({ user: mocks.owner ? { id: mocks.owner } : null }) }));
+vi.mock("@clerk/clerk-react", () => ({ useUser: () => ({ user: mocks.owner ? { id: mocks.owner } : null, isLoaded: mocks.isLoaded, isSignedIn: mocks.isSignedIn }) }));
 import { usePlaylistActions, usePlaylistOwner } from "./use-playlists";
 const empty = { items: [], unavailableIds: [] };
-beforeEach(() => { vi.resetAllMocks(); mocks.owner = "first"; mocks.append.mockReturnValue("추가 완료"); });
+beforeEach(() => { vi.resetAllMocks(); mocks.owner = "first"; mocks.isLoaded = true; mocks.isSignedIn = true; mocks.append.mockReturnValue("추가 완료"); });
 afterEach(cleanup);
 describe("playlist asynchronous actions", () => {
   it("passes the explicit playback request only after the whole playlist resolves", async () => {
@@ -67,5 +67,16 @@ describe("playlist asynchronous actions", () => {
     mocks.owner = ""; rerender();
     expect(client.getQueryData(["otw-play-private", "second", "playlists"])).toBeUndefined();
     expect(client.getQueryData(["otw-play", "playlist-defaults"])).toEqual(["public"]);
+  });
+  it.each(["loading", "signed-out"])("does not retain an owner or private cache while auth is %s", state => {
+    const client = new QueryClient();
+    const { result, rerender } = renderHook(usePlaylistOwner, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+    expect(result.current).toBe("first");
+    client.setQueryData(["otw-play-private", "first", "playlists"], ["private"]);
+    mocks.isLoaded = state !== "loading";
+    mocks.isSignedIn = false;
+    rerender();
+    expect(result.current).toBeUndefined();
+    expect(client.getQueryData(["otw-play-private", "first", "playlists"])).toBeUndefined();
   });
 });

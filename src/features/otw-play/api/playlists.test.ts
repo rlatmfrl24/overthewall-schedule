@@ -13,7 +13,7 @@ it.each(["otw", "luvdia"])("uses the %s audience for default playlists and queue
   await fetchPlaylistPerformances({ scope: "official" });
   await resolvePlaylistPerformances(["performance"]);
   expect(mocks.apiFetch).toHaveBeenCalledTimes(3);
-  for (const [, options] of mocks.apiFetch.mock.calls) expect(options.auth).toBe(siteId === "otw" ? "omit" : "required");
+  for (const [, options] of mocks.apiFetch.mock.calls) expect(options.auth).toBe("omit");
 });
 
 it("authenticates administrator preview and personal playlist reads/writes", async () => {

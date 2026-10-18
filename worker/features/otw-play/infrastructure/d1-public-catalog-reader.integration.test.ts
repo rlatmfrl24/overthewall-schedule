@@ -5,6 +5,10 @@ import { applyD1Migrations, env } from "cloudflare:test";
 import type { D1Migration } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as auth from "../../../platform/auth";
+import { handleWorkerFetch } from "../../../app/fetch";
+import { createSiteSeoDependencies } from "../../../app/site-seo";
+import { siteEnv } from "../../../test-support/site-env";
+import type { Env as WorkerEnv } from "../../../platform/types";
 afterEach(() => vi.restoreAllMocks());
 import type { PublicCatalogReaderQuery } from "../application/ports/public-catalog-reader";
 import { parsePublicCatalogQuery } from "../domain/public-catalog-query";
@@ -49,6 +53,7 @@ const PUBLIC_MIGRATION_NAMES = [
 
 type PublicCatalogTestEnv = Env & {
   OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS: D1Migration[];
+  OTW_PLAY_PLAYLIST_MIGRATIONS: D1Migration[];
 };
 
 const testEnv = env as PublicCatalogTestEnv;
@@ -438,6 +443,51 @@ describe("D1PublicCatalogReader", () => {
       "otw_play_public_catalog_test_migrations",
     );
     await cleanup();
+  });
+
+  it.each(["otw", "luvdia"] as const)("serves the anonymous %s official catalog and playlists through Worker fetch with D1 readback", async siteId => {
+    await applyD1Migrations(db, testEnv.OTW_PLAY_PLAYLIST_MIGRATIONS, "public_play_playlist_test_migrations");
+    await seedVisibilityFixture();
+    await db.prepare("UPDATE music_media_sources SET availability_status = 'playable' WHERE id = 'source-primary'").run();
+    const runtime = { ...testEnv, ...siteEnv(siteId) } as WorkerEnv;
+    const request = (path: string, performanceIds?: string[]) => handleWorkerFetch(new Request(`https://example.com${path}`, performanceIds ? {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ performanceIds }),
+    } : undefined), runtime);
+    const network = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Public reads must not call Clerk or providers"));
+    for (const path of ["/api/play/config", "/api/play/catalog", "/api/play/facets", "/api/play/members",
+      "/api/play/members/current-a/songbook", "/api/play/songs/song-visible-slug?scope=all", "/api/play/performances/performance-visible",
+      "/api/play/playlists/defaults", "/api/play/performances"]) {
+      const response = await request(path);
+      expect(response.status, path).toBe(200);
+      const body = await response.text();
+      expect(body).not.toContain("Broadcast Song");
+      expect(body).not.toContain("Draft Song");
+      expect(body).not.toContain("Proposal-only review note");
+    }
+    const resolved = await request("/api/play/performances/resolve", ["performance-visible", "performance-broadcast", "performance-draft"]);
+    expect(resolved.status).toBe(200);
+    expect(await resolved.json()).toMatchObject({ data: {
+      items: [{ performance: { id: "performance-visible", selectedSource: { sourceId: "source-primary" } } }],
+      unavailableIds: ["performance-broadcast", "performance-draft"],
+    } });
+    expect((await request("/api/play/performances/performance-broadcast")).status).toBe(404);
+    expect((await request("/api/play/performances?scope=broadcast")).status).toBe(403);
+    for (const path of ["/api/play/me/playlists", "/api/play/submissions/mine"]) expect((await request(path)).status, path).toBe(401);
+    const seo = createSiteSeoDependencies(runtime).seo;
+    expect(await seo.readPlayHome()).toMatchObject({ robots: "noindex,follow" });
+    await db.prepare("UPDATE music_catalog_meta SET navigation_visible = 1 WHERE id = 1").run();
+    expect(await seo.readPlayHome()).toMatchObject({ robots: "index,follow" });
+    await db.prepare("UPDATE music_catalog_meta SET public_read_enabled = 0, navigation_visible = 0 WHERE id = 1").run();
+    for (const path of ["/api/play/catalog", "/api/play/facets", "/api/play/members", "/api/play/members/current-a/songbook",
+      "/api/play/songs/song-visible-slug?scope=all", "/api/play/performances/performance-visible", "/api/play/playlists/defaults", "/api/play/performances"]) {
+      const response = await request(path);
+      expect(response.status, path).toBe(404);
+      expect(await response.json()).toMatchObject({ error: { code: "PLAY_PUBLIC_READ_DISABLED" } });
+    }
+    expect((await request("/api/play/performances/resolve", ["performance-visible"])).status).toBe(404);
+    expect(await (await request("/api/play/config")).json()).toMatchObject({ data: { publicReadEnabled: false } });
+    expect(await seo.readPlayHome()).toMatchObject({ robots: "noindex,nofollow" });
+    expect(network).not.toHaveBeenCalled();
   });
 
   it("lists every playlist performance across pages and keeps vocal roles scoped to the same performance", async () => {

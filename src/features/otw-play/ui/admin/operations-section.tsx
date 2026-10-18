@@ -59,7 +59,7 @@ const releaseActions = (
       transition: "enable_public_read",
       label: `${access} 활성화`,
       title: `${access}을 활성화할까요?`,
-      description: `${audience} 직접 URL로 공식 영상을 이용할 수 있습니다. 노래 클립은 관리자 전용이며 메뉴는 아직 숨겨집니다.`,
+      description: `${audience} 공식 영상을 이용할 수 있습니다. 노래 클립은 관리자 전용이며 프로필 연결과 검색 노출은 아직 비활성입니다.`,
       rollback: `문제가 있으면 이 화면에서 ${access}을 즉시 중단할 수 있습니다.`,
       confirmation: "direct_routes_verified",
       target: { publicReadEnabled: true, navigationVisible: false },
@@ -71,10 +71,10 @@ const releaseActions = (
     return [
       {
         transition: "enable_navigation",
-        label: "내비게이션 공개",
-        title: `${site.playName}를 최종 공개할까요?`,
-        description: `메뉴에 ${site.playName}를 표시합니다. ${audience} 공식 영상을 이용할 수 있으며 노래 클립은 관리자 전용입니다.`,
-        rollback: `문제가 있으면 메뉴만 숨기거나 ${access}과 메뉴 공개를 모두 중단할 수 있습니다.`,
+        label: "프로필 연결·검색 노출",
+        title: `${site.playName}의 프로필 연결과 검색 노출을 활성화할까요?`,
+        description: `멤버 프로필에 ${site.playName} 링크를 표시하고 공개 곡의 검색엔진 색인을 허용합니다. ${audience} 공식 영상을 이용할 수 있으며 노래 클립은 관리자 전용입니다.`,
+        rollback: `문제가 있으면 프로필 연결·검색 노출만 숨기거나 ${access}도 함께 중단할 수 있습니다.`,
         confirmation: "public_canary_verified",
         target: { publicReadEnabled: true, navigationVisible: true },
         tone: "default",
@@ -84,7 +84,7 @@ const releaseActions = (
         transition: "rollback_all",
         label: `${access} 중단`,
         title: `${site.playName} 공개를 모두 중단할까요?`,
-        description: "일반 카탈로그 조회와 메뉴 노출을 중단합니다. 관리자와 곡 제안 경로는 유지됩니다.",
+        description: "일반 카탈로그 조회와 프로필 연결·검색 노출을 중단합니다. 관리자와 곡 제안 경로는 유지됩니다.",
         rollback: "재공개하려면 직접 경로 검증부터 다시 수행해야 합니다.",
         confirmation: "rollback_reviewed",
         target: { publicReadEnabled: false, navigationVisible: false },
@@ -97,10 +97,10 @@ const releaseActions = (
     return [
       {
         transition: "disable_navigation",
-        label: "내비게이션 숨기기",
-        title: "내비게이션을 숨길까요?",
-        description: "직접 URL 접근은 유지하고 내비게이션에서 메뉴를 숨깁니다.",
-        rollback: "직접 URL에서 동작을 확인한 뒤 메뉴를 다시 공개할 수 있습니다.",
+        label: "프로필 연결·검색 노출 숨기기",
+        title: "프로필 연결과 검색 노출을 숨길까요?",
+        description: "Play 메뉴와 직접 URL 접근은 유지하고 프로필의 Play 링크와 공개 곡의 검색엔진 색인을 중단합니다.",
+        rollback: "직접 URL에서 동작을 확인한 뒤 프로필 연결·검색 노출을 다시 활성화할 수 있습니다.",
         confirmation: "rollback_reviewed",
         target: { publicReadEnabled: true, navigationVisible: false },
         tone: "outline",
@@ -110,8 +110,8 @@ const releaseActions = (
         transition: "rollback_all",
         label: "전체 공개 중단",
         title: `${site.playName} 공개를 모두 중단할까요?`,
-        description: "일반 카탈로그 조회와 메뉴 노출을 함께 중단합니다.",
-        rollback: "재공개하려면 직접 URL에서 이용을 검증한 뒤 메뉴를 공개해야 합니다.",
+        description: "일반 카탈로그 조회와 프로필 연결·검색 노출을 함께 중단합니다.",
+        rollback: "재공개하려면 직접 URL에서 이용을 검증한 뒤 프로필 연결·검색 노출을 활성화해야 합니다.",
         confirmation: "rollback_reviewed",
         target: { publicReadEnabled: false, navigationVisible: false },
         tone: "destructive",
@@ -323,7 +323,7 @@ function ReleasePanel({
       <div className="mx-3 mt-3 divide-y overflow-hidden rounded-lg border">
         {([
           ["public", requiresOtwPlayMembership(site.id) ? "회원 이용" : "비회원 이용", state.publicReadEnabled, requiresOtwPlayMembership(site.id) ? "로그인한 회원의 공식 영상 조회·재생" : "로그인 없이 공식 영상 조회·재생 · 노래 클립은 관리자 전용"],
-          ["navigation", "내비게이션", state.navigationVisible, requiresOtwPlayMembership(site.id) ? "회원용 메뉴 노출 · 검색엔진 색인 제외" : "공개 카탈로그 메뉴 노출"],
+          ["navigation", "프로필 연결·검색 노출", state.navigationVisible, "멤버 프로필의 Play 링크 · 공개 곡 검색엔진 색인"],
         ] as const).map(([control, title, enabled, description]) => (
           <div key={control} className="grid gap-3 p-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
             <div className="min-w-0">

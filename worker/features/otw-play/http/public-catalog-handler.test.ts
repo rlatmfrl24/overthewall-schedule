@@ -103,9 +103,10 @@ const request = (path: string, init?: RequestInit) =>
   new Request(`https://example.com${path}`, init);
 
 describe("OTW Play public catalog HTTP handler", () => {
-  it("allows anonymous OTW catalog reads without enabling administrator preview", async () => {
+  it.each(["otw", "luvdia"])("allows anonymous %s catalog reads without enabling administrator preview", async siteId => {
     authMocks.authenticateRequest.mockClear();
-    const response = await makeHandler(makeReader()).handler(request("/api/play/catalog"), { ...env, SITE_ID: "otw" });
+    authMocks.authenticateRequest.mockResolvedValue({ ok: false, response: new Response(null, { status: 401 }) });
+    const response = await makeHandler(makeReader()).handler(request("/api/play/catalog"), { ...env, SITE_ID: siteId });
     expect(response.status).toBe(200);
     expect(authMocks.authenticateRequest).not.toHaveBeenCalled();
   });
@@ -126,7 +127,7 @@ describe("OTW Play public catalog HTTP handler", () => {
     authMocks.authenticateRequest.mockResolvedValue({ ok: false, response: new Response(null, { status: 401 }) });
     const reader = makeReader(), readMeta = vi.spyOn(reader, "readMeta");
     const { handler, cache } = makeHandler(reader);
-    const response = await handler(request(path, { headers: { "If-None-Match": 'W/"catalog-etag"' } }), { ...env, SITE_ID: "luvdia" });
+    const response = await handler(request(path, { headers: { "If-None-Match": 'W/"catalog-etag"' } }), { ...env, SITE_ID: "unknown" });
     expect(response.status).toBe(401);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(await response.json()).toMatchObject({ error: { code: "PLAY_AUTH_REQUIRED" } });

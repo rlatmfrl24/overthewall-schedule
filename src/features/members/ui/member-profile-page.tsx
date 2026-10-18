@@ -17,8 +17,10 @@ import { useMemberProfile } from "../queries/use-member-profile";
 import { buildNotFoundSiteSeo, buildProfileSiteSeo } from "@contracts/site-seo";
 import { useSiteSeo } from "@/shared/seo";
 import { Button } from "@/shared/ui/button";
-import { useAuthenticatedImage, useAuthenticatedImages } from "@/shared/hooks/use-authenticated-image";
+import { useAuthenticatedImage, useAuthenticatedImageStates } from "@/shared/hooks/use-authenticated-image";
 import { useContentSession } from "@/shared/hooks/content-session";
+import { AuthenticatedImage } from "@/shared/ui/authenticated-image";
+import { Skeleton } from "@/shared/ui/skeleton";
 import {
   ArrowLeft,
   Cake,
@@ -452,6 +454,7 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
     useState<string[]>([]);
   const loadedProfileBackgroundKeysRef = useRef<Set<string>>(new Set());
   const loadingProfileBackgroundKeysRef = useRef<Set<string>>(new Set());
+  const previousCodeRef = useRef(code);
   const backgroundSwipeRef = useRef<BackgroundSwipeState | null>(null);
   const canRenderProfileBackground = useMediaQuery(
     PROFILE_BACKGROUND_MEDIA_QUERY,
@@ -470,6 +473,8 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
     : null;
 
   useEffect(() => {
+    if (previousCodeRef.current === code) return;
+    previousCodeRef.current = code;
     setFailedProfileBackgroundIds([]);
     setFailedOptimizedProfileBackgroundIds([]);
     setLoadedProfileBackgroundKeys([]);
@@ -497,9 +502,8 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
     [member],
   );
 
-  const activeImageUrl = useAuthenticatedImage(profileImages[0]?.imageUrl, includeArchived);
   const authenticatedProfile=Boolean(useContentSession()) || includeArchived;
-  const activeImage = activeImageUrl && profileImages[0] ? { ...profileImages[0], imageUrl: activeImageUrl } : null;
+  const activeImage = profileImages[0] ?? null;
   const profileBackgroundSourceSets = useMemo(
     () =>
       member
@@ -511,7 +515,22 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
         : [],
     [failedProfileBackgroundIds, member, authenticatedProfile],
   );
-  const authenticatedBackground = useAuthenticatedImages(profileBackgroundSourceSets.flatMap(background => [background.sources.src, background.sources.fallbackSrc]), includeArchived);
+  const authenticatedBackground = useAuthenticatedImageStates(
+    canRenderProfileBackground ? profileBackgroundSourceSets.map(background => failedOptimizedProfileBackgroundIds.includes(background.id) ? background.sources.fallbackSrc : background.sources.src) : [],
+    includeArchived,
+  );
+  useEffect(() => {
+    if (!canRenderProfileBackground) return;
+    for (const background of profileBackgroundSourceSets) {
+      const usesOptimized = !failedOptimizedProfileBackgroundIds.includes(background.id);
+      if (!authenticatedBackground(usesOptimized ? background.sources.src : background.sources.fallbackSrc).failed) continue;
+      if (usesOptimized) {
+        setFailedOptimizedProfileBackgroundIds(current => current.includes(background.id) ? current : [...current, background.id]);
+      } else {
+        setFailedProfileBackgroundIds(current => current.includes(background.id) ? current : [...current, background.id]);
+      }
+    }
+  }, [authenticatedBackground, canRenderProfileBackground, failedOptimizedProfileBackgroundIds, profileBackgroundSourceSets]);
   const resolvedProfileBackgroundSourceSets = useMemo(
     () =>
       profileBackgroundSourceSets.map((background) => {
@@ -520,7 +539,7 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
         const source = usesOptimized
           ? background.sources.src
           : background.sources.fallbackSrc;
-        const src = authenticatedBackground(source);
+        const src = authenticatedBackground(source).src;
         const srcSet = usesOptimized && !authenticatedProfile ? background.sources.srcSet : undefined;
         const sizes = usesOptimized ? background.sources.sizes : undefined;
 
@@ -666,7 +685,7 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
       };
       image.decoding = "async";
       if ("fetchPriority" in image) {
-        image.fetchPriority = "high";
+        image.fetchPriority = background.id === profileBackgroundSourceSets[0]?.id ? "high" : "low";
       }
       if (background.image.sizes) {
         image.sizes = background.image.sizes;
@@ -693,6 +712,7 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
     };
   }, [
     canRenderProfileBackground,
+    profileBackgroundSourceSets,
     resolvedProfileBackgroundSourceSets,
   ]);
 
@@ -702,11 +722,7 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
     Boolean(activeProfileBackground);
   const backgroundImageUrl = shouldUseProfileBackground
     ? activeProfileBackground?.image.src
-    : canRenderProfileBackground
-      ? hasProfileBackgroundCandidates
-        ? null
-        : activeImage?.imageUrl
-      : null;
+    : null;
   const backgroundImageSrcSet = activeProfileBackground?.image.srcSet;
   const backgroundImageSizes = activeProfileBackground?.image.sizes;
   const showBackgroundControls =
@@ -897,6 +913,14 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
       onPointerCancel={clearBackgroundSwipe}
     >
       <div className="absolute inset-0 overflow-hidden">
+        {canRenderProfileBackground && hasProfileBackgroundCandidates && !backgroundImageUrl && (
+          <Skeleton className="absolute inset-0 size-full rounded-none bg-muted/20" role="img" aria-label={`${member.name} 배경 이미지 불러오는 중`} aria-busy="true" />
+        )}
+        {canRenderProfileBackground && !hasProfileBackgroundCandidates && activeImage && (
+          <AuthenticatedImage protectedImage={includeArchived} showPlaceholder src={activeImage.imageUrl}
+            alt={activeImage.alt ?? `${member.name} 프로필 이미지`} className="absolute inset-0 hidden size-full object-center sm:block [&_[data-slot=skeleton]]:bg-muted/20"
+            decoding="async" loading="eager" fetchPriority="high" />
+        )}
         <AnimatePresence initial={false}>
           {backgroundImageUrl && (
             <motion.img
@@ -1008,14 +1032,17 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
               {renderPlayLink?.(member.uid)}
             </div>
 
-            {activeImage && (
+            {!canRenderProfileBackground && activeImage && (
               <div className="relative mt-3 h-[clamp(220px,36dvh,300px)] min-h-56 w-full overflow-hidden rounded-xl border border-white/12 bg-slate-950/30 shadow-md shadow-black/15 sm:hidden">
-                <img
+                <AuthenticatedImage
+                  protectedImage={includeArchived}
+                  showPlaceholder
                   src={activeImage.imageUrl}
                   alt={activeImage.alt ?? `${member.name} 프로필 이미지`}
                   className="size-full object-cover object-[50%_18%]"
                   decoding="async"
                   loading="eager"
+                  fetchPriority="high"
                 />
               </div>
             )}
