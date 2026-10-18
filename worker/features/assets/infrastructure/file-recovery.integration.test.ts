@@ -95,42 +95,58 @@ it("keeps ordinary file-reference writes bounded with 1000 unrelated references"
 it("keeps asset authorization reads bounded with unrelated file references",async()=>{
   await db.batch([
     db.prepare("INSERT INTO members(uid,code,name) VALUES(90001,'asset_cost_public','Asset cost public')"),
+    db.prepare("INSERT INTO member_profile_images(id,member_uid,image_url) VALUES(90001,90001,'/profile/asset_cost_public.webp')"),
     db.prepare("INSERT INTO notices(id,content,image_urls) VALUES(1,'public asset','[\"/r2-assets/notices/thumbnails/access-cost.webp\"]')"),
+    db.prepare("INSERT INTO naver_cafe_sources(id,name,cafe_id,menu_id,cafe_url) VALUES(90001,'Asset cost','90001','1','https://cafe.naver.com/asset-cost')"),
+    db.prepare("INSERT INTO naver_cafe_posts(id,article_id,source_id,source_name,cafe_id,menu_id,member_uid,title,summary,created_at,url,fetched_at,thumbnail_url) VALUES('asset-cost-target',1,90001,'Asset cost','90001','1',90001,'Asset cost','','2026-10-19','https://cafe.naver.com/asset-cost/1',1,'/r2-assets/notices/thumbnails/cafe-access-cost.webp')"),
   ]);
-  const paths=["/profile/asset_cost_public.webp","/r2-assets/notices/thumbnails/access-cost.webp","/r2-assets/notices/thumbnails/missing.webp"];
-  const costs:number[][]=[];
+  const paths=["/profile/asset_cost_public.webp","/r2-assets/notices/thumbnails/access-cost.webp","/r2-assets/notices/thumbnails/missing.webp","/r2-assets/notices/thumbnails/cafe-access-cost.webp"];
+  const costs:number[][][]=[];
   for(const size of [10,1000]) {
-    await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<?) INSERT OR IGNORE INTO notices(id,content,image_urls) SELECT x+10,'unrelated',json_array('/r2-assets/notices/thumbnails/unrelated-'||x||'.webp') FROM n").bind(size).run();
-    const reads:Array<{sql:string;args:unknown[];rowsRead:number;rowsWritten:number}>=[];
-    const measured=new Proxy(db,{get(database,key){
-      if(key==="prepare") return (sql:string)=>{
-        const wrap=(statement:D1PreparedStatement,args:unknown[]=[]):D1PreparedStatement=>new Proxy(statement,{get(target,method){
-          if(method==="bind")return(...values:unknown[])=>wrap(target.bind(...values),values);
-          if(method==="all" || method==="first")return async(column?:string)=>{
-            const result=await target.all();
-            reads.push({sql,args,rowsRead:result.meta.rows_read,rowsWritten:result.meta.rows_written});
-            const row=result.results[0];
-            return method==="all"?result:column?row?.[column]??null:row??null;
-          };
-          const value=Reflect.get(target,method,target);return typeof value==="function"?value.bind(target):value;
-        }});
-        return wrap(database.prepare(sql));
-      };
-      const value=Reflect.get(database,key,database);return typeof value==="function"?value.bind(database):value;
-    }});
-    const reader=new D1AssetAccessReader(measured,"https://otw-schedule.info");
-    const sample:number[]=[];
-    for(const [index,path] of paths.entries()) {
-      const start=reads.length;
-      expect((await reader.readAccess(path)).restricted).toBe(index===2);
-      sample.push(reads.slice(start).reduce((sum,entry)=>sum+entry.rowsRead,0));
+    await db.batch([
+      db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<?) INSERT OR IGNORE INTO notices(id,content,image_urls) SELECT x+10,'unrelated',json_array('/r2-assets/notices/thumbnails/unrelated-'||x||'.webp') FROM n").bind(size),
+      db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<?) INSERT OR IGNORE INTO member_profile_images(id,member_uid,image_url) SELECT 100000+x,90001,'/r2-assets/members/asset_cost_public/backgrounds/unrelated-'||x||'.webp' FROM n").bind(size),
+      db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<?) INSERT OR IGNORE INTO naver_cafe_posts(id,article_id,source_id,source_name,cafe_id,menu_id,member_uid,title,summary,created_at,url,fetched_at,thumbnail_url) SELECT 'asset-cost-cafe-'||x,x+10,90001,'Asset cost','90001','1',90001,'Unrelated','','2026-10-19','https://cafe.naver.com/asset-cost/'||(x+10),1,'/r2-assets/notices/thumbnails/unrelated-cafe-'||x||'.webp' FROM n").bind(size),
+    ]);
+    const snapshots:number[][]=[];
+    for(const analyzed of [false,true]) {
+      if(analyzed) await db.prepare("ANALYZE").run();
+      const reads:Array<{sql:string;args:unknown[];rowsRead:number;rowsWritten:number}>=[];
+      const measured=new Proxy(db,{get(database,key){
+        if(key==="prepare") return (sql:string)=>{
+          const wrap=(statement:D1PreparedStatement,args:unknown[]=[]):D1PreparedStatement=>new Proxy(statement,{get(target,method){
+            if(method==="bind")return(...values:unknown[])=>wrap(target.bind(...values),values);
+            if(method==="all" || method==="first")return async(column?:string)=>{
+              const result=await target.all();
+              reads.push({sql,args,rowsRead:result.meta.rows_read,rowsWritten:result.meta.rows_written});
+              const row=result.results[0];
+              return method==="all"?result:column?row?.[column]??null:row??null;
+            };
+            const value=Reflect.get(target,method,target);return typeof value==="function"?value.bind(target):value;
+          }});
+          return wrap(database.prepare(sql));
+        };
+        const value=Reflect.get(database,key,database);return typeof value==="function"?value.bind(database):value;
+      }});
+      const reader=new D1AssetAccessReader(measured,"https://otw-schedule.info");
+      const sample:number[]=[];
+      const plans:Array<{path:string;plan:Array<{detail:string}>}>=[];
+      for(const [index,path] of paths.entries()) {
+        const start=reads.length;
+        expect((await reader.readAccess(path)).restricted).toBe(index===2);
+        sample.push(reads.slice(start).reduce((sum,entry)=>sum+entry.rowsRead,0));
+        const query=reads[start];
+        const plan=(await db.prepare(`EXPLAIN QUERY PLAN ${query.sql}`).bind(...query.args).all<{detail:string}>()).results;
+        plans.push({path,plan});
+        expect.soft(plan.some(row=>/^SCAN (?:p|n)(?: |$)/.test(row.detail)),JSON.stringify({size,analyzed,path,plan})).toBe(false);
+      }
+      expect(reads.every(entry=>entry.rowsWritten===0)).toBe(true);
+      snapshots.push(sample);
+      console.info("ASSET_ACCESS_READ_COST",JSON.stringify({size,analyzed,paths,rowsRead:sample,plans}));
     }
-    expect(reads.every(entry=>entry.rowsWritten===0)).toBe(true);
-    costs.push(sample);
-    const query=reads[0];
-    console.info("ASSET_ACCESS_READ_COST",JSON.stringify({size,paths,rowsRead:sample,plan:(await db.prepare(`EXPLAIN QUERY PLAN ${query.sql}`).bind(...query.args).all()).results}));
+    costs.push(snapshots);
   }
-  for(const index of paths.keys())expect(costs[1][index],JSON.stringify({paths,costs})).toBeLessThanOrEqual(costs[0][index]+20);
+  for(const analyzed of [0,1])for(const index of paths.keys())expect.soft(costs[1][analyzed][index],JSON.stringify({analyzed,paths,costs})).toBeLessThanOrEqual(costs[0][analyzed][index]+20);
 });
 it("validates current profile and text-key Cafe references after path lookup",async()=>{
   const path="/r2-assets/notices/thumbnails/shared-owner.webp";

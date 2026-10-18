@@ -37,3 +37,13 @@
 이 문서는 변경 근거와 보존/중지 판단을 소유한다. **최종 전체 gate 결과, 검토 HEAD, 병합 OID, 양 사이트 배포 버전·schema·공개 파일/일반 공지 확인, 최소 조회 비용과 보존 readback은 [PR165 ledger](https://github.com/rlatmfrl24/overthewall-schedule/pull/165)가 소유한다.** 성공 전 완료로 표시하지 않는다. 검증 실패를 PASS로 바꾸거나 테스트를 제외하지 않는다. 대량 작업·수집 강제 실행·Play/AI 자동화 재개는 이번 반영에 포함하지 않는다.
 
 로컬 증거는 `.tmp/pr165-contract-release-20261019/`에 보존한다. 기존51개 실패의 기준 비교·D1 비용 최적화·Play 실사용자 정상 확인은 [앞선 점검](2026-10-19-d1-playback-closeout.md)을 따른다.
+
+## 운영 표본에서 발견한 JOIN 재정렬 후속
+
+PR165 merge `93e3d323`을 양 사이트에 반영하고 실제 공개 화면·프로필·익명 API·HEAD 차단과 자동화 중지를 확인했다. 운영 SQL 표본은815행 읽기/0쓰기였지만 OTW 프로필 한 경로가771행을 읽었다. 경로 인덱스의 후보는1행인데 SQLite 통계에 따라 Cafe owner를 먼저 전체 스캔하는 실행 계획이었다. 이 확인은 EXPLAIN과 경로 인덱스 표본2행 읽기/0쓰기이며 원격 ANALYZE나 전체 이력 검사는 실행하지 않았다. [실제 반영 및 후속 발견 ledger](https://github.com/rlatmfrl24/overthewall-schedule/pull/165#issuecomment-6256237935)
+
+기존 비용 회귀는 공지 증가만 다뤄 이 분포를 검증하지 못했다. 후속 회귀는 일반 프로필·공지·Cafe·없는 파일 경로와 실제 owner 행10→1,000 증가를 ANALYZE 전후 모두 확인한다. 기존 소스는 같은 요청의 읽기가4,000행 이상으로 증가해 기존+20행 한도와 owner 전체 스캔 금지를 실패했다. 후보부터 owner PK 조회를 유지하도록 JOIN 순서만 고정하며 원본·origin·공유·공개·정각 보호 조건과 bind는 유지한다. 이는 [SQLite의 CROSS JOIN 순서 보장](https://www.sqlite.org/optoverview.html#manual_control_of_query_plans_using_cross_join)을 사용한다.
+
+후속 수정 후 같은 네 경로의 읽기는10→1,000행과 ANALYZE 전후 모두 **37/28/16/28행**으로 동일했고 조회 쓰기는0행이다.16개 실제 실행 계획에서 owner 전체 스캔0과 PK 조회를 확인했다. 파일 복구·보관·공유 보호 전체20개도 통과했다. 리뷰에서 발견한 새 fixture ID 충돌은 새 범위만 옮겨 해결했고 기존 보호 사례를 유지했다. 최초 RED 및 충돌 FAIL 증거도 보존했다.
+
+후속 변경과 최종 gate·배포 결과는 PR165의 연결된 후속 PR ledger에 기록한다. 상세 로컬 RED/GREEN·plan/meta 증거는 `.tmp/pr165-asset-plan-closeout-20261019/`에 두며 운영 전체 스캔으로 검증을 대신하지 않는다.
