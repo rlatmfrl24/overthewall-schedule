@@ -4,7 +4,7 @@
 
 ## 실제 결함과 fixture 불일치의 구분
 
-`publicationHiddenSql`의 nullable 멤버 선택식이 NULL을 반환하면 일반 목록의 `NOT(NULL)`이 행을 제외했다. 발행 멤버나 관련 멤버가 없는 공용 공지·카페 자료가 정각 후 사라질 수 있는 실제 결함이다. 공용 fixture에 임의 멤버를 넣는 우회는 하지 않았다. 선택식 `IN(...)`만 `coalesce(...,0)`로 정규화해 비대상은 false로, 실제 선택 멤버 관계는 true로 유지했다. 실제 SQLite에서 공용 notice1/2/7 누락의 RED와 수정 후 GREEN을 확인했다.
+`publicationHiddenSql`의 nullable 멤버 선택식이 NULL을 반환하면 일반 목록의 `NOT(NULL)`이 행을 제외했다. 발행 멤버나 관련 멤버가 없는 공용 공지·카페 자료가 정각 후 사라질 수 있는 실제 결함이다. 공용 fixture에 임의 멤버를 넣는 우회는 하지 않았다. 선택식의 **최종 결과**를 `coalesce(...,0)`로 정규화해 비대상은 false로, 실제 선택 멤버 관계는 true로 유지했다. 내부 `IN(...)` 형태는 원래대로 유지해 인덱스 계획을 보존한다. 실제 SQLite에서 공용 notice1/2/7 누락의 RED와 수정 후 GREEN을 확인했다.
 
 나머지 수정은 담당 기능의 현재 계약을 따른다.
 
@@ -31,6 +31,8 @@
 ## 검증·반영 상태
 
 담당 범위는 archive83·X59·Play/CHZZK58·NULL 회귀2개로 총202개 PASS다. 원래 사례를 모두 유지하고 시계 불일치1개·CHZZK 보호2개·NULL 회귀1개를 추가했다. 독립 리뷰의 P2 한 건은 metadata 전 실제 candidate/origin0건 및 원본 응답4개 occurrence 전체를 직접 검증해 해결했다. 해당 ingestion22개를 다시 통과했고 기존 후속 assertion은 유지했다.
+
+최초 전체 gate는2,922 PASS/1 FAIL이었다. 개별 `IN`마다 NULL을 정규화한 첫 형태가 Play 검색의 기존5,000행 한도를5,197행으로 넘겼다. 한도나 테스트를 완화하지 않고 최종 선택 결과 한 곳에서만 NULL을 처리하도록 옮겼다. 이로 인한 영향 범위의 Worker 검증과 미실행 build·로컬 doctor·mirror 단계를 완료해 합성 gate로 판정한다. 최초 전체 명령이 통과했다고 보고하지 않는다.
 
 이 문서는 변경 근거와 보존/중지 판단을 소유한다. **최종 전체 gate 결과, 검토 HEAD, 병합 OID, 양 사이트 배포 버전·schema·공개 파일/일반 공지 확인, 최소 조회 비용과 보존 readback은 [PR165 ledger](https://github.com/rlatmfrl24/overthewall-schedule/pull/165)가 소유한다.** 성공 전 완료로 표시하지 않는다. 검증 실패를 PASS로 바꾸거나 테스트를 제외하지 않는다. 대량 작업·수집 강제 실행·Play/AI 자동화 재개는 이번 반영에 포함하지 않는다.
 

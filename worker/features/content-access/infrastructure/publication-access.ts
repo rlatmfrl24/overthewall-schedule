@@ -5,7 +5,7 @@ import { memberRootPredicates } from "./member-roots";
 const cutoffSeconds = Date.parse(SITE_OPENS_AT) / 1000;
 const hiddenCodes = "'bing_hayu','u_lili','yang_mei'";
 const hiddenUids = `SELECT uid FROM members WHERE code IN (${hiddenCodes})`;
-const predicates = memberRootPredicates(expression => `coalesce(${expression} IN (${hiddenUids}),0)`);
+const predicates = memberRootPredicates(expression => `${expression} IN (${hiddenUids})`);
 // OTW row identities explicitly confirmed by the operator; titles are not selectors.
 const reviewedDdayIds = [4, 9, 10, 11];
 export const publicationCutoffSql=(siteId:SiteId)=>siteId==='otw'?`max(unixepoch(),${Math.floor(Date.now()/1000)})>=${cutoffSeconds}`:'0';
@@ -36,5 +36,5 @@ export function publicationHiddenSql(table: string, alias: string, siteId: SiteI
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(alias)) throw new Error("Invalid publication SQL alias");
   const predicate = predicates[table] ?? (table === "ddays" ? `EXISTS(SELECT 1 FROM content_transition_membership cm JOIN content_transitions ct ON ct.id=cm.transition_id WHERE ct.local_site='otw' AND ct.local_site=ct.source_site AND ct.aborted_at IS NULL AND cm.row_table='ddays' AND cm.row_key=json_array(a.id) AND EXISTS(SELECT 1 FROM json_each(ct.plan_json,'$.members') selected WHERE json_extract(selected.value,'$.code') IN ('bing_hayu','u_lili','yang_mei')))` : null);
   const selected = table === "ddays" ? `(a.id IN (${reviewedDdayIds.join(",")}) OR (${predicate}))` : predicate;
-  return selected ? `(${timeSql} >= ${cutoffSeconds} AND (${selected.replace(/\ba\./g, `${alias}.`)}))` : "0";
+  return selected ? `(${timeSql} >= ${cutoffSeconds} AND coalesce((${selected.replace(/\ba\./g, `${alias}.`)}),0))` : "0";
 }
