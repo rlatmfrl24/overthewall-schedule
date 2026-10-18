@@ -5,7 +5,7 @@ import { memberRootPredicates } from "./member-roots";
 const cutoffSeconds = Date.parse(SITE_OPENS_AT) / 1000;
 const hiddenCodes = "'bing_hayu','u_lili','yang_mei'";
 const hiddenUids = `SELECT uid FROM members WHERE code IN (${hiddenCodes})`;
-const predicates = memberRootPredicates(expression => `${expression} IN (${hiddenUids})`);
+const predicates = memberRootPredicates(expression => `coalesce(${expression} IN (${hiddenUids}),0)`);
 // OTW row identities explicitly confirmed by the operator; titles are not selectors.
 const reviewedDdayIds = [4, 9, 10, 11];
 export const publicationCutoffSql=(siteId:SiteId)=>siteId==='otw'?`max(unixepoch(),${Math.floor(Date.now()/1000)})>=${cutoffSeconds}`:'0';

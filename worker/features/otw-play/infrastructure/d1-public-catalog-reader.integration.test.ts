@@ -530,7 +530,7 @@ describe("D1PublicCatalogReader", () => {
     const body = await response.json() as { data: { member: { songCount: number }; items: { id: string }[] }; catalogRevision: number };
     expect(body.data.member.songCount).toBe(3);
     expect(body.data.items.map(item => item.id)).toEqual(["member-song-3"]);
-    expect(body.catalogRevision).toBe(14);
+    expect(body.catalogRevision).toBe(15);
     for (const code of ["former-b", "missing"]) {
       expect((await handler(new Request(`https://example.com/api/play/members/${code}/songbook`), testEnv)).status).toBe(404);
     }
@@ -545,9 +545,10 @@ describe("D1PublicCatalogReader", () => {
 
   it("reads the singleton metadata before public catalog work", async () => {
     const reader = new D1PublicCatalogReader(db);
+    // The post-publication bit invalidates pre-cutoff catalog caches.
     await expect(reader.readMeta()).resolves.toEqual({
-      revision: 14,
-      readModelRevision: 14,
+      revision: 15,
+      readModelRevision: 15,
       publicReadEnabled: true,
       navigationVisible: false,
       updatedAt: NOW,

@@ -113,10 +113,12 @@ beforeEach(async () => {
     "x_api_resource_daily",
     "scheduled_usage_daily",
     "x_collection_runs",
+    "members",
     "settings",
   ]) {
     await db.prepare(`DELETE FROM ${table}`).run();
   }
+  await db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(1,'member','Member','https://x.com/member')").run();
   clearXServiceCachesForTests();
   vi.stubGlobal("fetch", vi.fn());
 });

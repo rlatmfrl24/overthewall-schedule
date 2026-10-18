@@ -32,12 +32,14 @@ import { handleQueue } from "./queue";
 import { D1AdminCatalogRepository } from "../features/otw-play/infrastructure/d1-admin-catalog-repository";
 import { AiReviewService } from "../features/otw-play/application/ai-review-service";
 import { D1AiReviewContext } from "../features/otw-play/infrastructure/d1-ai-review-context";
+import { createPublicationClock } from "../test-support/publication-clock";
 
 const bindings = env as unknown as Env & { };
-const db = bindings.otw_db;
+const publicationClock = createPublicationClock(bindings.otw_db);
+const db = publicationClock.db;
 const issuer = "https://archive.clerk.invalid";
 const origin = "http://localhost:5173";
-const runtime = { ...bindings, ...siteEnv(), SITE_PUBLIC_ORIGIN: origin, CLERK_ISSUER: issuer,
+const runtime = { ...bindings, otw_db: db, ...siteEnv(), SITE_PUBLIC_ORIGIN: origin, CLERK_ISSUER: issuer,
   CLERK_JWKS_URL: `${issuer}/.well-known/jwks.json`, CLERK_AUTHORIZED_PARTIES: origin,
   CLERK_ADMIN_IDS: "archive-admin", OTW_PLAY_SUBMISSION_RATE_LIMITER: { limit: async () => ({ success: true }) }, YOUTUBE_API_KEY: "", ASSETS: { fetch: async () => new Response("<html><head></head><body><div id=\"root\"></div></body></html>", { headers: { "Content-Type": "text/html" } }) },
 } as unknown as Env;
@@ -45,6 +47,14 @@ let keys: CryptoKeyPair;
 let jwk: JsonWebKey;
 const encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 const part = (value: unknown) => encode(new TextEncoder().encode(JSON.stringify(value)));
+async function mockPublicationTime(now: number) {
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+  await publicationClock.setTime(now);
+  return { async mockReturnValue(value: number) {
+    clock.mockReturnValue(value);
+    await publicationClock.setTime(value);
+  } };
+}
 async function request(path: string, user?: string, init: RequestInit = {}, requestRuntime = runtime) {
   const headers = new Headers(init.headers);
   if (user) {
@@ -54,6 +64,7 @@ async function request(path: string, user?: string, init: RequestInit = {}, requ
   return handleWorkerFetch(new Request(`${origin}${path}`, { ...init, headers }), requestRuntime);
 }
 beforeAll(async () => {
+  const db = bindings.otw_db;
   for (const migration of (await readSiteSchemaMigrations())) {
     if (migration.name.startsWith("0030_")) await db.batch(["kurenai_natsuki", "terri_nunna", "bing_hayu", "yang_mei", "u_lili", "on_haru", "hane", "kim_ate"].map((code, index) => db.prepare("INSERT INTO members(uid,code,name,is_deprecated) VALUES(?,?,?,1)").bind(-10000-index, code, "migration bootstrap")));
     await applyD1Migrations(db, [migration]);
@@ -64,6 +75,7 @@ beforeAll(async () => {
 }, 120000);
 beforeEach(async () => {
   clearAuthCachesForTests();
+  await publicationClock.setTime(Date.now());
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     if (String(input) === `${issuer}/.well-known/jwks.json`) return Response.json({ keys: [{ ...jwk, kid: "archive-key", alg: "RS256", use: "sig" }] });
     throw new Error(`Unexpected provider access: ${String(input)}`);
@@ -99,9 +111,9 @@ it("applies the timed OTW cutoff through normal member, schedule, notice and ass
     db.prepare("UPDATE schedules SET content_access='normal' WHERE id=1"),
     db.prepare("UPDATE notices SET content_access='normal',related_member_uids='[1]' WHERE id=1"),
   ]);
-  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(SITE_OPENS_AT) - 1);
+  const clock = await mockPublicationTime(Date.parse(SITE_OPENS_AT) - 1);
   expect((await (await request("/api/members")).json() as Array<{code:string}>).map(m => m.code)).toContain("bing_hayu");
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   expect((await (await request("/api/members")).json() as Array<{code:string}>).map(m => m.code)).toEqual(["other"]);
   expect((await request("/api/members/bing_hayu")).status).toBe(404);
   expect(await (await request("/api/schedules?date=2026-10-14")).json()).not.toContainEqual(expect.objectContaining({member_uid:1}));
@@ -111,9 +123,28 @@ it("applies the timed OTW cutoff through normal member, schedule, notice and ass
   expect(await db.prepare("SELECT content_access FROM members WHERE uid=1").first("content_access")).toBe("normal");
 });
 
+it("enforces either publication clock while retaining the real D1 wall-clock guard", async () => {
+  const cutoff = Date.parse(SITE_OPENS_AT);
+  await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
+  await mockPublicationTime(cutoff - 1);
+  const readHidden = (database: D1Database) => database.prepare(`SELECT 1 FROM members m WHERE m.uid=1 AND ${publicationHiddenSql("members", "m", "otw")}`).first();
+  expect(await readHidden(db)).toBeNull();
+  await publicationClock.setTime(cutoff);
+  expect(Date.now()).toBe(cutoff - 1);
+  expect(await readHidden(db)).not.toBeNull();
+  await publicationClock.setTime(cutoff - 1);
+  vi.mocked(Date.now).mockReturnValue(cutoff);
+  expect(await readHidden(db)).not.toBeNull();
+  vi.mocked(Date.now).mockReturnValue(cutoff + 1000);
+  expect(await readHidden(db)).not.toBeNull();
+  vi.mocked(Date.now).mockReturnValue(cutoff - 1);
+  const realSeconds = await bindings.otw_db.prepare("SELECT unixepoch() AS now").first<number>("now");
+  expect(Boolean(await readHidden(bindings.otw_db))).toBe(realSeconds! >= cutoff / 1000);
+});
+
 it("keeps LuvDia content closed until the boundary while real admin authentication can prepare it", async () => {
   const luvdia = { ...runtime, ...siteEnv("luvdia"), SITE_PUBLIC_ORIGIN: origin } as Env;
-  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(SITE_OPENS_AT) - 1);
+  const clock = await mockPublicationTime(Date.parse(SITE_OPENS_AT) - 1);
   for (const user of [undefined, "ordinary-member"]) {
     expect((await request("/api/members", user, {}, luvdia)).status).toBe(403);
     expect((await request("/r2-assets/private.webp", user, { method: "HEAD" }, luvdia)).status).toBe(403);
@@ -121,7 +152,7 @@ it("keeps LuvDia content closed until the boundary while real admin authenticati
   expect((await request("/api/members", "archive-admin", {}, luvdia)).status).toBe(200);
   expect((await request("/admin/operations", undefined, {}, luvdia)).status).toBe(200);
   expect(await (await request("/api/publication-status", "archive-admin", {}, luvdia)).json()).toMatchObject({phase:"countdown",canPreview:true});
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   expect((await request("/api/members", undefined, {}, luvdia)).status).toBe(200);
   expect((await request("/api/members", undefined, {}, { ...luvdia, SITE_PUBLICATION_HOLD:"true" })).status).toBe(403);
 });
@@ -133,7 +164,7 @@ it("retains timed YouTube source/video originals without polling them after midn
     db.prepare("INSERT INTO youtube_feed_sources(id,source_kind,member_uid,youtube_channel_id,collection_started_at,created_at,updated_at) VALUES(1,'official',1,'UCaaaaaaaaaaaaaaaaaaaaaa',100,100,100)"),
     db.prepare("INSERT INTO youtube_feed_videos(video_id,source_id,title,published_at,fetched_at) VALUES('retained123',1,'Retained original',100,100)"),
   ]);
-  vi.spyOn(Date, "now").mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await mockPublicationTime(Date.parse(SITE_OPENS_AT));
   expect(await runScheduledYouTubeFeedCollection({ ...runtime, YOUTUBE_API_KEY: "test" })).toMatchObject({status:"skipped",attempted:0});
   expect(await db.prepare("SELECT title FROM youtube_feed_videos WHERE source_id=1").first("title")).toBe("Retained original");
   expect(await db.prepare("SELECT last_success_at FROM youtube_feed_sources WHERE id=1").first("last_success_at")).toBeNull();
@@ -142,7 +173,7 @@ it("retains timed YouTube source/video originals without polling them after midn
 
 it("does not acknowledge or store an in-flight YouTube result that crosses midnight", async () => {
   const before = Date.parse(SITE_OPENS_AT) - 1000;
-  const clock = vi.spyOn(Date, "now").mockReturnValue(before);
+  const clock = await mockPublicationTime(before);
   await db.batch([
     db.prepare("UPDATE members SET content_access='normal' WHERE uid=1"),
     db.prepare("UPDATE members SET youtube_channel_id=NULL WHERE uid=2"),
@@ -152,7 +183,7 @@ it("does not acknowledge or store an in-flight YouTube result that crosses midni
     const url = new URL(String(input));
     if (url.pathname.endsWith("/playlistItems")) return Response.json({items:[{snippet:{resourceId:{videoId:"latevideo01"},publishedAt:"2026-10-18T14:59:59Z"}}]});
     if (url.pathname.endsWith("/videos")) {
-      clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+      await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
       return Response.json({items:[{id:"latevideo01",snippet:{title:"Late result",publishedAt:"2026-10-18T14:59:59Z"},contentDetails:{duration:"PT30S"}}]});
     }
     throw new Error(`Unexpected provider: ${url}`);
@@ -166,14 +197,14 @@ it("does not acknowledge or store an in-flight YouTube result that crosses midni
 
 it("keeps Cafe posts and watermark unchanged when the provider response crosses midnight", async () => {
   const before = Date.parse(SITE_OPENS_AT) - 1000;
-  const clock = vi.spyOn(Date, "now").mockReturnValue(before);
+  const clock = await mockPublicationTime(before);
   await db.batch([
     db.prepare("UPDATE members SET content_access='normal' WHERE uid=1"),
     db.prepare("INSERT INTO naver_cafe_sources(id,name,cafe_url,cafe_id,menu_id,member_uid,enabled,initialization_completed_at,collection_started_at,last_seen_article_id) VALUES(1,'Selected','https://cafe.naver.com/selected','123','1',1,1,1,1,42)"),
   ]);
   const source = await db.prepare("SELECT * FROM naver_cafe_sources WHERE id=1").first<Parameters<typeof collectNaverCafePostsForSources>[0][number]>();
   vi.mocked(fetch).mockImplementation(async () => {
-    clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+    await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
     return Response.json({result:{articleList:[{type:"ARTICLE",item:{articleId:43,subject:"Late Cafe",writeDateTimestamp:before}}]}});
   });
   const result = await collectNaverCafePostsForSources([source!], {cacheDb:db,siteId:"otw",size:20,trigger:"scheduled"});
@@ -191,9 +222,9 @@ it("blocks timed X reply context including cached author content while keeping o
     db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,fetched_at) VALUES(?,'public','public',?,'2026-10-14T00:00:00Z',100)").bind(reply.id,JSON.stringify(reply)),
     db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES(?,'linked_post',?,100,?)").bind(`x:linked-post:v1:${parent.id}`,JSON.stringify({post:parent}),Date.parse(SITE_OPENS_AT)+86400000),
   ]);
-  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
+  const clock = await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1);
   expect((await request(`/api/x/posts/${reply.id}/context`)).status).toBe(200);
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   expect((await request(`/api/x/posts/${reply.id}/context`)).status).toBe(404);
   expect(await readStoredXPreview(db,parent.id,Date.now(),"otw")).toBeNull();
 });
@@ -201,7 +232,7 @@ it("blocks timed X reply context including cached author content while keeping o
 it("rejects a late X post instead of recording facts or acknowledging its watermark", async () => {
   clearXServiceCachesForTests();
   const before = Date.parse(SITE_OPENS_AT) - 1000;
-  const clock = vi.spyOn(Date,"now").mockReturnValue(before);
+  const clock = await mockPublicationTime(before);
   await db.batch([
     db.prepare("UPDATE members SET content_access='normal' WHERE uid=1"),
     db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at,initialization_completed_at) VALUES('archived','u1','archived','101000000000000001',1,1,1,1)"),
@@ -210,7 +241,7 @@ it("rejects a late X post instead of recording facts or acknowledging its waterm
     const url = new URL(String(input));
     if (url.pathname.includes("/users/by")) return Response.json({data:[{id:"u1",username:"archived"}]});
     if (url.pathname.endsWith("/tweets")) {
-      clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+      await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
       return Response.json({data:[{id:"101000000000000003",text:"Late X",created_at:new Date(before).toISOString(),public_metrics:{}}]});
     }
     throw new Error(`Unexpected X provider: ${url}`);
@@ -227,9 +258,9 @@ it("excludes timed artists and song candidates from ordinary submission lookup",
   await catalog();
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
   const repository = new D1MemberSubmissionRepository(db,"otw");
-  const clock = vi.spyOn(Date,"now").mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
+  const clock = await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1);
   expect(await repository.searchArtists("Archived")).toHaveLength(1);
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   expect(await repository.searchArtists("Archived")).toEqual([]);
   expect(await repository.searchArtists("Public")).toHaveLength(1);
 });
@@ -240,7 +271,7 @@ it("keeps global D-days unless reviewed membership associates them with the sele
     db.prepare("INSERT INTO ddays(id,title,date) VALUES(3,'Selected day','2026-10-19'),(5,'Unrelated day','2026-10-19')"),
     ...[3,5].map((id,index) => db.prepare("INSERT INTO content_transition_membership(transition_id,root_table,root_key,row_table,row_key) VALUES(?,'ddays',?,'ddays',?)").bind(`classified-${index}`,JSON.stringify([id]),JSON.stringify([id]))),
   ]);
-  vi.spyOn(Date,"now").mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await mockPublicationTime(Date.parse(SITE_OPENS_AT));
   expect((await db.prepare(`SELECT id FROM ddays d WHERE id IN (3,5) AND NOT ${publicationHiddenSql("ddays","d","otw")} ORDER BY id`).all()).results).toEqual([{id:5}]);
 });
 
@@ -252,10 +283,10 @@ it("stops selected-only Play source health work while retaining a shared source 
     db.prepare("INSERT INTO music_performance_sources(performance_id,source_id,source_role,priority,is_primary,start_seconds) VALUES('public-performance','source-0','alternate',1,0,1)"),
   ]);
   const repository = new D1SourceHealthRepository(db,"otw");
-  const clock = vi.spyOn(Date,"now").mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
+  const clock = await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1);
   const target = await repository.readTarget("source-2");
   expect(target).not.toBeNull();
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   expect(await repository.readTarget("source-2")).toBeNull();
   expect((await repository.claimDueSources(Date.now(),Date.now()+60000,10)).map(source=>source.id)).toEqual(["source-0","source-1"]);
   expect(await repository.applyObservation({target:target!,actor:{kind:"system"},eventId:"late-health",checkedAt:Date.now(),nextCheckAt:Date.now()+3600000,observation:{videoId:target!.externalId,availabilityStatus:"playable",video:null}})).toEqual({kind:"stale"});
@@ -270,7 +301,7 @@ it("excludes selected Play monitors and rejects their in-flight watermark update
     db.prepare("INSERT INTO music_channel_entities(channel_id,entity_id) VALUES('channel','archived-singer')"),
   ]);
   const repository = new D1ChannelMonitorRepository(db,"otw");
-  const clock = vi.spyOn(Date,"now").mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
+  const clock = await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1);
   const externalId = await db.prepare("SELECT external_channel_id FROM music_channels WHERE id='channel'").first<string>("external_channel_id");
   const channel = await repository.findApprovableChannel(externalId!);
   const created = await repository.create({id:"target-monitor",channel:channel!,uploadsPlaylistId:"UUaaaaaaaaaaaaaaaaaaaaaa",lastSeenVideoId:null,actorUserId:"admin",eventId:"create-monitor",approvalEventId:"approve-monitor",now:Date.now()-86400000,approval:{scope:"candidate_collection",operatorReference:"operator",approvalReference:"approved",revocationProcedure:"revoke",confirmed:true}});
@@ -278,7 +309,7 @@ it("excludes selected Play monitors and rejects their in-flight watermark update
   expect(await repository.listDueIds(Date.now(),10)).toEqual(["target-monitor"]);
   const claimed = await repository.claim("target-monitor",Date.now());
   expect(claimed).not.toBeNull();
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   expect(await repository.listDueIds(Date.now(),10)).toEqual([]);
   expect(await repository.claim("target-monitor",Date.now())).toBeNull();
   await expect(repository.complete({id:"target-monitor",expectedVersion:claimed!.version,monitorGeneration:claimed!.generation,now:Date.now(),lastSeenVideoId:"latevideo01",lastSeenPublishedAt:Date.now()})).rejects.toThrow();
@@ -287,10 +318,10 @@ it("excludes selected Play monitors and rejects their in-flight watermark update
 
 it("hides timed Play performances in search, song details and saved playlists but keeps the shared song", async () => {
   await catalog();
-  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(SITE_OPENS_AT) - 1);
+  const clock = await mockPublicationTime(Date.parse(SITE_OPENS_AT) - 1);
   const playlist = await new D1PlaylistRepository(db).create("member", "cutover-playlist", {title:"Saved",description:"",originDefaultId:null,representativePerformanceId:"archived-performance",performanceIds:["archived-performance","public-performance"]});
   expect((await request("/api/play/performances/archived-performance", "member")).status).toBe(200);
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   expect((await request("/api/play/performances/archived-performance", "member")).status).toBe(404);
   const song = await new D1PublicCatalogReader(db).readSongBySlug("shared-song");
   expect(song?.performances.map(p => p.id)).toEqual(["public-performance"]);
@@ -300,11 +331,11 @@ it("hides timed Play performances in search, song details and saved playlists bu
 });
 
 it("stops transferred collection targets and rolls back an already prepared native write at cutover", async () => {
-  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(SITE_OPENS_AT) - 1);
+  const clock = await mockPublicationTime(Date.parse(SITE_OPENS_AT) - 1);
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
   expect(await readActiveYouTubeChannels(db,"otw")).toContain("UCaaaaaaaaaaaaaaaaaaaaaa");
   const lateWrite = db.prepare("UPDATE schedules SET title='late collector result' WHERE id=1");
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   expect(await readActiveYouTubeChannels(db,"otw")).not.toContain("UCaaaaaaaaaaaaaaaaaaaaaa");
   expect(await readActiveChzzkChannels(db,"otw")).not.toContain("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   await expect(commitPublicationBatch(db,"otw",[1],[lateWrite])).rejects.toThrow();
@@ -321,7 +352,7 @@ it("keeps global X repair off transferred OTW history while other collection and
     const post={id,username:handle,text:'Stored quote',createdAt:'2026-10-15T00:00:00Z',url:`https://x.com/${handle}/status/${id}`,media:[],quote:{postId:'200',post:{id:'200'}}};
     await db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at) VALUES(?,?,?,?,?,1,1)").bind(id,handle,handle,JSON.stringify(post),post.createdAt).run();
   }
-  vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await mockPublicationTime(Date.parse(SITE_OPENS_AT));
   await runXCollectionForHandles({...runtime,X_BEARER_TOKEN:''},['public'],'scheduled');
   expect((await db.prepare('SELECT post_id FROM x_post_facts ORDER BY post_id').all()).results).toEqual([{post_id:'202'}]);
   expect((await db.prepare('SELECT source_post_id FROM x_post_references ORDER BY source_post_id').all()).results).toEqual([{source_post_id:'202'}]);
@@ -335,12 +366,12 @@ it("does not commit or acknowledge an X reference repair selected before midnigh
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
   const post={id:'203',username:'archived',text:'Stored quote',createdAt:'2026-10-15T00:00:00Z',url:'https://x.com/archived/status/203',media:[],quote:{postId:'200',post:{id:'200'}}};
   await db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at) VALUES('203','archived','archived',?,'2026-10-15T00:00:00Z',1,1)").bind(JSON.stringify(post)).run();
-  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
+  const clock=await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1);
   const raced=new Proxy(db,{get(database,key){
     if(key==='prepare')return(sql:string)=>{
       const wrap=(statement:D1PreparedStatement):D1PreparedStatement=>new Proxy(statement,{get(target,method){
         if(method==='bind')return(...values:unknown[])=>wrap(target.bind(...values));
-        if(method==='all'&&sql.includes('work.references_pending=1'))return async()=>{const result=await target.all();clock.mockReturnValue(Date.parse(SITE_OPENS_AT));return result;};
+        if(method==='all'&&sql.includes('work.references_pending=1'))return async()=>{const result=await target.all();await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));return result;};
         const value=Reflect.get(target,method,target);return typeof value==='function'?value.bind(target):value;
       }});return wrap(database.prepare(sql));
     };
@@ -355,9 +386,9 @@ it("keeps transferred X posts visible through the normal LuvDia feed after OTW c
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
   const post={id:'205',username:'archived',text:'LuvDia visible X',createdAt:'2026-10-15T00:00:00Z',url:'https://x.com/archived/status/205',media:[],metrics:{likeCount:0,replyCount:0,repostCount:0,quoteCount:0}};
   await db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at) VALUES('205','archived','archived',?,'2026-10-15T00:00:00Z',1,1)").bind(JSON.stringify(post)).run();
-  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
+  const clock=await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1);
   expect(await (await request('/api/member-posts?sources=x')).text()).toContain(post.text);
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   const luvdia=await request('/api/member-posts?sources=x',undefined,{}, {...runtime,...siteEnv('luvdia'),otw_db:db});
   expect(luvdia.status).toBe(200);expect(await luvdia.text()).toContain(post.text);
   expect(await (await request('/api/member-posts?sources=x')).text()).not.toContain(post.text);
@@ -368,8 +399,8 @@ it("preserves selected OTW quote history when an in-flight hydration response cr
   const post={id:'204',username:'archived',text:'Stored unresolved quote',createdAt:'2026-10-15T00:00:00Z',media:[],quote:{postId:'200'}};
   await db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at) VALUES('204','archived','archived',?,'2026-10-15T00:00:00Z',1,1)").bind(JSON.stringify(post)).run();
   await db.prepare("INSERT INTO x_post_references(source_post_id,relation_type,referenced_post_id,resolution_state,next_attempt_at,created_at,updated_at) VALUES('204','quote','200','pending',0,1,1)").run();
-  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
-  const provider=vi.fn(async()=>{clock.mockReturnValue(Date.parse(SITE_OPENS_AT));return Response.json({data:[{id:'200',text:'Late paid quote',created_at:'2026-10-15T00:00:00Z',public_metrics:{}}]});});
+  const clock=await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1);
+  const provider=vi.fn(async()=>{await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));return Response.json({data:[{id:'200',text:'Late paid quote',created_at:'2026-10-15T00:00:00Z',public_metrics:{}}]});});
   vi.stubGlobal('fetch',provider);
   const tracker={apiCalls:0,estimatedCostMicros:0,reservedCostMicros:0,uniqueResources:0,previewDeferred:0,authorCacheHits:0,authorCacheMisses:0,source:'scheduled'};
   await hydrateXReferences({db,siteId:'otw',handles:['archived'],bearerToken:'local-fixture',mode:'post_only',tracker});
@@ -384,13 +415,13 @@ it("does not report terminal X resolution when the final attachment loses the cu
   const post={id:'206',username:'archived',text:'Stored unresolved quote',createdAt:'2026-10-15T00:00:00Z',media:[],quote:{postId:'200'}};
   await db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at) VALUES('206','archived','archived',?,'2026-10-15T00:00:00Z',1,1)").bind(JSON.stringify(post)).run();
   await db.prepare("INSERT INTO x_post_references(source_post_id,relation_type,referenced_post_id,resolution_state,next_attempt_at,created_at,updated_at) VALUES('206','quote','200','pending',0,1,1)").run();
-  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
+  const clock=await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1);
   vi.stubGlobal('fetch',vi.fn(async()=>Response.json({errors:[{resource_id:'200',type:'https://api.x.com/2/problems/resource-not-found'}]})));
   const raced=new Proxy(db,{get(database,key){
     if(key==='prepare')return(sql:string)=>{
       const wrap=(statement:D1PreparedStatement):D1PreparedStatement=>new Proxy(statement,{get(target,method){
         if(method==='bind')return(...values:unknown[])=>wrap(target.bind(...values));
-        if(method==='all'&&sql.includes('SELECT r.source_post_id,r.relation_type,p.handle'))return async()=>{const result=await target.all();clock.mockReturnValue(Date.parse(SITE_OPENS_AT));return result;};
+        if(method==='all'&&sql.includes('SELECT r.source_post_id,r.relation_type,p.handle'))return async()=>{const result=await target.all();await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));return result;};
         const value=Reflect.get(target,method,target);return typeof value==='function'?value.bind(target):value;
       }});return wrap(database.prepare(sql));
     };
@@ -528,6 +559,7 @@ async function archiveCatalog() {
 it("opens anonymous OTW official music through Worker HTTP while keeping clips and personal lists private", async () => {
   await catalog();
   await db.batch([
+    db.prepare("UPDATE music_performance_participants SET entity_id='public-singer',credit_name_snapshot='Public Singer' WHERE performance_id='secret-performance'"),
     db.prepare("INSERT INTO music_channels(id,provider,external_channel_id,display_name,channel_role,verification_status,active,version,created_at,updated_at) VALUES('clip-channel','youtube','UCkkkkkkkkkkkkkkkkkkkkkk','Clip Channel','approved_kirinuki','approved',1,0,100,100)"),
     db.prepare("UPDATE music_media_sources SET channel_id='clip-channel',duration_seconds=60 WHERE id='source-2'"),
     db.prepare("UPDATE music_performance_sources SET source_role='kirinuki',end_seconds=60 WHERE performance_id='secret-performance'"),
@@ -635,6 +667,7 @@ it("filters per-post archive roots on a shared feed and removes embedded archive
 
 it("applies Cafe and YouTube root policy even when the provider source is shared", async () => {
   await db.batch([
+    db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('naver_cafe_posts_enabled','true')"),
     db.prepare("INSERT INTO settings(key,value) VALUES('naver_cafe_posts_visibility','public') ON CONFLICT(key) DO UPDATE SET value='public'"),
     db.prepare("INSERT INTO naver_cafe_sources(id,name,cafe_url,cafe_id,menu_id,member_uid,enabled) VALUES(1,'Shared Cafe','https://cafe.naver.com/shared','123','1',NULL,1)"),
     db.prepare("INSERT INTO naver_cafe_posts(id,article_id,source_id,source_name,cafe_id,menu_id,title,summary,created_at,url,fetched_at,content_access) VALUES('a',1,1,'Shared Cafe','123','1','Archived Cafe','secret','2026-10-14T00:00:00Z','https://cafe.naver.com/shared/1',100,'admin_archive'),('b',2,1,'Shared Cafe','123','1','Public Cafe','public','2026-10-14T00:00:00Z','https://cafe.naver.com/shared/2',100,'normal')"),
@@ -653,7 +686,7 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); clearAuthCachesFo
 
 it.each(["otw", "luvdia"] as const)("keeps original post ownership on the normal %s feed after source reassignment", async site => {
   await db.prepare("DELETE FROM x_post_facts WHERE post_id='101000000000000077'").run();
-  vi.spyOn(Date, "now").mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await mockPublicationTime(Date.parse(SITE_OPENS_AT));
   const post = { id: "101000000000000077", text: "Retained selected X", username: "public", createdAt: "2026-10-14T00:00:00Z", url: "https://x.com/public/status/101000000000000077", media: [], links: [], metrics: { likeCount: 0, retweetCount: 0, replyCount: 0, quoteCount: 0 } };
   await db.batch([
     db.prepare("UPDATE members SET content_access='normal' WHERE uid=1"),
@@ -676,7 +709,7 @@ it.each(["otw", "luvdia"] as const)("keeps original post ownership on the normal
 
 it.each(["otw", "luvdia"] as const)("preserves the old selected CHZZK cache on %s when the origin response crosses midnight", async site => {
   clearChzzkServiceCachesForTests();
-  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(SITE_OPENS_AT) - 1);
+  const clock = await mockPublicationTime(Date.parse(SITE_OPENS_AT) - 1);
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
   const key = `vods:${CACHE_POLICY.chzzk.vods.version}:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:0:10`;
   const original = JSON.stringify({ data: [], marker: "original body" });
@@ -684,7 +717,7 @@ it.each(["otw", "luvdia"] as const)("preserves the old selected CHZZK cache on %
   const authFetch = globalThis.fetch;
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     if (String(input).startsWith("https://api.chzzk.naver.com/")) {
-      clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+      await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
       return Response.json({ content: { data: [], marker: "late new body" } });
     }
     return authFetch(input, init);
@@ -698,12 +731,12 @@ it.each(["otw", "luvdia"] as const)("preserves the old selected CHZZK cache on %
 it.each([["otw",false],["luvdia",false],["otw",true],["luvdia",true]] as const)("rechecks member submission POST preflight after %s metadata crosses midnight with unknown video=%s", async (site,unknown) => {
   await catalog();
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
-  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(SITE_OPENS_AT) - (site === "otw" ? 1 : 0));
+  const clock = await mockPublicationTime(Date.parse(SITE_OPENS_AT) - (site === "otw" ? 1 : 0));
   const authFetch = globalThis.fetch;
   const videoId=unknown?'BBBBBBBBBBB':'aaaaaaaaaa0';
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     if (String(input).includes("googleapis.com/youtube/v3/videos")) {
-      clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+      await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
       return Response.json({ items: [{ id: videoId, snippet: { title: "Late selected metadata", channelId: "UCaaaaaaaaaaaaaaaaaaaaaa", channelTitle: "Selected channel", thumbnails: { high: { url: "https://example.test/selected.jpg" } } }, contentDetails: { duration: "PT3M" }, status: { privacyStatus: "public", uploadStatus: "processed", embeddable: true } }] });
     }
     return authFetch(input, init);
@@ -715,9 +748,9 @@ it.each([["otw",false],["luvdia",false],["otw",true],["luvdia",true]] as const)(
 
 it("hides the four explicitly reviewed OTW D-days only after midnight and keeps administrator originals", async () => {
   await db.batch([4,9,10,11].map(id=>db.prepare("INSERT INTO ddays(id,title,date) VALUES(?,?,'9999-10-19')").bind(id,`Reviewed ${id}`)));
-  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
+  const clock=await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1);
   expect(await (await request('/api/ddays')).text()).toContain('Reviewed 4');
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   const body=await (await request('/api/ddays')).text();
   for(const id of [4,9,10,11]) expect(body).not.toContain(`Reviewed ${id}`);
   expect(body).toContain('Public day');
@@ -729,7 +762,7 @@ it("hides the four explicitly reviewed OTW D-days only after midnight and keeps 
 const createPublicationImport=async(repo:D1IngestionRepository,id:string)=>repo.createJob({jobId:id,actorUserId:'archive-admin',input:{playlistUrl:'https://www.youtube.com/playlist?list=PL1234567890',mode:'all_new',idempotencyKey:id},preflight:{playlistId:'PL1234567890',canonicalUrl:'https://www.youtube.com/playlist?list=PL1234567890',title:'Mixed list',ownerChannelId:'UCowner',ownerChannelTitle:'Owner',itemCount:2,privacyStatus:'public',rangeStartPosition:0,rangeEndExclusive:2,nextRangeStart:null,requestedItemCount:2,estimatedPageCount:1,estimatedVideoBatchCount:1,hardCap:5000,requiresSplit:false,previousImport:null},now:Date.now()});
 
 it.each([['otw',false,false],['luvdia',false,false],['otw',true,false],['luvdia',true,false],['otw',true,true],['luvdia',true,true]] as const)('settles mixed %s ingestion with discovery after midnight=%s and existing unclassified=%s',async(site,lateDiscovery,unclassified)=>{
-  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
+  const clock=await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1);
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
   const repo=new D1IngestionRepository(db,site);
   if(unclassified) {
@@ -738,13 +771,13 @@ it.each([['otw',false,false],['luvdia',false,false],['otw',true,false],['luvdia'
   }
   const prior=await db.prepare("SELECT * FROM music_ingestion_candidates WHERE external_video_id='PPPPPPPPPP1'").first();
   const created=await createPublicationImport(repo,'publication-ingestion-late');
-  if(lateDiscovery) clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  if(lateDiscovery) await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   const [child]=await repo.recordPlaylistPage(await repo.readMessage(created.message.idempotencyKey),{items:['PPPPPPPPPP1','PPPPPPPPPP2'].map((videoId,position)=>({videoId,position,playlistItemId:`mixed-${position}`})),nextPageToken:null},Date.now());
   const original=await db.prepare("SELECT * FROM music_ingestion_candidates WHERE external_video_id='PPPPPPPPPP1'").first();
   if(site==='otw'&&unclassified) expect(original).toEqual(prior);
   const provider=vi.fn(async(input:RequestInfo|URL)=>{
     if(!String(input).includes('googleapis.com/youtube/v3/videos')) throw new Error(`Unexpected ${String(input)}`);
-    clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+    await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
     return Response.json({items:['PPPPPPPPPP1','PPPPPPPPPP2'].map((id,index)=>({id,snippet:{title:`Late ${index}`,channelId:index?'UCbbbbbbbbbbbbbbbbbbbbbb':'UCaaaaaaaaaaaaaaaaaaaaaa',channelTitle:'Mixed',publishedAt:'2026-10-16T00:00:00Z'},contentDetails:{duration:'PT3M'},status:{privacyStatus:'public',uploadStatus:'processed',embeddable:true}}))});
   });
   vi.stubGlobal('fetch',provider);
@@ -765,7 +798,7 @@ it.each([['otw',false,false],['luvdia',false,false],['otw',true,false],['luvdia'
 });
 
 it('retains an unidentified unavailable video as an actionable candidate after midnight',async()=>{
-  vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await mockPublicationTime(Date.parse(SITE_OPENS_AT));
   const repo=new D1IngestionRepository(db),created=await createPublicationImport(repo,'publication-ingestion-unavailable');
   const [child]=await repo.recordPlaylistPage(await repo.readMessage(created.message.idempotencyKey),{items:[{videoId:'PPPPPPPPPP2',position:0,playlistItemId:'unavailable-original'}],nextPageToken:null},Date.now());
   vi.stubGlobal('fetch',vi.fn(async()=>Response.json({items:[]})));
@@ -777,14 +810,14 @@ it('retains an unidentified unavailable video as an actionable candidate after m
 });
 
 it('omits already-known selected IDs from a new Queue provider request after midnight',async()=>{
-  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
+  const clock=await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1);
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
   const repo=new D1IngestionRepository(db),seed=await createPublicationImport(repo,'publication-ingestion-seed');
   const page={items:['PPPPPPPPPP1','PPPPPPPPPP2'].map((videoId,position)=>({videoId,position,playlistItemId:`known-${position}`})),nextPageToken:null};
   const [seedChild]=await repo.recordPlaylistPage(await repo.readMessage(seed.message.idempotencyKey),page,Date.now());
   await repo.recordVideoBatch(await repo.readMessage(seedChild.idempotencyKey),page.items.map((item,index)=>({videoId:item.videoId,availabilityStatus:'playable',video:{videoId:item.videoId,title:'Original',channelId:index?'UCbbbbbbbbbbbbbbbbbbbbbb':'UCaaaaaaaaaaaaaaaaaaaaaa',channelTitle:'Known',durationSeconds:180,thumbnailUrl:null,publishedAt:1,availabilityStatus:'playable'}})),Date.now());
   const next=await createPublicationImport(repo,'publication-ingestion-queued'),[child]=await repo.recordPlaylistPage(await repo.readMessage(next.message.idempotencyKey),page,Date.now());
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   const provider=vi.fn(async(input:RequestInfo|URL)=>{const ids=new URL(String(input)).searchParams.get('id');expect(ids).toBe('PPPPPPPPPP2');return Response.json({items:[]});});vi.stubGlobal('fetch',provider);
   const ack=vi.fn(),retry=vi.fn();await handleQueue({queue:'ordinary-ingestion',messages:[{body:child,ack,retry}]} as unknown as MessageBatch<unknown>,{...runtime,YOUTUBE_API_KEY:'test-key',CLOUDFLARE_D1_TOKEN:undefined} as Env);
   expect(ack).toHaveBeenCalledOnce();expect(retry).not.toHaveBeenCalled();expect(provider).toHaveBeenCalledOnce();
@@ -793,14 +826,14 @@ it('omits already-known selected IDs from a new Queue provider request after mid
 });
 
 it('keeps ordinary administrator refresh working while refusing selected collection and retaining a late response',async()=>{
-  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
+  const clock=await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1);
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
   const repo=new D1IngestionRepository(db),seed=await createPublicationImport(repo,'publication-ingestion-refresh');
   await repo.recordPlaylistPage(await repo.readMessage(seed.message.idempotencyKey),{items:['PPPPPPPPPP1','PPPPPPPPPP2'].map((videoId,position)=>({videoId,position,playlistItemId:`refresh-${position}`})),nextPageToken:null},Date.now());
   const authFetch=globalThis.fetch;let gets=0;
   vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
     if(!String(input).includes('googleapis.com/youtube/v3/videos'))return authFetch(input,init);
-    gets++;clock.mockReturnValue(Date.parse(SITE_OPENS_AT));const id=new URL(String(input)).searchParams.get('id')!;
+    gets++;await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));const id=new URL(String(input)).searchParams.get('id')!;
     return Response.json({items:[{id,snippet:{title:'Refreshed',channelId:id.endsWith('1')?'UCaaaaaaaaaaaaaaaaaaaaaa':'UCbbbbbbbbbbbbbbbbbbbbbb',channelTitle:'Fresh'},contentDetails:{duration:'PT3M'},status:{privacyStatus:'public',uploadStatus:'processed',embeddable:true}}]});
   }));
   const refresh=(id:string)=>request(`/api/play/admin/import-candidates/${encodeURIComponent(`youtube:${id}`)}`,'archive-admin',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'refresh_metadata',expectedVersion:0})},{...runtime,YOUTUBE_API_KEY:'test-key'} as Env);
@@ -813,12 +846,12 @@ it('keeps ordinary administrator refresh working while refusing selected collect
 });
 
 it('refuses new administrator AI collection before known metadata and after a first-seen selected channel',async()=>{
-  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
+  const clock=await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1);
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
   const repo=new D1IngestionRepository(db),seed=await createPublicationImport(repo,'publication-ingestion-ai');
   await repo.recordPlaylistPage(await repo.readMessage(seed.message.idempotencyKey),{items:[{videoId:'PPPPPPPPPP1',position:0,playlistItemId:'ai-input'}],nextPageToken:null},Date.now());
   await db.prepare("UPDATE music_ingestion_candidates SET channel_id='UCaaaaaaaaaaaaaaaaaaaaaa' WHERE external_video_id='PPPPPPPPPP1'").run();
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   const authFetch=globalThis.fetch;let gets=0;const send=vi.fn();
   vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
     if(!String(input).includes('googleapis.com/youtube/v3/videos')) return authFetch(input,init);
@@ -841,11 +874,11 @@ const cutoffReview = (id: string): AiReviewRecord => ({
 
 it.each(['otw','luvdia'] as const)('guards %s administrator channel lookup and final catalog writes without blocking another member',async site=>{
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
-  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
+  const clock=await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1);
   const repo=new D1AdminCatalogRepository(db,site);
   const actor={userId:'archive-admin',displayName:'Admin',ipAddress:null};
   const selected={externalChannelId:'UCaaaaaaaaaaaaaaaaaaaaaa',displayName:'Selected',channelRole:'member_music' as const,entityIds:[]};
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   const create=()=>repo.createChannel(selected,actor,{channelId:'publication-selected-channel',eventId:'publication-selected-channel-event'},Date.now());
   if(site==='otw') {
     await expect(create()).rejects.toMatchObject({code:'validation_failed',fields:{policy:'publication_cutoff'}});
@@ -865,12 +898,12 @@ it.each(['otw','luvdia'] as const)('guards %s administrator channel lookup and f
 });
 
 it('retains an issued AI result across midnight without collecting new broadcast evidence for the selected parent',async()=>{
-  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1);
+  const clock=await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1);
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
   const repo=new D1AiReviewRepository(db),record=cutoffReview('publication-ai-late-source');
   await repo.create(record,record.id,record.id,false,Date.now());
   const read=vi.fn(),analyze=vi.fn(async()=>{
-    clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+    await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
     return {result:{videoAnalyzed:true,warnings:[],songs:[{values:{title:'Retained analysis',originalUrl:'https://youtu.be/CCCCCCCCCCC'},evidence:{},warnings:[]}]},usage:null};
   });
   const service=new AiReviewService(repo,{readVideo:vi.fn(),readChannel:vi.fn()}, {analyze},new D1AiReviewContext(db),{send:async()=>{}},{enabled:true,model:'test-model',dailyLimit:500},async value=>value,()=>crypto.randomUUID(),()=>Date.now(),{read});
@@ -886,7 +919,7 @@ it('cannot erase selected channel ownership or create its own shared-source exce
     db.prepare("UPDATE members SET content_access='normal',youtube_channel_id=NULL WHERE uid=1"),
     db.prepare("INSERT INTO music_channel_entities(channel_id,entity_id) VALUES('channel','archived-singer')"),
   ]);
-  vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await mockPublicationTime(Date.parse(SITE_OPENS_AT));
   const repo=new D1AdminCatalogRepository(db),actor={userId:'archive-admin',displayName:'Admin',ipAddress:null};
   await expect(repo.updateChannel({id:'channel',externalChannelId:'UCcccccccccccccccccccccc',displayName:'Changed',channelRole:'member_music',verificationStatus:'approved',active:true,entityIds:['public-singer'],expectedVersion:0},actor,'publication-channel-change',Date.now())).rejects.toMatchObject({code:'validation_failed',fields:{policy:'publication_cutoff'}});
   expect((await db.prepare("SELECT entity_id FROM music_channel_entities WHERE channel_id='channel'").all()).results).toEqual([{entity_id:'archived-singer'}]);
@@ -902,9 +935,9 @@ it('rejects a stale selected channel-monitor creation atomically after midnight'
     db.prepare("UPDATE music_channels SET channel_role='approved_kirinuki' WHERE id='channel'"),
     db.prepare("INSERT INTO music_channel_entities(channel_id,entity_id) VALUES('channel','archived-singer')"),
   ]);
-  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT)-1),repo=new D1ChannelMonitorRepository(db,'otw');
+  const clock=await mockPublicationTime(Date.parse(SITE_OPENS_AT)-1),repo=new D1ChannelMonitorRepository(db,'otw');
   const channel=(await repo.findApprovableChannel('UCcccccccccccccccccccccc'))!;
-  expect(channel).not.toBeNull();clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  expect(channel).not.toBeNull();await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   expect(await repo.findApprovableChannel(channel.externalChannelId)).toBeNull();
   await expect(repo.create({id:'publication-monitor',channel,uploadsPlaylistId:'UUcccccccccccccccccccccc',lastSeenVideoId:null,actorUserId:'archive-admin',eventId:'publication-monitor-event',approvalEventId:'publication-monitor-approval',now:Date.now(),approval:{scope:'candidate_collection',operatorReference:'operator',approvalReference:'approved',revocationProcedure:'revoke',confirmed:true}})).rejects.toMatchObject({code:'validation_failed',fields:{policy:'publication_cutoff'}});
   expect(await db.prepare("SELECT id FROM music_channel_upload_monitors WHERE id='publication-monitor'").first()).toBeNull();
@@ -912,17 +945,17 @@ it('rejects a stale selected channel-monitor creation atomically after midnight'
 });
 
 it("refuses selected queued AI without spending an attempt while retaining the original input", async () => {
-  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(SITE_OPENS_AT) - 1);
+  const clock = await mockPublicationTime(Date.parse(SITE_OPENS_AT) - 1);
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
   const repo = new D1AiReviewRepository(db), record = cutoffReview("publication-ai-queued");
   await repo.create(record, record.id, record.id, false, Date.now());
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   expect(await repo.claim(record.id, "publication-claim", Date.now(), 500)).toBeNull();
   expect(await repo.get(record.id)).toMatchObject({ status: "failed", errorCode: "publication_cutoff", attempts: 0, input: record.input });
 });
 
 it('allows independent LuvDia and shared-owner AI collection after midnight',async()=>{
-  vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await mockPublicationTime(Date.parse(SITE_OPENS_AT));
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
   const luv=new D1AiReviewRepository(db,'luvdia'),record=cutoffReview('publication-ai-luv');
   await luv.create(record,record.id,record.id,false,Date.now());expect(await luv.claim(record.id,'luv-lease',Date.now(),500)).not.toBeNull();await luv.finish(record.id,'luv-lease',{videoAnalyzed:true,warnings:[],songs:[]},null,null,Date.now());
@@ -949,7 +982,7 @@ it.each([
   ['inactive shared channel', 'catalog', "UPDATE music_channels SET active=0 WHERE id='publication-shared-channel'", true],
 ] as const)('uses the same publication ownership for %s candidates, monitors and feed rows', async (_name, sharedOwner, invalidate, hidden) => {
   const now=Date.parse(SITE_OPENS_AT);
-  vi.spyOn(Date,'now').mockReturnValue(now);
+  await mockPublicationTime(now);
   await db.batch([
     db.prepare("UPDATE members SET content_access='normal' WHERE uid=1"),
     db.prepare("INSERT INTO music_entities(id,member_uid,entity_kind,display_name,normalized_name,slug,version,created_at,updated_at) VALUES('publication-selected-owner',1,'person','Selected','selected','publication-selected-owner',0,100,100),('publication-shared-owner',2,'person','Remaining','remaining','publication-shared-owner',0,100,100)"),
@@ -983,12 +1016,7 @@ it.each([
   if(!hidden) expect(await monitor.claim('publication-shared-monitor',now)).not.toBeNull();
 
   if(sharedOwner&&!invalidate) {
-    // Fix only the SQL clock input; the normal registry still performs its real D1 upsert.
-    const timed=new Proxy(db,{get(target,property){
-      if(property==='prepare') return (sql:string)=>target.prepare(sql.replaceAll('unixepoch()',String(now/1000)));
-      const value=Reflect.get(target,property,target);return typeof value==='function'?value.bind(target):value;
-    }});
-    const result=await runScheduledYouTubeFeedCollection({...runtime,otw_db:timed,YOUTUBE_API_KEY:'test-key'});
+    const result=await runScheduledYouTubeFeedCollection({...runtime,YOUTUBE_API_KEY:'test-key'});
     expect(result.failed).toBe(0);
     expect(await db.prepare('SELECT member_uid FROM youtube_feed_sources WHERE id=1').first('member_uid')).toBe(sharedOwner==='main'||sharedOwner==='link'?2:1);
     expect(await db.prepare("SELECT source_id FROM youtube_feed_videos WHERE video_id='PPPPPPPPPP1'").first('source_id')).toBe(1);
@@ -997,7 +1025,7 @@ it.each([
 
 it.each(['linked performance','review member'] as const)('retains direct candidate hiding through its %s on a legitimate shared channel', async direct => {
   await catalog();
-  vi.spyOn(Date,'now').mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await mockPublicationTime(Date.parse(SITE_OPENS_AT));
   await db.batch([
     db.prepare("UPDATE members SET content_access='normal' WHERE uid=1"),
     db.prepare("UPDATE members SET youtube_channel_id='UCaaaaaaaaaaaaaaaaaaaaaa' WHERE uid=2"),
@@ -1008,20 +1036,20 @@ it.each(['linked performance','review member'] as const)('retains direct candida
 });
 
 it("refuses an unissued AI lease crossing midnight but preserves an already issued original response", async () => {
-  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(SITE_OPENS_AT) - 1);
+  const clock = await mockPublicationTime(Date.parse(SITE_OPENS_AT) - 1);
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
   const repo = new D1AiReviewRepository(db), record = cutoffReview("publication-ai-unissued");
   await repo.create(record, record.id, record.id, false, Date.now());
   expect(await repo.claim(record.id, "publication-unissued", Date.now(), 500)).not.toBeNull();
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   await expect(repo.beginRequest(record.id, "publication-unissued", Date.now())).rejects.toMatchObject({ code: "publication_cutoff" });
   expect(await repo.get(record.id)).toMatchObject({ status: "failed", errorCode: "publication_cutoff", input: record.input });
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT) - 1);
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT) - 1);
   const issued = cutoffReview("publication-ai-issued");
   await repo.create(issued, issued.id, issued.id, false, Date.now());
   expect(await repo.claim(issued.id, "publication-issued", Date.now(), 500)).not.toBeNull();
   await repo.beginRequest(issued.id, "publication-issued", Date.now());
-  clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
+  await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   const result = { videoAnalyzed: true, warnings: [], songs: [] };
   await repo.finish(issued.id, "publication-issued", result, null, null, Date.now());
   expect(await repo.get(issued.id)).toMatchObject({ status: "succeeded", result, errorCode: null, input: issued.input });
@@ -1080,6 +1108,8 @@ it("exposes explicit source-local archive access in the authenticated admin cata
 
 it("revalidates cached same-site schedule HTML, bootstrap, JSON-LD, profiles and sitemap after the source receipt", async () => {
   await catalog();
+  // This archive-receipt flow is independent of the timed member-code cutoff.
+  await db.prepare("UPDATE members SET code='archive_fixture' WHERE uid=1").run();
   await db.batch(["members", "schedules", "notices", "ddays"].map(table => db.prepare(`UPDATE ${table} SET content_access='normal'`)));
   const path = "/api/site-content?path=/&date=2026-10-14";
   expect(await (await request(path)).text()).toContain("Archived Person");
@@ -1092,10 +1122,10 @@ it("revalidates cached same-site schedule HTML, bootstrap, JSON-LD, profiles and
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     const text = await response.text();
     expect(text, route).not.toContain("Archived");
-    expect(text, route).not.toContain("bing_hayu");
+    expect(text, route).not.toContain("archive_fixture");
   }
   for (const method of ["GET", "HEAD"]) {
-    const response = await request("/profile/bing_hayu", undefined, { method });
+    const response = await request("/profile/archive_fixture", undefined, { method });
     expect(response.status).toBe(404);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(await response.text()).not.toContain("Archived Person");

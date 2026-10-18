@@ -60,6 +60,22 @@ const reviewInput = {
   internalNote: "private review note",
 };
 
+const approvedVideoObservation = (videoId: string): OtwPlayYouTubeVideoObservation => ({
+  videoId,
+  availabilityStatus: "playable",
+  video: {
+    videoId,
+    channelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
+    channelTitle: "Approved",
+    title: "Eligible",
+    thumbnailUrl: null,
+    durationSeconds: 180,
+    publishedAt: NOW,
+    availabilityStatus: "playable",
+    madeForKids: false,
+  },
+});
+
 beforeEach(async () => {
   await applyD1Migrations(db, testEnv.OTW_PLAY_INGESTION_MIGRATIONS);
   await db.batch([
@@ -107,13 +123,19 @@ describe("D1IngestionRepository", () => {
     const repository = new D1IngestionRepository(db);
     const firstJob = await repository.createJob({ jobId: "history-a", actorUserId: "admin-1", input, preflight: { ...preflight, itemCount: 52, rangeEndExclusive: 52, requestedItemCount: 52 }, now: NOW });
     const videos = Array.from({ length: 51 }, (_, index) => String(index).padStart(11, "A"));
-    await repository.recordPlaylistPage(await repository.readMessage(firstJob.message.idempotencyKey), {
-      items: [...videos, videos[0]!].map((videoId, position) => ({ videoId, position, playlistItemId: `first-${position}` })), nextPageToken: null,
+    const firstChildren = await repository.recordPlaylistPage(await repository.readMessage(firstJob.message.idempotencyKey), {
+      items: videos.slice(0, 50).map((videoId, position) => ({ videoId, position, playlistItemId: `first-${position}` })), nextPageToken: "second-page",
     }, NOW + 1);
-    const secondJob = await repository.createJob({ jobId: "history-b", actorUserId: "admin-1", input: { ...input, idempotencyKey: "request-second" }, preflight, now: NOW + 2 });
-    await repository.recordPlaylistPage(await repository.readMessage(secondJob.message.idempotencyKey), {
-      items: [videos[0]!, "ZZZZZZZZZZZ"].map((videoId, position) => ({ videoId, position, playlistItemId: `second-${position}` })), nextPageToken: null,
+    await repository.recordVideoBatch(await repository.readMessage(firstChildren[0]!.idempotencyKey), videos.slice(0, 50).map(approvedVideoObservation), NOW + 2);
+    const nextChildren = await repository.recordPlaylistPage(await repository.readMessage(firstChildren[1]!.idempotencyKey), {
+      items: [videos[50]!, videos[0]!].map((videoId, index) => ({ videoId, position: 50 + index, playlistItemId: `first-${50 + index}` })), nextPageToken: null,
     }, NOW + 3);
+    await repository.recordVideoBatch(await repository.readMessage(nextChildren[0]!.idempotencyKey), [videos[50]!, videos[0]!].map(approvedVideoObservation), NOW + 4);
+    const secondJob = await repository.createJob({ jobId: "history-b", actorUserId: "admin-1", input: { ...input, idempotencyKey: "request-second" }, preflight, now: NOW + 5 });
+    const secondChildren = await repository.recordPlaylistPage(await repository.readMessage(secondJob.message.idempotencyKey), {
+      items: [videos[0]!, "ZZZZZZZZZZZ"].map((videoId, position) => ({ videoId, position, playlistItemId: `second-${position}` })), nextPageToken: null,
+    }, NOW + 6);
+    await repository.recordVideoBatch(await repository.readMessage(secondChildren[0]!.idempotencyKey), [videos[0]!, "ZZZZZZZZZZZ"].map(approvedVideoObservation), NOW + 7);
     const first = await repository.listReviewItems({ jobId: firstJob.job.id, source: "playlist" });
     expect(first.items).toHaveLength(50);
     const next = await repository.listReviewItems({ jobId: firstJob.job.id, source: "playlist", cursor: first.nextCursor! });
@@ -503,7 +525,7 @@ describe("D1IngestionRepository", () => {
     })).rejects.toMatchObject({ code: "idempotency_conflict" });
   });
 
-  it("preserves positions, classifies metadata, and completes once under duplicate delivery", async () => {
+  it("defers unknown channels, then preserves positions, classifies metadata, and completes once under duplicate delivery", async () => {
     const repository = new D1IngestionRepository(db);
     const created = await repository.createJob({
       jobId: "job-1",
@@ -527,7 +549,25 @@ describe("D1IngestionRepository", () => {
     expect(children).toHaveLength(1);
     expect(await repository.getJob("job-1")).toMatchObject({
       status: "collecting",
-      counts: { discovered: 4, playlistDuplicate: 1 },
+      counts: { discovered: 0, playlistDuplicate: 0 },
+    });
+    expect(await db.prepare(`SELECT
+      (SELECT count(*) FROM music_ingestion_candidates) AS candidates,
+      (SELECT count(*) FROM music_ingestion_candidate_origins WHERE job_id = ?) AS origins`,
+    ).bind("job-1").first()).toEqual({ candidates: 0, origins: 0 });
+    const storedResponse = await db.prepare(
+      "SELECT detail_json FROM music_ingestion_events WHERE id = ? AND event_type = 'ingestion.response'",
+    ).bind(`response:${firstMessage.idempotencyKey}`).first<string>("detail_json");
+    expect(JSON.parse(storedResponse!)).toEqual({
+      messageKey: firstMessage.idempotencyKey,
+      kind: "playlist_page",
+      items: [
+        { playlistItemId: "item-0", videoId: "AAAAAAAAAAA", position: 0 },
+        { playlistItemId: "item-1", videoId: "BBBBBBBBBBB", position: 1 },
+        { playlistItemId: "item-2", videoId: "AAAAAAAAAAA", position: 2 },
+        { playlistItemId: "item-3", videoId: "CCCCCCCCCCC", position: 3 },
+      ],
+      nextPageToken: "must-not-be-enqueued-after-limit",
     });
 
     const batchMessage = await repository.readMessage(children[0]!.idempotencyKey);
@@ -961,7 +1001,7 @@ describe("D1IngestionRepository", () => {
       preflight: { ...preflight, requestedItemCount: 1 },
       now: NOW,
     });
-    await repository.recordPlaylistPage(
+    const children = await repository.recordPlaylistPage(
       await repository.readMessage(first.message.idempotencyKey),
       {
         items: [{ playlistItemId: "item-a", videoId: "AAAAAAAAAAA", position: 0 }],
@@ -969,6 +1009,12 @@ describe("D1IngestionRepository", () => {
       },
       NOW,
     );
+    await repository.recordVideoBatch(
+      await repository.readMessage(children[0]!.idempotencyKey),
+      [approvedVideoObservation("AAAAAAAAAAA")],
+      NOW + 1,
+    );
+    const globalDecision = await repository.readReviewCandidate(null, "youtube:AAAAAAAAAAA");
     const second = await repository.createJob({
       jobId: "job-2",
       actorUserId: "admin-2",
@@ -986,7 +1032,8 @@ describe("D1IngestionRepository", () => {
     );
     const page = await repository.listItems("job-2", 10, null);
     expect(page.page.items[0]?.classification).toBe("existing_candidate");
-    expect(page.page.items[0]?.candidateClassification).toBe("pending_metadata");
+    expect(page.page.items[0]?.candidateClassification).toBe("eligible");
+    expect(await repository.readReviewCandidate(null, "youtube:AAAAAAAAAAA")).toEqual(globalDecision);
   });
 
   it("saves a stale row when only background metadata changed its version", async () => {
