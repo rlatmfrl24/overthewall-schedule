@@ -12,6 +12,7 @@ function RouteComponent() {
   const adminStatusQuery = useAdminStatus(isLoaded ? user?.id : null);
   return (
     <DailySchedule
+      isAdmin={adminStatusQuery.data?.isAdmin === true}
       enableAdminLiveScheduleAutoFill={adminStatusQuery.data?.isAdmin === true}
     />
   );

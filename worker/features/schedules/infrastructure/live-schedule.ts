@@ -12,6 +12,8 @@ import { ContentWriteError } from "../../content-access";
 import type { LiveScheduleAutoFillFeedback } from "@contracts/chzzk";
 import type { LiveScheduleCommand, LiveScheduleFillPlan } from "../domain/live-schedule-command";
 import type { D1LiveScheduleWriter } from "./publication-writers";
+import type { SiteId } from "@contracts/site-definition";
+import { isScheduleMemberActive } from "@contracts/schedule-member-policy";
 export type { LiveScheduleFillPlan } from "../domain/live-schedule-command";
 
 type LiveStatusContent = NonNullable<CachedLiveStatus["content"]>;
@@ -23,6 +25,7 @@ export type LiveStatusItem = {
 
 type LiveScheduleMember = {
   uid: number;
+  code?: string;
   name: string;
   url_chzzk: string | null;
 };
@@ -81,6 +84,14 @@ export const resolveLiveOpenedAt = (
 const resolveLiveTitle = (content: LiveStatusContent) =>
   content.liveTitle?.trim() || "";
 
+const resolveScheduleOpenedAt = (content: LiveStatusContent, siteId: SiteId, code?: string, now = new Date()) => {
+  const actual = resolveLiveOpenedAt(content, now);
+  const rounded = roundToNearestHalfHour(actual);
+  // Keep the last broadcast on its actual day when rounding crosses the policy boundary.
+  return !isScheduleMemberActive(siteId, code, getKSTDateString(rounded)) &&
+    isScheduleMemberActive(siteId, code, getKSTDateString(actual)) ? actual : rounded;
+};
+
 const needsLiveScheduleFill = (schedule: LiveScheduleRow) =>
   schedule.status === "미정" ||
   (schedule.status === "방송" && (!schedule.start_time?.trim() || !schedule.title?.trim()));
@@ -89,11 +100,13 @@ export const buildLiveScheduleFillPlans = ({
   members: memberRows,
   schedules: scheduleRows,
   liveItems,
+  siteId = "otw",
   now = new Date(),
 }: {
   members: LiveScheduleMember[];
   schedules: LiveScheduleRow[];
   liveItems: LiveStatusItem[];
+  siteId?: SiteId;
   now?: Date;
 }): LiveScheduleFillPlan[] => {
   const openLiveByChannel = new Map<string, LiveStatusContent>();
@@ -116,8 +129,9 @@ export const buildLiveScheduleFillPlans = ({
     const live = openLiveByChannel.get(normalizeChannelId(channelId));
     if (!live) continue;
 
-    const openedAt = roundToNearestHalfHour(resolveLiveOpenedAt(live, now));
+    const openedAt = resolveScheduleOpenedAt(live, siteId, member.code, now);
     const scheduleDate = getKSTDateString(openedAt);
+    if (!isScheduleMemberActive(siteId, member.code, scheduleDate)) continue;
     const memberSchedulesForDate = scheduleRows.filter(
       (schedule) =>
         schedule.member_uid === member.uid && schedule.date === scheduleDate,
@@ -181,6 +195,7 @@ export const autoFillUndecidedLiveSchedules = async (
   const memberRows = await db
     .select({
       uid: members.uid,
+      code: members.code,
       name: members.name,
       url_chzzk: members.url_chzzk,
     })
@@ -202,8 +217,9 @@ export const autoFillUndecidedLiveSchedules = async (
   const liveDates = new Set<string>();
   for (const item of liveItems) {
     if (isOpenLiveStatus(item.content)) {
+      const member = targetMembers.find(member => normalizeChannelId(extractChzzkChannelId(member.url_chzzk) ?? "") === normalizeChannelId(item.channelId));
       liveDates.add(
-        getKSTDateString(roundToNearestHalfHour(resolveLiveOpenedAt(item.content))),
+        getKSTDateString(resolveScheduleOpenedAt(item.content, transitionWriter?.siteId ?? "otw", member?.code)),
       );
     }
   }
@@ -238,6 +254,7 @@ export const autoFillUndecidedLiveSchedules = async (
     members: targetMembers,
     schedules: scheduleRows,
     liveItems,
+    siteId: transitionWriter?.siteId ?? "otw",
   });
   let updated = 0;
   const details: LiveScheduleFillPlan[] = [];

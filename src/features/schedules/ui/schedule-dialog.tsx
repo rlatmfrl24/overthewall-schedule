@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { cn } from "@/shared/lib/utils";
 import type { Member } from "@/features/members";
+import { site } from "@/shared/config/site";
+import { isScheduleMemberActive } from "@contracts/schedule-member-policy";
 import { fetchSchedulesByDate } from "../api/schedules";
 import type { ScheduleItem, ScheduleStatus } from "../model/schedule";
 import {
@@ -94,6 +96,7 @@ const QUICK_TIME_PRESET_GROUPS = [
 ] as const;
 
 interface ScheduleDialogProps {
+  isAdmin?: boolean;
   onSubmit: (data: ScheduleSubmitData) => void | Promise<void>;
   onDelete?: (id: number) => void | Promise<void>;
   members: Member[];
@@ -105,6 +108,7 @@ interface ScheduleDialogProps {
 }
 
 export const ScheduleDialog = ({
+  isAdmin = false,
   onSubmit,
   onDelete,
   members,
@@ -156,7 +160,14 @@ export const ScheduleDialog = ({
   const hasMemberError = hasAttemptedSubmit && memberUid === "";
   const isExclusiveStatus = (nextStatus: ScheduleStatus) =>
     EXCLUSIVE_STATUSES.includes(nextStatus);
-  const canSubmit = memberUid !== "" && !isBusy;
+  const selectedMember = members.find(member => member.uid === memberUid);
+  const originalMember = members.find(member => member.uid === schedule?.member_uid);
+  const activeOnDate = (member: Member | undefined, day: string) => isScheduleMemberActive(site.id, member?.code, day);
+  const isPolicyException = !activeOnDate(selectedMember, format(date, "yyyy-MM-dd")) ||
+    Boolean(schedule && !activeOnDate(originalMember, schedule.date));
+  const canEdit = isAdmin || !isPolicyException;
+  const availableMembers = members.filter(member => isAdmin || activeOnDate(member, format(date, "yyyy-MM-dd")));
+  const canSubmit = memberUid !== "" && canEdit && !isBusy;
   const currentTimeValue = `${startHour}:${startMinute}`;
   const formKey = JSON.stringify([memberUid, format(date, "yyyy-MM-dd"), status, isTimeUndecided, startHour, startMinute, title]);
   const canDiscard = useUnsavedChanges(isOpen && Boolean(formBaseline) && formKey !== formBaseline);
@@ -306,7 +317,7 @@ export const ScheduleDialog = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isBusy) return;
+    if (isBusy || !canEdit) return;
 
     setHasAttemptedSubmit(true);
     if (memberUid === "") {
@@ -351,6 +362,7 @@ export const ScheduleDialog = ({
   };
 
   const onConfirmDelete = async () => {
+    if (!canEdit) return;
     if (schedule?.id && onDelete) {
       setIsSubmitting(true);
       try {
@@ -399,6 +411,9 @@ export const ScheduleDialog = ({
         </DialogHeader>
         <form onSubmit={(e) => void handleSubmit(e)} aria-busy={isBusy}>
           <FieldGroup className="gap-4">
+            {isPolicyException && <p role="status" className="text-sm text-muted-foreground">{isAdmin
+              ? "운영 종료 이후 예외 일정으로 공개됩니다."
+              : "운영 종료 이후 일정은 관리자만 변경할 수 있습니다."}</p>}
             <div className="grid gap-4 sm:grid-cols-2">
               <Field className="gap-2">
                 <FieldLabel htmlFor="schedule-member">멤버</FieldLabel>
@@ -412,7 +427,7 @@ export const ScheduleDialog = ({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      {members.map((member) => (
+                      {availableMembers.map((member) => (
                         <SelectItem
                           key={member.uid}
                           value={member.uid.toString()}
@@ -568,7 +583,7 @@ export const ScheduleDialog = ({
                   type="button"
                   variant="destructive"
                   className="h-11 sm:mr-auto sm:h-9"
-                  disabled={isBusy}
+                  disabled={isBusy || !canEdit}
                   onClick={handleDelete}
                 >
                   <Trash2 className="mr-2 h-4 w-4" />

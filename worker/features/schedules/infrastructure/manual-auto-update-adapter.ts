@@ -10,17 +10,21 @@ import type {
 import type { ScheduleActor } from "../domain/schedule";
 import { runAutoUpdateWithHistory } from "./auto-update-runs";
 import { readAutoUpdateRangeDays } from "./auto-update-settings";
+import type { CollectorWriter } from "./collector-writer";
 
 export class D1ManualAutoUpdateAdapter implements ManualAutoUpdatePort {
   private readonly database: DbInstance;
   private readonly cacheDatabase: D1Database;
+  private readonly collectorWriter?: CollectorWriter;
 
   constructor(
     database: DbInstance,
     cacheDatabase: D1Database,
+    collectorWriter?: CollectorWriter,
   ) {
     this.database = database;
     this.cacheDatabase = cacheDatabase;
+    this.collectorWriter = collectorWriter;
   }
 
   readRangeDays() {
@@ -33,6 +37,7 @@ export class D1ManualAutoUpdateAdapter implements ManualAutoUpdatePort {
       rangeDays,
       actor,
       cacheDb: this.cacheDatabase,
+      collectorWriter: this.collectorWriter,
     });
   }
 

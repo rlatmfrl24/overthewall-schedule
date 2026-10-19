@@ -4,6 +4,8 @@ import type {
   ScheduleWriteInput,
 } from "../domain/schedule";
 import type { ScheduleWriteRepository } from "../application/ports/schedule-write-repository";
+import type { SiteId } from "@contracts/site-definition";
+import { scheduleWriteRestriction } from "./public-schedule-write-policy";
 
 type ScheduleIdRow = { id: number };
 
@@ -72,9 +74,16 @@ const conflictPredicate = (input: ScheduleWriteInput) => {
 
 export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
   private readonly db: D1Database;
+  private readonly siteId: SiteId;
 
-  constructor(db: D1Database) {
+  constructor(db: D1Database, siteId: SiteId = "otw") {
     this.db = db;
+    this.siteId = siteId;
+  }
+
+  private async batch(statements: D1PreparedStatement[], input: ScheduleWriteInput | { id: number }, actor: ScheduleActor) {
+    const guards = this.siteId === "luvdia" && !actor.isAdmin ? [scheduleWriteRestriction(this.db, input, true)] : [];
+    return (await this.db.batch([...guards, ...statements, ...guards])).slice(guards.length, guards.length + statements.length);
   }
 
   async saveWithConflictResolution(
@@ -109,7 +118,7 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
     ];
 
     if (input.status === "미정") {
-      const results = await this.db.batch(statements);
+      const results = await this.batch(statements, input, actor);
 
       return {
         success: true,
@@ -156,7 +165,7 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
           ),
       );
 
-      const results = await this.db.batch(statements);
+      const results = await this.batch(statements, input, actor);
 
       return {
         success: true,
@@ -182,7 +191,7 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
       createLogStatement(this.db, input, actor),
     );
 
-    const results = await this.db.batch(statements);
+    const results = await this.batch(statements, input, actor);
 
     const insertResult = results[3];
     const scheduleId = Number(insertResult.meta.last_row_id);
@@ -196,7 +205,7 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
   }
 
   async create(input: ScheduleWriteInput, actor: ScheduleActor): Promise<void> {
-    await this.db.batch([
+    await this.batch([
       this.db
         .prepare(
           `INSERT INTO schedules (member_uid, date, start_time, title, status)
@@ -210,7 +219,7 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
           input.status,
         ),
       createLogStatement(this.db, input, actor),
-    ]);
+    ], input, actor);
   }
 
   async update(input: ScheduleWriteInput, actor: ScheduleActor): Promise<void> {
@@ -218,7 +227,7 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
       throw new Error("Schedule ID is required for update");
     }
 
-    await this.db.batch([
+    await this.batch([
       this.db
         .prepare(
           `INSERT INTO update_logs (${UPDATE_LOG_COLUMNS})
@@ -252,11 +261,11 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
           input.status,
           input.id,
         ),
-    ]);
+    ], input, actor);
   }
 
   async delete(id: number, actor: ScheduleActor): Promise<void> {
-    await this.db.batch([
+    await this.batch([
       this.db
         .prepare(
           `INSERT INTO update_logs (${UPDATE_LOG_COLUMNS})
@@ -275,6 +284,6 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
         )
         .bind(...actorBindings(actor), id),
       this.db.prepare("DELETE FROM schedules WHERE id = ?").bind(id),
-    ]);
+    ], { id }, actor);
   }
 }

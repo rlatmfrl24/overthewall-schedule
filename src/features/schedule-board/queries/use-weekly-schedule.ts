@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchActiveMembers } from "@/features/members";
+import { site } from "@/shared/config/site";
 import {
   addDays,
   startOfWeek,
@@ -42,6 +44,10 @@ export function useWeeklySchedule() {
     addDays(weekStart, i)
   );
   const scheduleBoard = useScheduleBoard(startDateStr, endDateStr);
+  const editorMembers = useQuery({
+    queryKey: queryKeys.members.active(), queryFn: fetchActiveMembers,
+    enabled: isEditDialogOpen && site.id === "luvdia",
+  });
 
   const nextWeek = () => setCurrentDate((prev) => addWeeks(prev, 1));
   const prevWeek = () => setCurrentDate((prev) => subWeeks(prev, 1));
@@ -93,6 +99,7 @@ export function useWeeklySchedule() {
     currentDate,
     updatedAt: scheduleBoard.board?.updatedAt,
     members: scheduleBoard.members,
+    editorMembers: editorMembers.data ?? scheduleBoard.members,
     schedules: scheduleBoard.schedules,
     ddays: scheduleBoard.ddays,
     notices: scheduleBoard.notices,

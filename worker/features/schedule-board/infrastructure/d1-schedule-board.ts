@@ -1,5 +1,6 @@
 import { publicationHiddenSql } from "../../content-access";
 import type { SiteId } from "@contracts/site-definition";
+import { isScheduleMemberActive } from "@contracts/schedule-member-policy";
 import { and, asc, between, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   ddays,
@@ -118,7 +119,9 @@ export const getScheduleBoard = async (
     startDate,
     endDate,
     updatedAt,
-    members: memberRows,
+    members: includeArchived ? memberRows : memberRows.filter(member =>
+      isScheduleMemberActive(siteId, member.code, startDate) ||
+      scheduleRows.some(schedule => schedule.member_uid === member.uid)),
     ddays: ddayRows,
     notices: noticeRows,
     schedules: scheduleRows as ScheduleBoardResponse["schedules"],

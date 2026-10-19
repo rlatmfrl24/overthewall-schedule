@@ -3,6 +3,7 @@ import type { AutoUpdateDetail } from "../../../platform/types";
 import type { DbInstance } from "../../../platform/db";
 import { updateSetting } from "../../../platform/http-helpers";
 import { autoUpdateSchedules } from "./auto-update";
+import type { CollectorWriter } from "./collector-writer";
 
 type AutoUpdateRunSource = "scheduled" | "manual";
 
@@ -13,6 +14,7 @@ type AutoUpdateRunActor = {
 };
 
 type AutoUpdateRunOptions = {
+  collectorWriter?: CollectorWriter;
   source: AutoUpdateRunSource;
   rangeDays: number;
   actor?: AutoUpdateRunActor;
@@ -118,6 +120,7 @@ export const runAutoUpdateWithHistory = async (
   try {
     const result = await autoUpdateSchedules(db, options.rangeDays, {
       cacheDb: options.cacheDb,
+      ...(options.collectorWriter ? { collectorWriter: options.collectorWriter } : {}),
       ...(options.skipScan ? { skipScan: true } : {}),
     });
     return recordAutoUpdateResultWithHistory(db, options, result, startedAt);

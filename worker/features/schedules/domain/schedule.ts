@@ -10,6 +10,7 @@ export type ScheduleWriteInput = {
 };
 
 export type ScheduleActor = {
+  isAdmin?: boolean;
   requestId?: string;
   actorId: string | null;
   actorName: string | null;

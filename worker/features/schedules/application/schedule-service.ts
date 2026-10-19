@@ -34,10 +34,11 @@ export class ScheduleService {
     return this.queryRepository.read(query);
   }
 
-  canWrite(operation: ScheduleWriteOperation, actor: ScheduleActor) {
+  canWrite(operation: ScheduleWriteOperation, actor: ScheduleActor, input?: ScheduleWriteInput | { id: number }) {
     return authorizeScheduleWrite(this.authorizationPolicy, {
       operation,
       actor,
+      input,
     });
   }
 
