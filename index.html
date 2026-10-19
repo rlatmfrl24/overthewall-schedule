@@ -36,9 +36,10 @@
           const fallback = document.getElementById("site-content-fallback");
           const root = document.getElementById("root");
           const loading = document.getElementById("app-loading");
-          if (fallback) fallback.hidden = true;
-          if (root) root.hidden = true;
-          if (loading) {
+          if (fallback) {
+            if (root) root.hidden = true;
+            loading?.remove();
+          } else if (loading) {
             loading.textContent = "페이지를 불러오지 못했습니다. 새로고침해 주세요.";
             loading.setAttribute("data-failed", "");
           }

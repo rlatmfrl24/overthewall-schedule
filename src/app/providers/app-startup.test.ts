@@ -64,22 +64,21 @@ describe("initial document loading", () => {
     expect(window.getComputedStyle(window.document.getElementById("site-content-fallback")!).visibility).toBe("hidden");
   });
 
-  it("shows a load error instead of the AEO body when the entry module fails", () => {
+  it("restores server content when the entry module fails even if React already replaced its own root", () => {
     const window = open();
     window.document.getElementById("root")!.textContent = "incomplete app";
     window.document.querySelector('script[type="module"]')!.dispatchEvent(new window.Event("error"));
-    expect(window.document.getElementById("app-loading")?.textContent).toContain("새로고침");
+    expect(window.document.getElementById("app-loading")).toBeNull();
     expect(window.document.getElementById("root")?.hidden).toBe(true);
-    expect(window.getComputedStyle(window.document.getElementById("site-content-fallback")!).display).toBe("none");
+    expect(window.getComputedStyle(window.document.getElementById("site-content-fallback")!).visibility).toBe("visible");
   });
 
-  it("keeps the AEO body hidden after a stalled startup and accepts a late ready signal", () => {
+  it("restores the body after a stalled startup and accepts a late ready signal", () => {
     vi.useFakeTimers();
     const window = open();
     vi.advanceTimersByTime(15000);
     expect(window.document.getElementById("root")?.hidden).toBe(true);
-    expect(window.getComputedStyle(window.document.getElementById("site-content-fallback")!).display).toBe("none");
-    expect(window.document.getElementById("app-loading")?.textContent).toContain("새로고침");
+    expect(window.document.getElementById("site-content-fallback")).not.toBeNull();
     window.dispatchEvent(new window.Event("otw:app-ready"));
     expect(window.document.getElementById("root")?.hidden).toBe(false);
     expect(window.document.getElementById("site-content-fallback")).toBeNull();
