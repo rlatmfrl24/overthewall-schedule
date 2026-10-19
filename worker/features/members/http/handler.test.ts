@@ -310,7 +310,8 @@ describe("members route", () => {
       outcome === "missing" ? {} : { ASSET_BUCKET: { list } as unknown as R2Bucket },
     ));
     expect(response.status).toBe(200);
-    expect((await response.json()).backgroundImages).toEqual(outcome === "empty" ? [] : null);
+    const body = await response.json() as { backgroundImages: unknown };
+    expect(body.backgroundImages).toEqual(outcome === "empty" ? [] : null);
     expect(db.select).toHaveBeenCalledTimes(outcome === "empty" ? 5 : 4);
   });
 
