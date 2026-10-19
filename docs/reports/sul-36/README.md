@@ -3,6 +3,8 @@
 **현재 작업은 [단일 인계 문서](../../current-work.md)에서 시작한다.** 이 폴더의 날짜가 있는 보고서는 당시 구현·검증·배포 증거이며 새로운 실행 계획이 아니다.
 
 - [10/17 D1 재개·실제 회귀·운영 최소 관측](2026-10-17-d1-resume-validation.md)
+- [10/19 LuvDia 공식 카페 최근 일주일 수집·화면 확인](2026-10-19-luvdia-cafe-week.md)
+- [10/19 기존 미커밋 통합 대조·PR171 최종 검토](2026-10-19-uncommitted-integration.md)
 - [10/16 이관 실행부 정리와 운영 반영](2026-10-16-content-transition-retirement.md)
 - [10/16 전체 미커밋 리뷰·PR 대기](2026-10-16-uncommitted-review.md)
 - [10/16 남은 코드 독립 리뷰·결함 수정](2026-10-16-uncommitted-deep-review.md)
