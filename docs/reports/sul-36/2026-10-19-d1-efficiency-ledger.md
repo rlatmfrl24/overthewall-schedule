@@ -69,3 +69,11 @@ Final branch decision: user requested local implementation only; retain codex/d1
 | 8: perf(play): scope member counts and reuse indexed search and artwork projections | 9c7e5622301cfe78dc858b80d203bdeee2e332b3 | 6d917944ef8edd47e1d5021ca347f51abd99c88b |
 | 9: perf(d1): index remaining lookups and batch notice retention projections | 6d917944ef8edd47e1d5021ca347f51abd99c88b | c3433543fa2cce6a609046632f4130f78ff1fdad |
 | 10: fix(d1): preserve catalog editing and search across pages | c3433543fa2cce6a609046632f4130f78ff1fdad | a569c973e043f22812235bd8a927933d3bc0c44f |
+
+## 2026-10-20 requested final review
+
+User requested another whole-branch final review and necessary local fixes, with account-wide 5m reads/UTC day unchanged and no production D1 queries, remote migrations, merge or deploy. Reviewed base71913fe9 through f9161e39, then fixed four confirmed findings in c58d1f36949db155f97d681a90dafb36f6bb151e. Independent Standards/Spec rechecks found no remaining issues. No new schema, dependency or public cross-request cache.
+
+Related validation: 12files/220cases composed PASS; typecheck:test, changed-file lint, architecture, both-site builds and artifact manifests PASS. Fresh local D1 admin page remains659reads/0writes; profile HTML GET+HEAD14SQL/20reads/0writes, with one added access-snapshot SELECT per request. Actual localhost profile/rights/closed Play/admin login boundary checked; authenticated admin editing and LuvDia browser remain unverified. No operational calls or release actions. Existing147-migration validation retained, not rerun.
+
+See [the final review and fixes](2026-10-20-d1-efficiency-final-review.md) for reproduction, commands, cost limits and real-flow evidence. This later user-requested review supersedes only the source identity/local verdict; the historical evidence above remains dated evidence, not production compliance proof.
