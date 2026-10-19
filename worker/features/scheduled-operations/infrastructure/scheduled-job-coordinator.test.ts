@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { CloudflareD1ReadBudget } from "../../../platform/cloudflare-d1-read-budget";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../../platform/types";
 import { D1ScheduledJobRepository } from "../../../platform/scheduled-jobs";
 import { ScheduledJobPlanner } from "./scheduled-job-planner";
@@ -6,6 +7,8 @@ import {
   getScheduledLaneQueue,
   ScheduledJobCoordinator,
 } from "./scheduled-job-coordinator";
+
+beforeEach(() => vi.spyOn(CloudflareD1ReadBudget.prototype, "read").mockResolvedValue({ status: "available", rowsRead: 0, dailyTarget: 4_000_000, measuredAt: new Date(0).toISOString(), resetAt: new Date(86_400_000).toISOString(), reason: null }));
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -38,6 +41,15 @@ describe("scheduled job physical queue mapping", () => {
 
   it("keeps manual control isolated", () => {
     expect(getScheduledLaneQueue(env, "control")).toBe(control);
+  });
+
+  it("rechecks account capacity before planning a new Workflow run", async () => {
+    vi.mocked(CloudflareD1ReadBudget.prototype.read).mockResolvedValue({ status: "blocked", rowsRead: 4_000_000, dailyTarget: 4_000_000, measuredAt: new Date(0).toISOString(), resetAt: new Date(86_400_000).toISOString(), reason: "daily_read_target" });
+    vi.spyOn(D1ScheduledJobRepository.prototype, "readRunByIdempotencyKey").mockResolvedValue(null);
+    const plan = vi.spyOn(ScheduledJobPlanner.prototype, "planScheduled").mockResolvedValue([]);
+    const create = vi.spyOn(D1ScheduledJobRepository.prototype, "createRun");
+    expect(await new ScheduledJobCoordinator(env).runScheduled("youtube_feed_collection", 100)).toBeNull();
+    expect(plan).not.toHaveBeenCalled(); expect(create).not.toHaveBeenCalled();
   });
 
   it("does not create durable scheduler rows when a scheduled probe has no due targets", async () => {

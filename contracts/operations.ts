@@ -271,6 +271,9 @@ export interface D1ObservabilityResponseDto {
   timezone: "UTC";
   windowDays: 7;
   currentDay: D1ObservabilityCurrentDayDto | null;
+  accountCurrentDay?: D1ObservabilityCurrentDayDto | null;
+  databaseContributions?: Array<D1ObservabilityDailyMetricDto & { databaseId: string }>;
+  topReadWorkloads?: D1ObservabilityReadWorkloadDto[];
   daily: D1ObservabilityDailyMetricDto[];
   topWriteWorkloads: D1ObservabilityWriteWorkloadDto[];
   reasonCode?: D1ObservabilityReasonCode;
@@ -400,4 +403,22 @@ export interface XCollectionRunResultDto {
   estimatedCostMicros: number;
   error: string | null;
   updatedAt: string;
+}
+
+/** Account analytics used for background admission without spending D1 queries. */
+export interface D1ReadBudgetDto {
+  status: "available" | "blocked" | "unavailable";
+  rowsRead: number | null;
+  dailyTarget: number;
+  measuredAt: string;
+  resetAt: string;
+  reason: string | null;
+}
+
+export interface D1ObservabilityReadWorkloadDto {
+  key: string;
+  label: string;
+  rowsRead: number;
+  queryCount: number;
+  sharePercent: number;
 }

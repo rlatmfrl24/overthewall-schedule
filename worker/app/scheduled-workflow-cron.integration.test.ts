@@ -1,6 +1,7 @@
 import { siteEnv } from "../test-support/site-env";
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CloudflareD1ReadBudget } from "../platform/cloudflare-d1-read-budget";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../platform/types";
 import { handleScheduledWorkflowCron, SCHEDULED_WORKFLOW_CRON } from "./scheduled-workflow-cron";
 
@@ -10,7 +11,9 @@ const scheduledTime = Date.parse("2026-09-08T02:23:00Z");
 const event = { cron: SCHEDULED_WORKFLOW_CRON, scheduledTime } as ScheduledController;
 const channelId = `UC${"A".repeat(22)}`;
 
+afterEach(() => vi.restoreAllMocks());
 beforeEach(async () => {
+  vi.spyOn(CloudflareD1ReadBudget.prototype, "read").mockResolvedValue({ status: "available", rowsRead: 0, dailyTarget: 4_000_000, measuredAt: new Date(scheduledTime).toISOString(), resetAt: "2026-09-09T00:00:00Z", reason: null });
   await applyD1Migrations(database, testEnv.YOUTUBE_FEED_MIGRATIONS);
   await database.batch([
     database.prepare("DELETE FROM youtube_feed_videos"),

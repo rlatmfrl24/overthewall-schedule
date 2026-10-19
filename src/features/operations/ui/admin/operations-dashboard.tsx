@@ -472,10 +472,11 @@ function D1ObservabilityCard({ data, loading }: { data: D1ObservabilityResponse 
     return (
       <Card role="status" className="lg:col-span-2">
         <CardHeader><CardTitle className="flex items-center gap-2 text-base"><BarChart3 className="size-4" /> Cloudflare D1 실제 사용량</CardTitle><CardDescription>Cloudflare Metrics · UTC 당일</CardDescription></CardHeader>
-        <CardContent className="rounded-lg border border-dashed p-4 text-sm"><p className="font-medium">실계측 확인 불가</p><p className="mt-1 text-muted-foreground">{d1ReasonLabel(data?.reasonCode)} 예약 작업 실행과 전체 운영 상태에는 영향을 주지 않습니다.</p></CardContent>
+        <CardContent className="rounded-lg border border-dashed p-4 text-sm"><p className="font-medium">실계측 확인 불가</p><p className="mt-1 text-muted-foreground">{d1ReasonLabel(data?.reasonCode)} 계정 집계도 확인할 수 없으면 새 배경 수집을 유예합니다.</p></CardContent>
       </Card>
     );
   }
+  const account = data.accountCurrentDay;
   const maximum = Math.max(1, ...data.daily.map((item) => item.rowsWritten));
   return (
     <Card role="status" className="lg:col-span-2">
@@ -488,9 +489,11 @@ function D1ObservabilityCard({ data, loading }: { data: D1ObservabilityResponse 
       <CardContent className="space-y-5">
         <div className="grid gap-3 sm:grid-cols-2">
           <UsageProgress label="실제 Rows Written" value={data.currentDay.rowsWritten} limit={data.currentDay.rowsWrittenLimit} percent={data.currentDay.rowsWrittenPercent} />
-          <UsageProgress label="실제 Rows Read" value={data.currentDay.rowsRead} limit={data.currentDay.rowsReadLimit} percent={data.currentDay.rowsReadPercent} />
+          <UsageProgress label={account ? "계정 합산 Rows Read" : "현재 DB Rows Read"} value={(account ?? data.currentDay).rowsRead} limit={(account ?? data.currentDay).rowsReadLimit} percent={(account ?? data.currentDay).rowsReadPercent} />
         </div>
         <dl className="grid grid-cols-2 gap-3 text-sm"><div className="rounded-md border px-3 py-2"><dt className="text-xs text-muted-foreground">쓰기 쿼리</dt><dd className="mt-1 font-semibold tabular-nums">{data.currentDay.writeQueries.toLocaleString("ko-KR")}회</dd></div><div className="rounded-md border px-3 py-2"><dt className="text-xs text-muted-foreground">읽기 쿼리</dt><dd className="mt-1 font-semibold tabular-nums">{data.currentDay.readQueries.toLocaleString("ko-KR")}회</dd></div></dl>
+        {data.databaseContributions?.length ? <div><h3 className="text-sm font-semibold">UTC 당일 DB별 읽기</h3>{data.databaseContributions.map(row => <p key={row.databaseId} className="text-sm tabular-nums">{row.databaseId}: {row.rowsRead.toLocaleString("ko-KR")} rows</p>)}</div> : null}
+        {data.topReadWorkloads?.length ? <div><h3 className="text-sm font-semibold">UTC 당일 계정 읽기 원인 상위</h3>{data.topReadWorkloads.map(row => <p key={row.key} className="text-sm tabular-nums">{row.label}: {row.rowsRead.toLocaleString("ko-KR")} rows · {row.queryCount.toLocaleString("ko-KR")}회 · 상위 표본의 {row.sharePercent}%</p>)}</div> : null}
         <div>
           <h3 className="text-sm font-semibold">최근 7일 쓰기 추세</h3>
           <div className="mt-3 grid grid-cols-7 items-end gap-2" aria-label="최근 7일 D1 Rows Written">
