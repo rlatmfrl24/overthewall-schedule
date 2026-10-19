@@ -45,7 +45,7 @@
           }
         }
         function onError(event) {
-          if (event.target instanceof HTMLScriptElement && event.target.type === "module") fail();
+          if (event.target instanceof HTMLScriptElement && event.target.id === "app-entry") fail();
         }
         window.addEventListener("error", onError, true);
         window.addEventListener("otw:app-ready", () => {
@@ -70,6 +70,6 @@
   <body>
     <p id="app-loading" role="status" aria-live="polite" data-nosnippet>불러오는 중…</p>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script id="app-entry" type="module" src="/src/main.tsx"></script>
   </body>
 </html>

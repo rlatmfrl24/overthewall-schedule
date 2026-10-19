@@ -25,7 +25,9 @@ describe("SEO asset generation", () => {
     if (dirname(root) !== tmpdir()) throw new Error("Unexpected temporary build directory");
     const selected = { ...getSiteDefinition("luvdia"), publicOrigin: "https://luvdia-schedule.info" };
     try {
-      await writeFile(join(root, "index.html"), shell.replace('href="old"', 'href="/"'));
+      await writeFile(join(root, "index.html"), shell.replace('href="old"', 'href="/"')
+        .replace("</body>", '<script id="app-entry" type="module" src="/main.js"></script></body>'));
+      await writeFile(join(root, "main.js"), 'console.log("app entry");');
       const built = await build({
         configFile: false, root, publicDir: false, logLevel: "silent",
         plugins: [{ name: "site-seo-shell", transformIndexHtml: createSeoHtmlTransform(selected) }],
@@ -37,6 +39,11 @@ describe("SEO asset generation", () => {
       if (!html || html.type !== "asset") throw new Error("Missing built HTML");
       expect(String(html.source)).toContain('rel="canonical" href="https://luvdia-schedule.info/"');
       expect(String(html.source)).toContain(selected.siteName);
+      await writeFile(join(root, "index.html"), String(html.source));
+      await generateSeoAssets(root, selected);
+      const published = await readFile(join(root, "index.html"), "utf8");
+      expect(published.match(/id="app-entry"/g)).toHaveLength(1);
+      expect(published).toContain('<script id="app-entry" type="module"');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

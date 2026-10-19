@@ -53,10 +53,11 @@ describe("initial document loading", () => {
     expect(metadata?.isConnected).toBe(true);
   });
 
-  it("keeps loading through recoverable runtime and third-party script errors", () => {
+  it.each(["", "module"])("keeps loading through recoverable runtime and third-party %s script errors", (type) => {
     const window = open();
     window.dispatchEvent(new window.ErrorEvent("error", { message: "third-party startup error" }));
     const script = window.document.createElement("script");
+    script.type = type;
     window.document.head.append(script);
     script.dispatchEvent(new window.Event("error"));
     expect(window.document.documentElement.classList.contains("app-booting")).toBe(true);
@@ -67,7 +68,7 @@ describe("initial document loading", () => {
   it("restores server content when the entry module fails even if React already replaced its own root", () => {
     const window = open();
     window.document.getElementById("root")!.textContent = "incomplete app";
-    window.document.querySelector('script[type="module"]')!.dispatchEvent(new window.Event("error"));
+    window.document.getElementById("app-entry")!.dispatchEvent(new window.Event("error"));
     expect(window.document.getElementById("app-loading")).toBeNull();
     expect(window.document.getElementById("root")?.hidden).toBe(true);
     expect(window.getComputedStyle(window.document.getElementById("site-content-fallback")!).visibility).toBe("visible");
@@ -91,7 +92,7 @@ describe("initial document loading", () => {
     window.document.body.append(image);
     image.dispatchEvent(new window.Event("error"));
     expect(window.document.documentElement.classList.contains("app-booting")).toBe(true);
-    const script = window.document.querySelector('script[type="module"]')!;
+    const script = window.document.getElementById("app-entry")!;
     script.dispatchEvent(new window.Event("error"));
     expect(window.document.documentElement.classList.contains("app-booting")).toBe(false);
   });
