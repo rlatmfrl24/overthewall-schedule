@@ -53,10 +53,21 @@ describe("initial document loading", () => {
     expect(metadata?.isConnected).toBe(true);
   });
 
-  it("restores server content when startup fails even if React already replaced its own root", () => {
+  it("keeps loading through recoverable runtime and third-party script errors", () => {
+    const window = open();
+    window.dispatchEvent(new window.ErrorEvent("error", { message: "third-party startup error" }));
+    const script = window.document.createElement("script");
+    window.document.head.append(script);
+    script.dispatchEvent(new window.Event("error"));
+    expect(window.document.documentElement.classList.contains("app-booting")).toBe(true);
+    expect(window.document.getElementById("app-loading")?.textContent).toBe("불러오는 중…");
+    expect(window.getComputedStyle(window.document.getElementById("site-content-fallback")!).visibility).toBe("hidden");
+  });
+
+  it("restores server content when the entry module fails even if React already replaced its own root", () => {
     const window = open();
     window.document.getElementById("root")!.textContent = "incomplete app";
-    window.dispatchEvent(new window.ErrorEvent("error"));
+    window.document.querySelector('script[type="module"]')!.dispatchEvent(new window.Event("error"));
     expect(window.document.getElementById("app-loading")).toBeNull();
     expect(window.document.getElementById("root")?.hidden).toBe(true);
     expect(window.getComputedStyle(window.document.getElementById("site-content-fallback")!).visibility).toBe("visible");

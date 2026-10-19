@@ -45,7 +45,7 @@
           }
         }
         function onError(event) {
-          if (event instanceof ErrorEvent || event.target instanceof HTMLScriptElement) fail();
+          if (event.target instanceof HTMLScriptElement && event.target.type === "module") fail();
         }
         window.addEventListener("error", onError, true);
         window.addEventListener("otw:app-ready", () => {
