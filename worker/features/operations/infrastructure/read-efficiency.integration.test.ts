@@ -60,3 +60,16 @@ it("releases the claimed X lease after provider failure without scanning unrelat
   expect(await db.prepare("SELECT lease_token FROM x_post_references WHERE source_post_id='lease-pending'").first('lease_token')).toBeNull();
   console.info('LEASE_RELEASE_D1_COST',JSON.stringify(release));
 });
+
+it("reads exact pending member/date pairs above the D1 bind limit",async()=>{
+  const {queryPendingScheduleReview}=await import("../../schedules/infrastructure/d1-pending-schedule-query");
+  await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<110) INSERT INTO pending_schedules(member_uid,member_name,date,status,action_type) SELECT 91000+x,'Pair',date('2026-01-01','+'||x||' days'),'방송','create' FROM n").run();
+  await db.prepare("INSERT INTO schedules(member_uid,date,title,status) SELECT member_uid,date,'Exact','방송' FROM pending_schedules WHERE member_uid>91000").run();
+  await db.prepare("INSERT INTO schedules(member_uid,date,title,status) SELECT a.member_uid,b.date,'Other pair','방송' FROM pending_schedules a CROSS JOIN pending_schedules b WHERE a.member_uid>91000 AND b.member_uid>91000 AND a.member_uid<>b.member_uid").run();
+  const meter=meterD1(db), rows=await queryPendingScheduleReview(meter.db);
+  const requested=rows.filter(row=>row.member_uid>91000);
+  expect(requested).toHaveLength(110);
+  expect(requested.every(row=>row.same_day_schedule_count===1 && row.same_day_schedules[0].title==='Exact')).toBe(true);
+  console.info('PENDING_PAIR_D1_COST',JSON.stringify(meter.summary()));
+  expect(meter.summary().rowsRead).toBeLessThan(3000);
+});

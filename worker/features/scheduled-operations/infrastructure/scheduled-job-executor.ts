@@ -410,7 +410,7 @@ export class ScheduledJobExecutor {
           const status=failure?results.length?"partial":"failed":"succeeded";
           const result=await recordAutoUpdateResultWithHistory(
             getDb(this.env),
-            { source: run.source, rangeDays,actor:await this.env.otw_db.prepare("SELECT actor_id AS actorId,actor_name AS actorName,actor_ip AS actorIp FROM scheduled_job_runs WHERE id=?").bind(run.id).first()??undefined,originalItem:{id:item.id,runId:item.run_id,leaseToken:item.lease_token},failed:Boolean(failure),error:failure?"Original auto-update contains failed or partial work":null },
+            { ...(results.length?{holidaySiteId:parseSiteId(this.env.SITE_ID)}:{}),source: run.source, rangeDays,actor:await this.env.otw_db.prepare("SELECT actor_id AS actorId,actor_name AS actorName,actor_ip AS actorIp FROM scheduled_job_runs WHERE id=?").bind(run.id).first()??undefined,originalItem:{id:item.id,runId:item.run_id,leaseToken:item.lease_token},failed:Boolean(failure),error:failure?"Original auto-update contains failed or partial work":null },
             aggregateAutoUpdateResults(results),
             run.started_at ?? run.accepted_at,
           );

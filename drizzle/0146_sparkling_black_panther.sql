@@ -1,0 +1,1 @@
+CREATE INDEX `idx_schedule_rejections_fragments` ON `schedule_candidate_rejections` (`source_vod_ids`) WHERE "schedule_candidate_rejections"."source_vod_ids" IS NOT NULL AND "schedule_candidate_rejections"."source_vod_ids" <> '[]';

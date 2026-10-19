@@ -206,6 +206,7 @@ describe("auto update rejection workflow", () => {
     await env.otw_db.batch(
       TEST_SCHEMA.map((statement) => env.otw_db.prepare(statement)),
     );
+    await env.otw_db.prepare("CREATE INDEX idx_schedule_rejections_fragments ON schedule_candidate_rejections(source_vod_ids) WHERE source_vod_ids IS NOT NULL AND source_vod_ids<>'[]'").run();
     await applyD1Migrations(env.otw_db,(env as unknown as {CONTENT_TRANSITION_CONTROL_MIGRATIONS:D1Migration[]}).CONTENT_TRANSITION_CONTROL_MIGRATIONS);
     await env.otw_db.batch(
       (env as unknown as { SCHEDULE_DAY_MIGRATION_SQL: string }).SCHEDULE_DAY_MIGRATION_SQL
@@ -237,6 +238,25 @@ describe("auto update rejection workflow", () => {
     for (const matchTarget of targets) await autoUpdateSchedules(db, 1, { skipScan: true, matchTarget });
     return queryPendingScheduleReview(env.otw_db);
   };
+
+  it("keeps rejection fragments global and avoids reading simple unrelated history",async()=>{
+    const {meterD1}=await import("../../../test-support/d1-meter");
+    await env.otw_db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO schedule_candidate_rejections(vod_id,member_uid,member_name,date,status,action_type) SELECT 'old-'||x,99,'Other','2020-01-01','방송','create' FROM n").run();
+    await env.otw_db.prepare("INSERT INTO schedule_candidate_rejections(vod_id,member_uid,member_name,date,status,action_type,source_vod_ids) VALUES('compound',99,'Other','2020-01-01','방송','create','[\"chzzk:vod-1\"]')").run();
+    const meter=meterD1(env.otw_db);
+    const result=await autoUpdateSchedules(getDb({YOUTUBE_API_KEY:'',otw_db:meter.db}),1,{videoCatalog:makeVideoCatalog(()=>[makeVideo('vod-1','Rejected fragment')])});
+    expect(result.rejectedSuppressed).toBe(1);
+    const reads=meter.entries.filter(row=>row.sql.includes('schedule_candidate_rejections')).reduce((sum,row)=>sum+row.rowsRead,0);
+    console.info('REJECTION_D1_COST',reads);
+    expect(reads).toBeLessThan(100);
+  });
+  it("targeted holiday reconciliation leaves other targets for the run finalizer",async()=>{
+    await env.otw_db.prepare("INSERT INTO pending_schedules(member_uid,member_name,date,status,action_type,candidate_kind) VALUES(99,'Other','2020-01-01','휴방','create','holiday_suggestion')").run();
+    const {reconcileHolidaySuggestions}=await import('./holiday-suggestions');
+    expect(await reconcileHolidaySuggestions(env.otw_db,{memberUid:1,date:'2026-07-28'})).toMatchObject({withdrawn:0});
+    expect(await env.otw_db.prepare("SELECT count(*) n FROM pending_schedules WHERE member_uid=99").first('n')).toBe(1);
+    expect(await reconcileHolidaySuggestions(env.otw_db)).toMatchObject({withdrawn:1});
+  });
 
   it("09시 이전에는 휴방을 추정하지 않고 이후 VOD 없는 멤버도 전날 승인 대기로 한 번만 생성한다", async () => {
     vi.setSystemTime(new Date("2026-07-29T08:59:59+09:00"));

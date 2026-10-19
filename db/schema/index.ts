@@ -1694,6 +1694,7 @@ export const scheduleCandidateRejections = sqliteTable(
     uniqueIndex("uidx_schedule_candidate_rejections_vod_id").on(
       table.vod_id,
     ),
+    index("idx_schedule_rejections_fragments").on(table.source_vod_ids).where(sql`${table.source_vod_ids} IS NOT NULL AND ${table.source_vod_ids} <> '[]'`),
     index("idx_schedule_candidate_rejections_rejected_at").on(
       table.rejected_at,
     ),

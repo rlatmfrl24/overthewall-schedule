@@ -84,9 +84,6 @@ const PENDING_COLUMNS = `
   created_at
 `;
 
-const placeholders = (values: readonly unknown[]) =>
-  values.map(() => "?").join(", ");
-
 const getScheduleKey = (memberUid: number, date: string) =>
   `${memberUid}:${date}`;
 
@@ -209,57 +206,22 @@ const selectPendingSchedules = async (db: D1Database) => (
 export const queryPendingScheduleReview = async (db: D1Database) => {
   const pendingList = await selectPendingSchedules(db);
   if (pendingList.length === 0) return [];
-  const evidenceRows = pendingList.some(item => item.candidate_kind === "holiday_suggestion")
-    ? (await db.prepare(`SELECT assessment.member_uid, assessment.date, assessment.checked_at,
+  const pairs = [...new Map(pendingList.map(item => [getScheduleKey(item.member_uid,item.date),{memberUid:item.member_uid,date:item.date}])).values()];
+  const holidayPairs=pendingList.filter(item=>item.candidate_kind==='holiday_suggestion').map(item=>({memberUid:item.member_uid,date:item.date}));
+  const evidenceRows = holidayPairs.length ? (await db.prepare(`SELECT assessment.member_uid, assessment.date, assessment.checked_at,
         assessment.range_start, assessment.range_end, assessment.scan_status, assessment.broadcast_seen
-      FROM schedule_day_assessments assessment WHERE EXISTS (SELECT 1 FROM pending_schedules pending
-        WHERE pending.member_uid = assessment.member_uid AND pending.date = assessment.date
-          AND pending.candidate_kind = 'holiday_suggestion')`).all<{
-            member_uid: number; date: string; checked_at: number; range_start: number; range_end: number;
-            scan_status: "complete" | "failed" | "incomplete"; broadcast_seen: number;
-          }>()).results : [];
-  const evidenceByDay = new Map(evidenceRows.map(({ member_uid, date, ...evidence }) =>
-    [getScheduleKey(member_uid, date), { ...evidence, broadcast_seen: evidence.broadcast_seen === 1 }]));
-
-  const memberUids = [...new Set(pendingList.map((item) => item.member_uid))];
-  const dates = [...new Set(pendingList.map((item) => item.date))];
-  const existingScheduleIds = [
-    ...new Set(
-      pendingList
-        .map((item) => item.existing_schedule_id)
-        .filter(
-          (id): id is number =>
-            typeof id === "number" && Number.isSafeInteger(id) && id > 0,
-        ),
-    ),
-  ];
-
-  const scheduleConditions = [
-    `(member_uid IN (${placeholders(memberUids)})
-      AND date IN (${placeholders(dates)}))`,
-  ];
-  const scheduleBindings: unknown[] = [...memberUids, ...dates];
-  if (existingScheduleIds.length > 0) {
-    scheduleConditions.push(
-      `id IN (${placeholders(existingScheduleIds)})`,
-    );
-    scheduleBindings.push(...existingScheduleIds);
-  }
-
-  const scheduleResult = await db
-    .prepare(
-      `SELECT id, member_uid, date, start_time, title, status
-       FROM schedules
-       WHERE ${scheduleConditions.join(" OR ")}`,
-    )
-    .bind(...scheduleBindings)
-    .all<ScheduleSummary>();
-
-  const sameDateSchedules = scheduleResult.results.filter(
-    (schedule) =>
-      memberUids.includes(schedule.member_uid) &&
-      dates.includes(schedule.date),
-  );
+      FROM json_each(?) requested CROSS JOIN schedule_day_assessments assessment
+      WHERE assessment.member_uid=json_extract(requested.value,'$.memberUid') AND assessment.date=json_extract(requested.value,'$.date')`)
+      .bind(JSON.stringify(holidayPairs)).all<{member_uid:number;date:string;checked_at:number;range_start:number;range_end:number;scan_status:"complete"|"failed"|"incomplete";broadcast_seen:number}>()).results : [];
+  const evidenceByDay = new Map(evidenceRows.map(({member_uid,date,...evidence})=>[getScheduleKey(member_uid,date),{...evidence,broadcast_seen:evidence.broadcast_seen===1}]));
+  const existingScheduleIds=[...new Set(pendingList.map(item=>item.existing_schedule_id).filter((id):id is number=>typeof id==='number'&&Number.isSafeInteger(id)&&id>0))];
+  const scheduleResult=await db.prepare(`SELECT schedule.id, schedule.member_uid, schedule.date, schedule.start_time, schedule.title, schedule.status
+      FROM json_each(?) requested CROSS JOIN schedules schedule
+      WHERE schedule.member_uid=json_extract(requested.value,'$.memberUid') AND schedule.date=json_extract(requested.value,'$.date')
+      UNION SELECT id,member_uid,date,start_time,title,status FROM schedules WHERE id IN(SELECT value FROM json_each(?)) ORDER BY id`)
+    .bind(JSON.stringify(pairs),JSON.stringify(existingScheduleIds)).all<ScheduleSummary>();
+  const pairKeys=new Set(pairs.map(pair=>getScheduleKey(pair.memberUid,pair.date)));
+  const sameDateSchedules=scheduleResult.results.filter(schedule=>pairKeys.has(getScheduleKey(schedule.member_uid,schedule.date)));
   const schedulesById = new Map(
     scheduleResult.results.map((schedule) => [schedule.id, schedule]),
   );
