@@ -348,6 +348,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       .bind(...values,...(page.q ? [] : [limit+1]))
       .all<{id:string;sort_key:string;search_text:string;artists?:string;aliases?:string}>()).results;
     const normalizePicker = (text:string) => text.normalize('NFKC').trim().replace(/\s+/gu,' ').toLocaleLowerCase();
+    const exactSongExists = kind === 'songs' && Boolean(page.q) && candidates.some(row =>
+      [row.search_text, ...JSON.parse(row.aliases ?? '[]') as string[]].some(text => normalizePicker(text) === normalizePicker(page.q!)));
     const selected = candidates.filter(row => {
       if (!page.q) return true;
       if (kind === 'entities') return normalizePicker(row.search_text).includes(normalizePicker(page.q));
@@ -365,7 +367,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     const channelIds=[...new Set(catalog.performances.flatMap(p=>p.sources.map(s=>s.source.channelId)))];
     const references=await this.readCatalog({entityIds,channelIds});
     const availableTags=kind==='catalog'?(await this.database.prepare(`SELECT DISTINCT tag.display_name FROM music_song_tags tag JOIN music_songs song ON song.id=tag.song_id WHERE song.archived_at IS NULL AND EXISTS(SELECT 1 FROM music_performances p WHERE p.song_id=song.id ${page.scope==='official'?"AND p.release_type<>'broadcast'":page.scope==='broadcast'?"AND p.release_type='broadcast'":""}) ORDER BY tag.display_name`).all<{display_name:string}>()).results.map(row=>row.display_name):undefined;
-    return {...catalog,availableTags,entities:references.entities,channels:references.channels,paged:true,nextCursor:selected.length>limit?JSON.stringify([selected[limit-1].sort_key,selected[limit-1].id]):null};
+    return {...catalog,...(kind==='songs'?{exactSongExists}:{}),availableTags,entities:references.entities,channels:references.channels,paged:true,nextCursor:selected.length>limit?JSON.stringify([selected[limit-1].sort_key,selected[limit-1].id]):null};
   }
 
   async readCatalog(scope?: AdminCatalogScope): Promise<OtwPlayAdminCatalogDto> {

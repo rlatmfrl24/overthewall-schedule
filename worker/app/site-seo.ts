@@ -26,6 +26,7 @@ export const createSiteSeoDependencies = (env: Env,privateRead=false) => {
   const settings = new DrizzleSettingsRepository(db);
   const play = new D1PublicCatalogReader(env.otw_db, getWorkerSiteResources(env).site.id);
   const profiles = new Map<string, ReturnType<D1MemberReader["findProfileByCode"]>>();
+  let profileAccessRevision: Promise<number> | undefined;
   const reader: SiteSeoReader = {
     async readFeedState() {
       const stored = await settings.read([
@@ -44,7 +45,11 @@ export const createSiteSeoDependencies = (env: Env,privateRead=false) => {
       return (await members.listActive()).map(({ code }) => code);
     },
     findActiveProfileByCode(code) {
-      if (!profiles.has(code)) profiles.set(code, members.findProfileByCode(code, false));
+      if (!profiles.has(code)) {
+        // The HTML access snapshot must start before its shared profile projection.
+        profileAccessRevision ??= readContentAccessRevision(env.otw_db, site.id);
+        profiles.set(code, profileAccessRevision.then(() => members.findProfileByCode(code, false)));
+      }
       return profiles.get(code)!;
     },
     async readPlayState() {
@@ -61,7 +66,11 @@ export const createSiteSeoDependencies = (env: Env,privateRead=false) => {
   const board = new D1ScheduleBoardReader(db, false, site.id);
   const notices = new D1NoticeGateway(db,env.ASSET_BUCKET,false,undefined,site.id);
   const contentReader: SiteContentReader = {
-    readAccessRevision: () => readContentAccessRevision(env.otw_db, site.id),
+    readAccessRevision: async () => {
+      const revision = await readContentAccessRevision(env.otw_db, site.id);
+      if (profileAccessRevision && revision !== await profileAccessRevision) throw new Error("Content access changed");
+      return revision;
+    },
     readSchedule: (start, end) => board.read(start, end),
     readNotices: today => notices.list({ includeInactive: false, type: null, today }),
     readFeed: state => readSiteContentFeed(env.otw_db, state, site.id),

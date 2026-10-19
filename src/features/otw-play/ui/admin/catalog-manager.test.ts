@@ -3075,6 +3075,22 @@ it("selects an off-page existing participant while editing a performance",async(
   await waitFor(()=>expect(updatePerformanceMock).toHaveBeenCalledWith(expect.objectContaining({id:performance.id,participants:[expect.objectContaining({subject:{kind:'entity',entityId:external.id}})]}),expect.any(String)));
 });
 
+it("shows a retryable error when full publication preparation fails", async () => {
+  fetchCatalogMock.mockImplementation(async query => {
+    if (!query) throw new Error("catalog unavailable");
+    return { ...catalog, paged: true, nextCursor: null };
+  });
+  renderCatalogManager();
+  fireEvent.click(await screen.findByRole("button", { name: "미게시 곡 모두 게시" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("전체 게시 대상을 불러오지 못했습니다");
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(publishPerformanceMock).not.toHaveBeenCalled();
+  fetchCatalogMock.mockResolvedValue(catalog);
+  fireEvent.click(screen.getByRole("button", { name: "미게시 곡 모두 게시" }));
+  await screen.findByRole("alertdialog");
+  expect(publishPerformanceMock).not.toHaveBeenCalled();
+});
+
 it("keeps global publication reachable from an empty filtered server page",async()=>{
   const song={id:'hidden-draft-song',slug:'hidden-draft-song',title:'Off page draft',originalArtists:[],tags:[],aliases:[],archivedAt:null,version:0,isOtwOriginal:false};
   const draft={...linkedPerformance,id:'off-page-draft',songId:song.id,publicationStatus:'draft' as const};

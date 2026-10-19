@@ -51,10 +51,11 @@ describe("OTW Play admin catalog handler", () => {
   });
 
   it("passes bounded catalog filters only after authentication",async()=>{
-    const readCatalog=vi.fn(async()=>({songs:[],nextCursor:null}));
+    const readCatalog=vi.fn(async()=>({songs:[],nextCursor:null,exactSongExists:true}));
     const handler=createAdminCatalogHandler(()=>({readCatalog}) as unknown as AdminCatalogService);
     const response=await handler(new Request('https://example.com/api/play/admin/catalog?limit=25&scope=broadcast&q=Song&state=draft&category=OST'),env);
     expect(response.status).toBe(200);expect(readCatalog).toHaveBeenCalledWith({page:expect.objectContaining({limit:25,scope:'broadcast',q:'Song',state:'draft',category:'OST'})});
+    expect(await response.json()).toEqual({ data: { songs: [], nextCursor: null, exactSongExists: true } });
   });
   it("looks up an authoritative YouTube channel display name", async () => {
     const lookupChannel = vi.fn(async (externalChannelId: string) => ({

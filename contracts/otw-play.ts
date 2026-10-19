@@ -1289,6 +1289,7 @@ export interface OtwPlayAdminCatalogQuery {
 
 export interface OtwPlayAdminCatalogDto {
   paged?: true; nextCursor?: string | null; availableTags?: string[];
+  exactSongExists?: boolean;
   revision: number;
   readModelRevision: number;
   songs: OtwPlayAdminSongDto[];

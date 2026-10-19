@@ -124,8 +124,10 @@ it("reads public stored sources using SELECT only, without external requests", a
 });
 
 it("shares the profile projection within one HTML request and refreshes it on reentry", async () => {
+  const { meterD1 } = await import('../../../test-support/d1-meter');
+  const meter = meterD1(db);
   const profile = vi.spyOn(D1MemberReader.prototype,'findProfileByCode');
-  const runtime = { ...testEnv,...siteEnv(), ASSET_BUCKET:undefined, ASSETS:{ fetch:async () => new Response('<html><head><title>old</title></head><body><div id="root"></div></body></html>') } } as unknown as Env;
+  const runtime = { ...testEnv,...siteEnv(), otw_db:meter.db, ASSET_BUCKET:undefined, ASSETS:{ fetch:async () => new Response('<html><head><title>old</title></head><body><div id="root"></div></body></html>') } } as unknown as Env;
   for (const method of ['GET','HEAD']) {
     const response = await handleWorkerFetch(new Request('https://otw.test/profile/summary',{method}),runtime);
     expect(response.status).toBe(200);
@@ -134,4 +136,30 @@ it("shares the profile projection within one HTML request and refreshes it on re
     else expect(body).toBe('');
   }
   expect(profile).toHaveBeenCalledTimes(2);
+  expect(meter.summary().rowsWritten).toBe(0);
+  console.info('PROFILE_HTML_D1_COST', JSON.stringify(meter.summary()));
+});
+
+it.each(['otw','luvdia'] as const)("does not reuse a public %s profile across an access change during HTML assembly", async site => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  for (const method of ["GET", "HEAD"]) {
+    await db.prepare("UPDATE members SET content_access='normal', introduction='Private after archive' WHERE uid=901").run();
+    const runtime = { ...testEnv, ...siteEnv(site), ASSET_BUCKET: undefined, ASSETS: {
+      fetch: async () => {
+        await db.batch([
+          db.prepare("UPDATE members SET content_access='admin_archive' WHERE uid=901"),
+          db.prepare(`INSERT INTO content_transitions(id,source_site,target_site,source_resource,target_resource,
+            local_site,local_resource,generation,protocol,manifest_digest,plan_json,phase,archive_receipt_json)
+            VALUES(?,?,?,'source','target',?,'source',2,1,'fixture','{}','complete','{"archivedRoots":1}')`)
+            .bind(`profile-archive-${site}-${method}`,site,site==='otw'?'luvdia':'otw',site),
+        ]);
+        return new Response('<html><head><title>old</title></head><body><div id="root"></div></body></html>');
+      },
+    } } as unknown as Env;
+    const response = await handleWorkerFetch(new Request("https://otw.test/profile/summary", { method }), runtime);
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.text()).not.toContain("Private after archive");
+  }
+  await db.prepare("UPDATE members SET content_access='normal', introduction=NULL WHERE uid=901").run();
 });

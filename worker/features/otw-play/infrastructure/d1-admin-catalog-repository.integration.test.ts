@@ -2998,3 +2998,15 @@ it("does not let member identities consume the external participant lookup page"
   const result=await new D1AdminCatalogRepository(db).readCatalog({page:{lookup:'entities',q:'Picklist',limit:25}});
   expect(result.entities.map(entity=>entity.id)).toEqual(['lookup-external']);
 });
+
+it("recognizes an exact song outside the first lookup page", async () => {
+  await db.prepare(`WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<30)
+    INSERT INTO music_songs(id,slug,title,normalized_title,dedupe_key,is_otw_original,created_at,updated_at)
+    SELECT 'star-'||x,'star-'||x,'A Star '||x,'a star '||printf('%02d',x),'star-'||x,0,1,1 FROM n`).run();
+  await db.prepare(`INSERT INTO music_songs(id,slug,title,normalized_title,dedupe_key,is_otw_original,created_at,updated_at)
+    VALUES('exact-star','exact-star','Star','star','exact-star',0,1,1)`).run();
+  const result = await new D1AdminCatalogRepository(db).readCatalog({ page: { lookup: 'songs', q: 'Star', limit: 25 } });
+  expect(result.songs).toHaveLength(25);
+  expect(result.songs.some(song => song.id === 'exact-star')).toBe(false);
+  expect(result).toHaveProperty('exactSongExists', true);
+});

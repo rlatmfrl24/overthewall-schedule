@@ -44,6 +44,7 @@ import {
 } from "../../api/admin";
 import { SongTagPicker } from "../song-tag-picker";
 import { SongConnectionPicker } from "./song-connection-picker";
+import { mergeAdminCatalogRows, useOtwPlayAdminCatalogLookup } from "../../queries/use-admin-catalog";
 
 export type SelectedSubject = {
   key: string;
@@ -179,10 +180,8 @@ export function SubjectPicker({
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const listboxId = useId();
-  const [remoteEntities,setRemoteEntities]=useState<OtwPlayAdminEntityDto[]>([]);
-  const [lookupError,setLookupError]=useState(false);
-  useEffect(()=>{if(!remote||!query.trim()) {setRemoteEntities([]);return;} let active=true;setLookupError(false);const timer=setTimeout(()=>{void fetchOtwPlayAdminCatalog({lookup:'entities',q:query,limit:25}).then(data=>{if(active)setRemoteEntities(data.entities);},()=>{if(active)setLookupError(true);});},150);return()=>{active=false;clearTimeout(timer);};},[query,remote]);
-  entities=[...new Map([...entities,...remoteEntities].map(entity=>[entity.id,entity])).values()];
+  const lookup = useOtwPlayAdminCatalogLookup("entities", query, Boolean(remote && query.trim()));
+  entities = mergeAdminCatalogRows(entities, lookup.data?.entities);
   const normalized = normalizeSubjectName(query);
   const selectedKeys = new Set(selected.map((item) => item.key));
   const availableDraftSubjects = uniqueNewExternalSubjects([
@@ -207,7 +206,7 @@ export function SubjectPicker({
         (!normalized ||
           normalizeSubjectName(entity.displayName).includes(normalized)),
     )
-    .slice(0, 6);
+    .slice(0, remote ? undefined : 6);
   const draftMatches = availableDraftSubjects
     .filter(
       (subject) =>
@@ -388,17 +387,19 @@ export function SubjectPicker({
               </button>
             );
           })}
+          {lookup.hasNextPage && <Button type="button" variant="ghost" size="sm" disabled={lookup.isFetchingNextPage}
+            onClick={() => void lookup.fetchNextPage()}>검색 결과 더 보기</Button>}
           {exactMatchExists ? (
             <p className="mt-1 border-t px-3 py-2 text-xs text-muted-foreground" role="status">
               동일한 이름의 주체가 이미 있습니다. 위 후보를 선택하세요.
             </p>
           ) : (
             <div className="mt-1 grid grid-cols-2 gap-1 border-t pt-1">
-              <Button type="button" variant="ghost" size="sm" className="h-auto min-h-11 whitespace-normal px-2" onClick={() => addNew("person")}>
+              <Button type="button" variant="ghost" size="sm" disabled={!lookup.ready} className="h-auto min-h-11 whitespace-normal px-2" onClick={() => addNew("person")}>
                 <UserRoundPlus className="h-4 w-4" /> 외부 인물로 추가
               </Button>
               {allowGroup && (
-                <Button type="button" variant="ghost" size="sm" className="h-auto min-h-11 whitespace-normal px-2" onClick={() => addNew("group")}>
+                <Button type="button" variant="ghost" size="sm" disabled={!lookup.ready} className="h-auto min-h-11 whitespace-normal px-2" onClick={() => addNew("group")}>
                   <UsersRound className="h-4 w-4" /> 그룹으로 추가
                 </Button>
               )}
@@ -406,7 +407,7 @@ export function SubjectPicker({
           )}
         </div>
       )}
-      {lookupError&&<p role="alert" className="text-sm text-destructive">인물 검색에 실패했습니다. 다시 검색해 주세요.</p>}
+      {lookup.isError&&<p role="alert" className="text-sm text-destructive">인물 검색에 실패했습니다. 다시 검색해 주세요.</p>}
       <p className="text-xs text-muted-foreground">{helpText}</p>
     </div>
   );
@@ -661,9 +662,14 @@ export function CatalogEntryDialog({
       preflight?.video.durationSeconds !== undefined &&
       parsedEndSeconds <= preflight.video.durationSeconds,
   );
-  const [resolvedSongs,setResolvedSongs]=useState<OtwPlayAdminCatalogDto["songs"]>([]);
-  catalog={...catalog,songs:[...new Map([...catalog.songs,...resolvedSongs].map(s=>[s.id,s])).values()]};
   const hasExistingSong = songId !== "" && songId !== "__new";
+  const selectedSong = useQuery({
+    queryKey: [...queryKeys.otwPlay.adminCatalog(), "selected-song", songId],
+    queryFn: () => fetchOtwPlayAdminCatalog({ lookup: "songs", songId, limit: 25 }),
+    enabled: Boolean(open && catalog.paged && hasExistingSong && !catalog.songs.some(song => song.id === songId)),
+    staleTime: 15_000,
+  });
+  catalog = { ...catalog, songs: mergeAdminCatalogRows(catalog.songs, selectedSong.data?.songs) };
   const originalArtists = !clip && videoKind === "original" && coverOriginalArtists.length === 0
     ? participants
     : coverOriginalArtists;
@@ -918,7 +924,7 @@ export function CatalogEntryDialog({
 
             {step === 1 && <section className="space-y-4" aria-label="곡 정보">
               <h3 ref={stepHeadingRef} tabIndex={-1} className="font-semibold outline-none">어떤 곡을 불렀나요?</h3>
-              <SongConnectionPicker onResolved={setResolvedSongs} inputKey="catalog-medley" catalog={catalog} selectedSongId={songId} query={songQuery}
+              <SongConnectionPicker inputKey="catalog-medley" catalog={catalog} selectedSongId={songId} query={songQuery}
                 onQueryChange={value => { ai.touch("song"); setSongQuery(value); }}
                 onSelectExisting={(nextSongId, title) => {
                   ai.touch("song"); setSongId(nextSongId); setSongQuery(title);

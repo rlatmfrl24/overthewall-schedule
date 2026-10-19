@@ -69,6 +69,7 @@ import {
 } from "./catalog-entry-dialog";
 import { SongTagPicker } from "../song-tag-picker";
 import { CatalogSearchInput } from "./catalog-search-input";
+import { mergeAdminCatalogRows, useOtwPlayAdminCatalogLookup } from "../../queries/use-admin-catalog";
 
 type Run = (label: string, task: () => Promise<unknown>) => Promise<boolean>;
 const EMPTY_MEMBERS: Member[] = [];
@@ -205,13 +206,16 @@ export function WorkflowCatalog({
     };
   }, [loadMoreTarget, hasMore, showMore]);
   const activeSongIds = new Set(activeSongs.map((song) => song.id));
-  const [publishCatalog,setPublishCatalog]=useState<OtwPlayAdminCatalogDto|null>(null);
-  const publishPerformances=publishCatalog?.performances.filter(p=>scope==='all'||(scope==='broadcast'?p.releaseType==='broadcast':p.releaseType!=='broadcast'))??scopedPerformances;
-  const draftPerformances = publishPerformances.filter(
+  const publicationCatalog = useQuery({
+    queryKey: queryKeys.otwPlay.adminCatalog(),
+    queryFn: () => fetchOtwPlayAdminCatalog(),
+    enabled: false,
+  });
+  const draftPerformances = scopedPerformances.filter(
     (performance) =>
       performance.contentAccess !== "admin_archive" && performance.publicationStatus === "draft" &&
       (performance.releaseType !== "broadcast" || Boolean(performance.broadcast?.extent)) &&
-      (publishCatalog?publishCatalog.songs.some(s=>s.id===performance.songId&&s.archivedAt===null):activeSongIds.has(performance.songId)),
+      activeSongIds.has(performance.songId),
   );
   const draftSongCount = new Set(
     draftPerformances.map((performance) => performance.songId),
@@ -341,18 +345,20 @@ export function WorkflowCatalog({
             <div className="flex flex-col gap-3 rounded-xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="font-medium">
-                  {catalog.paged&&!publishCatalog?"전체 미게시 가창 게시":`미게시 가창 ${draftPerformances.length}개 · ${draftSongCount}곡`}
+                  {catalog.paged?"전체 미게시 가창 게시":`미게시 가창 ${draftPerformances.length}개 · ${draftSongCount}곡`}
                 </p>
                 {draftPerformances.length > 0 && <p className="text-xs text-muted-foreground">전체 카탈로그 대상 · 검색 필터 미적용</p>}
               </div>
               <Button
                 className="shrink-0"
-                disabled={saving !== null}
+                disabled={saving !== null || publicationCatalog.isFetching}
                 onClick={async () => {
                   if(catalog.paged) {
-                    const full=await fetchOtwPlayAdminCatalog();setPublishCatalog(full);
+                    const prepared = await publicationCatalog.refetch();
+                    if (prepared.isError || !prepared.data) return;
+                    const full = prepared.data;
                     const drafts=full.performances.filter(p=>p.contentAccess!=='admin_archive'&&p.publicationStatus==='draft'&&(p.releaseType!=='broadcast'||Boolean(p.broadcast?.extent))&&full.songs.some(s=>s.id===p.songId&&s.archivedAt===null)&&(scope==='all'||(scope==='broadcast'?p.releaseType==='broadcast':p.releaseType!=='broadcast')));
-                    setConfirmation({title:"미게시 곡을 모두 게시할까요?",description:`전체 ${new Set(drafts.map(p=>p.songId)).size}곡 · ${drafts.length}개 가창을 게시합니다.`,confirmLabel:`${drafts.length}개 게시`,action:async()=>{await onPublishDrafts(drafts);setPublishCatalog(null);}});return;
+                    setConfirmation({title:"미게시 곡을 모두 게시할까요?",description:`전체 ${new Set(drafts.map(p=>p.songId)).size}곡 · ${drafts.length}개 가창을 게시합니다.`,confirmLabel:`${drafts.length}개 게시`,action:async()=>{await onPublishDrafts(drafts);}});return;
                   }
                   setConfirmation({
                   title: "미게시 곡을 모두 게시할까요?",
@@ -373,6 +379,7 @@ export function WorkflowCatalog({
             </Button>
           </div>
           )}
+      {publicationCatalog.isError && <p role="alert" className="text-sm text-destructive">전체 게시 대상을 불러오지 못했습니다. 다시 시도해 주세요.</p>}
       {(activeSongs.length > 0 || consoleSearch.q || consoleSearch.state || consoleSearch.category) && filteredSongs.length === 0 && <p role="status" className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">조건에 맞는 곡이 없습니다. 검색어를 바꾸거나 필터를 초기화해 주세요.</p>}
       {activeSongs.length === 0 ? (consoleSearch.q || consoleSearch.state || consoleSearch.category ? null :
         <div className="rounded-xl border border-dashed p-3 text-center text-sm text-muted-foreground">
@@ -570,8 +577,8 @@ function PerformanceEditDialog({
   const [sameSingingConfirmed, setSameSingingConfirmed] = useState(false);
   const [broadcast, setBroadcast] = useState(EMPTY_BROADCAST);
   const [channelSearch,setChannelSearch]=useState("");
-  const channelQuery=useQuery({queryKey:[...queryKeys.otwPlay.adminCatalog(),"channel-search",channelSearch],queryFn:()=>fetchOtwPlayAdminCatalog({lookup:'channels',q:channelSearch,limit:25}),enabled:Boolean(performance&&catalog.paged),staleTime:15_000});
-  const availableChannels=[...new Map([...catalog.channels,...channelQuery.data?.channels??[]].map(c=>[c.id,c])).values()];
+  const channelQuery = useOtwPlayAdminCatalogLookup("channels", channelSearch, Boolean(performance && catalog.paged));
+  const availableChannels = mergeAdminCatalogRows(catalog.channels, channelQuery.data?.channels);
   const [songSearch,setSongSearch]=useState("");
   const [songId, setSongId] = useState("");
   const [relation, setRelation] = useState<OtwPlayRelationType>("cover");
@@ -869,7 +876,7 @@ function PerformanceEditDialog({
             </section>
 
             <section className="space-y-3">
-              {catalog.paged&&<><Input aria-label="영상 채널 검색" placeholder="영상 채널 검색" value={channelSearch} onChange={e=>setChannelSearch(e.target.value)} />{channelQuery.isError&&<p role="alert">채널 검색에 실패했습니다.</p>}</>}
+              {catalog.paged&&<><Input aria-label="영상 채널 검색" placeholder="영상 채널 검색" value={channelSearch} onChange={e=>setChannelSearch(e.target.value)} />{channelQuery.hasNextPage&&<Button type="button" variant="outline" disabled={channelQuery.isFetchingNextPage} onClick={()=>void channelQuery.fetchNextPage()}>채널 더 보기</Button>}{channelQuery.isError&&<p role="alert">채널 검색에 실패했습니다.</p>}</>}
               <SubjectPicker
                 remote={catalog.paged}
                 label="가창 참여자"
