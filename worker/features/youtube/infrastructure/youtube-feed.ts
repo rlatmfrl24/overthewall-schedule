@@ -1,3 +1,4 @@
+import { readPublicFeedRows } from "./public-feed-reader";
 import { publicationHiddenSql } from "../../content-access";
 import { parseSiteId } from "@contracts/site-definition";
 import { officialChannelTargetsSql } from "./official-channel-targets";
@@ -937,23 +938,10 @@ const readStoredKind = async (
   sourceKind: "official" | "kirinuki",
   short: boolean,
 ) => {
-  const placeholders = channelIds.map(() => "?").join(",");
-  const rows = await env.otw_db
-    .prepare(
-      `SELECT video.video_id, video.title, video.thumbnail_url,
-         video.channel_title, video.duration_seconds, video.view_count,
-         video.is_short, video.published_at, video.fetched_at,
-         source.youtube_channel_id
-       FROM youtube_feed_videos video
-       JOIN youtube_feed_sources source ON source.id = video.source_id
-       WHERE source.source_kind = ? AND source.enabled = 1
-         AND video.content_access = 'normal' AND NOT (${publicationHiddenSql("youtube_feed_videos","video",parseSiteId(env.SITE_ID))}) AND video.available = 1 AND video.is_short = ?
-         AND source.youtube_channel_id IN (${placeholders})
-       ORDER BY video.published_at DESC, video.video_id ASC LIMIT ?`,
-    )
-    .bind(sourceKind, short ? 1 : 0, ...channelIds, maxResults)
-    .all<Record<string, unknown>>();
-  return rows.results ?? [];
+  return readPublicFeedRows<Record<string, unknown>>(env.otw_db, parseSiteId(env.SITE_ID), {
+    sourceWhere: "source.source_kind = ? AND source.youtube_channel_id IN (SELECT value FROM json_each(?))",
+    bindings: [sourceKind, JSON.stringify(channelIds)], short, limit: maxResults,
+  });
 };
 
 export const readStoredYouTubeFeed = async (
@@ -986,32 +974,10 @@ const readShortsPageRows = async (
   limit: number,
   cursor: ReturnType<typeof decodeYouTubeShortsCursor>,
 ) => {
-  const placeholders = channelIds.map(() => "?").join(",");
-  const keyset = cursor
-    ? ` AND (video.published_at < ? OR
-        (video.published_at = ? AND video.video_id > ?))`
-    : "";
-  const bindings: unknown[] = [...channelIds];
-  if (cursor) {
-    bindings.push(cursor.publishedAt, cursor.publishedAt, cursor.videoId);
-  }
-  bindings.push(limit + 1);
-  const rows = await env.otw_db
-    .prepare(
-      `SELECT video.video_id, video.title, video.thumbnail_url,
-         video.channel_title, video.duration_seconds, video.view_count,
-         video.is_short, video.published_at, video.fetched_at,
-         source.youtube_channel_id
-       FROM youtube_feed_videos video
-       JOIN youtube_feed_sources source ON source.id = video.source_id
-       WHERE source.source_kind = 'official' AND source.enabled = 1
-         AND video.content_access = 'normal' AND NOT (${publicationHiddenSql("youtube_feed_videos","video",parseSiteId(env.SITE_ID))}) AND video.available = 1 AND video.is_short = 1
-         AND source.youtube_channel_id IN (${placeholders})${keyset}
-       ORDER BY video.published_at DESC, video.video_id ASC LIMIT ?`,
-    )
-    .bind(...bindings)
-    .all<ShortsRow>();
-  return rows.results ?? [];
+  return readPublicFeedRows<ShortsRow>(env.otw_db, parseSiteId(env.SITE_ID), {
+    sourceWhere: "source.source_kind = 'official' AND source.youtube_channel_id IN (SELECT value FROM json_each(?))",
+    bindings: [JSON.stringify(channelIds)], short: true, limit: limit + 1, cursor,
+  });
 };
 
 export const isYouTubeShortsPageComplete = (

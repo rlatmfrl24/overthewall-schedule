@@ -1,0 +1,3 @@
+CREATE INDEX `idx_x_posts_public_handle_created` ON `x_posts` (lower("handle"),"created_at" DESC,"id" DESC) WHERE content_access = 'normal' AND hidden_at IS NULL AND content_removed_at IS NULL;--> statement-breakpoint
+CREATE INDEX `idx_youtube_feed_videos_public_published` ON `youtube_feed_videos` (`source_id`,"published_at" DESC,`video_id`) WHERE content_access = 'normal' AND available = 1;--> statement-breakpoint
+CREATE INDEX `idx_youtube_feed_videos_public_kind_published` ON `youtube_feed_videos` (`source_id`,`is_short`,"published_at" DESC,`video_id`) WHERE content_access = 'normal' AND available = 1;

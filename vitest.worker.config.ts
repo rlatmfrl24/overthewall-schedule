@@ -112,6 +112,10 @@ return defineConfig({
           name: `${migration.name}:control`,
           queries: migration.queries.filter(query => /^\s*ALTER TABLE `content_transition(?:s|_membership)` ADD /.test(query)),
         })) : [])];
+      const efficiencyIndexes = (prefix: string) => migrations.filter(migration => migration.name.startsWith("0142_")).map(migration => ({
+        name: `${migration.name}:${prefix}`,
+        queries: migration.queries.filter(query => query.includes(`ON \`${prefix}`)),
+      })).filter(migration => migration.queries.length > 0);
       const otwPlayCatalogMigrations = migrations.filter(({ name }) =>
         name.startsWith(OTW_PLAY_CATALOG_MIGRATION_PREFIX),
       );
@@ -298,12 +302,12 @@ return defineConfig({
               : migration),
               // Publication ownership also reads the actual Play channel-credit schema.
               ...otwPlayCatalogMigrations,
-              ...accessMigrations(["members", "youtube_feed_videos", "content_transitions"])],
+              ...accessMigrations(["members", "youtube_feed_videos", "content_transitions"]), ...efficiencyIndexes("youtube_feed_")],
             X_REFERENCE_MIGRATIONS: [...migrations.filter(({ name }) =>
               /^(0000_|0011_|0023_|0025_|0026_|0068_|0071_|0072_|0075_|0077_|0078_|0079_|0083_|0084_|0137_|0138_)/.test(name)
             ).map(migration => /^(0071_|0072_)/.test(migration.name)
               ? { ...migration, queries: migration.queries.filter(query => /^\s*ALTER TABLE `x_/.test(query)) }
-              : migration), ...accessMigrations(["members", "x_posts", "x_post_facts"])],
+              : migration), ...accessMigrations(["members", "x_posts", "x_post_facts"]), ...efficiencyIndexes("x_")],
             OTW_PLAY_CHANNEL_SEPARATION_MIGRATIONS: migrations.filter(({ name }) => name === "0017_short_satana.sql"),
             OTW_PLAY_CATALOG_MIGRATIONS: otwPlayCatalogMigrations,
             OTW_PLAY_PROPOSAL_SEARCH_MIGRATIONS:

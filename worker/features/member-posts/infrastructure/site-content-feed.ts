@@ -10,12 +10,22 @@ export async function readSiteContentFeed(db: D1Database, policy: { xVisibility:
   const sources: Array<{ id: string; title: string; read: () => Promise<FeedRow[]> }> = [];
   if (policy.xVisibility === "public") sources.push({ id: "x", title: "공개 X 게시글", read: async () => {
     const members = (await db.prepare(`SELECT url_twitter FROM members WHERE content_access = 'normal' AND NOT (${publicationHiddenSql("members","members",siteId)}) AND (is_deprecated IS NULL OR is_deprecated = 0)`).all<{ url_twitter: string | null }>()).results;
-    const handles = members.flatMap(m => {
+    const handles = [...new Set(members.flatMap(m => {
       try { return [new URL(m.url_twitter ?? "").pathname.split("/").filter(Boolean)[0]?.toLowerCase()].filter((v): v is string => Boolean(v)); } catch { return []; }
-    });
+    }))];
     if (!handles.length) return [];
-    const rows = (await db.prepare(`SELECT value, fetched_at FROM x_posts WHERE content_access = 'normal' AND hidden_at IS NULL AND content_removed_at IS NULL AND NOT (${publicationHiddenSql("x_posts","x_posts",siteId)})
-      AND lower(handle) IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC, id DESC LIMIT 10`).bind(JSON.stringify(handles)).all<{ value: string; fetched_at: number }>()).results;
+    const rows = (await db.prepare(`SELECT post.value, post.fetched_at
+      FROM json_each(?) target
+      CROSS JOIN json_each((SELECT json_group_array(row_key) FROM (
+        SELECT candidate.rowid AS row_key FROM x_posts candidate INDEXED BY idx_x_posts_public_handle_created
+        WHERE lower(candidate.handle) = target.value AND candidate.content_access = 'normal'
+          AND candidate.hidden_at IS NULL AND candidate.content_removed_at IS NULL
+          AND NOT (${publicationHiddenSql("x_posts","candidate",siteId)})
+        ORDER BY candidate.created_at DESC, candidate.id DESC LIMIT 10
+      ))) selected CROSS JOIN x_posts post
+      WHERE post.rowid = selected.value
+      ORDER BY post.created_at DESC, post.id DESC LIMIT 10`)
+      .bind(JSON.stringify(handles)).all<{ value: string; fetched_at: number }>()).results;
     return rows.map(row => { const post = JSON.parse(row.value) as XPostDto; return {
       item: { title: post.text, text: `X · ${post.username}`, url: post.url, publishedAt: post.createdAt }, fetchedAt: row.fetched_at,
     }; });

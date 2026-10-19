@@ -756,6 +756,8 @@ export const xPosts = sqliteTable(
       table.hidden_at,
       table.created_at,
     ),
+    index("idx_x_posts_public_handle_created").on(sql`lower(${table.handle})`, sql`${table.created_at} DESC`, sql`${table.id} DESC`)
+      .where(sql`content_access = 'normal' AND hidden_at IS NULL AND content_removed_at IS NULL`),
     index("idx_x_posts_user_id").on(table.user_id),
     index("idx_x_posts_hidden_at").on(table.hidden_at),
   ],
@@ -1214,6 +1216,10 @@ export const youtubeFeedVideos = sqliteTable(
       table.published_at,
     ),
     index("idx_youtube_feed_videos_fetched").on(table.fetched_at),
+    index("idx_youtube_feed_videos_public_published").on(table.source_id, sql`${table.published_at} DESC`, table.video_id)
+      .where(sql`content_access = 'normal' AND available = 1`),
+    index("idx_youtube_feed_videos_public_kind_published").on(table.source_id, table.is_short, sql`${table.published_at} DESC`, table.video_id)
+      .where(sql`content_access = 'normal' AND available = 1`),
     index("idx_youtube_feed_videos_short_published").on(
       table.is_short,
       sql`${table.published_at} DESC`,

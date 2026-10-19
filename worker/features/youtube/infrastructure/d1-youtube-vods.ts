@@ -1,3 +1,4 @@
+import { readPublicFeedRows } from "./public-feed-reader";
 import { publicationHiddenSql } from "../../content-access";
 import { parseSiteId, type SiteId } from "@contracts/site-definition";
 import type { YouTubeVodsRequest, YouTubeVodsResponseDto } from "@contracts/youtube";
@@ -33,17 +34,12 @@ export const readYouTubeVods = async (env: Env, input: YouTubeVodsRequest): Prom
   const state = !enabled || !env.YOUTUBE_API_KEY?.trim() ? "disabled" :
     failed.length === selected.length ? "error" : failed.length || (initialized.length && initialized.length < selected.length) ? "partial" :
     !initialized.length ? "initializing" : "ready";
-  const rows = (await env.otw_db.prepare(`
-    SELECT video.*, source.youtube_channel_id FROM youtube_feed_videos video
-    JOIN youtube_feed_sources source ON source.id = video.source_id
-    WHERE source.source_kind = 'official' AND source.enabled = 1
-      AND source.youtube_channel_id IN (SELECT value FROM json_each(?))
-      AND video.content_access = 'normal' AND video.available = 1 AND video.is_short = 0
-      ${cursor ? "AND (video.published_at < ? OR (video.published_at = ? AND video.video_id > ?))" : ""}
-    ORDER BY video.published_at DESC, video.video_id ASC LIMIT ?
-  `).bind(JSON.stringify(channels), ...(cursor ? [cursor.publishedAt, cursor.publishedAt, cursor.videoId] : []), input.limit + 1).all<{
+  const rows = await readPublicFeedRows<{
     video_id: string; title: string; published_at: number; thumbnail_url: string; duration_seconds: number; view_count: number; youtube_channel_id: string; channel_title: string;
-  }>()).results ?? [];
+  }>(env.otw_db, parseSiteId(env.SITE_ID), {
+    sourceWhere: "source.source_kind = 'official' AND source.youtube_channel_id IN (SELECT value FROM json_each(?))",
+    bindings: [JSON.stringify(channels)], short: false, limit: input.limit + 1, cursor,
+  });
   const page = rows.slice(0, input.limit);
   const last = page.at(-1);
   const latest = Math.max(0, ...selected.map((link) => link.last_success_at ?? 0));
