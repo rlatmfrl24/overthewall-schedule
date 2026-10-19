@@ -2,7 +2,7 @@ import {isIsoDate,parseScheduleInput} from "../domain/schedule-input";
 import type {
   SchedulePayload,
 } from "../../../../contracts/schedules";
-import { authenticateOptionalRequest, requireAdminUser } from "../../../platform/auth";
+import { authenticateOptionalRequest, requireAdminUser, isAdminUser } from "../../../platform/auth";
 import type { Env } from "../../../platform/types";
 import { badRequest, getActorInfo, parseNumericId } from "../../../platform/http-helpers";
 import type { ScheduleWriteOperation } from "../application/ports/schedule-write-authorization-policy";
@@ -27,18 +27,21 @@ const resolveAuthorizedActor = async (
   env: Env,
   operation: ScheduleWriteOperation,
   service: ScheduleService,
+  input: Parameters<ScheduleService["canWrite"]>[2],
 ): Promise<{ authorized: boolean; actor: ScheduleActor }> => {
   const authenticatedUser = await authenticateOptionalRequest(request, env);
   const actor:ScheduleActor = getActorInfo(request, authenticatedUser);
+  if (env.SITE_ID === "luvdia") actor.isAdmin = authenticatedUser !== null && isAdminUser(env, authenticatedUser.id);
   const requestId=request.headers.get("Idempotency-Key");
   if(requestId && /^[A-Za-z0-9_-]{16,100}$/.test(requestId)) actor.requestId=requestId;
-  const authorized = (env.SITE_ID!=="luvdia" || authenticatedUser!==null) && await service.canWrite(operation, actor);
+  const authorized = (env.SITE_ID!=="luvdia" || authenticatedUser!==null) && await service.canWrite(operation, actor, input);
   return { authorized, actor };
 };
 
 export const createScheduleRequestHandler =
   (resolveService: ResolveScheduleService) =>
   async (request: Request, env: Env) => {
+  try {
   const url = new URL(request.url);
   const requestId=request.headers.get("Idempotency-Key");
   if(request.method!=="GET" && requestId!==null && !/^[A-Za-z0-9_-]{16,100}$/.test(requestId)) return badRequest("Invalid Idempotency-Key");
@@ -69,6 +72,7 @@ export const createScheduleRequestHandler =
       env,
       "save",
       service,
+      input,
     );
     if (!authorized) {
       return new Response("Schedule write permission required", {
@@ -117,6 +121,7 @@ export const createScheduleRequestHandler =
         env,
         "delete",
         service,
+        { id },
       );
       if (!authorized) {
         return new Response("Schedule write permission required", {
@@ -146,6 +151,7 @@ export const createScheduleRequestHandler =
     env,
     operation,
     service,
+    input,
   );
   if (!authorized) {
     return new Response("Schedule write permission required", {
@@ -159,6 +165,12 @@ export const createScheduleRequestHandler =
 
   await service.update(input, actor);
   return new Response("Updated");
+  } catch (error) {
+    if (error instanceof Error && /(?:JSON path|bad JSON path).*schedule_member_policy/.test(error.message)) {
+      return new Response("Schedule write permission required", { status: 403 });
+    }
+    throw error;
+  }
   };
 
 export type { SchedulePayload };

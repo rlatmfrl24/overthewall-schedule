@@ -4,6 +4,9 @@ import { cn, hexToRgba } from "@/shared/lib/utils";
 import type { Member } from "@/features/members";
 import type { ScheduleItem } from "@/features/schedules";
 import { WeeklyScheduleItem } from "./weekly-schedule-item";
+import { format } from "date-fns";
+import { site } from "@/shared/config/site";
+import { isScheduleMemberActive } from "@contracts/schedule-member-policy";
 
 interface WeeklyGridDayCellProps {
   day: Date;
@@ -56,7 +59,7 @@ export const WeeklyGridDayCell = ({
             onClick={() => onEditSchedule(schedule)}
           />
         ))
-      ) : (
+      ) : isScheduleMemberActive(site.id, member.code, format(day, "yyyy-MM-dd")) ? (
         <button
           type="button"
           className="group/slot flex flex-1 items-center justify-center rounded-lg border border-dashed border-transparent text-muted-foreground/60 transition-colors hover:border-border hover:bg-muted/70 hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2"
@@ -65,7 +68,7 @@ export const WeeklyGridDayCell = ({
         >
           <Plus className="h-4 w-4 transition-colors" />
         </button>
-      )}
+      ) : null}
     </div>
   );
 };

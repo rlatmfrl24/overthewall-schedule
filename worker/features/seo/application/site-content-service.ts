@@ -6,6 +6,7 @@ import type { SiteSeoReader } from "./ports/site-seo-reader";
 import { SiteSeoService } from "./site-seo-service";
 import type { SiteContentCache } from "./ports/site-content-cache";
 import { SITE_OPENS_AT } from "@contracts/site-publication";
+import { isScheduleMemberActive } from "@contracts/schedule-member-policy";
 
 const section = (id: string, title: string, items: SiteContentSection["items"], updatedAt: string | null = null): SiteContentSection =>
   ({ id, title, items, updatedAt, status: items.length ? "available" : "empty" });
@@ -42,6 +43,7 @@ export class SiteContentService {
       for (let day = start; day <= end; day = new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) {
         for (const member of board.members) {
           const schedules = board.schedules.filter(s => s.date === day && s.member_uid === member.uid);
+          if (!schedules.length && !isScheduleMemberActive(this.site.id, member.code, day)) continue;
           if (!schedules.length) items.push({ title: `${day} · ${member.name}`, text: "일정 미등록", url: `/profile/${member.code}` });
           for (const schedule of schedules) items.push({ title: `${day} · ${member.name}`, text: [schedule.status, schedule.start_time || "시각 미정", schedule.title].filter(Boolean).join(" · "), url: `/profile/${member.code}` });
         }

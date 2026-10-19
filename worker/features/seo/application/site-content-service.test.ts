@@ -27,6 +27,18 @@ const setup = (requiresMembership: boolean | undefined = true) => {
 };
 
 describe("public site content", () => {
+  it("종료 이후 예외 일정이 있는 날짜만 주간 공개 콘텐츠에 포함한다", async () => {
+    const { seo, reader } = setup();
+    vi.mocked(reader.readSchedule).mockResolvedValue({
+      startDate: "2026-11-16", endDate: "2026-11-22", updatedAt: null,
+      members: [{ uid: 1, code: "bing_hayu", name: "빙하유" } as MemberDto], ddays: [], notices: [],
+      schedules: [{ id: 1, member_uid: 1, date: "2026-11-18", status: "방송", start_time: "20:00", title: "예외 방송", created_at: null }],
+    });
+    const content = await new SiteContentService(seo, reader, { ...getSiteDefinition("luvdia"), publicOrigin: "http://localhost:5174" })
+      .read("/weekly", "2026-11-16");
+    expect(content?.sections[0].items).toHaveLength(1);
+    expect(content?.sections[0].items[0].title).toBe("2026-11-18 · 빙하유");
+  });
   it("keeps LuvDia canonical and JSON-LD local and excludes private feed and member Play", async () => {
     const { seo, reader } = setup();
     const site = { ...getSiteDefinition("luvdia"), publicOrigin: "http://localhost:5174" };

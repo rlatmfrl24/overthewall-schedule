@@ -39,6 +39,8 @@ import {parseCollectorCommand,type CollectorCommand} from "../domain/collector-c
 import type {CollectorWriter} from "./collector-writer";
 import type {ChzzkMatchInput} from "../domain/chzzk-match-input";
 import { editableCollectorSql } from "../../content-access";
+import { isScheduleMemberActive, SCHEDULE_MEMBER_END } from "@contracts/schedule-member-policy";
+import { readScheduleEndMemberUid } from "./automatic-schedule-policy";
 
 const CHZZK_SCAN_PAGE_SIZE = 5;
 const CHZZK_SCAN_MAX_PAGES = 3;
@@ -567,7 +569,10 @@ export const executeChzzkObservationScan = async (
   videoCatalog:ChzzkScanProvider,commit?:(statements:D1PreparedStatement[],result:ChzzkScanResult)=>Promise<void>,
   siteId: SiteId = "otw",
 ):Promise<ChzzkScanResult>=>{
-  const {startDate,today,startedAt}=command,channelIds=command.members.map(member=>member.channelId);
+  const {startDate,today,startedAt}=command;
+  const eligibleMembers = command.members.filter(member => isScheduleMemberActive(siteId, member.code, startDate));
+  const channelIds = eligibleMembers.map(member => member.channelId);
+  if (!channelIds.length) return { channels: 0, observations: 0, channelResults: [] };
   const coverage = new Map<string, ScanCoverage>();
   const videosByChannel = await scanRecentChzzkVideosForChannels(
     channelIds,
@@ -578,14 +583,14 @@ export const executeChzzkObservationScan = async (
     coverage,
     siteId,
   );
-  const observations = command.members.flatMap(member =>
-    (videosByChannel.get(member.channelId) ?? []).map((video) =>
+  const observations = eligibleMembers.flatMap(member =>
+    (videosByChannel.get(member.channelId) ?? []).filter(video => isScheduleMemberActive(siteId, member.code, resolveVideoTiming(video).videoDate)).map((video) =>
       toObservation(member, member.channelId, video)
     )
   );
   const statements=commit?[] as D1PreparedStatement[]:undefined;
   await persistObservations(db, observations,statements,startedAt);
-  await recordHolidayAssessments(db.$client, command.members.map(member=>({...member,url_chzzk:`https://chzzk.naver.com/${member.channelId}`})), coverage, videoCatalog.fetchLiveStatus, startedAt,statements);
+  await recordHolidayAssessments(db.$client, eligibleMembers.filter(member => isScheduleMemberActive(siteId, member.code, holidayTargetDate(startedAt) ?? today)).map(member=>({...member,url_chzzk:`https://chzzk.naver.com/${member.channelId}`})), coverage, videoCatalog.fetchLiveStatus, startedAt,statements);
   const result={
     channels: channelIds.length,
     observations: observations.length,
@@ -634,15 +639,18 @@ export const readAutoUpdateMatchTargets = async (
   const activeMembers=admittedChannels?membersInScope.filter(member=>admittedChannels.includes(extractChzzkChannelId(member.url_chzzk)?.toLowerCase()??"")):membersInScope;
   const activeMemberUids = new Set(activeMembers.map((member) => member.uid));
   const targets = new Map<string, AutoUpdateMatchTarget>();
+  const endedMemberUid = await readScheduleEndMemberUid(db.$client, siteId);
   for (const row of rows) {
     if (!activeMemberUids.has(row.memberUid)) continue;
     const date = getKSTDateString(new Date(row.startedAt));
+    if (row.memberUid === endedMemberUid && date > SCHEDULE_MEMBER_END.lastDate) continue;
     if (date < startDate || date > today) continue;
     const target = { memberUid: row.memberUid, date };
     targets.set(`${target.memberUid}:${target.date}`, target);
   }
   const holidayDate = holidayTargetDate();
   if (holidayDate) for (const member of activeMembers) {
+    if (member.uid === endedMemberUid && holidayDate > SCHEDULE_MEMBER_END.lastDate) continue;
     if (!extractChzzkChannelId(member.url_chzzk)) continue;
     targets.set(`${member.uid}:${holidayDate}`, { memberUid: member.uid, date: holidayDate });
   }
@@ -679,6 +687,8 @@ export const autoUpdateSchedules = async (
 }> => {
   if(options.originalInput && (!options.skipScan || !options.matchTarget || !Number.isSafeInteger(options.originalInput.startedAt) || options.originalInput.members.some(member=>member.uid!==options.matchTarget!.memberUid))) throw new Error("Invalid original match input scope");
   const scanStartedAt = options.originalInput?.startedAt??Date.now();
+  const endedMemberUid = await readScheduleEndMemberUid(db.$client, options.collectorWriter?.siteId ?? "otw");
+  const activeOnDate = (uid: number, date: string) => uid !== endedMemberUid || date <= SCHEDULE_MEMBER_END.lastDate;
   const today = getKSTDateString(new Date(scanStartedAt));
   const daysBack = Math.max(holidayTargetDate(scanStartedAt) ? 1 : 0, Math.floor(rangeDays) - 1);
   const startDate = getKSTDateString(
@@ -688,7 +698,7 @@ export const autoUpdateSchedules = async (
   // 1. 모든 활성 멤버 조회 (is_deprecated가 아닌 것)
   const activeMemberCondition =
     sql`(${members.is_deprecated} IS NULL OR ${members.is_deprecated} != 1) AND NOT (${sql.raw(publicationHiddenSql("members","members",options.collectorWriter?.siteId??"otw"))})`;
-  const allMembers = options.originalInput?.members??await db
+  const sourceMembers = options.originalInput?.members??await db
     .select({
       uid: members.uid,
       name: members.name,
@@ -704,6 +714,7 @@ export const autoUpdateSchedules = async (
         : activeMemberCondition,
     );
 
+  const allMembers = sourceMembers.filter(member => activeOnDate(member.uid, options.matchTarget?.date ?? startDate));
   if (allMembers.length === 0) {
     return {
       updated: 0,
@@ -764,13 +775,13 @@ export const autoUpdateSchedules = async (
     const fetchedObservations = allMembers.flatMap((member) => {
       const channelId = extractChzzkChannelId(member.url_chzzk)?.toLowerCase();
       if (!channelId) return [];
-      return (videosByChannel.get(channelId) ?? []).map((video) =>
+      return (videosByChannel.get(channelId) ?? []).filter(video => activeOnDate(member.uid, resolveVideoTiming(video).videoDate)).map((video) =>
         toObservation(member, channelId, video),
       );
     });
     checkedObservationCount = fetchedObservations.length;
     await persistObservations(db, fetchedObservations);
-    await recordHolidayAssessments(db.$client, allMembers, coverage, (options.videoCatalog ?? chzzkVideoCatalog).fetchLiveStatus, scanStartedAt);
+    await recordHolidayAssessments(db.$client, allMembers.filter(member => activeOnDate(member.uid, holidayTargetDate(scanStartedAt) ?? today)), coverage, (options.videoCatalog ?? chzzkVideoCatalog).fetchLiveStatus, scanStartedAt);
     if ([...coverage.values()].some(status => status !== "complete")) {
       throw new Error("자동 일정 수집 조회가 실패했거나 확인 범위를 완료하지 못했습니다.");
     }
@@ -824,6 +835,7 @@ export const autoUpdateSchedules = async (
     }));
   const sessionsInRange = buildBroadcastSessions(observations).filter(
     (session) =>
+      activeOnDate(session.memberUid, session.date) &&
       session.date >= startDate &&
       session.date <= today &&
       (!options.matchTarget ||
@@ -893,6 +905,10 @@ export const autoUpdateSchedules = async (
   let obsoletePendingCount = 0;
   const activePendingRows: typeof pendingRows = [];
   for (const pending of pendingRows) {
+    if (!activeOnDate(pending.member_uid, pending.date)) {
+      activePendingRows.push(pending);
+      continue;
+    }
     const currentDecision = pending.vod_id
       ? candidateByVodId.get(pending.vod_id)
       : null;

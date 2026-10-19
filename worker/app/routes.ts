@@ -6,7 +6,7 @@ import { apiRoutes } from "@contracts/api-routes";
 import { readSitePublicationStatus } from "./site-publication";
 import { createAiReviewHandler, createAiBatchHandler, createWorkQueueHandler } from "../features/otw-play";
 import { createOtwPlayWorkQueueService } from "./work-queue";
-import { buildLiveScheduleWriter } from "./schedule-writers";
+import { buildLiveScheduleWriter, buildCollectorWriter } from "./schedule-writers";
 import { createOtwPlayAiReviewService, createOtwPlayAiBatchService } from "./ai-review";
 import { createAuthStatusHandler } from "../features/auth";
 import { handleAsset,handleProtectedAssetReference, buildAssetFileStore } from "./assets";
@@ -144,8 +144,8 @@ const handleScheduleRequest = createScheduleRequestHandler(
   (env, includeArchived) =>
     new ScheduleService(
       new D1ScheduleQueryRepository(env.otw_db, includeArchived, getWorkerSiteResources(env).site.id),
-      new D1ScheduleWriteRepository(env.otw_db),
-      new PublicScheduleWritePolicy(),
+      new D1ScheduleWriteRepository(env.otw_db, getWorkerSiteResources(env).site.id),
+      new PublicScheduleWritePolicy(env.otw_db, getWorkerSiteResources(env).site.id),
     ),
 );
 const handlePendingScheduleCommand = createPendingScheduleCommandHandler(
@@ -164,7 +164,7 @@ const handlePendingScheduleQuery = createPendingScheduleQueryHandler(
 const handleManualAutoUpdate = createManualAutoUpdateHandler(
   (env) =>
     new ManualAutoUpdateService(
-      new D1ManualAutoUpdateAdapter(getDb(env), env.otw_db),
+      new D1ManualAutoUpdateAdapter(getDb(env), env.otw_db, buildCollectorWriter(env)),
     ),
   (env, actor, idempotencyKey) =>
     new ScheduledRunClient(env).createManualRun(

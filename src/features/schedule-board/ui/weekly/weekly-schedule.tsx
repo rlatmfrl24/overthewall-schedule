@@ -17,11 +17,12 @@ import { WeeklyGrid } from "./components/weekly-grid";
 import { NoticeBanner } from "@/features/notices";
 import { ScheduleUpdatedAt } from "../components/schedule-updated-at";
 
-export const WeeklySchedule = () => {
+export const WeeklySchedule = ({ isAdmin = false }: { isAdmin?: boolean }) => {
   const {
     currentDate,
     updatedAt,
     members,
+    editorMembers,
     schedules,
     ddays,
     notices,
@@ -87,6 +88,7 @@ export const WeeklySchedule = () => {
 
       {/* Edit Dialog */}
       <ScheduleDialog
+        isAdmin={isAdmin}
         open={isEditDialogOpen}
         onOpenChange={(open) => {
           setIsEditDialogOpen(open);
@@ -97,7 +99,7 @@ export const WeeklySchedule = () => {
         }}
         onSubmit={handleSaveSchedule}
         onDelete={handleDeleteSchedule}
-        members={members}
+        members={editorMembers}
         initialDate={dialogDate || currentDate}
         initialMemberUid={initialMemberUid}
         schedule={editingSchedule}

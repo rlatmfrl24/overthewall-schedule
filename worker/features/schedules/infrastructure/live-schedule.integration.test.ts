@@ -9,7 +9,7 @@ const items: LiveStatusItem[] = [{channelId, content: {status: "OPEN", liveTitle
 beforeEach(async () => {
   await d1.batch([
     ...["update_logs", "schedules", "members", "settings"].map((name) => d1.prepare(`DROP TABLE IF EXISTS ${name}`)),
-    d1.prepare("CREATE TABLE members (uid INTEGER PRIMARY KEY, name TEXT, url_chzzk TEXT, is_deprecated INTEGER)"),
+    d1.prepare("CREATE TABLE members (uid INTEGER PRIMARY KEY, code TEXT, name TEXT, url_chzzk TEXT, is_deprecated INTEGER)"),
     d1.prepare("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)"),
     d1.prepare("CREATE TABLE schedules (id INTEGER PRIMARY KEY AUTOINCREMENT, member_uid INTEGER NOT NULL, date TEXT NOT NULL, start_time TEXT, title TEXT, status TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)"),
     d1.prepare("CREATE TABLE update_logs (id INTEGER PRIMARY KEY, schedule_id INTEGER, member_uid INTEGER, member_name TEXT, actor_id TEXT, actor_name TEXT, actor_ip TEXT, schedule_date TEXT, action TEXT, title TEXT, previous_status TEXT, vod_id TEXT, reason_code TEXT, reason_note TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)"),

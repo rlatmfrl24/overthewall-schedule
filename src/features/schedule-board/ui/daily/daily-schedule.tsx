@@ -60,6 +60,7 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
 import { useScheduleBoard } from "../../queries/use-schedule-board";
+import { fetchActiveMembers } from "@/features/members";
 import { useAdminLiveScheduleAutoFill } from "../../use-cases/use-admin-live-schedule-auto-fill";
 import { queryKeys } from "@/shared/query/query-keys";
 import { useScheduleSaveFeedback } from "../../queries/use-schedule-save-feedback";
@@ -80,10 +81,12 @@ type LiveDebugRow = {
 };
 
 type DailyScheduleProps = {
+  isAdmin?: boolean;
   enableAdminLiveScheduleAutoFill?: boolean;
 };
 
 export const DailySchedule = ({
+  isAdmin = false,
   enableAdminLiveScheduleAutoFill = false,
 }: DailyScheduleProps) => {
   const queryClient = useQueryClient();
@@ -115,6 +118,10 @@ export const DailySchedule = ({
     hasLoaded,
   } = useScheduleBoard(currentDateString, currentDateString);
   const isToday = isSameDay(currentDate, new Date());
+  const editorMembers = useQuery({
+    queryKey: queryKeys.members.active(), queryFn: fetchActiveMembers,
+    enabled: isEditDialogOpen && site.id === "luvdia",
+  });
   const liveChannelIdsKey = useMemo(() => {
     const channelIds = new Set<string>();
     for (const member of members) {
@@ -810,6 +817,7 @@ export const DailySchedule = ({
 
       {/* Edit Dialog */}
       <ScheduleDialog
+        isAdmin={isAdmin}
         open={isEditDialogOpen}
         onOpenChange={(open) => {
           setIsEditDialogOpen(open);
@@ -820,7 +828,7 @@ export const DailySchedule = ({
         }}
         onSubmit={handleSaveSchedule}
         onDelete={handleDeleteSchedule}
-        members={members}
+        members={editorMembers.data ?? members}
         initialDate={currentDate}
         initialMemberUid={initialMemberUid ?? undefined}
         schedule={editingSchedule}

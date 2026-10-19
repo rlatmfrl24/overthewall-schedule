@@ -11,6 +11,7 @@ import {ApiError} from "@/shared/api/client";
 
 const fetchSchedulesMock = vi.hoisted(() => vi.fn());
 vi.mock("../api/schedules", () => ({ fetchSchedulesByDate: fetchSchedulesMock }));
+vi.mock("@/shared/config/site", () => ({ site: { id: "luvdia" } }));
 
 class ResizeObserverMock {
   observe = vi.fn();
@@ -64,6 +65,16 @@ const renderDialog = (
 };
 
 describe("ScheduleDialog", () => {
+  it("종료 이후 일반 입력을 막고 관리자에게 공개 예외 안내를 제공한다", () => {
+    const props = { open: true, onSubmit: vi.fn(), members: [{ ...member, code: "bing_hayu" }],
+      initialMemberUid: member.uid, initialDate: new Date("2026-11-16T12:00:00+09:00") };
+    const view = render(React.createElement(ScheduleDialog, props));
+    expect(screen.getByText("운영 종료 이후 일정은 관리자만 변경할 수 있습니다.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "스케쥴 추가" }).hasAttribute("disabled")).toBe(true);
+    view.rerender(React.createElement(ScheduleDialog, { ...props, isAdmin: true }));
+    expect(screen.getByText("운영 종료 이후 예외 일정으로 공개됩니다.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "스케쥴 추가" }).hasAttribute("disabled")).toBe(false);
+  });
   beforeEach(() => { fetchSchedulesMock.mockReset().mockResolvedValue([]); });
   beforeAll(() => {
     Object.defineProperty(globalThis, "ResizeObserver", {

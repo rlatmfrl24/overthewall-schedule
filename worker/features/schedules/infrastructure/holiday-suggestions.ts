@@ -3,6 +3,7 @@ import { editableCollectorSql } from "../../content-access";
 import type {CollectorCommand} from "../domain/collector-command";
 import type {CollectorWriter,CollectorBatchResult} from "./collector-writer";
 import { extractChzzkChannelId, getKSTDateString } from "../../../platform/http-helpers";
+import { automaticScheduleAllowedSql } from "./automatic-schedule-policy";
 
 export type ScanCoverage = "complete" | "failed" | "incomplete";
 export const holidayTargetDate = (now = Date.now()) => {
@@ -89,7 +90,7 @@ export const reconcileHolidaySuggestions = async (
 
 export const executeHolidayCollectorCommand=async(db:D1Database,command:Extract<CollectorCommand,{action:"holiday_obsolete"|"holiday_create"}>,transitionWriter?:CollectorWriter):Promise<CollectorBatchResult[]>=>{
   const {now}=command,target=command.target??undefined;
-  const editable=(table:Parameters<typeof editableCollectorSql>[0],alias:string)=>transitionWriter?` AND ${editableCollectorSql(table,alias,transitionWriter.siteId??"otw")}${transitionWriter.memberScope?` AND ${alias}.member_uid IN (${transitionWriter.memberScope.map(uid=>{if(!Number.isSafeInteger(uid)||uid<1) throw new Error("Invalid original owner member scope");return uid;}).join(",")||"NULL"})`:""}`:"";
+  const editable=(table:Parameters<typeof editableCollectorSql>[0],alias:string)=>` AND ${automaticScheduleAllowedSql(transitionWriter?.siteId ?? "otw", `${alias}.member_uid`, `${alias}.date`)}` + (transitionWriter?` AND ${editableCollectorSql(table,alias,transitionWriter.siteId??"otw")}${transitionWriter.memberScope?` AND ${alias}.member_uid IN (${transitionWriter.memberScope.map(uid=>{if(!Number.isSafeInteger(uid)||uid<1) throw new Error("Invalid original owner member scope");return uid;}).join(",")||"NULL"})`:""}`:"");
   const obsolete = `pending.candidate_kind = 'holiday_suggestion'
     ${editable("pending_schedules","pending")}
     AND NOT EXISTS (SELECT 1 FROM schedule_day_assessments assessment
