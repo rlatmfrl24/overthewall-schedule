@@ -49,7 +49,7 @@ export const WeeklyScheduleItem = ({
             cardClassName:
               "border-rose-200/90 bg-background/95 dark:border-rose-900/70 dark:bg-card/95",
             chipClassName:
-              "border-transparent bg-rose-600 text-white dark:bg-rose-500 dark:text-white",
+              "border-transparent bg-rose-700 text-white dark:bg-rose-400 dark:text-slate-950",
           }
         : schedule.status === "게릴라"
           ? {
@@ -75,9 +75,9 @@ export const WeeklyScheduleItem = ({
     <button
       type="button"
       className={cn(
-        "group/weekly-schedule flex min-h-[76px] w-full flex-1 flex-col gap-1.5 rounded-lg border p-2 text-left shadow-sm transition-all duration-200",
+        "group/weekly-schedule flex min-h-[76px] w-full flex-none flex-col gap-1.5 rounded-lg border p-2 text-left shadow-sm transition-all duration-200",
         "hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground motion-reduce:transform-none motion-reduce:transition-none",
         statusMeta.cardClassName
       )}
       onClick={onClick}
@@ -91,7 +91,7 @@ export const WeeklyScheduleItem = ({
       <div className="flex flex-wrap items-center gap-1.5">
         {isBroadcast ? (
           <span
-            className="inline-flex min-h-6 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-extrabold leading-none shadow-sm md:text-xs"
+            className="inline-flex min-h-6 items-center gap-1 rounded-md px-1.5 py-1 text-xs font-bold leading-normal shadow-sm lg:text-sm"
             style={{
               backgroundColor: mainColor,
               color: accentTextColor,
@@ -104,7 +104,7 @@ export const WeeklyScheduleItem = ({
         ) : (
           <span
             className={cn(
-              "inline-flex min-h-6 items-center gap-1 rounded-md border px-1.5 py-1 text-[11px] font-extrabold leading-none shadow-sm md:text-xs",
+              "inline-flex min-h-6 items-center gap-1 rounded-md border px-1.5 py-1 text-xs font-bold leading-normal shadow-sm lg:text-sm",
               statusMeta.chipClassName
             )}
             data-weekly-schedule-status-chip="true"
@@ -115,7 +115,7 @@ export const WeeklyScheduleItem = ({
         )}
         {displayTime && (
           <span
-            className="inline-flex min-h-6 shrink-0 items-center gap-1 rounded-md border border-border/70 bg-muted/70 px-1.5 py-1 text-[11px] font-black leading-none text-foreground shadow-sm tabular-nums md:text-xs"
+            className="inline-flex min-h-6 shrink-0 items-center gap-1 rounded-md border border-border/70 bg-muted/70 px-1.5 py-1 text-xs font-bold leading-normal text-foreground shadow-sm tabular-nums lg:text-sm"
             data-weekly-schedule-time="true"
           >
             <Clock3 className="h-3 w-3 text-muted-foreground md:h-3.5 md:w-3.5" />
@@ -125,7 +125,7 @@ export const WeeklyScheduleItem = ({
       </div>
       <span
         className={cn(
-          "line-clamp-2 text-[13px] font-black leading-[1.35] text-foreground md:text-sm",
+          "text-sm font-semibold leading-relaxed text-foreground [overflow-wrap:anywhere] lg:text-base",
           (isOff || isGuerrilla) && "text-foreground"
         )}
         data-weekly-schedule-title="true"
