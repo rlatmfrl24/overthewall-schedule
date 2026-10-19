@@ -8,7 +8,7 @@ import type { PlaylistCatalogReader, PlaylistRepository } from "./ports/playlist
 
 const state = { publicReadEnabled: true, revision: 8, readModelRevision: 8 };
 const readPublicState = vi.fn(async () => state);
-const reader = { readPlaylistDefaults: vi.fn(async () => []), readPlaylistPerformances: vi.fn(async (): Promise<PublicCatalogPerformanceDetail[]> => []),
+const reader = { resolvePlaylistArtwork: async(ids:string[]):Promise<import("./ports/playlist-repository").PlaylistArtwork[]> => (await reader.resolvePlaylistPerformances(ids)).map(item=>({id:item.performance.id,relation:item.performance.relation,memberUids:item.performance.participants?.filter(p=>p.kind==='current_member'&&['vocal','featured_vocal'].includes(p.participantRole)).flatMap(p=>p.member?[p.member.uid]:[])??[],imageUrl:item.performance.playable?item.performance.sources.find(s=>s.id===item.performance.playbackSourceId&&s.availabilityStatus==='playable')?.thumbnailUrl??null:null})), readPlaylistDefaults: vi.fn(async () => []), readPlaylistPerformances: vi.fn(async (): Promise<PublicCatalogPerformanceDetail[]> => []),
   resolvePlaylistPerformances: vi.fn(async (ids: string[]) => ids.map(id => ({ performance: { id } }) as PublicCatalogPerformanceDetail)) } satisfies PlaylistCatalogReader;
 const original: PlayPlaylist = { id: "one", title: "목록", description: "", version: 2, itemCount: 1, performanceIds: ["withdrawn"], originDefaultId: null, representativePerformanceId: null, imageUrl: null, createdAt: 1, updatedAt: 1 };
 const repo = { findCreate: vi.fn<PlaylistRepository["findCreate"]>(), list: vi.fn(async () => []), read: vi.fn(async (): Promise<PlayPlaylist | null> => original),

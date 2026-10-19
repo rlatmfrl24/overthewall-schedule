@@ -1,3 +1,4 @@
+import { CloudflareIngestionReadBudget } from "../features/otw-play/infrastructure/cloudflare-ingestion-read-budget";
 import { siteEnv } from "../test-support/site-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../platform/types";
@@ -38,6 +39,7 @@ const makeDb = (
 
 describe("scheduled Workflow cron bridge", () => {
   beforeEach(() => {
+    vi.spyOn(CloudflareIngestionReadBudget.prototype, "read").mockResolvedValue({ status: "available", rowsRead: 0, dailyTarget: 4_000_000, measuredAt: new Date(utc(5, 3)).toISOString(), resetAt: new Date(utc(24, 0)).toISOString(), reason: null });
     vi.spyOn(ScheduledJobCoordinator.prototype, "hasScheduledWork").mockResolvedValue(true);
   });
   afterEach(() => vi.restoreAllMocks());
@@ -96,6 +98,22 @@ describe("scheduled Workflow cron bridge", () => {
     expect(create).toHaveBeenNthCalledWith(2, {
       params: { jobType: "schedule_auto_update", scheduledFor: scheduledTime },
     });
+  });
+
+  it.each(["blocked", "unavailable"] as const)("defers new collection before D1 planning when account reads are %s", async (status) => {
+    vi.mocked(CloudflareIngestionReadBudget.prototype.read).mockResolvedValue({ status, rowsRead: status === "blocked" ? 4_000_000 : null, dailyTarget: 4_000_000, measuredAt: new Date(utc(5,13)).toISOString(), resetAt: new Date(utc(24,0)).toISOString(), reason: status === "blocked" ? "daily_read_target" : "upstream_error" });
+    const db = makeDb(), create = vi.fn();
+    await handleScheduledWorkflowCron({ cron: SCHEDULED_WORKFLOW_CRON, scheduledTime: utc(5,13) } as ScheduledController, { ...siteEnv(), otw_db: db, SCHEDULED_OPERATIONS_WORKFLOW: { create } } as unknown as Env);
+    expect(create).not.toHaveBeenCalled();
+    expect(db.prepare).not.toHaveBeenCalled();
+    expect(ScheduledJobCoordinator.prototype.hasScheduledWork).not.toHaveBeenCalled();
+  });
+
+  it("keeps accepted-work recovery reachable when account analytics is unavailable", async () => {
+    vi.mocked(CloudflareIngestionReadBudget.prototype.read).mockResolvedValue({ status: "unavailable", rowsRead: null, dailyTarget: 4_000_000, measuredAt: new Date(utc(5,3)).toISOString(), resetAt: new Date(utc(24,0)).toISOString(), reason: "upstream_error" });
+    const create = vi.fn();
+    await handleScheduledWorkflowCron({ cron: SCHEDULED_WORKFLOW_CRON, scheduledTime: utc(5,3) } as ScheduledController, { ...siteEnv(), otw_db: makeDb(), SCHEDULED_OPERATIONS_WORKFLOW: { create } } as unknown as Env);
+    expect(create).toHaveBeenCalledExactlyOnceWith({ params: { jobType: "ingestion_recovery", scheduledFor: utc(5,3) } });
   });
 
   it("does not create Workflows after the internal D1 write guard is exhausted", async () => {

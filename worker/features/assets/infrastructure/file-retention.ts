@@ -26,6 +26,28 @@ export const recoveryFileHeldSql=(key:string)=>`(
   EXISTS(SELECT 1 FROM asset_file_versions v WHERE v.logical_key=${key} AND (v.acknowledged_at IS NULL OR v.reference_committed_at IS NULL)) OR
   EXISTS(SELECT 1 FROM content_transition_file_intents i JOIN content_transitions t ON t.id=i.transition_id WHERE json_extract(i.envelope_json,'$.logicalKey')=${key} AND (t.phase<>'complete' OR i.outcome_acknowledged=0 OR i.outcome_json IS NULL OR json_extract(i.outcome_json,'$.sideEffectReconciled')<>1))
 )`;
+// Listing projection only; deletion/release keeps the authoritative per-object predicates below.
+export const noticeHistoryKeysSql=`candidate_paths(path) AS MATERIALIZED (SELECT '/r2-assets/'||logical_key FROM requested UNION SELECT '/'||logical_key FROM requested),
+  live_keys(logical_key) AS MATERIALIZED (
+    SELECT ${noticeKeyFromPathSql('f.path')} FROM candidate_paths candidate CROSS JOIN asset_file_reference_paths f
+      WHERE f.path=candidate.path AND ${currentFileIndexSql('f')} AND NOT ${externalIndexedReferenceSql('f')}
+    UNION SELECT ${noticeKeyFromPathSql(filePathSql('raw.raw_url'))} FROM asset_file_reference_inputs raw
+      WHERE NOT EXISTS(SELECT 1 FROM asset_file_reference_paths f WHERE f.row_table=raw.row_table AND f.row_key=raw.row_key AND f.field=raw.field AND f.raw_url=raw.raw_url)
+        AND ${noticeKeyFromPathSql(filePathSql('raw.raw_url'))} IN(SELECT logical_key FROM requested)
+  ), history_values(value) AS MATERIALIZED (
+  SELECT image.atom FROM content_transition_journal j,json_tree(j.before_json) image WHERE image.type='text'
+  UNION ALL SELECT image.atom FROM content_transition_journal j,json_tree(j.after_json) image WHERE image.type='text'
+  UNION ALL SELECT image.atom FROM content_transition_baseline_rows b,json_tree(b.record_json) image WHERE image.type='text'
+  UNION ALL SELECT image.atom FROM content_historical_records h,json_tree(h.record_json) image WHERE image.type='text'
+), history_keys(logical_key) AS MATERIALIZED (
+  SELECT DISTINCT COALESCE(${noticeKeyFromPathSql(filePathSql('value'))},value) FROM history_values
+  WHERE COALESCE(${noticeKeyFromPathSql(filePathSql('value'))},value) IN(SELECT logical_key FROM requested)
+)`;
+export const noticeListingProtectedSql=(key:string)=>`(${key} IN(SELECT logical_key FROM live_keys) OR ${recoveryFileHeldSql(key)}
+  OR ${key} IN(SELECT logical_key FROM history_keys)
+  OR EXISTS(SELECT 1 FROM content_transition_membership m JOIN content_transitions t ON t.id=m.transition_id
+    WHERE t.phase<>'prepared' AND m.row_table='asset_file_references' AND m.row_key=json_array(${key})))`;
+
 export const fileProtectedSql=(key:string)=>`(${liveFileReferencesSql(key)} OR ${historicalFileReferencesSql(key)} OR ${recoveryFileHeldSql(key)})`;
 
 export const releaseLegacyFileSql=(candidates:string,now:string)=>`INSERT INTO asset_file_retention_releases(logical_key,released_at,held)

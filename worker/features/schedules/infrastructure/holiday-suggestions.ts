@@ -89,9 +89,16 @@ export const reconcileHolidaySuggestions = async (
 };
 
 export const executeHolidayCollectorCommand=async(db:D1Database,command:Extract<CollectorCommand,{action:"holiday_obsolete"|"holiday_create"}>,transitionWriter?:CollectorWriter):Promise<CollectorBatchResult[]>=>{
+  const statements=prepareHolidayCollectorCommand(db,command,transitionWriter);
+  return await transitionWriter?.write(command,statements)??await db.batch(statements);
+};
+
+export const prepareHolidayCollectorCommand=(db:D1Database,command:Extract<CollectorCommand,{action:"holiday_obsolete"|"holiday_create"}>,transitionWriter?:Pick<CollectorWriter,"siteId"|"memberScope">):D1PreparedStatement[]=>{
   const {now}=command,target=command.target??undefined;
+  const scope=(alias:string)=>target?` AND ${alias}.member_uid=${target.memberUid} AND ${alias}.date='${target.date}'`:"";
+  if(target&&(!Number.isSafeInteger(target.memberUid)||target.memberUid<1||!/^\d{4}-\d{2}-\d{2}$/.test(target.date))) throw new Error("Invalid holiday target");
   const editable=(table:Parameters<typeof editableCollectorSql>[0],alias:string)=>` AND ${automaticScheduleAllowedSql(transitionWriter?.siteId ?? "otw", `${alias}.member_uid`, `${alias}.date`)}` + (transitionWriter?` AND ${editableCollectorSql(table,alias,transitionWriter.siteId??"otw")}${transitionWriter.memberScope?` AND ${alias}.member_uid IN (${transitionWriter.memberScope.map(uid=>{if(!Number.isSafeInteger(uid)||uid<1) throw new Error("Invalid original owner member scope");return uid;}).join(",")||"NULL"})`:""}`:"");
-  const obsolete = `pending.candidate_kind = 'holiday_suggestion'
+  const obsolete = `pending.candidate_kind = 'holiday_suggestion' ${scope('pending')}
     ${editable("pending_schedules","pending")}
     AND NOT EXISTS (SELECT 1 FROM schedule_day_assessments assessment
       WHERE assessment.member_uid = pending.member_uid AND assessment.date = pending.date AND ${holidayEligibleSql})`;
@@ -101,11 +108,11 @@ export const executeHolidayCollectorCommand=async(db:D1Database,command:Extract<
       FROM pending_schedules pending WHERE ${obsolete}`),
     db.prepare(`DELETE FROM pending_schedules AS pending WHERE ${obsolete} RETURNING id`),
     db.prepare(`UPDATE schedule_day_assessments SET decision = 'none'
-      WHERE decision = 'pending' ${editable("schedule_day_assessments","schedule_day_assessments")} AND NOT EXISTS (SELECT 1 FROM pending_schedules pending
+      WHERE decision = 'pending' ${scope('schedule_day_assessments')} ${editable("schedule_day_assessments","schedule_day_assessments")} AND NOT EXISTS (SELECT 1 FROM pending_schedules pending
         WHERE pending.member_uid = schedule_day_assessments.member_uid
           AND pending.date = schedule_day_assessments.date AND pending.candidate_kind = 'holiday_suggestion' ${editable("pending_schedules","pending")})`),
   ];
-  if(command.action==="holiday_obsolete") return await transitionWriter?.write(command,removal)??await db.batch(removal);
+  if(command.action==="holiday_obsolete") return removal;
   const date = holidayTargetDate(now);
   if(!date || target && target.date!==date) throw new Error("Invalid original holiday creation window");
   const cutoff = Date.parse(`${getKSTDateString(new Date(now))}T09:00:00+09:00`);
@@ -126,11 +133,11 @@ export const executeHolidayCollectorCommand=async(db:D1Database,command:Extract<
       SELECT pending.member_uid, pending.member_name, pending.date, 'auto_collected', pending.title, 'no_broadcast_observed'
       FROM pending_schedules pending JOIN schedule_day_assessments assessment
         ON assessment.member_uid = pending.member_uid AND assessment.date = pending.date
-      WHERE pending.candidate_kind = 'holiday_suggestion' AND assessment.decision = 'none' ${editable("pending_schedules","pending")} ${editable("schedule_day_assessments","assessment")}`),
+      WHERE pending.candidate_kind = 'holiday_suggestion' AND assessment.decision = 'none' ${scope('pending')} ${editable("pending_schedules","pending")} ${editable("schedule_day_assessments","assessment")}`),
     db.prepare(`UPDATE schedule_day_assessments SET decision = 'pending'
-      WHERE decision = 'none' ${editable("schedule_day_assessments","schedule_day_assessments")} AND EXISTS (SELECT 1 FROM pending_schedules pending
+      WHERE decision = 'none' ${scope('schedule_day_assessments')} ${editable("schedule_day_assessments","schedule_day_assessments")} AND EXISTS (SELECT 1 FROM pending_schedules pending
         WHERE pending.member_uid = schedule_day_assessments.member_uid AND pending.date = schedule_day_assessments.date
           AND pending.candidate_kind = 'holiday_suggestion' ${editable("pending_schedules","pending")})`),
   ];
-  return await transitionWriter?.write(command,creation)??await db.batch(creation);
+  return creation;
 };

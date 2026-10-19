@@ -1,3 +1,4 @@
+import { meterD1 } from "../../test-support/d1-meter";
 import { applyD1Migrations, env } from "cloudflare:test";
 import type { D1Migration } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -36,6 +37,24 @@ beforeEach(async () => {
 });
 
 describe("D1 scheduled job state machine", () => {
+  it("hydrates a run page in bounded queries and seeks latest runs without walking history",async()=>{
+    await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO scheduled_job_runs(id,job_type,source,idempotency_key,status,accepted_at,created_at,updated_at) SELECT printf('cost-%05d',x),'naver_cafe_collection','manual','cost-'||x,'succeeded',x,x,x FROM n").run();
+    const meter=meterD1(db),repository=new D1ScheduledJobRepository(meter.db);
+    const runs=await repository.listRunDtos({limit:26});
+    expect(runs).toHaveLength(26); expect(runs[0].runId).toBe('cost-05000'); expect(runs[25].runId).toBe('cost-04975');
+    expect.soft(meter.summary().sqlCount).toBeLessThanOrEqual(7);
+    const latestMeter=meterD1(db);
+    const latest=await new D1ScheduledJobRepository(latestMeter.db).listLatestRunDtosByJobType();
+    expect(latest.map(row=>row.runId)).toEqual(['cost-05000']);
+    expect.soft(latestMeter.summary().rowsRead).toBeLessThan(500);
+    const normalizedMeter=meterD1(db);
+    const filtered=await new D1ScheduledJobRepository(normalizedMeter.db).listRunDtos({limit:26,offset:50,status:'succeeded'});
+    expect(filtered[0].runId).toBe('cost-04950'); expect(filtered).toHaveLength(26);
+    expect.soft(normalizedMeter.summary().sqlCount).toBeLessThanOrEqual(8);
+    expect.soft(normalizedMeter.summary().rowsRead).toBeLessThan(500);
+    console.info('RUN_LIST_D1_COST',JSON.stringify({page:meter.summary(),latest:latestMeter.summary(),filtered:normalizedMeter.summary()}));
+  });
+
   it('scheduled_reconciliation_upgrade preserves old unknown receipts and rolls back terminal plus followup together',async()=>{
     const upgradeDb=(env as typeof env & {transition_target_db:D1Database}).transition_target_db;
     const migrations=testEnv.SCHEDULED_OPERATIONS_MIGRATIONS;

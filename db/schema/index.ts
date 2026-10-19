@@ -410,6 +410,8 @@ export const musicAiReviews = sqliteTable("music_ai_reviews", {
   updated_at: integer().notNull(),
   expires_at: integer().notNull(),
 }, table => [
+  index("idx_music_ai_reviews_expires_id").on(table.expires_at,table.id),
+  index("idx_music_ai_reviews_hash_expiry").on(table.input_hash,table.expires_at),
   index("idx_music_ai_reviews_target").on(table.target_key, table.created_at),
   index("idx_music_ai_reviews_recovery").on(table.status, table.next_retry_at),
   uniqueIndex("uidx_music_ai_reviews_active").on(table.input_hash).where(sql`${table.status} IN ('queued','running','retry_wait')`),
@@ -756,6 +758,8 @@ export const xPosts = sqliteTable(
       table.hidden_at,
       table.created_at,
     ),
+    index("idx_x_posts_public_handle_created").on(sql`lower(${table.handle})`, sql`${table.created_at} DESC`, sql`${table.id} DESC`)
+      .where(sql`content_access = 'normal' AND hidden_at IS NULL AND content_removed_at IS NULL`),
     index("idx_x_posts_user_id").on(table.user_id),
     index("idx_x_posts_hidden_at").on(table.hidden_at),
   ],
@@ -827,6 +831,7 @@ export const xPostReferences = sqliteTable(
       table.next_attempt_at,
     ),
     index("idx_x_post_references_target").on(table.referenced_post_id),
+    index("idx_x_post_references_lease_token").on(table.lease_token).where(sql`lease_token IS NOT NULL`),
     index("idx_x_post_references_author_due").on(table.author_state, table.author_next_attempt_at),
     check(
       "x_post_references_relation_check",
@@ -1214,6 +1219,11 @@ export const youtubeFeedVideos = sqliteTable(
       table.published_at,
     ),
     index("idx_youtube_feed_videos_fetched").on(table.fetched_at),
+    index("idx_youtube_feed_videos_available_fetched").on(table.source_id, table.fetched_at, table.video_id).where(sql`available = 1`),
+    index("idx_youtube_feed_videos_public_published").on(table.source_id, sql`${table.published_at} DESC`, table.video_id)
+      .where(sql`content_access = 'normal' AND available = 1`),
+    index("idx_youtube_feed_videos_public_kind_published").on(table.source_id, table.is_short, sql`${table.published_at} DESC`, table.video_id)
+      .where(sql`content_access = 'normal' AND available = 1`),
     index("idx_youtube_feed_videos_short_published").on(
       table.is_short,
       sql`${table.published_at} DESC`,
@@ -1438,6 +1448,7 @@ export const updateLogs = sqliteTable(
   },
   (table) => [
     index("idx_update_logs_created_at").on(table.created_at),
+    index("idx_update_logs_datetime").on(sql`datetime(${table.created_at})`),
     index("idx_update_logs_action_created_at").on(
       table.action,
       table.created_at,
@@ -1685,6 +1696,7 @@ export const scheduleCandidateRejections = sqliteTable(
     uniqueIndex("uidx_schedule_candidate_rejections_vod_id").on(
       table.vod_id,
     ),
+    index("idx_schedule_rejections_fragments").on(table.source_vod_ids).where(sql`${table.source_vod_ids} IS NOT NULL AND ${table.source_vod_ids} <> '[]'`),
     index("idx_schedule_candidate_rejections_rejected_at").on(
       table.rejected_at,
     ),
@@ -2111,6 +2123,7 @@ export const musicMediaSources = sqliteTable(
       sql`${table.provider_published_at} DESC`,
       table.id,
     ),
+    index("idx_music_media_sources_unplayable_checked").on(sql`CASE WHEN ${table.last_checked_at} IS NULL THEN 0 ELSE ${table.last_checked_at} END`,table.id).where(sql`${table.availability_status} <> 'playable'`),
     index("idx_music_media_sources_availability_checked").on(
       table.availability_status,
       table.last_checked_at,
@@ -2543,6 +2556,7 @@ export const musicCoverProposals = sqliteTable(
       table.submitted_by_user_id,
       table.idempotency_key,
     ),
+    index("idx_music_cover_proposals_video").on(table.youtube_video_id),
     uniqueIndex("uidx_music_cover_proposals_pending_video_segment")
       .on(table.youtube_video_id, table.segment_start_seconds)
       .where(sql`${table.status} = 'pending_review'`),
@@ -3824,6 +3838,9 @@ export const scheduledJobRuns = sqliteTable(
     updated_at: integer("updated_at").notNull(),
   },
   (table) => [
+    index("idx_scheduled_job_runs_status_accepted").on(table.status, sql`${table.accepted_at} DESC`, sql`${table.id} DESC`),
+    index("idx_scheduled_job_runs_accepted").on(sql`${table.accepted_at} DESC`, sql`${table.id} DESC`),
+    index("idx_scheduled_job_runs_job_accepted").on(table.job_type, sql`${table.accepted_at} DESC`, sql`${table.id} DESC`),
     uniqueIndex("uidx_scheduled_job_runs_idempotency").on(
       table.idempotency_key,
     ),
@@ -3888,6 +3905,7 @@ export const scheduledJobItems = sqliteTable(
     updated_at: integer("updated_at").notNull(),
   },
   (table) => [
+    index("idx_scheduled_job_items_run_status_updated").on(table.run_id, table.status, sql`${table.updated_at} DESC`),
     uniqueIndex("uidx_scheduled_job_items_run_target_phase").on(
       table.run_id,
       table.target_key,

@@ -20,7 +20,11 @@ const jobDetail = vi.hoisted(() => vi.fn());
 const batchApi = vi.hoisted(() => ({ preview: vi.fn(), start: vi.fn(), list: vi.fn(), get: vi.fn() }));
 vi.mock("../../api/ai-batch", () => ({ previewAiBatch: batchApi.preview, startAiBatch: batchApi.start, listAiBatches: batchApi.list, getAiBatch: batchApi.get, getAiBatchDraft: async () => ({ data: null }), retryAiBatch: vi.fn() }));
 const scrollIntoView = vi.hoisted(() => vi.fn());
-vi.mock("../../queries/use-admin-catalog", () => ({ useOtwPlayImportJobs: jobs, useOtwPlayImportJob: jobDetail }));
+vi.mock("../../queries/use-admin-catalog", async importOriginal => ({
+  ...await importOriginal<typeof import("../../queries/use-admin-catalog")>(),
+  useOtwPlayImportJobs: jobs,
+  useOtwPlayImportJob: jobDetail,
+}));
 vi.mock("../../api/admin", () => ({ fetchOtwPlayIngestionBudget: vi.fn(async () => ({ status: "available" })), fetchOtwPlayReviewItems: fetchReview, convertOtwPlayImportCandidate: convert, updateOtwPlayImportCandidate: updateCandidate, deleteOtwPlayReviewItem: deleteReviewItem }));
 vi.mock("@/features/members", () => ({ fetchActiveMembers: vi.fn(async () => []) }));
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast }) }));

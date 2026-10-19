@@ -789,7 +789,7 @@ export class AdminCatalogService {
   }
 
   async approveProposal(id:string,input:OtwPlayAdminApproveProposalRequest,actor:AdminCatalogActor) {
-    const proposal=(await this.repository.readProposals()).find(item=>item.id===id);
+    const proposal=(await this.repository.readProposals(undefined,id)).find(item=>item.id===id);
     if(!proposal) throw new AdminCatalogServiceError('not_found','Proposal not found');
     return this.runApproveProposal({action:'proposal_approve',proposalId:id,proposalVideoId:proposal.youtubeVideoId,input,actor,ids:{...this.videoEntryIds(input),proposalEventId:this.createId()},now:this.clock()});
   }
@@ -807,7 +807,7 @@ export class AdminCatalogService {
         "Official cover acceptance policy GATE-01 is not resolved",
       );
     }
-    const proposal = (await this.repository.readProposals()).find(
+    const proposal = (await this.repository.readProposals(undefined,id)).find(
       (item) => item.id === id,
     );
     if (!proposal) {

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   useInfiniteQuery,
   useQuery,
@@ -21,11 +21,50 @@ import {
 
 export const useOtwPlayAdminCatalog = (enabled = true) => useQuery({
   queryKey: queryKeys.otwPlay.adminCatalog(),
-  queryFn: fetchOtwPlayAdminCatalog,
+  queryFn: ()=>fetchOtwPlayAdminCatalog(),
   refetchOnWindowFocus: false,
   enabled,
   staleTime: 15_000,
 });
+
+export const useOtwPlayAdminCatalogPages = (query:import("@contracts/otw-play").OtwPlayAdminCatalogQuery,enabled=true)=>useInfiniteQuery({
+  queryKey:[...queryKeys.otwPlay.adminCatalog(),"pages",query],
+  queryFn:({pageParam})=>fetchOtwPlayAdminCatalog({...query,limit:25,cursor:pageParam}),
+  placeholderData:previous=>previous,
+  initialPageParam:null as string|null,getNextPageParam:page=>page.nextCursor,enabled,staleTime:15_000,
+});
+
+export const useOtwPlayAdminCatalogLookup = (lookup: "songs" | "entities" | "channels", query: string, enabled: boolean) => {
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 150);
+    return () => clearTimeout(timer);
+  }, [query]);
+  const result = useInfiniteQuery({
+    queryKey: [...queryKeys.otwPlay.adminCatalog(), "lookup", lookup, debouncedQuery],
+    queryFn: ({ pageParam }) => fetchOtwPlayAdminCatalog({ lookup, q: debouncedQuery, limit: 25, cursor: pageParam }),
+    initialPageParam: null as string | null,
+    getNextPageParam: page => page.nextCursor,
+    enabled: enabled && debouncedQuery === query,
+    staleTime: 15_000,
+  });
+  const pages = enabled && debouncedQuery === query ? result.data?.pages : undefined;
+  const data = pages?.length ? {
+    ...pages.at(-1)!,
+    songs: pages.flatMap(page => page.songs), entities: pages.flatMap(page => page.entities),
+    channels: pages.flatMap(page => page.channels), exactSongExists: pages.some(page => page.exactSongExists),
+  } : undefined;
+  return { ...result, data, hasNextPage: Boolean(data && result.hasNextPage), ready: !enabled || debouncedQuery === query && result.isSuccess };
+};
+
+export const mergeAdminCatalogRows = <T extends { id: string; version: number }>(catalog: T[], lookup: T[] = []) => {
+  const rows = new Map(catalog.map(row => [row.id, row]));
+  for (const row of lookup) {
+    const current = rows.get(row.id);
+    if (!current || row.version > current.version) rows.set(row.id, row);
+  }
+  return [...rows.values()];
+};
 
 export const useOtwPlayAdminProposals = (status = "pending_review", enabled = true) => useQuery({
   queryKey: queryKeys.otwPlay.adminProposals(status),

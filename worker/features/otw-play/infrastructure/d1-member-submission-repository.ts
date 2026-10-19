@@ -172,22 +172,16 @@ export class D1MemberSubmissionRepository
             WHERE artist_credit.song_id = song.id
             ORDER BY artist_credit.credit_order
           ), '[]') AS original_artists_json
-        FROM music_songs AS song
-        WHERE song.archived_at IS NULL AND song.merged_into_song_id IS NULL
+        FROM (SELECT id FROM music_songs WHERE normalized_title=? OR normalized_title GLOB ?
+          UNION SELECT song_id AS id FROM music_song_aliases WHERE normalized_alias=? OR normalized_alias GLOB ?) candidate
+        CROSS JOIN music_songs AS song
+        WHERE song.id=candidate.id AND song.archived_at IS NULL AND song.merged_into_song_id IS NULL
           AND EXISTS (
             SELECT 1 FROM music_performances AS performance
             WHERE performance.song_id = song.id AND performance.content_access = 'normal'
               AND NOT (${publicationHiddenSql("music_performances", "performance", "otw", "__PUBLICATION_TIME__")})
               AND performance.publication_status = 'published'
               AND performance.release_type IN ('official_mv', 'official_video')
-          )
-          AND (
-            song.normalized_title = ? OR song.normalized_title GLOB ?
-            OR EXISTS (
-              SELECT 1 FROM music_song_aliases AS alias
-              WHERE alias.song_id = song.id
-                AND (alias.normalized_alias = ? OR alias.normalized_alias GLOB ?)
-            )
           )
         ORDER BY CASE WHEN song.normalized_title = ? THEN 0 ELSE 1 END,
           song.normalized_title ASC, song.id ASC

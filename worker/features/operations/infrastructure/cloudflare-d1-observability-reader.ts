@@ -1,5 +1,6 @@
 import type {
   D1ObservabilityDailyMetricDto,
+  D1ObservabilityReadWorkloadDto,
   D1ObservabilityReasonCode,
   D1ObservabilityResponseDto,
   D1ObservabilityWriteWorkloadDto,
@@ -14,6 +15,7 @@ const FREE_ROWS_WRITTEN_LIMIT = 100_000;
 
 export const D1_OBSERVABILITY_GRAPHQL = `query D1OperationsObservability(
   $accountTag: string,
+  $accountFilter: ZoneWorkersRequestsFilter_InputObject,
   $dailyFilter: ZoneWorkersRequestsFilter_InputObject,
   $queryFilter: ZoneWorkersRequestsFilter_InputObject
 ) {
@@ -33,6 +35,15 @@ export const D1_OBSERVABILITY_GRAPHQL = `query D1OperationsObservability(
           datetimeHour
           databaseId
         }
+      }
+      accountDaily: d1AnalyticsAdaptiveGroups(limit: 10000, filter: $accountFilter) {
+        sum { readQueries writeQueries rowsRead rowsWritten }
+        dimensions { datetimeHour databaseId }
+      }
+      reads: d1QueriesAdaptiveGroups(limit: 50, filter: $accountFilter, orderBy: [sum_rowsRead_DESC]) {
+        sum { rowsRead }
+        count
+        dimensions { query }
       }
       queries: d1QueriesAdaptiveGroups(
         limit: 50
@@ -111,6 +122,9 @@ const emptyResponse = (
   timezone: "UTC",
   windowDays: WINDOW_DAYS,
   currentDay: null,
+  accountCurrentDay: null,
+  databaseContributions: [],
+  topReadWorkloads: [],
   daily: [],
   topWriteWorkloads: [],
   reasonCode,
@@ -252,6 +266,28 @@ const parseWorkloads = (rows: unknown): D1ObservabilityWriteWorkloadDto[] | null
     .slice(0, 5);
 };
 
+const parseReadWorkloads = (rows: unknown): D1ObservabilityReadWorkloadDto[] | null => {
+  if (!Array.isArray(rows)) return null;
+  const groups = new Map<string, { label: string; rowsRead: number; queryCount: number }>();
+  for (const value of rows as GraphqlQueryRow[]) {
+    const query = value?.dimensions?.query;
+    const rowsRead = toNonNegativeNumber(value?.sum?.rowsRead), queryCount = toNonNegativeNumber(value?.count);
+    if (typeof query !== "string" || rowsRead === null || queryCount === null) return null;
+    const sql = query.toLowerCase();
+    const key = sql.includes("youtube_feed_") ? "youtube_feed" : sql.includes("music_") ? "play_catalog" : sql.includes("profile_") ? "profile" : classifyWriteQuery(query);
+    const label = key === "youtube_feed" ? "YouTube 피드·메타데이터" : key === "play_catalog" ? "Play 카탈로그" : key === "profile" ? "멤버 프로필" : workloadLabels[key as WorkloadKey];
+    const group = groups.get(key) ?? { label, rowsRead: 0, queryCount: 0 };
+    group.rowsRead += rowsRead; group.queryCount += queryCount; groups.set(key, group);
+  }
+  const total = [...groups.values()].reduce((sum, row) => sum + row.rowsRead, 0);
+  return [...groups].map(([key, row]) => ({ key, ...row, sharePercent: total ? roundPercent(row.rowsRead, total) : 0 })).sort((a,b) => b.rowsRead - a.rowsRead).slice(0,5);
+};
+
+const currentMetric = (today: D1ObservabilityDailyMetricDto) => ({
+  ...today, rowsReadLimit: FREE_ROWS_READ_LIMIT, rowsWrittenLimit: FREE_ROWS_WRITTEN_LIMIT,
+  rowsReadPercent: roundPercent(today.rowsRead, FREE_ROWS_READ_LIMIT), rowsWrittenPercent: roundPercent(today.rowsWritten, FREE_ROWS_WRITTEN_LIMIT),
+});
+
 const parsePayload = (
   payload: unknown,
   now: number,
@@ -270,7 +306,21 @@ const parsePayload = (
   const topWriteWorkloads = parseWorkloads(
     (account as Record<string, unknown>).queries,
   );
-  if (!daily || !topWriteWorkloads) return null;
+  const accountRows = (account as Record<string, unknown>).accountDaily;
+  const accountDaily = parseDailyRows(accountRows, now);
+  const topReadWorkloads = parseReadWorkloads((account as Record<string, unknown>).reads);
+  if (!daily || !topWriteWorkloads || !accountDaily || !topReadWorkloads || (accountRows as unknown[]).length >= 10000) return null;
+  const contributions = new Map<string, D1ObservabilityDailyMetricDto & { databaseId: string }>();
+  for (const row of accountRows as GraphqlDailyRow[]) {
+    const databaseId = row.dimensions?.databaseId;
+    if (typeof databaseId !== "string" || !databaseId) return null;
+    const one = parseDailyRows([row], now)?.at(-1);
+    if (!one) return null;
+    const prior = contributions.get(databaseId) ?? { ...one, databaseId, rowsRead: 0, rowsWritten: 0, readQueries: 0, writeQueries: 0 };
+    prior.rowsRead += one.rowsRead; prior.rowsWritten += one.rowsWritten;
+    prior.readQueries += one.readQueries; prior.writeQueries += one.writeQueries;
+    contributions.set(databaseId, prior);
+  }
   const today = daily.at(-1);
   if (!today) return null;
   return {
@@ -289,6 +339,9 @@ const parsePayload = (
         FREE_ROWS_WRITTEN_LIMIT,
       ),
     },
+    accountCurrentDay: currentMetric(accountDaily.at(-1)!),
+    databaseContributions: [...contributions.values()].sort((a,b) => b.rowsRead - a.rowsRead),
+    topReadWorkloads,
     daily,
     topWriteWorkloads,
   };
@@ -345,7 +398,7 @@ export class CloudflareD1ObservabilityReader {
     }
 
     const cacheKey = new Request(
-      `https://operations-cache.internal/d1-observability/${encodeURIComponent(databaseId)}?window=7d`,
+      `https://operations-cache.internal/d1-observability/v2/${encodeURIComponent(accountId)}/${encodeURIComponent(databaseId)}?window=7d&day=${utcDay(now)}`,
     );
     if (this.cache) {
       try {
@@ -386,6 +439,7 @@ export class CloudflareD1ObservabilityReader {
             query: D1_OBSERVABILITY_GRAPHQL,
             variables: {
               accountTag: accountId,
+              accountFilter: { datetimeHour_geq: `${utcDay(now)}T00:00:00.000Z`, datetimeHour_leq: new Date(now).toISOString() },
               dailyFilter: {
                 AND: [{
                   datetimeHour_geq: startAt,

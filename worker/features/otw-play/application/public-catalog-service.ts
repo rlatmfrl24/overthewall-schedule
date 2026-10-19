@@ -286,9 +286,10 @@ export class PublicCatalogService {
       member: OtwPlayPublicMemberDto; items: PublicCatalogSongSummary[];
     }>> {
     const meta = await this.resolveMeta(preloadedMeta);
-    const result = await this.readMembers(context, meta);
-    if (result.status !== "ok") return result;
-    const member = result.document.data.members.find(item => item.code.toLowerCase() === code.toLowerCase());
+    const unavailable=assertContentReadable(meta,context.allowDisabledRead===true);if(unavailable)return unavailable;
+    const summaries=await this.reader.readMemberSummaries(code);
+    const member=summaries.map(member=>({...member,pageEligible:isOtwPlayMemberPageEligible(member,meta)})).find(item=>item.code.toLowerCase()===code.toLowerCase());
+    await this.assertReadSnapshot(meta);
     if (!member) return { status: "not_found", reason: "member_not_found", catalogRevision: meta.revision };
     const catalog = await this.browseCatalog({ ...query, memberUids: [member.uid], memberMode: "any" },
       { ...context, allowSharedCache: false }, meta);

@@ -1,6 +1,6 @@
 import { publicationHiddenSql } from "../../content-access";
 import type { SiteId } from "@contracts/site-definition";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
 import {
   memberLinks,
   memberProfileImages,
@@ -70,7 +70,7 @@ export class D1MemberReader implements MemberReader {
       .where(this.includeArchived ? undefined : and(activeCondition, sql.raw(`members.content_access = 'normal' AND NOT (${publicationHiddenSql("members","members",this.siteId)})`))) as Promise<MemberDto[]>;
   }
 
-  async findProfileByCode(code: string): Promise<MemberProfileDto | null> {
+  async findProfileByCode(code: string, includeBackgrounds = true): Promise<MemberProfileDto | null> {
     const normalizedCode = code.trim().toLowerCase();
     const data = await this.db
       .select()
@@ -91,17 +91,14 @@ export class D1MemberReader implements MemberReader {
     }
 
     if (!member) return null;
-    return this.buildProfile(member);
+    return this.buildProfile(member, includeBackgrounds);
   }
 
-  private async buildProfile(member: MemberRow): Promise<MemberProfileDto> {
+  private async buildProfile(member: MemberRow, includeBackgrounds: boolean): Promise<MemberProfileDto> {
     const [imageRows, cafeRows, extraLinkRows, backgroundImages] =
       await Promise.all([
-        this.db
-          .select()
-          .from(memberProfileImages)
-          .where(eq(memberProfileImages.member_uid, member.uid))
-          .orderBy(memberProfileImages.sort_order, memberProfileImages.id),
+        this.db.$client.prepare("SELECT * FROM member_profile_images INDEXED BY idx_member_profile_images_member_sort WHERE member_uid=? ORDER BY sort_order,id")
+          .bind(member.uid).all<typeof memberProfileImages.$inferSelect>().then(result=>result.results),
         this.db
           .select()
           .from(naverCafeSources)
@@ -122,7 +119,7 @@ export class D1MemberReader implements MemberReader {
             ),
           )
           .orderBy(memberLinks.sort_order, memberLinks.id),
-        this.listProfileBackgrounds(member),
+        includeBackgrounds ? this.listProfileBackgrounds(member) : Promise.resolve(null),
       ]);
 
     const profileImages =
@@ -209,7 +206,7 @@ export class D1MemberReader implements MemberReader {
       string,
       { variants: Set<string>; versionParts: string[] }
     >();
-    const references=await this.db.select().from(assetFileReferences).where(sql`${assetFileReferences.logical_key} LIKE ${`${prefix}%`}`);
+    const references=await this.db.select().from(assetFileReferences).where(and(gte(assetFileReferences.logical_key, prefix), lt(assetFileReferences.logical_key, `${prefix.slice(0,-1)}0`)));
     const managedKeys=new Set(references.map(reference=>reference.logical_key));
     const objects=[...listed.objects.filter(object=>!managedKeys.has(object.key)),...references.map(reference=>({key:reference.logical_key,etag:reference.hash,uploaded:new Date(reference.updated_at)}))];
     for (const object of objects) {

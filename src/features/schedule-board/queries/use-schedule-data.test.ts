@@ -1,98 +1,31 @@
-import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
+import { createMemberFixture } from "@/test/member-fixtures";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
-import type { DDayItem } from "@/features/ddays";
-import type { Member } from "@/features/members";
-
-const fetchActiveMembersMock = vi.hoisted(() => vi.fn());
-const fetchDDaysMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@/features/members", () => ({
-  fetchActiveMembers: fetchActiveMembersMock,
-}));
-
-vi.mock("@/features/ddays", () => ({
-  fetchDDays: fetchDDaysMock,
-}));
-
-const makeMember = (uid: number): Member =>
-  (createMemberFixture({
-    uid,
-    code: `m${uid}`,
-    name: `멤버${uid}`
-  })) as Member;
-
-const makeDday = (id: number): DDayItem =>
-  ({
-    id,
-    title: `기념일${id}`,
-    date: "2026-02-13",
-    description: null,
-    color: null,
-    type: "event",
-    created_at: null,
-  }) as DDayItem;
-
-describe("useScheduleData", () => {
-  beforeEach(() => {
-    fetchActiveMembersMock.mockReset();
-    fetchDDaysMock.mockReset();
-  });
-
-  it("reloadAll은 현재 접근 정책을 다시 읽고 이전 공개 항목을 제거한다", async () => {
-    fetchActiveMembersMock.mockResolvedValueOnce([makeMember(1)]).mockResolvedValueOnce([]);
-    fetchDDaysMock.mockResolvedValueOnce([makeDday(1)]).mockResolvedValueOnce([]);
-
-    const { useScheduleData } = await import("./use-schedule-data");
-    const { result } = renderHook(() => useScheduleData(), {
-      wrapper: createQueryWrapper(),
-    });
-
-    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
-    expect(result.current.members.map((member) => member.uid)).toEqual([1]);
-    expect(result.current.ddays.map((dday) => dday.id)).toEqual([1]);
-    expect(fetchActiveMembersMock).toHaveBeenCalledTimes(1);
-    expect(fetchDDaysMock).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      await result.current.reloadAll();
-    });
-
-    expect(fetchActiveMembersMock).toHaveBeenCalledTimes(2);
-    expect(fetchDDaysMock).toHaveBeenCalledTimes(2);
-    await waitFor(() => expect(result.current.members).toEqual([]));
-    expect(result.current.ddays).toEqual([]);
-  });
-
-  it("reloadMembers/reloadDDays는 최신 데이터를 갱신한다", async () => {
-    fetchActiveMembersMock
-      .mockResolvedValueOnce([makeMember(1)])
-      .mockResolvedValueOnce([makeMember(2)]);
-    fetchDDaysMock
-      .mockResolvedValueOnce([makeDday(1)])
-      .mockResolvedValueOnce([makeDday(2)]);
-
-    const { useScheduleData } = await import("./use-schedule-data");
-    const { result } = renderHook(() => useScheduleData(), {
-      wrapper: createQueryWrapper(),
-    });
-
-    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
-
-    await act(async () => {
-      await result.current.reloadMembers();
-      await result.current.reloadDDays();
-    });
-
-    await waitFor(() =>
-      expect(result.current.members.map((member) => member.uid)).toEqual([2]),
-    );
-    await waitFor(() =>
-      expect(result.current.ddays.map((dday) => dday.id)).toEqual([2]),
-    );
-    expect(fetchActiveMembersMock).toHaveBeenCalledTimes(2);
-    expect(fetchDDaysMock).toHaveBeenCalledTimes(2);
-  });
+const mocks = vi.hoisted(() => ({ members: vi.fn(), ddays: vi.fn() }));
+vi.mock("@/features/members", () => ({ fetchActiveMembers: mocks.members }));
+vi.mock("@/features/ddays", () => ({ fetchDDays: mocks.ddays }));
+beforeEach(() => { mocks.members.mockReset(); mocks.ddays.mockReset(); });
+it("loads members without fetching or waiting for unused D-days", async () => {
+  mocks.members.mockResolvedValue([createMemberFixture({ uid:1 })]);
+  mocks.ddays.mockImplementation(() => new Promise(() => {}));
+  const { useScheduleData } = await import('./use-schedule-data');
+  const { result } = renderHook(() => useScheduleData(), { wrapper:createQueryWrapper() });
+  await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+  expect(result.current.members.map(row => row.uid)).toEqual([1]);
+  expect(result.current.loading).toBe(false);
+  expect(mocks.ddays).not.toHaveBeenCalled();
+});
+it("reloads members under the current access policy", async () => {
+  mocks.members.mockResolvedValueOnce([createMemberFixture({ uid:1 })]).mockResolvedValueOnce([]).mockResolvedValueOnce([createMemberFixture({ uid:2 })]);
+  mocks.ddays.mockResolvedValue([]);
+  const { useScheduleData } = await import('./use-schedule-data');
+  const { result } = renderHook(() => useScheduleData(), { wrapper:createQueryWrapper() });
+  await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+  await act(async () => { await result.current.reloadAll(); });
+  await waitFor(() => expect(result.current.members).toEqual([]));
+  await act(async () => { await result.current.reloadMembers(); });
+  await waitFor(() => expect(result.current.members.map(row => row.uid)).toEqual([2]));
+  expect(mocks.ddays).not.toHaveBeenCalled();
 });

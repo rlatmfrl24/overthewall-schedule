@@ -1,3 +1,4 @@
+import {fetchOtwPlayAdminCatalog} from "../../api/admin";
 import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
 import type { AiReviewFields, AiReviewField } from "@contracts/otw-play-ai-review";
 import type { OtwPlayParticipantRole } from "@contracts/otw-play";
@@ -43,6 +44,7 @@ import {
 } from "../../api/admin";
 import { SongTagPicker } from "../song-tag-picker";
 import { SongConnectionPicker } from "./song-connection-picker";
+import { mergeAdminCatalogRows, useOtwPlayAdminCatalogLookup } from "../../queries/use-admin-catalog";
 
 export type SelectedSubject = {
   key: string;
@@ -161,6 +163,7 @@ export function SubjectPicker({
   onChange,
   allowGroup = true,
   includeMemberEntities = false,
+  remote = false,
 }: {
   label: string;
   placeholder?: string;
@@ -172,10 +175,13 @@ export function SubjectPicker({
   onChange: (items: SelectedSubject[]) => void;
   allowGroup?: boolean;
   includeMemberEntities?: boolean;
+  remote?:boolean;
 }) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const listboxId = useId();
+  const lookup = useOtwPlayAdminCatalogLookup("entities", query, Boolean(remote && query.trim()));
+  entities = mergeAdminCatalogRows(entities, lookup.data?.entities);
   const normalized = normalizeSubjectName(query);
   const selectedKeys = new Set(selected.map((item) => item.key));
   const availableDraftSubjects = uniqueNewExternalSubjects([
@@ -200,7 +206,7 @@ export function SubjectPicker({
         (!normalized ||
           normalizeSubjectName(entity.displayName).includes(normalized)),
     )
-    .slice(0, 6);
+    .slice(0, remote ? undefined : 6);
   const draftMatches = availableDraftSubjects
     .filter(
       (subject) =>
@@ -381,17 +387,19 @@ export function SubjectPicker({
               </button>
             );
           })}
+          {lookup.hasNextPage && <Button type="button" variant="ghost" size="sm" disabled={lookup.isFetchingNextPage}
+            onClick={() => void lookup.fetchNextPage()}>검색 결과 더 보기</Button>}
           {exactMatchExists ? (
             <p className="mt-1 border-t px-3 py-2 text-xs text-muted-foreground" role="status">
               동일한 이름의 주체가 이미 있습니다. 위 후보를 선택하세요.
             </p>
           ) : (
             <div className="mt-1 grid grid-cols-2 gap-1 border-t pt-1">
-              <Button type="button" variant="ghost" size="sm" className="h-auto min-h-11 whitespace-normal px-2" onClick={() => addNew("person")}>
+              <Button type="button" variant="ghost" size="sm" disabled={!lookup.ready} className="h-auto min-h-11 whitespace-normal px-2" onClick={() => addNew("person")}>
                 <UserRoundPlus className="h-4 w-4" /> 외부 인물로 추가
               </Button>
               {allowGroup && (
-                <Button type="button" variant="ghost" size="sm" className="h-auto min-h-11 whitespace-normal px-2" onClick={() => addNew("group")}>
+                <Button type="button" variant="ghost" size="sm" disabled={!lookup.ready} className="h-auto min-h-11 whitespace-normal px-2" onClick={() => addNew("group")}>
                   <UsersRound className="h-4 w-4" /> 그룹으로 추가
                 </Button>
               )}
@@ -399,6 +407,7 @@ export function SubjectPicker({
           )}
         </div>
       )}
+      {lookup.isError&&<p role="alert" className="text-sm text-destructive">인물 검색에 실패했습니다. 다시 검색해 주세요.</p>}
       <p className="text-xs text-muted-foreground">{helpText}</p>
     </div>
   );
@@ -654,6 +663,13 @@ export function CatalogEntryDialog({
       parsedEndSeconds <= preflight.video.durationSeconds,
   );
   const hasExistingSong = songId !== "" && songId !== "__new";
+  const selectedSong = useQuery({
+    queryKey: [...queryKeys.otwPlay.adminCatalog(), "selected-song", songId],
+    queryFn: () => fetchOtwPlayAdminCatalog({ lookup: "songs", songId, limit: 25 }),
+    enabled: Boolean(open && catalog.paged && hasExistingSong && !catalog.songs.some(song => song.id === songId)),
+    staleTime: 15_000,
+  });
+  catalog = { ...catalog, songs: mergeAdminCatalogRows(catalog.songs, selectedSong.data?.songs) };
   const originalArtists = !clip && videoKind === "original" && coverOriginalArtists.length === 0
     ? participants
     : coverOriginalArtists;
@@ -897,7 +913,7 @@ export function CatalogEntryDialog({
                     <div className="space-y-1.5"><Label htmlFor="catalog-channel-role">채널 역할</Label><SelectField className="w-full min-w-0" id="catalog-channel-role" value={channelRole} onValueChange={value => setChannelRole(value as typeof channelRole)} options={[{value:"otw_official",label:"OTW 공식"},{value:"unit_official",label:"유닛 공식"},{value:"member_music",label:"멤버 노래 채널"},{value:"member_main",label:"멤버 메인 채널"},{value:"project_official",label:"승인 프로젝트"}]} /></div>
                   </div>
                 )}
-                {needsChannelOwnerChoice && <SubjectPicker label="채널 소유·연결 주체" members={members} entities={catalog.entities} draftSubjects={draftExternalSubjects} selected={channelOwners} onChange={setChannelOwners} helpText="영상의 가창자와 별개로 채널을 소유하거나 연결하는 주체를 선택하세요." />}
+                {needsChannelOwnerChoice && <SubjectPicker remote={catalog.paged} label="채널 소유·연결 주체" members={members} entities={catalog.entities} draftSubjects={draftExternalSubjects} selected={channelOwners} onChange={setChannelOwners} helpText="영상의 가창자와 별개로 채널을 소유하거나 연결하는 주체를 선택하세요." />}
                 {onManageChannel ? <div className="flex flex-wrap gap-2">
                   <Button type="button" size="sm" variant="outline" disabled={saving || checking || channelRecheck === "checking" || aiSession.launching}
                     onClick={() => onManageChannel({externalChannelId:preflight.video.channelId,displayName:preflight.video.channelTitle,kind:clip?"singing_clip":"official_video",role:clip?"approved_kirinuki":channelRole})}>{preflight.channel.state === "unknown" ? "이 채널 등록하기" : preflight.channel.state === "pending" ? "승인 검토" : preflight.channel.state === "inactive" ? "영상 사용 설정" : preflight.channel.state === "revoked" ? "철회 상태 확인" : !channelReady ? "채널 용도 확인" : "채널 설정"}</Button>
@@ -923,7 +939,7 @@ export function CatalogEntryDialog({
               }}>새 곡 직접 입력</Button> : <div className="grid items-start gap-6 sm:grid-cols-2">
                 <div className="min-w-0 space-y-4">
                 <div className="space-y-1.5"><Label htmlFor="cover-original-title">곡 제목</Label><Input id="cover-original-title" value={coverOriginalTitle} onChange={event => { ai.touch("song"); setCoverOriginalTitle(event.target.value); }} placeholder="영상 제목이 아닌 곡의 정식 제목" maxLength={300} /></div>
-                <SubjectPicker label="원곡 가수" placeholder="가수명을 검색하거나 새 외부 가수로 추가"
+                <SubjectPicker remote={catalog.paged} label="원곡 가수" placeholder="가수명을 검색하거나 새 외부 가수로 추가"
                   helpText={!clip && videoKind === "original" ? "비워두면 다음 단계의 가창 참여자를 원곡 가수로 사용합니다. 첫 번째 가수가 대표 원곡 가수입니다." : "첫 번째 가수를 대표 원곡 가수로 저장합니다."}
                   members={members} entities={catalog.entities} draftSubjects={draftExternalSubjects} selected={coverOriginalArtists} onChange={value => { ai.touch("song"); setCoverOriginalArtists(value); }} />
                 </div>
@@ -933,7 +949,7 @@ export function CatalogEntryDialog({
 
             {step === 2 && <section className="space-y-4" aria-label="가창 정보">
               <h3 ref={stepHeadingRef} tabIndex={-1} className="font-semibold outline-none">누가 어떻게 불렀나요?</h3>
-              <SubjectPicker label="가창 참여자" members={members} entities={catalog.entities} draftSubjects={draftExternalSubjects} selected={participants} onChange={value => {
+              <SubjectPicker remote={catalog.paged} label="가창 참여자" members={members} entities={catalog.entities} draftSubjects={draftExternalSubjects} selected={participants} onChange={value => {
                 ai.touch("participants"); setParticipants(value.map(person => ({...person,participantRole:participants.find(old => old.key===person.key)?.participantRole ?? "vocal"})));
               }} />
               {participants.length > 0 && <div className="space-y-2">

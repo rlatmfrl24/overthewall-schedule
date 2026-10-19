@@ -1,6 +1,6 @@
 import { readSiteSchemaMigrations } from "../../../test-support/site-schema";
 import { applyD1Migrations, env, introspectWorkflow } from "cloudflare:test";
-import { beforeAll, expect, it } from "vitest";
+import { beforeAll, expect, it, vi } from "vitest";
 import { handleScheduledWorkflowCron, SCHEDULED_WORKFLOW_CRON } from "../../../app/scheduled-workflow-cron";
 import type { Env } from "../../../platform/types";
 import type { ScheduledOperationsWorkflowParams } from "@contracts/scheduled-operations";
@@ -32,7 +32,8 @@ it("completes the ordinary Cron, native Workflow and native Queue without creati
     ...["auto_update_enabled", "scheduled_v2_schedule_auto_update_enabled"].map(key => db.prepare("INSERT INTO settings(key,value) VALUES(?,'true') ON CONFLICT(key) DO UPDATE SET value='true'").bind(key)),
     db.prepare("INSERT INTO settings(key,value) VALUES('auto_update_last_run','0') ON CONFLICT(key) DO UPDATE SET value='0'"),
   ]);
-  const runtime = { ...bindings, ...siteEnv("otw"), SCHEDULED_OPERATIONS_WORKFLOW: bindings.NATIVE_SCHEDULED_WORKFLOW } as unknown as Env;
+  vi.stubGlobal("fetch",(input:RequestInfo|URL,init?:RequestInit)=>bindings.NATIVE_WORKFLOW_PROVIDER.fetch(input,init));
+  const runtime = { ...bindings, CLOUDFLARE_ACCOUNT_ID:"native-test", CLOUDFLARE_D1_TOKEN:"native-test", ...siteEnv("otw"), SCHEDULED_OPERATIONS_WORKFLOW: bindings.NATIVE_SCHEDULED_WORKFLOW } as unknown as Env;
   try {
     await handleScheduledWorkflowCron({ cron: SCHEDULED_WORKFLOW_CRON, scheduledTime: scheduledFor } as ScheduledController, runtime);
     const instances = await inspector.get();
@@ -54,6 +55,7 @@ it("completes the ordinary Cron, native Workflow and native Queue without creati
     expect(await inspector.get()).toHaveLength(1);
     expect(await (await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/calls")).json()).toEqual(calls);
   } finally {
+    vi.unstubAllGlobals();
     await inspector.dispose();
   }
 }, 60000);
@@ -74,16 +76,18 @@ it("finalizes and replays an ordinary scheduled receipt without consulting retir
   } });
   const database = getDb({ ...bindings, otw_db: owningDatabase } as Env);
   const result: AutoUpdateResult = { updated: 0, checked: 0, segmentCount: 0, sessionCount: 0, resumeMergedCount: 0, rejectedSuppressed: 0, duplicatePending: 0, shortSuppressed: 0, holidaySuppressed: 0, ambiguous: 0, obsoletePending: 0, details: [] };
-  const options = { source: "scheduled" as const, rangeDays: 3, originalItem: { id: "owning-finalizer-item", runId: "owning-finalizer", leaseToken: "owning-lease" } };
+  await db.prepare("INSERT INTO pending_schedules(member_uid,member_name,date,status,action_type,candidate_kind) VALUES(999999,'Other','2020-01-01','휴방','create','holiday_suggestion')").run();
+  const options = { holidaySiteId: "otw" as const, source: "scheduled" as const, rangeDays: 3, originalItem: { id: "owning-finalizer-item", runId: "owning-finalizer", leaseToken: "owning-lease" } };
   const before = await db.prepare("SELECT count(*) n FROM auto_update_runs").first<number>("n");
   await expect(recordAutoUpdateResultWithHistory(database, { ...options, originalItem: { ...options.originalItem, leaseToken: "stale-lease" } }, result, now)).rejects.toThrow();
   await db.prepare("INSERT INTO scheduled_job_items(id,run_id,target_key,phase,lane,status,available_at,created_at,updated_at) VALUES('owning-pending-match','owning-finalizer','member','match','background','queued',?,?,?)").bind(now, now, now).run();
   await expect(recordAutoUpdateResultWithHistory(database, options, result, now)).rejects.toThrow();
   expect(await db.prepare("SELECT count(*) n FROM auto_update_runs").first("n")).toBe(before);
   expect(await db.prepare("SELECT result_json FROM scheduled_job_items WHERE id='owning-finalizer-item'").first("result_json")).toBeNull();
+  expect(await db.prepare("SELECT count(*) n FROM pending_schedules WHERE member_uid=999999").first("n")).toBe(1);
   await db.prepare("DELETE FROM scheduled_job_items WHERE id='owning-pending-match'").run();
-  await expect(recordAutoUpdateResultWithHistory(database, options, result, now)).resolves.toEqual(result);
-  await expect(recordAutoUpdateResultWithHistory(database, options, result, now)).resolves.toEqual(result);
+  await expect(recordAutoUpdateResultWithHistory(database, options, result, now)).resolves.toEqual({...result,obsoletePending:1});
+  await expect(recordAutoUpdateResultWithHistory(database, options, result, now)).resolves.toEqual({...result,obsoletePending:1});
   expect(await db.prepare("SELECT count(*) n FROM auto_update_runs").first("n")).toBe(before! + 1);
-  expect(JSON.parse((await db.prepare("SELECT result_json FROM scheduled_job_items WHERE id='owning-finalizer-item'").first<string>("result_json"))!)).toEqual(result);
+  expect(JSON.parse((await db.prepare("SELECT result_json FROM scheduled_job_items WHERE id='owning-finalizer-item'").first<string>("result_json"))!)).toEqual({...result,obsoletePending:1});
 });

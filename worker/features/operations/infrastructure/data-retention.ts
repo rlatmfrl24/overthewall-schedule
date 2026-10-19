@@ -335,7 +335,9 @@ export const runDataRetentionPolicyPrune = async (
     policyId,
     cutoff,
     deletedRows,
-    hasMore: (deletedRows >= limit) && await readPrunableCount(env, policy, cutoff) > 0,
+    hasMore: deletedRows >= limit && Boolean(await env.otw_db.prepare(
+      `SELECT 1 AS has_work FROM ${policy.table} WHERE ${getPolicyWhereClause(policy, parseSiteId(env.SITE_ID))} LIMIT 1`,
+    ).bind(getPolicyBindValue(policy, cutoff)).first()),
   };
 };
 

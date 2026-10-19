@@ -339,3 +339,14 @@ it.each([false,true])('continues a mixed cutoff-only partial batch, retaining ot
     }
   } finally {clock.mockRestore();await db.prepare('DELETE FROM members WHERE uid=700001').run();}
 });
+
+it("scopes source progress before unrelated queues and older generations",async()=>{
+  const {meterD1}=await import('../../../test-support/d1-meter');
+  await db.batch(['target','history'].map(id=>db.prepare("INSERT INTO music_playlist_work_queues(id,playlist_id,source_url,actor,status,created_at,updated_at) VALUES(?,?,?,'admin','waiting',1,1)").bind(id,id,'https://example.com/'+id)));
+  await db.batch(['target','history'].map(id=>db.prepare("INSERT INTO music_playlist_work_batches(id,queue_id,job_id,request_key,actor,status,created_at,updated_at) VALUES(?,?,?,?,'admin','completed',1,1)").bind(id,id,'job-'+id,'request-'+id)));
+  await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO music_playlist_work_items(id,batch_id,playlist_item_id,disposition,created_at,updated_at) SELECT 'old-'||x,'history','old-'||x,'excluded',1,1 FROM n").run();
+  const meter=meterD1(db),target=await new D1WorkQueueRepository(meter.db).source('target');
+  expect(target.progress.inspected).toBe(0);
+  console.info('WORK_QUEUE_SOURCE_D1_COST',JSON.stringify(meter.summary()));
+  expect(meter.summary().rowsRead).toBeLessThan(100);
+});

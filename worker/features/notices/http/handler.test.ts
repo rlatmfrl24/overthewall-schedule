@@ -335,6 +335,7 @@ describe("notices route thumbnail handling", () => {
 
   it("rejects inactive or missing related members", async () => {
     getDbMock.mockReturnValue({
+      $client:{prepare:()=>({bind:()=>({all:async()=>({results:[]})})})},
       select: vi.fn(() => ({ from: () => ({ where: async () => [] }) })),
     });
     const response = await handleNotices(
@@ -515,6 +516,7 @@ describe("notices route thumbnail handling", () => {
     fileStore.listNoticeObjects.mockResolvedValue([{key:"notices/thumbnails/uploaded.png",objectKey:"_versions/otw/uploaded.png",size:5,uploadedAt:Date.now(),graceStart:Date.now(),recoveryHeld:false,cleanupEligible:false}]);
     const deleteObject = vi.fn(async () => undefined);
     getDbMock.mockReturnValue({
+      $client:{prepare:()=>({bind:()=>({all:async()=>({results:[]})})})},
       select: vi.fn(() => selectThumbnailReferencesQuery([])),
     });
 
@@ -535,6 +537,7 @@ describe("notices route thumbnail handling", () => {
   it("keeps an uploaded thumbnail cleanup request when a notice references it", async () => {
     const deleteObject = vi.fn(async () => undefined);
     getDbMock.mockReturnValue({
+      $client:{prepare:()=>({bind:()=>({all:async()=>({results:[]})})})},
       select: vi.fn(() =>
         selectThumbnailReferencesQuery([
           "/r2-assets/notices/thumbnails/referenced.png",
@@ -576,6 +579,7 @@ describe("notices route thumbnail handling", () => {
       delimitedPrefixes: [],
     }));
     getDbMock.mockReturnValue({
+      $client:{prepare:()=>({bind:()=>({all:async()=>({results:[]})})})},
       select: vi.fn(() =>
         selectThumbnailReferencesQuery([
           "/r2-assets/notices/thumbnails/used.webp",
@@ -669,6 +673,7 @@ describe("notices route thumbnail handling", () => {
       delimitedPrefixes: [],
     }));
     getDbMock.mockReturnValue({
+      $client:{prepare:()=>({bind:()=>({all:async()=>({results:[]})})})},
       select: vi.fn(() =>
         selectThumbnailReferencesQuery([
           "/r2-assets/notices/thumbnails/used.webp",

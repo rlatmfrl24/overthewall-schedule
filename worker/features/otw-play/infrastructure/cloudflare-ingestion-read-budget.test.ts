@@ -16,6 +16,11 @@ describe("account-wide ingestion read admission", () => {
     expect(body.query).not.toContain("databaseId");
   });
 
+  it.each([['6000000',4000000,4100000],['2000000',2000000,2100000]])('keeps the common ceiling and stricter configured target %s',async(configured,target,rows)=>{
+    const reader=new CloudflareIngestionReadBudget('account','token',configured,async()=>Response.json(payload(rows as number)),()=>NOW,null);
+    expect(await reader.read()).toMatchObject({status:'blocked',dailyTarget:target});
+  });
+
   it("separates cache by account, UTC day and target, and rechecks after midnight", async () => {
     const entries = new Map<string, Response>();
     const cache = { match: vi.fn(async (key: RequestInfo | URL) => entries.get((key as Request).url)?.clone()),

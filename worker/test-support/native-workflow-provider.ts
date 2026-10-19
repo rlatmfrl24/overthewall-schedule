@@ -10,6 +10,7 @@ export default {
     if (url.origin === "https://fixture.invalid" && url.pathname === "/calls") {
       return Response.json(calls);
     }
+    if(url.origin === "https://api.cloudflare.com" && request.method === "POST" && url.pathname === "/client/v4/graphql") return Response.json({data:{viewer:{accounts:[{usage:[{sum:{rowsRead:1000}}]}]}}});
     calls.push(`${request.method} ${url.href}`);
     if (request.method !== "GET" || url.origin !== "https://api.chzzk.naver.com") {
       return new Response("Unexpected native Workflow outbound request", { status: 500 });

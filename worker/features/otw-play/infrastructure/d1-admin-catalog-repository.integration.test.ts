@@ -2951,3 +2951,62 @@ describe("D1AdminCatalogRepository", () => {
     ).toBe(false);
   });
 });
+
+it("pages admin songs with filters and retains complete legacy reads",async()=>{
+  await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<60) INSERT INTO music_songs(id,slug,title,normalized_title,dedupe_key,is_otw_original,original_release_precision,version,created_at,updated_at) SELECT 'page-'||printf('%03d',x),'page-'||x,'Page '||printf('%03d',x),'page '||printf('%03d',x),'page-'||x,0,'unknown',0,1,1 FROM n").run();
+  await db.prepare("INSERT INTO music_performances(id,song_id,dedupe_key,relation_type,release_type,participation_type,publication_status,quality_status,version,created_at,updated_at) SELECT 'p-'||id,id,'p-'||id,'cover','official_video','solo','draft','ok',0,1,1 FROM music_songs WHERE id LIKE 'page-%'").run();
+  const repo=new D1AdminCatalogRepository(db);
+  const first=await repo.readCatalog({page:{limit:25,scope:'official'}});
+  expect(first.songs).toHaveLength(25); expect(first.nextCursor).toBeTruthy();
+  const second=await repo.readCatalog({page:{limit:25,scope:'official',cursor:first.nextCursor!}});
+  expect(second.songs).toHaveLength(25);expect(second.songs[0].id).not.toBe(first.songs[0].id);
+  const last=await repo.readCatalog({page:{limit:25,scope:'official',cursor:second.nextCursor!}});expect(last.songs).toHaveLength(10);expect(last.nextCursor).toBeNull();
+  expect((await repo.readCatalog({page:{limit:25,scope:'official',q:'Page 055',state:'draft'}})).songs.map(s=>s.id)).toEqual(['page-055']);
+  expect((await repo.readCatalog()).songs.filter(s=>s.id.startsWith('page-'))).toHaveLength(60);
+});
+
+it("keeps admin page reads bounded as unrelated catalog history grows",async()=>{
+  const {meterD1}=await import('../../../test-support/d1-meter');
+  await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO music_songs(id,slug,title,normalized_title,dedupe_key,is_otw_original,created_at,updated_at) SELECT 'cost-'||printf('%05d',x),'cost-'||x,'Cost '||x,'cost '||printf('%05d',x),'cost-'||x,0,1,1 FROM n").run();
+  await db.prepare("INSERT INTO music_performances(id,song_id,dedupe_key,relation_type,release_type,participation_type,created_at,updated_at) SELECT 'p-'||id,id,'p-'||id,'cover','official_video','solo',1,1 FROM music_songs").run();
+  const full=meterD1(db),page=meterD1(db);
+  await new D1AdminCatalogRepository(full.db).readCatalog();
+  expect((await new D1AdminCatalogRepository(page.db).readCatalog({page:{limit:25,scope:'all'}})).songs).toHaveLength(25);
+  console.info('ADMIN_CATALOG_D1_COST',JSON.stringify({full:full.summary(),page:page.summary()}));
+  expect(page.summary().rowsRead).toBeLessThan(1000);expect(page.summary().rowsWritten).toBe(0);
+});
+
+it("preserves Unicode case and subject normalization before paging admin matches",async()=>{
+  const repo=new D1AdminCatalogRepository(db);
+  await db.prepare("INSERT INTO music_entities(id,entity_kind,display_name,normalized_name,slug,created_at,updated_at) VALUES('unicode-artist','person','Étoile Ａ  Ｂ','étoile a b','unicode-artist',1,1)").run();
+  await db.prepare("INSERT INTO music_songs(id,slug,title,normalized_title,dedupe_key,is_otw_original,created_at,updated_at) VALUES('unicode-song','unicode-song','Étoile','étoile','unicode-song',0,1,1)").run();
+  await db.prepare("INSERT INTO music_song_original_artists(song_id,entity_id,credit_order,is_primary) VALUES('unicode-song','unicode-artist',0,1)").run();
+  await db.prepare("INSERT INTO music_performances(id,song_id,dedupe_key,relation_type,release_type,participation_type,created_at,updated_at) VALUES('unicode-performance','unicode-song','unicode-performance','cover','official_video','solo',1,1)").run();
+  expect((await repo.readCatalog({page:{q:'étoile',scope:'official'}})).songs.map(s=>s.id)).toEqual(['unicode-song']);
+  expect((await repo.readCatalog({page:{lookup:'entities',q:'étoile A B'}})).entities.map(e=>e.id)).toEqual(['unicode-artist']);
+  expect((await repo.readCatalog({page:{lookup:'songs',q:'étoile'}})).songs.map(s=>s.id)).toEqual(['unicode-song']);
+  // Punctuation-normalized candidates must not consume the final page limit.
+  await db.prepare("WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<30) INSERT INTO music_entities(id,entity_kind,display_name,normalized_name,slug,created_at,updated_at) SELECT 'punct-'||x,'person','A-B '||x,'a b '||x,'punct-'||x,1,1 FROM n").run();
+  await db.prepare("INSERT INTO music_entities(id,entity_kind,display_name,normalized_name,slug,created_at,updated_at) VALUES('punct-target','person','A B target','a b target','zz-target',1,1)").run();
+  expect((await repo.readCatalog({page:{lookup:'entities',q:'A B',limit:1}})).entities.map(e=>e.id)).toEqual(['punct-target']);
+});
+
+it("does not let member identities consume the external participant lookup page",async()=>{
+  await db.prepare("WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<30) INSERT INTO members(uid,code,name,is_deprecated) SELECT 90000+x,'lookup-member-'||x,'0 Picklist '||x,1 FROM n").run();
+  await db.prepare("INSERT INTO music_entities(id,member_uid,entity_kind,display_name,normalized_name,slug,created_at,updated_at) SELECT 'lookup-'||uid,uid,'person',name,lower(name),'lookup-'||uid,1,1 FROM members WHERE uid>90000").run();
+  await db.prepare("INSERT INTO music_entities(id,entity_kind,display_name,normalized_name,slug,created_at,updated_at) VALUES('lookup-external','person','Picklist','picklist','lookup-external',1,1)").run();
+  const result=await new D1AdminCatalogRepository(db).readCatalog({page:{lookup:'entities',q:'Picklist',limit:25}});
+  expect(result.entities.map(entity=>entity.id)).toEqual(['lookup-external']);
+});
+
+it("recognizes an exact song outside the first lookup page", async () => {
+  await db.prepare(`WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<30)
+    INSERT INTO music_songs(id,slug,title,normalized_title,dedupe_key,is_otw_original,created_at,updated_at)
+    SELECT 'star-'||x,'star-'||x,'A Star '||x,'a star '||printf('%02d',x),'star-'||x,0,1,1 FROM n`).run();
+  await db.prepare(`INSERT INTO music_songs(id,slug,title,normalized_title,dedupe_key,is_otw_original,created_at,updated_at)
+    VALUES('exact-star','exact-star','Star','star','exact-star',0,1,1)`).run();
+  const result = await new D1AdminCatalogRepository(db).readCatalog({ page: { lookup: 'songs', q: 'Star', limit: 25 } });
+  expect(result.songs).toHaveLength(25);
+  expect(result.songs.some(song => song.id === 'exact-star')).toBe(false);
+  expect(result).toHaveProperty('exactSongExists', true);
+});

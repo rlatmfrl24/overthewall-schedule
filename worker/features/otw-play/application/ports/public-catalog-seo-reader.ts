@@ -16,7 +16,7 @@ export interface PublicCatalogSongSeoProjection {
 }
 
 export interface PublicCatalogSeoReader {
-  readMemberSummaries(): Promise<OtwPlayMemberSummary[]>;
+  readMemberSummaries(code?:string): Promise<OtwPlayMemberSummary[]>;
   readSeoState(): Promise<PublicCatalogSeoState>;
   listPublishedSeoSongSlugs(): Promise<string[]>;
   readPublishedSongSeoBySlug(

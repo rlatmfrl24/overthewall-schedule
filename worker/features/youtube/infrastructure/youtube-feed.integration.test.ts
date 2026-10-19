@@ -1,3 +1,4 @@
+import { meterD1 } from "../../../test-support/d1-meter";
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../../platform/types";
@@ -158,6 +159,45 @@ describe("YouTube public Shorts storage cost", () => {
       .toBe("video-0");
   });
 
+});
+
+describe("bounded metadata reads", () => {
+  it("reads the oldest due metadata without scanning its source history", async () => {
+    await seedSource();
+    const requested: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
+      const url = new URL(String(input));
+      expect(url.pathname).toMatch(/\/videos$/);
+      requested.push(...(url.searchParams.get("id") ?? "").split(","));
+      return Response.json({ items: [] });
+    });
+    const costs: unknown[] = [];
+    for (const size of [500,5000]) {
+      await database.prepare("DELETE FROM youtube_feed_videos").run();
+      await database.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<?) INSERT INTO youtube_feed_videos(video_id,source_id,title,published_at,fetched_at) SELECT printf('metadata-%05d',x),1,'Due',x,1 FROM n").bind(size).run();
+      requested.length = 0;
+      const meter = meterD1(database);
+      expect(await runScheduledYouTubeFeedCollection({ ...testEnv, otw_db: meter.db, YOUTUBE_API_KEY: 'test' })).toMatchObject({ unavailableMarked: 100 });
+      expect(requested).toHaveLength(100);
+      expect(requested[0]).toBe('metadata-00001'); expect(requested[99]).toBe('metadata-00100');
+      const candidates = meter.entries.filter(row => row.sql.includes('SELECT video.video_id, video.source_id'));
+      expect(candidates).toHaveLength(1);
+      costs.push({size, rowsRead:candidates[0].rowsRead, total:meter.summary()});
+      expect.soft(candidates[0].rowsRead).toBeLessThan(1000);
+    }
+    console.info('METADATA_D1_COST',JSON.stringify(costs));
+  });
+
+  it("finds a single due video behind unavailable history with a bounded probe", async () => {
+    await seedSource();
+    await database.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO youtube_feed_videos(video_id,source_id,title,published_at,fetched_at,available) SELECT 'unavailable-'||x,1,'Unavailable',x,1,0 FROM n").run();
+    await database.prepare("INSERT INTO youtube_feed_videos(video_id,source_id,title,published_at,fetched_at) VALUES('sole-due',1,'Due',0,1)").run();
+    const meter = meterD1(database);
+    expect(await hasScheduledYouTubeFeedWork({ ...testEnv, otw_db:meter.db,YOUTUBE_API_KEY:'test' },now())).toBe(true);
+    expect(meter.summary().rowsWritten).toBe(0);
+    console.info('METADATA_PROBE_D1_COST',JSON.stringify(meter.summary()));
+    expect(meter.summary().rowsRead).toBeLessThan(200);
+  });
 });
 
 describe("YouTube scheduled work admission", () => {

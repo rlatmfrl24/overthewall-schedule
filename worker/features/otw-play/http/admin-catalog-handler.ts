@@ -152,7 +152,11 @@ export const createAdminCatalogHandler =
         url.pathname === "/api/play/admin/catalog" &&
         request.method === "GET"
       ) {
-        return responseJson({ data: await service.readCatalog() });
+        const params=url.searchParams;
+        if(!params.size) return responseJson({data:await service.readCatalog()});
+        const scope=params.get('scope')??'all',lookup=params.get('lookup');
+        if(!['official','broadcast','all'].includes(scope)||lookup&&!['songs','entities','channels'].includes(lookup)) return errorResponse(requestId,400,'PLAY_ADMIN_INVALID_REQUEST','Invalid catalog query');
+        return responseJson({data:await service.readCatalog({page:{limit:Number(params.get('limit')??25),cursor:params.get('cursor'),q:params.get('q')??undefined,category:params.get('category')??undefined,state:params.get('state')??undefined,scope:scope as 'all'|'official'|'broadcast',...(lookup?{lookup:lookup as 'songs'|'entities'|'channels'}:{}),songId:params.get('songId')??undefined}})});
       }
 
       if (url.pathname === "/api/play/admin/source-health") {

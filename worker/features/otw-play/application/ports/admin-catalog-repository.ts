@@ -172,7 +172,7 @@ export interface AdminCatalogRepository {
   createCatalogEntry(
     command: AdminCreateCatalogEntryCommand,
   ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminCatalogEntryResultDto>>;
-  readProposals(status?: string): Promise<OtwPlayAdminProposalDto[]>;
+  readProposals(status?: string,proposalId?:string): Promise<OtwPlayAdminProposalDto[]>;
   createEntity(
     input: OtwPlayAdminCreateEntityRequest,
     actor: AdminCatalogActor,
@@ -271,6 +271,7 @@ export interface AdminCatalogGlobalAudit {
 }
 
 export type AdminCatalogScope = {
+  page?: import("@contracts/otw-play").OtwPlayAdminCatalogQuery;
   entityIds?: string[]; subjects?: OtwPlayAdminCatalogSubjectInput[];
   songIds?: string[]; channelIds?: string[]; externalChannelIds?: string[];
   performanceIds?: string[]; references?: boolean; memberEntities?: boolean;

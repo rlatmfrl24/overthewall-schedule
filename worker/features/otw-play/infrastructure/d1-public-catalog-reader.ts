@@ -1331,9 +1331,9 @@ const participantQueryForPerformanceIds = (
     FROM music_performance_participants AS participant
     JOIN music_entities AS entity ON entity.id = participant.entity_id
     LEFT JOIN members AS member ON member.uid = entity.member_uid AND member.content_access = 'normal' AND NOT (${publicationHiddenSql("members","member","otw","__PUBLICATION_TIME__")})
-    WHERE participant.performance_id IN (${placeholders(performanceIds.length)})
+    WHERE participant.performance_id IN (SELECT value FROM json_each(?))
     ORDER BY participant.performance_id, participant.credit_order, entity.id`,
-  binds: [...performanceIds],
+  binds: [JSON.stringify(performanceIds)],
 });
 
 const sourceQueryForPerformanceIds = (
@@ -1362,13 +1362,21 @@ const sourceQueryForPerformanceIds = (
     JOIN music_media_sources AS source
       ON source.id = performance_source.source_id
     JOIN music_channels AS channel ON channel.id = source.channel_id
-    WHERE performance_source.performance_id IN (${placeholders(performanceIds.length)})
+    WHERE performance_source.performance_id IN (SELECT value FROM json_each(?))
       AND ${PUBLIC_SOURCE_PREDICATE}
     ORDER BY performance_source.performance_id,
              performance_source.priority,
              source.id`,
-  binds: [...performanceIds],
+  binds: [JSON.stringify(performanceIds)],
 });
+
+type ArtworkSourceRow=Record<string,unknown> & PublicSourceCandidate & {performanceId:string;thumbnailUrl:string|null};
+const artworkSourceQuery=(ids:readonly string[]):BatchQuery=>({sql:`SELECT performance_source.performance_id AS performanceId,source.id,
+  source.thumbnail_url AS thumbnailUrl,source.availability_status AS availabilityStatus,performance_source.source_role AS sourceRole,
+  performance_source.priority,performance_source.is_primary AS isPrimary,channel.channel_role AS channelRole
+  FROM music_performance_sources performance_source JOIN music_media_sources source ON source.id=performance_source.source_id
+  JOIN music_channels channel ON channel.id=source.channel_id WHERE performance_source.performance_id IN(SELECT value FROM json_each(?)) AND ${PUBLIC_SOURCE_PREDICATE}
+  ORDER BY performance_source.performance_id,performance_source.priority,source.id`,binds:[JSON.stringify(ids)]});
 
 const catalogHydrationQuery = (
   rows: readonly CandidateRow[],
@@ -1768,13 +1776,16 @@ export class D1PublicCatalogReader
     const defaults: PlayDefaultPlaylist[] = [];
     for (const relation of ["original", "cover"] as const) {
       const count = totals.find(row => row.relation === relation);
-      const first = await this.readPlaylistPerformances({ q: null, member: null, relation, limit: 1, after: null });
+      const first=await this.all<{id:string}>(`SELECT performance.id FROM music_performances performance JOIN music_songs song ON song.id=performance.song_id
+        WHERE performance.relation_type=? AND ${PUBLIC_PERFORMANCE_PREDICATE} AND ${PUBLIC_SONG_PREDICATE} ORDER BY performance.released_at DESC,performance.id LIMIT 1`,[relation]);
+      const artworkQuery=artworkSourceQuery(first.map(row=>row.id));
+      const artwork=first.length?(await this.all<ArtworkSourceRow>(artworkQuery.sql,artworkQuery.binds))[0]?.thumbnailUrl??null:null;
       defaults.push({ id: relation, version: 1, title: relation === "original" ? "오리지널 모음" : "커버곡 모음",
         description: relation === "original" ? "우리의 목소리로 시작된 노래" : "익숙한 노래, 새로운 목소리",
         representativePerformanceId: null,
         imageUrl: relation === "original" && curatedArtworkAvailable
           ? "https://i.ytimg.com/vi/PFcPopYxft4/hqdefault.jpg"
-          : first[0]?.performance.sources[0]?.thumbnailUrl ?? null,
+          : artwork,
         songCount: Number(count?.songs ?? 0), performanceCount: Number(count?.performances ?? 0), query: { relation } });
     }
     return [...defaults, ...members.map(member => ({ id: `member-${member.uid}`, version: 1,
@@ -1823,8 +1834,31 @@ export class D1PublicCatalogReader
         binds.push(query.after.releasedAt, query.after.releasedAt, query.after.id);
       }
     }
-    const rows = await this.playlistRows(conditions, [...binds, query.limit + 1], `ORDER BY (${date}) DESC, performance.id ASC LIMIT ?`, scope);
+    let search:SearchSql|undefined;
+    // One-character substring search has no gram index; preserve its complete result set.
+    if(query.q&&Array.from(query.q).length>=2) {
+      const plan=await this.readContainsPlan(query.q);
+      const candidates=plan?containsSearchSql(query.q,plan):indexedSearchSql(query.q);
+      search={sql:`WITH ${candidates.sql}, candidate_song_ids AS MATERIALIZED (SELECT song_id FROM search_rank ${plan?'UNION SELECT song_id FROM indexed_search_rank':''})`,binds:candidates.binds};
+    }
+    const rows = await this.playlistRows(conditions, [...binds, query.limit + 1], `ORDER BY (${date}) DESC, performance.id ASC LIMIT ?`, scope,search);
     return this.hydratePlaylistRows(rows);
+  }
+
+  async resolvePlaylistArtwork(ids:string[]):Promise<import('../application/ports/playlist-repository').PlaylistArtwork[]> {
+    if(!ids.length)return [];
+    const rows=await this.all<{id:string;relation:PerformanceRow['relation_type'];release_type:PerformanceRow['release_type'];member_uids:string}>(`SELECT performance.id,performance.relation_type relation,performance.release_type,
+      (SELECT json_group_array(member.uid) FROM music_performance_participants participant JOIN music_entities entity ON entity.id=participant.entity_id
+        JOIN members member ON member.uid=entity.member_uid
+        WHERE participant.performance_id=performance.id AND participant.participant_role IN ('vocal','featured_vocal') AND entity.entity_kind='person'
+          AND member.content_access='normal' AND NOT (${publicationHiddenSql('members','member','otw','__PUBLICATION_TIME__')}) AND COALESCE(member.is_deprecated,0)<>1) member_uids
+      FROM json_each(?) requested CROSS JOIN music_performances performance JOIN music_songs song ON song.id=performance.song_id
+      WHERE performance.id=requested.value AND ${PUBLIC_PERFORMANCE_PREDICATE} AND ${PUBLIC_SONG_PREDICATE}`,[JSON.stringify(ids)]);
+    if(!rows.length)return [];
+    const query=artworkSourceQuery(rows.map(row=>row.id));
+    const sources=await this.all<ArtworkSourceRow>(query.sql,query.binds);
+    const byId=new Map<string,ArtworkSourceRow[]>();for(const source of sources) {const list=byId.get(source.performanceId)??[];list.push({...source,isPrimary:Boolean(source.isPrimary),channelActive:true,channelApproved:true});byId.set(source.performanceId,list);}
+    return rows.map(row=>{const selection=selectPublicPlaybackSource(byId.get(row.id)??[],row.release_type);return {id:row.id,relation:row.relation,memberUids:JSON.parse(row.member_uids) as number[],imageUrl:selection.playbackSource?.availabilityStatus==='playable'?selection.playbackSource.thumbnailUrl:null};});
   }
 
   async resolvePlaylistPerformances(ids: string[], scope: "official" | "all" = "official"): Promise<PublicCatalogPerformanceDetail[]> {
@@ -1832,15 +1866,16 @@ export class D1PublicCatalogReader
     return this.hydratePlaylistRows(await this.playlistRows([`performance.id IN (${placeholders(ids.length)})`], ids, "", scope));
   }
 
-  private playlistRows(conditions: string[], binds: SqlBind[], suffix = "", scope: "official" | "broadcast" | "all" = "official") {
-    return this.all<CandidateRow>(`SELECT song.id AS song_id, song.slug, song.title, song.normalized_title,
+  private playlistRows(conditions: string[], binds: SqlBind[], suffix = "", scope: "official" | "broadcast" | "all" = "official", search?:SearchSql) {
+    return this.all<CandidateRow>(`${search?.sql??""} SELECT song.id AS song_id, song.slug, song.title, song.normalized_title,
       song.is_otw_original, song.original_release_date, song.original_release_precision,
       performance.id AS performance_id, performance.relation_type, performance.release_type,
       performance.participation_type, performance.broadcast_metadata, ${performanceDate(scope)} AS released_at, 1 AS published_performance_count,
       NULL AS relevance_rank, NULL AS normalized_participant, NULL AS search_phase
-      FROM music_performances AS performance JOIN music_songs AS song ON song.id = performance.song_id
+      ${search?"FROM candidate_song_ids candidate CROSS JOIN music_songs song CROSS JOIN music_performances performance":"FROM music_performances performance JOIN music_songs song ON song.id=performance.song_id"}
       WHERE ${performancePredicate(scope)} AND ${PUBLIC_SONG_PREDICATE}
-      ${conditions.map(condition => `AND (${condition})`).join(" ")} ${suffix}`, binds);
+      ${search?"AND song.id=candidate.song_id AND performance.song_id=song.id":""}
+      ${conditions.map(condition => `AND (${condition})`).join(" ")} ${suffix}`, [...search?.binds??[],...binds]);
   }
 
   private async hydratePlaylistRows(rows: CandidateRow[]): Promise<PublicCatalogPerformanceDetail[]> {
@@ -1848,7 +1883,7 @@ export class D1PublicCatalogReader
     return songs.map(song => ({ song, performance: song.representativePerformance }));
   }
 
-  async readMemberSummaries(): Promise<OtwPlayMemberSummary[]> {
+  async readMemberSummaries(code?:string): Promise<OtwPlayMemberSummary[]> {
     this.resetDiagnostics();
     const rows = await this.all<{
       uid: number; code: string; name: string; oshi_mark: string | null;
@@ -1861,6 +1896,7 @@ export class D1PublicCatalogReader
         JOIN music_performances AS performance ON performance.id = participant.performance_id
         JOIN music_songs AS song ON song.id = performance.song_id
         WHERE participant.participant_role IN ('vocal', 'featured_vocal')
+          ${code?"AND entity.member_uid IN(SELECT uid FROM members WHERE code=? COLLATE NOCASE)":""}
           AND ${PUBLIC_PERFORMANCE_PREDICATE} AND ${PUBLIC_SONG_PREDICATE}
       ), totals AS (
         SELECT member_uid, COUNT(DISTINCT song_id) AS song_count,
@@ -1874,7 +1910,8 @@ export class D1PublicCatalogReader
         COALESCE(totals.performance_count, 0) AS performance_count
       FROM members AS member LEFT JOIN totals ON totals.member_uid = member.uid
       WHERE member.content_access = 'normal' AND NOT (${publicationHiddenSql("members","member","otw","__PUBLICATION_TIME__")}) AND (member.is_deprecated IS NULL OR member.is_deprecated = 0)
-      ORDER BY member.uid`);
+      ${code?"AND member.code=? COLLATE NOCASE":""}
+      ORDER BY member.uid`,code?[code,code]:[]);
     return rows.map(row => ({
       uid: row.uid, code: row.code, name: row.name, oshiMark: row.oshi_mark,
       unitName: row.unit_name, imageUrl: row.image_url || `/profile/${row.code}.webp`,
@@ -1886,7 +1923,7 @@ export class D1PublicCatalogReader
     return this.readMeta();
   }
 
-  async listPublishedSeoSongSlugs(): Promise<string[]> {
+  async listPublishedSeoSongSlugs(limit = 5001): Promise<string[]> {
     this.resetDiagnostics();
     const rows = await this.all<{ slug: string }>(`
       SELECT song.slug
@@ -1899,8 +1936,32 @@ export class D1PublicCatalogReader
             AND ${PUBLIC_PERFORMANCE_PREDICATE}
         )
       ORDER BY song.slug ASC, song.id ASC
-      LIMIT 5001`);
+      LIMIT ?`, [limit]);
     return rows.map(({ slug }) => slug);
+  }
+
+  async readSongContentBySlugs(slugs: readonly string[]) {
+    this.resetDiagnostics();
+    if (!slugs.length) return [];
+    const rows = await this.all<{ song_id:string; slug:string; title:string; performance_id:string }>(`
+      SELECT song.id AS song_id, song.slug, song.title, performance.id AS performance_id
+      FROM music_songs song CROSS JOIN music_performances performance
+      WHERE song.slug IN (SELECT value FROM json_each(?)) AND performance.song_id = song.id
+        AND ${PUBLIC_SONG_PREDICATE} AND ${PUBLIC_PERFORMANCE_PREDICATE}
+      ORDER BY song.slug, performance.released_at DESC, performance.id ASC`, [JSON.stringify(slugs)]);
+    if (!rows.length) return [];
+    const ids = rows.map(row => row.performance_id);
+    const [participants, sources] = await this.batchAll([participantQueryForPerformanceIds(ids),sourceQueryForPerformanceIds(ids)]);
+    type ContentPerformance = { participants:Array<{creditName:string}>; sources:Array<Pick<HydratedSource,"sourceRole"|"availabilityStatus"|"title"|"externalId">> };
+    const byPerformance = new Map<string, ContentPerformance>(rows.map(row => [row.performance_id,{participants:[],sources:[]}]));
+    for (const item of participants as ParticipantRow[]) byPerformance.get(item.performance_id)?.participants.push({creditName:item.credit_name_snapshot});
+    for (const item of sources as SourceRow[]) byPerformance.get(item.performance_id)?.sources.push({sourceRole:item.source_role,availabilityStatus:item.availability_status,title:item.title,externalId:item.external_id});
+    const bySong = new Map<string, {slug:string;title:string;performances:ContentPerformance[]}>();
+    for (const row of rows) {
+      const song = bySong.get(row.slug) ?? {slug:row.slug,title:row.title,performances:[]};
+      song.performances.push(byPerformance.get(row.performance_id)!); bySong.set(row.slug,song);
+    }
+    return slugs.flatMap(slug => bySong.has(slug) ? [bySong.get(slug)!] : []);
   }
 
   async readPublishedSongSeoBySlug(

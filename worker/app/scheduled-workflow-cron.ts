@@ -1,3 +1,4 @@
+import { CloudflareD1ReadBudget } from "../platform/cloudflare-d1-read-budget";
 import { OTW_PLAY_CHANNEL_POLL_CRON_MINUTE } from "@contracts/otw-play";
 import { isRetiredScheduledJob, type ScheduledJobType } from "@contracts/scheduled-operations";
 import { ScheduledJobCoordinator } from "../features/scheduled-operations";
@@ -92,10 +93,13 @@ export async function handleScheduledWorkflowCron(event:ScheduledController,env:
 }
 
 async function dispatchScheduledWorkflows(event:ScheduledController,env:Env):Promise<void> {
-  const jobs = selectScheduledWorkflowJobs(
+  const selectedJobs = selectScheduledWorkflowJobs(
     event.cron,
     event.scheduledTime,
   );
+  if (selectedJobs.length === 0) return;
+  const budget = await new CloudflareD1ReadBudget(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_D1_TOKEN).read();
+  const jobs = budget.status === "available" ? selectedJobs : selectedJobs.filter(job => job === "ingestion_recovery");
   if (jobs.length === 0) return;
   const workflow = env.SCHEDULED_OPERATIONS_WORKFLOW;
   if (!workflow) {

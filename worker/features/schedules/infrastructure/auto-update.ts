@@ -7,7 +7,6 @@ import {
   members,
   pendingSchedules,
   scheduleBroadcastObservations,
-  scheduleCandidateRejections,
   schedules,
 } from "@db/schema";
 import type {
@@ -71,6 +70,14 @@ const resolveVideoTiming = (video: ChzzkVideo) => {
   };
 };
 
+// Legacy compound rejections keep global fragment suppression; simple history uses the VOD index.
+const rejectedCandidateSql = `SELECT vod_id FROM schedule_candidate_rejections WHERE vod_id IN(SELECT value FROM json_each(?))
+  UNION SELECT source.value AS vod_id FROM schedule_candidate_rejections rejection INDEXED BY idx_schedule_rejections_fragments
+  CROSS JOIN json_each(CASE WHEN json_valid(rejection.source_vod_ids) THEN CASE WHEN json_type(rejection.source_vod_ids)='array' THEN rejection.source_vod_ids ELSE '[]' END ELSE '[]' END) source
+  WHERE rejection.source_vod_ids IS NOT NULL AND rejection.source_vod_ids<>'[]'
+    AND source.type='text' AND source.value IN(SELECT value FROM json_each(?))`;
+const readRejectedCandidates=async(db:DbInstance,ids:string[])=>ids.length?(await db.$client.prepare(rejectedCandidateSql).bind(JSON.stringify(ids),JSON.stringify(ids)).all<{vod_id:string}>()).results:[];
+
 const insertPendingSchedule = async (
   db: DbInstance,
   item: NewPendingSchedule,
@@ -109,14 +116,7 @@ const insertPendingSchedule = async (
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     WHERE ? IS NULL
        OR NOT EXISTS (
-         SELECT 1
-         FROM schedule_candidate_rejections AS rejection
-         WHERE rejection.vod_id = ?
-            OR EXISTS (
-              SELECT 1
-              FROM json_each(?) AS source
-              WHERE source.value = rejection.vod_id
-            )
+         ${rejectedCandidateSql}
        )
     ON CONFLICT DO NOTHING RETURNING id`,
     )
@@ -145,8 +145,8 @@ const insertPendingSchedule = async (
       item.vod_duration_seconds ?? null,
       item.vod_thumbnail_url ?? null,
       item.vod_id ?? null,
-      item.vod_id ?? null,
-      item.source_vod_ids ?? "[]",
+      JSON.stringify([...(item.vod_id?[item.vod_id]:[]),...parseJsonArray(item.source_vod_ids??null)]),
+      JSON.stringify([...(item.vod_id?[item.vod_id]:[]),...parseJsonArray(item.source_vod_ids??null)]),
     );
   const logStatement = db.$client
     .prepare(
@@ -858,16 +858,12 @@ export const autoUpdateSchedules = async (
   const decisions = matchBroadcastSessions(sessionsInRange, matcherSchedules);
 
   // 4. 기존 거부와 pending을 세션 대표 ID 및 모든 조각 ID로 비교한다.
-  const rejectedRows = options.originalInput?.rejections??await db
-    .select({
-      vod_id: scheduleCandidateRejections.vod_id,
-      source_vod_ids: scheduleCandidateRejections.source_vod_ids,
-    })
-    .from(scheduleCandidateRejections);
+  const candidateDecisions = decisions.filter((decision):decision is Extract<AutoUpdateSessionDecision,{kind:"candidate"}>=>decision.kind==='candidate');
+  const rejectedRows = options.originalInput?.rejections??await readRejectedCandidates(db,[...new Set(candidateDecisions.flatMap(decision=>decision.session.sourceVodIds))]);
   const rejectedVodIds = new Set(
     rejectedRows.flatMap((row) => [
       row.vod_id,
-      ...parseJsonArray(row.source_vod_ids),
+      ...parseJsonArray("source_vod_ids" in row?row.source_vod_ids as string|null:null),
     ]),
   );
   const pendingQuery = db
@@ -890,12 +886,6 @@ export const autoUpdateSchedules = async (
         ),
       )
     : await pendingQuery);
-  const candidateDecisions = decisions.filter(
-    (
-      decision,
-    ): decision is Extract<AutoUpdateSessionDecision, { kind: "candidate" }> =>
-      decision.kind === "candidate",
-  );
   const candidateByVodId = new Map(
     candidateDecisions.map((decision) => [decision.session.vodId, decision]),
   );
@@ -1021,16 +1011,11 @@ export const autoUpdateSchedules = async (
     newPendingKeys.add(candidate.pendingKey);
     if("conflicted" in insertResult && insertResult.conflicted) continue;
     if (insertResult.results.length !== 1) {
-      const currentRejections = await db
-        .select({
-          vod_id: scheduleCandidateRejections.vod_id,
-          source_vod_ids: scheduleCandidateRejections.source_vod_ids,
-        })
-        .from(scheduleCandidateRejections);
+      const currentRejections = await readRejectedCandidates(db,candidate.sourceVodIds);
       const currentRejectedVodIds = new Set(
         currentRejections.flatMap((row) => [
           row.vod_id,
-          ...parseJsonArray(row.source_vod_ids),
+          ...parseJsonArray("source_vod_ids" in row?row.source_vod_ids as string|null:null),
         ]),
       );
       if (

@@ -1,3 +1,4 @@
+import { mergeAdminCatalogRows, useOtwPlayAdminCatalogLookup } from "../../queries/use-admin-catalog";
 import { useState } from "react";
 import type { OtwPlayAdminCatalogDto } from "@contracts/otw-play";
 import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
@@ -29,8 +30,9 @@ export function SongConnectionPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const lookup = useOtwPlayAdminCatalogLookup("songs", query, Boolean(catalog.paged && query.trim()));
   const normalizedQuery = normalizeSongSearch(query);
-  const activeSongs = catalog.songs.filter((song) => song.archivedAt === null);
+  const activeSongs = mergeAdminCatalogRows(catalog.songs, lookup.data?.songs).filter((song) => song.archivedAt === null);
   const matches = normalizedQuery
     ? activeSongs
         .filter((song) =>
@@ -41,22 +43,22 @@ export function SongConnectionPicker({
           ].some((value) => normalizeSongSearch(value).includes(normalizedQuery)),
         )
         .sort((left, right) => left.title.localeCompare(right.title, "ko"))
-        .slice(0, 12)
+        .slice(0, catalog.paged ? undefined : 12)
     : [];
   const exactSongExists =
     normalizedQuery !== "" &&
-    activeSongs.some((song) =>
+    (lookup.data?.exactSongExists || activeSongs.some((song) =>
       [song.title, ...(song.aliases ?? []).map((alias) => alias.alias)].some(
         (value) => normalizeSongSearch(value) === normalizedQuery,
       ),
-    );
+    ));
   const selectedSong =
     selectedSongId === "__new"
       ? null
       : activeSongs.find((song) => song.id === selectedSongId) ?? null;
   const inputId = `song-search-${inputKey}`;
   const resultListId = `song-search-results-${inputKey}`;
-  const canCreate = Boolean(onSelectNew && normalizedQuery && !exactSongExists);
+  const canCreate = Boolean(onSelectNew && normalizedQuery && !exactSongExists && lookup.ready);
   const optionCount = matches.length + Number(canCreate);
   const expanded = open && normalizedQuery !== "";
   const selectOption = (index: number) => {
@@ -108,6 +110,7 @@ export function SongConnectionPicker({
           }
         }}
       />
+      {lookup.isError&&<p role="alert" className="text-sm text-destructive">곡 검색에 실패했습니다. 다시 검색해 주세요.</p>}
       {expanded ? (
         <div
           id={resultListId}
@@ -136,6 +139,8 @@ export function SongConnectionPicker({
             </button>
           ))}
           {!onSelectNew && matches.length === 0 && <p className="p-2 text-sm text-muted-foreground">검색 결과가 없습니다. 다른 곡명·별칭·원곡 가수로 검색해 주세요.</p>}
+          {lookup.hasNextPage && <button type="button" className="w-full p-2 text-sm" disabled={lookup.isFetchingNextPage}
+            onMouseDown={event => event.preventDefault()} onClick={() => void lookup.fetchNextPage()}>검색 결과 더 보기</button>}
           {canCreate ? (
             <button
               type="button"

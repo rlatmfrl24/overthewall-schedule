@@ -1,3 +1,4 @@
+import { CloudflareD1ReadBudget } from "../../../platform/cloudflare-d1-read-budget";
 import { parseSiteId } from "@contracts/site-definition";
 import type {
   ScheduledJobQueueMessage,
@@ -68,6 +69,11 @@ export class ScheduledJobCoordinator {
       idempotencyKey,
     );
     if (existingRun && existingRun.status !== "queued") return existingRun;
+
+    if (!existingRun && jobType !== "ingestion_recovery") {
+      const budget = await new CloudflareD1ReadBudget(this.env.CLOUDFLARE_ACCOUNT_ID, this.env.CLOUDFLARE_D1_TOKEN).read();
+      if (budget.status !== "available") return null;
+    }
 
     // Scheduled probes are intentionally more frequent than several provider
     // cadences. Resolve due targets before creating durable run/item/outbox

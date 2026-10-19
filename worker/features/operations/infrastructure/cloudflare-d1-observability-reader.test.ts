@@ -58,6 +58,8 @@ const payload = {
   },
 };
 
+Object.assign(payload.data.viewer.accounts[0], { accountDaily: payload.data.viewer.accounts[0].daily, reads: [] });
+
 describe("Cloudflare D1 observability reader", () => {
   it("returns an unconfigured read without making an external request", async () => {
     const fetcher = vi.fn();
@@ -146,6 +148,26 @@ describe("Cloudflare D1 observability reader", () => {
         }],
       },
     });
+  });
+
+  it("reports the account allowance separately from each database contribution", async () => {
+    const body = structuredClone(payload);
+    Object.assign(body.data.viewer.accounts[0], {
+      accountDaily: [...body.data.viewer.accounts[0].daily, { sum: { readQueries: 30, writeQueries: 1, rowsRead: 4_600_000, rowsWritten: 10 }, dimensions: { datetimeHour: "2026-09-03T07:00:00.000Z", databaseId: "second-db" } }],
+      reads: [{ sum: { rowsRead: 900_000 }, count: 10, dimensions: { query: "SELECT * FROM youtube_videos" } }],
+    });
+    const fetcher = vi.fn<typeof fetch>(async () => Response.json(body));
+    const result = await new CloudflareD1ObservabilityReader("account", "database", "token", fetcher as typeof fetch, () => NOW, null).read7Days();
+    expect(result).toMatchObject({
+      currentDay: { rowsRead: 500_000 },
+      accountCurrentDay: { rowsRead: 5_100_000, rowsReadLimit: 5_000_000, rowsReadPercent: 102 },
+      databaseContributions: [{ databaseId: "second-db", rowsRead: 4_600_000 }, { databaseId: "database", rowsRead: 500_000 }],
+      topReadWorkloads: [{ rowsRead: 900_000, queryCount: 10 }],
+    });
+    const request = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+    expect(JSON.stringify(request.variables.accountFilter)).not.toContain("databaseId");
+    expect(request.variables.accountFilter).toEqual({ datetimeHour_geq: "2026-09-03T00:00:00.000Z", datetimeHour_leq: "2026-09-03T08:00:00.000Z" });
+    expect(JSON.stringify(result.topReadWorkloads)).not.toContain("SELECT");
   });
 
   it.each([401, 403])("maps upstream %s to a permission error", async (status) => {

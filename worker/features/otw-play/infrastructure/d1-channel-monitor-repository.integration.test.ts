@@ -1,3 +1,4 @@
+import { meterD1 } from "../../../test-support/d1-meter";
 import { getDb } from "../../../platform/db";
 import { createD1KirinukiRepository } from "../../youtube/infrastructure/d1-kirinuki-repository";
 import { readAdminReviewSummary } from "./admin-review-summary";
@@ -109,6 +110,23 @@ beforeEach(async () => {
 });
 
 describe("D1ChannelMonitorRepository", () => {
+  it("counts only newly inserted origins without counting accumulated history", async () => {
+    const repository = new D1ChannelMonitorRepository(db);
+    const channel = await repository.findEligibleChannel("UCmmmmmmmmmmmmmmmmmmmmmm");
+    const monitor = await repository.create({ id:'cost-monitor',eventId:'cost-create',approvalEventId:'cost-approval',channel:channel!,uploadsPlaylistId:'UUmmmmmmmmmmmmmmmmmmmmmm',lastSeenVideoId:'AAAAAAAAAAA',approval,actorUserId:'admin-1',now:NOW });
+    await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO music_ingestion_candidates(id,provider,external_video_id,candidate_kind,status,classification,first_discovered_at,last_discovered_at,retention_expires_at,created_at,updated_at) SELECT 'origin-cost-'||x,'youtube',printf('%011d',x),'singing_clip','needs_input','scope_review',1,1,9999999999999,1,1 FROM n").run();
+    await db.prepare("INSERT INTO music_channel_upload_candidate_origins(monitor_id,candidate_id,provider_published_at,discovered_at,monitor_generation) SELECT ?,id,1,1,? FROM music_ingestion_candidates WHERE id LIKE 'origin-cost-%'").bind(monitor.id,monitor.generation).run();
+    const meter = meterD1(db);
+    const measured = new D1ChannelMonitorRepository(meter.db);
+    const input = { monitorId:monitor.id,expectedVersion:monitor.version,monitorGeneration:monitor.generation,now:NOW+1 };
+    expect(await measured.recordCandidates({ ...input, observations:[] })).toBe(0);
+    const empty = meter.summary();
+    expect.soft(empty.rowsRead).toBeLessThan(100);
+    expect(await measured.recordCandidates({ ...input, observations:[observation('BBBBBBBBBBB'),observation('CCCCCCCCCCC')] })).toBe(2);
+    expect(await measured.recordCandidates({ ...input, observations:[observation('BBBBBBBBBBB')] })).toBe(0);
+    console.info('ORIGIN_COUNT_D1_COST',JSON.stringify({empty,total:meter.summary()}));
+  });
+
   it("keeps VOD registration, deletion and Play collection independent for the same YouTube channel", async () => {
     await applyD1Migrations(db, testEnv.OTW_PLAY_CHANNEL_SEPARATION_MIGRATIONS);
     const vod = createD1KirinukiRepository(getDb(testEnv));
