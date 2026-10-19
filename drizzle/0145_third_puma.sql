@@ -1,0 +1,1 @@
+CREATE INDEX `idx_scheduled_job_runs_status_accepted` ON `scheduled_job_runs` (`status`,"accepted_at" DESC,"id" DESC);

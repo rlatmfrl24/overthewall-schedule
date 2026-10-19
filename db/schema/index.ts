@@ -829,6 +829,7 @@ export const xPostReferences = sqliteTable(
       table.next_attempt_at,
     ),
     index("idx_x_post_references_target").on(table.referenced_post_id),
+    index("idx_x_post_references_lease_token").on(table.lease_token).where(sql`lease_token IS NOT NULL`),
     index("idx_x_post_references_author_due").on(table.author_state, table.author_next_attempt_at),
     check(
       "x_post_references_relation_check",
@@ -1445,6 +1446,7 @@ export const updateLogs = sqliteTable(
   },
   (table) => [
     index("idx_update_logs_created_at").on(table.created_at),
+    index("idx_update_logs_datetime").on(sql`datetime(${table.created_at})`),
     index("idx_update_logs_action_created_at").on(
       table.action,
       table.created_at,
@@ -3831,6 +3833,9 @@ export const scheduledJobRuns = sqliteTable(
     updated_at: integer("updated_at").notNull(),
   },
   (table) => [
+    index("idx_scheduled_job_runs_status_accepted").on(table.status, sql`${table.accepted_at} DESC`, sql`${table.id} DESC`),
+    index("idx_scheduled_job_runs_accepted").on(sql`${table.accepted_at} DESC`, sql`${table.id} DESC`),
+    index("idx_scheduled_job_runs_job_accepted").on(table.job_type, sql`${table.accepted_at} DESC`, sql`${table.id} DESC`),
     uniqueIndex("uidx_scheduled_job_runs_idempotency").on(
       table.idempotency_key,
     ),
@@ -3895,6 +3900,7 @@ export const scheduledJobItems = sqliteTable(
     updated_at: integer("updated_at").notNull(),
   },
   (table) => [
+    index("idx_scheduled_job_items_run_status_updated").on(table.run_id, table.status, sql`${table.updated_at} DESC`),
     uniqueIndex("uidx_scheduled_job_items_run_target_phase").on(
       table.run_id,
       table.target_key,

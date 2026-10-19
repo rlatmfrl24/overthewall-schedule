@@ -10,12 +10,15 @@ export const readUpdateLogs = async (
   db: DbInstance,
   options: UpdateLogReadOptions,
 ) => {
+  const memberUid = Number(options.target);
+  const from = options.from ? `${options.from} 00:00:00` : undefined;
+  const until = options.until ? new Date(Date.parse(options.until) + 86400000).toISOString().slice(0,19).replace("T"," ") : undefined;
   const where = and(
     options.action ? eq(updateLogs.action, options.action) : undefined,
-    options.target ? sql`cast(${updateLogs.member_uid} as text) = ${options.target}` : undefined,
+    options.target ? Number.isSafeInteger(memberUid) && String(memberUid) === options.target ? eq(updateLogs.member_uid, memberUid) : sql`0` : undefined,
     options.q ? sql`instr(lower(coalesce(${updateLogs.title}, '') || ' ' || coalesce(${updateLogs.member_name}, '') || ' ' || coalesce(${updateLogs.actor_name}, '')), lower(${options.q})) > 0` : undefined,
-    options.from ? sql`datetime(${updateLogs.created_at}) >= datetime(${options.from})` : undefined,
-    options.until ? sql`datetime(${updateLogs.created_at}) < datetime(${options.until}, '+1 day')` : undefined,
+    from ? sql`datetime(${updateLogs.created_at}) >= ${from}` : undefined,
+    until ? sql`datetime(${updateLogs.created_at}) < ${until}` : undefined,
   );
   const logQuery = db.select().from(updateLogs).where(where).$dynamic();
 

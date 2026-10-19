@@ -218,6 +218,12 @@ const toYouTubePartialFailure = (
   };
 };
 
+const groupRunEvidence = <T extends {run_id:string}>(rows:readonly T[]) => {
+  const grouped=new Map<string,T[]>();
+  for(const row of rows) { const items=grouped.get(row.run_id)??[];items.push(row);grouped.set(row.run_id,items); }
+  return grouped;
+};
+
 const toRunDto = (
   run: ScheduledJobRunRecord,
   progress: OperationRunProgressDto,
@@ -961,117 +967,128 @@ export class D1ScheduledJobRepository {
 
   async readRunDto(runId: string) {
     const run = await this.readRun(runId);
-    if (!run || !isScheduledJobType(run.job_type)) return null;
-    const partialEvidence = run.job_type === "youtube_feed_collection" || run.status === "partial"
-      ? this.db.prepare(
-        `SELECT i.id, i.target_key, i.phase, i.status, i.attempts,
-                i.result_json, i.last_error_code, i.last_error, i.updated_at,
-                EXISTS(
-                  SELECT 1 FROM scheduled_outbox o
-                  WHERE o.item_id = i.id
-                    AND ${unresolvedOutboxSql}
-                ) AS retry_pending
-         FROM scheduled_job_items i
-         WHERE i.run_id = ? AND i.status = 'partial'`,
-      ).bind(runId).all<PartialItemEvidenceRow>()
-      : Promise.resolve({ results: [] as PartialItemEvidenceRow[] });
-    const xEvidence = run.job_type === "x_collection"
-      ? this.db.prepare(
-        `SELECT i.id, i.target_key, i.status, i.attempts, i.updated_at,
-                i.last_error_code, i.last_error, i.result_json,
-                EXISTS(SELECT 1 FROM scheduled_outbox o WHERE o.item_id = i.id AND i.attempts > 0
-                  AND ${unresolvedOutboxSql}) AS retry_pending,
-                (SELECT MIN(o.available_at) FROM scheduled_outbox o WHERE o.item_id = i.id AND i.attempts > 0
-                  AND ${unresolvedOutboxSql}) AS next_retry_at
-         FROM scheduled_job_items i WHERE i.run_id = ? AND i.phase = 'collect'
-         ORDER BY i.target_key, i.id`,
-      ).bind(runId).all<XCollectionItemEvidence>()
-      : Promise.resolve({ results: [] as XCollectionItemEvidence[] });
-    const [progressRows, failuresResult, partialResult, xResult] = await Promise.all([
-      this.db.prepare(
-        `SELECT status, COUNT(*) AS count
-         FROM scheduled_job_items WHERE run_id = ? GROUP BY status`,
-      ).bind(runId).all<{ status: string; count: number }>(),
-      this.db.prepare(
-        `SELECT i.id, i.target_key, i.phase, i.status, i.attempts,
-                i.result_json, i.last_error_code, i.last_error, i.updated_at,
-                EXISTS(
-                  SELECT 1 FROM scheduled_outbox o
-                  WHERE o.item_id = i.id
-                    AND ${unresolvedOutboxSql}
-                ) AS retry_pending
-         FROM scheduled_job_items i
-         WHERE i.run_id = ? AND i.status = 'failed'
-         ORDER BY i.updated_at DESC
-         LIMIT 20`,
-      ).bind(runId).all<FailedItemEvidenceRow>(),
-      partialEvidence,
-      xEvidence,
+    return run ? (await this.readRunDtos([run]))[0] ?? null : null;
+  }
+
+  private async readRunDtos(input: ScheduledJobRunRecord[]): Promise<OperationRunDto[]> {
+    const runs = input.filter(run => isScheduledJobType(run.job_type));
+    if (!runs.length) return [];
+    const ids = JSON.stringify(runs.map(run => run.id));
+    const partialIds = JSON.stringify(runs.filter(run => run.job_type === 'youtube_feed_collection' || run.status === 'partial').map(run => run.id));
+    const xIds = JSON.stringify(runs.filter(run => run.job_type === 'x_collection').map(run => run.id));
+    const youtubeIds = JSON.stringify(runs.filter(run => run.job_type === 'youtube_feed_collection').map(run => run.id));
+    const columns = `i.run_id, i.id, i.target_key, i.phase, i.status, i.attempts,
+      i.result_json, i.last_error_code, i.last_error, i.updated_at,
+      EXISTS(SELECT 1 FROM scheduled_outbox o WHERE o.item_id=i.id AND ${unresolvedOutboxSql}) AS retry_pending`;
+    const [progressRows, failuresResult, partialResult, xResult, youtubeResult] = await Promise.all([
+      this.db.prepare(`SELECT run_id,status,COUNT(*) AS count FROM scheduled_job_items WHERE run_id IN (SELECT value FROM json_each(?)) GROUP BY run_id,status`).bind(ids).all<{run_id:string;status:string;count:number}>(),
+      this.db.prepare(`SELECT ${columns} FROM json_each(?) requested
+        CROSS JOIN json_each((SELECT json_group_array(row_key) FROM (
+          SELECT rowid AS row_key FROM scheduled_job_items INDEXED BY idx_scheduled_job_items_run_status_updated WHERE run_id=requested.value AND status='failed' ORDER BY updated_at DESC LIMIT 20
+        ))) selected CROSS JOIN scheduled_job_items i WHERE i.rowid=selected.value ORDER BY i.run_id,i.updated_at DESC`)
+        .bind(ids).all<FailedItemEvidenceRow & {run_id:string}>(),
+      partialIds === '[]' ? Promise.resolve({results:[]}) : this.db.prepare(`SELECT ${columns} FROM scheduled_job_items i WHERE i.run_id IN (SELECT value FROM json_each(?)) AND i.status='partial'`)
+        .bind(partialIds).all<PartialItemEvidenceRow & {run_id:string}>(),
+      xIds === '[]' ? Promise.resolve({results:[]}) : this.db.prepare(`SELECT i.run_id,i.id,i.target_key,i.status,i.attempts,i.updated_at,i.last_error_code,i.last_error,i.result_json,
+        EXISTS(SELECT 1 FROM scheduled_outbox o WHERE o.item_id=i.id AND i.attempts>0 AND ${unresolvedOutboxSql}) AS retry_pending,
+        (SELECT MIN(o.available_at) FROM scheduled_outbox o WHERE o.item_id=i.id AND i.attempts>0 AND ${unresolvedOutboxSql}) AS next_retry_at
+        FROM scheduled_job_items i WHERE i.run_id IN (SELECT value FROM json_each(?)) AND i.phase='collect' ORDER BY i.run_id,i.target_key,i.id`)
+        .bind(xIds).all<XCollectionItemEvidence & {run_id:string}>(),
+      youtubeIds === '[]' ? Promise.resolve({results:[]}) : this.db.prepare(`SELECT i.run_id,i.result_json FROM json_each(?) requested CROSS JOIN scheduled_job_items i
+        WHERE i.rowid=(SELECT rowid FROM scheduled_job_items WHERE run_id=requested.value AND phase='collect' ORDER BY updated_at DESC LIMIT 1)`)
+        .bind(youtubeIds).all<{run_id:string;result_json:string|null}>(),
     ]);
-    // The YouTube planner creates one wrapper item per run. Read that wrapper
-    // separately so the operator-visible failure list remains bounded.
-    const partialItems = partialResult.results;
-    const partialCount = Number(
-      progressRows.results.find((row) => row.status === "partial")?.count ?? 0,
-    );
-    const normalizeYouTubePartial = canNormalizeYouTubePartials(
-      run,
-      partialCount,
-      partialItems,
-    );
-    const progress = run.job_type === "youtube_feed_collection"
-      ? applyYouTubePartialProgress(toProgress(progressRows.results), partialItems)
-      : toProgress(progressRows.results);
-    const failures: OperationRunFailureDto[] = [
-      ...failuresResult.results.map((item) => ({
-        itemId: item.id,
-        targetKey: item.target_key,
-        phase: item.phase,
-        code: item.last_error_code,
-        message: item.last_error ?? "Unknown scheduled job failure",
-        attempts: item.attempts,
-        lastAttemptAt: item.updated_at,
-      })),
-      ...partialItems
-        .filter((item) => run.job_type !== "youtube_feed_collection" || !isResolvedYouTubePartial(item))
-        .map((item) => run.job_type === "youtube_feed_collection"
-          ? toYouTubePartialFailure(item)
-          : {
-              itemId: item.id,
-              targetKey: item.target_key,
-              phase: item.phase,
-              code: item.last_error_code,
-              message: item.last_error ?? "Scheduled work is incomplete",
-              attempts: item.attempts,
-              lastAttemptAt: item.updated_at,
-            }),
-    ].slice(0, 20);
-    const effectiveStatus = normalizeYouTubePartial ? "succeeded"
-      : run.job_type === "youtube_feed_collection" && run.status === "succeeded" && partialCount > 0
-        ? "partial" : run.status;
-    const dto = toRunDto(
-      { ...run, status: effectiveStatus },
-      progress,
-      failures,
-    );
-    if (run.job_type === "x_collection") {
-      dto.xCollection = { items: xResult.results.map(toXCollectionOperationItem) };
-    }
-    if (run.job_type === "youtube_feed_collection") {
-      const evidence = await this.db.prepare(
-        "SELECT result_json FROM scheduled_job_items WHERE run_id = ? AND phase = 'collect' ORDER BY updated_at DESC LIMIT 1",
-      ).bind(runId).first<{ result_json: string | null }>();
-      if (evidence?.result_json) {
-        try {
-          const result = JSON.parse(evidence.result_json) as Record<string, unknown>;
-          const keys = ["attempted", "succeeded", "failed", "metadataRefreshed", "unavailableMarked", "shortsStored", "scanPages", "exhaustedSources", "backoffSources", "backfillFailed"] as const;
-          if (keys.every((key) => typeof result[key] === "number" && Number.isFinite(result[key]) && Number(result[key]) >= 0) && typeof result.quotaBlocked === "boolean") {
-            dto.youtubeCollection = { ...Object.fromEntries(keys.map((key) => [key, result[key]])), quotaBlocked: result.quotaBlocked } as NonNullable<OperationRunDto["youtubeCollection"]>;
-          }
-        } catch { /* Historic malformed results remain unknown, not zero. */ }
+    const progressByRun=groupRunEvidence(progressRows.results), failuresByRun=groupRunEvidence(failuresResult.results), partialByRun=groupRunEvidence(partialResult.results), xByRun=groupRunEvidence(xResult.results);
+    const youtubeByRun=new Map(youtubeResult.results.map(row=>[row.run_id,row]));
+    const result:OperationRunDto[]=[];
+    for (const run of runs) {
+      const progressForRun=progressByRun.get(run.id) ?? [];
+      // The YouTube planner creates one wrapper item per run. Read that wrapper
+      // separately so the operator-visible failure list remains bounded.
+      const partialItems = partialByRun.get(run.id) ?? [];
+      const partialCount = Number(
+        progressForRun.find((row) => row.status === "partial")?.count ?? 0,
+      );
+      const normalizeYouTubePartial = canNormalizeYouTubePartials(
+        run,
+        partialCount,
+        partialItems,
+      );
+      const progress = run.job_type === "youtube_feed_collection"
+        ? applyYouTubePartialProgress(toProgress(progressForRun), partialItems)
+        : toProgress(progressForRun);
+      const failures: OperationRunFailureDto[] = [
+        ...(failuresByRun.get(run.id) ?? []).map((item) => ({
+          itemId: item.id,
+          targetKey: item.target_key,
+          phase: item.phase,
+          code: item.last_error_code,
+          message: item.last_error ?? "Unknown scheduled job failure",
+          attempts: item.attempts,
+          lastAttemptAt: item.updated_at,
+        })),
+        ...partialItems
+          .filter((item) => run.job_type !== "youtube_feed_collection" || !isResolvedYouTubePartial(item))
+          .map((item) => run.job_type === "youtube_feed_collection"
+            ? toYouTubePartialFailure(item)
+            : {
+                itemId: item.id,
+                targetKey: item.target_key,
+                phase: item.phase,
+                code: item.last_error_code,
+                message: item.last_error ?? "Scheduled work is incomplete",
+                attempts: item.attempts,
+                lastAttemptAt: item.updated_at,
+              }),
+      ].slice(0, 20);
+      const effectiveStatus = normalizeYouTubePartial ? "succeeded"
+        : run.job_type === "youtube_feed_collection" && run.status === "succeeded" && partialCount > 0
+          ? "partial" : run.status;
+      const dto = toRunDto(
+        { ...run, status: effectiveStatus },
+        progress,
+        failures,
+      );
+      if (run.job_type === "x_collection") {
+        dto.xCollection = { items: (xByRun.get(run.id) ?? []).map(toXCollectionOperationItem) };
       }
+      if (run.job_type === "youtube_feed_collection") {
+        const evidence = youtubeByRun.get(run.id);
+        if (evidence?.result_json) {
+          try {
+            const result = JSON.parse(evidence.result_json) as Record<string, unknown>;
+            const keys = ["attempted", "succeeded", "failed", "metadataRefreshed", "unavailableMarked", "shortsStored", "scanPages", "exhaustedSources", "backoffSources", "backfillFailed"] as const;
+            if (keys.every((key) => typeof result[key] === "number" && Number.isFinite(result[key]) && Number(result[key]) >= 0) && typeof result.quotaBlocked === "boolean") {
+              dto.youtubeCollection = { ...Object.fromEntries(keys.map((key) => [key, result[key]])), quotaBlocked: result.quotaBlocked } as NonNullable<OperationRunDto["youtubeCollection"]>;
+            }
+          } catch { /* Historic malformed results remain unknown, not zero. */ }
+        }
+      }
+      result.push(dto);
     }
-    return dto;
+    return result;
+  }
+
+  private async readYouTubeStatusOverrides(input: { from?:number;until?:number }) {
+    const binds:unknown[]=[];
+    const dates:string[]=[];
+    if(input.from!==undefined){dates.push('r.accepted_at>=?');binds.push(input.from);}
+    if(input.until!==undefined){dates.push('r.accepted_at<?');binds.push(input.until);}
+    const rows=await this.db.prepare(`SELECT r.id AS run_id,r.status AS run_status,r.last_error AS run_error,
+      i.id,i.target_key,i.phase,i.status,i.attempts,i.result_json,i.last_error_code,i.last_error,i.updated_at,
+      EXISTS(SELECT 1 FROM scheduled_outbox o WHERE o.item_id=i.id AND ${unresolvedOutboxSql}) AS retry_pending
+      FROM scheduled_job_items i INDEXED BY idx_scheduled_job_items_lease CROSS JOIN scheduled_job_runs r
+      WHERE i.status='partial' AND r.id=i.run_id AND r.job_type='youtube_feed_collection' AND r.status IN ('succeeded','partial')
+      ${dates.map(condition=>`AND ${condition}`).join(' ')}`)
+      .bind(...binds).all<PartialItemEvidenceRow & {run_id:string;run_status:string;run_error:string|null}>();
+    const resolved:string[]=[],unresolved:string[]=[];
+    for(const [id,items] of groupRunEvidence(rows.results)) {
+      const run=items[0];
+      const normalized=canNormalizeYouTubePartials({job_type:'youtube_feed_collection',last_error:run.run_error},items.length,items);
+      if(run.run_status==='partial' && normalized)resolved.push(id);
+      if(run.run_status==='succeeded' && !normalized)unresolved.push(id);
+    }
+    return {resolved,unresolved};
   }
 
   async listRunDtos(input: {
@@ -1082,67 +1099,47 @@ export class D1ScheduledJobRepository {
     from?: number;
     until?: number;
   }) {
-    const conditions: string[] = [
-      `r.job_type IN (${scheduledJobTypes.map(() => "?").join(", ")})`,
-    ];
-    const bindings: unknown[] = [...scheduledJobTypes];
-    if (input.jobType) {
-      conditions.push("r.job_type = ?");
-      bindings.push(input.jobType);
-    }
-    if (input.status === "succeeded" || input.status === "partial") {
-      conditions.push(
-        "(r.status = ? OR (r.job_type = 'youtube_feed_collection' AND r.status = ?))",
-      );
-      bindings.push(input.status, input.status === "succeeded" ? "partial" : "succeeded");
-    } else if (input.status) {
-      conditions.push("r.status = ?");
-      bindings.push(input.status);
-    }
-    if (input.from !== undefined) { conditions.push("r.accepted_at >= ?"); bindings.push(input.from); }
-    if (input.until !== undefined) { conditions.push("r.accepted_at < ?"); bindings.push(input.until); }
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    const readsNeedNormalization = input.status === "succeeded" ||
-      input.status === "partial";
-    const pageSize = readsNeedNormalization ? Math.max(input.limit, 50) : input.limit;
-    const runs: OperationRunDto[] = [];
-    const skip = input.offset ?? 0;
-    let offset = readsNeedNormalization ? 0 : skip;
+    const base = [`r.job_type IN (${scheduledJobTypes.map(() => '?').join(',')})`];
+    const baseBinds: unknown[] = [...scheduledJobTypes];
+    if(input.jobType){base.push('r.job_type=?');baseBinds.push(input.jobType);}
+    if(input.from!==undefined){base.push('r.accepted_at>=?');baseBinds.push(input.from);}
+    if(input.until!==undefined){base.push('r.accepted_at<?');baseBinds.push(input.until);}
+    const normalization = input.status === 'succeeded' || input.status === 'partial';
+    const overrides = normalization && (!input.jobType || input.jobType === 'youtube_feed_collection')
+      ? await this.readYouTubeStatusOverrides(input) : {resolved:[],unresolved:[]};
+    const excluded = input.status === 'succeeded' ? overrides.unresolved : overrides.resolved;
+    const included = input.status === 'succeeded' ? overrides.resolved : overrides.unresolved;
+    const conditions=[...base],binds=[...baseBinds];
+    if(input.status){conditions.push('r.status=?');binds.push(input.status);}
+    if(excluded.length){conditions.push('r.id NOT IN (SELECT value FROM json_each(?))');binds.push(JSON.stringify(excluded));}
+    const index = input.status ? input.jobType ? 'idx_scheduled_job_runs_job_status_accepted' : 'idx_scheduled_job_runs_status_accepted'
+      : input.jobType ? 'idx_scheduled_job_runs_job_accepted' : 'idx_scheduled_job_runs_accepted';
+    const select=`SELECT r.* FROM scheduled_job_runs r INDEXED BY ${index} WHERE ${conditions.join(' AND ')} ORDER BY r.accepted_at DESC,r.id DESC`;
+    const runs:OperationRunDto[]=[];
+    let offset=input.offset ?? 0;
     do {
-      const rows = await this.db.prepare(
-        `SELECT r.id FROM scheduled_job_runs r ${where}
-         ORDER BY r.accepted_at DESC, r.id DESC LIMIT ? OFFSET ?`,
-      ).bind(...bindings, pageSize, offset).all<{ id: string }>();
-      const page = await Promise.all(
-        rows.results.map((row) => this.readRunDto(row.id)),
-      );
-      runs.push(...page.filter(
-        (run): run is OperationRunDto => run !== null &&
-          (!input.status || run.status === input.status),
-      ));
-      offset += rows.results.length;
-      if (!readsNeedNormalization || rows.results.length < pageSize) break;
-    } while (runs.length < input.limit + skip);
-    return readsNeedNormalization ? runs.slice(skip, skip + input.limit) : runs.slice(0, input.limit);
+      // The two disjoint raw-status cohorts each need only the requested prefix.
+      const statement = included.length ? this.db.prepare(`SELECT * FROM (${select} LIMIT ?)
+        UNION ALL SELECT * FROM (SELECT r.* FROM json_each(?) requested CROSS JOIN scheduled_job_runs r
+          WHERE r.id=requested.value AND ${base.join(' AND ')} ORDER BY r.accepted_at DESC,r.id DESC LIMIT ?)
+        ORDER BY accepted_at DESC,id DESC LIMIT ? OFFSET ?`)
+        .bind(...binds,offset+input.limit,JSON.stringify(included),...baseBinds,offset+input.limit,input.limit,offset)
+        : this.db.prepare(`${select} LIMIT ? OFFSET ?`).bind(...binds,input.limit,offset);
+      const rows=await statement.all<ScheduledJobRunRecord>();
+      const page=await this.readRunDtos(rows.results);
+      runs.push(...page.filter(run=>!input.status || run.status===input.status));
+      offset+=rows.results.length;
+      if(!normalization || rows.results.length<input.limit)break;
+    } while(runs.length<input.limit);
+    return runs.slice(0,input.limit);
   }
 
   async listLatestRunDtosByJobType() {
-    const rows = await this.db.prepare(
-      `WITH ranked AS (
-         SELECT r.id, r.job_type,
-                ROW_NUMBER() OVER (
-                  PARTITION BY r.job_type
-                  ORDER BY r.accepted_at DESC, r.id DESC
-                ) AS row_number
-         FROM scheduled_job_runs r
-         WHERE r.job_type IN (${scheduledJobTypes.map(() => "?").join(", ")})
-       )
-       SELECT id FROM ranked WHERE row_number = 1`,
-    ).bind(...scheduledJobTypes).all<{ id: string }>();
-    const runs = await Promise.all(
-      rows.results.map((row) => this.readRunDto(row.id)),
-    );
-    return runs.filter((run): run is OperationRunDto => run !== null);
+    const rows=await this.db.prepare(`SELECT r.* FROM json_each(?) requested CROSS JOIN scheduled_job_runs r
+      WHERE r.rowid=(SELECT rowid FROM scheduled_job_runs INDEXED BY idx_scheduled_job_runs_job_accepted
+        WHERE job_type=requested.value ORDER BY accepted_at DESC,id DESC LIMIT 1)
+      ORDER BY r.job_type`).bind(JSON.stringify(scheduledJobTypes)).all<ScheduledJobRunRecord>();
+    return this.readRunDtos(rows.results);
   }
 
   async readLatestSuccessfulRunTimes() {

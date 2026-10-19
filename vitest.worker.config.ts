@@ -73,6 +73,7 @@ const SCHEDULED_OPERATIONS_MIGRATION_NAME = "0068_fixed_amazoness.sql";
 const SCHEDULED_OPERATIONS_PARTIAL_MIGRATION_NAME = "0071_gifted_romulus.sql";
 let schemaMigrations: ReturnType<typeof readD1Migrations> | undefined;
 const schemaTests = [
+  "worker/features/operations/infrastructure/read-efficiency.integration.test.ts",
   "worker/app/schedule-member-policy.integration.test.ts",
   "worker/app/archive-access.integration.test.ts",
   "worker/app/publication-schema-upgrade.integration.test.ts",
@@ -112,7 +113,7 @@ return defineConfig({
           name: `${migration.name}:control`,
           queries: migration.queries.filter(query => /^\s*ALTER TABLE `content_transition(?:s|_membership)` ADD /.test(query)),
         })) : [])];
-      const efficiencyIndexes = (prefix: string) => migrations.filter(migration => /^(0142_|0143_)/.test(migration.name)).map(migration => ({
+      const efficiencyIndexes = (prefix: string) => migrations.filter(migration => /^(0142_|0143_|0144_|0145_)/.test(migration.name)).map(migration => ({
         name: `${migration.name}:${prefix}`,
         queries: migration.queries.filter(query => query.includes(`ON \`${prefix}`)),
       })).filter(migration => migration.queries.length > 0);
@@ -339,6 +340,7 @@ return defineConfig({
               scheduledOperationsPartialMigration,
               {name:'0135_transition_scheduled_reconciliation.sql:outbox',queries:migrationsByName.get('0135_transition_scheduled_reconciliation.sql')!.queries.filter(query=>query.startsWith('ALTER TABLE `scheduled_outbox`'))},
               migrationsByName.get('0136_transition_unresolved_scheduled_outbox.sql')!,
+              ...efficiencyIndexes('scheduled_'),
             ],
           },
         },
