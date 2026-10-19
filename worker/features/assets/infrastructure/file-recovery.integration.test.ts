@@ -370,3 +370,31 @@ it("seeks profile background references without treating member underscores as w
   expect((await withoutInventory.findProfileByCode('background_cost',false))?.backgroundImages).toBeNull();
   console.info('PROFILE_BACKGROUND_D1_COST',JSON.stringify(meter.summary()));
 });
+
+it("reads immutable history once for a notice object listing while preserving historical holds",async()=>{
+  await db.prepare("WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<500) INSERT INTO content_historical_records(source_site,source_table,source_key,record_json,protocol) SELECT 'otw','music_ai_reviews',json_array('cost-'||x),json_object('text','unrelated'),1 FROM n").run();
+  await db.prepare("INSERT INTO content_historical_records(source_site,source_table,source_key,record_json,protocol) VALUES('otw','music_ai_reviews','[\"held\"]','{\"image\":\"/r2-assets/notices/thumbnails/cost-0.webp\"}',1)").run();
+  for(let i=0;i<20;i++) {
+    await bucket.put(`notices/thumbnails/cost-${i}.webp`,new Uint8Array([1,2,3]));
+    await db.prepare("INSERT OR IGNORE INTO asset_file_retention_releases(logical_key,released_at,held) VALUES(?,1,0)").bind(`notices/thumbnails/cost-${i}.webp`).run();
+  }
+  const meter=meterD1(db),rows=await new D1R2FileStore(meter.db,bucket,'otw','otw-schedule').listNoticeObjects();
+  expect(rows).toHaveLength(20);expect(rows.find(row=>row.key==='notices/thumbnails/cost-0.webp')?.recoveryHeld).toBe(true);expect(rows.find(row=>row.key==='notices/thumbnails/cost-1.webp')?.recoveryHeld).toBe(false);
+  console.info('NOTICE_LIST_D1_COST',JSON.stringify(meter.summary()));
+  expect(meter.summary().sqlCount).toBeLessThan(10);expect(meter.summary().rowsRead).toBeLessThan(30000);expect(meter.summary().rowsWritten).toBe(0);
+  for(let i=20;i<40;i++)await bucket.put(`notices/thumbnails/cost-${i}.webp`,new Uint8Array([1,2,3]));
+  const doubled=meterD1(db);await new D1R2FileStore(doubled.db,bucket,'otw','otw-schedule').listNoticeObjects();
+  console.info('NOTICE_LIST_DOUBLE_D1_COST',JSON.stringify(doubled.summary()));
+  expect(doubled.summary().rowsRead).toBeLessThan(meter.summary().rowsRead+1500);
+  for(const row of rows) expect(await store.retention(row.key,row.objectKey,row.uploadedAt)).toEqual({recoveryHeld:row.recoveryHeld,cleanupEligible:row.cleanupEligible,graceStart:row.graceStart});
+});
+
+it("checks a referenced notice key through the path index and its owning row",async()=>{
+  const {D1NoticeGateway}=await import('../../notices/infrastructure/d1-notice-gateway');
+  await db.prepare("WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO notices(content,image_urls) SELECT 'Unrelated',json_array('/r2-assets/notices/thumbnails/other-'||x||'.webp') FROM n").run();
+  await db.prepare("INSERT INTO notices(content,image_urls) VALUES('Current','[\"/r2-assets/notices/thumbnails/referenced.webp\"]')").run();
+  const meter=meterD1(db);
+  expect(await new D1NoticeGateway(getDb({otw_db:meter.db} as Env)).deleteThumbnail('notices/thumbnails/referenced.webp')).toEqual({status:'referenced'});
+  console.info('NOTICE_CURRENT_REFERENCE_D1_COST',JSON.stringify(meter.summary()));
+  expect(meter.summary().rowsRead).toBeLessThan(100);
+});

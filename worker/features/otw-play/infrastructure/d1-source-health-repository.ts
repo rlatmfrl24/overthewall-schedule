@@ -477,16 +477,16 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
       await this.database.batch([
         this.database.prepare(`SELECT COUNT(*) AS count FROM music_media_sources
           WHERE next_check_at <= ?`).bind(now),
-        this.database.prepare(`SELECT COUNT(*) AS count FROM music_media_sources
+        this.database.prepare(`SELECT COUNT(*) AS count FROM music_media_sources INDEXED BY idx_music_media_sources_unplayable_checked
           WHERE availability_status <> 'playable'`),
         this.database.prepare(`SELECT COUNT(DISTINCT aggregate_id) AS count
           FROM music_catalog_events
           WHERE event_type = 'source.recovered' AND created_at >= ?`).bind(recentSince),
         this.database.prepare(`SELECT id FROM music_media_sources
           WHERE next_check_at <= ? ORDER BY next_check_at, id LIMIT ?`).bind(now, boundedListLimit),
-        this.database.prepare(`SELECT id FROM music_media_sources
+        this.database.prepare(`SELECT id FROM music_media_sources INDEXED BY idx_music_media_sources_unplayable_checked
           WHERE availability_status <> 'playable'
-          ORDER BY COALESCE(last_checked_at, 0), id LIMIT ?`).bind(boundedListLimit),
+          ORDER BY CASE WHEN last_checked_at IS NULL THEN 0 ELSE last_checked_at END, id LIMIT ?`).bind(boundedListLimit),
         this.database.prepare(`SELECT aggregate_id AS id, MAX(created_at) AS recovered_at
           FROM music_catalog_events
           WHERE event_type = 'source.recovered' AND created_at >= ?

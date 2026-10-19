@@ -345,6 +345,11 @@ export class D1NoticeGateway implements NoticeGateway {
   }
 
   private async hasThumbnailReference(key: string) {
+    const rows=await this.db.$client.prepare(`SELECT notice.image_urls,notice.thumbnail_url FROM asset_file_reference_paths path
+      CROSS JOIN notices notice WHERE path.path IN(?,?) AND path.row_table='notices' AND notice.id=json_extract(path.row_key,'$[0]')`)
+      .bind('/r2-assets/'+key,'/'+key).all<{image_urls:string|null;thumbnail_url:string|null}>();
+    for(const row of rows.results) if(getNoticeImageUrls({...row,image_urls:row.image_urls?JSON.parse(row.image_urls) as string[]:[]}).some(url=>getOwnedNoticeThumbnailKey(url)===key)) return true;
+    // A missing/stale path projection must never authorize deletion.
     return (await this.getThumbnailReferenceCounts()).has(key);
   }
 
@@ -455,8 +460,9 @@ export class D1NoticeGateway implements NoticeGateway {
         .filter((key): key is string => Boolean(key)),
     );
 
+    const references=[...keys].some(key=>!replacementKeys.has(key))?await this.getThumbnailReferenceCounts():new Map<string,NoticeThumbnailReference>();
     for (const key of keys) {
-      if (replacementKeys.has(key) || (await this.hasThumbnailReference(key))) {
+      if (replacementKeys.has(key) || references.has(key)) {
         continue;
       }
       if (!this.bucket) {

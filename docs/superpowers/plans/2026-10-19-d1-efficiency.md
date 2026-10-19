@@ -5,7 +5,7 @@
 **Goal:** Preserve all functionality and access policies while targeting at most 5,000,000 account-wide D1 rows read per UTC day.
 **Architecture:** Narrow existing indexed reads, batch related projections and share request-local results. Reuse account analytics without D1 observation writes; never enable cross-request caching without complete invalidation evidence.
 **Tech Stack:** TypeScript, React Query, Cloudflare Workers/D1, Drizzle, Vitest; no new dependencies.
-**Spec:** User-approved plan in this conversation; audit at ../otw-publication-release/overthewall-schedule/.tmp/d1-review-20261019/review.md (absolute source recorded in ledger).
+**Spec:** User-approved plan in this conversation; accepted constraints and all33 audit dispositions are recorded in [the local implementation report](../../reports/sul-36/2026-10-19-d1-efficiency.md). Original audit source is recorded in the execution ledger.
 
 ## Global Constraints
 - Base 71913fe9c710d268664706bcb7ee03e09cad3150; isolated codex/d1-efficiency branch. Preserve other checkouts.

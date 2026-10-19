@@ -97,11 +97,8 @@ export class D1MemberReader implements MemberReader {
   private async buildProfile(member: MemberRow, includeBackgrounds: boolean): Promise<MemberProfileDto> {
     const [imageRows, cafeRows, extraLinkRows, backgroundImages] =
       await Promise.all([
-        this.db
-          .select()
-          .from(memberProfileImages)
-          .where(eq(memberProfileImages.member_uid, member.uid))
-          .orderBy(memberProfileImages.sort_order, memberProfileImages.id),
+        this.db.$client.prepare("SELECT * FROM member_profile_images INDEXED BY idx_member_profile_images_member_sort WHERE member_uid=? ORDER BY sort_order,id")
+          .bind(member.uid).all<typeof memberProfileImages.$inferSelect>().then(result=>result.results),
         this.db
           .select()
           .from(naverCafeSources)

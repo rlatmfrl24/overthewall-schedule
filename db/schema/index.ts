@@ -410,6 +410,8 @@ export const musicAiReviews = sqliteTable("music_ai_reviews", {
   updated_at: integer().notNull(),
   expires_at: integer().notNull(),
 }, table => [
+  index("idx_music_ai_reviews_expires_id").on(table.expires_at,table.id),
+  index("idx_music_ai_reviews_hash_expiry").on(table.input_hash,table.expires_at),
   index("idx_music_ai_reviews_target").on(table.target_key, table.created_at),
   index("idx_music_ai_reviews_recovery").on(table.status, table.next_retry_at),
   uniqueIndex("uidx_music_ai_reviews_active").on(table.input_hash).where(sql`${table.status} IN ('queued','running','retry_wait')`),
@@ -2121,6 +2123,7 @@ export const musicMediaSources = sqliteTable(
       sql`${table.provider_published_at} DESC`,
       table.id,
     ),
+    index("idx_music_media_sources_unplayable_checked").on(sql`CASE WHEN ${table.last_checked_at} IS NULL THEN 0 ELSE ${table.last_checked_at} END`,table.id).where(sql`${table.availability_status} <> 'playable'`),
     index("idx_music_media_sources_availability_checked").on(
       table.availability_status,
       table.last_checked_at,
@@ -2553,6 +2556,7 @@ export const musicCoverProposals = sqliteTable(
       table.submitted_by_user_id,
       table.idempotency_key,
     ),
+    index("idx_music_cover_proposals_video").on(table.youtube_video_id),
     uniqueIndex("uidx_music_cover_proposals_pending_video_segment")
       .on(table.youtube_video_id, table.segment_start_seconds)
       .where(sql`${table.status} = 'pending_review'`),

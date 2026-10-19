@@ -1,13 +1,20 @@
 import type { SiteId } from "@contracts/site-definition";
 import { getAssetContentType, getAssetMemberCode } from "../domain/asset-key-policy";
 import { parseFileReplacement } from "../domain/file-command";
-import { fileProtectedSql, releaseLegacyFileSql, NOTICE_FILE_GRACE_MS } from "./file-retention";
+import { fileProtectedSql, noticeHistoryKeysSql, noticeListingProtectedSql, releaseLegacyFileSql, NOTICE_FILE_GRACE_MS } from "./file-retention";
 
 export interface FileWriteInput { operationId: string; logicalKey: string; contentType: string; bytes: Uint8Array }
 export interface DurableFileIntent { operationId: string; logicalKey: string; versionKey: string; previousVersion: string | null; hash: string; size: number; contentType: string; memberUid:number|null;memberCode:string|null; generation: number; transitionId: string | null }
 export interface VerifiedFile { objectVersion: string; hash: string; size: number }
 
 type Row = { operation_id:string; logical_key:string; version_key:string; previous_version:string|null; hash:string; size:number; content_type:string; member_uid:number|null;member_code:string|null; generation:number; transition_id:string|null; site_id:string; resource:string; object_version:string|null; reference_committed_at:number|null; acknowledged_at:number|null;released_at:number|null;created_at:number };
+type RetentionState={protected:number;current:number};
+type LegacyRetention={released_at:number;held:number};
+const retentionInfo=(uploadedAt:number,state:RetentionState|null,version:Row|null|undefined,legacy:LegacyRetention|null|undefined)=>{
+  const graceStart=Math.max(uploadedAt,version?.acknowledged_at??0,version?.released_at??0,legacy?.released_at??0);
+  const recoveryHeld=!!state?.protected || !!state?.current || (version ? version.acknowledged_at===null || version.released_at===null : !legacy || legacy.held!==0);
+  return {recoveryHeld,cleanupEligible:!recoveryHeld&&Date.now()-graceStart>=NOTICE_FILE_GRACE_MS,graceStart};
+};
 const fromRow = (row: Row): DurableFileIntent => ({ operationId:row.operation_id, logicalKey:row.logical_key, versionKey:row.version_key, previousVersion:row.previous_version, hash:row.hash, size:row.size, contentType:row.content_type,memberUid:row.member_uid,memberCode:row.member_code, generation:row.generation, transitionId:row.transition_id });
 export const hashFileBytes = async (bytes: Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes as BufferSource)), value=>value.toString(16).padStart(2,"0")).join("");
 
@@ -126,25 +133,35 @@ export class D1R2FileStore {
     const state=await this.db.prepare(`SELECT ${fileProtectedSql("input.logical_key")} protected,EXISTS(SELECT 1 FROM asset_file_references r WHERE r.version_key=input.object_key) current FROM (SELECT ? logical_key,? object_key) input`).bind(logicalKey,objectKey).first<{protected:number;current:number}>();
     const version=await this.db.prepare("SELECT * FROM asset_file_versions WHERE version_key=?").bind(objectKey).first<Row>();
     const legacy=version?null:await this.db.prepare("SELECT released_at,held FROM asset_file_retention_releases WHERE logical_key=?").bind(logicalKey).first<{released_at:number;held:number}>();
-    const graceStart=Math.max(uploadedAt,version?.acknowledged_at??0,version?.released_at??0,legacy?.released_at??0);
-    const recoveryHeld=!!state?.protected || !!state?.current || (version ? version.acknowledged_at===null || version.released_at===null : !legacy || legacy.held!==0);
-    return {recoveryHeld,cleanupEligible:logicalKey.startsWith("notices/thumbnails/") && !recoveryHeld && Date.now()-graceStart>=NOTICE_FILE_GRACE_MS,graceStart};
+    const result=retentionInfo(uploadedAt,state,version,legacy);
+    return {...result,cleanupEligible:logicalKey.startsWith("notices/thumbnails/")&&result.cleanupEligible};
   }
 
   async listNoticeObjects() {
-    const objects:Array<{key:string;objectKey:string;size:number;uploadedAt:number;recoveryHeld:boolean;cleanupEligible:boolean;graceStart:number}>=[];
+    const objects:Array<{key:string;objectKey:string;size:number;uploadedAt:number}>=[];
     let cursor:string|undefined;
     do {
       const page=await this.bucket.list({prefix:"notices/thumbnails/",cursor});
-      for(const object of page.objects) objects.push({key:object.key,objectKey:object.key,size:object.size,uploadedAt:object.uploaded.getTime(),...await this.retention(object.key,object.key,object.uploaded.getTime())});
+      for(const object of page.objects) objects.push({key:object.key,objectKey:object.key,size:object.size,uploadedAt:object.uploaded.getTime()});
       cursor=page.truncated?page.cursor:undefined;
     } while(cursor);
     const versions=await this.db.prepare("SELECT * FROM asset_file_versions WHERE logical_key LIKE 'notices/thumbnails/%' AND site_id=? AND resource=?").bind(this.site,this.resource).all<Row>();
     for(const version of versions.results) {
       const object=await this.bucket.head(version.version_key);
-      if(object) objects.push({key:version.logical_key,objectKey:version.version_key,size:object.size,uploadedAt:object.uploaded.getTime(),...await this.retention(version.logical_key,version.version_key,object.uploaded.getTime())});
+      if(object)objects.push({key:version.logical_key,objectKey:version.version_key,size:object.size,uploadedAt:object.uploaded.getTime()});
     }
-    return objects;
+    if(!objects.length)return [];
+    const [states,versionRows,legacyRows]=await this.db.batch([
+      this.db.prepare(`WITH requested AS(SELECT json_extract(value,'$.key') logical_key,json_extract(value,'$.objectKey') object_key FROM json_each(?)),${noticeHistoryKeysSql}
+        SELECT input.object_key,${noticeListingProtectedSql('input.logical_key')} protected,EXISTS(SELECT 1 FROM asset_file_references r WHERE r.version_key=input.object_key) current FROM requested input`)
+        .bind(JSON.stringify(objects.map(({key,objectKey})=>({key,objectKey})))),
+      this.db.prepare("SELECT * FROM asset_file_versions WHERE version_key IN(SELECT value FROM json_each(?))").bind(JSON.stringify(objects.map(row=>row.objectKey))),
+      this.db.prepare("SELECT logical_key,released_at,held FROM asset_file_retention_releases WHERE logical_key IN(SELECT value FROM json_each(?))").bind(JSON.stringify([...new Set(objects.map(row=>row.key))])),
+    ]);
+    const stateMap=new Map((states.results as Array<RetentionState&{object_key:string}>).map(row=>[row.object_key,row]));
+    const versionMap=new Map((versionRows.results as Row[]).map(row=>[row.version_key,row]));
+    const legacyMap=new Map((legacyRows.results as Array<LegacyRetention&{logical_key:string}>).map(row=>[row.logical_key,row]));
+    return objects.map(object=>({...object,...retentionInfo(object.uploadedAt,stateMap.get(object.objectKey)??{protected:1,current:1},versionMap.get(object.objectKey),legacyMap.get(object.key))}));
   }
 
   async cleanupNoticeObject(logicalKey:string,objectKey:string) {

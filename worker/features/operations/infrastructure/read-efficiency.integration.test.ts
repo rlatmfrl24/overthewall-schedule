@@ -73,3 +73,36 @@ it("reads exact pending member/date pairs above the D1 bind limit",async()=>{
   console.info('PENDING_PAIR_D1_COST',JSON.stringify(meter.summary()));
   expect(meter.summary().rowsRead).toBeLessThan(3000);
 });
+
+
+it("indexes archived proposal IDs, AI expiry/reuse and source exceptions without changing their policies",async()=>{
+  const {isArchivedYouTubeVideo}=await import('../../otw-play/infrastructure/archived-youtube-video');
+  const {D1AiReviewRepository}=await import('../../otw-play/infrastructure/d1-ai-review-repository');
+  const {D1SourceHealthRepository}=await import('../../otw-play/infrastructure/d1-source-health-repository');
+  const now=Date.parse('2026-10-19T12:00:00Z');
+  await db.prepare("WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO music_cover_proposals(id,submitted_by_user_id,idempotency_key,submitted_url,youtube_video_id,submitted_title,status,reviewed_by_user_id,reviewed_at,review_result_code,created_at,updated_at) SELECT 'proposal-cost-'||x,'user','cost-'||x,'https://example.com','V'||printf('%010d',x),'Old proposal','rejected','admin',1,'not_eligible',1,1 FROM n").run();
+  await db.prepare("UPDATE music_cover_proposals SET content_access='admin_archive' WHERE id='proposal-cost-1'").run();
+  const proposal=meterD1(db);expect(await isArchivedYouTubeVideo(proposal.db,'ZZZZZZZZZZZ','luvdia')).toBe(false);expect(await isArchivedYouTubeVideo(proposal.db,'V0000000001','luvdia')).toBe(true);
+  await db.prepare("WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO music_ai_reviews(id,video_id,candidate_kind,range_json,target_key,input_hash,model,prompt_version,status,created_at,updated_at,expires_at) SELECT 'ai-cost-'||x,'BBBBBBBBBBB','official_video','null','target-'||x,'hash-'||x,'local','4','succeeded',1,?,? FROM n").bind(now,now+86400000).run();
+  const ai=meterD1(db),repository=new D1AiReviewRepository(ai.db);
+  expect(await repository.clearExpired(now)).toBe(0);
+  const expiryCost=ai.summary();
+  const existing=await new D1AiReviewRepository(db).get('ai-cost-1');
+  const reused=await repository.create(existing!,'local-reuse','request-hash',false,now);expect(reused.id).toBe('ai-cost-1');
+  await db.prepare("INSERT INTO music_channels(id,provider,external_channel_id,display_name,channel_role,verification_status,active,created_at,updated_at) VALUES('source-cost-channel','youtube','UCcost000000000000000000','Cost','member_main','approved',1,1,1)").run();
+  await db.prepare("WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO music_media_sources(id,provider,external_id,channel_id,availability_status,created_at,updated_at) SELECT 'source-cost-'||x,'youtube','S'||printf('%010d',x),'source-cost-channel','playable',1,1 FROM n").run();
+  const source=meterD1(db);expect((await new D1SourceHealthRepository(source.db).readDashboard(now,now-86400000,50,5)).counts.unplayable).toBe(0);
+  console.info('REMAINING_LOOKUP_D1_COST',JSON.stringify({proposal:proposal.summary(),expiry:expiryCost,reuse:ai.summary(),source:source.summary()}));
+  expect.soft(proposal.summary().rowsRead).toBeLessThan(100);expect.soft(expiryCost.rowsRead).toBeLessThan(50);expect.soft(ai.summary().rowsRead).toBeLessThan(200);expect.soft(source.summary().rowsRead).toBeLessThan(100);
+});
+
+it("records local index construction and subsequent AI insert write overhead",async()=>{
+  const migration=(await readSiteSchemaMigrations()).find(m=>m.name.startsWith('0147_'))!;
+  await db.batch(['idx_music_ai_reviews_expires_id','idx_music_ai_reviews_hash_expiry'].map(name=>db.prepare(`DROP INDEX ${name}`)));
+  const insert=(id:string)=>db.prepare("INSERT INTO music_ai_reviews(id,video_id,candidate_kind,range_json,target_key,input_hash,model,prompt_version,status,created_at,updated_at,expires_at) VALUES(?,'BBBBBBBBBBB','official_video','null',?,?,'local','4','succeeded',1,1,9999999999999)").bind(id,id,id);
+  const before=await insert('index-write-before').run();
+  const builds=await db.batch(migration.queries.filter(sql=>sql.includes('ON `music_ai_reviews`')).map(sql=>db.prepare(sql)));
+  const after=await insert('index-write-after').run();
+  console.info('AI_INDEX_WRITE_COST',JSON.stringify({before:before.meta,builds:builds.map(row=>row.meta),after:after.meta}));
+  expect(before.meta.changes).toBe(1);expect(after.meta.changes).toBe(1);
+});

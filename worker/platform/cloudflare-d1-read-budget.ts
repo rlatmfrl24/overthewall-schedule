@@ -35,7 +35,7 @@ export class CloudflareD1ReadBudget {
     const now = this.clock();
     const today = Math.floor(now / DAY_MS) * DAY_MS;
     const configured = Number(this.configuredTarget);
-    const dailyTarget = Number.isSafeInteger(configured) && configured > 0 ? configured : DEFAULT_TARGET;
+    const dailyTarget = Number.isSafeInteger(configured) && configured > 0 ? Math.min(configured,DEFAULT_TARGET) : DEFAULT_TARGET;
     const base = { dailyTarget, measuredAt: new Date(now).toISOString(), resetAt: new Date(today + DAY_MS).toISOString() };
     const key = new Request(`https://d1-budget.internal/${encodeURIComponent(this.accountId ?? "unconfigured")}/${today}/${dailyTarget}`);
     const save = async (result: D1ReadBudgetDto) => {

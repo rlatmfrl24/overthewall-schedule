@@ -113,7 +113,7 @@ return defineConfig({
           name: `${migration.name}:control`,
           queries: migration.queries.filter(query => /^\s*ALTER TABLE `content_transition(?:s|_membership)` ADD /.test(query)),
         })) : [])];
-      const efficiencyIndexes = (prefix: string) => migrations.filter(migration => /^(0142_|0143_|0144_|0145_)/.test(migration.name)).map(migration => ({
+      const efficiencyIndexes = (prefix: string) => migrations.filter(migration => /^(0142_|0143_|0144_|0145_|0146_|0147_)/.test(migration.name)).map(migration => ({
         name: `${migration.name}:${prefix}`,
         queries: migration.queries.filter(query => query.includes(`ON \`${prefix}`)),
       })).filter(migration => migration.queries.length > 0);
@@ -330,7 +330,7 @@ return defineConfig({
             OTW_PLAY_PRE_SOURCE_HEALTH_MIGRATIONS:
               otwPlayPreSourceHealthMigrations,
             OTW_PLAY_SOURCE_HEALTH_MIGRATIONS:
-              otwPlaySourceHealthMigration ? [otwPlaySourceHealthMigration] : [],
+              otwPlaySourceHealthMigration ? [otwPlaySourceHealthMigration,...efficiencyIndexes("music_media_sources")] : [],
             OTW_PLAY_RELEASE_MIGRATIONS: otwPlayReleaseMigrations,
             OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATIONS: [
               otwPlayExternalIdentityConsolidationMigration,
