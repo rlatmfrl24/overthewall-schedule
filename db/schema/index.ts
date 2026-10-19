@@ -1216,6 +1216,7 @@ export const youtubeFeedVideos = sqliteTable(
       table.published_at,
     ),
     index("idx_youtube_feed_videos_fetched").on(table.fetched_at),
+    index("idx_youtube_feed_videos_available_fetched").on(table.source_id, table.fetched_at, table.video_id).where(sql`available = 1`),
     index("idx_youtube_feed_videos_public_published").on(table.source_id, sql`${table.published_at} DESC`, table.video_id)
       .where(sql`content_access = 'normal' AND available = 1`),
     index("idx_youtube_feed_videos_public_kind_published").on(table.source_id, table.is_short, sql`${table.published_at} DESC`, table.video_id)

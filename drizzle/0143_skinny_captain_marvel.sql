@@ -1,0 +1,1 @@
+CREATE INDEX `idx_youtube_feed_videos_available_fetched` ON `youtube_feed_videos` (`source_id`,`fetched_at`,`video_id`) WHERE available = 1;

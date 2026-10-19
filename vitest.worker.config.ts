@@ -112,7 +112,7 @@ return defineConfig({
           name: `${migration.name}:control`,
           queries: migration.queries.filter(query => /^\s*ALTER TABLE `content_transition(?:s|_membership)` ADD /.test(query)),
         })) : [])];
-      const efficiencyIndexes = (prefix: string) => migrations.filter(migration => migration.name.startsWith("0142_")).map(migration => ({
+      const efficiencyIndexes = (prefix: string) => migrations.filter(migration => /^(0142_|0143_)/.test(migration.name)).map(migration => ({
         name: `${migration.name}:${prefix}`,
         queries: migration.queries.filter(query => query.includes(`ON \`${prefix}`)),
       })).filter(migration => migration.queries.length > 0);

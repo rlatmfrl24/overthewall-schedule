@@ -698,13 +698,17 @@ const scanOfficialBackfill = async (
 const refreshStaleMetadata = async (env: Env, timestamp: number, origin: YouTubeRequestOrigin) => {
   const rows = await env.otw_db
     .prepare(
-      `SELECT video.video_id, video.source_id FROM youtube_feed_videos video
-       JOIN youtube_feed_sources source ON source.id = video.source_id
-       WHERE video.available = 1 AND source.enabled = 1 AND video.fetched_at <= ?
-         AND NOT ${sourceMovedSql(env,"source")}
+      `SELECT video.video_id, video.source_id
+       FROM (SELECT * FROM youtube_feed_sources source WHERE enabled = 1 AND NOT ${sourceMovedSql(env,"source")}) source
+       CROSS JOIN json_each((SELECT json_group_array(row_key) FROM (
+         SELECT candidate.rowid AS row_key FROM youtube_feed_videos candidate INDEXED BY idx_youtube_feed_videos_available_fetched
+         WHERE candidate.source_id = source.id AND candidate.available = 1 AND candidate.fetched_at <= ?
+         ORDER BY candidate.fetched_at, candidate.video_id LIMIT ?
+       ))) selected CROSS JOIN youtube_feed_videos video
+       WHERE video.rowid = selected.value
        ORDER BY video.fetched_at, video.video_id LIMIT ?`,
     )
-    .bind(timestamp - METADATA_REFRESH_AGE_MS, PAGE_SIZE * MAX_METADATA_REFRESH_BATCHES)
+    .bind(timestamp - METADATA_REFRESH_AGE_MS, PAGE_SIZE * MAX_METADATA_REFRESH_BATCHES, PAGE_SIZE * MAX_METADATA_REFRESH_BATCHES)
     .all<{ video_id: string; source_id: number }>();
   const pending = rows.results ?? [];
   const result = { refreshed: 0, unavailable: 0, quotaBlocked: false };
@@ -776,10 +780,10 @@ export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) =
            )
          )
          OR EXISTS (
-           SELECT 1 FROM youtube_feed_videos video
-           JOIN youtube_feed_sources source ON source.id = video.source_id
-           WHERE video.available = 1 AND source.enabled = 1 AND video.fetched_at <= ?
-             AND NOT ${sourceMovedSql(env,"source")}
+           SELECT 1 FROM youtube_feed_sources source
+           WHERE source.enabled = 1 AND NOT ${sourceMovedSql(env,"source")}
+             AND EXISTS (SELECT 1 FROM youtube_feed_videos video INDEXED BY idx_youtube_feed_videos_available_fetched
+               WHERE video.source_id = source.id AND video.available = 1 AND video.fetched_at <= ?)
          )
          OR EXISTS (
            SELECT 1 FROM (${officialChannelTargetsSql(parseSiteId(env.SITE_ID))}) target

@@ -734,10 +734,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   }
 
   async recordCandidates(input: Parameters<ChannelMonitorRepository["recordCandidates"]>[0]) {
-    const before = await this.database.prepare(
-      `SELECT COUNT(*) AS count FROM music_channel_upload_candidate_origins
-       WHERE monitor_id = ? AND monitor_generation = ?`,
-    ).bind(input.monitorId, input.monitorGeneration).first<{ count: number }>();
+    let insertedOrigins = 0;
     for (let index = 0; index < input.observations.length; index += 50) {
       const statements: D1PreparedStatement[] = [];
       for (const observation of input.observations.slice(index, index + 50)) {
@@ -895,7 +892,11 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
           ),
         );
       }
-      if (statements.length > 0) await this.writeBatch(statements);
+      if (statements.length > 0) {
+        const results = await this.writeBatch(statements);
+        // Each observation writes its candidate first and its origin second.
+        for (let origin = 1; origin < results.length; origin += 2) insertedOrigins += Number(results[origin].meta.changes ?? 0);
+      }
     }
     const claim = await this.database.prepare(
       `SELECT 1 AS matched FROM music_channel_upload_monitors
@@ -919,11 +920,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
         "Channel monitor changed during reconciliation",
       );
     }
-    const after = await this.database.prepare(
-      `SELECT COUNT(*) AS count FROM music_channel_upload_candidate_origins
-       WHERE monitor_id = ? AND monitor_generation = ?`,
-    ).bind(input.monitorId, input.monitorGeneration).first<{ count: number }>();
-    return Number(after?.count ?? 0) - Number(before?.count ?? 0);
+    return insertedOrigins;
   }
 
   async complete(input: Parameters<ChannelMonitorRepository["complete"]>[0]) {
