@@ -40,7 +40,7 @@ import type {CollectorWriter} from "./collector-writer";
 import type {ChzzkMatchInput} from "../domain/chzzk-match-input";
 import { editableCollectorSql } from "../../content-access";
 import { isScheduleMemberActive, SCHEDULE_MEMBER_END } from "@contracts/schedule-member-policy";
-import { readScheduleEndMemberUid } from "./automatic-schedule-policy";
+import { readScheduleEndMemberUids } from "./automatic-schedule-policy";
 
 const CHZZK_SCAN_PAGE_SIZE = 5;
 const CHZZK_SCAN_MAX_PAGES = 3;
@@ -639,18 +639,18 @@ export const readAutoUpdateMatchTargets = async (
   const activeMembers=admittedChannels?membersInScope.filter(member=>admittedChannels.includes(extractChzzkChannelId(member.url_chzzk)?.toLowerCase()??"")):membersInScope;
   const activeMemberUids = new Set(activeMembers.map((member) => member.uid));
   const targets = new Map<string, AutoUpdateMatchTarget>();
-  const endedMemberUid = await readScheduleEndMemberUid(db.$client, siteId);
+  const endedMemberUids = await readScheduleEndMemberUids(db.$client, siteId);
   for (const row of rows) {
     if (!activeMemberUids.has(row.memberUid)) continue;
     const date = getKSTDateString(new Date(row.startedAt));
-    if (row.memberUid === endedMemberUid && date > SCHEDULE_MEMBER_END.lastDate) continue;
+    if (endedMemberUids.has(row.memberUid) && date > SCHEDULE_MEMBER_END.lastDate) continue;
     if (date < startDate || date > today) continue;
     const target = { memberUid: row.memberUid, date };
     targets.set(`${target.memberUid}:${target.date}`, target);
   }
   const holidayDate = holidayTargetDate();
   if (holidayDate) for (const member of activeMembers) {
-    if (member.uid === endedMemberUid && holidayDate > SCHEDULE_MEMBER_END.lastDate) continue;
+    if (endedMemberUids.has(member.uid) && holidayDate > SCHEDULE_MEMBER_END.lastDate) continue;
     if (!extractChzzkChannelId(member.url_chzzk)) continue;
     targets.set(`${member.uid}:${holidayDate}`, { memberUid: member.uid, date: holidayDate });
   }
@@ -687,8 +687,8 @@ export const autoUpdateSchedules = async (
 }> => {
   if(options.originalInput && (!options.skipScan || !options.matchTarget || !Number.isSafeInteger(options.originalInput.startedAt) || options.originalInput.members.some(member=>member.uid!==options.matchTarget!.memberUid))) throw new Error("Invalid original match input scope");
   const scanStartedAt = options.originalInput?.startedAt??Date.now();
-  const endedMemberUid = await readScheduleEndMemberUid(db.$client, options.collectorWriter?.siteId ?? "otw");
-  const activeOnDate = (uid: number, date: string) => uid !== endedMemberUid || date <= SCHEDULE_MEMBER_END.lastDate;
+  const endedMemberUids = await readScheduleEndMemberUids(db.$client, options.collectorWriter?.siteId ?? "otw");
+  const activeOnDate = (uid: number, date: string) => !endedMemberUids.has(uid) || date <= SCHEDULE_MEMBER_END.lastDate;
   const today = getKSTDateString(new Date(scanStartedAt));
   const daysBack = Math.max(holidayTargetDate(scanStartedAt) ? 1 : 0, Math.floor(rangeDays) - 1);
   const startDate = getKSTDateString(

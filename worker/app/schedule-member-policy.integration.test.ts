@@ -10,7 +10,8 @@ import { D1ScheduleWriteRepository } from "../features/schedules/infrastructure/
 import { D1CollectorWriter, D1LiveScheduleWriter } from "../features/schedules/infrastructure/publication-writers";
 import { applyLiveScheduleFillPlan, autoFillUndecidedLiveSchedules, type LiveStatusItem } from "../features/schedules/infrastructure/live-schedule";
 import { executeHolidayCollectorCommand } from "../features/schedules/infrastructure/holiday-suggestions";
-import { autoUpdateSchedules, executeChzzkObservationScan } from "../features/schedules/infrastructure/auto-update";
+import { autoUpdateSchedules, executeChzzkObservationScan, readAutoUpdateMatchTargets } from "../features/schedules/infrastructure/auto-update";
+import { allowsAutomaticSchedule } from "../features/schedules/infrastructure/automatic-schedule-policy";
 
 const d1 = env.otw_db;
 const origin = "http://localhost:5174";
@@ -56,7 +57,7 @@ beforeEach(async () => {
     d1.prepare("INSERT INTO members(uid,code,name,url_chzzk) VALUES(1,'bing_hayu','빙하유',?),(2,'yang_mei','양메이',NULL)").bind("https://chzzk.naver.com/" + channelId),
   ]);
 });
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 it("정상 날짜, 빈 종료 날짜, 관리자 저장과 공개 동일 ID 조회를 지원한다", async () => {
   const board = async (date: string) => (await request("/api/schedule-board?startDate=" + date + "&endDate=" + date)).json<{ members: { code: string }[]; schedules: { id: number }[] }>();
   expect((await board("2026-11-15")).members.some(m => m.code === "bing_hayu")).toBe(true);
@@ -118,4 +119,30 @@ it("종료 이후 휴방 제안과 오래된 매칭 입력을 적용하지 않�
   expect((await executeChzzkObservationScan(getDb(runtime), { members: [{ uid: 1, code: "bing_hayu", name: "빙하유", channelId }],
     startedAt: now, rangeDays: 1, startDate: "2026-11-16", today: "2026-11-17" }, undefined, { fetchVideosBatch }, undefined, "luvdia")).channels).toBe(0);
   expect(fetchVideosBatch).not.toHaveBeenCalled();
+});
+it("동일 코드의 모든 UID에서 종료 후 자동 매칭과 라이브 재시도를 차단한다", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-17T10:00:00+09:00"));
+  await d1.prepare("INSERT INTO members(uid,code,name,url_chzzk) VALUES(3,'bing_hayu','빙하유 중복',?)").bind("https://chzzk.naver.com/" + "b".repeat(32)).run();
+  await d1.prepare("INSERT INTO schedules(id,member_uid,date,status,title) VALUES(7,3,'2026-11-16','미정','보존할 미래 일정')").run();
+  const startedAt = Date.parse("2026-11-16T12:00:00+09:00");
+  const observation = { member_uid: 3, vod_id: "duplicate-member-vod", title: "자동 매칭", started_at: startedAt,
+    ended_at: startedAt + 3600000, duration_seconds: 3600, thumbnail_url: null };
+  await d1.prepare("INSERT INTO schedule_broadcast_observations(vod_id,member_uid,channel_id,title,started_at,ended_at,duration_seconds,first_seen_at,last_seen_at) VALUES(?,3,?,?,?,?,?,?,?)")
+    .bind(observation.vod_id, "b".repeat(32), observation.title, observation.started_at, observation.ended_at, observation.duration_seconds, Date.now(), Date.now()).run();
+  const db = getDb(runtime);
+  for (const uid of [1, 3]) expect.soft(await allowsAutomaticSchedule(d1, "luvdia", uid, "2026-11-16")).toBe(false);
+  expect.soft(await readAutoUpdateMatchTargets(db, 3, undefined, "luvdia")).toEqual([]);
+  const result = await autoUpdateSchedules(db, 3, { skipScan: true, collectorWriter: new D1CollectorWriter(d1, "luvdia"),
+    matchTarget: { memberUid: 3, date: "2026-11-16" }, originalInput: { startedAt: Date.now(),
+      members: [{ uid: 3, name: "빙하유 중복", url_chzzk: "https://chzzk.naver.com/" + "b".repeat(32) }],
+      schedules: [], observations: [observation], rejections: [], pending: [] } });
+  expect.soft(result.checked).toBe(0);
+  expect.soft(await applyLiveScheduleFillPlan(db, { plan: { action: "update", scheduleId: 7, memberUid: 3,
+    memberName: "빙하유 중복", scheduleDate: "2026-11-16", startTime: "12:00", title: "자동 재시도",
+    previousStatus: "미정", previousStartTime: null, previousTitle: "보존할 미래 일정" }, expectedRows: [] }, new D1LiveScheduleWriter(d1, "luvdia"))).toBe(false);
+  expect.soft(await d1.prepare("SELECT title FROM schedules WHERE id=7").first("title")).toBe("보존할 미래 일정");
+  expect(await allowsAutomaticSchedule(d1, "luvdia", 3, "2026-11-15")).toBe(true);
+  expect(await allowsAutomaticSchedule(d1, "luvdia", 2, "2026-11-16")).toBe(true);
+  expect(await allowsAutomaticSchedule(d1, "otw", 3, "2026-11-16")).toBe(true);
 });
