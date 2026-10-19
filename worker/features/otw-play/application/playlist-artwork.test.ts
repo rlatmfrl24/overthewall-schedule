@@ -23,7 +23,7 @@ const saved: PlayPlaylist = { id: "mine", title: "목록", description: "", vers
   representativePerformanceId: "b", imageUrl: null, itemCount: 2, originDefaultId: null, createdAt: 1, updatedAt: 1 };
 const base: PlayDefaultPlaylist = { id: "cover", title: "커버곡 모음", description: "기본 설명", version: 1, representativePerformanceId: null,
   imageUrl: "https://img.test/auto.jpg", songCount: 1, performanceCount: 2, query: { relation: "cover" } };
-const reader = { readPlaylistDefaults: vi.fn<PlaylistCatalogReader["readPlaylistDefaults"]>(),
+const reader = { resolvePlaylistArtwork: async(ids:string[]):Promise<import("./ports/playlist-repository").PlaylistArtwork[]> => (await reader.resolvePlaylistPerformances(ids)).map(item=>({id:item.performance.id,relation:item.performance.relation,memberUids:item.performance.participants?.filter(p=>p.kind==='current_member'&&['vocal','featured_vocal'].includes(p.participantRole)).flatMap(p=>p.member?[p.member.uid]:[])??[],imageUrl:item.performance.playable?item.performance.sources.find(s=>s.id===item.performance.playbackSourceId&&s.availabilityStatus==='playable')?.thumbnailUrl??null:null})), readPlaylistDefaults: vi.fn<PlaylistCatalogReader["readPlaylistDefaults"]>(),
   readPlaylistPerformances: vi.fn<PlaylistCatalogReader["readPlaylistPerformances"]>(), resolvePlaylistPerformances: vi.fn<PlaylistCatalogReader["resolvePlaylistPerformances"]>() };
 const repo = { findCreate: vi.fn<PlaylistRepository["findCreate"]>(), list: vi.fn<PlaylistRepository["list"]>(), read: vi.fn<PlaylistRepository["read"]>(),
   create: vi.fn<PlaylistRepository["create"]>(), save: vi.fn<PlaylistRepository["save"]>(), delete: vi.fn<PlaylistRepository["delete"]>() };
@@ -37,6 +37,14 @@ beforeEach(() => {
   reader.resolvePlaylistPerformances.mockImplementation(async ids => ids.filter(id => id !== "private").map(id => track(id)));
   repo.list.mockResolvedValue([saved]); repo.read.mockResolvedValue(saved); repo.save.mockResolvedValue(true); repo.create.mockResolvedValue(saved);
   settings.list.mockResolvedValue([]); settings.save.mockResolvedValue(true);
+});
+
+it("uses the artwork projection instead of hydrating catalog content for personal list images",async()=>{
+  const resolvePlaylistArtwork=vi.fn(async(ids:string[])=>ids.map(id=>({id,relation:'cover' as const,memberUids:[],imageUrl:`https://img.test/${id}.jpg`})));
+  const optimized=new PlaylistService({readPublicState} as unknown as PublicCatalogService,{...reader,resolvePlaylistArtwork},repo,settings);
+  expect((await optimized.list(context,'owner'))[0].imageUrl).toBe('https://img.test/b.jpg');
+  expect(resolvePlaylistArtwork).toHaveBeenCalledWith(['b']);
+  expect(reader.resolvePlaylistPerformances).not.toHaveBeenCalled();
 });
 
 describe("playlist artwork authority", () => {

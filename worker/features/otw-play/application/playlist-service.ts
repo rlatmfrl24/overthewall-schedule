@@ -1,8 +1,7 @@
 import { PLAY_PLAYLIST_MAX_ITEMS, type PlayAdminDefaultPlaylist, type PlayDefaultPlaylistWrite, type PlayPlaylist, type PlayPlaylistWrite } from "@contracts/otw-play-playlists";
-import { PlaylistError, type PlaylistCatalogReader, type PlaylistRepository, type DefaultPlaylistSettingsRepository } from "./ports/playlist-repository";
+import { PlaylistError, type PlaylistCatalogReader, type PlaylistRepository, type DefaultPlaylistSettingsRepository, type PlaylistArtwork } from "./ports/playlist-repository";
 import { PublicCatalogService, type PublicCatalogReadContext } from "./public-catalog-service";
 import { playlistArtwork, matchesPlaylist } from "./playlist-artwork";
-import type { PublicCatalogPerformanceDetail } from "./ports/public-catalog-reader";
 import { parsePlaylistQuery, playlistCursor } from "../domain/playlist-query";
 
 export class PlaylistService {
@@ -52,15 +51,15 @@ export class PlaylistService {
     });
   }
   private async resolveArtwork(ids: string[]) {
-    const result = new Map<string, PublicCatalogPerformanceDetail>();
+    const result = new Map<string, PlaylistArtwork>();
     const unique = [...new Set(ids)];
     for (let offset = 0; offset < unique.length; offset += 60) {
-      for (const item of await this.reader.resolvePlaylistPerformances(unique.slice(offset, offset + 60))) result.set(item.performance.id, item);
+      for (const item of await this.reader.resolvePlaylistArtwork(unique.slice(offset, offset + 60))) result.set(item.id, item);
     }
     return result;
   }
   private async images(playlists: PlayPlaylist[]) {
-    const tracks = new Map<string, PublicCatalogPerformanceDetail>();
+    const tracks = new Map<string, PlaylistArtwork>();
     const representatives = await this.resolveArtwork(playlists.flatMap(item => item.representativePerformanceId ? [item.representativePerformanceId] : []));
     for (const [id, item] of representatives) tracks.set(id, item);
     const unresolved = playlists.filter(item => !playlistArtwork(tracks.get(item.representativePerformanceId ?? "")));

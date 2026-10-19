@@ -12,7 +12,7 @@ vi.mock("../../../platform/auth", () => auth);
 
 const saved = { representativePerformanceId: null, imageUrl: null, id: "playlist-1", title: "목록", description: "", originDefaultId: null,
   performanceIds: [], version: 2, itemCount: 0, createdAt: 1, updatedAt: 2 };
-const reader = {
+const reader = {resolvePlaylistArtwork:vi.fn(async()=>[]),
   readPlaylistDefaults: vi.fn<PlaylistCatalogReader["readPlaylistDefaults"]>(),
   readPlaylistPerformances: vi.fn<PlaylistCatalogReader["readPlaylistPerformances"]>(),
   resolvePlaylistPerformances: vi.fn<PlaylistCatalogReader["resolvePlaylistPerformances"]>(),

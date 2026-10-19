@@ -157,7 +157,7 @@ export interface PublicCatalogReaderPage {
 }
 
 export interface PublicCatalogReader {
-  readMemberSummaries(): Promise<OtwPlayMemberSummary[]>;
+  readMemberSummaries(code?:string): Promise<OtwPlayMemberSummary[]>;
   readMeta(): Promise<PublicCatalogMeta>;
   readCatalog(query: PublicCatalogReaderQuery): Promise<PublicCatalogReaderPage>;
   readFacets(): Promise<PublicCatalogFacets>;

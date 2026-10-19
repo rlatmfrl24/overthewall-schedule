@@ -501,6 +501,8 @@ describe("D1PublicCatalogReader", () => {
       insertParticipant("playlist-002", "entity-current-a", 0, "chorus"),
     ]);
     const reader = new D1PublicCatalogReader(db);
+    await db.prepare("INSERT INTO music_search_terms(song_id,term_kind,display_value,normalized_term) VALUES('playlist-song','participant','Current A','current a')").run();
+    await rebuildReadModel();
     const query = { q: null, member: null, relation: "cover" as const, limit: 60, after: null };
     const first = await reader.readPlaylistPerformances(query);
     expect(first).toHaveLength(61);
@@ -1480,4 +1482,43 @@ describe("D1PublicCatalogReader", () => {
     },
     30_000,
   );
+
+it("reads one member summary before expanding that member's songbook",async()=>{
+  await seedVisibilityFixture();
+  await db.batch(insertSong('member-cost'));
+  await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO music_performances(id,song_id,dedupe_key,relation_type,release_type,participation_type,publication_status,created_at,updated_at) SELECT 'member-cost-'||x,'member-cost','member-cost-'||x,'cover','official_video','solo','published',1,1 FROM n").run();
+  await db.prepare("INSERT INTO music_performance_participants(performance_id,entity_id,participant_role,credit_order,credit_name_snapshot) SELECT id,'entity-current-c','vocal',0,'Current C' FROM music_performances WHERE id LIKE 'member-cost-%'").run();
+  const {meterD1}=await import('../../../test-support/d1-meter');
+  const meter=meterD1(db),reader=new D1PublicCatalogReader(meter.db);
+  expect((await reader.readMemberSummaries('CURRENT-A')).map(member=>member.code)).toEqual(['current-a']);
+  const full=meterD1(db);await new D1PublicCatalogReader(full.db).readMemberSummaries();
+  console.info('MEMBER_SUMMARY_D1_COST',JSON.stringify({full:full.summary(),member:meter.summary()}));
+  expect(meter.summary().rowsRead).toBeLessThan(500);
+  await db.exec('ANALYZE');const analyzed=meterD1(db);await new D1PublicCatalogReader(analyzed.db).readMemberSummaries('current-a');console.info('MEMBER_SUMMARY_ANALYZED',JSON.stringify(analyzed.summary()));expect(analyzed.summary().rowsRead).toBeLessThan(500);
+});
+
+it("uses indexed playlist candidates without scanning unrelated songs",async()=>{
+  await seedVisibilityFixture();
+  await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO music_songs(id,slug,title,normalized_title,dedupe_key,is_otw_original,created_at,updated_at) SELECT 'search-cost-'||x,'search-cost-'||x,'Unrelated '||x,'unrelated '||x,'search-cost-'||x,0,1,1 FROM n").run();
+  await db.prepare("INSERT INTO music_performances(id,song_id,dedupe_key,relation_type,release_type,participation_type,publication_status,created_at,updated_at) SELECT 'p-'||id,id,'p-'||id,'cover','official_video','solo','published',1,1 FROM music_songs WHERE id LIKE 'search-cost-%'").run();
+  const {meterD1}=await import('../../../test-support/d1-meter');const meter=meterD1(db),reader=new D1PublicCatalogReader(meter.db);
+  expect(await reader.readPlaylistPerformances({q:'not-found-token',member:null,relation:null,limit:25,after:null})).toEqual([]);
+  console.info('PLAYLIST_SEARCH_D1_COST',JSON.stringify(meter.summary()));
+  expect(meter.summary().rowsRead).toBeLessThan(200);
+  await db.exec('ANALYZE');const analyzed=meterD1(db);await new D1PublicCatalogReader(analyzed.db).readPlaylistPerformances({q:'not-found-token',member:null,relation:null,limit:25,after:null});console.info('PLAYLIST_SEARCH_ANALYZED',JSON.stringify(analyzed.summary()));expect(analyzed.summary().rowsRead).toBeLessThan(200);
+});
+
+it("projects the same playlist artwork without loading song credits and tags",async()=>{
+  await seedVisibilityFixture();
+  await db.prepare("WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<200) INSERT INTO music_song_tags(song_id,tag_key,display_name) SELECT 'song-visible','tag-'||x,'Tag '||x FROM n").run();
+  const {meterD1}=await import('../../../test-support/d1-meter');const {playlistArtwork}=await import('../application/playlist-artwork');
+  const full=meterD1(db),projection=meterD1(db);
+  const content=await new D1PublicCatalogReader(full.db).resolvePlaylistPerformances(['performance-visible']);
+  const artwork=await new D1PublicCatalogReader(projection.db).resolvePlaylistArtwork(['performance-visible']);
+  expect(artwork).toHaveLength(content.length);expect(artwork[0].imageUrl).toBe(playlistArtwork(content[0]));
+  expect(artwork[0]).not.toHaveProperty('song');
+  console.info('PLAYLIST_ARTWORK_D1_COST',JSON.stringify({full:full.summary(),projection:projection.summary()}));
+  expect(projection.summary().rowsRead).toBeLessThan(full.summary().rowsRead);
+});
+
 });

@@ -5,7 +5,10 @@ import type { PlaylistPerformanceQuery } from "../../domain/playlist-query";
 export type { PlaylistPerformanceQuery } from "../../domain/playlist-query";
 export { PlaylistError } from "../../domain/playlist-error";
 
+export interface PlaylistArtwork {id:string;relation:"original"|"cover"|"singing_clip";memberUids:number[];imageUrl:string|null}
+
 export interface PlaylistCatalogReader {
+  resolvePlaylistArtwork(ids:string[]):Promise<PlaylistArtwork[]>;
   readPlaylistDefaults(): Promise<PlayDefaultPlaylist[]>;
   readPlaylistPerformances(query: PlaylistPerformanceQuery): Promise<PublicCatalogPerformanceDetail[]>;
   resolvePlaylistPerformances(ids: string[], scope?: "official" | "all"): Promise<PublicCatalogPerformanceDetail[]>;
