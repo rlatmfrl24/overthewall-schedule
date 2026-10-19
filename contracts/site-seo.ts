@@ -128,8 +128,7 @@ export const buildFeedSiteSeo = (isPublic: boolean, site: SiteDefinition): SiteS
   define({
     path: "/feed",
     title: `${site.siteName} 멤버 게시글`,
-    description:
-      site.fanCafeUrl ? `${site.siteName} 멤버들의 최신 X 게시글과 공식 팬카페 소식을 모아보세요.` : `${site.siteName} 멤버들의 최신 X 게시글을 모아보세요.`,
+    description: `${site.siteName} 멤버들의 최신 게시글과 소식을 모아보세요.`,
     robots: isPublic ? "index,follow" : "noindex,follow",
     sitemap: isPublic,
     ogType: "website",

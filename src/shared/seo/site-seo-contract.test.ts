@@ -28,6 +28,11 @@ describe("site SEO contract", () => {
     expect(safeSiteContentUrl("mailto:397love@gmail.com", luvdia)).toBe("mailto:397love@gmail.com");
     expect(safeSiteContentUrl("javascript:alert(1)", luvdia)).toBeUndefined();
   });
+  it("does not infer collected cafe posts from an external community link", () => {
+    const luvdia = { ...getSiteDefinition("luvdia"), publicOrigin: "https://luvdia-schedule.info" };
+    expect(buildFeedSiteSeo(true, { ...luvdia, fanCafeUrl: "https://cafe.naver.com/s2dia" }).description)
+      .toBe(buildFeedSiteSeo(true, { ...luvdia, fanCafeUrl: null }).description);
+  });
   it("maps public fixed routes to canonical indexable metadata", () => {
     for (const [path, metadata] of Object.entries(buildFixedSiteSeo(site))) {
       expect(metadata.path).toBe(path);

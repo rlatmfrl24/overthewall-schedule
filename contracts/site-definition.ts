@@ -22,7 +22,7 @@ const definitions: Record<SiteId, SiteDefinition> = {
   luvdia: Object.freeze({
     id: "luvdia", publicOrigin: null, siteName: "LuvDia Schedule",
     serviceName: "LuvDia Schedule", playName: "LuvDia Play", logoPath: "/logo_luvdia.webp",
-    fanCafeUrl: null, contactEmail: "397love@gmail.com", copyrightOwner: "LuvDia Schedule",
+    fanCafeUrl: "https://cafe.naver.com/s2dia", contactEmail: "397love@gmail.com", copyrightOwner: "LuvDia Schedule",
   }),
 };
 

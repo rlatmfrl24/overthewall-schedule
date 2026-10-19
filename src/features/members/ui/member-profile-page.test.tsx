@@ -90,6 +90,19 @@ it("loads optimized backgrounds first and requests their originals only after an
   await waitFor(() => expect(view.container.querySelector('[data-profile-background-load-key^="first:"]')?.getAttribute("src")).toBe(`blob:fallback-${original + 1}`));
 });
 
+it("loads the portrait directly when the server confirms there are no background images", async () => {
+  profileQuery.mockReturnValue({ data: { ...profile, backgroundImages: [] }, isLoading: false, isError: false, error: null });
+  const fetcher = vi.fn<typeof fetch>(async () => new Response(new Uint8Array([1])));
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(<ContentSessionContext.Provider value="own"><MemberProfilePage code="member" /></ContentSessionContext.Provider>);
+  await waitFor(() => expect(fetcher.mock.calls.some(([input]) => input === "/profile/member.webp")).toBe(true));
+  expect(fetcher.mock.calls.some(([input]) => String(input).includes("/backgrounds/"))).toBe(false);
+  expect(PreloadedImage.instances.some(image => image.src.includes("/backgrounds/"))).toBe(false);
+  fireEvent.load(view.getByAltText("프로필 사진"));
+  expect(view.getByAltText("프로필 사진").getAttribute("src")).toMatch(/^blob:/);
+  expect(view.queryByRole("button", { name: "다음 배경 이미지" })).toBeNull();
+});
+
 it("does not fetch hidden primary portraits or full originals after successful authenticated background loads", async () => {
   const fetcher = vi.fn<typeof fetch>(async () => new Response(new Uint8Array([1])));
   vi.stubGlobal("fetch", fetcher);
