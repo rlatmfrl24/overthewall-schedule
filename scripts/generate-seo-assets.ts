@@ -85,7 +85,10 @@ export const renderNotFoundDocument = (site: SiteDefinition): string => `<!docty
 export const generateSeoAssets = async (outputRoot: string, site: SiteDefinition): Promise<void> => {
   requireSiteOrigin(site);
   const rootIndex = resolve(outputRoot, "index.html");
-  const source = await readFile(rootIndex, "utf8");
+  // Vite recreates the module tag and drops the source HTML's entry id.
+  const source = (await readFile(rootIndex, "utf8")).replace(
+    '<script type="module"', '<script id="app-entry" type="module"',
+  );
   for (const path of STATIC_SHELL_PATHS) {
     const target = path === "/"
       ? rootIndex
