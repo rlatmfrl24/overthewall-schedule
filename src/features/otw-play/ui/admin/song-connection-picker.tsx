@@ -1,4 +1,5 @@
-import { useState } from "react";
+import {fetchOtwPlayAdminCatalog} from "../../api/admin";
+import { useState, useEffect } from "react";
 import type { OtwPlayAdminCatalogDto } from "@contracts/otw-play";
 import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
@@ -17,7 +18,7 @@ export function SongConnectionPicker({
   query,
   onQueryChange,
   onSelectExisting,
-  onSelectNew,
+  onSelectNew, onResolved,
 }: {
   inputKey: string;
   catalog: OtwPlayAdminCatalogDto;
@@ -26,11 +27,15 @@ export function SongConnectionPicker({
   onQueryChange: (query: string) => void;
   onSelectExisting: (songId: string, title: string) => void;
   onSelectNew?: (title: string) => void;
+  onResolved?:(songs:OtwPlayAdminCatalogDto["songs"])=>void;
 }) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [remoteSongs,setRemoteSongs]=useState<OtwPlayAdminCatalogDto["songs"]>([]);
+  const [lookupFailed,setLookupFailed]=useState(false);
+  useEffect(()=>{if(!catalog.paged||!query.trim())return;let active=true;setLookupFailed(false);const timer=setTimeout(()=>{void fetchOtwPlayAdminCatalog({lookup:'songs',q:query,limit:25}).then(data=>{if(active){setRemoteSongs(data.songs);onResolved?.(data.songs);}},()=>{if(active)setLookupFailed(true);});},150);return()=>{active=false;clearTimeout(timer);};},[catalog.paged,query,onResolved]);
   const normalizedQuery = normalizeSongSearch(query);
-  const activeSongs = catalog.songs.filter((song) => song.archivedAt === null);
+  const activeSongs = [...new Map([...catalog.songs,...remoteSongs].map(song=>[song.id,song])).values()].filter((song) => song.archivedAt === null);
   const matches = normalizedQuery
     ? activeSongs
         .filter((song) =>
@@ -56,7 +61,7 @@ export function SongConnectionPicker({
       : activeSongs.find((song) => song.id === selectedSongId) ?? null;
   const inputId = `song-search-${inputKey}`;
   const resultListId = `song-search-results-${inputKey}`;
-  const canCreate = Boolean(onSelectNew && normalizedQuery && !exactSongExists);
+  const canCreate = Boolean(onSelectNew && normalizedQuery && !exactSongExists && !lookupFailed);
   const optionCount = matches.length + Number(canCreate);
   const expanded = open && normalizedQuery !== "";
   const selectOption = (index: number) => {
@@ -108,6 +113,7 @@ export function SongConnectionPicker({
           }
         }}
       />
+      {lookupFailed&&<p role="alert" className="text-sm text-destructive">곡 검색에 실패했습니다. 다시 검색해 주세요.</p>}
       {expanded ? (
         <div
           id={resultListId}

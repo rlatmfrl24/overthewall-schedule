@@ -1282,7 +1282,13 @@ export interface OtwPlayAdminProposalDto {
   }>;
 }
 
+export interface OtwPlayAdminCatalogQuery {
+  limit?: number; cursor?: string | null; q?: string; category?: string; state?: string;
+  scope?: "official" | "broadcast" | "all"; lookup?: "songs" | "entities" | "channels"; songId?: string;
+}
+
 export interface OtwPlayAdminCatalogDto {
+  paged?: true; nextCursor?: string | null; availableTags?: string[];
   revision: number;
   readModelRevision: number;
   songs: OtwPlayAdminSongDto[];

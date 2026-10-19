@@ -1,3 +1,4 @@
+import {SongConnectionPicker} from "./song-connection-picker";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/shared/ui/dropdown-menu";
 import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
 import { Checkbox } from "@/shared/ui/checkbox";
@@ -53,6 +54,7 @@ import { Textarea } from "@/shared/ui/textarea";
 import { PiCaretDownBold as ChevronDown, PiCaretUpBold as ChevronUp, PiCaretRightBold as ChevronRight, PiSpinnerGapBold as Loader2, PiPencilSimpleBold as Pencil, PiPlusBold as Plus, PiArrowsClockwiseBold as RefreshCw, PiTrashBold as Trash2, PiUploadSimpleBold as Upload } from "react-icons/pi";
 import { PiDotsThreeBold, PiMicrophoneBold } from "react-icons/pi";
 import {
+  fetchOtwPlayAdminCatalog,
   deleteOtwPlayPerformance,
   deleteOtwPlaySong,
   publishOtwPlayPerformance,
@@ -130,6 +132,7 @@ function PublicationSummary({ performances }: { performances: OtwPlayAdminPerfor
 
 export function WorkflowCatalog({
   scope = "official",
+  loadMore,loadingMore,
   catalog,
   saving,
   run,
@@ -139,6 +142,7 @@ export function WorkflowCatalog({
   deletionRequestId,
 }: {
   scope?: "official" | "broadcast" | "all";
+  loadMore?:()=>void;loadingMore?:boolean;
   catalog: OtwPlayAdminCatalogDto;
   saving: string | null;
   run: Run;
@@ -178,11 +182,12 @@ export function WorkflowCatalog({
   const selectedIndex = filteredSongs.findIndex((song) => song.id === consoleSearch.selected);
   const visibleCount = Math.min(filteredSongs.length, Math.max(requestedCount, selectedIndex + 1));
   const visibleSongs = filteredSongs.slice(0, visibleCount);
-  const hasMore = visibleCount < filteredSongs.length;
+  const hasMore = visibleCount < filteredSongs.length || Boolean(loadMore);
   const [loadMoreTarget, setLoadMoreTarget] = useState<HTMLDivElement | null>(null);
   const showMore = useCallback(() => {
+    if(visibleCount>=filteredSongs.length) {if(!loadingMore) loadMore?.();}
     setWindowState({ filterKey, count: visibleCount + CATALOG_BATCH_SIZE });
-  }, [filterKey, visibleCount]);
+  }, [filterKey, visibleCount,filteredSongs.length,loadMore,loadingMore]);
 
   useEffect(() => {
     if (!loadMoreTarget || !hasMore || typeof IntersectionObserver === "undefined") return;
@@ -200,11 +205,13 @@ export function WorkflowCatalog({
     };
   }, [loadMoreTarget, hasMore, showMore]);
   const activeSongIds = new Set(activeSongs.map((song) => song.id));
-  const draftPerformances = scopedPerformances.filter(
+  const [publishCatalog,setPublishCatalog]=useState<OtwPlayAdminCatalogDto|null>(null);
+  const publishPerformances=publishCatalog?.performances.filter(p=>scope==='all'||(scope==='broadcast'?p.releaseType==='broadcast':p.releaseType!=='broadcast'))??scopedPerformances;
+  const draftPerformances = publishPerformances.filter(
     (performance) =>
       performance.contentAccess !== "admin_archive" && performance.publicationStatus === "draft" &&
       (performance.releaseType !== "broadcast" || Boolean(performance.broadcast?.extent)) &&
-      activeSongIds.has(performance.songId),
+      (publishCatalog?publishCatalog.songs.some(s=>s.id===performance.songId&&s.archivedAt===null):activeSongIds.has(performance.songId)),
   );
   const draftSongCount = new Set(
     draftPerformances.map((performance) => performance.songId),
@@ -326,7 +333,7 @@ export function WorkflowCatalog({
       <div role="search" aria-label="카탈로그 필터" className="flex flex-wrap items-center gap-2">
         <CatalogSearchInput value={consoleSearch.q ?? ""} onSearch={(q) => updateConsole({ q, page: 1 })} />
         <SelectField aria-label="게시 상태" value={consoleSearch.state ?? ""} onValueChange={(value) => updateConsole({ state: value, page: 1 })} options={[{ value: "", label: "모든 게시 상태" }, { value: "draft", label: "임시 저장만" }, { value: "published", label: "게시됨" }, { value: "withdrawn", label: "철회된 가창" }]} />
-        <SelectField aria-label="곡 분류" value={consoleSearch.category ?? ""} onValueChange={(value) => updateConsole({ category: value, page: 1 })} options={[{ value: "", label: "모든 분류" }, ...[...new Set(activeSongs.flatMap((song) => song.tags ?? []))].sort().map((tag) => ({ value: tag, label: tag }))]} />
+        <SelectField aria-label="곡 분류" value={consoleSearch.category ?? ""} onValueChange={(value) => updateConsole({ category: value, page: 1 })} options={[{ value: "", label: "모든 분류" }, ...[...new Set(catalog.availableTags??activeSongs.flatMap((song) => song.tags ?? []))].sort().map((tag) => ({ value: tag, label: tag }))]} />
         {(consoleSearch.q || consoleSearch.state || consoleSearch.category) && <Button variant="ghost" size="sm" onClick={() => updateConsole({ q: undefined, state: undefined, category: undefined, page: 1 })}>필터 초기화</Button>}
         <span role="status" className="ml-auto text-sm tabular-nums text-muted-foreground">{activeSongs.length}곡 중 {filteredSongs.length}곡 · {visibleCount}곡 표시</span>
       </div>
@@ -337,25 +344,31 @@ export function WorkflowCatalog({
         </div>
       ) : (
         <>
-          {(draftPerformances.length > 0 || publishingDrafts) && (
+          {(catalog.paged || draftPerformances.length > 0 || publishingDrafts) && (
             <div className="flex flex-col gap-3 rounded-xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="font-medium">
-                  미게시 가창 {draftPerformances.length}개 · {draftSongCount}곡
+                  {catalog.paged&&!publishCatalog?"전체 미게시 가창 게시":`미게시 가창 ${draftPerformances.length}개 · ${draftSongCount}곡`}
                 </p>
                 {draftPerformances.length > 0 && <p className="text-xs text-muted-foreground">전체 카탈로그 대상 · 검색 필터 미적용</p>}
               </div>
               <Button
                 className="shrink-0"
-                disabled={saving !== null || draftPerformances.length === 0}
-                onClick={() => setConfirmation({
+                disabled={saving !== null}
+                onClick={async () => {
+                  if(catalog.paged) {
+                    const full=await fetchOtwPlayAdminCatalog();setPublishCatalog(full);
+                    const drafts=full.performances.filter(p=>p.contentAccess!=='admin_archive'&&p.publicationStatus==='draft'&&(p.releaseType!=='broadcast'||Boolean(p.broadcast?.extent))&&full.songs.some(s=>s.id===p.songId&&s.archivedAt===null)&&(scope==='all'||(scope==='broadcast'?p.releaseType==='broadcast':p.releaseType!=='broadcast')));
+                    setConfirmation({title:"미게시 곡을 모두 게시할까요?",description:`전체 ${new Set(drafts.map(p=>p.songId)).size}곡 · ${drafts.length}개 가창을 게시합니다.`,confirmLabel:`${drafts.length}개 게시`,action:async()=>{await onPublishDrafts(drafts);setPublishCatalog(null);}});return;
+                  }
+                  setConfirmation({
                   title: "미게시 곡을 모두 게시할까요?",
                   description: `${draftSongCount}곡에 연결된 임시 저장 가창 ${draftPerformances.length}개를 순서대로 게시합니다. 각 항목은 승인된 공식 채널과 실제 가창 참여자를 다시 검증하며, 실패 항목은 임시 저장 상태로 유지합니다.`,
                   confirmLabel: `${draftPerformances.length}개 게시`,
                   action: async () => {
                     await onPublishDrafts(draftPerformances);
                   },
-                })}
+                });}}
               >
                 {publishingDrafts ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -516,7 +529,7 @@ function SongEditDialog({ catalog, song, onOpenChange, run }: { catalog: OtwPlay
   };
   const close = async (open: boolean) => { if (open || await canDiscard()) onOpenChange(open); };
   const open = song !== null;
-  return <Dialog open={open} onOpenChange={(open) => void close(open)}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>곡 정보 수정</DialogTitle><DialogDescription>곡명, 원곡 가수와 태그를 수정합니다.</DialogDescription></DialogHeader>{song && <div className="space-y-3"><div className="space-y-1.5"><Label htmlFor="edit-song-title">곡명</Label><Input id="edit-song-title" value={title} onChange={(event) => setTitle(event.target.value)} /></div><SongTagPicker tags={tags} onChange={setTags} /><SubjectPicker label="원곡 가수" placeholder="멤버 또는 기존 원곡 가수 검색" helpText="기존 가수를 선택하거나 새 외부 인물·그룹을 칩으로 추가할 수 있습니다. 첫 번째 가수를 대표 원곡 가수로 저장합니다." members={members} entities={catalog.entities} selected={artists} onChange={setArtists} /><label className="flex items-center gap-2 text-sm"><Checkbox checked={original} onCheckedChange={(checked) => setOriginal(checked === true)} /> OTW 오리지널곡</label></div>}<DialogFooter><Button variant="outline" onClick={() => void close(false)}>취소</Button><Button disabled={!title.trim() || artists.length === 0} onClick={() => void save()}>저장</Button></DialogFooter></DialogContent></Dialog>;
+  return <Dialog open={open} onOpenChange={(open) => void close(open)}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>곡 정보 수정</DialogTitle><DialogDescription>곡명, 원곡 가수와 태그를 수정합니다.</DialogDescription></DialogHeader>{song && <div className="space-y-3"><div className="space-y-1.5"><Label htmlFor="edit-song-title">곡명</Label><Input id="edit-song-title" value={title} onChange={(event) => setTitle(event.target.value)} /></div><SongTagPicker tags={tags} onChange={setTags} /><SubjectPicker remote={catalog.paged} label="원곡 가수" placeholder="멤버 또는 기존 원곡 가수 검색" helpText="기존 가수를 선택하거나 새 외부 인물·그룹을 칩으로 추가할 수 있습니다. 첫 번째 가수를 대표 원곡 가수로 저장합니다." members={members} entities={catalog.entities} selected={artists} onChange={setArtists} /><label className="flex items-center gap-2 text-sm"><Checkbox checked={original} onCheckedChange={(checked) => setOriginal(checked === true)} /> OTW 오리지널곡</label></div>}<DialogFooter><Button variant="outline" onClick={() => void close(false)}>취소</Button><Button disabled={!title.trim() || artists.length === 0} onClick={() => void save()}>저장</Button></DialogFooter></DialogContent></Dialog>;
 }
 
 type EditableParticipant = SelectedSubject & {
@@ -556,6 +569,10 @@ function PerformanceEditDialog({
   const saveRequests=useRef(new Map<string,string>());
   const [sameSingingConfirmed, setSameSingingConfirmed] = useState(false);
   const [broadcast, setBroadcast] = useState(EMPTY_BROADCAST);
+  const [channelSearch,setChannelSearch]=useState("");
+  const channelQuery=useQuery({queryKey:[...queryKeys.otwPlay.adminCatalog(),"channel-search",channelSearch],queryFn:()=>fetchOtwPlayAdminCatalog({lookup:'channels',q:channelSearch,limit:25}),enabled:Boolean(performance&&catalog.paged),staleTime:15_000});
+  const availableChannels=[...new Map([...catalog.channels,...channelQuery.data?.channels??[]].map(c=>[c.id,c])).values()];
+  const [songSearch,setSongSearch]=useState("");
   const [songId, setSongId] = useState("");
   const [relation, setRelation] = useState<OtwPlayRelationType>("cover");
   const [releaseType, setReleaseType] =
@@ -757,20 +774,7 @@ function PerformanceEditDialog({
             <section className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>연결된 곡</Label>
-                <Select value={songId} onValueChange={setSongId}>
-                  <SelectTrigger aria-label="연결된 곡">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {catalog.songs
-                      .filter((song) => song.archivedAt === null)
-                      .map((song) => (
-                        <SelectItem key={song.id} value={song.id}>
-                          {song.title}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
+                {catalog.paged?<SongConnectionPicker inputKey="performance-edit" catalog={catalog} selectedSongId={songId} query={songSearch} onQueryChange={setSongSearch} onSelectExisting={(id,title)=>{setSongId(id);setSongSearch(title);}} />:<Select value={songId} onValueChange={setSongId}><SelectTrigger aria-label="연결된 곡"><SelectValue /></SelectTrigger><SelectContent>{catalog.songs.filter(s=>s.archivedAt===null).map(song=><SelectItem key={song.id} value={song.id}>{song.title}</SelectItem>)}</SelectContent></Select>}
               </div>
               <div className="space-y-1.5">
                 <Label>곡 관계</Label>
@@ -865,6 +869,7 @@ function PerformanceEditDialog({
             </section>
 
             <section className="space-y-3">
+              {catalog.paged&&<><Input aria-label="영상 채널 검색" placeholder="영상 채널 검색" value={channelSearch} onChange={e=>setChannelSearch(e.target.value)} />{channelQuery.isError&&<p role="alert">채널 검색에 실패했습니다.</p>}</>}
               <SubjectPicker
                 label="가창 참여자"
                 placeholder="현재 멤버 또는 기존 외부 identity 검색"
@@ -1023,7 +1028,7 @@ function PerformanceEditDialog({
                       <Label>영상 채널</Label>
                       <Select value={source.channelId} onValueChange={(channelId) => updateSource(source.key, { channelId })}>
                         <SelectTrigger aria-label={`source ${index + 1} 채널`}><SelectValue placeholder="채널 선택" /></SelectTrigger>
-                        <SelectContent>{catalog.channels.filter(channel => releaseType === "broadcast" ? channel.channelRole === "approved_kirinuki" : channel.channelRole !== "approved_kirinuki").map((channel) => (
+                        <SelectContent>{availableChannels.filter(channel => releaseType === "broadcast" ? channel.channelRole === "approved_kirinuki" : channel.channelRole !== "approved_kirinuki").map((channel) => (
                           <SelectItem key={channel.id} value={channel.id}>{channel.displayName} · {channel.verificationStatus} · {channel.active ? " 활성" : " 비활성"}</SelectItem>
                         ))}</SelectContent>
                       </Select>

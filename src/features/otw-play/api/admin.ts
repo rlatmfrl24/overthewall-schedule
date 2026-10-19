@@ -227,9 +227,9 @@ export const retryOtwPlayImportJob = (jobId: string) =>
     { method: "POST", json: {} },
   ).then((response) => response.data);
 
-export const fetchOtwPlayAdminCatalog = () =>
+export const fetchOtwPlayAdminCatalog = (query?:import("@contracts/otw-play").OtwPlayAdminCatalogQuery) =>
   adminRequest<{ data: OtwPlayAdminCatalogDto }>(
-    apiRoutes.otwPlay.admin.catalog.build(),
+    apiRoutes.otwPlay.admin.catalog.build() + (query?"?"+new URLSearchParams(Object.entries(query).filter(([,v])=>v!==undefined&&v!==null).map(([k,v])=>[k,String(v)])):""),
   ).then((response) => response.data);
 
 export const fetchOtwPlayAdminSourceHealth = () =>

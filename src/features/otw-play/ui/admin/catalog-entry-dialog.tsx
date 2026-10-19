@@ -1,3 +1,4 @@
+import {fetchOtwPlayAdminCatalog} from "../../api/admin";
 import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
 import type { AiReviewFields, AiReviewField } from "@contracts/otw-play-ai-review";
 import type { OtwPlayParticipantRole } from "@contracts/otw-play";
@@ -161,6 +162,7 @@ export function SubjectPicker({
   onChange,
   allowGroup = true,
   includeMemberEntities = false,
+  remote = false,
 }: {
   label: string;
   placeholder?: string;
@@ -172,10 +174,15 @@ export function SubjectPicker({
   onChange: (items: SelectedSubject[]) => void;
   allowGroup?: boolean;
   includeMemberEntities?: boolean;
+  remote?:boolean;
 }) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const listboxId = useId();
+  const [remoteEntities,setRemoteEntities]=useState<OtwPlayAdminEntityDto[]>([]);
+  const [lookupError,setLookupError]=useState(false);
+  useEffect(()=>{if(!remote||!query.trim()) {setRemoteEntities([]);return;} let active=true;setLookupError(false);const timer=setTimeout(()=>{void fetchOtwPlayAdminCatalog({lookup:'entities',q:query,limit:25}).then(data=>{if(active)setRemoteEntities(data.entities);},()=>{if(active)setLookupError(true);});},150);return()=>{active=false;clearTimeout(timer);};},[query,remote]);
+  entities=[...new Map([...entities,...remoteEntities].map(entity=>[entity.id,entity])).values()];
   const normalized = normalizeSubjectName(query);
   const selectedKeys = new Set(selected.map((item) => item.key));
   const availableDraftSubjects = uniqueNewExternalSubjects([
@@ -399,6 +406,7 @@ export function SubjectPicker({
           )}
         </div>
       )}
+      {lookupError&&<p role="alert" className="text-sm text-destructive">인물 검색에 실패했습니다. 다시 검색해 주세요.</p>}
       <p className="text-xs text-muted-foreground">{helpText}</p>
     </div>
   );
@@ -653,6 +661,8 @@ export function CatalogEntryDialog({
       preflight?.video.durationSeconds !== undefined &&
       parsedEndSeconds <= preflight.video.durationSeconds,
   );
+  const [resolvedSongs,setResolvedSongs]=useState<OtwPlayAdminCatalogDto["songs"]>([]);
+  catalog={...catalog,songs:[...new Map([...catalog.songs,...resolvedSongs].map(s=>[s.id,s])).values()]};
   const hasExistingSong = songId !== "" && songId !== "__new";
   const originalArtists = !clip && videoKind === "original" && coverOriginalArtists.length === 0
     ? participants
@@ -897,7 +907,7 @@ export function CatalogEntryDialog({
                     <div className="space-y-1.5"><Label htmlFor="catalog-channel-role">채널 역할</Label><SelectField className="w-full min-w-0" id="catalog-channel-role" value={channelRole} onValueChange={value => setChannelRole(value as typeof channelRole)} options={[{value:"otw_official",label:"OTW 공식"},{value:"unit_official",label:"유닛 공식"},{value:"member_music",label:"멤버 노래 채널"},{value:"member_main",label:"멤버 메인 채널"},{value:"project_official",label:"승인 프로젝트"}]} /></div>
                   </div>
                 )}
-                {needsChannelOwnerChoice && <SubjectPicker label="채널 소유·연결 주체" members={members} entities={catalog.entities} draftSubjects={draftExternalSubjects} selected={channelOwners} onChange={setChannelOwners} helpText="영상의 가창자와 별개로 채널을 소유하거나 연결하는 주체를 선택하세요." />}
+                {needsChannelOwnerChoice && <SubjectPicker remote={catalog.paged} label="채널 소유·연결 주체" members={members} entities={catalog.entities} draftSubjects={draftExternalSubjects} selected={channelOwners} onChange={setChannelOwners} helpText="영상의 가창자와 별개로 채널을 소유하거나 연결하는 주체를 선택하세요." />}
                 {onManageChannel ? <div className="flex flex-wrap gap-2">
                   <Button type="button" size="sm" variant="outline" disabled={saving || checking || channelRecheck === "checking" || aiSession.launching}
                     onClick={() => onManageChannel({externalChannelId:preflight.video.channelId,displayName:preflight.video.channelTitle,kind:clip?"singing_clip":"official_video",role:clip?"approved_kirinuki":channelRole})}>{preflight.channel.state === "unknown" ? "이 채널 등록하기" : preflight.channel.state === "pending" ? "승인 검토" : preflight.channel.state === "inactive" ? "영상 사용 설정" : preflight.channel.state === "revoked" ? "철회 상태 확인" : !channelReady ? "채널 용도 확인" : "채널 설정"}</Button>
@@ -908,7 +918,7 @@ export function CatalogEntryDialog({
 
             {step === 1 && <section className="space-y-4" aria-label="곡 정보">
               <h3 ref={stepHeadingRef} tabIndex={-1} className="font-semibold outline-none">어떤 곡을 불렀나요?</h3>
-              <SongConnectionPicker inputKey="catalog-medley" catalog={catalog} selectedSongId={songId} query={songQuery}
+              <SongConnectionPicker onResolved={setResolvedSongs} inputKey="catalog-medley" catalog={catalog} selectedSongId={songId} query={songQuery}
                 onQueryChange={value => { ai.touch("song"); setSongQuery(value); }}
                 onSelectExisting={(nextSongId, title) => {
                   ai.touch("song"); setSongId(nextSongId); setSongQuery(title);
@@ -923,7 +933,7 @@ export function CatalogEntryDialog({
               }}>새 곡 직접 입력</Button> : <div className="grid items-start gap-6 sm:grid-cols-2">
                 <div className="min-w-0 space-y-4">
                 <div className="space-y-1.5"><Label htmlFor="cover-original-title">곡 제목</Label><Input id="cover-original-title" value={coverOriginalTitle} onChange={event => { ai.touch("song"); setCoverOriginalTitle(event.target.value); }} placeholder="영상 제목이 아닌 곡의 정식 제목" maxLength={300} /></div>
-                <SubjectPicker label="원곡 가수" placeholder="가수명을 검색하거나 새 외부 가수로 추가"
+                <SubjectPicker remote={catalog.paged} label="원곡 가수" placeholder="가수명을 검색하거나 새 외부 가수로 추가"
                   helpText={!clip && videoKind === "original" ? "비워두면 다음 단계의 가창 참여자를 원곡 가수로 사용합니다. 첫 번째 가수가 대표 원곡 가수입니다." : "첫 번째 가수를 대표 원곡 가수로 저장합니다."}
                   members={members} entities={catalog.entities} draftSubjects={draftExternalSubjects} selected={coverOriginalArtists} onChange={value => { ai.touch("song"); setCoverOriginalArtists(value); }} />
                 </div>
@@ -933,7 +943,7 @@ export function CatalogEntryDialog({
 
             {step === 2 && <section className="space-y-4" aria-label="가창 정보">
               <h3 ref={stepHeadingRef} tabIndex={-1} className="font-semibold outline-none">누가 어떻게 불렀나요?</h3>
-              <SubjectPicker label="가창 참여자" members={members} entities={catalog.entities} draftSubjects={draftExternalSubjects} selected={participants} onChange={value => {
+              <SubjectPicker remote={catalog.paged} label="가창 참여자" members={members} entities={catalog.entities} draftSubjects={draftExternalSubjects} selected={participants} onChange={value => {
                 ai.touch("participants"); setParticipants(value.map(person => ({...person,participantRole:participants.find(old => old.key===person.key)?.participantRole ?? "vocal"})));
               }} />
               {participants.length > 0 && <div className="space-y-2">

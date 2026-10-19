@@ -2951,3 +2951,27 @@ describe("D1AdminCatalogRepository", () => {
     ).toBe(false);
   });
 });
+
+it("pages admin songs with filters and retains complete legacy reads",async()=>{
+  await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<60) INSERT INTO music_songs(id,slug,title,normalized_title,dedupe_key,is_otw_original,original_release_precision,version,created_at,updated_at) SELECT 'page-'||printf('%03d',x),'page-'||x,'Page '||printf('%03d',x),'page '||printf('%03d',x),'page-'||x,0,'unknown',0,1,1 FROM n").run();
+  await db.prepare("INSERT INTO music_performances(id,song_id,dedupe_key,relation_type,release_type,participation_type,publication_status,quality_status,version,created_at,updated_at) SELECT 'p-'||id,id,'p-'||id,'cover','official_video','solo','draft','ok',0,1,1 FROM music_songs WHERE id LIKE 'page-%'").run();
+  const repo=new D1AdminCatalogRepository(db);
+  const first=await repo.readCatalog({page:{limit:25,scope:'official'}});
+  expect(first.songs).toHaveLength(25); expect(first.nextCursor).toBeTruthy();
+  const second=await repo.readCatalog({page:{limit:25,scope:'official',cursor:first.nextCursor!}});
+  expect(second.songs).toHaveLength(25);expect(second.songs[0].id).not.toBe(first.songs[0].id);
+  const last=await repo.readCatalog({page:{limit:25,scope:'official',cursor:second.nextCursor!}});expect(last.songs).toHaveLength(10);expect(last.nextCursor).toBeNull();
+  expect((await repo.readCatalog({page:{limit:25,scope:'official',q:'Page 055',state:'draft'}})).songs.map(s=>s.id)).toEqual(['page-055']);
+  expect((await repo.readCatalog()).songs.filter(s=>s.id.startsWith('page-'))).toHaveLength(60);
+});
+
+it("keeps admin page reads bounded as unrelated catalog history grows",async()=>{
+  const {meterD1}=await import('../../../test-support/d1-meter');
+  await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO music_songs(id,slug,title,normalized_title,dedupe_key,is_otw_original,created_at,updated_at) SELECT 'cost-'||printf('%05d',x),'cost-'||x,'Cost '||x,'cost '||printf('%05d',x),'cost-'||x,0,1,1 FROM n").run();
+  await db.prepare("INSERT INTO music_performances(id,song_id,dedupe_key,relation_type,release_type,participation_type,created_at,updated_at) SELECT 'p-'||id,id,'p-'||id,'cover','official_video','solo',1,1 FROM music_songs").run();
+  const full=meterD1(db),page=meterD1(db);
+  await new D1AdminCatalogRepository(full.db).readCatalog();
+  expect((await new D1AdminCatalogRepository(page.db).readCatalog({page:{limit:25,scope:'all'}})).songs).toHaveLength(25);
+  console.info('ADMIN_CATALOG_D1_COST',JSON.stringify({full:full.summary(),page:page.summary()}));
+  expect(page.summary().rowsRead).toBeLessThan(1000);expect(page.summary().rowsWritten).toBe(0);
+});

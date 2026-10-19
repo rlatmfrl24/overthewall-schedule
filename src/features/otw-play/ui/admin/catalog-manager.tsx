@@ -17,8 +17,8 @@ import { useConfirmation } from "@/shared/lib/confirmation";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { QueryReadback } from "@/shared/ui/query-readback";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import type {
   OtwPlayAdminApproveProposalRequest,
   OtwPlayAdminChannelDto,
@@ -79,6 +79,7 @@ import {
 import {
   useOtwPlayChannelMonitors,
   useOtwPlayAdminCatalog,
+  useOtwPlayAdminCatalogPages,
   useOtwPlayAdminObservability,
   useOtwPlayAdminProposals,
   useOtwPlayAdminRelease,
@@ -181,7 +182,18 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
   const workView = ["work-queue","work-deferred","work-summary"].includes(importView) || Boolean(reviewSearch.workBatch) && importView === "review";
   const needsCatalog = section === "catalog" || section === "channels" ||
     section === "import" && (importView === "review" || Boolean(reviewSearch.proposal));
-  const catalogQuery = useOtwPlayAdminCatalog(needsCatalog);
+  const pagedCatalog=section==='catalog'&&reviewSearch.view!=='entities';
+  const fullCatalogQuery=useOtwPlayAdminCatalog(needsCatalog&&!pagedCatalog);
+  const pagesQuery=useOtwPlayAdminCatalogPages({scope:catalogScope,q:reviewSearch.q,category:reviewSearch.category,state:reviewSearch.state},needsCatalog&&pagedCatalog);
+  const selectedMissing=Boolean(reviewSearch.selected)&&!pagesQuery.data?.pages.some(page=>page.songs.some(song=>song.id===reviewSearch.selected));
+  const selectedCatalog=useQuery({queryKey:[...queryKeys.otwPlay.adminCatalog(),"selected",reviewSearch.selected,catalogScope,reviewSearch.q,reviewSearch.category,reviewSearch.state],queryFn:()=>fetchOtwPlayAdminCatalog({scope:catalogScope,songId:reviewSearch.selected,q:reviewSearch.q,category:reviewSearch.category,state:reviewSearch.state,limit:25}),enabled:pagedCatalog&&selectedMissing});
+  const pagedData=useMemo(()=>{
+    if(!pagesQuery.data?.pages.length)return undefined;
+    const pageData=[...pagesQuery.data.pages,...(selectedMissing&&selectedCatalog.data?[selectedCatalog.data]:[])];
+    const mergeRows=<T extends {id:string}>(rows:T[])=>[...new Map(rows.map(row=>[row.id,row])).values()];
+    return {...pagesQuery.data.pages[pagesQuery.data.pages.length-1],songs:mergeRows(pageData.flatMap(p=>p.songs)),performances:mergeRows(pageData.flatMap(p=>p.performances)),entities:mergeRows(pageData.flatMap(p=>p.entities)),channels:mergeRows(pageData.flatMap(p=>p.channels))};
+  },[pagesQuery.data,selectedCatalog.data,selectedMissing]);
+  const catalogQuery=pagedCatalog?{...pagesQuery,data:pagedData}:fullCatalogQuery;
   const operationMonitors = useOtwPlayChannelMonitors(section === "operations");
   const proposalsQuery = useOtwPlayAdminProposals("pending_review", section === "import" && Boolean(reviewSearch.proposal));
   const needsProposalHistory = Boolean(reviewSearch.proposal) && proposalsQuery.isSuccess && !proposalsQuery.data.some(item => item.id === reviewSearch.proposal);
@@ -264,7 +276,9 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
     setRegisteredScope(null);
   }, [registrationOpen, registeredScope, catalogScope, updateReviewSearch]);
 
-  const catalog = catalogQuery.data;
+  const lastCatalog=useRef<OtwPlayAdminCatalogDto|undefined>(undefined);
+  if(catalogQuery.data) lastCatalog.current=catalogQuery.data;
+  const catalog = catalogQuery.data??lastCatalog.current;
   const refresh = async () => {
     await Promise.all([
       refreshReviewInbox(queryClient),
@@ -460,7 +474,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
         </div>
       )}
 
-      {needsCatalog && catalogQuery.isLoading && (
+      {needsCatalog && catalogQuery.isLoading && !catalog && (
         <div className="flex h-64 items-center justify-center">
           <Loader2 className="h-7 w-7 animate-spin" />
         </div>
@@ -502,6 +516,8 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
           deletionRequestId={deletionRequestId}
           scope={catalogScope}
           catalog={catalog}
+          loadMore={pagesQuery.hasNextPage?()=>void pagesQuery.fetchNextPage():undefined}
+          loadingMore={pagesQuery.isFetchingNextPage}
           saving={effectiveSaving}
           run={run}
           onPublishDrafts={publishDraftPerformances}
@@ -549,7 +565,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
           suspended={registrationOpen && section !== "catalog"}
           channelVisit={registrationVisit}
           onManageChannel={manageRegistrationChannel}
-          refreshCatalog={async () => { await queryClient.fetchQuery({ queryKey: queryKeys.otwPlay.adminCatalog(), queryFn: fetchOtwPlayAdminCatalog, staleTime: 0 }); }}
+          refreshCatalog={async () => { await queryClient.fetchQuery({ queryKey: queryKeys.otwPlay.adminCatalog(), queryFn: ()=>fetchOtwPlayAdminCatalog(), staleTime: 0 }); }}
           onOpenChange={value => { setRegistrationOpen(value); if (!value) setRegistrationVisit(null); }}
           catalog={catalog}
           preselectedSongId={preselectedSongId}

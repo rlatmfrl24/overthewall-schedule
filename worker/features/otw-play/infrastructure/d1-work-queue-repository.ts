@@ -21,19 +21,20 @@ const latestDeferredSql=`(${outcomeSql})='deferred' AND NOT EXISTS(
   SELECT 1 FROM music_playlist_work_items n JOIN music_playlist_work_batches nb ON nb.id=n.batch_id WHERE nb.queue_id=b.queue_id
   AND (n.candidate_id=i.candidate_id OR (i.candidate_id IS NULL AND n.playlist_item_id=i.playlist_item_id))
   AND (n.updated_at>i.updated_at OR (n.updated_at=i.updated_at AND n.rowid>i.rowid)))`;
-const sourceSql = `WITH memberships AS (
+const sourceSql = (selected="1")=>`WITH selected_queues AS(SELECT * FROM music_playlist_work_queues WHERE ${selected}), memberships AS (
   SELECT b.queue_id,b.scan_generation,i.playlist_item_id,${outcomeSql} AS outcome,
   ROW_NUMBER() OVER(PARTITION BY b.queue_id,b.scan_generation,i.playlist_item_id ORDER BY b.created_at DESC,i.updated_at DESC,i.rowid DESC) AS rank
-  FROM music_playlist_work_items i JOIN music_playlist_work_batches b ON b.id=i.batch_id LEFT JOIN music_ingestion_candidates c ON c.id=i.candidate_id
+  FROM selected_queues selected CROSS JOIN music_playlist_work_batches b CROSS JOIN music_playlist_work_items i LEFT JOIN music_ingestion_candidates c ON c.id=i.candidate_id
+  WHERE b.queue_id=selected.id AND b.scan_generation=selected.scan_generation AND i.batch_id=b.id
 ), counts AS (
   SELECT queue_id,scan_generation,count(*) AS inspected,
   SUM(outcome='registered') AS registered,SUM(outcome='excluded') AS excluded,SUM(outcome='deferred') AS deferred,SUM(outcome='ready') AS ready
   FROM memberships WHERE rank=1 GROUP BY queue_id,scan_generation
 ), deferredCounts AS (
-  SELECT b.queue_id,count(*) AS deferred_count FROM music_playlist_work_items i JOIN music_playlist_work_batches b ON b.id=i.batch_id
-  LEFT JOIN music_ingestion_candidates c ON c.id=i.candidate_id WHERE ${latestDeferredSql} GROUP BY b.queue_id
+  SELECT b.queue_id,count(*) AS deferred_count FROM selected_queues selected CROSS JOIN music_playlist_work_batches b CROSS JOIN music_playlist_work_items i
+  LEFT JOIN music_ingestion_candidates c ON c.id=i.candidate_id WHERE b.queue_id=selected.id AND i.batch_id=b.id AND ${latestDeferredSql} GROUP BY b.queue_id
 ) SELECT q.*,COALESCE(p.inspected,0) AS inspected,COALESCE(p.registered,0) AS registered,COALESCE(p.excluded,0) AS excluded,COALESCE(p.deferred,0) AS deferred,COALESCE(p.ready,0) AS ready,COALESCE(d.deferred_count,0) AS deferred_count
-  FROM music_playlist_work_queues q LEFT JOIN counts p ON p.queue_id=q.id AND p.scan_generation=q.scan_generation LEFT JOIN deferredCounts d ON d.queue_id=q.id`;
+  FROM selected_queues q LEFT JOIN counts p ON p.queue_id=q.id AND p.scan_generation=q.scan_generation LEFT JOIN deferredCounts d ON d.queue_id=q.id`;
 const itemSql = `SELECT i.*,b.queue_id,b.job_id,q.title AS playlist_title,c.version AS candidate_version,c.status AS candidate_status,c.candidate_kind,c.classification,c.external_video_id,c.title,c.metadata_checked_at,c.retention_expires_at,${outcomeSql} AS outcome,
   CASE WHEN i.candidate_id IS NULL THEN (${unavailableDecisionSql("reason")})
     WHEN c.classification='existing_catalog' THEN '기존 카탈로그' ELSE
@@ -77,12 +78,12 @@ export class D1WorkQueueRepository implements WorkQueueRepository {
 
   async add(id: string, playlistId: string, url: string, actor: string, now: number) {
     await this.db.batch([this.db.prepare(`INSERT OR IGNORE INTO music_playlist_work_queues(id,playlist_id,source_url,actor,created_at,updated_at) VALUES(?,?,?,?,?,?)`).bind(id, playlistId, url, actor, now, now)]);
-    const row = await this.db.prepare(`${sourceSql} WHERE q.playlist_id=?`).bind(playlistId).first<Row>();
+    const row = await this.db.prepare(`${sourceSql("playlist_id=?")}`).bind(playlistId).first<Row>();
     return source(row!);
   }
-  async sources() { return (await this.db.prepare(`${sourceSql} ORDER BY q.created_at,q.id`).all<Row>()).results.map(source); }
+  async sources() { return (await this.db.prepare(`${sourceSql()} ORDER BY q.created_at,q.id`).all<Row>()).results.map(source); }
   async source(id: string) {
-    const row = await this.db.prepare(`${sourceSql} WHERE q.id=?`).bind(id).first<Row>();
+    const row = await this.db.prepare(`${sourceSql("id=?")}`).bind(id).first<Row>();
     if (!row) throw new WorkQueueError("not_found", "플레이리스트 작업을 찾을 수 없습니다.", 404);
     return source(row);
   }
@@ -210,7 +211,7 @@ export class D1WorkQueueRepository implements WorkQueueRepository {
     if (!results[1].meta.changes) throw new WorkQueueError("stale_write","등록 결과가 변경되었습니다. 현재 묶음을 다시 확인하세요.");
   }
   async linkNext(id: string, nextId: string, now: number) { await this.db.batch([this.db.prepare("UPDATE music_playlist_work_batches SET next_batch_id=?,updated_at=? WHERE id=? AND next_batch_id IS NULL").bind(nextId,now,id)]); }
-  async nextSource() { const row=await this.db.prepare(`${sourceSql} WHERE q.status='waiting' ORDER BY q.created_at,q.id LIMIT 1`).first<Row>(); return row ? source(row) : null; }
+  async nextSource() { const row=await this.db.prepare(`${sourceSql("id=(SELECT id FROM music_playlist_work_queues WHERE status='waiting' ORDER BY created_at,id LIMIT 1)")}`).first<Row>(); return row ? source(row) : null; }
   async claim(m: WorkQueueMessage, token: string, now: number) {
     const condition=m.target === "queue" ? "status='checking'" : "(status IN ('preparing','completing') OR (status='completed' AND start_next=1 AND next_batch_id IS NULL))";
     const [result] = await this.db.batch([this.db.prepare(`UPDATE ${table(m)} SET lease_token=?,lease_until=? WHERE id=? AND ${condition} AND (lease_until IS NULL OR lease_until<=?) AND error_message IS NULL`).bind(token,now+300000,m.id,now)]);

@@ -434,7 +434,7 @@ describe("OtwPlayCatalogManager", () => {
     expect(screen.queryByText("클립곡")).toBeNull();
     expect(screen.queryByText("가창없는곡")).toBeNull();
     await selectOption("카탈로그 영상 종류", "전체");
-    expect(screen.getByText("2곡 중 2곡 · 2곡 표시")).toBeTruthy();
+    expect(await screen.findByText("2곡 중 2곡 · 2곡 표시")).toBeTruthy();
     expect(screen.getAllByText("클립곡")).toHaveLength(2);
     expect(screen.queryByText("가창없는곡")).toBeNull();
     fireEvent.click(screen.getByRole("combobox", { name: "곡 분류" }));
@@ -445,6 +445,7 @@ describe("OtwPlayCatalogManager", () => {
     expect(screen.queryByText("공식곡")).toBeNull();
     expect(screen.queryByText("가창없는곡")).toBeNull();
     fetchCatalogMock.mockResolvedValue({ ...catalog, songs: [songs[2]], performances: [] });
+    await waitFor(()=>expect(screen.getByRole("button",{name:"상태 새로고침"})).toHaveProperty("disabled",false));
     fireEvent.click(screen.getByRole("button", { name: "상태 새로고침" }));
     await screen.findByText("0곡 중 0곡 · 0곡 표시");
     expect(screen.getByText("곡 0 · 가창 0")).toBeTruthy();
@@ -1016,7 +1017,7 @@ describe("OtwPlayCatalogManager", () => {
   });
 
   it("omits archived songs and identities from approval selectors", async () => {
-    fetchCatalogMock.mockResolvedValueOnce({
+    fetchCatalogMock.mockResolvedValue({
       ...catalog,
       songs: [
         {
@@ -1280,7 +1281,7 @@ describe("OtwPlayCatalogManager", () => {
 
     fireEvent.click(await screen.findByRole("tab", { name: "채널" }));
 
-    expect(screen.getByRole("heading", { name: "Play 채널" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Play 채널" })).toBeTruthy();
     expect(screen.getByText(/검수 대기로 생성/)).toBeTruthy();
     fireEvent.click(screen.getByRole("combobox", { name: "채널 역할" }));
     fireEvent.click(screen.getByRole("option", { name: "승인 키리누키" }));
@@ -1331,7 +1332,7 @@ describe("OtwPlayCatalogManager", () => {
     renderCatalogManager();
 
     fireEvent.click(await screen.findByRole("tab", { name: "채널" }));
-    fireEvent.click(screen.getByRole("button", { name: "동의 완료 키리누키 수정" }));
+    fireEvent.click(await screen.findByRole("button", { name: "동의 완료 키리누키 수정" }));
     fireEvent.click(screen.getByLabelText("채널 검수 상태"));
     fireEvent.click(await screen.findByRole("option", { name: "승인됨" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "이 채널 영상 사용 허용" }));
@@ -1397,7 +1398,7 @@ describe("OtwPlayCatalogManager", () => {
     renderCatalogManager();
 
     fireEvent.click(await screen.findByRole("tab", { name: "채널" }));
-    expect(screen.getAllByText("잘못 연결된 그룹").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("잘못 연결된 그룹")).length).toBeGreaterThan(0);
     expect(screen.queryByLabelText("연결 주체")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "연결 교정 채널 수정" }));
 
@@ -3032,4 +3033,30 @@ describe("OtwPlayCatalogManager", () => {
     expect(createEntryMock.mock.calls[1][1]).toBe(requestId);
     await waitFor(()=>expect(screen.queryByRole("dialog",{name:"새 YouTube 영상 등록"})).toBeNull());
   });
+
+it("requests the next server catalog page without loading the full catalog",async()=>{
+  const pageCatalog={...catalog,songs:[{id:"page-one",title:"First server page",archivedAt:null,originalArtists:[],aliases:[],tags:[],version:0,isOtwOriginal:false}],performances:[{...linkedPerformance,songId:"page-one"}]};
+  fetchCatalogMock.mockImplementation(async(query)=>query?.cursor?{...pageCatalog,paged:true,nextCursor:null,songs:[{...pageCatalog.songs[0],id:'page-two',title:'Second server page'}],performances:[{...catalog.performances[0],id:'page-two-performance',songId:'page-two'}]}:{...pageCatalog,paged:true,nextCursor:'next-server-page'});
+  render(createElement(OtwPlayCatalogManager),{wrapper:createQueryWrapper()});
+  await screen.findAllByText("First server page");
+  expect(fetchCatalogMock).toHaveBeenCalledWith(expect.objectContaining({limit:25,scope:'official',cursor:null}));
+  fireEvent.click(screen.getByRole('button',{name:'곡 더 보기'}));
+  await screen.findAllByText('Second server page');
+  expect(fetchCatalogMock).toHaveBeenCalledWith(expect.objectContaining({cursor:'next-server-page',limit:25}));
+});
+
+it("publishes all draft targets after explicitly reading beyond the server page",async()=>{
+  const song={id:'bulk-song',slug:'bulk-song',title:'Bulk song',normalizedTitle:'bulk song',originalArtists:[],tags:[],aliases:[],archivedAt:null,version:0,isOtwOriginal:false};
+  const draft={...linkedPerformance,id:'bulk-one',songId:song.id,publicationStatus:'draft' as const};
+  const other={...draft,id:'bulk-two'};
+  fetchCatalogMock.mockImplementation(async query=>query?{...catalog,paged:true,nextCursor:null,songs:[song],performances:[draft]}:{...catalog,songs:[song],performances:[draft,other]});
+  renderCatalogManager();
+  fireEvent.click(await screen.findByRole('button',{name:'미게시 곡 모두 게시'}));
+  const dialog=await screen.findByRole('alertdialog');
+  fireEvent.click(within(dialog).getByRole('button',{name:'2개 게시'}));
+  await waitFor(()=>expect(publishPerformanceMock).toHaveBeenCalledTimes(2));
+  expect(publishPerformanceMock.mock.calls.map(call=>call[0])).toEqual(['bulk-one','bulk-two']);
+  expect(fetchCatalogMock).toHaveBeenCalledWith();
+});
+
 });

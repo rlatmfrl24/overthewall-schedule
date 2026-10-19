@@ -21,10 +21,17 @@ import {
 
 export const useOtwPlayAdminCatalog = (enabled = true) => useQuery({
   queryKey: queryKeys.otwPlay.adminCatalog(),
-  queryFn: fetchOtwPlayAdminCatalog,
+  queryFn: ()=>fetchOtwPlayAdminCatalog(),
   refetchOnWindowFocus: false,
   enabled,
   staleTime: 15_000,
+});
+
+export const useOtwPlayAdminCatalogPages = (query:import("@contracts/otw-play").OtwPlayAdminCatalogQuery,enabled=true)=>useInfiniteQuery({
+  queryKey:[...queryKeys.otwPlay.adminCatalog(),"pages",query],
+  queryFn:({pageParam})=>fetchOtwPlayAdminCatalog({...query,limit:25,cursor:pageParam}),
+  placeholderData:previous=>previous,
+  initialPageParam:null as string|null,getNextPageParam:page=>page.nextCursor,enabled,staleTime:15_000,
 });
 
 export const useOtwPlayAdminProposals = (status = "pending_review", enabled = true) => useQuery({

@@ -312,7 +312,41 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     return row;
   }
 
+  private async readCatalogPage(page:NonNullable<AdminCatalogScope["page"]>):Promise<OtwPlayAdminCatalogDto> {
+    const limit=page.limit??25;
+    if(!Number.isInteger(limit)||limit<1||limit>25||page.q&&page.q.length>300||page.state&&!['draft','published','withdrawn'].includes(page.state)) throw new AdminCatalogRepositoryError('validation_failed','Invalid catalog page');
+    let cursor:string[]|null=null;
+    try { if(page.cursor) { cursor=JSON.parse(page.cursor); if(!Array.isArray(cursor)||cursor.length!==2||!cursor.every(v=>typeof v==='string')) throw new Error(); } } catch { throw new AdminCatalogRepositoryError('validation_failed','Invalid catalog cursor'); }
+    const values:SqlValue[]=[],where:string[]=[];
+    const add=(condition:string,...bindings:SqlValue[])=>{where.push(condition);values.push(...bindings);};
+    const kind=page.lookup??'catalog',table=kind==='entities'?'music_entities':kind==='channels'?'music_channels':'music_songs';
+    const order=kind==='entities'?'normalized_name':kind==='channels'?'display_name':'normalized_title';
+    if(kind!=='channels') add('selected.archived_at IS NULL');
+    if(page.songId) add('selected.id=?',page.songId);
+    if(page.q) {
+      if(kind==='entities'||kind==='channels') add('instr(lower(selected.display_name),?)>0',page.q.toLocaleLowerCase());
+      else if(kind==='songs') add(`(instr(selected.normalized_title,?)>0 OR EXISTS(SELECT 1 FROM music_song_aliases a WHERE a.song_id=selected.id AND instr(a.normalized_alias,?)>0) OR EXISTS(SELECT 1 FROM music_song_original_artists a JOIN music_entities e ON e.id=a.entity_id WHERE a.song_id=selected.id AND instr(e.normalized_name,?)>0))`,...Array(3).fill(normalizeOtwPlaySearchText(page.q)));
+      else add(`instr(lower(selected.title||' '||COALESCE((SELECT group_concat(e.display_name,' ') FROM music_song_original_artists a JOIN music_entities e ON e.id=a.entity_id WHERE a.song_id=selected.id ORDER BY a.credit_order,a.entity_id),'')),?)>0`,page.q.toLocaleLowerCase());
+    }
+    if(kind==='catalog') {
+      add(`EXISTS(SELECT 1 FROM music_performances p WHERE p.song_id=selected.id ${page.scope==='official'?"AND p.release_type<>'broadcast'":page.scope==='broadcast'?"AND p.release_type='broadcast'":""} ${page.state?'AND p.publication_status=?':''})`,...(page.state?[page.state]:[]));
+      if(page.category) add('EXISTS(SELECT 1 FROM music_song_tags t WHERE t.song_id=selected.id AND t.display_name=?)',page.category);
+    }
+    if(cursor) add(`(selected.${order},selected.id)>(?,?)`,...cursor);
+    const selected=(await this.database.prepare(`SELECT selected.id,selected.${order} AS sort_key FROM ${table} selected WHERE ${where.join(' AND ')||'1'} ORDER BY selected.${order},selected.id LIMIT ?`).bind(...values,limit+1).all<{id:string;sort_key:string}>()).results;
+    const ids=selected.slice(0,limit).map(row=>row.id),json=JSON.stringify(ids);
+    if(kind==='entities'||kind==='channels') {const catalog=await this.readCatalog(kind==='entities'?{entityIds:ids}:{channelIds:ids});return {...catalog,paged:true,nextCursor:selected.length>limit?JSON.stringify([selected[limit-1].sort_key,selected[limit-1].id]):null};}
+    const performances=kind==='catalog'?(await this.database.prepare('SELECT id FROM music_performances WHERE song_id IN(SELECT value FROM json_each(?))').bind(json).all<{id:string}>()).results.map(row=>row.id):[];
+    const catalog=await this.readCatalog({songIds:ids,performanceIds:performances});
+    const entityIds=[...new Set([...catalog.songs.flatMap(s=>s.originalArtists.map(a=>a.entityId)),...catalog.performances.flatMap(p=>p.participants.map(a=>a.entityId))])];
+    const channelIds=[...new Set(catalog.performances.flatMap(p=>p.sources.map(s=>s.source.channelId)))];
+    const references=await this.readCatalog({entityIds,channelIds});
+    const availableTags=kind==='catalog'?(await this.database.prepare(`SELECT DISTINCT tag.display_name FROM music_song_tags tag JOIN music_songs song ON song.id=tag.song_id WHERE song.archived_at IS NULL AND EXISTS(SELECT 1 FROM music_performances p WHERE p.song_id=song.id ${page.scope==='official'?"AND p.release_type<>'broadcast'":page.scope==='broadcast'?"AND p.release_type='broadcast'":""}) ORDER BY tag.display_name`).all<{display_name:string}>()).results.map(row=>row.display_name):undefined;
+    return {...catalog,availableTags,entities:references.entities,channels:references.channels,paged:true,nextCursor:selected.length>limit?JSON.stringify([selected[limit-1].sort_key,selected[limit-1].id]):null};
+  }
+
   async readCatalog(scope?: AdminCatalogScope): Promise<OtwPlayAdminCatalogDto> {
+    if(scope?.page) return this.readCatalogPage(scope.page);
     const select = (sql: string, kind: "entities" | "songs" | "channels" | "performances", column: string) => {
       if (!scope || (scope.references && (kind === "songs" || kind === "entities"))) return this.database.prepare(sql);
       const values: SqlValue[] = [];
@@ -646,7 +680,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     };
   }
 
-  async readProposals(status?: string): Promise<OtwPlayAdminProposalDto[]> {
+  async readProposals(status?: string, proposalId?:string): Promise<OtwPlayAdminProposalDto[]> {
     const allowed = new Set([
       "pending_review",
       "approved",
@@ -659,7 +693,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         "Invalid proposal status",
       );
     }
-    const where = status ? "WHERE proposal.status = ?" : "";
+    const where = proposalId ? "WHERE proposal.id = ?" : status ? "WHERE proposal.status = ?" : "";
     const statement = this.database.prepare(`SELECT proposal.id, proposal.content_access,
       proposal.submitted_by_user_id, proposal.historical_source_site, proposal.historical_source_record_id,
       proposal.historical_review, proposal.submitted_url, proposal.youtube_video_id,
@@ -671,18 +705,12 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       proposal.approved_performance_snapshot_json
       FROM music_cover_proposals AS proposal ${where}
       ORDER BY proposal.created_at ASC, proposal.id ASC`);
-    const [proposalResult, participantResult, artistResult] =
-      await this.database.batch([
-        status ? statement.bind(status) : statement,
-        this.database
-          .prepare(`SELECT proposal_id, credit_order, resolved_entity_id, submitted_member_uid,
-        submitted_name_snapshot, participant_role
-        FROM music_cover_proposal_participants ORDER BY proposal_id, credit_order`),
-        this.database
-          .prepare(`SELECT proposal_id, credit_order, resolved_entity_id, submitted_member_uid,
-        submitted_name_snapshot FROM music_cover_proposal_original_artists
-        ORDER BY proposal_id, credit_order`),
-      ]);
+    const proposalResult=await (proposalId?statement.bind(proposalId):status?statement.bind(status):statement).all();
+    const selectedIds=JSON.stringify(proposalResult.results.map(row=>row.id));
+    const [participantResult,artistResult]=await this.database.batch([
+      this.database.prepare(`SELECT proposal_id, credit_order, resolved_entity_id, submitted_member_uid, submitted_name_snapshot, participant_role FROM music_cover_proposal_participants WHERE proposal_id IN(SELECT value FROM json_each(?)) ORDER BY proposal_id,credit_order`).bind(selectedIds),
+      this.database.prepare(`SELECT proposal_id, credit_order, resolved_entity_id, submitted_member_uid, submitted_name_snapshot FROM music_cover_proposal_original_artists WHERE proposal_id IN(SELECT value FROM json_each(?)) ORDER BY proposal_id,credit_order`).bind(selectedIds),
+    ]);
     type ProposalRow = Omit<
       OtwPlayAdminProposalDto,
       "participants" | "originalArtists" | "tags"
@@ -3422,7 +3450,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     ];
     await this.executeCatalogBatch(statements,Number(meta.revision),now);
 
-    const proposal = (await this.readProposals()).find(
+    const proposal = (await this.readProposals(undefined,proposalId)).find(
       (item) => item.id === proposalId,
     );
     if (!proposal)
@@ -3470,7 +3498,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         proposalEventId: ids.proposalEventId,
       },
     });
-    const proposal = (await this.readProposals()).find(
+    const proposal = (await this.readProposals(undefined,proposalId)).find(
       (item) => item.id === proposalId,
     );
     if (!proposal) {
