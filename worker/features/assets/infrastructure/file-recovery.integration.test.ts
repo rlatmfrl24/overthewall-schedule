@@ -1,3 +1,6 @@
+import { meterD1 } from "../../../test-support/d1-meter";
+import { D1MemberReader } from "../../members/infrastructure/d1-member-reader";
+import { getDb } from "../../../platform/db";
 import { readSiteSchemaMigrations } from "../../../test-support/site-schema";
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeAll, beforeEach, expect, it } from "vitest";
@@ -349,4 +352,21 @@ it("blocks a racing reference to the claimed object, allows a newer version, and
     expect((await db.prepare("SELECT deleted_at FROM asset_file_cleanup WHERE object_key=?").bind(original.versionKey).first<{deleted_at:number}>())?.deleted_at).toBeGreaterThan(0);
     await expect(store.put(input("delete-original"))).rejects.toThrow(/cleanup claim/);
   } finally { vi.useRealTimers(); }
+});
+
+it("seeks profile background references without treating member underscores as wildcards",async()=>{
+  await db.prepare("INSERT INTO members(uid,code,name) VALUES(90003,'background_cost','Background cost')").run();
+  const key='members/background_cost/backgrounds/one/original.webp';
+  await bucket.put(key,new Uint8Array([1]));
+  await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO asset_file_references(logical_key,version_key,hash,size,content_type,updated_at) SELECT 'notices/thumbnails/noise-'||x,'fixture',?,1,'image/webp',1 FROM n").bind('0'.repeat(64)).run();
+  await db.prepare("INSERT INTO asset_file_references(logical_key,version_key,hash,size,content_type,updated_at) VALUES(?,'fixture',?,1,'image/webp',1),('members/backgroundXcost/backgrounds/other/original.webp','fixture',?,1,'image/webp',1)").bind(key,'0'.repeat(64),'0'.repeat(64)).run();
+  const meter=meterD1(db);
+  const reader=new D1MemberReader(getDb({otw_db:meter.db} as Env),bucket);
+  const profile=await reader.findProfileByCode('background_cost');
+  expect(profile?.backgroundImages?.map(row=>row.id)).toEqual(['one']);
+  expect(meter.entries.length).toBeGreaterThan(0);
+  expect(meter.summary().rowsRead).toBeLessThan(100);
+  const withoutInventory=new D1MemberReader(getDb({otw_db:meter.db} as Env),{list:async()=>{throw new Error('Metadata must not list R2');}} as unknown as R2Bucket);
+  expect((await withoutInventory.findProfileByCode('background_cost',false))?.backgroundImages).toBeNull();
+  console.info('PROFILE_BACKGROUND_D1_COST',JSON.stringify(meter.summary()));
 });

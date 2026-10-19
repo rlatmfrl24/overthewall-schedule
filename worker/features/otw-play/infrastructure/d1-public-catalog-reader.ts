@@ -1331,9 +1331,9 @@ const participantQueryForPerformanceIds = (
     FROM music_performance_participants AS participant
     JOIN music_entities AS entity ON entity.id = participant.entity_id
     LEFT JOIN members AS member ON member.uid = entity.member_uid AND member.content_access = 'normal' AND NOT (${publicationHiddenSql("members","member","otw","__PUBLICATION_TIME__")})
-    WHERE participant.performance_id IN (${placeholders(performanceIds.length)})
+    WHERE participant.performance_id IN (SELECT value FROM json_each(?))
     ORDER BY participant.performance_id, participant.credit_order, entity.id`,
-  binds: [...performanceIds],
+  binds: [JSON.stringify(performanceIds)],
 });
 
 const sourceQueryForPerformanceIds = (
@@ -1362,12 +1362,12 @@ const sourceQueryForPerformanceIds = (
     JOIN music_media_sources AS source
       ON source.id = performance_source.source_id
     JOIN music_channels AS channel ON channel.id = source.channel_id
-    WHERE performance_source.performance_id IN (${placeholders(performanceIds.length)})
+    WHERE performance_source.performance_id IN (SELECT value FROM json_each(?))
       AND ${PUBLIC_SOURCE_PREDICATE}
     ORDER BY performance_source.performance_id,
              performance_source.priority,
              source.id`,
-  binds: [...performanceIds],
+  binds: [JSON.stringify(performanceIds)],
 });
 
 const catalogHydrationQuery = (
@@ -1886,7 +1886,7 @@ export class D1PublicCatalogReader
     return this.readMeta();
   }
 
-  async listPublishedSeoSongSlugs(): Promise<string[]> {
+  async listPublishedSeoSongSlugs(limit = 5001): Promise<string[]> {
     this.resetDiagnostics();
     const rows = await this.all<{ slug: string }>(`
       SELECT song.slug
@@ -1899,8 +1899,32 @@ export class D1PublicCatalogReader
             AND ${PUBLIC_PERFORMANCE_PREDICATE}
         )
       ORDER BY song.slug ASC, song.id ASC
-      LIMIT 5001`);
+      LIMIT ?`, [limit]);
     return rows.map(({ slug }) => slug);
+  }
+
+  async readSongContentBySlugs(slugs: readonly string[]) {
+    this.resetDiagnostics();
+    if (!slugs.length) return [];
+    const rows = await this.all<{ song_id:string; slug:string; title:string; performance_id:string }>(`
+      SELECT song.id AS song_id, song.slug, song.title, performance.id AS performance_id
+      FROM music_songs song CROSS JOIN music_performances performance
+      WHERE song.slug IN (SELECT value FROM json_each(?)) AND performance.song_id = song.id
+        AND ${PUBLIC_SONG_PREDICATE} AND ${PUBLIC_PERFORMANCE_PREDICATE}
+      ORDER BY song.slug, performance.released_at DESC, performance.id ASC`, [JSON.stringify(slugs)]);
+    if (!rows.length) return [];
+    const ids = rows.map(row => row.performance_id);
+    const [participants, sources] = await this.batchAll([participantQueryForPerformanceIds(ids),sourceQueryForPerformanceIds(ids)]);
+    type ContentPerformance = { participants:Array<{creditName:string}>; sources:Array<Pick<HydratedSource,"sourceRole"|"availabilityStatus"|"title"|"externalId">> };
+    const byPerformance = new Map<string, ContentPerformance>(rows.map(row => [row.performance_id,{participants:[],sources:[]}]));
+    for (const item of participants as ParticipantRow[]) byPerformance.get(item.performance_id)?.participants.push({creditName:item.credit_name_snapshot});
+    for (const item of sources as SourceRow[]) byPerformance.get(item.performance_id)?.sources.push({sourceRole:item.source_role,availabilityStatus:item.availability_status,title:item.title,externalId:item.external_id});
+    const bySong = new Map<string, {slug:string;title:string;performances:ContentPerformance[]}>();
+    for (const row of rows) {
+      const song = bySong.get(row.slug) ?? {slug:row.slug,title:row.title,performances:[]};
+      song.performances.push(byPerformance.get(row.performance_id)!); bySong.set(row.slug,song);
+    }
+    return slugs.flatMap(slug => bySong.has(slug) ? [bySong.get(slug)!] : []);
   }
 
   async readPublishedSongSeoBySlug(

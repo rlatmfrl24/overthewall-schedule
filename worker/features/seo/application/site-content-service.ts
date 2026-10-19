@@ -24,7 +24,8 @@ export class SiteContentService {
   }
 
   async read(path: string, date?: string, now = Date.now()): Promise<SitePublicContent | null> {
-    const accessRevision = await this.reader.readAccessRevision();
+    const needsData = path !== "/rights";
+    const accessRevision = needsData ? await this.reader.readAccessRevision() : 0;
     const seo = new SiteSeoService(this.seoReader, this.site);
     let metadata = resolveSiteSeo(path, this.site);
     let sections: SiteContentSection[] = [];
@@ -107,7 +108,7 @@ export class SiteContentService {
       ],
     };
     const content = { path: metadata.path, date: selectedDate, metadata, generatedAt: new Date(now).toISOString(), expiresAt, sections, structuredData };
-    if (await this.reader.readAccessRevision() !== accessRevision) throw new Error("Content access changed");
+    if (needsData && await this.reader.readAccessRevision() !== accessRevision) throw new Error("Content access changed");
     if (selectedDate) await this.cache?.put(content, accessRevision);
     return content;
   }

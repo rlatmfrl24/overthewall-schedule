@@ -11,7 +11,6 @@ import { SITE_OPENS_AT } from "@contracts/site-publication";
 import { apiRoutes } from "@contracts/api-routes";
 import { requireAdminUser } from "../platform/auth";
 
-const handleSiteSeo = createSiteSeoHandler(env => createSiteSeoDependencies(env).seo);
 
 type SerializedError = {
   name: string;
@@ -98,13 +97,16 @@ const handleFetch = async (
 
     const { site } = getWorkerSiteResources(env);
     if (assetPath.startsWith("/profile/") && /\.[a-z0-9]+$/i.test(assetPath) || assetPath.startsWith("/r2-assets/")) return await handleAsset(request, env);
+    let dependencies: ReturnType<typeof createSiteSeoDependencies> | undefined;
+    const readDependencies = () => dependencies ??= createSiteSeoDependencies(env, request.headers.has("Authorization") || request.headers.has("Cookie"));
+    const handleSiteSeo = createSiteSeoHandler(() => readDependencies().seo);
     const seoResponse = await handleSiteSeo(request, env);
     const contentPath = url.pathname.replace(/\/+$/, "") || "/";
     if (isSiteContentPath(contentPath) && (!seoResponse || seoResponse.status === 200)) {
       if (!["GET", "HEAD"].includes(request.method)) return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
       if (url.pathname !== contentPath) return Response.redirect(new URL(contentPath + url.search, url).toString(), 301);
       try {
-        const content = await createSiteSeoDependencies(env,request.headers.has("Authorization") || request.headers.has("Cookie")).content.read(contentPath);
+        const content = await readDependencies().content.read(contentPath);
         if (content) {
           const assetRequest = new Request(request.url, { method: "GET" });
           const source = request.method === "HEAD" && seoResponse ? await handleSiteSeo(assetRequest, env) : seoResponse;

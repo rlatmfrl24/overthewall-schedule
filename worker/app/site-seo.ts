@@ -25,6 +25,7 @@ export const createSiteSeoDependencies = (env: Env,privateRead=false) => {
   const members = new D1MemberReader(db, env.ASSET_BUCKET, false, getWorkerSiteResources(env).site.id);
   const settings = new DrizzleSettingsRepository(db);
   const play = new D1PublicCatalogReader(env.otw_db, getWorkerSiteResources(env).site.id);
+  const profiles = new Map<string, ReturnType<D1MemberReader["findProfileByCode"]>>();
   const reader: SiteSeoReader = {
     async readFeedState() {
       const stored = await settings.read([
@@ -43,7 +44,8 @@ export const createSiteSeoDependencies = (env: Env,privateRead=false) => {
       return (await members.listActive()).map(({ code }) => code);
     },
     findActiveProfileByCode(code) {
-      return members.findProfileByCode(code);
+      if (!profiles.has(code)) profiles.set(code, members.findProfileByCode(code, false));
+      return profiles.get(code)!;
     },
     async readPlayState() {
       return { ...await play.readSeoState(), requiresMembership: requiresOtwPlayMembership(site.id) };
@@ -68,8 +70,8 @@ export const createSiteSeoDependencies = (env: Env,privateRead=false) => {
       return results.flatMap((r, index) => r.status === "fulfilled" ? r.value : [{ id: index ? "chzzk" : "youtube", title: index ? "치지직" : "유튜브", status: "unavailable" as const, updatedAt: null, items: [] }]);
     },
     readPlaySongs: async slug => {
-      const slugs = slug ? [slug] : (await play.listPublishedSeoSongSlugs()).slice(0, 10);
-      const songs = await Promise.all(slugs.map(s => play.readSongBySlug(s, "official")));
+      const slugs = slug ? [slug] : await play.listPublishedSeoSongSlugs(10);
+      const songs = await play.readSongContentBySlugs(slugs);
       return [{ id: "play", title: slug ? "공개 곡 정보" : "공개 곡", updatedAt: null, status: "available", items: songs.flatMap(song => song ? [
         { title: song.title, url: `/play/songs/${encodeURIComponent(song.slug)}` },
         ...song.performances.flatMap(performance => performance.sources.filter(source => source.sourceRole === "official" && ["playable", "unknown"].includes(source.availabilityStatus)).map(source => ({

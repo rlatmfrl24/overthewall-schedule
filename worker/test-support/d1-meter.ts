@@ -11,6 +11,11 @@ export function meterD1(database: D1Database) {
         const row = result.results[0];
         return key !== "first" ? result : column ? row?.[column] ?? null : row ?? null;
       };
+      // shortcut: raw metering requires unique column names without columnNames; use a dedicated meter for raw joins.
+      if (key === "raw") return async () => {
+        const result = await target.all(); record(sql, args, result);
+        return result.results.map(row => Object.values(row));
+      };
       const value = Reflect.get(target, key, target);
       return typeof value === "function" ? value.bind(target) : value;
     } });

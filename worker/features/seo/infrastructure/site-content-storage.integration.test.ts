@@ -1,3 +1,4 @@
+import { D1MemberReader } from "../../members/infrastructure/d1-member-reader";
 import { siteEnv } from "../../../test-support/site-env";
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { beforeAll, afterEach, it, expect, vi } from "vitest";
@@ -120,4 +121,17 @@ it("reads public stored sources using SELECT only, without external requests", a
   statements.length = 0;
   expect(await readSiteContentFeed(measured, { xVisibility: "members", cafeEnabled: true, cafeVisibility: "private" })).toEqual([]);
   expect(statements).toEqual([]);
+});
+
+it("shares the profile projection within one HTML request and refreshes it on reentry", async () => {
+  const profile = vi.spyOn(D1MemberReader.prototype,'findProfileByCode');
+  const runtime = { ...testEnv,...siteEnv(), ASSET_BUCKET:undefined, ASSETS:{ fetch:async () => new Response('<html><head><title>old</title></head><body><div id="root"></div></body></html>') } } as unknown as Env;
+  for (const method of ['GET','HEAD']) {
+    const response = await handleWorkerFetch(new Request('https://otw.test/profile/summary',{method}),runtime);
+    expect(response.status).toBe(200);
+    const body=await response.text();
+    if(method==='GET') { expect(body).toContain('Summary'); expect(body).toContain('site-content-jsonld'); }
+    else expect(body).toBe('');
+  }
+  expect(profile).toHaveBeenCalledTimes(2);
 });

@@ -27,6 +27,12 @@ const setup = (requiresMembership: boolean | undefined = true) => {
 };
 
 describe("public site content", () => {
+  it("serves static rights without reading historical access revisions", async () => {
+    const { reader, service } = setup();
+    vi.mocked(reader.readAccessRevision).mockRejectedValue(new Error('No content data needed'));
+    expect((await service.read('/rights'))?.sections[0].id).toBe('rights');
+    expect(reader.readAccessRevision).not.toHaveBeenCalled();
+  });
   it("종료 이후 예외 일정이 있는 날짜만 주간 공개 콘텐츠에 포함한다", async () => {
     const { seo, reader } = setup();
     vi.mocked(reader.readSchedule).mockResolvedValue({

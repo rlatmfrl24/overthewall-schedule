@@ -833,6 +833,22 @@ describe("D1PublicCatalogReader", () => {
     );
   });
 
+  it("limits summary slugs in SQL while keeping full sitemap access", async () => {
+    await seedVisibilityFixture();
+    const reader = new D1PublicCatalogReader(db);
+    expect(await reader.listPublishedSeoSongSlugs(1)).toEqual(['song-no-source-slug']);
+    expect(await reader.listPublishedSeoSongSlugs()).toEqual(['song-no-source-slug','song-visible-slug']);
+  });
+
+  it("batches the same public song summary without hydrating catalog detail", async () => {
+    await seedVisibilityFixture();
+    const reader = new D1PublicCatalogReader(db);
+    const detail = await reader.readSongBySlug('song-visible-slug','official');
+    const result = await reader.readSongContentBySlugs(['song-visible-slug','song-draft-slug']);
+    expect(result).toEqual([{ slug:detail!.slug,title:detail!.title, performances:detail!.performances.map(performance => ({ participants:performance.participants.map(row => ({creditName:row.creditName})),sources:performance.sources.map(row => ({sourceRole:row.sourceRole,availabilityStatus:row.availabilityStatus,title:row.title,externalId:row.externalId})) })) }]);
+    expect(reader.getLastReadDiagnostics().statements).toBeLessThanOrEqual(3);
+  });
+
   it("projects bounded canonical SEO slugs and playable representative metadata", async () => {
     await seedVisibilityFixture();
     const reader = new D1PublicCatalogReader(db);
@@ -843,7 +859,7 @@ describe("D1PublicCatalogReader", () => {
     ]);
     expect(reader.getLastReadDiagnostics()).toMatchObject({
       statements: 1,
-      bindParameters: 0,
+      bindParameters: 1,
       usesOffset: false,
     });
 
