@@ -3059,4 +3059,34 @@ it("publishes all draft targets after explicitly reading beyond the server page"
   expect(fetchCatalogMock).toHaveBeenCalledWith();
 });
 
+it("selects an off-page existing participant while editing a performance",async()=>{
+  const song={id:'edit-page-song',slug:'edit-page-song',title:'Edit page song',originalArtists:[],tags:[],aliases:[],archivedAt:null,version:0,isOtwOriginal:false};
+  const performance={...linkedPerformance,id:'edit-page-performance',songId:song.id,publicationStatus:'draft' as const,sources:[{source:{id:'edit-source',provider:'youtube' as const,externalId:'dQw4w9WgXcQ',channelId:'edit-channel',title:null,thumbnailUrl:null,durationSeconds:180,providerPublishedAt:null,availabilityStatus:'playable' as const,lastCheckedAt:null,version:0},startSeconds:0,endSeconds:null,sourceRole:'official' as const,priority:0,isPrimary:true}]};
+  const external={id:'off-page-vocal',memberUid:null,entityKind:'person' as const,displayName:'Off page vocalist',normalizedName:'off page vocalist',slug:'off-page-vocal',archivedAt:null,version:0};
+  fetchCatalogMock.mockImplementation(async query=>query?.lookup==='entities'?{...catalog,entities:[external]}:{...catalog,paged:true,nextCursor:null,songs:[song],performances:[performance]});
+  renderCatalogManager();
+  fireEvent.click(await screen.findByRole('button',{name:'Edit page song 가창 펼치기'}));
+  const row=screen.getAllByText('임시 저장')[0]!.closest('tr')!;
+  fireEvent.click(within(row).getByRole('button',{name:'수정'}));
+  const dialog=screen.getByRole('dialog',{name:'가창 정보 수정'});
+  fireEvent.change(within(dialog).getByLabelText('가창 참여자 검색'),{target:{value:'Off page vocalist'}});
+  fireEvent.click(await within(dialog).findByRole('option',{name:/Off page vocalist/}));
+  fireEvent.click(within(dialog).getByRole('button',{name:'전체 정보 저장'}));
+  await waitFor(()=>expect(updatePerformanceMock).toHaveBeenCalledWith(expect.objectContaining({id:performance.id,participants:[expect.objectContaining({subject:{kind:'entity',entityId:external.id}})]}),expect.any(String)));
+});
+
+it("keeps global publication reachable from an empty filtered server page",async()=>{
+  const song={id:'hidden-draft-song',slug:'hidden-draft-song',title:'Off page draft',originalArtists:[],tags:[],aliases:[],archivedAt:null,version:0,isOtwOriginal:false};
+  const draft={...linkedPerformance,id:'off-page-draft',songId:song.id,publicationStatus:'draft' as const};
+  fetchCatalogMock.mockImplementation(async query=>query?{...catalog,paged:true,nextCursor:null}:{...catalog,songs:[song],performances:[draft]});
+  render(createElement(ConsoleSearchContext.Provider,{value:[{q:'no matching song'},vi.fn()]},createElement(OtwPlayCatalogManager)),{wrapper:createQueryWrapper()});
+  await screen.findByRole('search',{name:'카탈로그 필터'});
+  await waitFor(()=>expect(fetchCatalogMock).toHaveBeenCalledWith(expect.objectContaining({q:'no matching song'})));
+  expect(screen.getByText('조건에 맞는 곡이 없습니다. 검색어를 바꾸거나 필터를 초기화해 주세요.')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'미게시 곡 모두 게시'}));
+  const dialog=await screen.findByRole('alertdialog');
+  fireEvent.click(within(dialog).getByRole('button',{name:'1개 게시'}));
+  await waitFor(()=>expect(publishPerformanceMock).toHaveBeenCalledWith(draft.id,expect.anything(),expect.any(String)));
+});
+
 });

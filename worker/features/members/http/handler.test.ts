@@ -56,6 +56,7 @@ const rowsQuery = (rows: unknown[]) => ({
 });
 
 const orderedRowsQuery = (rows: unknown[]) => ({
+  rows,
   from: () => ({
     where: () => ({
       orderBy: async () => rows,
@@ -64,6 +65,11 @@ const orderedRowsQuery = (rows: unknown[]) => ({
 });
 
 const makeDb = (queries: unknown[]) => ({
+  $client: { prepare: vi.fn(() => ({ bind: () => ({ all: async () => {
+    const query = queries.shift() as ReturnType<typeof orderedRowsQuery> | undefined;
+    if (!query?.rows) throw new Error("Unexpected raw row query");
+    return { results: query.rows };
+  } }) })) },
   select: vi.fn(() => {
     const query = queries.shift();
     if (!query) {
@@ -312,7 +318,7 @@ describe("members route", () => {
     expect(response.status).toBe(200);
     const body = await response.json() as { backgroundImages: unknown };
     expect(body.backgroundImages).toEqual(outcome === "empty" ? [] : null);
-    expect(db.select).toHaveBeenCalledTimes(outcome === "empty" ? 5 : 4);
+    expect(db.select.mock.calls.length + db.$client.prepare.mock.calls.length).toBe(outcome === "empty" ? 5 : 4);
   });
 
   it("path segment를 벗어나는 멤버 코드는 DB 조회 없이 404를 반환한다", async () => {

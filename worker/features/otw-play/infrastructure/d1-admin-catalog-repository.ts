@@ -322,18 +322,41 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     const kind=page.lookup??'catalog',table=kind==='entities'?'music_entities':kind==='channels'?'music_channels':'music_songs';
     const order=kind==='entities'?'normalized_name':kind==='channels'?'display_name':'normalized_title';
     if(kind!=='channels') add('selected.archived_at IS NULL');
+    // Member choices come from the active-member reader, as in the original picker.
+    if(kind==='entities') add('selected.member_uid IS NULL');
     if(page.songId) add('selected.id=?',page.songId);
     if(page.q) {
-      if(kind==='entities'||kind==='channels') add('instr(lower(selected.display_name),?)>0',page.q.toLocaleLowerCase());
+      if(kind==='entities') add('instr(selected.normalized_name,?)>0',normalizeOtwPlaySearchText(page.q));
       else if(kind==='songs') add(`(instr(selected.normalized_title,?)>0 OR EXISTS(SELECT 1 FROM music_song_aliases a WHERE a.song_id=selected.id AND instr(a.normalized_alias,?)>0) OR EXISTS(SELECT 1 FROM music_song_original_artists a JOIN music_entities e ON e.id=a.entity_id WHERE a.song_id=selected.id AND instr(e.normalized_name,?)>0))`,...Array(3).fill(normalizeOtwPlaySearchText(page.q)));
-      else add(`instr(lower(selected.title||' '||COALESCE((SELECT group_concat(e.display_name,' ') FROM music_song_original_artists a JOIN music_entities e ON e.id=a.entity_id WHERE a.song_id=selected.id ORDER BY a.credit_order,a.entity_id),'')),?)>0`,page.q.toLocaleLowerCase());
+      else if(kind==='catalog') add(`instr(selected.normalized_title||' '||COALESCE((SELECT group_concat(normalized_name,' ') FROM (SELECT e.normalized_name FROM music_song_original_artists a JOIN music_entities e ON e.id=a.entity_id WHERE a.song_id=selected.id ORDER BY a.credit_order,a.entity_id)),''),?)>0`,normalizeOtwPlaySearchText(page.q));
     }
     if(kind==='catalog') {
       add(`EXISTS(SELECT 1 FROM music_performances p WHERE p.song_id=selected.id ${page.scope==='official'?"AND p.release_type<>'broadcast'":page.scope==='broadcast'?"AND p.release_type='broadcast'":""} ${page.state?'AND p.publication_status=?':''})`,...(page.state?[page.state]:[]));
       if(page.category) add('EXISTS(SELECT 1 FROM music_song_tags t WHERE t.song_id=selected.id AND t.display_name=?)',page.category);
     }
     if(cursor) add(`(selected.${order},selected.id)>(?,?)`,...cursor);
-    const selected=(await this.database.prepare(`SELECT selected.id,selected.${order} AS sort_key FROM ${table} selected WHERE ${where.join(' AND ')||'1'} ORDER BY selected.${order},selected.id LIMIT ?`).bind(...values,limit+1).all<{id:string;sort_key:string}>()).results;
+    // Stored normalization narrows candidates; each consumer's exact Unicode rules run before LIMIT.
+    const searchColumns = !page.q ? "" : kind === "entities" || kind === "channels"
+      ? ", selected.display_name AS search_text"
+      : `, selected.title AS search_text,
+          (SELECT json_group_array(display_name) FROM (SELECT e.display_name FROM music_song_original_artists a
+           JOIN music_entities e ON e.id=a.entity_id WHERE a.song_id=selected.id
+           ORDER BY a.credit_order,a.entity_id)) AS artists,
+          (SELECT json_group_array(alias) FROM music_song_aliases WHERE song_id=selected.id) AS aliases`;
+    const candidates = (await this.database.prepare(`SELECT selected.id,selected.${order} AS sort_key${searchColumns}
+      FROM ${table} selected WHERE ${where.join(' AND ')||'1'} ORDER BY selected.${order},selected.id${page.q ? '' : ' LIMIT ?'}`)
+      .bind(...values,...(page.q ? [] : [limit+1]))
+      .all<{id:string;sort_key:string;search_text:string;artists?:string;aliases?:string}>()).results;
+    const normalizePicker = (text:string) => text.normalize('NFKC').trim().replace(/\s+/gu,' ').toLocaleLowerCase();
+    const selected = candidates.filter(row => {
+      if (!page.q) return true;
+      if (kind === 'entities') return normalizePicker(row.search_text).includes(normalizePicker(page.q));
+      if (kind === 'channels') return row.search_text.toLocaleLowerCase().includes(page.q.toLocaleLowerCase());
+      const artists = JSON.parse(row.artists ?? '[]') as string[];
+      return kind === 'songs'
+        ? [row.search_text,...artists,...JSON.parse(row.aliases ?? '[]') as string[]].some(text=>normalizePicker(text).includes(normalizePicker(page.q!)))
+        : [row.search_text,...artists].join(' ').toLocaleLowerCase().includes(page.q.toLocaleLowerCase());
+    }).slice(0,limit+1);
     const ids=selected.slice(0,limit).map(row=>row.id),json=JSON.stringify(ids);
     if(kind==='entities'||kind==='channels') {const catalog=await this.readCatalog(kind==='entities'?{entityIds:ids}:{channelIds:ids});return {...catalog,paged:true,nextCursor:selected.length>limit?JSON.stringify([selected[limit-1].sort_key,selected[limit-1].id]):null};}
     const performances=kind==='catalog'?(await this.database.prepare('SELECT id FROM music_performances WHERE song_id IN(SELECT value FROM json_each(?))').bind(json).all<{id:string}>()).results.map(row=>row.id):[];

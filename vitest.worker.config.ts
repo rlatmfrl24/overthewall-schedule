@@ -303,7 +303,7 @@ return defineConfig({
               : migration),
               // Publication ownership also reads the actual Play channel-credit schema.
               ...otwPlayCatalogMigrations,
-              ...accessMigrations(["members", "youtube_feed_videos", "content_transitions"]), ...efficiencyIndexes("youtube_feed_")],
+              ...accessMigrations(["members", "youtube_feed_videos", "content_transitions"]), ...efficiencyIndexes("youtube_feed_"), ...efficiencyIndexes("scheduled_")],
             X_REFERENCE_MIGRATIONS: [...migrations.filter(({ name }) =>
               /^(0000_|0011_|0023_|0025_|0026_|0068_|0071_|0072_|0075_|0077_|0078_|0079_|0083_|0084_|0137_|0138_)/.test(name)
             ).map(migration => /^(0071_|0072_)/.test(migration.name)

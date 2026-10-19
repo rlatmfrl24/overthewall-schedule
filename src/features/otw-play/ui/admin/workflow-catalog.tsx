@@ -337,13 +337,6 @@ export function WorkflowCatalog({
         {(consoleSearch.q || consoleSearch.state || consoleSearch.category) && <Button variant="ghost" size="sm" onClick={() => updateConsole({ q: undefined, state: undefined, category: undefined, page: 1 })}>필터 초기화</Button>}
         <span role="status" className="ml-auto text-sm tabular-nums text-muted-foreground">{activeSongs.length}곡 중 {filteredSongs.length}곡 · {visibleCount}곡 표시</span>
       </div>
-      {activeSongs.length > 0 && filteredSongs.length === 0 && <p role="status" className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">조건에 맞는 곡이 없습니다. 검색어를 바꾸거나 필터를 초기화해 주세요.</p>}
-      {activeSongs.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-3 text-center text-sm text-muted-foreground">
-          연결된 가창이 있는 곡이 없습니다. 새 영상 등록에서 곡과 가창을 함께 만드세요.
-        </div>
-      ) : (
-        <>
           {(catalog.paged || draftPerformances.length > 0 || publishingDrafts) && (
             <div className="flex flex-col gap-3 rounded-xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -380,6 +373,13 @@ export function WorkflowCatalog({
             </Button>
           </div>
           )}
+      {(activeSongs.length > 0 || consoleSearch.q || consoleSearch.state || consoleSearch.category) && filteredSongs.length === 0 && <p role="status" className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">조건에 맞는 곡이 없습니다. 검색어를 바꾸거나 필터를 초기화해 주세요.</p>}
+      {activeSongs.length === 0 ? (consoleSearch.q || consoleSearch.state || consoleSearch.category ? null :
+        <div className="rounded-xl border border-dashed p-3 text-center text-sm text-muted-foreground">
+          연결된 가창이 있는 곡이 없습니다. 새 영상 등록에서 곡과 가창을 함께 만드세요.
+        </div>
+      ) : (
+        <>
           <div className="hidden overflow-hidden rounded-lg border lg:block">
             <Table aria-label="곡 카탈로그" className="w-full table-fixed">
               <TableHeader className="bg-muted/40"><TableRow><TableHead className="w-10"><span className="sr-only">가창 상세</span></TableHead><TableHead>곡 / 가창</TableHead><TableHead className="w-32">게시 현황</TableHead><TableHead className="w-32">분류</TableHead><TableHead className="w-28 text-right">작업</TableHead></TableRow></TableHeader>
@@ -871,6 +871,7 @@ function PerformanceEditDialog({
             <section className="space-y-3">
               {catalog.paged&&<><Input aria-label="영상 채널 검색" placeholder="영상 채널 검색" value={channelSearch} onChange={e=>setChannelSearch(e.target.value)} />{channelQuery.isError&&<p role="alert">채널 검색에 실패했습니다.</p>}</>}
               <SubjectPicker
+                remote={catalog.paged}
                 label="가창 참여자"
                 placeholder="현재 멤버 또는 기존 외부 identity 검색"
                 members={members}
