@@ -8,9 +8,10 @@ describe("explicit site definition", () => {
   it("keeps LuvDia's production origin unresolved and its own branding", () => {
     expect(parseSiteId("luvdia")).toBe("luvdia");
     expect(getSiteDefinition("luvdia")).toMatchObject({
-      id: "luvdia", publicOrigin: null, serviceName: "LuvDia Schedule", playName: "LuvDia Play",
+      id: "luvdia", publicOrigin: null, serviceName: "LuvDia Schedule", playName: "LuvDia Play", fanCafeUrl: "https://cafe.naver.com/s2dia",
     });
     expect(getSiteDefinition("otw").publicOrigin).toBe("https://otw-schedule.info");
+    expect(getSiteDefinition("otw").fanCafeUrl).toBe("https://cafe.naver.com/otwoffical");
   });
 });
 describe("site public origin", () => {

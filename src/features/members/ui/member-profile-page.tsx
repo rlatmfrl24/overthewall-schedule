@@ -504,9 +504,10 @@ export function MemberProfilePage({ code, renderPlayLink, includeArchived = fals
 
   const authenticatedProfile=Boolean(useContentSession()) || includeArchived;
   const activeImage = profileImages[0] ?? null;
+  // An empty server inventory must not trigger probes for legacy default backgrounds.
   const profileBackgroundSourceSets = useMemo(
     () =>
-      member
+      member && member.backgroundImages?.length !== 0
         ? buildProfileBackgroundImageSourceSets(
           member.code,
           member.backgroundImages,
