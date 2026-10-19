@@ -53,6 +53,7 @@ export interface MemberProfileLinkDto {
 
 export interface MemberProfileDto extends MemberDto {
   profileImages: MemberProfileImageDto[];
-  backgroundImages: MemberProfileBackgroundImageDto[];
+  /** null means inventory unavailable; [] confirms there are no background images. */
+  backgroundImages: MemberProfileBackgroundImageDto[] | null;
   links: MemberProfileLinkDto[];
 }

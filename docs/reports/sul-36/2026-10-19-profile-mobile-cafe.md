@@ -21,7 +21,9 @@
 
 LuvDia 빙하유의 실제 프로필 API는 `backgroundImages: []`를 반환했다. 화면은 이 명시적인 빈 목록을 legacy 기본 배경으로 바꿔 `default/w1280.webp`→`default/original.webp`를 순차 시도한 뒤에야 주 사진으로 돌아왔다. 두 URL의 실제404와 각각958/791ms 응답을 확인했다. 이 시간은 새 연결 표본이며 전체 지연이나 모든 사용자 비용으로 일반화하지 않는다.
 
-서버가 배경 없음으로 확정한 경우 주 사진을 바로 사용하도록 화면의 대상 선택을 수정했다. 기존 배경이 있는 멤버의 optimized→원본 복구·회전, 모바일 숨김, 로딩 skeleton과 실패 placeholder, 세션/파일 보호는 유지한다. API·DB·R2 파일을 변경하거나 새 기본 배경을 만들지 않는다. 빈 목록의 회귀는 먼저 실패한 뒤 수정했으며 적용 결과와 최종 검증은 이 작업 PR ledger를 따른다.
+서버가 배경 없음으로 확정한 경우 주 사진을 바로 사용하도록 화면의 대상 선택을 수정했다. 기존 배경이 있는 멤버의 optimized→원본 복구·회전, 모바일 숨김, 로딩 skeleton과 실패 placeholder, 세션/파일 보호는 유지한다. 기존 DB·R2 파일을 변경하거나 새 기본 배경을 만들지 않는다. 빈 목록의 회귀는 먼저 실패한 뒤 수정했으며 적용 결과와 최종 검증은 이 작업 PR ledger를 따른다.
+
+독립 리뷰에서 R2 bucket 부재/list 실패도 []로 반환하던 경계를 발견했다. GET `/api/members/:code`의 `backgroundImages`는 정상 조회의 목록(없으면[])과 조회 미확인(null)을 구분하도록 보완했다. null/undefined는 기존 source helper가 지원하던 legacy default 선택을 유지한다. 정상 empty만 지연을 생략하며 R2 목록 오류의 기존 default optimized→original 복구는 남긴다. API 타입·실제 handler→reader의 세 결과와 UI null 복구를 회귀로 검증한다. DB/R2·권한 변경은 없다.
 
 팬카페는 `SiteDefinition.fanCafeUrl` 한 곳에 등록한다. 공통 데스크톱/모바일 내비게이션의 기존 ‘외부 링크→공식 팬카페’를 재사용하고 OTW 주소는 유지한다. 외부 링크 추가를 카페 수집 활성화로 해석하지 않도록 feed의 검색 설명도 일반적인 멤버 게시글·소식으로 표현한다. 수집 설정·권한·자동화는 변경하지 않는다.
 

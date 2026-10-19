@@ -116,6 +116,16 @@ it("does not fetch hidden primary portraits or full originals after successful a
   ]);
 });
 
+it("retains default optimized-to-original recovery when the background inventory is unknown", async () => {
+  profileQuery.mockReturnValue({ data: { ...profile, backgroundImages: null }, isLoading: false, isError: false, error: null });
+  const fetcher = vi.fn<typeof fetch>(async input => String(input).includes("/default/w1280.webp")
+    ? new Response("Missing", { status: 404 }) : new Response(new Uint8Array([1])));
+  vi.stubGlobal("fetch", fetcher);
+  render(<ContentSessionContext.Provider value="own"><MemberProfilePage code="member" /></ContentSessionContext.Provider>);
+  await waitFor(() => expect(fetcher.mock.calls.some(([input]) => String(input) === "/r2-assets/members/member/backgrounds/default/original.webp")).toBe(true));
+  expect(fetcher.mock.calls.some(([input]) => String(input) === "/r2-assets/members/member/backgrounds/default/w1280.webp")).toBe(true);
+});
+
 it("falls back to the protected portrait after both background variants fail and stops loading after rejection", async () => {
   const fetcher = vi.fn<typeof fetch>(async (input, init) => {
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer own-token");

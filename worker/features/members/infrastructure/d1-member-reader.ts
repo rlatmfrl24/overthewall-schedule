@@ -193,7 +193,7 @@ export class D1MemberReader implements MemberReader {
   }
 
   private async listProfileBackgrounds(member: MemberRow) {
-    if (!this.assetBucket) return [];
+    if (!this.assetBucket) return null;
 
     const prefix = `members/${member.code}/backgrounds/`;
     const listed = await this.assetBucket.list({ prefix }).catch((error) => {
@@ -203,7 +203,7 @@ export class D1MemberReader implements MemberReader {
       });
       return null;
     });
-    if (!listed) return [];
+    if (!listed) return null;
 
     const variantsById = new Map<
       string,

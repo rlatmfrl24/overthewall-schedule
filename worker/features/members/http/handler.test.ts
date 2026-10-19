@@ -298,6 +298,22 @@ describe("members route", () => {
     expect(getDbMock).not.toHaveBeenCalled();
   });
 
+  it.each(["missing", "failed", "empty"] as const)("distinguishes %s background inventory from confirmed absence", async outcome => {
+    const queries = [memberQuery([makeMember()]), orderedRowsQuery([]), orderedRowsQuery([]), orderedRowsQuery([])];
+    const list = vi.fn(async () => {
+      if (outcome === "failed") throw new Error("R2 listing unavailable");
+      return { objects: [] };
+    });
+    const db = makeDb(outcome === "empty" ? [...queries, rowsQuery([])] : queries);
+    getDbMock.mockReturnValue(db);
+    const response = await handleMembers(new Request("https://example.com/api/members/member"), makeEnv(
+      outcome === "missing" ? {} : { ASSET_BUCKET: { list } as unknown as R2Bucket },
+    ));
+    expect(response.status).toBe(200);
+    expect((await response.json()).backgroundImages).toEqual(outcome === "empty" ? [] : null);
+    expect(db.select).toHaveBeenCalledTimes(outcome === "empty" ? 5 : 4);
+  });
+
   it("path segment를 벗어나는 멤버 코드는 DB 조회 없이 404를 반환한다", async () => {
     const response = await handleMembers(
       new Request("https://example.com/api/members/bad%2Fcode"),
