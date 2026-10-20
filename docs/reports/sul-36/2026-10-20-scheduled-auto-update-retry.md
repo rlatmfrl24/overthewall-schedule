@@ -42,6 +42,8 @@
 
 ## 실제 경로와 검증 한계
 
+PR [#176](https://github.com/rlatmfrl24/overthewall-schedule/pull/176)의 자동 리뷰에서 scan 재시도 후 새 날짜·허용 채널 계획에 없는 이전 match까지 queued로 남는 P2를 추가로 확인했다. 실제 D1 회귀2개를 먼저 실패시킨 뒤, phase guard와 같은 batch에서 제외된 match를 `skipped/auto_update_target_superseded`로 보존하고 미해결 outbox를 종료했다. 새 match가0개면 match marker도 확정해 finalizer가 진행한다. 기존 대상 유지·새 대상 추가·제외 대상의 늦은 메시지 차단·빈 계획·삽입 실패 전체 롤백을 포함한 상태 테스트32개 PASS와 독립 정적 재검토의 잔여 지적0건을 확인했다. 최종 preflight·배포 판정과 운영 증거는 PR의 검증 댓글이 소유한다. 위176개 결과는 이 추가 수정 직전 증거이며, 최종 소스에 영향받는 검사는 별도로 갱신한다.
+
 신규 회귀는 실제 application·repository·Queue handler와 로컬 D1을 사용한다. Queue 메시지 전달과 외부 CHZZK 응답을 통제해 중지·소유권 교체·재전달 시점을 재현한다. 별도의 기존 native Workflow 사례는 실제 Worker 번들, workerd Workflow와 네이티브 Queue 소비자를 사용해 Cron 진입부터 관측→후보→완료 이력까지 확인한다. 단위 fixture나 직접 repository 호출만으로 실제 Queue 경로를 통과했다고 판단하지 않는다.
 
 공급자·계정 사용량 응답은 로컬 fixture이므로 실서비스 공급자 응답·운영 Cloudflare Queue·운영 부하를 확인한 것은 아니다. 운영 UI·원격 D1·배포는 이번 검증 대상이 아니다. 중지된 운영 자동화와 유료 AI 설정은 그대로 유지했다.

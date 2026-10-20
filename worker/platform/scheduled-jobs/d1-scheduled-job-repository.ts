@@ -398,6 +398,24 @@ export class D1ScheduledJobRepository {
         AND NOT EXISTS(SELECT 1 FROM scheduled_job_items WHERE run_id=r.id AND phase=? AND status IN ('queued','running')),
         1,json('scheduled_phase_already_advanced')) FROM scheduled_job_runs r WHERE r.id=?`).bind(afterPhase,runId));
     }
+    if (afterPhase === "scan") {
+      const targets = JSON.stringify(items.filter(item=>item.phase==="match").map(item=>item.targetKey));
+      statements.push(this.db.prepare(`UPDATE scheduled_job_items SET status='skipped',
+        last_error_code='auto_update_target_superseded',last_error='Target is absent from the new scan plan',
+        finished_at=?,updated_at=?,lease_token=NULL,lease_until=NULL
+        WHERE run_id=? AND phase='match' AND status='queued'
+          AND target_key NOT IN (SELECT value FROM json_each(?))`).bind(now,now,runId,targets));
+      statements.push(this.db.prepare(`UPDATE scheduled_outbox AS o SET status='dispatched',
+        reconciled_at=CASE WHEN event_type='reconcile' THEN ? ELSE reconciled_at END,
+        last_error='auto_update_target_superseded',lease_token=NULL,lease_until=NULL,updated_at=?
+        WHERE run_id=? AND ${unresolvedOutboxSql} AND item_id IN (
+          SELECT id FROM scheduled_job_items WHERE run_id=? AND phase='match'
+            AND status='skipped' AND last_error_code='auto_update_target_superseded')`).bind(now,now,runId,runId));
+      if (!items.some(item=>item.phase==="match")) statements.push(this.db.prepare(`UPDATE scheduled_job_runs
+        SET summary_json=json_set(COALESCE(summary_json,'{}'),'$.autoUpdatePhases.match',
+          (SELECT COALESCE(SUM(attempts),0) FROM scheduled_job_items WHERE run_id=? AND phase='match'))
+        WHERE id=?`).bind(runId,runId));
+    }
 
     for (let index = 0; index < records.length; index += 10) {
       const chunk = records.slice(index, index + 10);
