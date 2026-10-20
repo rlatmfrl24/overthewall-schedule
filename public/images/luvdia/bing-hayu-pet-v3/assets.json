@@ -1,0 +1,217 @@
+{
+  "sourceVersion": "animation-v3-2026-10-20",
+  "conversion": "FFmpeg Lanczos downscale only; Pillow lossless WebP animation encoding, no creative redraw.",
+  "totalBytes": 2586832,
+  "scenes": [
+    {
+      "id": "solo-tea",
+      "nativeCanvas": 1254,
+      "webCanvas": 288,
+      "visibleBoundsAlpha16": [
+        208,
+        101,
+        1064,
+        1154
+      ],
+      "sourceFrameSha256": [
+        "a08bad3c3ee48de8e4646b94b88184835c32bf347b48f7d23cb7d1ff5657deb8",
+        "f29532c9e85e94dcb7352ed0b983bf6226e4fbc4dc38b524faf1b557dcb1a81b",
+        "b50fd3aefc775bf3de44f185e6b64c03821dae636ac84f20ab21f6e8911db539",
+        "798955aedf6c2cff4501c004c2a1691e00111581d461bdddb62f48d91e3ac2b6",
+        "e30d881c1d7b8e8dd0e402aa5ded7213c83bc17561d57be3d727357ada2ce808"
+      ],
+      "uniqueDrawnCuts": 5,
+      "storedFrames": 7,
+      "loopDurationMs": 3000,
+      "loop": 0,
+      "files": [
+        {
+          "file": "solo-tea.webp",
+          "bytes": 331462,
+          "sha256": "1954e5bb9a1b3900ea75417d4e36da76585e3e5e131b3610d2bc1bc17ba3a2c3"
+        },
+        {
+          "file": "solo-tea-still.webp",
+          "bytes": 47482,
+          "sha256": "df6d830d549523fd54e754cf3cbf010cc2782be1213eff76f306f8b8e8cc7ad2"
+        }
+      ],
+      "scaledPixelAlphaAndDurationRoundTrip": "PASS"
+    },
+    {
+      "id": "solo-snack",
+      "nativeCanvas": 1254,
+      "webCanvas": 288,
+      "visibleBoundsAlpha16": [
+        200,
+        76,
+        1078,
+        1175
+      ],
+      "sourceFrameSha256": [
+        "4a35cc7babd99c49e109d44226c1f5fd880a4249b8edca22d3f401dad37625bc",
+        "1a816f2df0eb5de495512f96e8632ef64770cf615a927eba58dd00d60d11db6f",
+        "207ff70f59069a14553595af9ee8dacfbe7298aad55f2e2469f05f853cb68125",
+        "37cadccf85bf9641124914e665a84f47b5f4ccf9428154cdc203edc421d98d11",
+        "505be5221e00b0c679986848adf2aa3910591fd9830c3170622869f7dcfbc84d"
+      ],
+      "uniqueDrawnCuts": 5,
+      "storedFrames": 7,
+      "loopDurationMs": 3000,
+      "loop": 0,
+      "files": [
+        {
+          "file": "solo-snack.webp",
+          "bytes": 344530,
+          "sha256": "d02aa922756eaea0f5b0b48f23621782447afdcc968464b08c98a6ce9cd18c35"
+        },
+        {
+          "file": "solo-snack-still.webp",
+          "bytes": 49902,
+          "sha256": "d5e9d4f4bdb9eca38d5c33833de994713cebacdbce221fccdcf967d292378ba5"
+        }
+      ],
+      "scaledPixelAlphaAndDurationRoundTrip": "PASS"
+    },
+    {
+      "id": "solo-nap",
+      "nativeCanvas": 1254,
+      "webCanvas": 288,
+      "visibleBoundsAlpha16": [
+        196,
+        68,
+        1072,
+        1187
+      ],
+      "sourceFrameSha256": [
+        "205327147e073bb2c06efca108eb5cc4eaf2b075dadb9ce5b792014f3ba18cf4",
+        "b9dd9d294471fea28186530287b5a341c8971d8c404fc2526457a06b5e268eb6",
+        "beb5fbaafb8800e58e204b504d4652b028b422247d7ebbfa383bf14ae773f295",
+        "91842147f9694d9af2875faf16c5b6dfc9187536198c7c78eb4921b03d16eb54",
+        "9bed2314109fb72056cdbeefc64d47312acc5b0552242a2994958d0e1a2f0c80"
+      ],
+      "uniqueDrawnCuts": 5,
+      "storedFrames": 8,
+      "loopDurationMs": 3000,
+      "loop": 0,
+      "files": [
+        {
+          "file": "solo-nap.webp",
+          "bytes": 367710,
+          "sha256": "340c756c1aaba09f0bcfa468e16c73146d0be742cb7989be9d1311a56d30721b"
+        },
+        {
+          "file": "solo-nap-still.webp",
+          "bytes": 47156,
+          "sha256": "8cc1454cd790514bb40de99de54e4862ea885d9c65bb25f448b0372b6115ad98"
+        }
+      ],
+      "scaledPixelAlphaAndDurationRoundTrip": "PASS"
+    },
+    {
+      "id": "duo-plant",
+      "nativeCanvas": 1254,
+      "webCanvas": 288,
+      "visibleBoundsAlpha16": [
+        45,
+        40,
+        1208,
+        1187
+      ],
+      "sourceFrameSha256": [
+        "a85f28b2b9a24f112534784474c383e666a9f19def2a16feb3add8d7a06ad010",
+        "27e842ace70d13046c72fabd28e359884ea5cf22e1e467fbb6b0faecf4a5ed89",
+        "0cddc85f522c04a31dda488262356bf613a4535961958e4b8d43e89d449d39bf",
+        "4f09f72bfe8c088bd392ef8cafffe84028b10614a2f487364e4455bba354e5eb",
+        "bdb4dee20a00b5fe608b6008e00bf22629a1d0e5567ece297babed2e8061f579"
+      ],
+      "uniqueDrawnCuts": 5,
+      "storedFrames": 5,
+      "loopDurationMs": 3000,
+      "loop": 0,
+      "files": [
+        {
+          "file": "duo-plant.webp",
+          "bytes": 317524,
+          "sha256": "6a186c5a422f0c8e976e0620a4b07b139f64e848c5fb1ea9821c4e50658dab91"
+        },
+        {
+          "file": "duo-plant-still.webp",
+          "bytes": 63908,
+          "sha256": "ac4ac671f49d94ec4f9b3d74992963f059d9561f9d7c512f0faeb72b828461f4"
+        }
+      ],
+      "scaledPixelAlphaAndDurationRoundTrip": "PASS"
+    },
+    {
+      "id": "duo-read",
+      "nativeCanvas": 1254,
+      "webCanvas": 288,
+      "visibleBoundsAlpha16": [
+        67,
+        41,
+        1168,
+        1188
+      ],
+      "sourceFrameSha256": [
+        "7456719eb0e2e1971255f1fda5f1e5a757f85afac5df2a4e3097dc3ea50d08d7",
+        "93b7597cb6601c9d2e06c53d2f4a110dea3e6fd7749e307befe6ffa8ead8149d",
+        "6e577ea9c7c161516125433a399571ff1a96017788c149b36a31c03e22a94bdf",
+        "255b768c227cc87604b0bc17bf5c7859123db8d9071d91eb5e70c438d538f915",
+        "b4c2c4cf435d9dc86de32b0570d52e2db921f5ca35a4d983416bf6e519783e4d"
+      ],
+      "uniqueDrawnCuts": 5,
+      "storedFrames": 7,
+      "loopDurationMs": 3000,
+      "loop": 0,
+      "files": [
+        {
+          "file": "duo-read.webp",
+          "bytes": 422844,
+          "sha256": "c7fd9705fd63013c7e5440526d5165b1a554d7499e3b2a16364c21cabcaf71f1"
+        },
+        {
+          "file": "duo-read-still.webp",
+          "bytes": 60266,
+          "sha256": "3e278b6412a1a6402213f484077d04664321b124405d205c48c098df04536e46"
+        }
+      ],
+      "scaledPixelAlphaAndDurationRoundTrip": "PASS"
+    },
+    {
+      "id": "duo-nap",
+      "nativeCanvas": 1254,
+      "webCanvas": 288,
+      "visibleBoundsAlpha16": [
+        40,
+        29,
+        1202,
+        1205
+      ],
+      "sourceFrameSha256": [
+        "d193241c4d1bc020eaad56593bbc0516505c9449192e96f7219ac49495c2e6dc",
+        "efe5edf2090a57ef0bf697ed8e3d0e4b5936d5e3ffd0950039462e771faa2ed8",
+        "300f9a5dd8ffe0e6467cb2702665262e7c002258284d856abdfe586d187b9e72",
+        "52a07b136e9ec5a186f1bd0973cd75f767f418a95e90a61680ccd5a22fc0c1c0",
+        "1684d07eeade3c1b148f58f2348642b923b85d15eb8d52942cf752191f65d501"
+      ],
+      "uniqueDrawnCuts": 5,
+      "storedFrames": 8,
+      "loopDurationMs": 3000,
+      "loop": 0,
+      "files": [
+        {
+          "file": "duo-nap.webp",
+          "bytes": 473694,
+          "sha256": "5093f8b16e4e65155f051c372e10cf42fe2d3c2a85497b54dde2f14008b69088"
+        },
+        {
+          "file": "duo-nap-still.webp",
+          "bytes": 60354,
+          "sha256": "a1cb79e9f708b7c68236c8777408b3a3ba6af5fc9c0f549922329b8dbb6daa1f"
+        }
+      ],
+      "scaledPixelAlphaAndDurationRoundTrip": "PASS"
+    }
+  ]
+}

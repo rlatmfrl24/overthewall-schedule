@@ -22,6 +22,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CardMember } from "./card-member";
 import { CardMemberCompact } from "./card-member-compact";
 import { CardMemberSkeleton } from "./card-member-skeleton";
+import { RecoveryPet } from "./recovery-pet";
 import { format, addDays, subDays, isSameDay } from "date-fns";
 import {
   CalendarDays,
@@ -443,8 +444,9 @@ export const DailySchedule = ({
   };
 
   return (
-    <div className="flex flex-col flex-1 w-full overflow-y-auto bg-background">
-      <div className="container mx-auto flex flex-col pt-6 pb-24 px-3 sm:py-8 sm:px-6 lg:px-8">
+    <div className="group/daily relative flex min-h-0 flex-col flex-1 w-full bg-background">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="container mx-auto flex flex-col pt-6 pb-24 px-3 sm:py-8 sm:px-6 lg:px-8 group-has-[[data-recovery-pet-expanded=true]]/daily:pb-[calc(12rem+env(safe-area-inset-bottom))]">
         <div
           className="flex flex-col gap-4 sm:gap-6"
           data-daily-main-stack="true"
@@ -814,6 +816,10 @@ export const DailySchedule = ({
           )}
         </div>
       </div>
+
+      </div>
+
+      <RecoveryPet siteId={site.id} isAdmin={isAdmin} />
 
       {/* Edit Dialog */}
       <ScheduleDialog
