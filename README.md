@@ -98,6 +98,11 @@ build made with `pk_test`. The deploy guard scans the emitted client entry bundl
 again and blocks any build containing a development key. Start from
 `.env.example` when recreating the local files.
 
+Before a production release, `pnpm deploy:check:d1-metrics` checks both sites'
+remote D1 metrics bindings without querying D1 tables or deploying. The normal
+deploy commands enforce this check before remote D1 doctor and upload. See the
+[D1 metrics deployment checks](docs/operations/d1-metrics-deployment.md).
+
 Local development defaults to local D1. Remote D1 is used only by explicit
 release or deploy commands.
 

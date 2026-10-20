@@ -4,6 +4,8 @@ import { verifyClientBuildForDeploy } from "./client-build-deploy-guard.mjs";
 import { getSiteTarget, parseSiteArgument } from "./site-target.mjs";
 import { verifySiteBuildManifest } from "./site-build-manifest.mjs";
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { assertD1MetricsPreservation, verifyD1MetricsForDeploy } from "./d1-metrics-deploy-guard.mjs";
 
 const isWindows = process.platform === "win32";
 const dryRun = process.argv.includes("--dry-run");
@@ -14,6 +16,8 @@ if (manifest.gitCommit !== execFileSync("git", ["rev-parse", "HEAD"], { encoding
   throw new Error("Artifact commit differs from the reviewed deployment checkout.");
 }
 const configs = [manifest.workerConfigPath];
+const workerConfig = JSON.parse(readFileSync(manifest.workerConfigPath, "utf8"));
+assertD1MetricsPreservation(workerConfig);
 
 const verifiedClientBuild = verifyClientBuildForDeploy(resolve(target.outputRoot, "client"), { siteId, issuer: manifest.clerkIssuer });
 process.stdout.write(
@@ -43,6 +47,7 @@ const run = (args, options = {}) => {
 };
 
 if (!dryRun) {
+  process.stdout.write(`[deploy:d1-metrics] ${JSON.stringify(verifyD1MetricsForDeploy(workerConfig, manifest.workerConfigPath))}\n`);
   const doctor = spawnSync(process.execPath, ["scripts/d1-doctor.mjs", `--site=${siteId}`, "--remote", "--skip-local", "--schema-only"], {
     cwd: process.cwd(), stdio: "inherit", env: { ...process.env, ...(process.env.CLOUDFLARE_D1_TOKEN ? { CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_D1_TOKEN } : {}) },
   });

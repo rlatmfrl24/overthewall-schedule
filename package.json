@@ -25,6 +25,7 @@
     "preview": "pnpm run build && node scripts/run-site.mjs preview --site=otw",
     "deploy": "pnpm run build && node scripts/deploy-workers.mjs --site=otw",
     "deploy:dry-run": "pnpm run build && node scripts/deploy-workers.mjs --site=otw --dry-run",
+    "deploy:check:d1-metrics": "node scripts/d1-metrics-deploy-guard.mjs",
     "queues:provision": "node scripts/provision-ops-queues.mjs",
     "images:profile-backgrounds": "node scripts/optimize-profile-backgrounds.mjs",
     "r2:upload-profile-backgrounds": "node scripts/upload-profile-backgrounds-to-r2.mjs",
