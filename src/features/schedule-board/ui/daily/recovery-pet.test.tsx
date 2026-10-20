@@ -86,9 +86,15 @@ it("follows the existing site/OS motion preference without removing the message 
 
 it("can collapse to uncover the schedule and restore the pet", () => {
   render(<RecoveryPet siteId="luvdia" />);
-  fireEvent.click(screen.getByRole("button", { name: "빙하유 펫 접기" }));
+  const close = screen.getByRole("button", { name: "빙하유 펫 접기" });
+  expect(document.activeElement).not.toBe(close);
+  close.focus();
+  fireEvent.click(close);
   expect(screen.queryByRole("img", { name: /빙하유/ })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "빙하유 펫 펼치기" }));
+  const expand = screen.getByRole("button", { name: "빙하유 펫 펼치기" });
+  expect(document.activeElement).toBe(expand);
+  fireEvent.click(expand);
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "빙하유 펫 접기" }));
   expect(screen.getByRole("img", { name: /빙하유/ })).toBeTruthy();
   expect(screen.getByRole("img", { name: /빙하유/ }).getAttribute("src")).not.toContain("-still.webp");
   expect(screen.getByText("D+1")).toBeTruthy();

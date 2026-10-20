@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Rabbit, X } from "lucide-react";
 import type { SiteId } from "@contracts/site-definition";
 import { SCHEDULE_MEMBER_END } from "@contracts/schedule-member-policy";
@@ -15,10 +15,24 @@ export function RecoveryPet({ siteId, isAdmin = false }: { siteId: SiteId; isAdm
   const [now, setNow] = useState(Date.now);
   const [sceneIndex, setSceneIndex] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
+  const toggleButton = useRef<HTMLButtonElement>(null);
+  const focusAfterToggle = useRef(false);
   const { enabled } = useAnimations();
   const days = getRecoveryPetDays(siteId, now);
   const visible = siteId === SCHEDULE_MEMBER_END.siteId && (isAdmin || days !== null);
   const animate = visible && enabled && !collapsed;
+
+  // Only a user toggle moves focus; the pet's first appearance must not steal it.
+  useLayoutEffect(() => {
+    if (!focusAfterToggle.current) return;
+    focusAfterToggle.current = false;
+    toggleButton.current?.focus();
+  }, [collapsed]);
+
+  const toggleCollapsed = () => {
+    focusAfterToggle.current = true;
+    setCollapsed(value => !value);
+  };
 
   useEffect(() => {
     if (siteId !== SCHEDULE_MEMBER_END.siteId) return;
@@ -62,12 +76,12 @@ export function RecoveryPet({ siteId, isAdmin = false }: { siteId: SiteId; isAdm
       className="pointer-events-none absolute right-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-30 w-40 print:hidden sm:right-5 sm:bottom-[calc(env(safe-area-inset-bottom)+1.25rem)]"
     >
       {collapsed ? (
-        <Button type="button" variant="outline" size="sm" className="pointer-events-auto float-right rounded-full bg-background/95 shadow-sm" aria-label="빙하유 펫 펼치기" onClick={() => setCollapsed(false)}>
+        <Button ref={toggleButton} type="button" variant="outline" size="sm" className="pointer-events-auto float-right rounded-full bg-background/95 shadow-sm" aria-label="빙하유 펫 펼치기" onClick={toggleCollapsed}>
           <Rabbit aria-hidden="true" /> {days === null ? "미리보기" : counter}
         </Button>
       ) : (
         <figure className="m-0 grid grid-cols-[1fr_auto_1fr]">
-          <Button type="button" variant="ghost" size="icon-sm" className="pointer-events-auto z-10 col-start-2 row-start-1 self-start justify-self-end rounded-full bg-background/90" aria-label="빙하유 펫 접기" onClick={() => setCollapsed(true)}>
+          <Button ref={toggleButton} type="button" variant="ghost" size="icon-sm" className="pointer-events-auto z-10 col-start-2 row-start-1 self-start justify-self-end rounded-full bg-background/90" aria-label="빙하유 펫 접기" onClick={toggleCollapsed}>
             <X aria-hidden="true" />
           </Button>
           <div className="relative col-span-full row-start-1 h-28 w-40 overflow-hidden">
