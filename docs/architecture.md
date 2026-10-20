@@ -2,6 +2,41 @@
 
 현재 작업과 운영 중단 조건은 [단일 작업 목록](current-work.md)에서 확인한다. 이 문서는 변경할 기능의 구조를 대조할 때만 참조한다.
 
+## 2026-10-20 후보01~03 반영 구조
+
+PR #176 merge `b0818c0da5858b888aede8e3cbbf52ca488378f5` 기준이다. 확인된 결함을 기존 소유 모듈에서 수정했으며 별도 이관 repository나 범용 phase 엔진은 추가하지 않았다. [최종 검토·배포·실제 운영 결과](architecture-review.md)가 검증 수준과 한계를 소유한다.
+
+[Graphify 구조도와 관계 탐색](diagrams/pr176/README.md)은 같은 코드 기준의 정적 스냅샷이다. 당시 운영 증거와 분석 경고를 함께 제공한다.
+
+```mermaid
+flowchart LR
+  admin["관리자 카탈로그"] --> query["useOtwPlayAdminCatalogPages<br/>페이지·선택·최신 행·오류 재시도"]
+  query --> http["인증된 관리자 HTTP"]
+  http --> read["D1AdminCatalogRepository<br/>LIMIT 묶음·정확 제목/별칭"]
+  admin --> save["동일 의도의 요청 키<br/>진짜 충돌은 입력 보존·재검토"]
+  save --> http
+  http --> service["AdminCatalogService"]
+  service --> batch["원자 D1 batch<br/>업무·revision·이벤트·성공 snapshot"]
+  batch --> receipt[("music_admin_command_results<br/>site/admin/request key + intent hash")]
+  receipt --> replay["같은 의도의 재전송<br/>저장 당시 HTTP 결과"]
+```
+
+```mermaid
+flowchart LR
+  entry["정상 관리자 지금 수집"] --> client["ScheduledRunClient<br/>manual run 생성"]
+  client --> control["control Queue"]
+  cron["Cron → Workflow"] --> control
+  control --> coordinator["Coordinator<br/>새 item/outbox 계획 · 기존 run은 outbox 재개"]
+  coordinator --> work["background Queue<br/>claimItem 단계·lease 검사"]
+  work --> scan["scan<br/>현재 설정·소유권 + 관측 batch"]
+  scan --> plan["addItems<br/>새 계획·시도 marker·과거 대상/outbox 종료<br/>같은 D1 batch"]
+  plan --> match["match<br/>현재 설정·소유권 + 후보 batch"]
+  match --> finish["finalize<br/>현재 시도의 집계·이력"]
+  finish --> visible["D1 succeeded + 운영 이력 화면"]
+```
+
+`D1ScheduledJobRepository`는 run/item/outbox와 `summary_json.autoUpdatePhases`의 소유자다. 중지·lease·단계 검사와 업무 쓰기는 같은 D1 batch에서 보장한다. 완료 재전달은 계획을 다시 만들지 않으며 실제 retry만 현재 결과와 하위 계획을 재계산한다. 공개 일정 승인은 별도 관리자 흐름이다. Play 자동화 중지와 AI 설정은 이 일정 검증으로 바뀌지 않는다.
+
 ## 2026-10-16 공개·저장 책임 분리
 
 PR161 반영 후 공개 시점·멤버 숨김·수집 차단·아카이브 선택·캐시 revision은 Worker의 content-access가 소유한다. 일반 파일 참조·원본 보호·보존 기간·업로드 복구는 assets, 과거 자료 DTO는 contracts/content-history.ts가 소유한다. 일정·공지·D-day·Play·AI·X의 일반 저장과 감사·lease·재시도·원자성은 각 기능에 남는다. 이관 repository·relay/RPC·이관 메시지/Cron 복구·전용 writer는 제거됐으며 일반 기능의 의존성으로 복원하지 않는다. [현행 공개 정책](operations/site-publication.md)과 [배포 근거](reports/sul-36/2026-10-16-content-transition-retirement.md)를 따른다.
@@ -9,7 +44,7 @@ PR161 반영 후 공개 시점·멤버 숨김·수집 차단·아카이브 선�
 ## 문서 상태
 
 - 상태: 현재 구현의 기준 문서
-- 기준일: 2026-08-27
+- 기준일: 2026-10-20 (후보01~03 반영; 아래 기본 계층 설명은 기존 계약 유지)
 - 대상: React 웹 앱, Cloudflare Worker, D1, R2, Queue, 외부 콘텐츠 API
 
 이 문서는 OTW Schedule의 현재 코드 소유권과 의존성 규칙을 정의한다.

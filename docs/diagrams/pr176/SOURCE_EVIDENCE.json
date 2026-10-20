@@ -1,0 +1,38 @@
+[
+  {
+    "file": "src/features/otw-play/queries/use-admin-catalog.ts",
+    "line": 30,
+    "symbol": "useOtwPlayAdminCatalogPages",
+    "url": "https://github.com/rlatmfrl24/overthewall-schedule/blob/b0818c0da5858b888aede8e3cbbf52ca488378f5/src/features/otw-play/queries/use-admin-catalog.ts#L30"
+  },
+  {
+    "file": "worker/features/otw-play/infrastructure/d1-admin-catalog-repository.ts",
+    "line": 939,
+    "symbol": "private async executeCatalogBatch",
+    "url": "https://github.com/rlatmfrl24/overthewall-schedule/blob/b0818c0da5858b888aede8e3cbbf52ca488378f5/worker/features/otw-play/infrastructure/d1-admin-catalog-repository.ts#L939"
+  },
+  {
+    "file": "worker/features/schedules/http/manual-auto-update-handler.ts",
+    "line": 18,
+    "symbol": "createManualAutoUpdateHandler",
+    "url": "https://github.com/rlatmfrl24/overthewall-schedule/blob/b0818c0da5858b888aede8e3cbbf52ca488378f5/worker/features/schedules/http/manual-auto-update-handler.ts#L18"
+  },
+  {
+    "file": "worker/features/schedules/infrastructure/publication-writers.ts",
+    "line": 12,
+    "symbol": "async function commitAutoUpdateBatch",
+    "url": "https://github.com/rlatmfrl24/overthewall-schedule/blob/b0818c0da5858b888aede8e3cbbf52ca488378f5/worker/features/schedules/infrastructure/publication-writers.ts#L12"
+  },
+  {
+    "file": "worker/platform/scheduled-jobs/d1-scheduled-job-repository.ts",
+    "line": 404,
+    "symbol": "auto_update_target_superseded",
+    "url": "https://github.com/rlatmfrl24/overthewall-schedule/blob/b0818c0da5858b888aede8e3cbbf52ca488378f5/worker/platform/scheduled-jobs/d1-scheduled-job-repository.ts#L404"
+  },
+  {
+    "file": "worker/features/scheduled-operations/infrastructure/scheduled-job-coordinator.ts",
+    "line": 200,
+    "symbol": "async advanceRun",
+    "url": "https://github.com/rlatmfrl24/overthewall-schedule/blob/b0818c0da5858b888aede8e3cbbf52ca488378f5/worker/features/scheduled-operations/infrastructure/scheduled-job-coordinator.ts#L200"
+  }
+]

@@ -1,0 +1,21 @@
+{
+  "checked_at": "2026-10-20T13:35:42.381273+00:00",
+  "commit": "b0818c0da5858b888aede8e3cbbf52ca488378f5",
+  "markdown_files": 17,
+  "broken_local_links": 0,
+  "source_hashes_verified": 1038,
+  "graph_nodes": 8373,
+  "graph_edges": 28655,
+  "rendered_mermaid_diagrams": 6,
+  "zoom_and_fit": "PASS",
+  "graph_search_and_select": "D1ScheduledJobRepository community, 19 neighbors",
+  "browser_console_errors": 0,
+  "broken_images": 0,
+  "archived_files_verified": 517,
+  "archived_bytes": 128770411,
+  "scope": "Documentation and reversible archive only; no production operations, paid AI, app source changes or full application tests",
+  "remaining_static_limits": {
+    "dangling_edges": 212,
+    "tsx_partial_parse": "src/features/youtube/ui/youtube-playlist.tsx:102"
+  }
+}

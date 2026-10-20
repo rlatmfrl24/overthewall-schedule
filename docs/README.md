@@ -10,6 +10,8 @@
 | [공개 정책](operations/site-publication.md) | 19일 경계·관리자·보관·파일/수집 차단을 확인할 때 |
 | [참조 문서](reference.md) | 실제 변경할 기능의 계약·검사·운영 가이드가 필요할 때 |
 | [아카이브](archive/README.md) | 과거 결정·실패·배포 identity가 증거로 필요할 때 |
+| [구조 후보01~03 최종 검토](architecture-review.md) | PR #176 수정·병합·양 사이트 실제 경로 검증과 미검증 한계 |
+| [Graphify 구조도·관계 탐색](diagrams/pr176/README.md) | 저장소에서 여는 HTML 구조도·군집 검색·압축 원본·분석 범위와 한계 |
 
 ## 문서 사용 원칙
 

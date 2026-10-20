@@ -5,7 +5,7 @@
 | 변경 범위 | 소유 문서 |
 | --- | --- |
 | 제품 범위·화면 | [PRODUCT](../PRODUCT.md), [Design](../Design.md) |
-| 구조·경계 | [아키텍처](architecture.md), [Agent 규칙](../AGENTS.md) |
+| 구조·경계 | [아키텍처](architecture.md), [후보01~03 최종 검토](architecture-review.md), [Agent 규칙](../AGENTS.md) |
 | 공개 전환·보관 | [현행 사이트 공개 정책](operations/site-publication.md), [멤버 게시물 보존](operations/member-post-storage-policy.md), [X 이력](operations/x-member-history-and-archive-design.md) |
 | 일정 수집 | [자동 갱신](auto-update.md), [예약 작업](operations/scheduled-jobs-v2.md) |
 | 비용·자원 | [비용 운영](operations/backend-cost-optimization.md), [캐시](cache-policy.md), [YouTube](youtube-optimization.md) |
