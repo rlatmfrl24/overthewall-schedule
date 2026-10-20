@@ -225,9 +225,10 @@ it("shows a stable fallback after authenticated bytes fail and never displays a 
   let finish: ((response: Response) => void) | undefined;
   vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => new Promise<Response>(resolve => { finish = resolve; })));
   URL.createObjectURL = () => "blob:portrait"; const revoke = vi.fn(); URL.revokeObjectURL = revoke;
-  const image = <AuthenticatedImage protectedImage={false} showPlaceholder src="/profile/member.webp" alt="멤버" />;
+  const image = <AuthenticatedImage protectedImage={false} showPlaceholder fallback={<span data-testid="portrait-fallback">기본 아이콘</span>} src="/profile/member.webp" alt="멤버" />;
   const view = render(<ContentSessionContext.Provider value="first">{image}</ContentSessionContext.Provider>);
   expect(view.getByAltText("멤버").getAttribute("src")).toBeNull();
+  expect(view.queryByTestId("portrait-fallback")).toBeNull();
   expect(view.container.firstElementChild!.getAttribute("aria-busy")).toBe("true");
   await waitFor(() => expect(finish).toBeDefined());
   await act(async () => finish!(new Response(new Uint8Array([1]))));
@@ -243,4 +244,6 @@ it("shows a stable fallback after authenticated bytes fail and never displays a 
   await waitFor(() => expect(view.container.firstElementChild!.getAttribute("aria-busy")).toBe("false"));
   expect(view.getByRole("img", { name: "멤버 이미지를 불러올 수 없습니다" })).toBeTruthy();
   expect(view.getByAltText("멤버").getAttribute("src")).toBeNull();
+  expect(view.getByTestId("portrait-fallback")).toBeTruthy();
+  expect(view.container.querySelector('[data-slot="skeleton"]')).toBeNull();
 });

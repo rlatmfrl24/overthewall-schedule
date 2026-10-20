@@ -67,8 +67,8 @@ export default defineConfig(({ command, mode, isPreview }) => {
     },
     server: {
       ...getLocalDevServerConfig(process.env, siteId),
-      // Reports and local tool downloads must not trigger application reloads.
-      watch: { ignored: ["**/coverage/**", "**/.tmp/**"] },
+      // Reports, builds, and local tool downloads must not trigger application reloads.
+      watch: { ignored: ["**/coverage/**", "**/.tmp/**", "**/dist/**"] },
     },
     plugins: [
       {

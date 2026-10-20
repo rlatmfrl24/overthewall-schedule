@@ -5,7 +5,7 @@ import { useContentSession } from "@/shared/hooks/content-session";
 import { cn } from "@/shared/lib/utils";
 import { Skeleton } from "./skeleton";
 
-export function AuthenticatedImage({ src, srcSet, protectedImage = true,referenceContext, showPlaceholder = false, className, style, onLoad, onError, alt, ...props }: ImgHTMLAttributes<HTMLImageElement> & { protectedImage?: boolean;referenceContext?:ProtectedAssetReferenceContext;showPlaceholder?: boolean }) {
+export function AuthenticatedImage({ src, srcSet, protectedImage = true,referenceContext, showPlaceholder = false, fallback, className, style, onLoad, onError, alt, ...props }: ImgHTMLAttributes<HTMLImageElement> & { protectedImage?: boolean;referenceContext?:ProtectedAssetReferenceContext;showPlaceholder?: boolean;fallback?: React.ReactNode }) {
   const resource = useAuthenticatedImageStates(src ? [src] : [], protectedImage, referenceContext)(src);
   const session=useContentSession();
   const resolvedSrcSet = protectedImage || session ? undefined : srcSet;
@@ -25,7 +25,7 @@ export function AuthenticatedImage({ src, srcSet, protectedImage = true,referenc
     <span className={cn("relative inline-block overflow-hidden object-cover", className)} style={style} aria-busy={!loaded && !failed}
       role={!loaded && alt ? "img" : undefined}
       aria-label={!loaded && alt ? `${alt} ${failed ? "이미지를 불러올 수 없습니다" : "이미지 불러오는 중"}` : undefined}>
-      {!loaded && <Skeleton aria-hidden="true" className={cn("absolute inset-0 size-full rounded-[inherit]", failed && "animate-none")} />}
+      {!loaded && (failed && fallback != null ? fallback : <Skeleton aria-hidden="true" className={cn("absolute inset-0 size-full rounded-[inherit]", failed && "animate-none")} />)}
       <img {...props} key={identity} ref={checkCachedImage} src={resource.src} srcSet={resolvedSrcSet} alt={alt}
         aria-hidden={!loaded ? true : undefined} className={cn("size-full rounded-[inherit]", !loaded && "invisible")}
         style={{ objectFit: "inherit", objectPosition: "inherit" }}

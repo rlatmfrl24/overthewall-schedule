@@ -44,6 +44,7 @@ export const WeeklyGridDayCell = ({
 
   return (
     <div
+      role="cell"
       className={cn(
         "flex min-h-[84px] flex-col gap-1.5 border-b border-r border-border p-1.5 transition-all last:border-r-0 group-last:border-b-0 md:min-h-[96px] md:p-2",
         hasSchedule ? "bg-card" : "bg-muted/20"
@@ -62,7 +63,7 @@ export const WeeklyGridDayCell = ({
       ) : isScheduleMemberActive(site.id, member.code, format(day, "yyyy-MM-dd")) ? (
         <button
           type="button"
-          className="group/slot flex flex-1 items-center justify-center rounded-lg border border-dashed border-transparent text-muted-foreground/60 transition-colors hover:border-border hover:bg-muted/70 hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2"
+          className="group/slot flex min-h-11 flex-1 items-center justify-center rounded-lg border border-dashed border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-muted/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground"
           onClick={() => onAddSchedule(day, member.uid)}
           aria-label={`${member.name} ${day.toLocaleDateString("ko-KR")} 스케쥴 추가`}
         >

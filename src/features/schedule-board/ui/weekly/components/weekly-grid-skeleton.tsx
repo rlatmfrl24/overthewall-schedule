@@ -5,12 +5,12 @@ const WEEK_DAYS = 7;
 
 export const WeeklyGridSkeleton = () => {
   return (
-    <div className="flex-1 min-h-0 overflow-hidden px-4 sm:px-6 lg:px-8 pb-8 flex flex-col">
+    <div className="flex-1 min-h-[24rem] overflow-hidden px-4 sm:px-6 lg:px-8 pb-8 flex flex-col">
       <div className="pb-4 flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* Scrollable Container */}
         <div className="flex-1 min-h-0 overflow-auto rounded-2xl border border-border bg-card shadow-sm relative">
           {/* Grid */}
-          <div className="grid grid-cols-[80px_repeat(7,1fr)] md:grid-cols-[120px_repeat(7,1fr)] min-w-[800px] md:min-w-full min-h-full">
+          <div className="grid w-full min-w-[69rem] grid-cols-[6rem_repeat(7,minmax(9rem,1fr))] grid-rows-[6rem] auto-rows-[minmax(min-content,1fr)] min-h-full lg:min-w-[71rem] lg:grid-cols-[8rem_repeat(7,minmax(9rem,1fr))]">
             {/* Header Row */}
             <div className="sticky top-0 z-30 bg-gray-50/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800 grid grid-cols-subgrid col-span-full">
               {/* Member Column Header */}
