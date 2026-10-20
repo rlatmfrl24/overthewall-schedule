@@ -5,8 +5,8 @@
       "source": "docs/reports/sul-36/2026-10-20-play-catalog-retry.md",
       "archive": "docs/archive/2026-10-20-candidates-1-3/reports/2026-10-20-play-catalog-retry.md",
       "capturedSha256": "d36d920b580f60b938aa7cf73a989800b46ef67217b40420288a917b5b7fdb9c",
-      "sha256": "d36d920b580f60b938aa7cf73a989800b46ef67217b40420288a917b5b7fdb9c",
-      "bytes": 8625,
+      "sha256": "56b677a0b9bd5aabf784c42529df0575b512588571230e22fe397fca50f83a6d",
+      "bytes": 8569,
       "action": "move, rebase links, retain redirect",
       "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
     },
@@ -14,8 +14,8 @@
       "source": "docs/reports/sul-36/2026-10-20-play-catalog-query.md",
       "archive": "docs/archive/2026-10-20-candidates-1-3/reports/2026-10-20-play-catalog-query.md",
       "capturedSha256": "f387552b8dc6f369779f6ca218ef724bd144021458579542024fc974d30bfc8f",
-      "sha256": "f387552b8dc6f369779f6ca218ef724bd144021458579542024fc974d30bfc8f",
-      "bytes": 8779,
+      "sha256": "8d836f25822184b3bcda5c1dc35821203f22b10bad471221d827cab76abc0e4b",
+      "bytes": 8717,
       "action": "move, rebase links, retain redirect",
       "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
     },
@@ -23,8 +23,8 @@
       "source": "docs/reports/sul-36/2026-10-20-scheduled-auto-update-retry.md",
       "archive": "docs/archive/2026-10-20-candidates-1-3/reports/2026-10-20-scheduled-auto-update-retry.md",
       "capturedSha256": "8349c2b50820918d557d8be33fede1648eefa80d91cb50452a9384262b1964bc",
-      "sha256": "8349c2b50820918d557d8be33fede1648eefa80d91cb50452a9384262b1964bc",
-      "bytes": 8145,
+      "sha256": "738ad63a962864221b699c38e12c4fef35487960567126373c4ba6bf5ab3750a",
+      "bytes": 8094,
       "action": "move, rebase links, retain redirect",
       "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
     },
@@ -32,8 +32,8 @@
       "source": "local-temp/architecture-review-20261020-161008.html",
       "archive": "docs/archive/2026-10-20-candidates-1-3/reviews/architecture-review-20261020-161008.html",
       "capturedSha256": "f7715967c047678ae45ccdea8fdde07d24dd5f25cabdd480fd75f276fc7e1246",
-      "sha256": "49eecf3f144e5cb1240cd0788b9bdc92326989fb7adf211fcfd65dadf39dd507",
-      "bytes": 35035,
+      "sha256": "6093bacf6ce5884e4f43829972a6140b07b188f486fc2954933fc023371851c5",
+      "bytes": 34832,
       "action": "copy",
       "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
     },
@@ -41,8 +41,8 @@
       "source": "local-temp/architecture-catalog-query-review-20261020.md",
       "archive": "docs/archive/2026-10-20-candidates-1-3/reviews/architecture-catalog-query-review-20261020.md",
       "capturedSha256": "1cea4133be51598f8d953f831bcfb0c66d3e4d7c64fd0ea32ae1f75d0f0e0994",
-      "sha256": "1cea4133be51598f8d953f831bcfb0c66d3e4d7c64fd0ea32ae1f75d0f0e0994",
-      "bytes": 8268,
+      "sha256": "24ec92ccbbc737668a2ff1de27dcfedfd372f67d5aa6456e3b63fde63f9cd3a7",
+      "bytes": 8202,
       "action": "copy",
       "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
     },
@@ -50,8 +50,8 @@
       "source": "local-temp/architecture-scheduled-phases-review-20261020.md",
       "archive": "docs/archive/2026-10-20-candidates-1-3/reviews/architecture-scheduled-phases-review-20261020.md",
       "capturedSha256": "5b5ea63ada27054806041e5781e6ad36cabba57bddb7f20bac7010f34bec2209",
-      "sha256": "3fb7207cef328a30468250f09c8bab26dbdf94f0b8334162b3d974fcf99cf078",
-      "bytes": 15422,
+      "sha256": "d50d9b3db7330e146b9c11e751e85685d8401e089895467f3dd6dcc0796b590b",
+      "bytes": 15330,
       "action": "copy",
       "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
     },
@@ -113,9 +113,11 @@
       "source": "graphify-out/D1_TRANSITION_TRACE.md",
       "archive": "docs/archive/2026-10-20-candidates-1-3/graphify-before/D1_TRANSITION_TRACE.md",
       "capturedSha256": "69c4b7d9ec1f4a4fec988f461cebe5c2f89e8c34ba51d7f87f17ac90e72028a1",
-      "sha256": "bd7e4a836c62d15e354ec6d52335e6ababe81b8edf7e19fa220be37b5ca17d2d",
-      "bytes": 24191,
+      "sha256": "6c31cc1059c5976c465d840797d63e63073254690157bdb66742b54653b0f0e8",
+      "bytes": 23900,
       "action": "copy, preserve historical text, replace local-only links with named citations"
     }
-  ]
+  ],
+  "public_hash_convention": "sha256 and bytes are Git blob bytes: UTF-8 text normalized to LF, binary files unchanged.",
+  "capture_hash_convention": "capturedSha256 preserves the pre-publication working-copy checksum, not a Git source-commit checksum. For the first three reports this was the prepared public copy after archive header/link edits, with Windows CRLF. Exact original-source provenance is retained separately in the private local archive manifest."
 }

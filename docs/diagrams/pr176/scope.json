@@ -4162,5 +4162,6 @@
   ],
   "documents_include_uncommitted_closeout": true,
   "previous_graph": "Local ignored archive; see ../../archive/2026-10-20-candidates-1-3/graphify-before/README.md",
-  "snapshot_note": "Collected at 2026-10-20; code at PR176 merge, documents include then-uncommitted closeout. Hashes describe those inputs, not the later documentation PR HEAD."
+  "snapshot_note": "Collected at 2026-10-20; code at PR176 merge, documents include then-uncommitted closeout. Hashes describe those inputs, not the later documentation PR HEAD.",
+  "source_hash_convention": "sha256 records exact captured filesystem bytes (Windows CRLF where present), not Git blob hashes. source_identity is historical input evidence, not a clone-independent checkout checksum."
 }

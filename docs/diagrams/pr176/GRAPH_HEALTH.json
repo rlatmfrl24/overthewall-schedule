@@ -22,7 +22,7 @@
   "post_build_edge_count": 28655,
   "post_build_error": "",
   "producer_suppression": {
-    "path": "C:\\Users\\rlatm\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\graphify\\extract.py",
+    "path": "graphify/extract.py",
     "total_sites": 12,
     "sites": [
       {
@@ -229,5 +229,6 @@
         ""
       ]
     }
-  ]
+  ],
+  "producer_path_policy": "Package-relative diagnostic path; captured local installation path omitted for publication."
 }

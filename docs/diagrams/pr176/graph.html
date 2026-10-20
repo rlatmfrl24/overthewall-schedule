@@ -45,7 +45,7 @@
   #select-all-cb:indeterminate::after { content: ''; position: absolute; left: 2px; top: 5px; width: 8px; height: 2px; background: #fff; border: none; transform: none; }
 </style>
 </head>
-<body><aside aria-label="그래프 기준" style="position:fixed;left:14px;top:14px;max-width:52vw;padding:10px 14px;background:#152238ee;color:#e2e8f0;border:1px solid #3b526f;border-radius:8px;z-index:30;font:13px system-ui"><a href="project-structure.html" style="color:#7dd3fc">구조도로 돌아가기</a> · PR176 b0818c0d · 272군집 요약<br>군집의 Source/Type은 개별 파일이 아닙니다. 전체 기호·출처는 graph.json.gz와 분석 보고서를 따릅니다.</aside>
+<body><aside aria-label="그래프 기준" style="position:fixed;left:14px;top:14px;max-width:52vw;padding:10px 14px;background:#152238ee;color:#e2e8f0;border:1px solid #3b526f;border-radius:8px;z-index:30;font:13px system-ui"><a href="project-structure.html" style="color:#7dd3fc">구조도로 돌아가기</a> · PR176 b0818c0d · 272군집 요약 · 무방향 관계<br>군집의 Source/Type은 개별 파일이 아닙니다. 전체 기호·출처는 graph.json.gz와 분석 보고서를 따릅니다.</aside>
 <div id="graph"></div>
 <div id="sidebar">
   <div id="search-wrap">
@@ -90,7 +90,7 @@ const edgesDS = new vis.DataSet(RAW_EDGES.map((e, i) => ({
   dashes: e.dashes,
   width: e.width,
   color: e.color,
-  arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+  arrows: { to: { enabled: false, scaleFactor: 0.5 } },
 })));
 
 const container = document.getElementById('graph');

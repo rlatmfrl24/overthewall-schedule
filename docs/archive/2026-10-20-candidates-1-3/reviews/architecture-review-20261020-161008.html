@@ -140,7 +140,7 @@ flowchart TB
 <li><b>4 · 예약 retry:</b> 실제 client→control Queue→scan/match/finalize로 기존 작업을 재개합니다. 주기 재계산으로 skipped가 되지 않으며 상위 단계 전 하위 메시지는 claim부터 차단합니다.</li>
 <li><b>5 · 새 완료 기록:</b> 수동·예약 retry 모두 후보1건·updated=1·새 성공 이력1건을 확인했습니다. 이전 실패 이력은 보존하고 재조정 전용 retry와 완료 재전달은 기록을 중복 생성하지 않습니다.</li>
 <li><b>검증:</b> 신규 Worker/D1 회귀12개, 기존 D1 상태·거절 처리59개, 관련 단위97개, 멤버·사이트 정책6개, 실제 로컬 native Workflow/Queue2개 PASS. 독립 검토의 추가 경합 수정 후 재검토에서도 잔여 확정 지적0건입니다.</li>
-<li><b>한계와 기록:</b> 실제 Worker 번들·workerd Workflow·네이티브 Queue 소비자·D1을 검증했습니다. 외부 공급자·계정 사용량 응답은 로컬 fixture이며 운영 Cloudflare·브라우저·실부하는 미검증입니다. <a href="file:///docs/reports/sul-36/2026-10-20-scheduled-auto-update-retry.md">수정·검증 기록</a>이 최신 결과입니다. 운영 자동화·유료 AI는 재개하지 않았습니다. 아래 최초 구조 제안은 역사적 기록입니다.</li>
+<li><b>한계와 기록:</b> 실제 Worker 번들·workerd Workflow·네이티브 Queue 소비자·D1을 검증했습니다. 외부 공급자·계정 사용량 응답은 로컬 fixture이며 운영 Cloudflare·브라우저·실부하는 미검증입니다. <a href="../reports/2026-10-20-scheduled-auto-update-retry.md">수정·검증 기록</a>이 최신 결과입니다. 운영 자동화·유료 AI는 재개하지 않았습니다. 아래 최초 구조 제안은 역사적 기록입니다.</li>
 </ul></details>
 <details class="evidence"><summary>근거 · deletion test · 실제 seam 보존</summary><ul>
 <li><b>확인:</b> planner:111–155가 최초 scan/finalize를, coordinator:197–257이 scan 결과 JSON 해석과 match/finalize 생성을, executor:349–419가 실행·집계를, Queue:64–73이 terminal scan/match 후속 판정을 소유합니다.</li>
