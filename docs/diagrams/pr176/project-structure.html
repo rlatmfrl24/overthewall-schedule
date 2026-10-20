@@ -1,0 +1,286 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OTW·LuvDia 구조도 · PR176 반영</title><script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script><style>
+:root {
+  --bg: #0f172a; --surface: #1e293b; --border: #334155;
+  --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8;
+  --warn: #fbbf24; --err: #f87171; --ok: #34d399;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+.container { max-width: 1200px; margin: 0 auto; padding: 40px 24px; }
+h1 { font-size: 2.4rem; margin-bottom: 8px; background: linear-gradient(135deg, var(--accent), #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+h2 { font-size: 1.7rem; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 2px solid var(--accent); }
+h3 { font-size: 1.25rem; margin: 32px 0 12px; color: var(--accent); }
+h4 { font-size: 1.05rem; margin: 20px 0 8px; color: var(--warn); }
+p { margin: 8px 0; color: var(--muted); }
+.subtitle { color: var(--muted); font-size: 1.1rem; margin-bottom: 32px; }
+.mermaid { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 20px 0; overflow-x: auto; position: relative; }
+.mermaid.is-enhanced { padding: 0; overflow: hidden; min-height: 260px; }
+.mermaid-viewport { padding: 54px 24px 24px; overflow: hidden; cursor: grab; touch-action: none; min-height: 260px; }
+.mermaid-viewport.is-dragging { cursor: grabbing; }
+.mermaid-viewport svg { max-width: none !important; height: auto; transform-origin: 0 0; transition: transform 120ms ease; }
+.mermaid-toolbar { position: absolute; top: 10px; right: 10px; z-index: 3; display: flex; align-items: center; gap: 6px; padding: 6px; background: rgba(15,23,42,0.92); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.28); }
+.mermaid-toolbar button, .mermaid-toolbar .zoom-level { height: 28px; min-width: 32px; border: 1px solid var(--border); border-radius: 6px; background: #1e293b; color: var(--text); font: 600 0.78rem system-ui, sans-serif; display: inline-flex; align-items: center; justify-content: center; }
+.mermaid-toolbar button { cursor: pointer; }
+.mermaid-toolbar button:hover { border-color: var(--accent); color: var(--accent); }
+.mermaid-toolbar .zoom-level { min-width: 52px; color: var(--muted); background: transparent; }
+.call-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.92rem; }
+.call-table th { background: #1a2744; color: var(--accent); text-align: left; padding: 10px 14px; border: 1px solid var(--border); }
+.call-table td { padding: 8px 14px; border: 1px solid var(--border); vertical-align: top; }
+.call-table tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+.tag-async { background: #7c3aed33; color: #a78bfa; }
+.tag-class { background: #05966933; color: var(--ok); }
+.tag-func { background: #2563eb33; color: var(--accent); }
+.tag-cmd { background: #d9770633; color: var(--warn); }
+.tag-endpoint { background: #dc262633; color: var(--err); }
+.tag-hook { background: #db277733; color: #f472b6; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin: 16px 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin: 16px 0; }
+.arrow-chain { font-family: 'Fira Code', monospace; font-size: 0.85rem; color: var(--accent); padding: 10px; background: rgba(56,189,248,0.06); border-radius: 6px; }
+code { font-family: 'Fira Code', 'Cascadia Code', monospace; background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 3px; font-size: 0.88em; }
+ul, ol { margin: 8px 0 8px 24px; color: var(--muted); }
+li { margin: 4px 0; }
+a { color: var(--accent); }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+.nav { position: sticky; top: 0; background: var(--bg); z-index: 10; padding: 12px 0; border-bottom: 1px solid var(--border); display: flex; gap: 20px; flex-wrap: wrap; font-size: 0.9rem; }
+.nav a { text-decoration: none; }
+.nav a:hover { text-decoration: underline; }
+@media (max-width: 768px) { .container { padding: 16px; } h1 { font-size: 1.8rem; } }
+
+
+nav{display:flex;flex-wrap:wrap;gap:14px;position:sticky;top:0;background:var(--bg);padding:14px 0;z-index:10}section{scroll-margin-top:90px;margin:38px 0}table{width:100%;border-collapse:collapse}td,th{padding:12px;text-align:left;border-bottom:1px solid var(--border)}.status{color:var(--ok);font-weight:700}.proofs{display:grid;grid-template-columns:1fr 1fr;gap:16px}.proofs img{max-width:100%;border:1px solid var(--border)}.muted{color:var(--muted)}.card{margin:16px 0}summary{cursor:pointer}@media(max-width:750px){.proofs{grid-template-columns:1fr}h1{font-size:1.8rem}}
+nav{display:flex;flex-wrap:wrap;gap:14px;position:sticky;top:0;background:var(--bg);padding:14px 0;z-index:10}section{scroll-margin-top:90px;margin:38px 0}table{width:100%;border-collapse:collapse}td,th{padding:12px;text-align:left;border-bottom:1px solid var(--border)}.status{color:var(--ok);font-weight:700}.proofs{display:grid;grid-template-columns:1fr 1fr;gap:16px}.proofs img{max-width:100%;border:1px solid var(--border)}.muted{color:var(--muted)}.card{margin:16px 0}summary{cursor:pointer}@media(max-width:750px){.proofs{grid-template-columns:1fr}h1{font-size:1.8rem}}</style></head><body><main class="container">
+<header><p class="status">PR #176 · 수정·병합·양 사이트 운영 검증 완료</p><h1>OTW·LuvDia 프로젝트 구조도</h1><p>현재 코드 <code>b0818c0d</code> · 운영 관측 2026-10-20 22:03 KST · 문서 정리 변경 포함</p><p class="muted">과거 미커밋 트리의 이관 경로를 현행 구조에서 분리했습니다. 확인된 결함 수정과 미실행 구조 개편 제안을 구분합니다.</p></header>
+<nav aria-label="구조도 목차"><a href="#overview">전체 구조</a><a href="#candidate-1">후보01 저장</a><a href="#candidate-2">후보02 조회</a><a href="#candidate-3">후보03 일정</a><a href="#production-verification">운영 검증</a><a href="#source-and-limits">근거·한계</a><a href="#archive">아카이브</a><a href="graph.html">Graphify 관계 탐색</a></nav>
+<section id="overview"><h2>전체 구조 · 현행 소유권</h2><p>코드·설정 1,010개, 핵심 문서·Wrangler 28개. 테스트·아카이브·생성 snapshot 제외. 정적 노드 8,373개, 관계 28,655개.</p><div class="mermaid">flowchart LR
+  visitor[&quot;일반 방문자 · 관리자&quot;] --&gt; react[&quot;React · TanStack Router/Query&quot;]
+  react --&gt; api[&quot;공유 API 계약 · 인증 HTTP&quot;]
+  api --&gt; worker[&quot;Worker app 조립 → feature 업무&quot;]
+  worker --&gt; d1[(&quot;사이트별 D1&quot;)]
+  worker --&gt; r2[(&quot;사이트별 R2 · Assets&quot;)]
+  worker --&gt; provider[&quot;CHZZK · YouTube · X · Cafe&quot;]
+  cron[&quot;기존 Cron&quot;] --&gt; workflow[&quot;Workflow&quot;]
+  api --&gt; client[&quot;ScheduledRunClient&quot;]
+  client --&gt; control[&quot;control Queue → Coordinator&quot;]
+  workflow --&gt; control
+  control --&gt; background[&quot;background Queue → executor&quot;]
+  background --&gt; worker</div><details><summary>파일 소유 경로별 분석 범위</summary><table><thead><tr><th>소유 경로</th><th>파일 수</th></tr></thead><tbody><tr><td>(root)</td><td>20</td></tr><tr><td>.agent/rules</td><td>2</td></tr><tr><td>.impeccable/config.json</td><td>1</td></tr><tr><td>.impeccable/live</td><td>1</td></tr><tr><td>contracts/api-routes.ts</td><td>1</td></tr><tr><td>contracts/assets.ts</td><td>1</td></tr><tr><td>contracts/audit.ts</td><td>1</td></tr><tr><td>contracts/auth.ts</td><td>1</td></tr><tr><td>contracts/chzzk-scan.ts</td><td>1</td></tr><tr><td>contracts/chzzk.ts</td><td>1</td></tr><tr><td>contracts/configuration.ts</td><td>1</td></tr><tr><td>contracts/content-history.ts</td><td>1</td></tr><tr><td>contracts/ddays.ts</td><td>1</td></tr><tr><td>contracts/member-posts.ts</td><td>1</td></tr><tr><td>contracts/members.ts</td><td>1</td></tr><tr><td>contracts/naver-cafe.ts</td><td>1</td></tr><tr><td>contracts/notices.ts</td><td>1</td></tr><tr><td>contracts/numeric-id.ts</td><td>1</td></tr><tr><td>contracts/operations.ts</td><td>1</td></tr><tr><td>contracts/otw-play-access.ts</td><td>1</td></tr><tr><td>contracts/otw-play-ai-batch.ts</td><td>1</td></tr><tr><td>contracts/otw-play-ai-review.ts</td><td>1</td></tr><tr><td>contracts/otw-play-members.ts</td><td>1</td></tr><tr><td>contracts/otw-play-playlists.ts</td><td>1</td></tr><tr><td>contracts/otw-play-search.ts</td><td>1</td></tr><tr><td>contracts/otw-play-tags.ts</td><td>1</td></tr><tr><td>contracts/otw-play-work-queue.ts</td><td>1</td></tr><tr><td>contracts/otw-play.ts</td><td>1</td></tr><tr><td>contracts/pending-schedules.ts</td><td>1</td></tr><tr><td>contracts/schedule-board.ts</td><td>1</td></tr><tr><td>contracts/schedule-member-policy.ts</td><td>1</td></tr><tr><td>contracts/scheduled-operations.ts</td><td>1</td></tr><tr><td>contracts/schedules.ts</td><td>1</td></tr><tr><td>contracts/site-definition.ts</td><td>1</td></tr><tr><td>contracts/site-public-content.ts</td><td>1</td></tr><tr><td>contracts/site-publication.ts</td><td>1</td></tr><tr><td>contracts/site-seo.ts</td><td>1</td></tr><tr><td>contracts/x-posts.ts</td><td>1</td></tr><tr><td>contracts/youtube.ts</td><td>1</td></tr><tr><td>db/schema</td><td>1</td></tr><tr><td>docs/README.md</td><td>1</td></tr><tr><td>docs/aeo.md</td><td>1</td></tr><tr><td>docs/architecture-review.md</td><td>1</td></tr><tr><td>docs/architecture.md</td><td>1</td></tr><tr><td>docs/auto-update.md</td><td>1</td></tr><tr><td>docs/cache-policy.md</td><td>1</td></tr><tr><td>docs/current-work.md</td><td>1</td></tr><tr><td>docs/drizzle-workflow.md</td><td>1</td></tr><tr><td>docs/operations</td><td>6</td></tr><tr><td>docs/otw-play-admin-workflow-integration.md</td><td>1</td></tr><tr><td>docs/otw-play-ai-review.md</td><td>1</td></tr><tr><td>docs/otw-play-implementation-guide.md</td><td>1</td></tr><tr><td>docs/otw-play-product-requirements.md</td><td>1</td></tr><tr><td>docs/otw-play-system-design.md</td><td>1</td></tr><tr><td>docs/testing.md</td><td>1</td></tr><tr><td>docs/youtube-optimization.md</td><td>1</td></tr><tr><td>drizzle/0000_flaky_spyke.sql</td><td>1</td></tr><tr><td>drizzle/0001_pink_whirlwind.sql</td><td>1</td></tr><tr><td>drizzle/0002_powerful_absorbing_man.sql</td><td>1</td></tr><tr><td>drizzle/0003_volatile_smiling_tiger.sql</td><td>1</td></tr><tr><td>drizzle/0004_radiant_dday.sql</td><td>1</td></tr><tr><td>drizzle/0005_kind_dday_type.sql</td><td>1</td></tr><tr><td>drizzle/0006_fix_idx_schedules_date.sql</td><td>1</td></tr><tr><td>drizzle/0007_drop_ddays_idx.sql</td><td>1</td></tr><tr><td>drizzle/0008_reset_ddays.sql</td><td>1</td></tr><tr><td>drizzle/0009_condemned_maximus.sql</td><td>1</td></tr><tr><td>drizzle/0011_cold_maximus.sql</td><td>1</td></tr><tr><td>drizzle/0012_flimsy_millenium_guard.sql</td><td>1</td></tr><tr><td>drizzle/0013_add_pending_schedules.sql</td><td>1</td></tr><tr><td>drizzle/0014_heavy_slapstick.sql</td><td>1</td></tr><tr><td>drizzle/0015_chilly_red_skull.sql</td><td>1</td></tr><tr><td>drizzle/0016_breezy_norrin_radd.sql</td><td>1</td></tr><tr><td>drizzle/0017_short_satana.sql</td><td>1</td></tr><tr><td>drizzle/0018_woozy_yellow_claw.sql</td><td>1</td></tr><tr><td>drizzle/0019_romantic_ultimates.sql</td><td>1</td></tr><tr><td>drizzle/0020_omniscient_excalibur.sql</td><td>1</td></tr><tr><td>drizzle/0021_silky_rachel_grey.sql</td><td>1</td></tr><tr><td>drizzle/0022_parched_slayback.sql</td><td>1</td></tr><tr><td>drizzle/0023_groovy_molly_hayes.sql</td><td>1</td></tr><tr><td>drizzle/0024_unique_daimon_hellstrom.sql</td><td>1</td></tr><tr><td>drizzle/0025_high_centennial.sql</td><td>1</td></tr><tr><td>drizzle/0026_first_toro.sql</td><td>1</td></tr><tr><td>drizzle/0027_heavy_cassandra_nova.sql</td><td>1</td></tr><tr><td>drizzle/0028_backfill_member_profile_images.sql</td><td>1</td></tr><tr><td>drizzle/0029_fat_agent_brand.sql</td><td>1</td></tr><tr><td>drizzle/0030_tiresome_boomerang.sql</td><td>1</td></tr><tr><td>drizzle/0031_loving_wallflower.sql</td><td>1</td></tr><tr><td>drizzle/0032_wakeful_boom_boom.sql</td><td>1</td></tr><tr><td>drizzle/0033_lovely_senator_kelly.sql</td><td>1</td></tr><tr><td>drizzle/0034_parched_khan.sql</td><td>1</td></tr><tr><td>drizzle/0035_amusing_the_renegades.sql</td><td>1</td></tr><tr><td>drizzle/0036_legal_queen_noir.sql</td><td>1</td></tr><tr><td>drizzle/0037_fast_power_man.sql</td><td>1</td></tr><tr><td>drizzle/0038_misty_speed_demon.sql</td><td>1</td></tr><tr><td>drizzle/0039_uneven_killmonger.sql</td><td>1</td></tr><tr><td>drizzle/0040_fixed_black_crow.sql</td><td>1</td></tr><tr><td>drizzle/0041_dear_malice.sql</td><td>1</td></tr><tr><td>drizzle/0042_normalize-featured-notice.sql</td><td>1</td></tr><tr><td>drizzle/0043_curly_clea.sql</td><td>1</td></tr><tr><td>drizzle/0044_careful_guardsmen.sql</td><td>1</td></tr><tr><td>drizzle/0045_notice-multi-content.sql</td><td>1</td></tr><tr><td>drizzle/0046_tan_nova.sql</td><td>1</td></tr><tr><td>drizzle/0047_nasty_cargill.sql</td><td>1</td></tr><tr><td>drizzle/0048_previous_the_phantom.sql</td><td>1</td></tr><tr><td>drizzle/0049_otw_play_catalog_meta_seed.sql</td><td>1</td></tr><tr><td>drizzle/0050_parched_marvel_apes.sql</td><td>1</td></tr><tr><td>drizzle/0051_clear_mantis.sql</td><td>1</td></tr><tr><td>drizzle/0052_otw-play-public-read-model-backfill.sql</td><td>1</td></tr><tr><td>drizzle/0053_red_talon.sql</td><td>1</td></tr><tr><td>drizzle/0054_odd_storm.sql</td><td>1</td></tr><tr><td>drizzle/0055_tiresome_pride.sql</td><td>1</td></tr><tr><td>drizzle/0056_moaning_killmonger.sql</td><td>1</td></tr><tr><td>drizzle/0057_numerous_luminals.sql</td><td>1</td></tr><tr><td>drizzle/0058_awesome_lorna_dane.sql</td><td>1</td></tr><tr><td>drizzle/0059_demonic_luke_cage.sql</td><td>1</td></tr><tr><td>drizzle/0060_ancient_cardiac.sql</td><td>1</td></tr><tr><td>drizzle/0061_otw-play-member-entity-backfill.sql</td><td>1</td></tr><tr><td>drizzle/0062_colorful_magma.sql</td><td>1</td></tr><tr><td>drizzle/0063_youthful_jamie_braddock.sql</td><td>1</td></tr><tr><td>drizzle/0064_loud_black_tom.sql</td><td>1</td></tr><tr><td>drizzle/0065_otw_play_authority_retention.sql</td><td>1</td></tr><tr><td>drizzle/0066_otw_play_integrity_drift.sql</td><td>1</td></tr><tr><td>drizzle/0067_otw-play-external-identity-consolidation.sql</td><td>1</td></tr><tr><td>drizzle/0068_fixed_amazoness.sql</td><td>1</td></tr><tr><td>drizzle/0069_cold_infant_terrible.sql</td><td>1</td></tr><tr><td>drizzle/0070_otw-play-performance-tags.sql</td><td>1</td></tr><tr><td>drizzle/0071_gifted_romulus.sql</td><td>1</td></tr><tr><td>drizzle/0072_common_katie_power.sql</td><td>1</td></tr><tr><td>drizzle/0073_mysterious_jean_grey.sql</td><td>1</td></tr><tr><td>drizzle/0074_backfill-post-first-seen.sql</td><td>1</td></tr><tr><td>drizzle/0075_colorful_layla_miller.sql</td><td>1</td></tr><tr><td>drizzle/0076_x-history-default-flags.sql</td><td>1</td></tr><tr><td>drizzle/0077_ambiguous_post.sql</td><td>1</td></tr><tr><td>drizzle/0078_wealthy_marvel_apes.sql</td><td>1</td></tr><tr><td>drizzle/0079_next_iron_fist.sql</td><td>1</td></tr><tr><td>drizzle/0080_wealthy_titanium_man.sql</td><td>1</td></tr><tr><td>drizzle/0081_normalize_x_source_handles.sql</td><td>1</td></tr><tr><td>drizzle/0082_chief_tigra.sql</td><td>1</td></tr><tr><td>drizzle/0083_youthful_norman_osborn.sql</td><td>1</td></tr><tr><td>drizzle/0084_x-reply-stored-or-link.sql</td><td>1</td></tr><tr><td>drizzle/0085_retire_websub_hourly_polling.sql</td><td>1</td></tr><tr><td>drizzle/0086_canonical-youtube-quota.sql</td><td>1</td></tr><tr><td>drizzle/0087_burly_midnight.sql</td><td>1</td></tr><tr><td>drizzle/0088_friendly_photon.sql</td><td>1</td></tr><tr><td>drizzle/0089_ambitious_titania.sql</td><td>1</td></tr><tr><td>drizzle/0090_demonic_sugar_man.sql</td><td>1</td></tr><tr><td>drizzle/0091_tranquil_luke_cage.sql</td><td>1</td></tr><tr><td>drizzle/0092_perfect_manta.sql</td><td>1</td></tr><tr><td>drizzle/0093_omniscient_sunset_bain.sql</td><td>1</td></tr><tr><td>drizzle/0094_reflective_spirit.sql</td><td>1</td></tr><tr><td>drizzle/0095_otw-play-ready-search-backfill.sql</td><td>1</td></tr><tr><td>drizzle/0096_unknown_hex.sql</td><td>1</td></tr><tr><td>drizzle/0097_fine_agent_zero.sql</td><td>1</td></tr><tr><td>drizzle/0098_late_beast.sql</td><td>1</td></tr><tr><td>drizzle/0099_acoustic_rachel_grey.sql</td><td>1</td></tr><tr><td>drizzle/0100_far_shotgun.sql</td><td>1</td></tr><tr><td>drizzle/0101_playlist_work_progress_backfill.sql</td><td>1</td></tr><tr><td>drizzle/0102_content_transition_foundation.sql</td><td>1</td></tr><tr><td>drizzle/0103_content_transition_capture.sql</td><td>1</td></tr><tr><td>drizzle/0104_asset_file_recovery.sql</td><td>1</td></tr><tr><td>drizzle/0105_asset_file_capture.sql</td><td>1</td></tr><tr><td>drizzle/0106_asset_file_cleanup.sql</td><td>1</td></tr><tr><td>drizzle/0107_asset_file_reference_guards.sql</td><td>1</td></tr><tr><td>drizzle/0108_asset_file_owner_identity.sql</td><td>1</td></tr><tr><td>drizzle/0109_file_availability_evidence.sql</td><td>1</td></tr><tr><td>drizzle/0110_asset_file_cafe_capture.sql</td><td>1</td></tr><tr><td>drizzle/0111_asset_file_url_identity.sql</td><td>1</td></tr><tr><td>drizzle/0112_asset_file_url_capture.sql</td><td>1</td></tr><tr><td>drizzle/0113_normal_husk.sql</td><td>1</td></tr><tr><td>drizzle/0114_asset_file_inventory_guards.sql</td><td>1</td></tr><tr><td>drizzle/0115_asset_file_path_authority.sql</td><td>1</td></tr><tr><td>drizzle/0116_asset_file_url_parse_order.sql</td><td>1</td></tr><tr><td>drizzle/0117_asset_file_decode_validity.sql</td><td>1</td></tr><tr><td>drizzle/0118_schedule_audit_capture_independence.sql</td><td>1</td></tr><tr><td>drizzle/0119_inactive_target_baseline_authority.sql</td><td>1</td></tr><tr><td>drizzle/0120_native_dday_owning_receipt.sql</td><td>1</td></tr><tr><td>drizzle/0121_chzzk_read_request_journal.sql</td><td>1</td></tr><tr><td>drizzle/0122_chzzk_read_attempt_uncertainty.sql</td><td>1</td></tr><tr><td>drizzle/0123_chzzk_read_resolution_receipt.sql</td><td>1</td></tr><tr><td>drizzle/0124_chzzk_original_continuation_stage.sql</td><td>1</td></tr><tr><td>drizzle/0125_chzzk_original_batch_receipts.sql</td><td>1</td></tr><tr><td>drizzle/0126_admitted_channel_dependency_capture.sql</td><td>1</td></tr><tr><td>drizzle/0127_original_proposal_event_capture.sql</td><td>1</td></tr><tr><td>drizzle/0128_member_submission_event_capture.sql</td><td>1</td></tr><tr><td>drizzle/0129_admitted_video_dependency_capture.sql</td><td>1</td></tr><tr><td>drizzle/0130_admitted_conversion_dependency_capture.sql</td><td>1</td></tr><tr><td>drizzle/0131_admitted_candidate_metadata_capture.sql</td><td>1</td></tr><tr><td>drizzle/0132_admitted_channel_approval_capture.sql</td><td>1</td></tr><tr><td>drizzle/0133_transition_maintenance_stop.sql</td><td>1</td></tr><tr><td>drizzle/0134_transition_abort_evidence.sql</td><td>1</td></tr><tr><td>drizzle/0135_transition_scheduled_reconciliation.sql</td><td>1</td></tr><tr><td>drizzle/0136_transition_unresolved_scheduled_outbox.sql</td><td>1</td></tr><tr><td>drizzle/0137_x-repair-pending.sql</td><td>1</td></tr><tr><td>drizzle/0138_x-repair-invalidation.sql</td><td>1</td></tr><tr><td>drizzle/0139_x-repair-maintenance-guards.sql</td><td>1</td></tr><tr><td>drizzle/0140_publication-ingestion-evidence.sql</td><td>1</td></tr><tr><td>drizzle/0141_retire_content_transition.sql</td><td>1</td></tr><tr><td>drizzle/0142_aberrant_exodus.sql</td><td>1</td></tr><tr><td>drizzle/0143_skinny_captain_marvel.sql</td><td>1</td></tr><tr><td>drizzle/0144_talented_cassandra_nova.sql</td><td>1</td></tr><tr><td>drizzle/0145_third_puma.sql</td><td>1</td></tr><tr><td>drizzle/0146_sparkling_black_panther.sql</td><td>1</td></tr><tr><td>drizzle/0147_young_night_nurse.sql</td><td>1</td></tr><tr><td>drizzle/0148_soft_power_pack.sql</td><td>1</td></tr><tr><td>scripts/architecture-check.mjs</td><td>1</td></tr><tr><td>scripts/benchmark-otw-play-reads.mjs</td><td>1</td></tr><tr><td>scripts/build-site.mjs</td><td>1</td></tr><tr><td>scripts/clerk-environment.d.mts</td><td>1</td></tr><tr><td>scripts/clerk-environment.mjs</td><td>1</td></tr><tr><td>scripts/client-build-deploy-guard.mjs</td><td>1</td></tr><tr><td>scripts/d1-doctor-core.mjs</td><td>1</td></tr><tr><td>scripts/d1-doctor.mjs</td><td>1</td></tr><tr><td>scripts/d1-local-options.mjs</td><td>1</td></tr><tr><td>scripts/d1-metrics-deploy-guard.mjs</td><td>1</td></tr><tr><td>scripts/d1-migrate-local.mjs</td><td>1</td></tr><tr><td>scripts/d1-reset-guard.mjs</td><td>1</td></tr><tr><td>scripts/d1-reset-local.mjs</td><td>1</td></tr><tr><td>scripts/d1-seed-guard.mjs</td><td>1</td></tr><tr><td>scripts/d1-seed-local.mjs</td><td>1</td></tr><tr><td>scripts/deploy-workers.mjs</td><td>1</td></tr><tr><td>scripts/dev-process.mjs</td><td>1</td></tr><tr><td>scripts/dev-restart.mjs</td><td>1</td></tr><tr><td>scripts/generate-seo-assets.ts</td><td>1</td></tr><tr><td>scripts/local-dev-config.d.mts</td><td>1</td></tr><tr><td>scripts/local-dev-config.mjs</td><td>1</td></tr><tr><td>scripts/local-site-config.d.mts</td><td>1</td></tr><tr><td>scripts/local-site-config.mjs</td><td>1</td></tr><tr><td>scripts/maintenance</td><td>1</td></tr><tr><td>scripts/optimize-profile-backgrounds.mjs</td><td>1</td></tr><tr><td>scripts/otw-play-search-integrity.sql</td><td>1</td></tr><tr><td>scripts/preflight.mjs</td><td>1</td></tr><tr><td>scripts/profile-background-upload-runner.ts</td><td>1</td></tr><tr><td>scripts/provision-ops-queues.mjs</td><td>1</td></tr><tr><td>scripts/run-site.mjs</td><td>1</td></tr><tr><td>scripts/site-build-manifest.mjs</td><td>1</td></tr><tr><td>scripts/site-resources.d.mts</td><td>1</td></tr><tr><td>scripts/site-resources.mjs</td><td>1</td></tr><tr><td>scripts/site-target.d.mts</td><td>1</td></tr><tr><td>scripts/site-target.mjs</td><td>1</td></tr><tr><td>scripts/static-asset-manifest.d.mts</td><td>1</td></tr><tr><td>scripts/static-asset-manifest.mjs</td><td>1</td></tr><tr><td>scripts/sync-agent-to-cursor.mjs</td><td>1</td></tr><tr><td>scripts/upload-profile-backgrounds-to-r2.d.mts</td><td>1</td></tr><tr><td>scripts/upload-profile-backgrounds-to-r2.mjs</td><td>1</td></tr><tr><td>src/app</td><td>19</td></tr><tr><td>src/features</td><td>277</td></tr><tr><td>src/main.tsx</td><td>1</td></tr><tr><td>src/routes</td><td>47</td></tr><tr><td>src/shared</td><td>62</td></tr><tr><td>src/test</td><td>3</td></tr><tr><td>src/vite-env.d.ts</td><td>1</td></tr><tr><td>worker/app</td><td>18</td></tr><tr><td>worker/features</td><td>325</td></tr><tr><td>worker/index.ts</td><td>1</td></tr><tr><td>worker/platform</td><td>14</td></tr><tr><td>worker/workflows</td><td>1</td></tr></tbody></table></details></section>
+<section id="candidate-1"><h2>후보01 · 저장과 재시도 의미 복구 <span class="status">완료</span></h2><p>성공 snapshot과 업무 쓰기를 같은 D1 batch에 둡니다. 동일 의도의 재전송은 저장 당시 결과를 돌려주고 진짜 stale 충돌은 입력을 보존한 채 재검토합니다. migration0148 적용, 미사용 보조 함수6개 제거.</p><div class="mermaid">sequenceDiagram
+  actor Admin as 관리자
+  participant UI as 카탈로그 화면
+  participant HTTP as 인증된 관리자 HTTP
+  participant Repo as D1AdminCatalogRepository
+  participant D1 as 사이트 D1
+  Admin-&gt;&gt;UI: 기존 곡 저장
+  UI-&gt;&gt;HTTP: 요청 키 + 입력·version
+  HTTP-&gt;&gt;Repo: site/admin/intent 문맥
+  Repo-&gt;&gt;D1: 완료 기록 조회
+  alt 같은 의도의 완료 결과 있음
+    D1--&gt;&gt;HTTP: 저장 당시 HTTP snapshot
+  else 새로운 정상 요청
+    Repo-&gt;&gt;D1: 원자 batch: 업무·revision·이벤트·완료 기록
+    D1--&gt;&gt;HTTP: 성공 결과
+  end
+  HTTP--&gt;&gt;UI: 저장된 결과
+  Note over UI,Repo: 진짜 stale 충돌은 입력 보존 → 영상 다시 확인 → 재검토</div><p>운영 정상 관리자 저장: OTW Adrena version0→1 / revision1101→1102, LuvDia Bunny Girl version0→1 / revision2→3. 내용·관계 동일, HTTP200 완료 기록 각각1건. 운영에서 응답 유실·동시 요청을 강제로 만들지는 않았습니다.</p></section>
+<section id="candidate-2"><h2>후보02 · 조회 결과의 최신 상태와 행 순서 <span class="status">완료</span></h2><p>목록·선택 보완·오류 재시도를 기존 query 모듈이 소유합니다. 최신 행 내용과 최초 위치를 별도로 유지하고 검색은 LIMIT 묶음과 정확 제목·별칭 조회를 사용합니다.</p><div class="mermaid">flowchart LR
+  page[&quot;관리자 목록·검색·URL 선택&quot;] --&gt; hook[&quot;useOtwPlayAdminCatalogPages&quot;]
+  hook --&gt; pages[&quot;25곡 페이지 응답&quot;]
+  hook --&gt; selected[&quot;페이지 밖 선택 보완&lt;br/&gt;오류·명시적 재시도&quot;]
+  pages --&gt; merge[&quot;mergeAdminCatalogRows&lt;br/&gt;높은 version·최신 revision&lt;br/&gt;최초 행 위치 유지&quot;]
+  selected --&gt; merge
+  hook --&gt; http[&quot;관리자 GET → D1 저장소&quot;]
+  http --&gt; sql[&quot;LIMIT 묶음 + 커서&lt;br/&gt;정확 제목·별칭 좁은 조회&quot;]
+  sql --&gt; pages
+  merge --&gt; ui[&quot;성공한 목록 유지·최신 상세 표시&quot;]</div><p>운영 양 사이트 검색 성공, 다음25곡을 로드한 뒤 기존25곡 순서 유지. 로컬5,000곡 fixture의 검색 읽기10,607→659행, 선택5,254→283행은 운영 과금·모든 검색어 상한의 측정이 아닙니다.</p></section>
+<section id="candidate-3"><h2>후보03 · 일정 단계·중지·소유권 <span class="status">완료</span></h2><p>확인된 지적1~5와 늦은 하위 메시지 우회, 자동 리뷰의 과거 match 잔존 P2를 보완했습니다. 설정·lease·단계 검사와 업무 쓰기가 원자 경계 안에 있습니다.</p><div class="mermaid">sequenceDiagram
+  actor Admin as 관리자
+  participant HTTP as /api/settings/run-now
+  participant Control as control Queue
+  participant Repo as D1ScheduledJobRepository
+  participant Work as background Queue
+  participant D1 as 업무 D1
+  Admin-&gt;&gt;HTTP: 정상 지금 수집 1회
+  HTTP-&gt;&gt;Repo: manual run 생성
+  HTTP-&gt;&gt;Control: dispatch
+  HTTP--&gt;&gt;Admin: HTTP202 접수
+  Control-&gt;&gt;Repo: 새 item/outbox 계획
+  Control-&gt;&gt;Work: scan 항목 발송
+  Work-&gt;&gt;D1: 현재 설정·lease·단계 + 관측 batch
+  Work-&gt;&gt;Repo: scan 완료·새 계획·시도 marker
+  Repo-&gt;&gt;Work: match → finalize
+  Work-&gt;&gt;D1: 후보·현재 시도 집계·이력
+  Work-&gt;&gt;Repo: succeeded·outbox 정산
+  Repo--&gt;&gt;Admin: 운영 이력 100% 성공</div><h3>재전달과 실제 retry의 경계</h3><div class="mermaid">flowchart TD
+  incoming[&quot;Queue 재전달 / 실제 retry&quot;] --&gt; claim[&quot;run·item·lease·단계 소유권 확인&quot;]
+  claim --&gt; done{&quot;이미 단계 진행 완료?&quot;}
+  done --&gt;|&quot;완료 재전달&quot;| reconcile[&quot;기존 item/outbox 조정&lt;br/&gt;새 날짜 계획·업무 쓰기 없음&quot;]
+  done --&gt;|&quot;새 실행 시도&quot;| scan[&quot;scan 업무 batch&lt;br/&gt;현재 설정·소유권 재확인&quot;]
+  scan --&gt; plan[&quot;같은 batch로 새 match 계획&lt;br/&gt;autoUpdatePhases marker&lt;br/&gt;제외된 옛 대상·outbox 종료&quot;]
+  plan --&gt; match[&quot;하위 단계 발송·claim·업무 batch에서&lt;br/&gt;동일 단계 조건 검사&quot;]
+  match --&gt; final[&quot;현재 시도 결과 finalize&lt;br/&gt;이전 실패 이력은 보존&quot;]</div><p><code>D1ScheduledJobRepository</code>가 run/item/outbox와 시도 marker를 소유합니다. 새 scan에서 제외된 옛 match·outbox의 종료와 새 계획은 같은 batch입니다. 별도 범용 phase 엔진은 도입하지 않았습니다.</p></section>
+<section id="production-verification"><h2>병합·운영 검증 · 당시 실제 관측</h2><div class="mermaid">flowchart LR
+  pr[&quot;PR176 최종 head 689538d&quot;] --&gt; review[&quot;독립·자동 검토&lt;br/&gt;P2 수정·회귀&quot;]
+  review --&gt; migration[&quot;양 D1 additive migration0148&quot;]
+  migration --&gt; merge[&quot;master merge b0818c0d&quot;]
+  merge --&gt; otw[&quot;OTW 기존 자동 배포&lt;br/&gt;d5763ac9 ·100%&quot;]
+  merge --&gt; luv[&quot;LuvDia 정상 배포&lt;br/&gt;82776027 ·100%&quot;]
+  otw --&gt; check[&quot;정상 관리자 저장·검색·페이지&lt;br/&gt;HTTP→Queue→D1→화면&quot;]
+  luv --&gt; check
+  check --&gt; result[&quot;15/15 ·11/11 성공&lt;br/&gt;미해결 outbox0&lt;br/&gt;Play 중지·AI 설정 유지&quot;]</div><table><thead><tr><th>운영 결과</th><th>OTW</th><th>LuvDia</th></tr></thead><tbody><tr><td>Worker 버전 /100%</td><td>d5763ac9…</td><td>82776027…</td></tr><tr><td>실제 HTTP→Queue→D1</td><td>scan3 · match11 · finalize1<br><strong>15/15 성공</strong></td><td>scan2 · match8 · finalize1<br><strong>11/11 성공</strong></td></tr><tr><td>업무 이력</td><td>277 success · checked10 · 새 후보0</td><td>6 success · checked7 · 새 후보0</td></tr><tr><td>미해결 outbox</td><td>0</td><td>0</td></tr><tr><td>Play 자동화</td><td>중지 유지</td><td>중지 유지</td></tr><tr><td>AI 바인딩</td><td>기존 true 유지 · 호출 없음</td><td>false 유지 · 호출 없음</td></tr></tbody></table><p>정상 관리자 메뉴의 기존 곡 저장·검색·페이지 이동과 일정 <b>지금 수집</b> 1회씩으로 확인했습니다. HTTP202 접수만으로 성공 처리하지 않았습니다. 수집 범위·24시간 주기는 유지하고 정상 완료 시각만 갱신했습니다. 공개 승인·새 후보 생성은 없습니다.</p><p>D1 실제 사용량 양쪽 정상 표시. 22:02 KST 계정 읽기499,935/5,000,000(10.0%), 쓰기 OTW381/LuvDia718. 집계 지연이 있는 당시 값입니다. <a href="https://github.com/rlatmfrl24/overthewall-schedule/pull/176#issuecomment-6291519609">최종 PR ledger</a> · <a href="release-evidence.json">버전·run identity</a></p><div class="proofs"><figure><img src="../../archive/2026-10-20-candidates-1-3/assets/otw-production-pass.jpg" alt="OTW 운영 이력 15/15 성공과 Play 중지 배너"><figcaption>OTW 실제 운영 결과</figcaption></figure><figure><img src="../../archive/2026-10-20-candidates-1-3/assets/luvdia-production-pass.jpg" alt="LuvDia 운영 이력 11/11 성공과 Play 중지 배너"><figcaption>LuvDia 실제 운영 결과</figcaption></figure></div><p><a href="../../archive/2026-10-20-candidates-1-3/assets/otw-catalog.jpg">OTW 카탈로그</a> · <a href="../../archive/2026-10-20-candidates-1-3/assets/luvdia-catalog.jpg">LuvDia 카탈로그</a> · <a href="../../archive/2026-10-20-candidates-1-3/assets/otw-usage.jpg">OTW D1 계측</a> · <a href="../../archive/2026-10-20-candidates-1-3/assets/luvdia-usage.jpg">LuvDia D1 계측</a></p></section>
+<section id="source-and-limits"><h2>근거와 검증 한계</h2><p>최종 head689538d6 / mergeb0818c0d, 동일 tree86616c53. 공식 preflight의 UI 시간초과2건·Worker 시작 실패는 재실행으로 보완한 <b>합성 검증</b>이며 단일 전체 명령 PASS가 아닙니다. 최종 D1 회귀32건·공식 archive/Queue/native Workflow97건·타입·lint·구조·mirror·양 사이트 build·격리 clean doctor 통과.</p><ul><li>운영 장애 주입·다음 자연 Cron·장기간 부하·모든 검색어의 비용 상한은 미검증입니다.</li><li>배포 전에 열린 LuvDia 탭의 구형 chunk 오류는 새로고침 후 회복했습니다.</li><li>구조도 화살표는 소스·계약을 확인한 설명입니다. Graphify 정적 관계 자체가 실행 성공을 증명하지 않습니다. 전체 기호와 원본 관계는 graph.json.gz / extraction-evidence.json.gz에 보존합니다.</li><li>원본 정적 추출 진단: dangling_endpoint_edges=212, self_loop_edges=23, directed_same_endpoint_collapsed_edges=12135, undirected_same_endpoint_collapsed_edges=12141. TSX 부분 파싱 경고는 추출 로그와 진단에 보존합니다.</li><li>5,000개 초과 노드는 관계 탐색 HTML에서 군집으로 집약하며 전체 노드는 압축 JSON에 보존합니다.</li><li>외부 유료 AI 호출0, 호스트 의미 추출 토큰은 미측정입니다.</li></ul><details><summary>병합 소스의 주요 근거</summary><ul><li><a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b0818c0da5858b888aede8e3cbbf52ca488378f5/src/features/otw-play/queries/use-admin-catalog.ts#L30">src/features/otw-play/queries/use-admin-catalog.ts:30</a></li><li><a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b0818c0da5858b888aede8e3cbbf52ca488378f5/worker/features/otw-play/infrastructure/d1-admin-catalog-repository.ts#L939">worker/features/otw-play/infrastructure/d1-admin-catalog-repository.ts:939</a></li><li><a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b0818c0da5858b888aede8e3cbbf52ca488378f5/worker/features/schedules/http/manual-auto-update-handler.ts#L18">worker/features/schedules/http/manual-auto-update-handler.ts:18</a></li><li><a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b0818c0da5858b888aede8e3cbbf52ca488378f5/worker/features/schedules/infrastructure/publication-writers.ts#L12">worker/features/schedules/infrastructure/publication-writers.ts:12</a></li><li><a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b0818c0da5858b888aede8e3cbbf52ca488378f5/worker/platform/scheduled-jobs/d1-scheduled-job-repository.ts#L404">worker/platform/scheduled-jobs/d1-scheduled-job-repository.ts:404</a></li><li><a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b0818c0da5858b888aede8e3cbbf52ca488378f5/worker/features/scheduled-operations/infrastructure/scheduled-job-coordinator.ts#L200">worker/features/scheduled-operations/infrastructure/scheduled-job-coordinator.ts:200</a></li></ul></details><p><a href="GRAPH_REPORT.md">Graphify 분석 보고서</a> · <a href="GRAPH_HEALTH.md">정적 추출 진단</a> · <a href="../../architecture-review.md">현재 검토 문서</a> · <a href="scope.json">파일 SHA-256·범위</a></p></section>
+<section id="archive"><h2>완료 자료 아카이브</h2><p>원래 검토·로컬 구현 보고서와 화면 증거는 <code>docs/archive/2026-10-20-candidates-1-3/</code>에 보관했습니다. 기존 문서 URL에는 이동 안내를 유지합니다. 비공개 가능 실행 로그는 Git 제외 로컬 보관소로 이동했고 파일 해시를 확인했습니다. 공개 문서의 manifest는 저장소 상대 경로를 사용합니다.</p><p><a href="../../archive/2026-10-20-candidates-1-3/graphify-before/README.md">과거 분석 보관 안내</a> · <a href="../../archive/2026-10-20-candidates-1-3/graphify-before/README.md">당시 분석·운영 기록</a> · <a href="../../archive/2026-10-20-candidates-1-3/manifest.json">이동·해시 목록</a></p><h3 id="d1-transition-trace">과거 D1TransitionRepository 추적</h3><p>이관 실행부는 PR161에서 폐기됐습니다. <code>CONTENT_TRANSITION_PEER</code> 부재는 현행 운영의 누락 오류가 아닙니다. <a href="../../archive/2026-10-20-candidates-1-3/graphify-before/D1_TRANSITION_TRACE.md">과거 구현 추적 원문</a>과 현재 저장·예약 경로를 혼합하지 않습니다.</p><p>대규모 repository 분할·범용 phase 엔진은 미실행 제안입니다. 확인된 결함 수정 완료가 이 제안의 구현 승인이나 자동화 재개를 뜻하지 않습니다.</p></section>
+<footer>2026-10-20 완료 문서 정리 · 이 갱신에서 운영 API·D1·자동화·유료 AI·배포를 실행하지 않았습니다.</footer></main><script>
+(function () {
+  const mermaidConfig = {
+    startOnLoad: false,
+    theme: 'dark',
+    securityLevel: 'loose',
+    flowchart: { htmlLabels: true, useMaxWidth: true },
+    themeVariables: {
+      primaryColor: '#1e293b',
+      primaryTextColor: '#e2e8f0',
+      primaryBorderColor: '#38bdf8',
+      secondaryColor: '#0f172a',
+      tertiaryColor: '#334155',
+      lineColor: '#64748b',
+      textColor: '#e2e8f0',
+    }
+  };
+
+  mermaid.initialize(mermaidConfig);
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function enhanceMermaidDiagrams() {
+    document.querySelectorAll('.mermaid').forEach((container) => {
+      if (container.dataset.zoomReady === 'true') return;
+      const svg = container.querySelector('svg');
+      if (!svg) return;
+
+      container.dataset.zoomReady = 'true';
+      container.classList.add('is-enhanced');
+
+      const viewport = document.createElement('div');
+      viewport.className = 'mermaid-viewport';
+      svg.parentNode.insertBefore(viewport, svg);
+      viewport.appendChild(svg);
+      // Keep CSS width=100% from scaling the SVG a second time.
+      svg.style.width = `${svg.viewBox.baseVal.width}px`;
+      svg.style.height = `${svg.viewBox.baseVal.height}px`;
+
+      const toolbar = document.createElement('div');
+      toolbar.className = 'mermaid-toolbar';
+      toolbar.innerHTML = [
+        '<button type="button" data-action="zoom-out" title="Zoom out">-</button>',
+        '<span class="zoom-level" data-role="level">100%</span>',
+        '<button type="button" data-action="zoom-in" title="Zoom in">+</button>',
+        '<button type="button" data-action="fit" title="Fit width">Fit</button>',
+        '<button type="button" data-action="reset" title="Reset view">Reset</button>'
+      ].join('');
+      container.insertBefore(toolbar, viewport);
+
+      const state = { scale: 1, x: 0, y: 0, dragging: false, startX: 0, startY: 0, originX: 0, originY: 0 };
+      const level = toolbar.querySelector('[data-role="level"]');
+
+      function applyTransform() {
+        svg.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`;
+        level.textContent = `${Math.round(state.scale * 100)}%`;
+      }
+
+      function zoomBy(delta) {
+        state.scale = clamp(state.scale + delta, 0.25, 3);
+        applyTransform();
+      }
+
+      function reset() {
+        state.scale = 1;
+        state.x = 0;
+        state.y = 0;
+        applyTransform();
+      }
+
+      function fitWidth() {
+        const rawWidth = svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width
+          ? svg.viewBox.baseVal.width
+          : svg.getBoundingClientRect().width / state.scale;
+        if (!rawWidth) {
+          reset();
+          return;
+        }
+        state.scale = clamp((viewport.clientWidth - 48) / rawWidth, 0.25, 1.4);
+        state.x = 0;
+        state.y = 0;
+        applyTransform();
+      }
+
+      toolbar.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        const action = button.dataset.action;
+        if (action === 'zoom-in') zoomBy(0.15);
+        if (action === 'zoom-out') zoomBy(-0.15);
+        if (action === 'fit') fitWidth();
+        if (action === 'reset') reset();
+      });
+
+      viewport.addEventListener('wheel', (event) => {
+        if (!event.ctrlKey && !event.metaKey) return;
+        event.preventDefault();
+        zoomBy(event.deltaY < 0 ? 0.1 : -0.1);
+      }, { passive: false });
+
+      viewport.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0) return;
+        state.dragging = true;
+        state.startX = event.clientX;
+        state.startY = event.clientY;
+        state.originX = state.x;
+        state.originY = state.y;
+        viewport.classList.add('is-dragging');
+        viewport.setPointerCapture(event.pointerId);
+      });
+
+      viewport.addEventListener('pointermove', (event) => {
+        if (!state.dragging) return;
+        state.x = state.originX + event.clientX - state.startX;
+        state.y = state.originY + event.clientY - state.startY;
+        applyTransform();
+      });
+
+      function endDrag(event) {
+        if (!state.dragging) return;
+        state.dragging = false;
+        viewport.classList.remove('is-dragging');
+        if (viewport.hasPointerCapture(event.pointerId)) {
+          viewport.releasePointerCapture(event.pointerId);
+        }
+      }
+
+      viewport.addEventListener('pointerup', endDrag);
+      viewport.addEventListener('pointercancel', endDrag);
+      fitWidth();
+    });
+  }
+
+  function renderMermaid() {
+    const result = mermaid.run
+      ? mermaid.run({ querySelector: '.mermaid' })
+      : Promise.resolve();
+    Promise.resolve(result)
+      .then(enhanceMermaidDiagrams)
+      .catch((error) => {
+        console.error('Mermaid render failed:', error);
+        enhanceMermaidDiagrams();
+      });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', renderMermaid);
+  } else {
+    renderMermaid();
+  }
+})();
+</script></body></html>

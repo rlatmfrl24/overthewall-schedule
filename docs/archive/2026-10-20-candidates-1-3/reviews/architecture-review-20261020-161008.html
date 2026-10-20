@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OTW Schedule · Architecture review · 2026-10-20</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+mermaid.initialize({startOnLoad:true,theme:'base',securityLevel:'strict',themeVariables:{fontFamily:'Segoe UI, Malgun Gothic, sans-serif',fontSize:'13px',primaryColor:'#f1f5f9',primaryTextColor:'#0f172a',primaryBorderColor:'#94a3b8',lineColor:'#64748b'},flowchart:{htmlLabels:false,curve:'linear',useMaxWidth:true}});
+</script>
+<style>
+:root{--ink:#18252b;--muted:#58676d;--line:#dce2df;--accent:#14634f;--paper:#f7f7f3;--red:#b83e3e;--amber:#986315}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.7 'Segoe UI','Malgun Gothic',sans-serif}main{max-width:1160px;margin:auto;padding:44px 30px 70px}a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:3px}h1{font-size:38px;line-height:1.25;letter-spacing:-1.5px;margin:10px 0 18px;font-weight:650}h2{font-size:24px;line-height:1.35;letter-spacing:-.65px;margin:0 0 14px}h3{font-size:16px;margin:0 0 10px}.eyebrow{font-size:11px;font-weight:700;letter-spacing:1.8px;color:var(--accent);text-transform:uppercase}.meta{color:var(--muted);font-size:13px}.mono,code{font:12px/1.6 Consolas,monospace;overflow-wrap:anywhere}.legend{display:flex;gap:19px;flex-wrap:wrap;margin:23px 0;color:var(--muted);font-size:12px}.legend i{display:inline-block;width:20px;height:12px;border:1px solid #87978d;margin-right:6px;vertical-align:middle}.legend .dashed{border-style:dashed}.legend .red{border:0;border-top:2px solid var(--red);height:3px}.legend .dark{background:#183f35;border:3px solid #183f35}.scope{border-block:1px solid var(--line);padding:16px 0;display:grid;grid-template-columns:1.1fr 1fr;gap:22px;margin-bottom:28px}.scope p{margin:0;font-size:13px}.label{font-size:11px;text-transform:uppercase;letter-spacing:1.4px;color:var(--muted);font-weight:650}.good{color:#14634f}.note{padding:13px 16px;border-left:3px solid #c49942;background:#faf2e0;font-size:13px;margin:15px 0}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:20px 0 36px}.summary a{display:block;text-decoration:none;border:1px solid var(--line);padding:16px;border-radius:8px;background:#fff}.summary b{font-size:13px;display:block;color:var(--ink)}.summary span{display:block;font-size:12px;color:var(--muted);margin-top:6px}.badge{display:inline-block;border-radius:99px;padding:3px 11px;font-size:11px;line-height:1.6;font-weight:650;letter-spacing:.2px}.strong{background:#dcf1e6;color:#15583f}.worth{background:#faf0d9;color:#8a5c15}.tag{background:#edf0ed;color:#50605c;font-weight:500}.candidate{background:#fff;border:1px solid var(--line);border-radius:12px;padding:30px;margin:0 0 30px;scroll-margin-top:20px}.candidate-top{display:flex;align-items:flex-start;gap:20px}.number{font:italic 30px Georgia,serif;color:#87988e;line-height:1.3}.badge-row{display:flex;gap:7px;margin:8px 0 0;flex-wrap:wrap}.files{margin:18px 0;color:#54636a;display:grid;grid-template-columns:1fr 1fr;gap:5px 22px;font-size:12px}.files a{font:12px/1.6 Consolas,monospace}.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:21px 0}.diagram{padding:16px;border:1px solid var(--line);border-radius:8px;min-width:0;background:#fbfcfa}.diagram.after{background:#f3f8f4;border-color:#c4d9cc}.diagram>.label{margin-bottom:12px}.diagram-visual{height:320px;display:flex;align-items:center;justify-content:center;min-width:0}.mermaid{margin:0;width:100%;font-size:11px}.mermaid svg{display:block;margin:auto;max-height:320px;max-width:100%}.prose-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.prose-grid p{margin:0;font-size:14px}.wins{display:flex;gap:8px 24px;flex-wrap:wrap;padding:0 0 0 18px;margin:18px 0;font-size:13px;color:var(--accent)}.evidence{border-top:1px solid var(--line);padding-top:13px;margin-top:17px}.evidence summary{cursor:pointer;font-size:13px;font-weight:650;color:var(--accent)}.evidence ul{padding-left:20px;margin:12px 0 0}.evidence li{font-size:13px;margin:7px 0}.small{font-size:12px;color:var(--muted)}.risk{font-size:12px;color:#6f5734;background:#faf7ee;border-radius:5px;padding:10px 13px;margin:14px 0 0}.module-stack{width:100%;max-width:360px;text-align:center}.module{background:#fff;border:1px solid #9caea3;padding:11px 10px;border-radius:6px;font-size:13px}.module strong{font-weight:650}.arrow{color:#8a9a90;line-height:1.4;font-size:19px}.arrow.leak{color:var(--red)}.deep-module{border:3px solid #234f3e;background:#234f3e;color:#fff;border-radius:8px;padding:19px 16px;text-align:center}.deep-module .label{color:#bad6c6}.internals{border:1px dashed #b1cdbd;border-radius:5px;margin-top:14px;padding:11px;font-size:12px;color:#e1ede6}.seam-line{border-top:2px dashed #8cae9b;margin:14px 0 9px}.inline-row{display:flex;gap:8px;justify-content:center}.inline-row>div{flex:1}.leak-text{color:var(--red);font-size:11px;line-height:1.5}.check-table{width:100%;border-collapse:collapse;font-size:13px;margin:15px 0 22px}.check-table th{text-align:left;color:var(--muted);font-weight:600;font-size:11px;letter-spacing:.7px;text-transform:uppercase}.check-table td,.check-table th{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:top}.check-table td:first-child{width:19%;font-weight:650}.section{margin:35px 0}.top-pick{border:2px solid #32624b;background:#edf5ee;border-radius:12px;padding:27px 30px;margin:38px 0 20px}.top-pick h2{margin:8px 0;font-size:25px}footer{font-size:12px;color:var(--muted);padding-top:20px;border-top:1px solid var(--line)}.graph-strip{padding:18px 22px;background:#edf0eb;border-radius:8px;margin:22px 0}.graph-strip p{margin:4px 0;font-size:13px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@media(max-width:800px){main{padding:28px 18px}.scope,.summary,.pair,.prose-grid,.files{grid-template-columns:1fr}.candidate{padding:22px 18px}h1{font-size:29px}h2{font-size:21px}.diagram-visual{height:300px}.check-table td,.check-table th{padding:9px 5px}.check-table td:first-child{width:24%}}@media print{main{max-width:none;padding:10px}.candidate{break-inside:avoid}.evidence{display:block}.summary{display:none}body{background:#fff}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<div class="eyebrow">OTW Schedule / Architecture review</div>
+<h1>지식이 새는 곳을 모으고,<br>저장·재시도의 의미를 닫기</h1>
+<div class="meta">2026-10-20 · 검토 기준 <code>b2be7c7e1f976a8702eb9fa386186ada0f28ed82</code> · Graphify + 현재 소스 대조</div>
+<div class="legend"><span><i></i>module</span><span><i class="dashed"></i>seam</span><span><i class="red"></i>leakage</span><span><i class="dark"></i>deep module</span><span>AFTER = 검토 제안, 미구현</span></div>
+</header>
+
+<section class="candidate" id="review-fixes" aria-label="후보01 수정 진행 상황">
+<div class="eyebrow">Candidate 01 / local fixes / 2026-10-20</div>
+<h2>저장 재시도·충돌 복구 수정</h2>
+<p><b>후보01·02와 후보03의 확인된 기능 문제를 로컬 수정했습니다.</b> 후보03의 문제5건은 회귀 테스트와 실제 로컬 Workflow·Queue→D1 경로로 검증했습니다. 현재 코드는 <code>codex/play-catalog-retry</code>의 미커밋 변경입니다.</p>
+<ul><li>같은 키의 요청은 저장 당시 결과를 반환합니다. 업무 쓰기·revision·이벤트·완료 기록이 같은 D1 batch로 처리되며 동시 재시도도 1건만 저장합니다.</li><li>실제 stale 충돌은 입력을 보존하고 <b>영상 다시 확인</b>으로 catalog refresh와 preflight를 거친 뒤 새 revision으로 저장합니다.</li><li>호출자가 없는 이관 보조 함수 6개를 삭제했습니다. 원자 저장·인증·기존 candidate parser는 유지합니다.</li></ul>
+<p><b>실행 증거:</b> 실제 Worker fetch·JWT·전체 migration D1 통합 6개와 기존 D1 catalog 통합 27개 PASS. 완료 재시도의 D1 추가 쓰기·외부 호출 0건. 타입·린트·구조 검사·양 사이트 정식 빌드 PASS. 독립 정적 재검토 잔여 지적 0건.</p>
+<p id="fix-validation-status">최종 범위 검증 <b>150개 PASS</b>: UI·API·HTTP·서비스 117개는 최초 통과 112개 + 시간 초과 5개만 같은 5초 제한으로 재검증한 합성 판정이며, Worker/D1 통합은 33개입니다. 전체 migration 148개 임시 적용과 별도 격리 DB의 D1 doctor도 PASS했습니다. 기존 로컬 DB는 보존했습니다.</p>
+<p class="risk"><b>운영 미반영:</b> migration 0148을 양 사이트 D1에 먼저 적용해야 합니다. PR·병합·배포·운영 D1 작업은 수행하지 않았습니다. 중지된 자동화·유료 AI와 LuvDia AI=false를 유지했습니다. 실제 운영 관리자 브라우저는 이번 검증에 포함되지 않았습니다.</p>
+<p class="small">수정·검증 기록: <code>docs/reports/sul-36/2026-10-20-play-catalog-retry.md</code>. 각 후보의 최초 구조 검토는 b2be7c7e 기준이며, 후보02의 최신 수정 증거는 해당 절에 별도로 표시했습니다.</p>
+</section>
+
+<div class="scope">
+<p><span class="label">Review baseline</span><br><code>local-worktree</code><br><span class="good">architecture:check PASS</span> · Node 24.20.0 · 이번 검토에서 실행</p>
+<p><span class="label">Scope / recent 100 non-merge commits</span><br>Play catalog 관리자 화면 17회, catalog 저장소 14회, review inbox 13회, 예약 executor 10회 변경.<br>CONTEXT.md·docs/adr 없음 → 현행 architecture·제품 계약·운영 정책을 기준으로 대조.</p>
+</div>
+<nav class="summary" aria-label="검토 후보">
+<a href="#mutation"><b>01 · 저장·재시도 의미 복구</b><span>Strong · 실제 request key 전달 단절</span></a>
+<a href="#catalog"><b>02 · catalog 조회의 depth 보강</b><span>Worth exploring · 완전성 지식 집중</span></a>
+<a href="#schedule"><b>03 · 일정 단계의 locality 보강</b><span>Worth exploring · 단계 규칙 소유권 집중</span></a>
+</nav>
+
+<article class="candidate" id="mutation">
+<div class="candidate-top"><span class="number">01</span><div><h2>카탈로그 저장·재시도를 하나의 deep module로</h2><div class="badge-row"><span class="badge strong">Strong</span><span class="badge tag">ports &amp; adapters</span><span class="badge tag">정적 계약 단절 확인</span></div></div></div>
+<div class="files">
+<a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b2be7c7e1f976a8702eb9fa386186ada0f28ed82/src/features/otw-play/api/admin.ts#L268">src/features/otw-play/api/admin.ts:268</a>
+<a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b2be7c7e1f976a8702eb9fa386186ada0f28ed82/worker/features/otw-play/http/admin-catalog-handler.ts#L109">worker/features/otw-play/http/admin-catalog-handler.ts:109</a>
+<a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b2be7c7e1f976a8702eb9fa386186ada0f28ed82/worker/app/admin-catalog.ts#L6">worker/app/admin-catalog.ts:6</a>
+<a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b2be7c7e1f976a8702eb9fa386186ada0f28ed82/worker/features/otw-play/application/admin-catalog-service.ts#L234">worker/features/otw-play/application/admin-catalog-service.ts:234</a>
+</div>
+<div class="pair">
+<figure class="diagram"><figcaption class="label">Before · 현재 / key가 사라지는 seam</figcaption><div class="diagram-visual"><pre class="mermaid">
+flowchart TB
+  U["등록 화면 / 같은 key로 재시도"] --> H["HTTP adapter / key 검사"]
+  H -->|"env + requestKey"| F["app 조립 함수 / env만 수신"]
+  F --> M["저장 module / 새 ID와 시간"]
+  M --> D["D1 adapter / CAS · 원자 저장"]
+  classDef leak fill:#fff4f1,stroke:#b83e3e,stroke-width:2px;
+  class F leak;
+  linkStyle 1 stroke:#b83e3e,stroke-width:2px;
+</pre></div></figure>
+<figure class="diagram after"><figcaption class="label">After · 제안 / 요청 의도의 locality</figcaption><div class="diagram-visual"><div class="module-stack"><div class="module">인증된 저장 요청 · 같은 요청 의도</div><div class="arrow">↓</div><div class="deep-module"><div class="label">Catalog mutation module</div><strong>저장과 재시도 결과를 함께 소유</strong><div class="internals">입력·정책 검증 / 재시도 결과 판정<br>일관된 ID·감사 / 충돌 구분</div></div><div class="seam-line"></div><div class="module">기존 D1 adapter · CAS · 원자 저장</div></div></div></figure>
+</div>
+<div class="prose-grid"><p><b>문제.</b> interface가 받는 <code>Idempotency-Key</code>는 실제 저장 implementation에 도달하지 않아, 같은 요청을 재전송해도 결과를 복구한다는 의미가 닫히지 않습니다.</p><p><b>방향.</b> 기존 저장 module 내부에서 요청 의도와 결과의 책임을 연결하고, 이관 폐기 후 남은 shallow command 전달만 축소해 depth를 높입니다.</p></div>
+<ul class="wins"><li>locality: 저장·재시도 판정 집중</li><li>leverage: 동일 interface로 재검증</li><li>seam: 실제 D1 adapter 유지</li></ul>
+<p class="risk"><b>영향 조건:</b> 저장 후 응답 유실·같은 입력 재시도. 발생 빈도는 미측정이며, 현행 CAS·구간 중복 검사는 보존돼 있습니다. 저장됐지만 실패로 보이는 상황이 가능한지는 실제 HTTP replay로 검증해야 합니다. 운영 중복 발생이나 데이터 손상은 이번에 관측하지 않았습니다.</p>
+<details class="evidence" open><summary>근거 · deletion test · 남겨야 할 검증</summary><ul>
+<li><b>확인:</b> handler는 key를 검사하고 resolver의 두 번째 인자로 전달하지만, 실제 routes.ts:230에 연결된 app/admin-catalog.ts:6 함수는 <code>env</code>만 받습니다. 생성된 저장 module은 새 UUID·시각을 사용하며 key를 읽지 않습니다.</li>
+<li><b>기존 test surface:</b> <code>catalog-manager.test.ts:3005–3035</code>는 409 mock 후 같은 key 재전송과 다음 mock 성공을 확인합니다. 서버가 동일 key의 최초 저장 결과를 반환하는지는 검증하지 않습니다. UI 테스트는 유지하고, 이를 실제 replay 보장으로 해석하지 않습니다.</li>
+<li><b>deletion test:</b> <code>runCreatePerformance / runUpdatePerformance / runCreateCatalogEntry / runApproveProposal</code>의 로컬 <code>execute</code> 전달을 없애도 검증·ID·감사·D1 처리는 본문에 남습니다. <code>prepareCandidateConversion / createConvertedCatalogEntry</code>와 video command parse/read/reference helper는 현행 production caller가 검색되지 않았습니다.</li>
+<li><b>살아 있는 depth:</b> repository의 revision CAS(:1764), batch(:2498), 영상·구간 중복 충돌(:2505)은 실질적 복잡도를 숨깁니다. <code>commands.ts</code> 전체나 살아 있는 candidate parser를 삭제할 이유는 없습니다.</li>
+<li><b>다음 검증:</b> 인증된 HTTP 저장 → 응답 유실 → 같은 key·동일 입력 재시도 → D1·감사·응답 readback. 다른 입력·다른 권한·양 사이트 격리와 동시 요청도 같은 interface에서 확인합니다. 구체 interface 설계는 후보 선택 후 결정합니다.</li>
+</ul></details>
+</article>
+
+<article class="candidate" id="catalog">
+<div class="candidate-top"><span class="number">02</span><div><h2>catalog 조회 module이 완전성까지 소유하도록 깊게</h2><div class="badge-row"><span class="badge worth">Worth exploring</span><span class="badge tag">in-process</span><span class="badge tag">회귀 예방 · 현재 장애 미관측</span></div></div></div>
+<div class="files">
+<a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b2be7c7e1f976a8702eb9fa386186ada0f28ed82/src/features/otw-play/queries/use-admin-catalog.ts#L29">queries/use-admin-catalog.ts:29</a>
+<a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b2be7c7e1f976a8702eb9fa386186ada0f28ed82/src/features/otw-play/ui/admin/catalog-manager.tsx#L185">ui/admin/catalog-manager.tsx:185</a>
+<a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b2be7c7e1f976a8702eb9fa386186ada0f28ed82/src/features/otw-play/ui/admin/catalog-entry-dialog.tsx#L665">ui/admin/catalog-entry-dialog.tsx:665</a>
+<a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b2be7c7e1f976a8702eb9fa386186ada0f28ed82/src/features/otw-play/ui/admin/workflow-catalog.tsx#L354">ui/admin/workflow-catalog.tsx:354</a>
+</div>
+<div class="pair">
+<figure class="diagram"><figcaption class="label">Before · 현재 / caller에 노출된 조회 지식</figcaption><div class="diagram-visual"><div class="module-stack"><div class="inline-row"><div class="module">목록 화면</div><div class="module">등록 화면</div><div class="module">전체 게시</div></div><div class="arrow leak">↓ &nbsp; ↓ &nbsp; ↓</div><div class="leak-text">선택 곡 누락 조회 · 행 병합 · version<br>페이지 여부 · 전체 대상 재조회</div><div class="arrow leak">↓</div><div class="module"><strong>조회 module</strong><br><span class="small">pages · lookup · debounce · ready</span></div><div class="arrow">↓</div><div class="module">조회 adapter → 동일 catalog DTO</div></div></div></figure>
+<figure class="diagram after"><figcaption class="label">After · 제안 / 기존 module의 depth 보강</figcaption><div class="diagram-visual"><div class="module-stack"><div class="module">목록 · 등록 · 전체 게시의 UI 상태</div><div class="arrow">↓</div><div class="deep-module"><div class="label">Admin catalog query module</div><strong>페이지·선택·검색의 의미를 집중</strong><div class="internals">부분 결과와 전체 대상 구분<br>선택 행 보완 · 최신 version 병합<br>revision · 무효화 · 준비 상태</div></div><div class="seam-line"></div><div class="module">기존 조회 adapter · TanStack Query</div></div></div></figure>
+</div>
+<div class="prose-grid"><p><b>문제.</b> 하나의 DTO가 전체·페이지·lookup을 모두 표현해, 여러 UI caller가 결과의 완전성과 병합 규칙을 알아야 하는 interface가 됐습니다.</p><p><b>방향.</b> 기존 조회 module에 선택 항목 보완과 완전성 판정을 모아 locality를 높이고, 필요한 순간에만 전체 대상을 조회하는 D1 최적화를 유지합니다.</p></div>
+<ul class="wins"><li>locality: 조회 의미 한곳 집중</li><li>leverage: 여러 caller가 재사용</li><li>interface: 완전성 추측 축소</li><li>adapter: 현행 요청 제한 유지</li></ul>
+<p class="risk"><b>후보02 로컬 수정 완료:</b> 높은 version과 최신 revision의 행을 선택하면서 페이지 순서를 유지합니다. 페이지 밖 선택 조회의 상태·오류·재시도를 기존 query module에 모았습니다. 검색은 최대26개씩 읽고 필요한 결과를 채우면 멈춥니다. PR·배포·운영 작업은 수행하지 않았습니다.</p>
+<details class="evidence" open id="catalog-query-fixes"><summary>2026-10-20 후보02 수정 후 증거</summary><ul><li><b>화면 회귀3개 PASS:</b> 최신 인물 표시, 선택503 오류→버튼 재시도→복구, 첫 페이지revision7→둘째revision8의 목록 순서.</li><li><b>실제 D1 회귀6개 PASS:</b> 동일한 정식 검색 테스트를 별도 검증 DB의 네이티브 D1에서 실행했습니다. Unicode/구두점·페이지 밖 정확한 제목과 별칭·후속 커서를 보존합니다.</li><li><b>5,000곡 읽기:</b> 검색10,607→659행, 곡 선택5,254→283행. 쓰기0행. 일반 목록659행은 유지합니다.</li><li><b>독립 검토:</b> 새 페이지가 앞에 붙는 회귀를 먼저 실패시킨 뒤 수정했고, 정적 재검토 잔여 지적0건입니다.</li><li><b>검증 한계:</b> 공식 Worker pool 시작 실패는 PASS로 계산하지 않았습니다. 관리자 UI78개는 최초45개+재실행28개+격리 재실행5개의 합성 통과입니다. 선택기·캐시·HTTP25개와 실제 D1 조회6개를 포함한 관련109개를 단계별 검증했습니다. 최종 타입·린트·구조·양 사이트 빌드도 PASS입니다. 희소·무결과 부분 문자열 검색의 많은 행 스캔 가능성은 남습니다.</li><li><b>기록:</b> <code>docs/reports/sul-36/2026-10-20-play-catalog-query.md</code>. 중지된 자동화·유료 AI와 LuvDia AI=false를 유지했습니다.</li></ul></details>
+<details class="evidence"><summary>2026-10-20 후보02 수정 전 실행 검토 결과</summary><ul><li><b>[P2] 최신 행 병합 누락:</b> manager:192–194의 Map은 선택 캐시 version1을 페이지 version3보다 우선합니다. 기존 mergeAdminCatalogRows 재사용과 조회 모듈의 병합 소유권 보강이 필요합니다.</li><li><b>[P2] 선택 조회 실패 누락:</b> manager:189·196은 selectedCatalog 상태를 전체 상태에 반영하지 않습니다. 목록 성공+선택503에서 오류 안내0개를 재현했습니다. 목록은 유지하고 선택 상세의 재시도를 제공해야 합니다.</li><li><b>[P2] 검색 후보 전체 읽기:</b> D1 repository:359–374가 검색 시 LIMIT을 제거합니다. 실제 로컬 D1에서 검색 목록10,607행·곡 선택5,254행을 읽었고 해당 조회의 쓰기는 모두0건이었습니다.</li><li><b>검증:</b> 기존 선택기·캐시12개 PASS, 진단 UI2개에서 결함 관측. Worker 테스트 실행기 시작 실패2회는 통과로 계산하지 않고 실제 저장소+별도 로컬 D1로 비용을 측정했습니다.</li><li><b>범위:</b> 운영 접근·배포·자동화/유료 AI 재개 없음. 전체 기록은 OS temp의 architecture-catalog-query-review-20261020.md입니다. 아래의 최초 검토 근거는 역사적 기록입니다.</li></ul></details>
+<details class="evidence"><summary>근거 · deletion test · 기존 회귀 검증</summary><ul>
+<li><b>확인:</b> <code>contracts/otw-play.ts:1285–1298</code>의 <code>paged / nextCursor / exactSongExists</code>는 선택 필드입니다. 목록(:185–196)과 등록(:665–672)이 누락된 선택 곡을 각각 조회·병합하며, 전체 게시(:354–369)는 별도 전체 조회와 대상 필터를 직접 조합합니다.</li>
+<li><b>deletion test:</b> <code>use-admin-catalog.ts:29–64</code>를 삭제하면 debounce·오래된 검색 결과 차단·paging·readiness가 caller에 재등장합니다. 이 module은 유지할 가치가 있으며, 새 통과 계층을 추가할 이유는 없습니다.</li>
+<li><b>기존 test surface:</b> <code>catalog-manager.test.ts:3038,3049,3063,3079,3095</code>, <code>catalog-pickers.test.ts:26–101</code>, <code>review-catalog-changes.test.ts:16–52</code>가 페이지·정확 일치·최신 version·Ready ID 재사용 등을 검증합니다. 실제 D1 페이지·검색·읽기 비용 검증도 <code>d1-admin-catalog-repository.integration.test.ts:2955–3002</code>에 있습니다.</li>
+<li><b>보완 지점:</b> caller와 tests가 같은 조회 seam을 사용해 페이지 → 선택 조회 → lookup → 무효화의 의미를 확인하도록 집중합니다. 실제 HTTP adapter를 포함하는 검증과 UI 행동 검증을 보존하며, 전체 catalog를 항상 가져오는 방식으로 되돌리지 않습니다.</li>
+</ul></details>
+</article>
+
+<article class="candidate" id="schedule">
+<div class="candidate-top"><span class="number">03</span><div><h2>일정 자동 갱신 단계 규칙의 locality 보강</h2><div class="badge-row"><span class="badge worth">Worth exploring</span><span class="badge tag">ports &amp; adapters</span><span class="badge tag">기능 문제5건 · 미수정</span></div></div></div>
+<div class="files">
+<a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b2be7c7e1f976a8702eb9fa386186ada0f28ed82/worker/features/scheduled-operations/infrastructure/scheduled-job-planner.ts#L111">scheduled-job-planner.ts:111</a>
+<a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b2be7c7e1f976a8702eb9fa386186ada0f28ed82/worker/features/scheduled-operations/infrastructure/scheduled-job-coordinator.ts#L197">scheduled-job-coordinator.ts:197</a>
+<a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b2be7c7e1f976a8702eb9fa386186ada0f28ed82/worker/features/scheduled-operations/infrastructure/scheduled-job-executor.ts#L349">scheduled-job-executor.ts:349</a>
+<a href="https://github.com/rlatmfrl24/overthewall-schedule/blob/b2be7c7e1f976a8702eb9fa386186ada0f28ed82/worker/app/scheduled-queue.ts#L64">worker/app/scheduled-queue.ts:64</a>
+</div>
+<div class="pair">
+<figure class="diagram"><figcaption class="label">Before · 현재 / 단계별 지식이 분산</figcaption><div class="diagram-visual"><pre class="mermaid">
+flowchart TB
+  Q["Queue adapter / scan·match 후속 판정"] --> E["executor / scan·match·finalize 실행"]
+  Q --> C["coordinator / scan → match → finalize"]
+  C --> P["planner / 초기 scan·빈 대상 finalize"]
+  C --> D["D1 adapter / 내구 상태·outbox"]
+  E --> D
+  classDef leak fill:#fff7f2,stroke:#b83e3e;
+  class Q,E,C,P leak;
+</pre></div></figure>
+<figure class="diagram after"><figcaption class="label">After · 제안 / 업무 단계와 전달 책임 구분</figcaption><div class="diagram-visual"><pre class="mermaid">
+flowchart TB
+  Q["Queue adapter / 전달·ACK·재시도"] --> L["내구 작업 module / lease·CAS·outbox"]
+  L -. "업무 단계 seam" .-> S["일정 갱신 deep module"]
+  S --> R["scan → match → finalize 규칙"]
+  L --> D["기존 D1 adapter"]
+  classDef deep fill:#234f3e,color:#fff,stroke:#234f3e,stroke-width:3px;
+  class S deep;
+</pre></div></figure>
+</div>
+<div class="prose-grid"><p><b>문제.</b> 단계 이름·빈 대상 처리·후속 대상 생성·완료 규칙을 planner, coordinator, executor, Queue caller가 나눠 알아야 해 일정 변경의 interface 지식이 넓습니다.</p><p><b>방향.</b> 일정 갱신 module에 업무 단계 규칙을 모으고, 기존 내구 실행 module과 adapter는 전달·원자성·복구를 유지해 한 seam에서 동작을 검증합니다.</p></div>
+<ul class="wins"><li>locality: 단계 규칙 한곳 집중</li><li>leverage: 재전달도 동일 규칙</li><li>interface: 업무 지식 누출 축소</li><li>depth: 내구 실행 책임 보존</li></ul>
+<p class="risk"><b>후보03 수정·실행 검증:</b> 확인한 문제5건을 모두 수정했습니다. 중지·lease·단계 순서를 원자 저장까지 확인하고, 완료 재전달과 실제 업무 재시도·완료 재조정을 구분합니다. 검토에서 추가 발견한 이전 Queue 메시지의 단계 우회도 차단했습니다.</p>
+<details class="evidence" open id="schedule-review"><summary>2026-10-20 후보03 수정 결과 · 5건 해결 · 관련176개 PASS</summary><ul>
+<li><b>1 · 중지 반영:</b> 이미 발송된 예약 scan을 중지하면 공급자0회·관측0건·skipped입니다. 공급자 응답 대기 중 중지도 저장 batch에서 차단하며 명시적 수동 실행은 유지합니다.</li>
+<li><b>2 · 소유권 보호:</b> scan·match의 현재 run/item·lease token·만료·단계 순서를 업무 쓰기와 같은 D1 batch에서 확인합니다. 옛 scan은 새 소유자의 제목과 관측 시각을 덮지 못합니다.</li>
+<li><b>3 · 완료 재전달:</b> 다음 날 재전달에서도 항목3개·succeeded·완료 시각을 유지하며 추가 공급자 호출과 새 날짜 작업은0건입니다. 동시 조정자도 계획1개만 저장합니다.</li>
+<li><b>4 · 예약 retry:</b> 실제 client→control Queue→scan/match/finalize로 기존 작업을 재개합니다. 주기 재계산으로 skipped가 되지 않으며 상위 단계 전 하위 메시지는 claim부터 차단합니다.</li>
+<li><b>5 · 새 완료 기록:</b> 수동·예약 retry 모두 후보1건·updated=1·새 성공 이력1건을 확인했습니다. 이전 실패 이력은 보존하고 재조정 전용 retry와 완료 재전달은 기록을 중복 생성하지 않습니다.</li>
+<li><b>검증:</b> 신규 Worker/D1 회귀12개, 기존 D1 상태·거절 처리59개, 관련 단위97개, 멤버·사이트 정책6개, 실제 로컬 native Workflow/Queue2개 PASS. 독립 검토의 추가 경합 수정 후 재검토에서도 잔여 확정 지적0건입니다.</li>
+<li><b>한계와 기록:</b> 실제 Worker 번들·workerd Workflow·네이티브 Queue 소비자·D1을 검증했습니다. 외부 공급자·계정 사용량 응답은 로컬 fixture이며 운영 Cloudflare·브라우저·실부하는 미검증입니다. <a href="file:///docs/reports/sul-36/2026-10-20-scheduled-auto-update-retry.md">수정·검증 기록</a>이 최신 결과입니다. 운영 자동화·유료 AI는 재개하지 않았습니다. 아래 최초 구조 제안은 역사적 기록입니다.</li>
+</ul></details>
+<details class="evidence"><summary>근거 · deletion test · 실제 seam 보존</summary><ul>
+<li><b>확인:</b> planner:111–155가 최초 scan/finalize를, coordinator:197–257이 scan 결과 JSON 해석과 match/finalize 생성을, executor:349–419가 실행·집계를, Queue:64–73이 terminal scan/match 후속 판정을 소유합니다.</li>
+<li><b>추가 마찰:</b> executor:28–31은 <code>worker/app</code>의 concrete 조립 함수를 역으로 가져오고 :422는 YouTube·D1·telemetry adapter를 직접 만듭니다. 현행 검사기는 통과하지만 concrete construction을 app에 두는 문서 원칙과는 간격이 있습니다. 이 이동만으로 깊어진다고 평가하지 않으며 실제 단계 지식의 축소가 필요합니다.</li>
+<li><b>deletion test:</b> coordinator나 D1 repository를 삭제하면 lease·CAS·재시도·outbox 복잡도가 Queue caller에 재등장합니다. 둘은 deep 책임을 갖습니다. 얇은 파일 수 줄이기를 목표로 합치지 않습니다.</li>
+<li><b>기존 test surface:</b> executor 단위 검증은 여러 실제 module의 prototype을 spy합니다. <code>native-workflow.integration.test.ts:24</code>는 Cron → native Workflow → Queue → D1 정상 흐름을 검증하고, <code>worker/app/scheduled-queue.test.ts:221–307</code>은 완료 후 재전달·후속 조정·DLQ를 검증합니다. 이 검증을 유지하며 업무 단계의 실제 D1 동작을 같은 interface에서 비교합니다.</li>
+<li><b>adapter 범위:</b> 현재 D1·Cloudflare Queue·CHZZK를 기준으로 설계합니다. 가상의 두 번째 DB나 범용 플러그인 체계를 추가할 근거는 없습니다. 구체 interface는 후보 선택 후 검토합니다.</li>
+</ul></details>
+</article>
+
+<section class="section" aria-labelledby="flow-check">
+<div class="eyebrow">Functional ownership / 현재 소스와 대조한 범위</div>
+<h2 id="flow-check">기능 흐름에서 유지할 구조</h2>
+<table class="check-table"><thead><tr><th>기능</th><th>현재 주 경로·권위</th><th>검토 판단</th></tr></thead><tbody>
+<tr><td>일정·공지·D-day</td><td>인증 HTTP → 각 기능 application → D1. 공개·숨김 정책은 content-access, 저장은 각 기능 소유.</td><td>폐기된 이관 실행부 복원 불필요. 일정 자동 갱신 단계만 후보03.</td></tr>
+<tr><td>Play 공개·회원</td><td>공식 catalog·기본 playlist 공개 읽기, 개인 playlist·회원 제안은 인증 유지. revision·source 정책은 서버 판정.</td><td>공개 읽기와 관리자·개인 응답의 cache·권한 격리를 유지.</td></tr>
+<tr><td>Play 검수·저장</td><td>Ready materialization → canonical ID 재사용 → draft 변환 → 별도 publish. 검증·CAS·D1 batch가 저장 권위.</td><td>동작 검증은 이미 존재. 요청 key 단절과 조회 완전성이 후보01·02.</td></tr>
+<tr><td>예약·수집·AI</td><td>Cron → Workflow → D1 outbox → Queue → 각 기능. AI는 별도 Queue·예산·수동 적용.</td><td>pause·lease·예산·terminal 재조정은 필수 동작. 후보03에서도 보존.</td></tr>
+<tr><td>파일·보관</td><td>assets가 참조·원본 보호·R2·보존 경합을 소유. 보관 대상과 일반 TTL을 구분.</td><td>보호 SQL·실제 D1 경합 검증은 삭제 후보가 아님.</td></tr>
+<tr><td>운영·D1 계측</td><td>읽기 전용 상태 집계와 Cloudflare 관측 reader, 일반 수동 작업은 공용 durable 경로.</td><td><code>OperationsApplication</code>의 여러 <code>Promise&lt;unknown&gt;</code>는 계약 보강 후보로 관찰만 기록. 이번 상위3개보다 우선할 근거는 부족.</td></tr>
+</tbody></table>
+<p class="small">이 표는 구조·기능 소유권 점검입니다. 이번 검토에서 운영 기능을 실행하거나 모든 사용자 흐름을 재인증하지 않았습니다. 큰 파일 자체, 정당한 auth/parser adapter, 원자 저장 implementation을 개선 후보로 삼지 않았습니다.</p>
+</section>
+
+<section class="graph-strip" aria-label="Graphify 대조 정보">
+<div class="eyebrow">Graphify baseline correction</div>
+<p><b>9,352 nodes · 34,020 edges</b> · graph의 <code>built_at_commit=d27f26a4</code>는 원래 작업 트리의 역사적 스냅샷입니다.</p>
+<p><code>AdminCatalogService</code> 주변의 저장·metadata·ingestion 관계와 예약 작업의 planner·coordinator·executor 관계를 탐색한 뒤 <code>b2be7c7e</code>에서 재확인했습니다. 그래프의 <code>D1TransitionRepository / CONTENT_TRANSITION_PEER / resumeVideoCatalog</code>는 현행 경로에서 제외했습니다.</p>
+<p class="small">넓은 query는 budget에 의해 잘렸고 symbol query와 현재 소스 탐색으로 보완했습니다. 모든 graph edge를 수동 검수한 것은 아닙니다. 그래프 JSON과 기존 저장소 산출물은 변경하지 않았습니다.</p>
+</section>
+
+<section class="top-pick" id="top-recommendation">
+<div class="eyebrow">Top recommendation</div>
+<h2>01 · 카탈로그 저장·재시도 의미 복구</h2>
+<p>실제로 끊긴 request key와 mock 검증의 빈틈을 먼저 다루면, 관리자가 저장 결과를 확신할 수 있는 interface를 회복하는 실익이 가장 큽니다. <a href="#mutation">후보01의 근거와 전후 구조 보기 ↑</a></p>
+</section>
+<footer>
+<p>최초 구조 검토는 b2be7c7e 기준의 역사적 기록입니다. 상단 후보01 수정 현황과 현재 작업 트리의 검증 보고서를 우선합니다.</p>
+<p>운영 D1 요청/쓰기·자동화 재개·유료 AI 실행 없음. Graphify 원본 그래프와 기존 보관 자료는 수정하지 않았습니다. 도표의 이번 브라우저 렌더링은 미확인입니다.</p>
+</footer>
+</main>
+</body>
+</html>

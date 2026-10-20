@@ -1,0 +1,121 @@
+{
+  "scope": "Public documentation and screenshots; private runtime evidence stays local",
+  "files": [
+    {
+      "source": "docs/reports/sul-36/2026-10-20-play-catalog-retry.md",
+      "archive": "docs/archive/2026-10-20-candidates-1-3/reports/2026-10-20-play-catalog-retry.md",
+      "capturedSha256": "d36d920b580f60b938aa7cf73a989800b46ef67217b40420288a917b5b7fdb9c",
+      "sha256": "d36d920b580f60b938aa7cf73a989800b46ef67217b40420288a917b5b7fdb9c",
+      "bytes": 8625,
+      "action": "move, rebase links, retain redirect",
+      "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
+    },
+    {
+      "source": "docs/reports/sul-36/2026-10-20-play-catalog-query.md",
+      "archive": "docs/archive/2026-10-20-candidates-1-3/reports/2026-10-20-play-catalog-query.md",
+      "capturedSha256": "f387552b8dc6f369779f6ca218ef724bd144021458579542024fc974d30bfc8f",
+      "sha256": "f387552b8dc6f369779f6ca218ef724bd144021458579542024fc974d30bfc8f",
+      "bytes": 8779,
+      "action": "move, rebase links, retain redirect",
+      "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
+    },
+    {
+      "source": "docs/reports/sul-36/2026-10-20-scheduled-auto-update-retry.md",
+      "archive": "docs/archive/2026-10-20-candidates-1-3/reports/2026-10-20-scheduled-auto-update-retry.md",
+      "capturedSha256": "8349c2b50820918d557d8be33fede1648eefa80d91cb50452a9384262b1964bc",
+      "sha256": "8349c2b50820918d557d8be33fede1648eefa80d91cb50452a9384262b1964bc",
+      "bytes": 8145,
+      "action": "move, rebase links, retain redirect",
+      "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
+    },
+    {
+      "source": "local-temp/architecture-review-20261020-161008.html",
+      "archive": "docs/archive/2026-10-20-candidates-1-3/reviews/architecture-review-20261020-161008.html",
+      "capturedSha256": "f7715967c047678ae45ccdea8fdde07d24dd5f25cabdd480fd75f276fc7e1246",
+      "sha256": "49eecf3f144e5cb1240cd0788b9bdc92326989fb7adf211fcfd65dadf39dd507",
+      "bytes": 35035,
+      "action": "copy",
+      "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
+    },
+    {
+      "source": "local-temp/architecture-catalog-query-review-20261020.md",
+      "archive": "docs/archive/2026-10-20-candidates-1-3/reviews/architecture-catalog-query-review-20261020.md",
+      "capturedSha256": "1cea4133be51598f8d953f831bcfb0c66d3e4d7c64fd0ea32ae1f75d0f0e0994",
+      "sha256": "1cea4133be51598f8d953f831bcfb0c66d3e4d7c64fd0ea32ae1f75d0f0e0994",
+      "bytes": 8268,
+      "action": "copy",
+      "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
+    },
+    {
+      "source": "local-temp/architecture-scheduled-phases-review-20261020.md",
+      "archive": "docs/archive/2026-10-20-candidates-1-3/reviews/architecture-scheduled-phases-review-20261020.md",
+      "capturedSha256": "5b5ea63ada27054806041e5781e6ad36cabba57bddb7f20bac7010f34bec2209",
+      "sha256": "3fb7207cef328a30468250f09c8bab26dbdf94f0b8334162b3d974fcf99cf078",
+      "bytes": 15422,
+      "action": "copy",
+      "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
+    },
+    {
+      "source": ".tmp/candidates-release/otw-catalog.jpg",
+      "archive": "docs/archive/2026-10-20-candidates-1-3/assets/otw-catalog.jpg",
+      "capturedSha256": "8d82e406c0ab71bff3725b6bdd5961f4daf374bc3ad8f51fc2b4477ace99eba7",
+      "sha256": "8d82e406c0ab71bff3725b6bdd5961f4daf374bc3ad8f51fc2b4477ace99eba7",
+      "bytes": 48345,
+      "action": "copy",
+      "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
+    },
+    {
+      "source": ".tmp/candidates-release/luvdia-catalog.jpg",
+      "archive": "docs/archive/2026-10-20-candidates-1-3/assets/luvdia-catalog.jpg",
+      "capturedSha256": "7b52d2404467ed747c798c51438af808ddc1b22d1e6d8a74974a0d72adf063a9",
+      "sha256": "7b52d2404467ed747c798c51438af808ddc1b22d1e6d8a74974a0d72adf063a9",
+      "bytes": 48884,
+      "action": "copy",
+      "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
+    },
+    {
+      "source": ".tmp/candidates-release/otw-production-pass.jpg",
+      "archive": "docs/archive/2026-10-20-candidates-1-3/assets/otw-production-pass.jpg",
+      "capturedSha256": "2942ec8547dc4bb30415187a381bb613a62a2dfd9ad588f7a60f8f15ea09f34b",
+      "sha256": "2942ec8547dc4bb30415187a381bb613a62a2dfd9ad588f7a60f8f15ea09f34b",
+      "bytes": 74897,
+      "action": "copy",
+      "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
+    },
+    {
+      "source": ".tmp/candidates-release/luvdia-production-pass.jpg",
+      "archive": "docs/archive/2026-10-20-candidates-1-3/assets/luvdia-production-pass.jpg",
+      "capturedSha256": "8017733fb309e81b35de08dbe0caefb01c66023828e24bce86a2fda6b5453114",
+      "sha256": "8017733fb309e81b35de08dbe0caefb01c66023828e24bce86a2fda6b5453114",
+      "bytes": 75117,
+      "action": "copy",
+      "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
+    },
+    {
+      "source": ".tmp/candidates-release/otw-usage.jpg",
+      "archive": "docs/archive/2026-10-20-candidates-1-3/assets/otw-usage.jpg",
+      "capturedSha256": "37be6cb53a2ac1845bc8d2eef94f6ffb773b9926a18df7e7028e70373684a62a",
+      "sha256": "37be6cb53a2ac1845bc8d2eef94f6ffb773b9926a18df7e7028e70373684a62a",
+      "bytes": 89424,
+      "action": "copy",
+      "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
+    },
+    {
+      "source": ".tmp/candidates-release/luvdia-usage.jpg",
+      "archive": "docs/archive/2026-10-20-candidates-1-3/assets/luvdia-usage.jpg",
+      "capturedSha256": "d7bbb9281747c16caa1f72a2dbdf20734f20790e7cfde0b51b7d07b411079451",
+      "sha256": "d7bbb9281747c16caa1f72a2dbdf20734f20790e7cfde0b51b7d07b411079451",
+      "bytes": 89621,
+      "action": "copy",
+      "publication_note": "Relative links and local-path citations normalized; exact captured originals remain in local archive."
+    },
+    {
+      "source": "graphify-out/D1_TRANSITION_TRACE.md",
+      "archive": "docs/archive/2026-10-20-candidates-1-3/graphify-before/D1_TRANSITION_TRACE.md",
+      "capturedSha256": "69c4b7d9ec1f4a4fec988f461cebe5c2f89e8c34ba51d7f87f17ac90e72028a1",
+      "sha256": "bd7e4a836c62d15e354ec6d52335e6ababe81b8edf7e19fa220be37b5ca17d2d",
+      "bytes": 24191,
+      "action": "copy, preserve historical text, replace local-only links with named citations"
+    }
+  ]
+}

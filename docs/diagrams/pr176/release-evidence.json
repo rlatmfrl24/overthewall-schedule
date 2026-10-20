@@ -1,0 +1,24 @@
+{
+  "pr": "https://github.com/rlatmfrl24/overthewall-schedule/pull/176",
+  "ledger": "https://github.com/rlatmfrl24/overthewall-schedule/pull/176#issuecomment-6291519609",
+  "head": "689538d6ba42ec396e8fdf864546fef1a69bb20c",
+  "merge": "b0818c0da5858b888aede8e3cbbf52ca488378f5",
+  "tree": "86616c53795a83b75a86433234e6a59f6e0a9ff1",
+  "observed_at": "2026-10-20T13:03:30Z",
+  "sites": {
+    "otw": {
+      "version": "d5763ac9-ede5-433f-854e-1183ba69ea75",
+      "run": "5d7cf4c0-1da2-41fe-a025-c969fb9fe336",
+      "items": 15
+    },
+    "luvdia": {
+      "version": "82776027-d87a-4679-99b6-0c97fef91ecc",
+      "run": "713b97bd-e41e-42b0-94cb-eaa2708c6730",
+      "items": 11
+    }
+  },
+  "pending_outbox": 0,
+  "paid_ai_invoked": false,
+  "play_automation_paused": true,
+  "new_production_operations_this_update": 0
+}
