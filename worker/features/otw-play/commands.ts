@@ -12,7 +12,7 @@ export type {CatalogDeleteCommand} from "./domain/catalog-delete-command";
 export {parseProposalRejection} from "./domain/proposal-rejection-command";
 export type {ProposalRejection,ProposalRejectionCommand} from "./domain/proposal-rejection-command";
 export {parseMemberSubmissionMutation,memberSubmissionVersion,type MemberSubmissionCommand,type MemberSubmissionMutation} from "./domain/member-submission-command";
-export {parseVideoCatalogMutation,parseVideoReadCommand,videoCatalogReads,videoCatalogReferences,type VideoCatalogMutation,type VideoCatalogCommand,type CandidateConversionInput} from "./domain/video-catalog-command";
+export type {VideoCatalogMutation,VideoCatalogCommand,CandidateConversionInput} from "./domain/video-catalog-command";
 
 export {parseReviewDeletion,type ReviewDeletion,type ReviewDeletionCommand} from './domain/review-deletion-command';
 export {parseCandidateReviewMutation} from './domain/candidate-review-command';

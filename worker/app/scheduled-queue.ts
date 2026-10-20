@@ -9,6 +9,7 @@ import {
 import { D1ScheduledJobRepository } from "../platform/scheduled-jobs";
 import type { Env } from "../platform/types";
 import { getWorkerSiteResources } from "../platform/site";
+import { ScheduledAutoUpdateBlocked } from "../features/schedules";
 
 const getErrorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -148,6 +149,15 @@ export const handleScheduledJobQueue = async (
       if(terminal)await reconcileTerminalItem(terminal);
       message.ack();
     } catch (error) {
+      if (error instanceof ScheduledAutoUpdateBlocked) {
+        const completed = await repository.completeItem(item, {status:"skipped",result:{reason:error.message}});
+        if (completed) {
+          const terminal = await repository.readItem(item.id);
+          if (terminal) await reconcileTerminalItem(terminal);
+        }
+        message.ack();
+        continue;
+      }
       const errorText = getErrorText(error);
       const errorCode = error instanceof Error ? error.name : "UnknownError";
       const current = await repository.readItem(item.id);

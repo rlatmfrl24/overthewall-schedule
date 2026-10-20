@@ -8,7 +8,7 @@ import {
   ScheduledJobCoordinator,
 } from "./scheduled-job-coordinator";
 
-beforeEach(() => vi.spyOn(CloudflareD1ReadBudget.prototype, "read").mockResolvedValue({ status: "available", rowsRead: 0, dailyTarget: 4_000_000, measuredAt: new Date(0).toISOString(), resetAt: new Date(86_400_000).toISOString(), reason: null }));
+beforeEach(() => { vi.spyOn(D1ScheduledJobRepository.prototype,"hasItems").mockResolvedValue(false); return vi.spyOn(CloudflareD1ReadBudget.prototype, "read").mockResolvedValue({ status: "available", rowsRead: 0, dailyTarget: 4_000_000, measuredAt: new Date(0).toISOString(), resetAt: new Date(86_400_000).toISOString(), reason: null }); });
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -229,4 +229,15 @@ describe("scheduled job physical queue mapping", () => {
     );
     expect(result).toBe(closed);
   });
+});
+
+it("resumes queued retry items without replanning the original scheduled cadence",async()=>{
+ const run={id:"retry",status:"queued",job_type:"schedule_auto_update",source:"scheduled"} as const;
+ vi.spyOn(D1ScheduledJobRepository.prototype,"readRun").mockResolvedValue(run as never);
+ vi.mocked(D1ScheduledJobRepository.prototype.hasItems).mockResolvedValue(true);
+ vi.spyOn(D1ScheduledJobRepository.prototype,"getBackgroundUsagePercent").mockResolvedValue(0);
+ const plan=vi.spyOn(ScheduledJobPlanner.prototype,"plan");
+ const dispatch=vi.spyOn(ScheduledJobCoordinator.prototype,"dispatchRun").mockResolvedValue({claimed:1,dispatched:1,failed:0});
+ expect(await new ScheduledJobCoordinator({otw_db:{}} as Env).planManualRun(run.id)).toBe(run);
+ expect(plan).not.toHaveBeenCalled();expect(dispatch).toHaveBeenCalledWith(run.id);
 });

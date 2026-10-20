@@ -69,6 +69,7 @@ export class ScheduledJobCoordinator {
       idempotencyKey,
     );
     if (existingRun && existingRun.status !== "queued") return existingRun;
+    if (existingRun && await this.repository.hasItems(existingRun.id)) return this.planManualRun(existingRun.id);
 
     if (!existingRun && jobType !== "ingestion_recovery") {
       const budget = await new CloudflareD1ReadBudget(this.env.CLOUDFLARE_ACCOUNT_ID, this.env.CLOUDFLARE_D1_TOKEN).read();
@@ -129,10 +130,12 @@ export class ScheduledJobCoordinator {
       );
       return this.repository.readRun(run.id);
     }
-    const itemIds = await this.planner.plan(run);
-    if (itemIds.length === 0) {
-      await this.repository.skipRun(run.id);
-      return this.repository.readRun(run.id);
+    if (!await this.repository.hasItems(run.id)) {
+      const itemIds = await this.planner.plan(run);
+      if (itemIds.length === 0) {
+        await this.repository.skipRun(run.id);
+        return this.repository.readRun(run.id);
+      }
     }
     await this.dispatchRun(run.id);
     return this.repository.readRun(run.id);
@@ -200,6 +203,10 @@ export class ScheduledJobCoordinator {
       return false;
     }
     if (item.phase === "scan") {
+      if (await this.repository.hasAdvancedPhase(item.run_id, "scan")) {
+        await this.dispatchRun(item.run_id);
+        return true;
+      }
       const progress = await this.repository.readPhaseProgress(
         item.run_id,
         "scan",
@@ -237,8 +244,13 @@ export class ScheduledJobCoordinator {
               phase: "finalize",
               lane: "auto-update" as const,
             }],
+        "scan",
       );
     } else if (item.phase === "match") {
+      if (await this.repository.hasAdvancedPhase(item.run_id, "match")) {
+        await this.dispatchRun(item.run_id);
+        return true;
+      }
       const progress = await this.repository.readPhaseProgress(
         item.run_id,
         "match",
@@ -248,7 +260,7 @@ export class ScheduledJobCoordinator {
         targetKey: "finalizer",
         phase: "finalize",
         lane: "auto-update",
-      }]);
+      }], "match");
     } else {
       return false;
     }

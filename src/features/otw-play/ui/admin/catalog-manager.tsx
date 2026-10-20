@@ -17,8 +17,8 @@ import { useConfirmation } from "@/shared/lib/confirmation";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { QueryReadback } from "@/shared/ui/query-readback";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
-import { useCallback, useEffect, useRef, useState, useMemo } from "react";
-import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type {
   OtwPlayAdminApproveProposalRequest,
   OtwPlayAdminChannelDto,
@@ -184,16 +184,8 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
     section === "import" && (importView === "review" || Boolean(reviewSearch.proposal));
   const pagedCatalog=section==='catalog'&&reviewSearch.view!=='entities';
   const fullCatalogQuery=useOtwPlayAdminCatalog(needsCatalog&&!pagedCatalog);
-  const pagesQuery=useOtwPlayAdminCatalogPages({scope:catalogScope,q:reviewSearch.q,category:reviewSearch.category,state:reviewSearch.state},needsCatalog&&pagedCatalog);
-  const selectedMissing=Boolean(reviewSearch.selected)&&!pagesQuery.data?.pages.some(page=>page.songs.some(song=>song.id===reviewSearch.selected));
-  const selectedCatalog=useQuery({queryKey:[...queryKeys.otwPlay.adminCatalog(),"selected",reviewSearch.selected,catalogScope,reviewSearch.q,reviewSearch.category,reviewSearch.state],queryFn:()=>fetchOtwPlayAdminCatalog({scope:catalogScope,songId:reviewSearch.selected,q:reviewSearch.q,category:reviewSearch.category,state:reviewSearch.state,limit:25}),enabled:pagedCatalog&&selectedMissing});
-  const pagedData=useMemo(()=>{
-    if(!pagesQuery.data?.pages.length)return undefined;
-    const pageData=[...pagesQuery.data.pages,...(selectedMissing&&selectedCatalog.data?[selectedCatalog.data]:[])];
-    const mergeRows=<T extends {id:string}>(rows:T[])=>[...new Map(rows.map(row=>[row.id,row])).values()];
-    return {...pagesQuery.data.pages[pagesQuery.data.pages.length-1],songs:mergeRows(pageData.flatMap(p=>p.songs)),performances:mergeRows(pageData.flatMap(p=>p.performances)),entities:mergeRows(pageData.flatMap(p=>p.entities)),channels:mergeRows(pageData.flatMap(p=>p.channels))};
-  },[pagesQuery.data,selectedCatalog.data,selectedMissing]);
-  const catalogQuery=pagedCatalog?{...pagesQuery,data:pagedData}:fullCatalogQuery;
+  const pagesQuery=useOtwPlayAdminCatalogPages({scope:catalogScope,q:reviewSearch.q,category:reviewSearch.category,state:reviewSearch.state},needsCatalog&&pagedCatalog,reviewSearch.selected);
+  const catalogQuery=pagedCatalog?{...pagesQuery,data:pagesQuery.catalog}:fullCatalogQuery;
   const operationMonitors = useOtwPlayChannelMonitors(section === "operations");
   const proposalsQuery = useOtwPlayAdminProposals("pending_review", section === "import" && Boolean(reviewSearch.proposal));
   const needsProposalHistory = Boolean(reviewSearch.proposal) && proposalsQuery.isSuccess && !proposalsQuery.data.some(item => item.id === reviewSearch.proposal);
@@ -489,6 +481,12 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
           독립적으로 확인할 수 있습니다.
         </div>
       )}
+
+      {pagedCatalog && pagesQuery.selectedPending && <p role="status" className="text-sm text-muted-foreground">선택한 곡을 불러오는 중…</p>}
+      {pagedCatalog && pagesQuery.selectedError && <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm">
+        <p>선택한 곡을 불러오지 못했습니다. 이미 불러온 목록은 계속 사용할 수 있습니다.</p>
+        <Button variant="outline" size="sm" disabled={pagesQuery.selectedFetching} onClick={()=>void pagesQuery.retrySelected()}>선택한 곡 다시 불러오기</Button>
+      </div>}
 
       {catalog && section === "catalog" && <div className="flex flex-wrap gap-2">
         <Button variant={reviewSearch.view !== "entities" ? "secondary" : "outline"} onClick={() => updateReviewSearch({ view: undefined })}>곡·가창</Button>

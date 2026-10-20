@@ -73,6 +73,8 @@ const SCHEDULED_OPERATIONS_MIGRATION_NAME = "0068_fixed_amazoness.sql";
 const SCHEDULED_OPERATIONS_PARTIAL_MIGRATION_NAME = "0071_gifted_romulus.sql";
 let schemaMigrations: ReturnType<typeof readD1Migrations> | undefined;
 const schemaTests = [
+  "worker/features/scheduled-operations/infrastructure/scheduled-auto-update.integration.test.ts",
+  "worker/app/admin-catalog-replay.integration.test.ts",
   "worker/features/operations/infrastructure/read-efficiency.integration.test.ts",
   "worker/app/schedule-member-policy.integration.test.ts",
   "worker/app/archive-access.integration.test.ts",

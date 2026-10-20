@@ -359,7 +359,7 @@ export class ScheduledJobExecutor {
             channelIds,
             this.env.otw_db,
             undefined,
-            buildChzzkScanWriter(this.env),
+            buildChzzkScanWriter(this.env, {id:item.id,runId:item.run_id,leaseToken:item.lease_token}),
             {kind:"scheduled",runId:item.run_id,itemId:item.id},
           );
 
@@ -398,7 +398,7 @@ export class ScheduledJobExecutor {
           return succeeded(await autoUpdateSchedules(getDb(this.env), rangeDays, {
             skipScan: true,
             matchTarget: { memberUid, date },
-            collectorWriter:buildCollectorWriter(this.env),
+            collectorWriter:buildCollectorWriter(this.env, {id:item.id,runId:item.run_id,leaseToken:item.lease_token}),
           }));
         }
         if (item.phase === "finalize") {

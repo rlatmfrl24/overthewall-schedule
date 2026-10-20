@@ -42,3 +42,4 @@ export {parseScheduleInput} from "./domain/schedule-input";
 export {parseScheduleCommand} from "./domain/schedule-command";
 
 export {D1CollectorWriter,D1LiveScheduleWriter,D1ChzzkScanWriter} from "./infrastructure/publication-writers";
+export { ScheduledAutoUpdateBlocked, type ScheduledAutoUpdateItem } from "./infrastructure/scheduled-auto-update-guard";

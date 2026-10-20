@@ -250,6 +250,21 @@ const toRunDto = (
 const unresolvedOutboxSql = `((o.event_type='reconcile' AND o.reconciled_at IS NULL)
   OR (o.event_type='execute' AND o.status IN ('pending','failed','dispatching')))`;
 
+// The attempt sum changes only on execution, so a later Queue delivery cannot create a new plan.
+const autoUpdatePhaseAdvancedSql = (phase: "scan" | "match") => `COALESCE(
+  json_extract(r.summary_json, '$.autoUpdatePhases.${phase}') =
+    (SELECT COALESCE(SUM(attempts),0) FROM scheduled_job_items WHERE run_id=r.id AND phase='${phase}'),
+  EXISTS(SELECT 1 FROM scheduled_job_items WHERE run_id=r.id AND phase IN (${phase === "scan" ? "'match','finalize'" : "'finalize'"})))`;
+
+export const autoUpdatePhaseReadySql = (item: string, run: string) => `(
+  ${run}.job_type<>'schedule_auto_update' OR ${item}.phase='scan' OR (
+    NOT EXISTS(SELECT 1 FROM scheduled_job_items prior WHERE prior.run_id=${run}.id AND prior.status IN ('queued','running')
+      AND (prior.phase='scan' OR (${item}.phase='finalize' AND prior.phase='match')))
+    AND COALESCE(json_extract(${run}.summary_json,'$.autoUpdatePhases.scan'),0)<>-1
+    AND (${item}.phase<>'finalize' OR NOT EXISTS(SELECT 1 FROM scheduled_job_items WHERE run_id=${run}.id AND phase='match')
+      OR COALESCE(json_extract(${run}.summary_json,'$.autoUpdatePhases.match'),0)<>-1)
+  ))`;
+
 const pendingOutboxSelection = (scopedToRun: boolean) => `
   SELECT o.id
   FROM scheduled_outbox AS o INDEXED BY idx_scheduled_outbox_unresolved
@@ -260,7 +275,8 @@ const pendingOutboxSelection = (scopedToRun: boolean) => `
     AND (o.status <> 'dispatching' OR o.lease_until < ?)
     AND o.available_at <= ?
     AND (
-      (o.event_type = 'execute' AND i.status = 'queued' AND r.status IN ('queued','running'))
+      (o.event_type = 'execute' AND i.status = 'queued' AND r.status IN ('queued','running')
+        AND ${autoUpdatePhaseReadySql("i","r")})
       OR (o.event_type = 'reconcile' AND o.reconciled_at IS NULL
         AND i.status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled'))
     )
@@ -358,7 +374,17 @@ export class D1ScheduledJobRepository {
     ).bind(idempotencyKey).first<ScheduledJobRunRecord>();
   }
 
-  async addItems(runId: string, items: NewScheduledItem[]) {
+  async hasItems(runId: string) {
+    const item = await this.db.prepare("SELECT id FROM scheduled_job_items WHERE run_id=? LIMIT 1").bind(runId).first<{id:string}>();
+    return Boolean(item?.id);
+  }
+
+  async hasAdvancedPhase(runId: string, phase: "scan" | "match") {
+    const row = await this.db.prepare(`SELECT ${autoUpdatePhaseAdvancedSql(phase)} AS advanced FROM scheduled_job_runs r WHERE r.id=?`).bind(runId).first<{advanced:number}>();
+    return Boolean(row?.advanced);
+  }
+
+  async addItems(runId: string, items: NewScheduledItem[], afterPhase?: "scan" | "match") {
     if (items.length === 0) return [];
     const now = this.clock();
     const records = items.map((item) => ({
@@ -366,6 +392,12 @@ export class D1ScheduledJobRepository {
       id: this.createId(),
     }));
     const statements: D1PreparedStatement[] = [];
+    if (afterPhase) {
+      statements.push(this.db.prepare(`SELECT iif(
+        NOT (${autoUpdatePhaseAdvancedSql(afterPhase)})
+        AND NOT EXISTS(SELECT 1 FROM scheduled_job_items WHERE run_id=r.id AND phase=? AND status IN ('queued','running')),
+        1,json('scheduled_phase_already_advanced')) FROM scheduled_job_runs r WHERE r.id=?`).bind(afterPhase,runId));
+    }
 
     for (let index = 0; index < records.length; index += 10) {
       const chunk = records.slice(index, index + 10);
@@ -426,7 +458,13 @@ export class D1ScheduledJobRepository {
          WHERE id = ?`,
       ).bind(runId, now, runId),
     );
-    await this.db.batch(statements);
+    if (afterPhase) statements.push(this.db.prepare(`UPDATE scheduled_job_runs SET summary_json=json_set(COALESCE(summary_json,'{}'), '$.autoUpdatePhases.${afterPhase}', (SELECT COALESCE(SUM(attempts),0) FROM scheduled_job_items WHERE run_id=? AND phase=?)) WHERE id=?`).bind(runId,afterPhase,runId));
+    try {
+      await this.db.batch(statements);
+    } catch (error) {
+      if (afterPhase && await this.hasAdvancedPhase(runId, afterPhase)) return [];
+      throw error;
+    }
     return records.map((item) => item.id);
   }
 
@@ -690,6 +728,8 @@ export class D1ScheduledJobRepository {
            updated_at = ?
        WHERE id = ?
          AND (status = 'queued' OR (status = 'running' AND lease_until < ?))
+         AND EXISTS(SELECT 1 FROM scheduled_job_runs r WHERE r.id=scheduled_job_items.run_id
+           AND ${autoUpdatePhaseReadySql("scheduled_job_items","r")})
        RETURNING id, run_id, target_key, phase, lane, status, attempts,
                  lease_token, lease_until,
                  continuation_json, result_json, last_error_code, last_error,
@@ -1262,11 +1302,23 @@ export class D1ScheduledJobRepository {
     }
     const now = this.clock();
     await this.db.batch([
+      this.db.prepare(`UPDATE scheduled_job_runs SET summary_json=CASE
+        WHEN EXISTS(SELECT 1 FROM scheduled_job_items WHERE run_id=? AND phase='scan' AND status IN ('failed','partial','throttled'))
+          THEN json_set(COALESCE(summary_json,'{}'),'$.autoUpdatePhases.scan',-1,'$.autoUpdatePhases.match',-1)
+        WHEN EXISTS(SELECT 1 FROM scheduled_job_items WHERE run_id=? AND phase='match' AND status IN ('failed','partial','throttled'))
+          THEN json_set(COALESCE(summary_json,'{}'),'$.autoUpdatePhases.match',-1)
+        ELSE summary_json END
+        WHERE id=? AND job_type='schedule_auto_update' AND status IN ('failed','partial','throttled')
+          AND COALESCE(last_error,'') NOT LIKE 'post_completion_reconciliation_%'`).bind(runId,runId,runId),
       this.db.prepare(
         `UPDATE scheduled_job_items
          SET status = 'queued', available_at = ?, last_error_code = NULL,
-             last_error = NULL, finished_at = NULL, updated_at = ?
-         WHERE run_id = ? AND status IN ('partial', 'failed', 'throttled')
+             last_error = NULL, finished_at = NULL, updated_at = ?,
+             result_json = NULL
+         WHERE run_id = ? AND (status IN ('partial', 'failed', 'throttled') OR EXISTS (
+           SELECT 1 FROM scheduled_job_runs r WHERE r.id=scheduled_job_items.run_id AND r.job_type='schedule_auto_update'
+             AND ((json_extract(r.summary_json,'$.autoUpdatePhases.scan')=-1 AND phase IN ('match','finalize'))
+               OR (json_extract(r.summary_json,'$.autoUpdatePhases.match')=-1 AND phase='finalize'))))
            AND EXISTS (
              SELECT 1 FROM scheduled_job_runs r
              WHERE r.id = ? AND r.status IN ('failed', 'partial', 'throttled')

@@ -3002,8 +3002,8 @@ describe("OtwPlayCatalogManager", () => {
     );
   });
 
-  it("keeps the registration step and chips after an integrated command failure", async () => {
-    createEntryMock.mockRejectedValueOnce(new ApiError("저장 중 동시 변경이 발생했습니다.",409,{code:"CONTENT_CONFLICT"}));
+  it.each([false, true])("keeps registration input and handles a stale preflight: %s", async (stale) => {
+    createEntryMock.mockRejectedValueOnce(new ApiError("저장 중 동시 변경이 발생했습니다.",409,{code:stale?"PLAY_ADMIN_STALE_WRITE":"CONTENT_CONFLICT"}));
     await openVideoRegistration();
     await screen.findByRole("region", { name: "등록 채널 상태" });
     fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
@@ -3023,26 +3023,43 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
 
-    expect((await screen.findByRole("alert")).textContent).toContain("저장 중 동시 변경이 발생했습니다.");
+    expect((await screen.findByRole("alert")).textContent).toContain(stale ? "영상과 채널을 다시 확인" : "저장 중 동시 변경이 발생했습니다.");
     expect(screen.getByRole("dialog", { name: "새 YouTube 영상 등록" })).toBeTruthy();
     expect(screen.getAllByText(/현재 멤버/).length).toBeGreaterThan(0);
     expect(screen.getByText("실패 후 보존 원곡")).toBeTruthy();
     expect(screen.getByText(/입력 보존 가수/)).toBeTruthy();
     const requestId=createEntryMock.mock.calls[0][1];expect(requestId).toEqual(expect.any(String));
+    if (stale) {
+      expect((screen.getByRole("button", { name: "임시 저장" }) as HTMLButtonElement).disabled).toBe(true);
+      const prepared = await preflightEntryMock.mock.results[0].value;
+      preflightEntryMock.mockResolvedValue({ ...prepared, catalogRevision: 8 });
+      fireEvent.click(screen.getByRole("button", { name: "영상 다시 확인" }));
+      await waitFor(() => expect(preflightEntryMock).toHaveBeenCalledTimes(2));
+      await screen.findByRole("region", { name: "등록 채널 상태" });
+      for (let i = 0; i < 3; i++) {
+        await waitFor(() => expect((screen.getByRole("button", { name: /다음/ }) as HTMLButtonElement).disabled).toBe(false));
+        fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+      }
+    }
     fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
     await waitFor(()=>expect(createEntryMock).toHaveBeenCalledTimes(2));
-    expect(createEntryMock.mock.calls[1][1]).toBe(requestId);
+    if (stale) {
+      expect(createEntryMock.mock.calls[1][1]).not.toBe(requestId);
+      expect(createEntryMock.mock.calls[1][0]).toMatchObject({ expectedCatalogRevision: 8,
+        song: { title: "실패 후 보존 원곡" } });
+    } else expect(createEntryMock.mock.calls[1][1]).toBe(requestId);
     await waitFor(()=>expect(screen.queryByRole("dialog",{name:"새 YouTube 영상 등록"})).toBeNull());
   });
 
-it("requests the next server catalog page without loading the full catalog",async()=>{
-  const pageCatalog={...catalog,songs:[{id:"page-one",title:"First server page",archivedAt:null,originalArtists:[],aliases:[],tags:[],version:0,isOtwOriginal:false}],performances:[{...linkedPerformance,songId:"page-one"}]};
-  fetchCatalogMock.mockImplementation(async(query)=>query?.cursor?{...pageCatalog,paged:true,nextCursor:null,songs:[{...pageCatalog.songs[0],id:'page-two',title:'Second server page'}],performances:[{...catalog.performances[0],id:'page-two-performance',songId:'page-two'}]}:{...pageCatalog,paged:true,nextCursor:'next-server-page'});
+it("keeps page order across revisions without loading the full catalog",async()=>{
+  const pageCatalog={...catalog,revision:7,readModelRevision:7,songs:[{id:"page-one",title:"First server page",archivedAt:null,originalArtists:[],aliases:[],tags:[],version:0,isOtwOriginal:false}],performances:[{...linkedPerformance,songId:"page-one"}]};
+  fetchCatalogMock.mockImplementation(async(query)=>query?.cursor?{...pageCatalog,revision:8,readModelRevision:8,paged:true,nextCursor:null,songs:[{...pageCatalog.songs[0],id:'page-two',title:'Second server page'}],performances:[{...catalog.performances[0],id:'page-two-performance',songId:'page-two'}]}:{...pageCatalog,paged:true,nextCursor:'next-server-page'});
   render(createElement(OtwPlayCatalogManager),{wrapper:createQueryWrapper()});
   await screen.findAllByText("First server page");
   expect(fetchCatalogMock).toHaveBeenCalledWith(expect.objectContaining({limit:25,scope:'official',cursor:null}));
   fireEvent.click(screen.getByRole('button',{name:'곡 더 보기'}));
   await screen.findAllByText('Second server page');
+  expect(screen.getAllByText('First server page')[0].compareDocumentPosition(screen.getAllByText('Second server page')[0])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   expect(fetchCatalogMock).toHaveBeenCalledWith(expect.objectContaining({cursor:'next-server-page',limit:25}));
 });
 
@@ -3104,6 +3121,53 @@ it("keeps global publication reachable from an empty filtered server page",async
   const dialog=await screen.findByRole('alertdialog');
   fireEvent.click(within(dialog).getByRole('button',{name:'1개 게시'}));
   await waitFor(()=>expect(publishPerformanceMock).toHaveBeenCalledWith(draft.id,expect.anything(),expect.any(String)));
+});
+
+it("reports a failed off-page selection and retries it without hiding the catalog", async () => {
+  const visible = {id:"visible",slug:"visible",title:"Visible review song",normalizedTitle:"visible review song",originalArtists:[],tags:[],aliases:[],archivedAt:null,version:0,isOtwOriginal:false};
+  const selected = {...visible,id:"off-page",slug:"off-page",title:"Selected review song"};
+  let failed = true;
+  fetchCatalogMock.mockImplementation(async query => {
+    if (query?.songId && failed) throw new ApiError("selection unavailable",503,{code:"PLAY_ADMIN_INTERNAL_ERROR"});
+    const song = query?.songId ? selected : visible;
+    return {...catalog,paged:true,nextCursor:null,songs:[song],performances:[{...linkedPerformance,id:"p-"+song.id,songId:song.id}]};
+  });
+  const client = createTestQueryClient();
+  render(createElement(QueryClientProvider,{client},createElement(ConsoleSearchContext.Provider,{value:[{selected:selected.id},vi.fn()]},createElement(OtwPlayCatalogManager))));
+  await screen.findAllByText(visible.title);
+  expect((await screen.findByRole("alert")).textContent).toContain("선택한 곡을 불러오지 못했습니다");
+  expect(screen.queryAllByText(visible.title).length).toBeGreaterThan(0);
+  failed = false;
+  fireEvent.click(screen.getByRole("button",{name:"선택한 곡 다시 불러오기"}));
+  await screen.findAllByText(selected.title);
+  await waitFor(()=>expect(screen.queryByRole("alert")).toBeNull());
+  client.clear();
+});
+
+it("keeps current page references when an older off-page selection fails to refresh", async () => {
+  const visible = {id:"visible",slug:"visible",title:"Visible review song",normalizedTitle:"visible review song",originalArtists:[],tags:[],aliases:[],archivedAt:null,version:0,isOtwOriginal:false};
+  const offPage = {...visible,id:"off-page",slug:"off-page",title:"Off page review song"};
+  const current = {id:"shared-artist",entityKind:"person" as const,memberUid:null,displayName:"Current artist",normalizedName:"current artist",slug:"shared-artist",version:3,archivedAt:null};
+  const old = {...current,displayName:"Old artist",normalizedName:"old artist",version:1};
+  const page = {...catalog,revision:9,readModelRevision:9,paged:true as const,nextCursor:null,songs:[visible],performances:[{...linkedPerformance,songId:visible.id}],entities:[current]};
+  const selected = {...page,revision:7,readModelRevision:7,songs:[offPage],performances:[{...linkedPerformance,id:"off-page-performance",songId:offPage.id}],entities:[old]};
+  fetchCatalogMock.mockImplementation(async query => {
+    if(query?.songId) throw new ApiError("selection unavailable",503,{code:"PLAY_ADMIN_INTERNAL_ERROR"});
+    if(query?.lookup) return {...catalog,paged:true,nextCursor:null};
+    return page;
+  });
+  const client = createTestQueryClient();
+  const key = [...queryKeys.otwPlay.adminCatalog(),"selected",offPage.id,"official",undefined,undefined,undefined];
+  client.setQueryData(key,selected);
+  render(createElement(QueryClientProvider,{client},createElement(ConsoleSearchContext.Provider,{value:[{selected:offPage.id},vi.fn()]},createElement(OtwPlayCatalogManager))));
+  await screen.findAllByText(visible.title);
+  await waitFor(()=>expect(client.getQueryState(key)?.status).toBe("error"));
+  fireEvent.click(screen.getAllByRole("button",{name:"곡 정보 수정"})[0]);
+  const dialog = await screen.findByRole("dialog",{name:"곡 정보 수정"});
+  fireEvent.change(within(dialog).getByLabelText("원곡 가수 검색"),{target:{value:"artist"}});
+  expect(within(dialog).queryByRole("option",{name:/Current artist/})).not.toBeNull();
+  expect(within(dialog).queryByRole("option",{name:/Old artist/})).toBeNull();
+  client.clear();
 });
 
 });

@@ -6,7 +6,7 @@ import {
   AdminCatalogService,
   AdminCatalogServiceError,
 } from "../application/admin-catalog-service";
-import { AdminCatalogRepositoryError } from "../application/ports/admin-catalog-repository";
+import { AdminCatalogRepositoryError, type AdminCatalogRequest } from "../application/ports/admin-catalog-repository";
 import { SourceHealthRepositoryError } from "../application/ports/source-health-repository";
 import {
   SourceHealthService,
@@ -34,7 +34,7 @@ import {
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 
-export type ResolveAdminCatalogService = (env: Env,requestKey?:string) => AdminCatalogService;
+export type ResolveAdminCatalogService = (env: Env, requestKey?: string, request?: AdminCatalogRequest) => AdminCatalogService;
 export type ResolveSourceHealthService = (env: Env) => SourceHealthService;
 
 const responseJson = (value: unknown, status = 200) =>
@@ -92,6 +92,17 @@ const adminActor = (
   };
 };
 
+const commandHash = async (request: Request, url: URL) => {
+  const raw = await request.clone().text();
+  let body: unknown = raw;
+  try { body = JSON.parse(raw); } catch { /* The owning route reports malformed input. */ }
+  const canonical = JSON.stringify([request.method, url.pathname, [...url.searchParams], body],
+    (_key, value: unknown) => value && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : value);
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+  return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, "0")).join("");
+};
+
 export const createAdminCatalogHandler =
   (
     resolveService: ResolveAdminCatalogService,
@@ -108,11 +119,27 @@ export const createAdminCatalogHandler =
     if (!admin.ok) return admin.response;
     const requestKey=request.headers.get("Idempotency-Key");
     if(request.method!=="GET" && requestKey!==null && !/^[A-Za-z0-9_-]{16,100}$/.test(requestKey)) return errorResponse(requestId,400,"PLAY_ADMIN_INVALID_REQUEST","Invalid Idempotency-Key");
-    const service = resolveService(env,requestKey??undefined);
-    const sourceHealthService = resolveSourceHealthService?.(env);
     const actor = adminActor(request, admin.user);
+    const keyedWrite = requestKey && ["POST", "PUT", "DELETE"].includes(request.method) &&
+      !url.pathname.endsWith("/preflight") && !url.pathname.includes("/sources/");
+    const command: AdminCatalogRequest | undefined = keyedWrite ? {
+      key: requestKey, actorUserId: actor.userId, hash: await commandHash(request, url),
+      status: request.method === "POST" && /\/(catalog-entries|entities|songs|performances|channels)$/.test(url.pathname) ? 201 : 200,
+    } : undefined;
+    const service = resolveService(env,requestKey??undefined,command);
+    const sourceHealthService = resolveSourceHealthService?.(env);
+    const commandResponse = async (value: unknown, status = 200) => {
+      if (!command) return responseJson(value, status);
+      const result = await service.readRequestResult();
+      if (!result) throw new AdminCatalogRepositoryError("unavailable", "Catalog command result was not persisted");
+      return responseJson(result.body, result.status);
+    };
 
     try {
+      if (command) {
+        const result = await service.readRequestResult();
+        if (result) return responseJson(result.body, result.status);
+      }
       if (
         url.pathname === "/api/play/admin/catalog-entries/preflight" &&
         request.method === "POST"
@@ -126,7 +153,7 @@ export const createAdminCatalogHandler =
             "Invalid catalog entry preflight",
             parsed.fields,
           );
-        return responseJson({ data: await service.preflightCatalogEntry(parsed.value) });
+        return await commandResponse({ data: await service.preflightCatalogEntry(parsed.value) });
       }
 
       if (
@@ -142,7 +169,7 @@ export const createAdminCatalogHandler =
             "Invalid catalog entry",
             parsed.fields,
           );
-        return responseJson(
+        return await commandResponse(
           await service.createCatalogEntry(parsed.value, actor),
           201,
         );
@@ -153,10 +180,10 @@ export const createAdminCatalogHandler =
         request.method === "GET"
       ) {
         const params=url.searchParams;
-        if(!params.size) return responseJson({data:await service.readCatalog()});
+        if(!params.size) return await commandResponse({data:await service.readCatalog()});
         const scope=params.get('scope')??'all',lookup=params.get('lookup');
         if(!['official','broadcast','all'].includes(scope)||lookup&&!['songs','entities','channels'].includes(lookup)) return errorResponse(requestId,400,'PLAY_ADMIN_INVALID_REQUEST','Invalid catalog query');
-        return responseJson({data:await service.readCatalog({page:{limit:Number(params.get('limit')??25),cursor:params.get('cursor'),q:params.get('q')??undefined,category:params.get('category')??undefined,state:params.get('state')??undefined,scope:scope as 'all'|'official'|'broadcast',...(lookup?{lookup:lookup as 'songs'|'entities'|'channels'}:{}),songId:params.get('songId')??undefined}})});
+        return await commandResponse({data:await service.readCatalog({page:{limit:Number(params.get('limit')??25),cursor:params.get('cursor'),q:params.get('q')??undefined,category:params.get('category')??undefined,state:params.get('state')??undefined,scope:scope as 'all'|'official'|'broadcast',...(lookup?{lookup:lookup as 'songs'|'entities'|'channels'}:{}),songId:params.get('songId')??undefined}})});
       }
 
       if (url.pathname === "/api/play/admin/source-health") {
@@ -169,7 +196,7 @@ export const createAdminCatalogHandler =
         if (!sourceHealthService) {
           throw new Error("Source health service is not configured");
         }
-        return responseJson({ data: await sourceHealthService.readDashboard() });
+        return await commandResponse({ data: await sourceHealthService.readDashboard() });
       }
 
       if (
@@ -185,7 +212,7 @@ export const createAdminCatalogHandler =
             "Unknown query parameter",
           );
         }
-        return responseJson({ data: await service.readProposals(status) });
+        return await commandResponse({ data: await service.readProposals(status) });
       }
 
       if (url.pathname === "/api/play/admin/entities") {
@@ -215,7 +242,7 @@ export const createAdminCatalogHandler =
                 parsed.value as Parameters<typeof service.updateEntity>[0],
                 actor,
               );
-        return responseJson(result, request.method === "POST" ? 201 : 200);
+        return await commandResponse(result, request.method === "POST" ? 201 : 200);
       }
 
       if (url.pathname === "/api/play/admin/songs") {
@@ -248,7 +275,7 @@ export const createAdminCatalogHandler =
                 parsed.value as Parameters<typeof service.updateSong>[0],
                 actor,
               );
-        return responseJson(result, request.method === "POST" ? 201 : 200);
+        return await commandResponse(result, request.method === "POST" ? 201 : 200);
       }
 
       if (url.pathname === "/api/play/admin/performances") {
@@ -283,7 +310,7 @@ export const createAdminCatalogHandler =
                 parsed.value as Parameters<typeof service.updatePerformance>[0],
                 actor,
               );
-        return responseJson(result, request.method === "POST" ? 201 : 200);
+        return await commandResponse(result, request.method === "POST" ? 201 : 200);
       }
 
       const deleteEntityId = pathId(
@@ -311,7 +338,7 @@ export const createAdminCatalogHandler =
             "Invalid expected version",
             parsed.fields,
           );
-        return responseJson(
+        return await commandResponse(
           deleteEntityId
             ? await service.deleteEntity(deleteEntityId, parsed.value, actor)
             : deleteSongId
@@ -342,7 +369,7 @@ export const createAdminCatalogHandler =
             "Invalid expected version",
             parsed.fields,
           );
-        return responseJson(
+        return await commandResponse(
           await service.transitionPerformance(
             publishId ?? withdrawId!,
             parsed.value,
@@ -367,7 +394,7 @@ export const createAdminCatalogHandler =
             "Unknown query parameter",
           );
         }
-        return responseJson({
+        return await commandResponse({
           data: await service.lookupChannel(
             url.searchParams.get("externalChannelId") ?? "",
           ),
@@ -385,7 +412,7 @@ export const createAdminCatalogHandler =
               "Invalid channel command",
               parsed.fields,
             );
-          return responseJson(
+          return await commandResponse(
             await service.createChannel(parsed.value, actor),
             201,
           );
@@ -400,7 +427,7 @@ export const createAdminCatalogHandler =
               "Invalid channel command",
               parsed.fields,
             );
-          return responseJson(await service.updateChannel(parsed.value, actor));
+          return await commandResponse(await service.updateChannel(parsed.value, actor));
         }
         if (request.method === "DELETE") {
           const parsed = await readBody(request, parseVersionRequest);
@@ -421,7 +448,7 @@ export const createAdminCatalogHandler =
               "Channel id is required",
               { id: "required" },
             );
-          return responseJson(
+          return await commandResponse(
             await service.deleteChannel(id, parsed.value, actor),
           );
         }
@@ -448,7 +475,7 @@ export const createAdminCatalogHandler =
         if (!sourceHealthService) {
           throw new Error("Source health service is not configured");
         }
-        return responseJson(
+        return await commandResponse(
           await sourceHealthService.recheckSource(
             recheckId,
             parsed.value,
@@ -470,7 +497,7 @@ export const createAdminCatalogHandler =
             "Invalid rejection",
             parsed.fields,
           );
-        return responseJson(
+        return await commandResponse(
           await service.rejectProposal(rejectId, parsed.value, actor),
         );
       }
@@ -489,13 +516,20 @@ export const createAdminCatalogHandler =
             "Invalid approval",
             parsed.fields,
           );
-        return responseJson(
+        return await commandResponse(
           await service.approveProposal(approveId, parsed.value, actor),
         );
       }
 
       return new Response(null, { status: 404 });
-    } catch (error) {
+    } catch (caughtError) {
+      let error = caughtError;
+      if (command && !(error instanceof AdminCatalogRepositoryError && error.code === "idempotency_conflict")) {
+        try {
+          const result = await service.readRequestResult();
+          if (result) return responseJson(result.body, result.status);
+        } catch (readError) { error = readError; }
+      }
       if(error instanceof ContentWriteError) return responseJson({error:{code:error.code,message:error.message,requestId,fields:{targetSite:error.targetSite,...(error.operationId?{operationId:error.operationId}:{})}}},409);
       if (error instanceof SourceHealthServiceError) {
         const mapping = {
@@ -549,6 +583,8 @@ export const createAdminCatalogHandler =
         );
       }
       if (error instanceof AdminCatalogRepositoryError) {
+        if (error.code === "idempotency_conflict") return errorResponse(requestId, 409,
+          "PLAY_ADMIN_IDEMPOTENCY_CONFLICT", error.message);
         const status =
           error.code === "unavailable"
             ? 503

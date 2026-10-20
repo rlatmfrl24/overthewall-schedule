@@ -35,6 +35,8 @@ import { OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES } from "../domain/ingestion-c
 import {
   AdminCatalogRepositoryError,
   type AdminCatalogActor,
+  type AdminCatalogRequest,
+  type AdminCatalogRequestResult,
   type AdminCatalogScope,
   type AdminCatalogRepository,
   type AdminApproveProposalCommand,
@@ -45,6 +47,12 @@ import {
 } from "../application/ports/admin-catalog-repository";
 
 type SqlValue = string | number | null;
+type CatalogQuery = { sql: string; values: SqlValue[]; columns: string[] };
+type CatalogResult =
+  | { kind: "entity" | "song" | "performance" | "channel" | "deleted"; id: string }
+  | { kind: "entry"; songId: string; performanceId: string; channelId: string; createdEntityIds: string[] }
+  | { kind: "literal"; data: unknown };
+
 
 const ingestionOfficialChannelRoleSql =
   OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES
@@ -281,10 +289,15 @@ const activeIngestionCandidateEntityReferenceSql = `EXISTS (
 
 export class D1AdminCatalogRepository implements AdminCatalogRepository {
   private readonly database: D1Database;
+  private readonly siteId: SiteId;
+  private readonly request?: AdminCatalogRequest;
 
-  private readonly siteId:SiteId;
 
-  constructor(database: D1Database,siteId:SiteId="otw") { this.database=database;this.siteId=siteId; }
+  constructor(database: D1Database, siteId: SiteId = "otw", request?: AdminCatalogRequest) {
+    this.database = database;
+    this.siteId = siteId;
+    this.request = request;
+  }
 
   private async readRevision() {
     const row = await this.database
@@ -334,8 +347,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       add(`EXISTS(SELECT 1 FROM music_performances p WHERE p.song_id=selected.id ${page.scope==='official'?"AND p.release_type<>'broadcast'":page.scope==='broadcast'?"AND p.release_type='broadcast'":""} ${page.state?'AND p.publication_status=?':''})`,...(page.state?[page.state]:[]));
       if(page.category) add('EXISTS(SELECT 1 FROM music_song_tags t WHERE t.song_id=selected.id AND t.display_name=?)',page.category);
     }
-    if(cursor) add(`(selected.${order},selected.id)>(?,?)`,...cursor);
-    // Stored normalization narrows candidates; each consumer's exact Unicode rules run before LIMIT.
+    // Stored normalization narrows candidates; fill each page using the consumer's Unicode rules.
     const searchColumns = !page.q ? "" : kind === "entities" || kind === "channels"
       ? ", selected.display_name AS search_text"
       : `, selected.title AS search_text,
@@ -343,14 +355,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
            JOIN music_entities e ON e.id=a.entity_id WHERE a.song_id=selected.id
            ORDER BY a.credit_order,a.entity_id)) AS artists,
           (SELECT json_group_array(alias) FROM music_song_aliases WHERE song_id=selected.id) AS aliases`;
-    const candidates = (await this.database.prepare(`SELECT selected.id,selected.${order} AS sort_key${searchColumns}
-      FROM ${table} selected WHERE ${where.join(' AND ')||'1'} ORDER BY selected.${order},selected.id${page.q ? '' : ' LIMIT ?'}`)
-      .bind(...values,...(page.q ? [] : [limit+1]))
-      .all<{id:string;sort_key:string;search_text:string;artists?:string;aliases?:string}>()).results;
+    type Candidate = {id:string;sort_key:string;search_text:string;artists?:string;aliases?:string};
     const normalizePicker = (text:string) => text.normalize('NFKC').trim().replace(/\s+/gu,' ').toLocaleLowerCase();
-    const exactSongExists = kind === 'songs' && Boolean(page.q) && candidates.some(row =>
-      [row.search_text, ...JSON.parse(row.aliases ?? '[]') as string[]].some(text => normalizePicker(text) === normalizePicker(page.q!)));
-    const selected = candidates.filter(row => {
+    const matches = (row:Candidate) => {
       if (!page.q) return true;
       if (kind === 'entities') return normalizePicker(row.search_text).includes(normalizePicker(page.q));
       if (kind === 'channels') return row.search_text.toLocaleLowerCase().includes(page.q.toLocaleLowerCase());
@@ -358,7 +365,37 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       return kind === 'songs'
         ? [row.search_text,...artists,...JSON.parse(row.aliases ?? '[]') as string[]].some(text=>normalizePicker(text).includes(normalizePicker(page.q!)))
         : [row.search_text,...artists].join(' ').toLocaleLowerCase().includes(page.q.toLocaleLowerCase());
-    }).slice(0,limit+1);
+    };
+    const selected:Candidate[] = [];
+    // shortcut: sparse substring matches can still scan the index; add search indexing if measured reads require it.
+    const chunkSize = page.q ? 26 : limit+1;
+    let after = cursor;
+    while (selected.length <= limit) {
+      const candidates = (await this.database.prepare(`SELECT selected.id,selected.${order} AS sort_key${searchColumns}
+        FROM ${table} selected WHERE ${where.join(' AND ')||'1'} ${after?`AND (selected.${order},selected.id)>(?,?)`:''}
+        ORDER BY selected.${order},selected.id LIMIT ?`)
+        .bind(...values,...(after??[]),chunkSize).all<Candidate>()).results;
+      selected.push(...candidates.filter(matches).slice(0,limit+1-selected.length));
+      if (candidates.length < chunkSize) break;
+      after = [candidates.at(-1)!.sort_key,candidates.at(-1)!.id];
+    }
+    const exactMatch = (text:string) => normalizePicker(text) === normalizePicker(page.q!);
+    // Separate indexed title/alias probes keep exact matches beyond the page visible without a full scan.
+    const hasExactSong = async (aliases:boolean) => {
+      let afterId = '';
+      while (true) {
+        const rows = (await this.database.prepare(`SELECT song.id,${aliases?'alias.alias':'song.title'} AS text
+          FROM music_songs song ${aliases?'JOIN music_song_aliases alias ON alias.song_id=song.id':''}
+          WHERE song.archived_at IS NULL AND ${aliases?'alias.normalized_alias':'song.normalized_title'}=? AND song.id>?
+          ${page.songId?'AND song.id=?':''} ORDER BY song.id LIMIT 26`)
+          .bind(normalizeOtwPlaySearchText(page.q!),afterId,...(page.songId?[page.songId]:[])).all<{id:string;text:string}>()).results;
+        if (rows.some(row=>exactMatch(row.text))) return true;
+        if (rows.length < 26) return false;
+        afterId = rows.at(-1)!.id;
+      }
+    };
+    const exactSongExists = kind === 'songs' && Boolean(page.q) && (selected.some(row =>
+      [row.search_text,...JSON.parse(row.aliases ?? '[]') as string[]].some(exactMatch)) || await hasExactSong(false) || await hasExactSong(true));
     const ids=selected.slice(0,limit).map(row=>row.id),json=JSON.stringify(ids);
     if(kind==='entities'||kind==='channels') {const catalog=await this.readCatalog(kind==='entities'?{entityIds:ids}:{channelIds:ids});return {...catalog,paged:true,nextCursor:selected.length>limit?JSON.stringify([selected[limit-1].sort_key,selected[limit-1].id]):null};}
     const performances=kind==='catalog'?(await this.database.prepare('SELECT id FROM music_performances WHERE song_id IN(SELECT value FROM json_each(?))').bind(json).all<{id:string}>()).results.map(row=>row.id):[];
@@ -371,9 +408,16 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   }
 
   async readCatalog(scope?: AdminCatalogScope): Promise<OtwPlayAdminCatalogDto> {
-    if(scope?.page) return this.readCatalogPage(scope.page);
-    const select = (sql: string, kind: "entities" | "songs" | "channels" | "performances", column: string) => {
-      if (!scope || (scope.references && (kind === "songs" || kind === "entities"))) return this.database.prepare(sql);
+    if (scope?.page) return this.readCatalogPage(scope.page);
+    const queries = this.catalogQueries(scope);
+    const results = await this.database.batch(queries.filter((query): query is CatalogQuery => query !== null)
+      .map(query => this.database.prepare(query.sql).bind(...query.values)));
+    return this.catalogFromResults(queries.map(query => query ? results.shift()! : { results: [] }));
+  }
+
+  private catalogQueries(scope?: AdminCatalogScope): (CatalogQuery | null)[] {
+    const select = (sql: string, kind: "entities" | "songs" | "channels" | "performances", column: string, columns: string[]): CatalogQuery | null => {
+      if (!scope || (scope.references && (kind === "songs" || kind === "entities"))) return { sql, values: [], columns };
       const values: SqlValue[] = [];
       const clauses: string[] = [];
       const add = (field: string, ids: SqlValue[] = []) => {
@@ -402,45 +446,44 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       const predicate = column === "channel_id"
         ? `channel_id IN (SELECT id FROM music_channels WHERE ${clauses.join(" OR ")})`
         : clauses.join(" OR ");
-      return this.database.prepare(sql.replace("ORDER BY", `WHERE (${predicate}) ORDER BY`)).bind(...values);
+      return { sql: sql.replace("ORDER BY", `WHERE (${predicate}) ORDER BY`), values, columns };
     };
 
-    const statements = [
-      this.database
-        .prepare(`SELECT catalog.revision, read_model.revision AS read_model_revision
+    return [
+      { sql: `SELECT catalog.revision, read_model.revision AS read_model_revision
         FROM music_catalog_meta AS catalog JOIN music_public_read_model_meta AS read_model
-          ON read_model.id = catalog.id WHERE catalog.id = 1`),
+          ON read_model.id = catalog.id WHERE catalog.id = 1`, values: [], columns: ["revision", "read_model_revision"] },
       select(`SELECT id, member_uid, entity_kind, display_name,
         normalized_name, slug, archived_at, version FROM music_entities
-        ORDER BY normalized_name, id`, "entities", "id"),
+        ORDER BY normalized_name, id`, "entities", "id", ["id", "member_uid", "entity_kind", "display_name", "normalized_name", "slug", "archived_at", "version"]),
       select(`SELECT id, slug, title, normalized_title, is_otw_original,
         original_release_date, original_release_precision, archived_at, version
-        FROM music_songs ORDER BY normalized_title, id`, "songs", "id"),
+        FROM music_songs ORDER BY normalized_title, id`, "songs", "id", ["id", "slug", "title", "normalized_title", "is_otw_original", "original_release_date", "original_release_precision", "archived_at", "version"]),
       select(`SELECT song_id, alias, normalized_alias, locale, alias_kind
-        FROM music_song_aliases ORDER BY song_id, normalized_alias`, "songs", "song_id"),
+        FROM music_song_aliases ORDER BY song_id, normalized_alias`, "songs", "song_id", ["song_id", "alias", "normalized_alias", "locale", "alias_kind"]),
       select(`SELECT song_id, tag_key, display_name
-        FROM music_song_tags ORDER BY song_id, tag_key`, "songs", "song_id"),
+        FROM music_song_tags ORDER BY song_id, tag_key`, "songs", "song_id", ["song_id", "tag_key", "display_name"]),
       select(`SELECT artist.song_id, artist.entity_id, entity.display_name,
         artist.credit_order, artist.is_primary
         FROM music_song_original_artists AS artist
         JOIN music_entities AS entity ON entity.id = artist.entity_id
-        ORDER BY artist.song_id, artist.credit_order, artist.entity_id`, "songs", "artist.song_id"),
+        ORDER BY artist.song_id, artist.credit_order, artist.entity_id`, "songs", "artist.song_id", ["song_id", "entity_id", "display_name", "credit_order", "is_primary"]),
       select(`SELECT id, provider, external_channel_id, display_name,
         channel_role, verification_status, active, version
-        FROM music_channels ORDER BY display_name, id`, "channels", "id"),
+        FROM music_channels ORDER BY display_name, id`, "channels", "id", ["id", "provider", "external_channel_id", "display_name", "channel_role", "verification_status", "active", "version"]),
       select(`SELECT channel_id, entity_id FROM music_channel_entities
-        ORDER BY channel_id, entity_id`, "channels", "channel_id"),
+        ORDER BY channel_id, entity_id`, "channels", "channel_id", ["channel_id", "entity_id"]),
       select(`SELECT id, content_access, song_id, relation_type, release_type,
         participation_type, publication_status, quality_status, released_at, broadcast_metadata,
-        internal_note, version FROM music_performances ORDER BY created_at DESC, id`, "performances", "id"),
+        internal_note, version FROM music_performances ORDER BY created_at DESC, id`, "performances", "id", ["id", "content_access", "song_id", "relation_type", "release_type", "participation_type", "publication_status", "quality_status", "released_at", "broadcast_metadata", "internal_note", "version"]),
       select(`SELECT performance_id, tag_key, display_name
-        FROM music_performance_tags ORDER BY performance_id, tag_key`, "performances", "performance_id"),
+        FROM music_performance_tags ORDER BY performance_id, tag_key`, "performances", "performance_id", ["performance_id", "tag_key", "display_name"]),
       select(`SELECT participant.performance_id, participant.entity_id,
         entity.display_name, participant.participant_role, participant.credit_order,
         participant.credit_name_snapshot
         FROM music_performance_participants AS participant
         JOIN music_entities AS entity ON entity.id = participant.entity_id
-        ORDER BY participant.performance_id, participant.credit_order, participant.entity_id`, "performances", "participant.performance_id"),
+        ORDER BY participant.performance_id, participant.credit_order, participant.entity_id`, "performances", "participant.performance_id", ["performance_id", "entity_id", "display_name", "participant_role", "credit_order", "credit_name_snapshot"]),
       select(`SELECT link.performance_id, source.id AS source_id,
         source.provider, source.external_id, source.channel_id, source.title,
         source.thumbnail_url, source.duration_seconds, source.provider_published_at,
@@ -450,9 +493,11 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         link.is_primary
         FROM music_performance_sources AS link
         JOIN music_media_sources AS source ON source.id = link.source_id
-        ORDER BY link.performance_id, link.priority, source.id`, "performances", "link.performance_id"),
+        ORDER BY link.performance_id, link.priority, source.id`, "performances", "link.performance_id", ["performance_id", "source_id", "provider", "external_id", "channel_id", "title", "thumbnail_url", "duration_seconds", "provider_published_at", "availability_status", "last_checked_at", "next_check_at", "version", "start_seconds", "end_seconds", "source_role", "priority", "is_primary"]),
     ];
-    const results = await this.database.batch(statements.filter((statement): statement is D1PreparedStatement => statement !== null));
+  }
+
+  private catalogFromResults(results: { results: unknown[] }[]): OtwPlayAdminCatalogDto {
     const [
       metaResult,
       entitiesResult,
@@ -466,7 +511,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       performanceTagsResult,
       participantsResult,
       sourcesResult,
-    ] = statements.map(statement => statement ? results.shift()! : { results: [] });
+    ] = results;
 
     const meta = resultsOf(metaResult as D1Result<CatalogMetaRow>)[0];
     if (!meta)
@@ -828,8 +873,71 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     if(!actor) throw new Error("Catalog writes require their own authenticated actor");
     return [this.database.prepare(`INSERT INTO music_catalog_events(id,aggregate_type,aggregate_id,event_type,actor_kind,actor_user_id,after_json,created_at) VALUES(?,?,?,?,'admin',?,?,?)`).bind(event.id,event.aggregateType,event.aggregateId,event.eventType,actor.userId,event.afterJson,event.now)];
   }
-  private async executeCatalogBatch(statements:D1PreparedStatement[],expectedRevision:number,now:number) {
-    try { await this.database.batch([...statements,...appendRevisionStatements(this.database,expectedRevision,now)]); }
+  async completeProposalResult(proposal: OtwPlayAdminProposalDto, now: number): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminProposalDto>> {
+    // An already approved proposal succeeds without another catalog mutation or revision.
+    const [meta] = await this.database.batch<{ revision: number }>([
+      this.database.prepare("SELECT revision FROM music_catalog_meta WHERE id=1"),
+      ...this.requestResultStatement({kind: "literal", data: proposal}, now),
+    ]);
+    const revision = resultsOf(meta)[0]?.revision;
+    if (revision === undefined) throw new AdminCatalogRepositoryError("unavailable", "Catalog revision is missing");
+    return {data: proposal, catalogRevision: revision};
+  }
+
+  async readRequestResult(): Promise<AdminCatalogRequestResult | null> {
+    if (!this.request) return null;
+    const row = await this.database.prepare(`SELECT request_hash, http_status, result_json
+      FROM music_admin_command_results WHERE site_id=? AND actor_user_id=? AND request_key=?`)
+      .bind(this.siteId, this.request.actorUserId, this.request.key)
+      .first<{ request_hash: string; http_status: number; result_json: string }>();
+    if (!row) return null;
+    if (row.request_hash !== this.request.hash) {
+      throw new AdminCatalogRepositoryError("idempotency_conflict", "This request key was already used for a different command");
+    }
+    const snapshot = JSON.parse(row.result_json) as { rows: unknown[][]; result: CatalogResult };
+    const catalog = this.catalogFromResults(snapshot.rows.map(results => ({ results })));
+    const result = snapshot.result;
+    let data: unknown;
+    if (result.kind === "entry") {
+      data = {
+        song: catalog.songs.find(item => item.id === result.songId),
+        performance: catalog.performances.find(item => item.id === result.performanceId),
+        channel: catalog.channels.find(item => item.id === result.channelId),
+        createdEntities: catalog.entities.filter(item => result.createdEntityIds.includes(item.id)),
+      };
+    } else if (result.kind === "literal") data = result.data;
+    else if (result.kind === "deleted") data = { id: result.id };
+    else {
+      const rows = result.kind === "entity" ? catalog.entities : result.kind === "song" ? catalog.songs
+        : result.kind === "channel" ? catalog.channels : catalog.performances;
+      data = rows.find(item => item.id === result.id);
+    }
+    if (!data) throw new AdminCatalogRepositoryError("unavailable", "Catalog command result is missing");
+    return { status: row.http_status, body: { data, catalogRevision: catalog.revision } };
+  }
+
+  private requestResultStatement(result: CatalogResult, now: number): D1PreparedStatement[] {
+    if (!this.request) return [];
+    const scope: AdminCatalogScope = result.kind === "entry"
+      ? { songIds: [result.songId], performanceIds: [result.performanceId], channelIds: [result.channelId], entityIds: result.createdEntityIds }
+      : result.kind === "entity" ? { entityIds: [result.id] }
+        : result.kind === "song" ? { songIds: [result.id] }
+          : result.kind === "channel" ? { channelIds: [result.id] }
+            : result.kind === "performance" ? { performanceIds: [result.id] } : {};
+    const queries = this.catalogQueries(scope);
+    const rows = queries.map(query => query
+      ? `json((SELECT json_group_array(json_object(${query.columns.map(column => `'${column}', snapshot.${column}`).join(",")})) FROM (${query.sql}) snapshot))`
+      : "json('[]')");
+    // The unique receipt and its exact readback commit with the mutation. A race rolls the whole batch back.
+    return [this.database.prepare(`INSERT INTO music_admin_command_results
+      (site_id,actor_user_id,request_key,request_hash,http_status,result_json,created_at)
+      VALUES(?,?,?,?,?,json_object('rows',json_array(${rows.join(",")}), 'result',json(?)),?)`)
+      .bind(this.siteId, this.request.actorUserId, this.request.key, this.request.hash, this.request.status,
+        ...queries.flatMap(query => query?.values ?? []), JSON.stringify(result), now)];
+  }
+
+  private async executeCatalogBatch(statements:D1PreparedStatement[],expectedRevision:number,now:number,result:CatalogResult) {
+    try { await this.database.batch([...statements,...appendRevisionStatements(this.database,expectedRevision,now),...this.requestResultStatement(result,now)]); }
     catch(error) { throw catalogBatchError(error)??error; }
   }
   private guardCollection(statements:D1PreparedStatement[],videos:ReadonlyArray<{videoId:string|null;channelId:string}>,performanceId:string|null=null) {
@@ -919,7 +1027,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements,Number(meta.revision),now);
+    await this.executeCatalogBatch(statements,Number(meta.revision),now,{kind:"entity",id:ids.entityId});
     return (this.readEntity(ids.entityId));
   }
 
@@ -986,7 +1094,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements,Number(meta.revision),now);
+    await this.executeCatalogBatch(statements,Number(meta.revision),now,{kind:"entity",id:input.id});
     return (this.readEntity(input.id));
   }
 
@@ -1110,7 +1218,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements,Number(meta.revision),now);
+    await this.executeCatalogBatch(statements,Number(meta.revision),now,{kind:"deleted",id});
     return ({ data: { id }, catalogRevision: Number(meta.revision) + 1 });
   }
 
@@ -1193,7 +1301,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements,Number(meta.revision),now);
+    await this.executeCatalogBatch(statements,Number(meta.revision),now,{kind:"song",id:ids.songId});
     return (this.readSong(ids.songId));
   }
 
@@ -1432,7 +1540,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements,Number(meta.revision),now);
+    await this.executeCatalogBatch(statements,Number(meta.revision),now,{kind:"song",id:input.id});
     return (this.readSong(input.id));
   }
 
@@ -1565,7 +1673,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements,Number(meta.revision),now);
+    await this.executeCatalogBatch(statements,Number(meta.revision),now,{kind:"deleted",id});
     return ({ data: { id }, catalogRevision: Number(meta.revision) + 1 });
   }
 
@@ -1747,7 +1855,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             tags: input.tags ?? [],
           }),now:now},actor)),
     ];
-    await this.executeCatalogBatch(this.guardCollection(statements,sources.map(source=>source.video),ids.performanceId),Number(meta.revision),now);
+    await this.executeCatalogBatch(this.guardCollection(statements,sources.map(source=>source.video),ids.performanceId),Number(meta.revision),now,{kind:"performance",id:ids.performanceId});
     return (this.readPerformance(ids.performanceId));
   }
 
@@ -1762,6 +1870,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       candidateConversion,
     } = command;
     const meta = await this.readRevision();
+    const receiptProposal = this.request && proposalApproval
+      ? (await this.readProposals(undefined, proposalApproval.proposalId))[0] : undefined;
     if (Number(meta.revision) !== input.expectedCatalogRevision) {
       throw new AdminCatalogRepositoryError(
         "stale_write",
@@ -2494,8 +2604,13 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       );
     }
 
+    const receiptResult: CatalogResult = receiptProposal && proposalApproval ? {
+      kind: "literal", data: { ...receiptProposal, status: "approved", historicalReview: false,
+        reviewedByUserId: actor!.userId, reviewedAt: now, approvedPerformanceId: ids.performanceId,
+        version: proposalApproval.expectedVersion + 1 },
+    } : { kind: "entry", songId, performanceId: ids.performanceId, channelId, createdEntityIds };
     try {
-      await this.executeCatalogBatch(this.guardCollection(statements,[video],ids.performanceId),input.expectedCatalogRevision,now);
+      await this.executeCatalogBatch(this.guardCollection(statements,[video],ids.performanceId),input.expectedCatalogRevision,now,receiptResult);
 
     } catch (error) {
       if (
@@ -2972,7 +3087,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             sourceCount: resolvedSources.length,
           }),now:now},actor)),
     ];
-    await this.executeCatalogBatch(this.guardCollection(statements,sources.map(source=>source.video),input.id),Number(meta.revision),now);
+    await this.executeCatalogBatch(this.guardCollection(statements,sources.map(source=>source.video),input.id),Number(meta.revision),now,{kind:"performance",id:input.id});
     return (this.readPerformance(input.id));
   }
 
@@ -3103,7 +3218,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements,Number(meta.revision),now);
+    await this.executeCatalogBatch(statements,Number(meta.revision),now,{kind:"performance",id});
     return (this.readPerformance(id));
   }
 
@@ -3239,7 +3354,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements,Number(meta.revision),now);
+    await this.executeCatalogBatch(statements,Number(meta.revision),now,{kind:"deleted",id});
     return ({ data: { id }, catalogRevision: Number(meta.revision) + 1 });
   }
 
@@ -3291,7 +3406,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         )])),
     ];
-    await this.executeCatalogBatch(this.guardCollection(statements,[{videoId:null,channelId:input.externalChannelId}]),Number(meta.revision),now);
+    await this.executeCatalogBatch(this.guardCollection(statements,[{videoId:null,channelId:input.externalChannelId}]),Number(meta.revision),now,{kind:"channel",id:ids.channelId});
     return (this.readChannel(ids.channelId));
   }
 
@@ -3401,7 +3516,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         )])),
     ];
-    await this.executeCatalogBatch(this.guardCollection(statements,[{videoId:null,channelId:input.externalChannelId},{videoId:null,channelId:current.external_channel_id}]),Number(meta.revision),now);
+    await this.executeCatalogBatch(this.guardCollection(statements,[{videoId:null,channelId:input.externalChannelId},{videoId:null,channelId:current.external_channel_id}]),Number(meta.revision),now,{kind:"channel",id:input.id});
     return (this.readChannel(input.id));
   }
 
@@ -3427,7 +3542,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         )
         .bind(eventId, id, actor.userId, now),
     ];
-    await this.executeCatalogBatch(statements,Number(meta.revision),now);
+    await this.executeCatalogBatch(statements,Number(meta.revision),now,{kind:"deleted",id});
     return ({ data: { id }, catalogRevision: Number(meta.revision) + 1 });
   }
 
@@ -3440,6 +3555,10 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   ) {
 
     const meta = await this.readRevision();
+    const before = this.request ? (await this.readProposals(undefined, proposalId))[0] : undefined;
+    const receiptProposal = before ? { ...before, status: "rejected", historicalReview: false,
+      reviewedByUserId: actor.userId, reviewedAt: now, reviewResultCode: input.resultCode.trim(),
+      reviewNote: input.note?.trim() || null, version: input.expectedVersion + 1 } : undefined;
     const statements = [
       this.database
         .prepare(
@@ -3473,7 +3592,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     ];
-    await this.executeCatalogBatch(statements,Number(meta.revision),now);
+    await this.executeCatalogBatch(statements,Number(meta.revision),now,{kind:"literal",data:receiptProposal});
 
     const proposal = (await this.readProposals(undefined,proposalId)).find(
       (item) => item.id === proposalId,

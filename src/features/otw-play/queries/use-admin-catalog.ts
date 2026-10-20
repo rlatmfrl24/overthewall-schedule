@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useInfiniteQuery,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { OtwPlayIngestionClassification } from "@contracts/otw-play";
+import type { OtwPlayAdminCatalogDto, OtwPlayIngestionClassification } from "@contracts/otw-play";
 import { queryKeys } from "@/shared/query/query-keys";
 import {
   fetchOtwPlayAdminCatalog,
@@ -27,12 +27,39 @@ export const useOtwPlayAdminCatalog = (enabled = true) => useQuery({
   staleTime: 15_000,
 });
 
-export const useOtwPlayAdminCatalogPages = (query:import("@contracts/otw-play").OtwPlayAdminCatalogQuery,enabled=true)=>useInfiniteQuery({
-  queryKey:[...queryKeys.otwPlay.adminCatalog(),"pages",query],
-  queryFn:({pageParam})=>fetchOtwPlayAdminCatalog({...query,limit:25,cursor:pageParam}),
-  placeholderData:previous=>previous,
-  initialPageParam:null as string|null,getNextPageParam:page=>page.nextCursor,enabled,staleTime:15_000,
-});
+export const useOtwPlayAdminCatalogPages = (query:import("@contracts/otw-play").OtwPlayAdminCatalogQuery, enabled=true, selectedSongId?:string) => {
+  const pages = useInfiniteQuery({
+    queryKey:[...queryKeys.otwPlay.adminCatalog(),"pages",query],
+    queryFn:({pageParam})=>fetchOtwPlayAdminCatalog({...query,limit:25,cursor:pageParam}),
+    placeholderData:previous=>previous,
+    initialPageParam:null as string|null,getNextPageParam:page=>page.nextCursor,enabled,staleTime:15_000,
+  });
+  const selectedMissing = enabled && Boolean(selectedSongId) && !pages.data?.pages.some(page=>page.songs.some(song=>song.id===selectedSongId));
+  const selected = useQuery({
+    queryKey:[...queryKeys.otwPlay.adminCatalog(),"selected",selectedSongId,query.scope,query.q,query.category,query.state],
+    queryFn:()=>fetchOtwPlayAdminCatalog({...query,songId:selectedSongId,limit:25}),
+    enabled:selectedMissing,
+  });
+  const catalog = useMemo(() => {
+    if (!pages.data?.pages.length) return undefined;
+    const snapshots = [...pages.data.pages, ...(selectedMissing && selected.data ? [selected.data] : [])];
+    const newest = [...snapshots].sort((left,right)=>right.revision-left.revision);
+    const mergeRows = <T extends {id:string;version:number}>(rows:(snapshot:OtwPlayAdminCatalogDto)=>T[]) => {
+      const ordered = new Map(snapshots.flatMap(rows).map(row=>[row.id,row]));
+      for (const row of mergeAdminCatalogRows([],newest.flatMap(rows))) ordered.set(row.id,row);
+      return [...ordered.values()];
+    };
+    return {
+      ...pages.data.pages.at(-1)!,
+      songs:mergeRows(page=>page.songs),
+      performances:mergeRows(page=>page.performances),
+      entities:mergeRows(page=>page.entities),
+      channels:mergeRows(page=>page.channels),
+    };
+  }, [pages.data, selected.data, selectedMissing]);
+  return {...pages,catalog,selectedPending:selectedMissing&&selected.isPending,selectedError:selectedMissing?selected.error:null,
+    selectedFetching:selected.isFetching,retrySelected:selected.refetch};
+};
 
 export const useOtwPlayAdminCatalogLookup = (lookup: "songs" | "entities" | "channels", query: string, enabled: boolean) => {
   const [debouncedQuery, setDebouncedQuery] = useState(query);
