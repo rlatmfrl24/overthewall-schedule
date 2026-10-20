@@ -12,6 +12,7 @@ export { D1AiReviewContext } from "./infrastructure/d1-ai-review-context";
 export { GeminiReviewAnalyzer } from "./infrastructure/gemini-review-analyzer";
 
 export { AdminCatalogService } from "./application/admin-catalog-service";
+export type { AdminCatalogRequest } from "./application/ports/admin-catalog-repository";
 export { ChannelMonitorService } from "./application/channel-monitor-service";
 export {
   IngestionProcessingError,

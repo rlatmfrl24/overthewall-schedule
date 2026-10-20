@@ -451,6 +451,7 @@ export function CatalogEntryDialog({
   const [endSeconds, setEndSeconds] = useState("");
   const [segmentEnabled, setSegmentEnabled] = useState(false);
   const [preflight, setPreflight] = useState<OtwPlayAdminCatalogEntryPreflightDto | null>(null);
+  const [requiresRecheck, setRequiresRecheck] = useState(false);
   const [checking, setChecking] = useState(false);
   const [channelChoice, setChannelChoice] = useState<"approved" | "pending">("pending");
   const [channelRole, setChannelRole] = useState<"member_music" | "member_main" | "project_official" | "otw_official" | "unit_official">("project_official");
@@ -541,6 +542,7 @@ export function CatalogEntryDialog({
     setStartSeconds("0");
     setEndSeconds("");
     setPreflight(null);
+    setRequiresRecheck(false);
     setChecking(false);
     setErrorMessage(null);
     setChannelRecheck("idle");
@@ -578,6 +580,7 @@ export function CatalogEntryDialog({
       });
       if (generation !== recheckGeneration.current) return;
       setPreflight(result);
+      setRequiresRecheck(false);
       if (videoKind === "original" && !songId && !coverOriginalTitle.trim()) setCoverOriginalTitle(result.video.title);
       setChannelRecheck("idle");
       if (result.video.durationSeconds === null) {
@@ -606,6 +609,7 @@ export function CatalogEntryDialog({
         endSeconds: segmentEnabled && endSeconds.trim() ? Number(endSeconds) : null });
       if (generation !== recheckGeneration.current) return;
       setPreflight(result);
+      setRequiresRecheck(false);
       setChannelChoice(result.channel.state === "approved" || result.channel.state === "recognized_member" ? "approved" : "pending");
       setChannelRecheck("done");
       setErrorMessage(null);
@@ -675,7 +679,7 @@ export function CatalogEntryDialog({
     : coverOriginalArtists;
   const hasNewSongDetails =
     Boolean(coverOriginalTitle.trim()) && coverOriginalArtists.length > 0;
-  const videoReady = Boolean(preflight && !preflight.duplicate &&
+  const videoReady = Boolean(preflight && !requiresRecheck && !preflight.duplicate &&
     preflight.channel.state !== "revoked" && videoKind && segmentValid &&
     (clip ? clipChannelReady : preflight.channel.channelRole !== "approved_kirinuki" ||
       (preflight.channel.state !== "approved" && channelChoice === "approved")) &&
@@ -773,7 +777,10 @@ export function CatalogEntryDialog({
         onOpenChange(false);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "등록에 실패했습니다.";
+      const stale = error instanceof ApiError && error.code === "PLAY_ADMIN_STALE_WRITE";
+      if (stale) setRequiresRecheck(true);
+      const message = stale ? "카탈로그가 변경되었습니다. 입력은 유지했으니 영상과 채널을 다시 확인해 주세요."
+        : error instanceof Error ? error.message : "등록에 실패했습니다.";
       setErrorMessage(message);
       toast({ variant: "error", description: "입력값은 유지했습니다. 오류 내용을 확인하세요." });
     } finally {
@@ -821,7 +828,7 @@ export function CatalogEntryDialog({
             </ol>
           )}
 
-          {!completedSegment && errorMessage && <div role="alert" className="mx-4 mt-4 shrink-0 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive sm:mx-6">{errorMessage}</div>}
+          {!completedSegment && errorMessage && <div role="alert" className="mx-4 mt-4 shrink-0 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive sm:mx-6">{errorMessage}{requiresRecheck && <Button type="button" variant="outline" className="mt-2 block" disabled={checking || saving || channelRecheck === "checking"} onClick={() => { setStep(0); void recheckChannel(); }}>영상 다시 확인</Button>}</div>}
 
           {completedSegment ? (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-y-auto px-4 py-8 text-center sm:min-h-72 sm:px-6" role="status">
@@ -978,7 +985,7 @@ export function CatalogEntryDialog({
 
             {step === 3 && preflight && <section className="space-y-5" aria-label="등록 내용 검토">
               <h3 ref={stepHeadingRef} tabIndex={-1} className="font-semibold outline-none">입력한 내용 확인</h3>
-              {!draftReady && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive">필수 정보가 빠졌거나 영상·채널을 다시 확인해야 합니다.<Button type="button" variant="outline" size="sm" disabled={saving} onClick={() => setStep(missingStep)}>{STEPS[missingStep]} 정보 확인</Button></div>}
+              {!draftReady && !requiresRecheck && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive">필수 정보가 빠졌거나 영상·채널을 다시 확인해야 합니다.<Button type="button" variant="outline" size="sm" disabled={saving} onClick={() => setStep(missingStep)}>{STEPS[missingStep]} 정보 확인</Button></div>}
               <div className="grid gap-5 sm:grid-cols-2">
                 <section className="space-y-2">
                   <div className="flex items-center justify-between"><h4 className="text-sm font-semibold">곡</h4><Button type="button" variant="link" size="sm" disabled={saving} onClick={() => setStep(1)}>곡 수정</Button></div>

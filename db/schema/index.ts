@@ -11,6 +11,21 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+export const musicAdminCommandResults = sqliteTable("music_admin_command_results", {
+  site_id: text().notNull(),
+  actor_user_id: text().notNull(),
+  request_key: text().notNull(),
+  request_hash: text().notNull(),
+  http_status: integer().notNull(),
+  result_json: text().notNull(),
+  created_at: integer().notNull(),
+}, table => [
+  primaryKey({ columns: [table.site_id, table.actor_user_id, table.request_key] }),
+  check("music_admin_command_result_site", sql`${table.site_id} IN ('otw','luvdia')`),
+  check("music_admin_command_result_identity", sql`length(${table.request_key}) BETWEEN 16 AND 100 AND length(${table.actor_user_id})>0 AND length(${table.request_hash})=64`),
+  check("music_admin_command_result_response", sql`${table.http_status} IN (200,201) AND json_valid(${table.result_json}) AND json_type(${table.result_json})='object'`),
+]);
+
 export const assetFileReferences = sqliteTable("asset_file_references", {
   logical_key: text().primaryKey(), version_key: text().notNull(), hash: text().notNull(), size: integer().notNull(),
   content_type: text().notNull(), updated_at: integer().notNull(),

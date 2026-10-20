@@ -37,6 +37,44 @@ beforeEach(async () => {
 });
 
 describe("D1 scheduled job state machine", () => {
+  it.each([true,false])("replaces retry match targets atomically and permits an empty new plan: %s",async(hasTargets)=>{
+    const repository=createRepository();
+    const run=await repository.createRun({jobType:"schedule_auto_update",source:"manual",idempotencyKey:"retry-plan"});
+    const [scan]=await repository.addItems(run.id,[{targetKey:"scan",phase:"scan",lane:"auto-update"}]);
+    await repository.completeItem((await repository.claimItem(scan))!,{status:"partial"});
+    const [retained,obsolete]=await repository.addItems(run.id,[
+      {targetKey:"member:1:date:2026-08-31",phase:"match",lane:"auto-update"},
+      {targetKey:"member:1:date:2026-08-30",phase:"match",lane:"auto-update"},
+    ],"scan");
+    for(const id of [retained,obsolete])await repository.completeItem((await repository.claimItem(id))!,{status:"succeeded",result:{updated:1}});
+    const [finalizer]=await repository.addItems(run.id,[{targetKey:"finalizer",phase:"finalize",lane:"auto-update"}],"match");
+    await repository.completeItem((await repository.claimItem(finalizer))!,{status:"partial",result:{updated:2}});
+    expect(await repository.retryRun(run.id)).toMatchObject({kind:"accepted"});
+    await repository.completeItem((await repository.claimItem(scan))!,{status:"succeeded"});
+    const next=hasTargets?[
+      {targetKey:"member:1:date:2026-08-31",phase:"match",lane:"auto-update" as const},
+      {targetKey:"new-fresh",phase:"match",lane:"auto-update" as const},
+    ]:[{targetKey:"finalizer",phase:"finalize",lane:"auto-update" as const}];
+    if(hasTargets){
+      await db.prepare("CREATE TRIGGER retry_plan_abort BEFORE INSERT ON scheduled_job_items WHEN NEW.target_key='new-fresh' BEGIN SELECT RAISE(ABORT,'retry_plan_failure'); END").run();
+      try{
+        await expect(repository.addItems(run.id,next,"scan")).rejects.toThrow(/retry_plan_failure/);
+        expect((await repository.readItem(obsolete))!.status).toBe("queued");
+      } finally {await db.prepare("DROP TRIGGER retry_plan_abort").run();}
+    }
+    await repository.addItems(run.id,next,"scan");
+    expect(await repository.readItem(obsolete)).toMatchObject({status:"skipped",last_error_code:"auto_update_target_superseded"});
+    expect(await repository.claimItem(obsolete)).toBeNull();
+    const outbox=await repository.claimPendingOutbox(run.id,10);
+    expect(outbox.map(row=>row.item_id)).not.toContain(obsolete);
+    expect(outbox.filter(row=>row.phase==="match")).toHaveLength(hasTargets?2:0);
+    if(!hasTargets){
+      expect((await repository.readItem(retained))!.status).toBe("skipped");
+      expect(outbox).toContainEqual(expect.objectContaining({item_id:finalizer,phase:"finalize"}));
+      expect(await repository.claimItem(finalizer)).not.toBeNull();
+    }
+  });
+
   it("hydrates a run page in bounded queries and seeks latest runs without walking history",async()=>{
     await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO scheduled_job_runs(id,job_type,source,idempotency_key,status,accepted_at,created_at,updated_at) SELECT printf('cost-%05d',x),'naver_cafe_collection','manual','cost-'||x,'succeeded',x,x,x FROM n").run();
     const meter=meterD1(db),repository=new D1ScheduledJobRepository(meter.db);

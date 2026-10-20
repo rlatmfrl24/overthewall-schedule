@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
+  OtwPlayAdminProposalDto,
   OtwPlayChannelVerificationStatus,
   OtwPlayProposalStatus,
 } from "@contracts/otw-play";
@@ -977,6 +978,7 @@ describe("AdminCatalogService", () => {
         readProposals,
         readCatalog,
         approveProposal,
+        completeProposalResult: vi.fn(async (proposal: OtwPlayAdminProposalDto) => ({data: proposal, catalogRevision: 2})),
       } as unknown as AdminCatalogRepository,
       { readChannel: vi.fn(), readVideo },
       audit,
@@ -1049,7 +1051,6 @@ describe("AdminCatalogService", () => {
       version: 1,
       approvedPerformanceId: "performance-1",
     }]);
-    readCatalog.mockResolvedValueOnce({ revision: 2, channels: [channel] });
     await expect(
       service.approveProposal("proposal-1", input, actor),
     ).resolves.toMatchObject({

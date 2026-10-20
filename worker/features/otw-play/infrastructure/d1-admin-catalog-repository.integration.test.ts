@@ -2969,10 +2969,15 @@ it("keeps admin page reads bounded as unrelated catalog history grows",async()=>
   const {meterD1}=await import('../../../test-support/d1-meter');
   await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO music_songs(id,slug,title,normalized_title,dedupe_key,is_otw_original,created_at,updated_at) SELECT 'cost-'||printf('%05d',x),'cost-'||x,'Cost '||x,'cost '||printf('%05d',x),'cost-'||x,0,1,1 FROM n").run();
   await db.prepare("INSERT INTO music_performances(id,song_id,dedupe_key,relation_type,release_type,participation_type,created_at,updated_at) SELECT 'p-'||id,id,'p-'||id,'cover','official_video','solo',1,1 FROM music_songs").run();
-  const full=meterD1(db),page=meterD1(db);
+  const full=meterD1(db),page=meterD1(db),search=meterD1(db),lookup=meterD1(db);
   await new D1AdminCatalogRepository(full.db).readCatalog();
   expect((await new D1AdminCatalogRepository(page.db).readCatalog({page:{limit:25,scope:'all'}})).songs).toHaveLength(25);
-  console.info('ADMIN_CATALOG_D1_COST',JSON.stringify({full:full.summary(),page:page.summary()}));
+  expect((await new D1AdminCatalogRepository(search.db).readCatalog({page:{limit:25,scope:'all',q:'Cost'}})).songs).toHaveLength(25);
+  const matches=await new D1AdminCatalogRepository(lookup.db).readCatalog({page:{limit:25,lookup:'songs',q:'Cost'}});
+  expect(matches.songs).toHaveLength(25);expect(matches.exactSongExists).toBe(false);
+  console.info('ADMIN_CATALOG_D1_COST',JSON.stringify({full:full.summary(),page:page.summary(),search:search.summary(),lookup:lookup.summary()}));
+  expect(search.summary().rowsRead).toBeLessThan(1000);expect(lookup.summary().rowsRead).toBeLessThan(1000);
+  expect(search.summary().rowsWritten).toBe(0);expect(lookup.summary().rowsWritten).toBe(0);
   expect(page.summary().rowsRead).toBeLessThan(1000);expect(page.summary().rowsWritten).toBe(0);
 });
 
@@ -3009,4 +3014,25 @@ it("recognizes an exact song outside the first lookup page", async () => {
   expect(result.songs).toHaveLength(25);
   expect(result.songs.some(song => song.id === 'exact-star')).toBe(false);
   expect(result).toHaveProperty('exactSongExists', true);
+});
+
+it("recognizes an exact Unicode alias beyond lookup pages and normalized collisions", async () => {
+  await db.prepare(`WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<30)
+    INSERT INTO music_songs(id,slug,title,normalized_title,dedupe_key,is_otw_original,created_at,updated_at)
+    SELECT 'alias-'||printf('%02d',x),'alias-'||x,'A B '||x,'a b '||printf('%02d',x),'alias-'||x,0,1,1 FROM n`).run();
+  await db.prepare(`INSERT INTO music_song_aliases(song_id,alias,normalized_alias)
+    SELECT id,'A-B','a b' FROM music_songs`).run();
+  await db.prepare(`INSERT INTO music_songs(id,slug,title,normalized_title,dedupe_key,is_otw_original,created_at,updated_at)
+    VALUES('z-exact-alias','z-exact-alias','ZZZ','zzz','z-exact-alias',0,1,1)`).run();
+  await db.prepare(`INSERT INTO music_song_aliases(song_id,alias,normalized_alias) VALUES('z-exact-alias','Ａ  Ｂ','a b')`).run();
+  const repo = new D1AdminCatalogRepository(db);
+  const first = await repo.readCatalog({page:{lookup:'songs',q:'A B',limit:25}});
+  expect(first.songs).toHaveLength(25);
+  expect(first.songs.some(song=>song.id==='z-exact-alias')).toBe(false);
+  expect(first.exactSongExists).toBe(true);
+  const last = await repo.readCatalog({page:{lookup:'songs',q:'A B',limit:25,cursor:first.nextCursor!}});
+  expect(last.songs).toHaveLength(6);
+  expect(last.songs.some(song=>song.id==='z-exact-alias')).toBe(true);
+  expect(last.nextCursor).toBeNull();
+  expect(last.exactSongExists).toBe(true);
 });

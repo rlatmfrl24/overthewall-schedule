@@ -1,5 +1,5 @@
 export { ScheduledRunClient } from "./scheduled-run-client";
-export { D1ScheduledJobRepository } from "./d1-scheduled-job-repository";
+export { D1ScheduledJobRepository, autoUpdatePhaseReadySql } from "./d1-scheduled-job-repository";
 export type {
   NewScheduledItem,
   ScheduledJobActor,

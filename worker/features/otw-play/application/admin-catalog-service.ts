@@ -21,8 +21,7 @@ import type {
   AdminCatalogRepository,
 } from "./ports/admin-catalog-repository";
 import type { OtwPlayYouTubeMetadataReader } from "./ports/youtube-metadata";
-import type {VideoCatalogCommand,VideoEntryIds,CandidateConversionInput} from "../domain/video-catalog-command";
-type CandidateConversionCommand=Extract<VideoCatalogCommand,{action:"candidate_convert"}>;
+import type {VideoCatalogCommand,VideoEntryIds} from "../domain/video-catalog-command";
 import type {ChannelMutationCommand} from "../domain/channel-mutation";
 
 export type AdminCatalogServiceErrorCode =
@@ -110,6 +109,10 @@ export class AdminCatalogService {
 
   readCatalog(scope?: import("./ports/admin-catalog-repository").AdminCatalogScope) {
     return this.repository.readCatalog(scope);
+  }
+
+  readRequestResult() {
+    return this.repository.readRequestResult();
   }
 
   readProposals(status?: string) {
@@ -229,8 +232,6 @@ export class AdminCatalogService {
     const subjects=[...input.participants.map(item=>item.subject),...(input.song.kind==='create'?input.song.originalArtists.map(item=>item.subject):[]),...(input.channel.kind==='confirm'||input.channel.kind==='pending'?input.channel.owners:input.channel.kind==='recognized_member'?[{kind:'member' as const,memberUid:input.channel.memberUid}]:[])];
     return {...this.videoEntityIds(subjects),channelId:this.createId(),channelEventId:this.createId(),songId:this.createId(),songEventId:this.createId(),performanceId:this.createId(),performanceEventId:this.createId(),sourceId:this.createId()};
   }
-  /** Only the validated retained Queue command supplies a null transferred actor. */
-
   private runCreatePerformance(command:Extract<VideoCatalogCommand,{action:'performance_create'}>) {
     const execute=(actual:VideoCatalogCommand,reader:OtwPlayYouTubeMetadataReader)=>{if(actual.action!=='performance_create') throw new Error('Original performance command mismatch');return this.createPerformanceOriginal(actual.input,actual.actor,actual,reader);};
     return execute(command,this.youtube);
@@ -250,13 +251,6 @@ export class AdminCatalogService {
   async createCatalogEntry(input:OtwPlayAdminCreateCatalogEntryRequest,actor:AdminCatalogActor,candidateConversion?:Parameters<AdminCatalogRepository['createCatalogEntry']>[0]['candidateConversion']) {
     if(candidateConversion) return this.createCatalogEntryOriginal(input,actor,candidateConversion);
     return this.runCreateCatalogEntry({action:'catalog_create',input,actor,ids:this.videoEntryIds(input),now:this.clock()});
-  }
-  prepareCandidateConversion(input:CandidateConversionInput,actor:AdminCatalogActor):CandidateConversionCommand {
-    const subjects=[...input.reviewInput.participants.map(item=>item.subject),...(input.reviewInput.song.kind==='create'?input.reviewInput.song.originalArtists.map(item=>item.subject):[])];
-    return {action:'candidate_convert',input,actor,now:this.clock(),ids:{...this.videoEntityIds(subjects),channelId:this.createId(),channelEventId:this.createId(),songId:this.createId(),songEventId:this.createId(),performanceId:this.createId(),performanceEventId:this.createId(),sourceId:this.createId(),candidateEventId:this.createId(),outcomeEventId:this.createId()}};
-  }
-  createConvertedCatalogEntry(input:OtwPlayAdminCreateCatalogEntryRequest,command:CandidateConversionCommand,reader:OtwPlayYouTubeMetadataReader) {
-    return this.createCatalogEntryOriginal(input,command.actor,{jobId:command.input.jobId,candidateId:command.input.candidateId,expectedVersion:command.input.expectedVersion,eventId:command.ids.candidateEventId},command,reader);
   }
   private async createCatalogEntryOriginal(
     input: OtwPlayAdminCreateCatalogEntryRequest,
@@ -757,9 +751,6 @@ export class AdminCatalogService {
     return this.runChannel({action:"update",id:input.id,input,actor,eventId:this.createId(),now:this.clock()});
   }
 
-  /** Internal Queue entry. Its transition port verifies the retained operation
-   * and original command before admitting a nullable transferred-source actor. */
-
   private runChannel(command:ChannelMutationCommand) {
     const execute=async(original:ChannelMutationCommand,reader:OtwPlayYouTubeMetadataReader)=>{
       const metadata=await this.verifyChannel(original.input.externalChannelId,reader);
@@ -818,8 +809,7 @@ export class AdminCatalogService {
       proposal.approvedPerformanceId !== null &&
       proposal.version === input.expectedVersion + 1
     ) {
-      const catalog = await this.repository.readCatalog({});
-      return { data: proposal, catalogRevision: catalog.revision };
+      return this.repository.completeProposalResult(proposal, this.clock());
     }
     if (proposal.status !== "pending_review") {
       throw new AdminCatalogServiceError(

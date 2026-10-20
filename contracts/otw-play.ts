@@ -957,6 +957,7 @@ export interface OtwPlayCreateSubmissionResponse {
 }
 
 export const OTW_PLAY_ADMIN_ERROR_CODES = [
+  "PLAY_ADMIN_IDEMPOTENCY_CONFLICT",
   "PLAY_ADMIN_INVALID_REQUEST",
   "PLAY_ADMIN_NOT_FOUND",
   "PLAY_ADMIN_STALE_WRITE",

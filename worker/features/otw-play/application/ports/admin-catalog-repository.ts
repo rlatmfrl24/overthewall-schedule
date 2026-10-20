@@ -29,6 +29,18 @@ export interface AdminCatalogActor {
   displayName: string | null;
   ipAddress: string | null;
 }
+
+export interface AdminCatalogRequest {
+  key: string;
+  actorUserId: string;
+  hash: string;
+  status: number;
+}
+
+export interface AdminCatalogRequestResult {
+  status: number;
+  body: unknown;
+}
 export type AdminEntityMutationCommand = import("../../domain/entity-mutation").EntityMutation & {
   actor:AdminCatalogActor;now:number;eventId:string;
 };
@@ -46,6 +58,7 @@ export interface VerifiedYouTubeVideo {
 }
 
 export type AdminCatalogRepositoryErrorCode =
+  | "idempotency_conflict"
   | "not_found"
   | "stale_write"
   | "duplicate_source"
@@ -164,6 +177,7 @@ export interface AdminUpdateSongCommand {
 export type {AdminCreateSongCommand} from "../../domain/song-creation-command";
 
 export interface AdminCatalogRepository {
+  readRequestResult(): Promise<AdminCatalogRequestResult | null>;
   readCatalog(scope?: AdminCatalogScope): Promise<OtwPlayAdminCatalogDto>;
   preflightCatalogEntry(
     video: VerifiedYouTubeVideo,
@@ -173,6 +187,7 @@ export interface AdminCatalogRepository {
     command: AdminCreateCatalogEntryCommand,
   ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminCatalogEntryResultDto>>;
   readProposals(status?: string,proposalId?:string): Promise<OtwPlayAdminProposalDto[]>;
+  completeProposalResult(proposal: OtwPlayAdminProposalDto, now: number): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminProposalDto>>;
   createEntity(
     input: OtwPlayAdminCreateEntityRequest,
     actor: AdminCatalogActor,
