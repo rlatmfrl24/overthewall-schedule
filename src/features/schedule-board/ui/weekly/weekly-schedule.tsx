@@ -50,8 +50,8 @@ export const WeeklySchedule = ({ isAdmin = false }: { isAdmin?: boolean }) => {
   useSiteContentDate(format(currentDate, "yyyy-MM-dd"));
 
   return (
-    <div className="flex min-h-0 flex-col flex-1 w-full overflow-y-auto bg-background">
-      <div className="flex h-full shrink-0 flex-col container mx-auto">
+    <div className="flex flex-col flex-1 w-full overflow-hidden bg-background">
+      <div className="flex flex-col h-full container mx-auto">
         {/* Header Control Section */}
         <WeeklyHeader
           currentDate={currentDate}

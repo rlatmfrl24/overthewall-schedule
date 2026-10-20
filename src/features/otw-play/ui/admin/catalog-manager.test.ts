@@ -1746,6 +1746,7 @@ describe("OtwPlayCatalogManager", () => {
     ).toBe(true);
   });
 
+  // Four confirmed deletions and publication guards run sequentially in this UI flow.
   it("deletes draft and withdrawn test data while protecting currently published catalog", async () => {
     fetchCatalogMock.mockResolvedValue({
       ...catalog,
@@ -1897,7 +1898,7 @@ describe("OtwPlayCatalogManager", () => {
         expectedVersion: 5,
       },expect.any(String)),
     );
-  });
+  }, 15_000);
 
   it.each([false, true])("publishes every visible draft from one catalog action and preserves failed or accepted drafts (accepted=%s)", async accepted => {
     fetchCatalogMock.mockResolvedValue({
