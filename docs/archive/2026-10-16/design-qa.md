@@ -12,12 +12,15 @@ final result: implementation verified; source-fidelity comparison blocked
 
 ## 이번 점검의 증거
 
+> 2026-10-21 링크 확인: 아래 캡처 5개는 당시 OS 임시 경로와 10/20 로컬 보관 manifest에서 찾지 못했다.
+> 당시 관측·검증 수치는 그대로 보존하며 이미지 복원은 미확인이다. 새로 QA를 실행한 것은 아니다.
+
 - 원본 시안: 미제공. 기존 구현이나 이전 캡처를 승인된 시안으로 간주하지 않았다.
 - 구현: http://localhost:5173/admin/otw-play
 - 상태: 관리자 로그인, 어두운 테마, 공식 곡. 팬서비스 검색·상세 펼침 → 필터 초기화·전체 목록 → 원래 검색 상태 복원.
 - 화면: 너비 1,024 CSS px. 최종 DOM에서 실제 높이 757 CSS px 확인. 캡처 도구의 표시 배율은 미확정이므로 이미지 픽셀로 크기를 추정하지 않고 DOM 측정값을 사용했다.
-- 상세: [01-expanded.jpg](C:/Users/rlatm/AppData/Local/Temp/otw-catalog-audit/01-expanded.jpg)
-- 목록: [02-list.jpg](C:/Users/rlatm/AppData/Local/Temp/otw-catalog-audit/02-list.jpg)
+- 상세 당시 경로: `C:/Users/rlatm/AppData/Local/Temp/otw-catalog-audit/01-expanded.jpg`
+- 목록 당시 경로: `C:/Users/rlatm/AppData/Local/Temp/otw-catalog-audit/02-list.jpg`
 - 두 파일 모두 이번 실행에서 저장한 파일을 다시 열어 확인했다. 원본이 없어 전후·동일 시안 비교 자료는 만들지 않았다.
 
 ## 단계별 결과
@@ -79,6 +82,6 @@ final result: implementation verified; source-fidelity comparison blocked
 - 제목 15px, 가창자 14px, 출처·분류 13px. 게시 수량과 상태를 분리하고 철회 작업을 더보기로 이동했다.
 - 실제 관리자 화면에서 검색·필터 초기화·곡 수정 열기와 취소·곡/가창 메뉴를 키보드로 확인했다. 게시 중인 곡의 삭제 메뉴는 비활성 상태다. 저장·삭제·철회는 실행하지 않았다.
 - 실제 390 CSS px 모바일 화면에서 문서 폭 390px, 가로 넘침 없음. 곡/가창 더보기 버튼은 각각 44×44px이다. 검색과 펼침 상태를 복원하고 화면 크기 재정의를 해제했다.
-- 캡처: [개선 상세](C:/Users/rlatm/AppData/Local/Temp/otw-catalog-audit/03-redesigned-expanded.jpg), [개선 목록](C:/Users/rlatm/AppData/Local/Temp/otw-catalog-audit/04-redesigned-list.jpg), [개선 모바일](C:/Users/rlatm/AppData/Local/Temp/otw-catalog-audit/05-redesigned-mobile.jpg).
+- 캡처 당시 경로: 개선 상세 `C:/Users/rlatm/AppData/Local/Temp/otw-catalog-audit/03-redesigned-expanded.jpg`, 개선 목록 `C:/Users/rlatm/AppData/Local/Temp/otw-catalog-audit/04-redesigned-list.jpg`, 개선 모바일 `C:/Users/rlatm/AppData/Local/Temp/otw-catalog-audit/05-redesigned-mobile.jpg`.
 - 변경 범위 자동 검증: 카탈로그 테스트 58개, 빌드, lint, 테스트/Worker/도구 타입 검사 통과. 시각 판정은 자동 테스트가 아닌 실제 화면과 DOM 측정에 근거한다.
 - 남은 한계: 승인 시안과의 충실도 비교, 밝은 테마, 200% 확대, 스크린리더 전체 사용 흐름은 검증하지 않았다. 운영 배포는 수행하지 않았다.
