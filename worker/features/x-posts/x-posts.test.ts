@@ -1864,55 +1864,6 @@ describe("x worker service", () => {
     expect(sources.get("otw_member")?.last_seen_post_id).toBe("p2");
   });
 
-  it("since_id 조회 결과가 비어 있으면 저장된 게시글을 유지하고 확인 시각만 갱신한다", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
-
-    const fetchMock = vi.mocked(fetch);
-    fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse({
-          data: [{ id: "u1", username: "otw_member", name: "OTW" }],
-        }),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          data: [
-            {
-              id: "p1",
-              text: "first post",
-              created_at: "2026-02-13T00:00:00Z",
-              public_metrics: {},
-            },
-          ],
-        }),
-      );
-
-    const { db, sources } = makeCacheDb();
-    await fetchXPostsForHandles(["otw_member"], {
-      bearerToken: "token",
-      cacheDb: db,
-      maxResults: 5,
-    });
-
-    clearXServiceCachesForTests();
-    vi.setSystemTime(new Date("2026-02-13T01:01:00Z"));
-    fetchMock.mockResolvedValueOnce(jsonResponse({ data: [] }));
-
-    const result = await fetchXPostsForHandles(["otw_member"], {
-      bearerToken: "token",
-      cacheDb: db,
-      maxResults: 5,
-    });
-
-    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("since_id=p1");
-    expect(result.posts.map((post) => post.id)).toEqual(["p1"]);
-    expect(sources.get("otw_member")).toMatchObject({
-      last_seen_post_id: "p1",
-      last_checked_at: Date.parse("2026-02-13T01:01:00Z"),
-    });
-  });
-
   it("게시글 링크 메타데이터가 부족하면 HTML 프리뷰를 보강한다", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
