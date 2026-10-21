@@ -579,8 +579,7 @@ export class IngestionService {
       throw error;
     }
 
-    const latest = await this.repository.readReviewCandidate(null, candidateId);
-    return this.refreshCandidate(candidateId, latest.version, actor);
+    return this.refreshCandidate(candidateId, command.expectedVersion, actor);
   }
 
   private async refreshCandidate(

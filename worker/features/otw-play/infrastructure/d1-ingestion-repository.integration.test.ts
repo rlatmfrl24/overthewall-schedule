@@ -119,6 +119,59 @@ beforeEach(async () => {
 });
 
 describe("D1IngestionRepository", () => {
+  it.each(["unchanged", "refresh_metadata", "ignore"] as const)(
+    "keeps channel approval bound to its requested candidate version during %s",
+    async (concurrentAction) => {
+      const repository = new D1IngestionRepository(db);
+      const created = await repository.createJob({ jobId: "approval-race", actorUserId: "admin-1", input, preflight, now: NOW });
+      const children = await repository.recordPlaylistPage(await repository.readMessage(created.message.idempotencyKey), {
+        items: [{ videoId: "AAAAAAAAAAA", position: 0, playlistItemId: "approval-race-item" }], nextPageToken: null,
+      }, NOW + 1);
+      await repository.recordVideoBatch(await repository.readMessage(children[0]!.idempotencyKey), [approvedVideoObservation("AAAAAAAAAAA")], NOW + 2);
+      const candidateId = "youtube:AAAAAAAAAAA";
+      const actor = { userId: "admin-1", displayName: "Admin", ipAddress: null };
+      const readCandidate = () => db.prepare("SELECT status, version, title, metadata_checked_at, reviewed_by_user_id, updated_at FROM music_ingestion_candidates WHERE id=?").bind(candidateId).first();
+      let concurrentReadback: Awaited<ReturnType<typeof readCandidate>>;
+      let metadataReads = 0;
+      let eventId = 0;
+      const createId = () => `approval-race-${++eventId}`;
+      const youtube = {
+        readChannelUploads: async () => null,
+        readPlaylistSummary: async () => null,
+        readPlaylistPage: async () => ({ items: [], nextPageToken: null }),
+        readChannel: async (channelId: string) => ({ channelId, displayName: "Approved" }),
+        readVideos: async () => {
+          metadataReads++;
+          const observation = approvedVideoObservation("AAAAAAAAAAA");
+          return [{ ...observation, video: { ...observation.video!, title: metadataReads === 1 ? "Newer metadata" : "Old approval metadata" } }];
+        },
+        readVideo: async () => {
+          if (concurrentAction !== "unchanged") {
+            await service.updateCandidate(candidateId, { action: concurrentAction, expectedVersion: 1 }, { ...actor, userId: "admin-2" });
+            concurrentReadback = await readCandidate();
+          }
+          return approvedVideoObservation("AAAAAAAAAAA").video;
+        },
+      };
+      const catalog = new AdminCatalogService(new D1AdminCatalogRepository(db), youtube, { record: async () => {} }, createId, true, () => NOW + 10);
+      const service = new IngestionService(repository, youtube, { send: async () => {} }, createId, () => NOW + 10, catalog);
+      const approval = service.updateCandidate(candidateId, {
+        action: "approve_channel", expectedVersion: 1,
+        channel: { ownershipKind: "otw_official", channelRole: "otw_official", entityIds: [] },
+      }, actor);
+      if (concurrentAction === "unchanged") {
+        await expect(approval).resolves.toMatchObject({ version: 2, classification: "eligible" });
+        expect(metadataReads).toBe(1);
+      } else {
+        await expect(approval).rejects.toMatchObject({ code: "stale_message" });
+        expect(await readCandidate()).toEqual(concurrentReadback!);
+        expect(metadataReads).toBe(concurrentAction === "refresh_metadata" ? 1 : 0);
+        expect(await db.prepare("SELECT count(*) n FROM music_ingestion_events WHERE event_type='candidate.metadata_refreshed'").first<number>("n"))
+          .toBe(concurrentAction === "refresh_metadata" ? 1 : 0);
+      }
+    },
+  );
+
   it("keeps review pages within one import while sharing candidates across histories", async () => {
     const repository = new D1IngestionRepository(db);
     const firstJob = await repository.createJob({ jobId: "history-a", actorUserId: "admin-1", input, preflight: { ...preflight, itemCount: 52, rangeEndExclusive: 52, requestedItemCount: 52 }, now: NOW });
