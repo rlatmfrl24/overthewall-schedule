@@ -1,0 +1,36 @@
+diff --git a/wrangler-dist/cli.js b/wrangler-dist/cli.js
+index e82bc50f467ad39d0e2b9408993c6c78d4c9ff45..a082418bacee3d6e5078ef3576ed04df5ca50616 100644
+--- a/wrangler-dist/cli.js
++++ b/wrangler-dist/cli.js
+@@ -223412,10 +223412,23 @@ async function executeLocally({
+   logger2.log(
+     "\u{1F300} To execute on your remote database, add a --remote flag to your wrangler command."
+   );
++  // OS-assigned ports may be Fetch-blocked; local D1 must use a safe port.
++  let port;
++  for (let attempt = 0; attempt < 32; attempt++) {
++    const candidate = await getPorts({ host: "127.0.0.1" });
++    if (!require_constants3().badPortsSet.has(String(candidate))) {
++      port = candidate;
++      break;
++    }
++  }
++  if (port === void 0) {
++    throw new UserError("Could not allocate a Fetch-safe local D1 port after 32 attempts.");
++  }
+   const mf = new miniflare.Miniflare(
+     miniflare.convertV4MiniflareOptions({
+       modules: true,
+       script: "",
++      port,
+       resourcePersistencePath,
+       d1Databases: { DATABASE: id }
+     })
+@@ -223705,6 +223718,7 @@ var import_md5_file, import_undici21, d1ExecuteCommand;
+ var init_execute = __esm({
+   "src/d1/execute.ts"() {
+     init_import_meta_url();
++    init_get_port();
+     init_interactive();
+     init_src();
+     init_source();
