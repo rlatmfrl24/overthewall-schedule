@@ -10,15 +10,16 @@ const repository = () => new D1DDayRepository(drizzle(database, { schema }));
 const input = { title: "Anniversary", date: "2026-09-09", description: null, color: "#123456", type: "birthday" };
 
 describe("D-Day canonical schema", () => {
-  it("migration 적용 후 type을 실제 저장하고 수정한다", async () => {
+  it("migration 적용 후 전체 입력을 일반 조회로 저장·수정·삭제한다", async () => {
     await applyD1Migrations(database, migrations);
-    await repository().create(input);
+    await expect(repository().create(input)).resolves.toBe(true);
     const rows = await repository().list();
     expect(rows).toHaveLength(1);
-    expect(rows[0].type).toBe("birthday");
-    await repository().update(rows[0].id, { ...input, type: "debut" });
-    expect((await repository().list())[0].type).toBe("debut");
-    await repository().remove(rows[0].id);
+    expect(rows[0]).toMatchObject(input);
+    const updated = { ...input, title: "Updated anniversary", type: "debut" };
+    await expect(repository().update(rows[0].id, updated)).resolves.toBe(true);
+    expect((await repository().list())[0]).toMatchObject(updated);
+    await expect(repository().remove(rows[0].id)).resolves.toBe(true);
     expect(await repository().list()).toEqual([]);
   });
 

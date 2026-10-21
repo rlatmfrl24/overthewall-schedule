@@ -19,6 +19,10 @@ const dispatch = async (request: Request, siteId: "otw" | "luvdia" = "otw") => {
 describe("protected worker routes", () => {
   it.each([
     ["POST", "/api/play/admin/ai-reviews", "otw"],
+    ["GET", "/api/play/admin/ai-reviews/review-1", "otw"],
+    ["POST", "/api/play/admin/ai-review-batches/batch-1/retry", "otw"],
+    ["GET", "/api/play/admin/ai-reviews/review-1", "luvdia"],
+    ["POST", "/api/play/admin/ai-review-batches/batch-1/retry", "luvdia"],
     ["DELETE", "/api/play/admin/review-items/candidate", "otw"],
     ["GET", "/api/play/me/playlists", "otw"], ["POST", "/api/play/me/playlists", "otw"],
     ["GET", "/api/play/submissions/mine", "otw"], ["POST", "/api/play/submissions", "otw"],

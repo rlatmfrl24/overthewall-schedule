@@ -1,5 +1,5 @@
 import { getWorkerSiteDefinition } from "../../../platform/site";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../../platform/types";
 
 const getDbMock = vi.hoisted(() => vi.fn());
@@ -100,6 +100,8 @@ const stubCache = () => {
   vi.stubGlobal("caches", { default: cache });
   return cache;
 };
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("naver cafe posts route cache", () => {
   let responseCache: ReturnType<typeof stubCache>;

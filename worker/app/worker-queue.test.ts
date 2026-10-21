@@ -139,6 +139,7 @@ it("requires a non-negative integer retry generation for batch messages", () => 
 });
 
 it.each([
+  ["otw-play-ai-review", "handleAiReviewQueue"],
   ["luvdia-ops-control", "handleScheduledControlQueue"], ["luvdia-ops-critical", "handleScheduledJobQueue"],
   ["luvdia-ops-background", "handleScheduledJobQueue"], ["luvdia-play-ingestion", "handleQueue"],
   ["luvdia-play-ai-review", "handleAiReviewQueue"],
@@ -146,8 +147,12 @@ it.each([
   vi.clearAllMocks();
   const ack = vi.fn(), retry = vi.fn();
   const batch = { queue, messages: [{ body: {}, ack, retry }] } as unknown as MessageBatch<unknown>;
-  await handleWorkerQueue(batch, routingEnv('luvdia'));
-  expect(mocks[handler]).toHaveBeenCalledWith(batch, expect.objectContaining({ SITE_ID: "luvdia" }));
+  const site = queue.startsWith("luvdia-") ? "luvdia" : "otw";
+  await handleWorkerQueue(batch, routingEnv(site));
+  expect(mocks[handler]).toHaveBeenCalledExactlyOnceWith(batch, expect.objectContaining({ SITE_ID: site }));
+  for (const [name, mock] of Object.entries(mocks)) {
+    if (name !== handler) expect(mock).not.toHaveBeenCalled();
+  }
   expect(ack).not.toHaveBeenCalled();
   expect(retry).not.toHaveBeenCalled();
 });

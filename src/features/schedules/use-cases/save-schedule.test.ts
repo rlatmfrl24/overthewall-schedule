@@ -46,7 +46,7 @@ describe("saveScheduleWithConflicts", () => {
     },undefined);
   });
 
-  it("수정 저장도 기존 id를 유지한 command payload로 전달한다", async () => {
+  it("수정 저장도 기존 id와 요청 멱등성 키를 유지한 command payload로 전달한다", async () => {
     mockedSaveSchedule.mockResolvedValue({
       success: true,
       action: "update",
@@ -61,7 +61,7 @@ describe("saveScheduleWithConflicts", () => {
       start_time: null,
       title: "게릴라 전환",
       status: "게릴라",
-    });
+    }, "schedule-request-10");
 
     expect(mockedSaveSchedule).toHaveBeenCalledTimes(1);
     expect(mockedSaveSchedule).toHaveBeenCalledWith({
@@ -71,6 +71,6 @@ describe("saveScheduleWithConflicts", () => {
       start_time: null,
       title: "게릴라 전환",
       status: "게릴라",
-    },undefined);
+    }, "schedule-request-10");
   });
 });

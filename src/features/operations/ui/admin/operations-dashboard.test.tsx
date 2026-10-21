@@ -309,6 +309,8 @@ describe("OperationsDashboard", () => {
 
     expect(outbox.parentElement?.className).toContain("bg-muted/25");
     expect(stale.parentElement?.className).toContain("bg-destructive/5");
+    expect(within(outbox.parentElement!).getByText("0")).toBeTruthy();
+    expect(within(stale.parentElement!).getByText("2")).toBeTruthy();
     expect(screen.getByText("2")).toBeTruthy();
   });
 

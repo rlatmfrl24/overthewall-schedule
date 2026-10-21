@@ -75,6 +75,7 @@ let schemaMigrations: ReturnType<typeof readD1Migrations> | undefined;
 const schemaTests = [
   "worker/features/scheduled-operations/infrastructure/scheduled-auto-update.integration.test.ts",
   "worker/app/admin-catalog-replay.integration.test.ts",
+  "worker/app/work-queue-flow.integration.test.ts",
   "worker/features/operations/infrastructure/read-efficiency.integration.test.ts",
   "worker/app/schedule-member-policy.integration.test.ts",
   "worker/app/archive-access.integration.test.ts",

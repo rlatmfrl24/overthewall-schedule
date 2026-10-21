@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { AiReviewService, AiBatchService } from "../features/otw-play";
-import { handleAiReviewQueue } from "./ai-review";
+import { handleAiReviewQueue, isAiBatchMessage } from "./ai-review";
 import { siteEnv } from "../test-support/site-env";
 import type { Env } from "../platform/types";
 
@@ -26,4 +26,12 @@ it.each(["otw", "luvdia"] as const)("keeps %s AI review and batch DLQ semantics"
   await handleAiReviewQueue({ queue: `${site}-play-ai-review`, messages: [batch] } as unknown as MessageBatch<unknown>, env);
   expect(batch.retry).toHaveBeenCalledWith({ delaySeconds: 60 });
   expect(batch.ack).not.toHaveBeenCalled();
+});
+
+it("requires a non-negative safe integer retry generation for batch messages", () => {
+  const message = { kind: "otw_play_ai_batch", schemaVersion: 1, itemId: "item" };
+  for (const generation of [undefined, null, -1, 0.5, "1", Infinity, Number.MAX_SAFE_INTEGER + 1])
+    expect(isAiBatchMessage({ ...message, generation })).toBe(false);
+  expect(isAiBatchMessage({ ...message, generation: 0 })).toBe(true);
+  expect(isAiBatchMessage({ ...message, generation: Number.MAX_SAFE_INTEGER })).toBe(true);
 });

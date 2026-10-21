@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {siteEnv} from '../../../test-support/site-env';
 import {
   buildChzzkApplication,
@@ -95,6 +95,8 @@ const liveContent = {
   channelName: "채널 A",
   channelImageUrl: "",
 };
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("live status route", () => {
   beforeEach(() => {

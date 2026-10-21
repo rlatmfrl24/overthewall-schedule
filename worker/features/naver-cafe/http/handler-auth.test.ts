@@ -1,5 +1,5 @@
 import { getWorkerSiteDefinition } from "../../../platform/site";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../../platform/types";
 
 const getSettingMock = vi.hoisted(() => vi.fn());
@@ -32,6 +32,8 @@ const makeEnv = (): Env =>
     X_BEARER_TOKEN: "token",
     otw_db: {} as D1Database,
   }) as Env;
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("naver cafe posts route auth", () => {
   beforeEach(() => {

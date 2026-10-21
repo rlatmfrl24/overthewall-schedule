@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearChzzkServiceCachesForTests,
   fetchChzzkClipsBatch,
@@ -113,6 +113,8 @@ const makeCacheDb = (
     },
   };
 };
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("CHZZK worker service D1 cache", () => {
   const cacheKey = `vods:v1:${channelId}:0:10`;

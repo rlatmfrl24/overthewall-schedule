@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   authenticateOptionalRequest,
   authenticateRequest,
@@ -41,6 +41,8 @@ const makeEnv = (overrides: Partial<Env> = {}): Env =>
 
 const makePublishableKey = (issuer = ISSUER) =>
   `pk_test_${base64UrlEncode(`${new URL(issuer).host}$`)}`;
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("worker auth", () => {
   let privateKey: CryptoKey;
@@ -158,6 +160,48 @@ describe("worker auth", () => {
     if (result.ok) {
       expect(result.user.id).toBe("user_admin");
       expect(result.user.displayName).toBe("Admin User");
+    }
+  });
+
+  it("rejects a payload changed to an administrator without a matching signature", async () => {
+    const [header, , signature] = (await signToken({ sub: "user_member" })).split(".");
+    const forgedPayload = base64UrlEncode(JSON.stringify({
+      iss: ISSUER, azp: "https://example.com", sub: "user_admin", sid: "session_1",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    }));
+    const request = new Request("https://example.com/api/settings", {
+      headers: { Authorization: `Bearer ${header}.${forgedPayload}.${signature}` },
+    });
+    const result = await requireAdminUser(request, makeEnv());
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.response.status).toBe(401);
+    expect(await authenticateOptionalRequest(request, makeEnv())).toBeNull();
+  });
+
+  it("rejects expired, future, incomplete and wrong-audience claims before fetching keys", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    for (const claims of [
+      { exp: now - 120 }, { exp: undefined }, { exp: "9999999999" },
+      { nbf: now + 120 }, { sub: " " }, { aud: undefined },
+      { aud: "other" }, { aud: ["other"] },
+    ]) {
+      const token = await signToken({ aud: "otw", ...claims });
+      const result = await authenticateRequest(new Request("https://example.com/api/settings", {
+        headers: { Authorization: `Bearer ${token}` },
+      }), makeEnv({ CLERK_JWT_AUDIENCE: "otw" }));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.response.status).toBe(401);
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("accepts the configured audience as a string or an array member", async () => {
+    for (const aud of ["otw", ["other", "otw"]]) {
+      const token = await signToken({ aud });
+      const result = await authenticateRequest(new Request("https://example.com/api/settings", {
+        headers: { Authorization: `Bearer ${token}` },
+      }), makeEnv({ CLERK_JWT_AUDIENCE: "otw" }));
+      expect(result.ok).toBe(true);
     }
   });
 

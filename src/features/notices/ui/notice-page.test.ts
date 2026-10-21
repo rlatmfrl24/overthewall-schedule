@@ -49,6 +49,8 @@ describe("NoticePage", () => {
 
     expect(screen.getByRole("link", { name: /공식 페이지/ })).toBeTruthy();
     expect(screen.getByRole("link", { name: /신청 페이지/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /공식 페이지/ }).getAttribute("href")).toBe("https://example.com/official");
+    expect(screen.getByRole("link", { name: /신청 페이지/ }).getAttribute("href")).toBe("https://example.com/apply");
     const noticeLinks = screen.getAllByRole("link", { name: /페이지/ });
     expect(noticeLinks[0].className).toBe(noticeLinks[1].className);
     expect(noticeLinks[0].className).toContain("border");
