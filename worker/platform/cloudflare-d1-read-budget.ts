@@ -62,7 +62,7 @@ export class CloudflareD1ReadBudget {
     } catch { /* A cache failure still permits a fresh analytics read. */ }
     if (!this.accountId?.trim() || !this.token?.trim()) return unavailable("unconfigured");
     try {
-      const response = await this.fetcher("https://api.cloudflare.com/client/v4/graphql", {
+      const response = await this.fetcher.call(globalThis, "https://api.cloudflare.com/client/v4/graphql", {
         method: "POST",
         headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ query: INGESTION_READ_BUDGET_QUERY, variables: {

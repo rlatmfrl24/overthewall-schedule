@@ -5,6 +5,17 @@ const NOW = Date.UTC(2026, 8, 23, 23, 59);
 const payload = (rowsRead: number) => ({ data: { viewer: { accounts: [{ usage: [{ sum: { rowsRead } }] }] } } });
 
 describe("account-wide ingestion read admission", () => {
+  it("calls the Workers fetch function with its global receiver", async () => {
+    const fetcher = vi.fn<typeof fetch>(async function (this: unknown) {
+      if (this !== globalThis) throw new TypeError("Illegal invocation");
+      return Response.json(payload(234_908));
+    });
+    const reader = new CloudflareIngestionReadBudget("account", "token", undefined, fetcher, () => NOW, null);
+
+    expect(await reader.read()).toMatchObject({ status: "available", rowsRead: 234_908 });
+    expect(fetcher.mock.contexts).toEqual([globalThis]);
+  });
+
   it.each([[3_999_999, "available"], [4_000_000, "blocked"]])("uses the UTC account total at %i rows", async (rows, status) => {
     const fetcher = vi.fn<typeof fetch>(async () => Response.json(payload(rows as number)));
     const reader = new CloudflareIngestionReadBudget("account", "token", undefined, fetcher, () => NOW, null);
