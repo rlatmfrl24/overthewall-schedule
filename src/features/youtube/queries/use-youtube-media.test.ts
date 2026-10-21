@@ -1,6 +1,6 @@
 import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MemberDto } from "@contracts/members";
 import { createQueryWrapper } from "@/test/query-client";
@@ -43,7 +43,9 @@ describe("YouTube media queries", () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("키리누키 접근 재확인이 실패하면 기존 콘텐츠를 숨긴다", async () => {
@@ -72,6 +74,11 @@ describe("YouTube media queries", () => {
     );
     expect(result.current.error).toBe('키리누키 영상을 불러오는데 실패했습니다.');
     expect(result.current.videos).toEqual([]);
+    expect(result.current.shorts).toEqual([]);
+    fetchKirinukiVideosMock.mockResolvedValueOnce({ videos: [{ videoId: "current" }], shorts: [], byChannel: [] });
+    await act(async () => { await result.current.refetch(); });
+    await waitFor(() => expect(result.current.videos).toEqual([{ videoId: "current" }]));
+    expect(result.current.error).toBeNull();
     errorSpy.mockRestore();
   });
 

@@ -272,6 +272,19 @@ describe("apiFetch", () => {
     });
   });
 
+  it.each([
+    { body: "upstream failure {", expected: { message: "upstream failure {", code: null, fields: undefined, requestId: null } },
+    { body: JSON.stringify({ error: { message: "Denied", code: 42, fields: { title: 42 }, requestId: [] } }),
+      expected: { message: "Denied", code: null, fields: undefined, requestId: null } },
+  ])("preserves a malformed error response without inventing structured metadata: $body", async ({ body, expected }) => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response(body, {
+      status: 502,
+      headers: { "Content-Type": "application/json" },
+    })));
+
+    await expect(apiFetch("/api/example")).rejects.toMatchObject({ status: 502, ...expected });
+  });
+
   it("본문 없는 오류 응답에는 기본 message를 사용한다", async () => {
     vi.stubGlobal(
       "fetch",

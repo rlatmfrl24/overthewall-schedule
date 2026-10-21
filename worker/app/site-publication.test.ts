@@ -10,7 +10,7 @@ vi.mock("../platform/auth", () => ({
 }));
 const request = (path: string, method = "GET") => new Request(`https://luvdia-schedule.info${path}`, { method });
 const env = () => ({ ...siteEnv("luvdia"), CLERK_ADMIN_IDS: "admin", otw_db: { prepare: vi.fn(() => { throw Error("Must not query D1"); }) } }) as unknown as Env;
-beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-18T14:59:59Z")); });
+beforeEach(() => { vi.mocked(authenticateOptionalRequest).mockReset().mockResolvedValue(null); vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-18T14:59:59Z")); });
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
 
 it("returns public clock metadata without D1 or authentication", async () => {
@@ -66,4 +66,12 @@ it("opens on server time and makes protected HEAD responses body-free", async ()
   expect(await closed!.text()).toBe("");
   vi.setSystemTime(new Date("2026-10-18T15:00:00Z"));
   expect(await readSitePublicationAccess(request("/api/members"), env())).toBeNull();
+});
+
+it("keeps an explicit publication hold closed after the opening time", async () => {
+  vi.setSystemTime(new Date("2026-10-20T00:00:00Z"));
+  const response = await readSitePublicationAccess(request("/api/members"), { ...env(), SITE_PUBLICATION_HOLD: "true" });
+  expect(response?.status).toBe(403);
+  expect(response?.headers.get("Cache-Control")).toContain("no-store");
+  expect(await response!.json()).toMatchObject({ error: { code: "SITE_NOT_OPEN" } });
 });

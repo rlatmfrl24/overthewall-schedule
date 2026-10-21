@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getSiteDefinition, parseSiteId, requireSiteOrigin } from "./site-definition";
+import { getSiteDefinition, parseSiteId, parseSiteStorageResources, requireSiteOrigin } from "./site-definition";
 
 describe("explicit site definition", () => {
   it.each([undefined, "", "other"])("rejects missing or unknown selection %s", value => {
@@ -23,3 +23,25 @@ describe("site public origin", () => {
     expect(requireSiteOrigin({ ...getSiteDefinition("luvdia"), publicOrigin: "http://localhost:5174" })).toBe("http://localhost:5174");
   });
 });
+
+it.each(["otw", "luvdia"])("accepts only explicitly named resources owned by %s", site => {
+    expect(parseSiteStorageResources({
+      SITE_ID: site,
+      SITE_D1_DATABASE_NAME: `${site}-db`,
+      SITE_ASSET_BUCKET_NAME: `${site}-assets`,
+    })).toEqual({ site, database: `${site}-db`, bucket: `${site}-assets` });
+  });
+
+it.each(["SITE_D1_DATABASE_NAME", "SITE_ASSET_BUCKET_NAME"] as const)(
+    "rejects missing, foreign and malformed %s before composition",
+    binding => {
+      for (const invalid of [undefined, "", "luvdia-db", "otw", "otw_db", "otw-assets/path", `otw-${"a".repeat(60)}`]) {
+        expect(() => parseSiteStorageResources({
+          SITE_ID: "otw",
+          SITE_D1_DATABASE_NAME: "otw-db",
+          SITE_ASSET_BUCKET_NAME: "otw-assets",
+          [binding]: invalid,
+        })).toThrow(/site-owned/);
+      }
+    },
+  );

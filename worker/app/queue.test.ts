@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { IngestionProcessingError } from "../features/otw-play";
 import type { Env } from "../platform/types";
 import { handleQueue } from "./queue";
+import { isWorkQueueMessage } from "./work-queue";
 
 const service = vi.hoisted(() => ({
   process: vi.fn(),
@@ -12,7 +13,10 @@ vi.mock("./ingestion", () => ({
   createOtwPlayIngestionService: () => service,
 }));
 const work=vi.hoisted(()=>({afterIngestion:vi.fn(),process:vi.fn(),dead:vi.fn()}));
-vi.mock("./work-queue",()=>({createOtwPlayWorkQueueService:()=>work,isWorkQueueMessage:(v:unknown)=>Boolean(v && typeof v === "object" && (v as {kind?:string}).kind === "otw_play_work_queue")}));
+vi.mock("./work-queue", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./work-queue")>(),
+  createOtwPlayWorkQueueService: () => work,
+}));
 
 const batch = (
   queue: string,
@@ -57,6 +61,19 @@ describe("OTW Play ingestion queue handler", () => {
     expect(service.process).toHaveBeenCalledOnce();
   });
 
+  it.each([false, true])("continues the committed ingestion into durable work before ACK (recovery needed: %s)", async (hookFails) => {
+    const ack = vi.fn(), retry = vi.fn();
+    if (hookFails) work.afterIngestion.mockRejectedValueOnce(new Error("temporary work queue failure"));
+    await handleQueue(batch("otw-play-ingestion", message, ack, retry), siteEnv() as Env);
+    expect(service.process).toHaveBeenCalledExactlyOnceWith(message);
+    expect(work.afterIngestion).toHaveBeenCalledExactlyOnceWith(message.jobId);
+    expect(service.process).toHaveBeenCalledBefore(work.afterIngestion);
+    expect(work.afterIngestion).toHaveBeenCalledBefore(ack);
+    expect(ack).toHaveBeenCalledOnce();
+    expect(retry).not.toHaveBeenCalled();
+    expect(service.markDeadLetter).not.toHaveBeenCalled();
+  });
+
   it("retries retryable failures and permanently records non-retryable failures", async () => {
     const retry = vi.fn();
     service.process.mockRejectedValueOnce(
@@ -84,6 +101,24 @@ describe("OTW Play ingestion queue handler", () => {
     expect(service.markDeadLetter).toHaveBeenCalledBefore(ack);
   });
 
+  it.each(["otw-play-ingestion", "otw-dead-letter"])("does not acknowledge %s when failure persistence fails", async (queue) => {
+    const ack = vi.fn(), retry = vi.fn(), error = new Error("D1 unavailable");
+    service.process.mockRejectedValueOnce(new IngestionProcessingError("invalid_message", false, null));
+    service.markDeadLetter.mockRejectedValueOnce(error);
+    await expect(handleQueue(batch(queue, message, ack, retry), siteEnv() as Env)).rejects.toBe(error);
+    expect(ack).not.toHaveBeenCalled();
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it.each(["otw-play-ingestion", "otw-dead-letter"])("retries %s work messages when their durable operation fails", async (queue) => {
+    const body = { kind: "otw_play_work_queue", schemaVersion: 1, target: "batch", id: "batch" };
+    const ack = vi.fn(), retry = vi.fn();
+    (queue === "otw-dead-letter" ? work.dead : work.process).mockRejectedValueOnce(new Error("D1 unavailable"));
+    await handleQueue(batch(queue, body, ack, retry), siteEnv() as Env);
+    expect(retry).toHaveBeenCalledOnce();
+    expect(ack).not.toHaveBeenCalled();
+  });
+
   it.each(["otw-play-ingestion", "otw-dead-letter"])(
     "ignores obsolete message shapes on %s without changing archived data", async (queue) => {
       const ack = vi.fn();
@@ -97,6 +132,16 @@ describe("OTW Play ingestion queue handler", () => {
       expect(prepare).not.toHaveBeenCalled();
     },
   );
+});
+
+it("validates actual work-queue messages before dispatch", () => {
+  const message = { kind: "otw_play_work_queue", schemaVersion: 1, target: "batch", id: "batch_1-A" };
+  for (const invalid of [null, [], {}, { ...message, kind: "other" }, { ...message, schemaVersion: 2 }, { ...message, target: "other" },
+    ...[undefined, null, 1, "", "a".repeat(101), "../batch", "배치"].map(id => ({ ...message, id }))]) {
+    expect(isWorkQueueMessage(invalid)).toBe(false);
+  }
+  expect(isWorkQueueMessage(message)).toBe(true);
+  expect(isWorkQueueMessage({ ...message, target: "queue", id: "a".repeat(100) })).toBe(true);
 });
 
 it("preserves LuvDia ingestion/work DLQ state before ACK and retryable failures", async () => {

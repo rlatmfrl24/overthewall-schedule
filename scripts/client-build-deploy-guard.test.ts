@@ -30,6 +30,25 @@ afterEach(() => {
 });
 
 describe("verifyClientBuildForDeploy", () => {
+  it.each(["/../outside.js", "/assets/../../outside.js"])(
+    "rejects an entry outside the build root: %s", (entryPath) => {
+      const directory = createClientBuild(null, entryPath);
+      expect(() => verifyClientBuildForDeploy(directory)).toThrow(/escapes the build root/);
+    },
+  );
+  it("accepts a versioned entry for the selected production app", () => {
+    const key = `pk_live_${Buffer.from("selected.clerk.accounts.dev$").toString("base64")}`;
+    const directory = createClientBuild(`const publishableKey = "${key}";`, "/assets/index.js?v=1");
+    expect(verifyClientBuildForDeploy(directory, { issuer: "https://selected.clerk.accounts.dev" }))
+      .toEqual({ entryScriptCount: 1 });
+  });
+  it("rejects a missing index or an index without an entry", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "otw-client-build-"));
+    temporaryDirectories.push(directory);
+    expect(() => verifyClientBuildForDeploy(directory)).toThrow(/Client build is missing/);
+    writeFileSync(path.join(directory, "index.html"), "<html></html>");
+    expect(() => verifyClientBuildForDeploy(directory)).toThrow(/does not reference an entry script/);
+  });
   it("rejects another site's live app even though its key is production", () => {
     const key = `pk_live_${Buffer.from("other.clerk.accounts.dev$").toString("base64")}`;
     const directory = createClientBuild(`const publishableKey = "${key}";`);

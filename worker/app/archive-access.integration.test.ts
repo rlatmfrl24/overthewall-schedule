@@ -123,6 +123,30 @@ it("applies the timed OTW cutoff through normal member, schedule, notice and ass
   expect(await db.prepare("SELECT content_access FROM members WHERE uid=1").first("content_access")).toBe("normal");
 });
 
+it("keeps global NULL and empty member references public while hiding selected and archived notice/Cafe roots", async () => {
+  await mockPublicationTime(Date.parse(SITE_OPENS_AT));
+  await db.batch([
+    db.prepare("UPDATE members SET content_access='normal' WHERE uid=1"),
+    db.prepare("INSERT INTO notices(id,content,is_active,publisher_member_uid,related_member_uids,content_access) VALUES(3,'Global NULL notice',1,NULL,'[]','normal'),(5,'Other publisher notice',1,2,'[]','normal'),(6,'Selected publisher notice',1,1,'[]','normal'),(7,'Other related notice',1,NULL,'[2]','normal'),(8,'Selected related notice',1,NULL,'[1]','normal'),(9,'Explicit archived notice',1,NULL,'[]','admin_archive')"),
+    db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('naver_cafe_posts_visibility','public')"),
+    db.prepare("INSERT INTO naver_cafe_sources(id,name,cafe_url,cafe_id,menu_id,member_uid,enabled) VALUES(41,'Global Cafe','https://cafe.naver.com/shared','123','1',NULL,1)"),
+    db.prepare("INSERT INTO naver_cafe_posts(id,article_id,source_id,source_name,cafe_id,menu_id,member_uid,title,summary,created_at,url,fetched_at,content_access) VALUES('global',1,41,'Global Cafe','123','1',NULL,'Global NULL Cafe','','2026-10-14','https://cafe.naver.com/shared/1',100,'normal'),('other',2,41,'Global Cafe','123','1',2,'Other member Cafe','','2026-10-14','https://cafe.naver.com/shared/2',100,'normal'),('selected',3,41,'Global Cafe','123','1',1,'Selected member Cafe','','2026-10-14','https://cafe.naver.com/shared/3',100,'normal'),('archived',4,41,'Global Cafe','123','1',NULL,'Explicit archived Cafe','','2026-10-14','https://cafe.naver.com/shared/4',100,'admin_archive')"),
+  ]);
+  for (const [path, visible, hidden] of [
+    ["/api/notices", ["Global NULL notice", "Other publisher notice", "Other related notice"], ["Selected publisher notice", "Selected related notice", "Explicit archived notice"]],
+    ["/api/naver-cafe/posts", ["Global NULL Cafe", "Other member Cafe"], ["Selected member Cafe", "Explicit archived Cafe"]],
+  ] as const) {
+    const response = await request(path);
+    expect(response.status, path).toBe(200);
+    const result = await response.text();
+    for (const text of visible) expect(result, path).toContain(text);
+    for (const text of hidden) expect(result, path).not.toContain(text);
+  }
+  expect(await db.prepare("SELECT count(*) n FROM notices WHERE id BETWEEN 3 AND 9").first("n")).toBe(6);
+  expect(await db.prepare("SELECT count(*) n FROM naver_cafe_posts").first("n")).toBe(4);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it("enforces either publication clock while retaining the real D1 wall-clock guard", async () => {
   const cutoff = Date.parse(SITE_OPENS_AT);
   await db.prepare("UPDATE members SET content_access='normal' WHERE uid=1").run();
