@@ -27,3 +27,6 @@ overrides:
   picomatch: 4.0.4
   postcss: 8.5.28
   rollup: 4.60.4
+
+patchedDependencies:
+  wrangler@4.129.1: patches/wrangler@4.129.1.patch
