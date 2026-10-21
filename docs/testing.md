@@ -7,9 +7,10 @@ Node 버전은 `.node-version`, pnpm 버전은 `package.json#packageManager`를 
 
 | 명령 | 범위 |
 | --- | --- |
-| `pnpm test` | 단위·Worker 통합 프로젝트를 한 번씩 실행 |
-| `pnpm test:unit` | `src`, `worker`, `scripts`의 단위 테스트. `*.integration.test.ts` 제외 |
+| `pnpm test` | 단위·Worker 통합 프로젝트 실행 후 agent 동기화 Node 테스트 실행. 앞 단계 실패 시 뒤 단계는 실행하지 않음 |
+| `pnpm test:unit` | `src`, `worker`, `scripts`, `contracts`의 단위 테스트. `*.integration.test.ts` 제외 |
 | `pnpm test:worker-integration` | `worker/**/*.integration.test.ts`, workerd와 격리된 D1 |
+| `node --test scripts/sync-agent-to-cursor.test.mjs` | canonical agent 파일·mirror·참조·휴대성 회귀만 실행 |
 | `pnpm test:coverage` | 별도 진단: 전체 프로젝트 실행과 합산 Istanbul 커버리지, 백분율 강제 없음 |
 | `pnpm typecheck:test` | 프런트 테스트·Worker·Vite/Vitest 설정 타입 검사 |
 | `pnpm preflight` | architecture, test typecheck, lint, 전체 test, build, D1 doctor, mirror check |
@@ -45,7 +46,9 @@ pnpm test:worker-integration worker/features/otw-play/infrastructure/d1-playlist
 pnpm test:unit src/features/otw-play/ui/playlists/playlist-editor-page.test.tsx --sequence.shuffle --sequence.seed=20260910
 ```
 
-`vitest.config.ts`는 단위 프로젝트, `vitest.worker.config.ts`는 Worker 프로젝트다.
+`vitest.config.ts`는 단위 프로젝트다. Worker는 `vitest.worker.config.ts`의
+feature 설정과 `vitest.schema.config.ts`·`vitest.workflow.config.ts`의 schema/Workflow
+설정으로 나뉘며, `pnpm test:worker-integration`은 세 프로젝트를 모두 선택한다.
 전체 실행과 coverage는 `vitest.all.config.ts`의 같은 프로젝트 목록을 사용한다.
 이전 `vitest.coverage.config.ts` 직접 호출은 전체 설정 파일로 변경한다.
 공통 별칭·커버리지 범위·동시 실행 수는 `vitest.shared.ts`에서 관리한다.
@@ -69,6 +72,8 @@ UI·queries·player·HTTP 어댑터 등의 테스트도 실행하지만 해당 �
   UI는 실제 조작·상태 보존·오류 복구를 검증한다. 다른 경계의 고유 위험은 중복이 아니다.
 - 삭제·통합할 때는 보호하던 요구사항과 남는 검증 위치를 기록한다.
   [전체 테스트 검토 기록](archive/testing-audit.md)에서 관련 기능의 행만 참고한다.
+  [10/21 재대조 기록](archive/documentation-reconciliation-2026-10-21.md#테스트-기록의-적용-범위)은
+  PR #178의 선별 반영과 과거 실행 기록의 적용 범위를 구분한다.
   이 이력 전체를 매 작업마다 읽거나 다시 생성하지 않는다. 파일 수·테스트 수 목표는 두지 않는다.
 - fixture는 새 객체를 반환하는 작은 함수로 공유하고, 시나리오별 차이는 테스트에 명시한다.
   기대값을 제품 로직에서 생성하거나 전역 공유 가변 상태를 만들지 않는다.

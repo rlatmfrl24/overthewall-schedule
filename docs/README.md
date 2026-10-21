@@ -12,6 +12,7 @@
 | [아카이브](archive/README.md) | 과거 결정·실패·배포 identity가 증거로 필요할 때 |
 | [구조 후보01~03 최종 검토](architecture-review.md) | PR #176 수정·병합·양 사이트 실제 경로 검증과 미검증 한계 |
 | [Graphify 구조도·관계 탐색](diagrams/pr176/README.md) | 저장소에서 여는 HTML 구조도·군집 검색·압축 원본·분석 범위와 한계 |
+| [10/21 문서·아카이브 재대조](archive/documentation-reconciliation-2026-10-21.md) | 기존 보관 위치·테스트 기록 적용 범위·로컬 증거와 미복원 캡처 확인 |
 
 ## 문서 사용 원칙
 

@@ -496,7 +496,7 @@ Unit consumer 실제 명령은 `pnpm exec vitest run src/features/notices/ui/adm
 - `node .tmp/sul36-fix2-ui116-readback.mjs`는 기존 selected config validator + `getPlatformProxy({configPath:'wrangler.jsonc',envFiles:[],remoteBindings:false,persist:{path:.../v3}})`의 로컬 D1/R2만 읽었다. `ui116-readback.json/log`: migration0116, id6 normal/[9102]/raw URL 및 image_urls.0·thumbnail_url 두 index 행, id5 admin_archive/raw/index 보존, **content_transitions count=0**. 따라서 정상 외부 preview/open/save를 위해 전환을 만들지 않았다.
 - 기존 id5 R2 key `notices/thumbnails/task43-fix1-archive-absolute.webp`: 31,446 bytes, SHA-256 `3632eaf65e4cf69538e614d2939a4b4724c610af3544e33471ec0be49d4ad10d`, actual local upload-version `40d86c4a175f7a62ee301e7d8d39b0c4`로 fix1 값과 같다. Controlled external server도 같은 body/hash를 제공했으며 최종 readback 당시 기록된 10개 GET 모두 `authorizationPresent:false`. UI URL 및 local body proof이며 production bucket/version/CDN proof가 아니다.
 
-![최종 일반 외부 이미지와 보관 Blob 표시](../../../.tmp/sul36-4-3-fix2-ui116.jpg)
+[최종 일반 외부 이미지와 보관 Blob 표시 — 로컬 보관 안내](../../../docs/archive/documentation-reconciliation-2026-10-21.md#로컬-스크린샷-2개)
 
 ### Migration, 보존, 최종 영향 검사
 
@@ -559,7 +559,7 @@ Production build는 기존 Clerk public key/issuer identity 불일치로 artifac
 
 `node .tmp/sul36-fix2-ui117-readback.mjs`는 위와 같은 validated selected-local/remoteBindings:false D1/R2 읽기만 수행했다(exit0). `ui117-readback.json/log`에서 migration117, id6 normal/[9102]/raw/index, id5 archive/raw/index, transition0과 원래 R2 bytes31,446/SHA`3632eaf6…ad10d`/version`40d86c4a175f7a62ee301e7d8d39b0c4`를 재확인했다. Controlled external 요청은 최종19건 모두 Authorization 없음. 실제 browser 관찰은 `ui117-browser.json`/`ui117.jpg`이며 SVG icon처럼 이미지 body가 없는 role=img 항목은 성공 이미지 수에 포함하지 않았다. Fixture용 Vite91626과 localhost5189 image server68014/PID52460은 reviewer가 같은 정상 흐름을 열 수 있도록 유지했다. 다른 process/private 입력은 건드리지 않았다.
 
-![0117 이후 정상 저장과 두 이미지 표시](../../../.tmp/sul36-4-3-fix2-ui117.jpg)
+[0117 이후 정상 저장과 두 이미지 표시 — 로컬 보관 안내](../../../docs/archive/documentation-reconciliation-2026-10-21.md#로컬-스크린샷-2개)
 
 보존 재확인 첫 helper는 이전 proof의 **raw SHA**에 LF-normalized bytes를 잘못 비교하여178개 false-negative/exit1이었다(`preservation-final117.log`). 파일을 바꾸지 않고 raw-to-raw 비교로 교정한 `preservation-final117-corrected.json/log`는 **227개 기존 SQL/snapshot 실제 bytes 동일, legacy4 실제 size/SHA 동일, exit0**다. 이전 FIX_BASE canonical equality 증거와 함께 유지한다. 0115/0116의 마지막 쓰기 시각은 각각10/14 23:42:00,10/15 00:06:29 KST 그대로이며 이후 재작성하지 않았다. Final117의 own generated SQL/snapshot/journal만 추가됐다.
 
