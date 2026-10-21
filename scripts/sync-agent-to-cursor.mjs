@@ -119,7 +119,8 @@ export async function syncAgentFiles({ root = process.cwd(), check = false } = {
     let actual = null;
     try { actual = await fs.readFile(target, "utf8"); }
     catch (error) { if (error.code !== "ENOENT") throw error; }
-    if (actual === content) { unchanged++; continue; }
+    // Git checkout can change LF/CRLF without changing generated content.
+    if (actual?.replaceAll("\r\n", "\n") === content.replaceAll("\r\n", "\n")) { unchanged++; continue; }
     if (check) { errors.push(`Drift or missing generated file: ${file}`); continue; }
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.writeFile(target, content, "utf8");

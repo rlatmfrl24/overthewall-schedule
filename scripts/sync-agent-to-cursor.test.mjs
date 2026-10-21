@@ -49,6 +49,44 @@ test("generates portable entries and an idempotent mirror", async (t) => {
   const entry = await fs.readFile(path.join(root, ".agents/skills/code-review-otw/SKILL.md"), "utf8");
   assert.ok(entry.includes("../../../.agent/skills/code-review/SKILL.md"));
 });
+for (const [name, eol] of [["LF", "\n"], ["CRLF", "\r\n"]]) {
+  test(`accepts ${name} checkouts without rewriting generated files`, async (t) => {
+    const root = await fixture(t);
+    const files = (await fs.readdir(root, { recursive: true }))
+      .filter((file) => /\.(md|mdc|yaml)$/.test(file));
+    for (const file of files) {
+      const target = path.join(root, file);
+      const content = (await fs.readFile(target, "utf8")).replaceAll("\r\n", "\n");
+      await fs.writeFile(target, content.replaceAll("\n", eol));
+    }
+    const before = await Promise.all(files.map((file) => fs.readFile(path.join(root, file))));
+    assert.deepEqual(await syncAgentFiles({ root, check: true }), {
+      errors: [], written: 0, unchanged: 27, expected: 27,
+    });
+    assert.deepEqual(await syncAgentFiles({ root }), {
+      errors: [], written: 0, unchanged: 27, expected: 27,
+    });
+    assert.deepEqual(await Promise.all(files.map((file) => fs.readFile(path.join(root, file)))), before);
+  });
+}
+
+for (const [name, mutation] of [["text drift", "changed"], ["trailing whitespace", " "], ["bare carriage return", "\r"]]) {
+  test(`still rejects ${name} in a CRLF discovery entry`, async (t) => {
+    const root = await fixture(t);
+    const relative = ".agents/skills/release-ops/SKILL.md";
+    const target = path.join(root, relative);
+    const content = (await fs.readFile(target, "utf8")).replaceAll("\r\n", "\n");
+    await fs.writeFile(target, content.replaceAll("\n", "\r\n") + mutation);
+    const before = await fs.readFile(target);
+    const result = await syncAgentFiles({ root, check: true });
+    assert.deepEqual(result.errors, [`Drift or missing generated file: ${relative}`]);
+    assert.equal(result.written, 0);
+    assert.deepEqual(await fs.readFile(target), before);
+    assert.equal((await syncAgentFiles({ root })).written, 1);
+    assert.deepEqual((await syncAgentFiles({ root, check: true })).errors, []);
+  });
+}
+
 test("missing source blocks generation without rewriting other files", async (t) => {
   const root = await fixture(t);
   const mirror = path.join(root, ".cursor/skills/release-ops/SKILL.md");
