@@ -1,4 +1,6 @@
 import {createOtwPlayMemberSubmissionService} from "./member-submissions";
+import { createMultiviewChannelHandler } from "../features/multiview";
+import { createMultiviewServiceForEnv } from "./multiview";
 import { getWorkerSiteResources, getWorkerSiteDefinition } from "../platform/site";
 import { createSiteContentHandler } from "../features/seo";
 import { createSiteSeoDependencies } from "./site-seo";
@@ -365,7 +367,14 @@ const head = (
   contract: Omit<WorkerRouteMethodContract, "method">,
 ): WorkerRouteMethodContract => ({ method: "HEAD", ...contract });
 
+const handleMultiviewChannels = createMultiviewChannelHandler(createMultiviewServiceForEnv);
 const routeDefinitions: readonly WorkerRouteDefinition[] = [
+  { id: "multiview.channels", owner: "multiview", path: apiRoutes.multiview.channels.pattern,
+    methods: methods(get({ auth: "member-policy", cache: "no-store", successStatus: 200 }), post({ auth: "member-policy", cache: "no-store", successStatus: 200 })), handler: handleMultiviewChannels },
+  { id: "multiview.channel", owner: "multiview", path: apiRoutes.multiview.channel.pattern,
+    methods: methods(del({ auth: "member-policy", cache: "no-store", successStatus: 200 })), handler: handleMultiviewChannels },
+  { id: "multiview.live-status", owner: "multiview", path: apiRoutes.multiview.liveStatus.pattern,
+    methods: methods(get({ auth: "member-policy", cache: "no-store", successStatus: 200 })), handler: handleMultiviewChannels },
   { id: "publication.status", owner: "auth", path: apiRoutes.publication.status.pattern,
     methods: methods(get({ auth: "optional", cache: "no-store", successStatus: 200 }), head({ auth: "optional", cache: "no-store", successStatus: 200 })),
     handler: readSitePublicationStatus },

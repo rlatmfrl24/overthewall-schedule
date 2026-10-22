@@ -6,6 +6,12 @@ import { createLocalSiteConfig } from "./local-site-config.mjs";
 
 const readConfig = (id: "otw" | "luvdia") => ts.parseConfigFileTextToJson(id, readFileSync(id === "otw" ? "wrangler.jsonc" : "wrangler.luvdia.jsonc", "utf8")).config;
 describe("physical site resource configuration", () => {
+  it("keeps personal multiview rate limits separate between site deployments", () => {
+    const limits = ["otw", "luvdia"].map(id => readConfig(id as "otw" | "luvdia").ratelimits.find((item: { name: string }) => item.name === "MULTIVIEW_RATE_LIMITER"));
+    expect(limits.map(item => item?.simple)).toEqual([{ limit: 6, period: 60 }, { limit: 6, period: 60 }]);
+    expect(limits[0].namespace_id).not.toBe(limits[1].namespace_id);
+    expect(createLocalSiteConfig(readConfig("otw"), "otw").ratelimits).toContainEqual(limits[0]);
+  });
   it.each(["otw", "luvdia"] as const)("keeps %s canonical and local producer/consumer/dataset aligned", site => {
     const config = readConfig(site);
     expect(() => assertSiteResourceConfig(config, site)).not.toThrow();

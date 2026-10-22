@@ -47,12 +47,12 @@
 | Create `worker/features/multiview/application/multiview-service.ts`, `.test.ts` | 목록/추가/삭제/본인 상태 조회, typed error |
 | Create `worker/features/multiview/infrastructure/d1-channel-repository.ts`, `.integration.test.ts` | 소유자 한정 SQL, 원자적 상한·중복 |
 | Create `worker/features/multiview/http/channel-handler.ts`, `.test.ts`; `worker/features/multiview/index.ts` | 인증·body/path·rate limit·응답, 공개 export |
-| Create `worker/features/chzzk/infrastructure/chzzk-multiview-reader.ts`, `.test.ts`; modify `worker/features/chzzk/index.ts` | 공식 채널 metadata와 엄격한 개인 live 결과 adapter |
+| Create `worker/features/chzzk/infrastructure/chzzk-multiview-reader.ts`, `.test.ts`; modify `worker/features/chzzk/index.ts` | 기존 공개 채널 metadata와 엄격한 개인 live 결과 adapter |
 | Modify `worker/features/chzzk/infrastructure/chzzk-api.ts`, `.test.ts` | private caller의 optional signal, 512개 live 캐시 상한; 기존 callers 유지 |
 | Create `worker/app/multiview.ts`, `worker/app/multiview.integration.test.ts`; modify `worker/app/routes.ts`, `.test.ts` | 구체 adapter 주입, 실제 registry 인증·캐시 계약과 사용자 격리 검증 |
 | Modify `vitest.worker.config.ts` | 새 migration을 실제 D1 integration suite에 연결; 기존 migration 순서/격리는 유지 |
-| Modify `worker/platform/types.ts`, generated `worker-configuration.d.ts`, 양쪽 `wrangler*.jsonc` | 서버 secret 타입·전용 rate limiter binding |
-| Modify `config/sites/otw/.env.example`, `config/sites/luvdia/.env.example`, `scripts/site-resources.test.ts`, `scripts/local-site-config.test.ts` | 서버 전용 설정 예시·사이트별 binding/secret 전달 검증 |
+| Modify `worker/platform/types.ts`, generated `worker-configuration.d.ts`, 양쪽 `wrangler*.jsonc` | 전용 rate limiter binding 타입 |
+| Modify `scripts/site-resources.test.ts`; existing `scripts/local-site-config.test.ts` | 사이트별 rate binding/로컬 전달 검증; 새 CHZZK secret 없음 |
 | Create `src/features/multiview/api/personal-channels.ts`, `.test.ts` | 공유 apiFetch의 인증 필수 API client |
 | Create `src/features/multiview/queries/use-personal-multiview.ts`, `.test.tsx` | 사이트·소유자별 query/mutation, 취소·무효화 |
 | Create `src/features/multiview/ui/personal-channel-manager.tsx`, `.test.tsx` | 로그인 안내·추가 입력·저장 개수·추가 오류 |
@@ -91,7 +91,7 @@ expect(await otw.list("alice")).toHaveLength(30);
 - [ ] **Step 4: GREEN과 migration 보존을 확인한다.** Step 2 두 명령을 통과시키고 `node scripts/d1-reset-local.mjs --site=otw --validate-only`, `node scripts/d1-reset-local.mjs --site=luvdia --validate-only`, `pnpm typecheck:test`를 실행한다. 두 체인이 실제 임시 D1에서 통과하고 기존 로컬 DB를 바꾸지 않아야 한다. SQL에 새 테이블/인덱스/제약 외 파괴적 변경이 없는지 검토한다. migration 번호·파일명을 이 문서에 실제 결과로 기록한다.
 - [ ] **Step 5: 이 작업만 커밋한다.** 위 계약·schema·생성 SQL/meta·repository/ports·integration 설정·seed guard의 정확한 파일만 `git add`하고 `feat: persist site-owned personal multiview channels`로 커밋한다. 이 단계는 향후 구현 실행에 포함되며 지금 커밋하지 않는다.
 
-## Task 2: 공식 채널 확인과 인증된 개인 API
+## Task 2: 기존 채널 조회와 인증된 개인 API
 
 **Files:** Worker multiview service/HTTP/index, CHZZK adapter/cache, app composition/registry, 서버 타입·양 사이트 설정과 그 테스트.
 
@@ -99,13 +99,13 @@ expect(await otw.list("alice")).toHaveLength(30);
 
 - Consumes Task 1의 repository·DTO/parser.
 - `MultiviewChannelReader` port: `resolveChannel(channelId: string): Promise<MultiviewChannelMetadata | null>`, `readLiveStatuses(channelIds: readonly string[]): Promise<ChzzkLiveStatusItemDto[]>`.
-- `ChzzkMultiviewReader({ clientId, clientSecret }: { clientId?: string; clientSecret?: string })`를 CHZZK index에서 export한다. 다른 capability의 내부 port를 deep import하지 않고 위와 구조적으로 맞는 메서드를 제공한다.
+- `ChzzkMultiviewReader()`를 CHZZK index에서 export한다. 다른 capability의 내부 port를 deep import하지 않고 위와 구조적으로 맞는 메서드를 제공한다.
 - `createMultiviewService(repository: MultiviewChannelRepository, reader: MultiviewChannelReader)` → `list(owner): Promise<{items: SavedMultiviewChannel[]; limit: 30}>`, `add(owner, channelId): Promise<{item: SavedMultiviewChannel}>`, `remove(owner, channelId): Promise<{deleted: true}>`, `liveStatus(owner): Promise<{items: ChzzkLiveStatusItemDto[]; updatedAt: string}>`; 모든 owner/channelId 인자는 string.
 - `MultiviewServiceError(status: number, code: MultiviewErrorCode)`; `MultiviewService = ReturnType<typeof createMultiviewService>`.
 - `createMultiviewChannelHandler(resolve: (env: Env) => MultiviewService)`; `worker/app/multiview.ts`의 `createMultiviewServiceForEnv(env: Env): MultiviewService`가 자신의 DB·서버 설정을 주입한다.
 - `apiRoutes.multiview.channels`=`/api/multiview/me/channels`, `.channel(id)`=`/api/multiview/me/channels/:channelId`, `.liveStatus`=`/api/multiview/me/live-status`. spec의 네 method/200/no-store 계약을 정확히 등록한다.
 
-- [ ] **Step 1: 실패할 service/provider/HTTP·registry 테스트를 작성한다.** service는 중복 사전 조회 시 metadata 호출 0회, 31번째 신규 409, provider의 명확한 없음만 404, 외부 오류 503/쓰기 0회, GET/DELETE의 provider 호출 0회를 assert한다. provider는 공식 `content.data`에서 요청 ID가 일치하는 정보만 채택하고 Client 헤더·5초 timeout·HTTPS image/null을 assert한다. HTTP는 무인증 401과 인증 설정 오류 503, 잘못된 body/query/path 400, 4,096 bytes 초과 413, rate 거절 429/바인딩 장애 503, 모든 응답 no-store/Vary, 잘못된 method 405를 확인한다.
+- [ ] **Step 1: 실패할 service/provider/HTTP·registry 테스트를 작성한다.** service는 중복 사전 조회 시 metadata 호출 0회, 31번째 신규 409, provider의 명확한 없음만 404, 외부 오류 503/쓰기 0회, GET/DELETE의 provider 호출 0회를 assert한다. provider는 기존 `service/v1/channels/{id}`의 `content`에서 요청 ID가 일치하는 정보만 채택하고 무인증 직접 조회·5초 timeout·HTTPS image/null을 assert한다. HTTP는 무인증 401과 인증 설정 오류 503, 잘못된 body/query/path 400, 4,096 bytes 초과 413, rate 거절 429/바인딩 장애 503, 모든 응답 no-store/Vary, 잘못된 method 405를 확인한다.
 
 `worker/app/multiview.integration.test.ts`는 실제 registry·서명된 로컬 테스트 JWT·실제 D1을 사용한다. transport만 fake 외부 응답으로 격리하고 auth를 mock하지 않는다. A 저장 후 B의 목록/상태에 A 채널이 없고 B DELETE 후 A 행이 남는지, 다른 issuer의 토큰이 거부되는지 확인한다. `?channelIds=...`·`ownerUserId`·`siteId` 입력은 400이다. live cache hit여도 본인 저장이 없는 요청은 해당 metadata를 반환하지 않아야 한다.
 
@@ -120,9 +120,9 @@ expect(await repository.list("alice")).toHaveLength(2); // timeout/9004/429/stal
 외부 삭제/휴방·불일치 ID·invalid content·stale cache·513번째 캐시 추가를 포함한다. 설정 테스트는 두 config의 `MULTIVIEW_RATE_LIMITER`가 서로 다른 namespace/6·60 설정이고 local config에도 전달되며 secret은 VITE/public vars에 없음을 assert한다.
 
 - [ ] **Step 2: RED를 확인한다.** `pnpm exec vitest run worker/features/multiview worker/features/chzzk/infrastructure/chzzk-multiview-reader.test.ts worker/app/routes.test.ts scripts/site-resources.test.ts scripts/local-site-config.test.ts`; `pnpm exec vitest run --config vitest.all.config.ts --project=worker-integration worker/app/multiview.integration.test.ts`. 새 symbol/route가 없어 실패해야 한다.
-- [ ] **Step 3: provider·service·HTTP를 구현한다.** 공식 채널 확인을 정상 추가 경로로 사용한다. 현재 공개 CHZZK allowlist를 수정하지 않는다. service는 사용자 저장 목록만 상태 reader에 전달한다. existing `fetchChzzkLiveStatusWithDebug(channelId, options)`에 `signal?: AbortSignal`을 optional로 추가해 개인 reader만 5초 signal을 전달하고 기존 호출자는 유지한다. live 메모리 캐시는 TTL 60초/최대 512개로 제한하며 초과 시 가장 먼저 저장한 key를 제거한다. private reader는 최대 동시 4개로 호출하고 오류/stale인 채널만 null 처리한다. endpoint 전체 결과나 사용자 목록을 shared cache에 넣지 않는다.
+- [ ] **Step 3: provider·service·HTTP를 구현한다.** 기존 공개 채널 확인을 정상 추가 경로로 직접 사용한다. 새 Client 인증이나 9004 fallback 발생을 전제로 하지 않는다. 현재 공개 CHZZK allowlist를 수정하지 않는다. service는 사용자 저장 목록만 상태 reader에 전달한다. existing `fetchChzzkLiveStatusWithDebug(channelId, options)`에 `signal?: AbortSignal`을 optional로 추가해 개인 reader만 5초 signal을 전달하고 기존 호출자는 유지한다. live 메모리 캐시는 TTL 60초/최대 512개로 제한하며 초과 시 가장 먼저 저장한 key를 제거한다. private reader는 최대 동시 4개로 호출하고 오류/stale인 채널만 null 처리한다. endpoint 전체 결과나 사용자 목록을 shared cache에 넣지 않는다.
 
-`worker/platform/types.ts`에 `CHZZK_CLIENT_ID?`, `CHZZK_CLIENT_SECRET?`, `MULTIVIEW_RATE_LIMITER?: RateLimit`을 추가한다. 양쪽 Wrangler에 별도 binding을 추가한다: OTW namespace `1003`, LuvDia `1004`, `simple.limit=6`, `period=60`; 이 번호는 검토 시 저장소 config에서 미사용이며 실제 계정 충돌 여부는 배포 준비에서 별도 확인한다. 인증 후 POST/상태 각각 `${site.id}:${user.id}:add|status` 키로 제한한다. 목록/삭제는 이 upstream용 limiter에 의존하지 않는다. 두 env example에는 값 없는 서버 전용 key만 추가한다.
+`worker/platform/types.ts`에 `MULTIVIEW_RATE_LIMITER?: RateLimit`만 추가한다. 양쪽 Wrangler에 별도 binding을 추가한다: OTW namespace `1003`, LuvDia `1004`, `simple.limit=6`, `period=60`; 이 번호는 검토 시 저장소 config에서 미사용이며 실제 계정 충돌 여부는 배포 준비에서 별도 확인한다. 인증 후 POST/상태 각각 `${site.id}:${user.id}:add|status` 키로 제한한다. 목록/삭제는 이 upstream용 limiter에 의존하지 않는다. 새 CHZZK secret/env example 변경은 필요하지 않다.
 
 - [ ] **Step 4: GREEN과 기존 경계를 확인한다.** Step 2를 통과시키고 기존 `worker/features/chzzk/http/live-status.test.ts`, `http/media.test.ts`, `infrastructure/chzzk-live-status.test.ts`, `infrastructure/chzzk-api.test.ts`를 함께 실행한다. `pnpm cf-typegen`, `pnpm architecture:check`, `pnpm typecheck:test`와 변경 코드 lint를 실행한다. 생성 타입 변경이 다른 사이트/기존 Env fixtures를 요구하면 해당 consumers만 갱신한다. 9004 fallback·공개 미승인 채널 거부는 계속 통과해야 한다.
 - [ ] **Step 5: 이 작업만 커밋한다.** 위 Worker·shared route·config/example·테스트·생성 타입의 정확한 경로만 stage하고 `feat: expose authenticated personal multiview APIs`로 커밋한다.
@@ -167,10 +167,10 @@ expect(document.querySelector("iframe")).toBeNull();
 **Interfaces:** Tasks 1~3의 정식 `/multiview`·Clerk 로그인·개인 API·각 사이트 로컬 D1.
 
 - [ ] **Step 1: 실패가 드러나는 수용 체크리스트를 보고서에 만든다.** 두 사이트별 익명 접근, 일반 회원 추가/저장 readback/재로그인, 다른 계정 격리, 선택 8개, 북마크 삭제/URL 보존, Mul.Live 새 탭을 각각 미검증 상태로 시작한다. test/mock 통과를 이 표의 PASS로 복사하지 않는다.
-- [ ] **Step 2: 실재 선행 조건을 준비한다.** 승인된 구현용 checkout을 사용하고 기존 ignored env/DB/서버를 보존한다. 사이트별 개발 Clerk 계정과 server-only CHZZK Client 값을 정상 설정하고, 해당 사이트 local migration을 **증분 적용**한다. 기존 DB를 reset/seed하지 않는다. 두 dev 진입점은 `pnpm dev`와 `pnpm dev:luvdia`다. 키/계정 부재면 해당 실제 흐름을 미검증으로 남기고 독립적인 테스트·공개 흐름 검증은 계속한다.
+- [ ] **Step 2: 실재 선행 조건을 준비한다.** 승인된 구현용 checkout을 사용하고 기존 ignored env/DB/서버를 보존한다. 사이트별 기존 개발 Clerk 계정을 정상 설정하고, 해당 사이트 local migration을 **증분 적용**한다. 기존 DB를 reset/seed하지 않는다. 두 dev 진입점은 `pnpm dev`와 `pnpm dev:luvdia`다. 키/계정 부재면 해당 실제 흐름을 미검증으로 남기고 독립적인 테스트·공개 흐름 검증은 계속한다.
 - [ ] **Step 3: 각 사이트의 정상 UI 흐름을 실행한다.** 비회원 멤버 선택 → 해당 사이트 일반 회원 로그인 → 실재 외부 치지직 채널 URL 추가 → 실제 network 응답과 목록 GET에서 같은 ID 확인 → 새로고침/재로그인 복원 → 기본/개인 함께 최대 8개 선택 → 정확한 Mul.Live 새 탭 URL과 가능한 실제 재생 확인 → 저장 삭제/GET 부재 및 선택 유지 확인. 외부 시청에 필요한 최신 확장 프로그램은 사용자 브라우저의 기존 정상 환경에서 확인하며 이 작업이 확장을 설치하거나 내장 재생을 복구하지 않는다. 다른 기기/별도 로그인 세션에서도 같은 사이트 목록이 서버에서 복원되는지 확인한다. 모바일 너비·키보드 추가/삭제도 확인한다.
 - [ ] **Step 4: 격리·한계와 검증 identity를 기록한다.** 계정 A/B와 OTW/LuvDia 각각의 자기 토큰으로 요청하고, 다른 issuer 토큰의 거부와 양쪽 DB 독립성을 확인한다. 운영 데이터 대량 생성 대신 30개 경합은 Task 1의 격리 실제 D1 테스트 증거를 사용한다. 공개/개인 부분 장애는 실제 네트워크 실패를 로컬 브라우저에서 유도해 관찰하고 운영 장애 주입은 하지 않는다. commit·사이트/config·실행 명령·실제 결과·미확인 기능을 구분한다. 외부 재생·추가/복원이 안 되면 전체 기능 완료로 판정하지 않는다.
-- [ ] **Step 5: 범위 검토와 다음 실행 경계를 기록한다.** 정상 기능·계약·권한·동시성 검증을 재검토하고 필요한 수정만 한다. Task 1~3의 통과 증거는 동일 입력일 때 재사용한다. `pnpm preflight`는 최종 PR 검토 수정이 끝난 **병합 준비** 또는 별도 요청한 릴리스에서 한 번 실행하며, 문서 작성/각 task마다 실행하지 않는다. 운영 반영은 별도 승인 후 양 사이트 secret·rate namespace·계정 합산 D1 예산 확인 → 동일 소스의 각 DB migration → 정상 배포 → 최소 표본 실제 UI/readback 순서다. 테이블을 DROP하는 롤백은 하지 않는다. GitHub 쓰기가 승인되고 열린 PR이 소유하면 PASS/FAIL을 그 PR ledger에 기록한다. 지금 외부 게시·원격 작업은 하지 않는다.
+- [ ] **Step 5: 범위 검토와 다음 실행 경계를 기록한다.** 정상 기능·계약·권한·동시성 검증을 재검토하고 필요한 수정만 한다. Task 1~3의 통과 증거는 동일 입력일 때 재사용한다. `pnpm preflight`는 최종 PR 검토 수정이 끝난 **병합 준비** 또는 별도 요청한 릴리스에서 한 번 실행하며, 문서 작성/각 task마다 실행하지 않는다. 운영 반영은 별도 승인 후 양 사이트 로그인 설정·rate namespace·계정 합산 D1 예산 확인 → 동일 소스의 각 DB migration → 정상 배포 → 최소 표본 실제 UI/readback 순서다. 테이블을 DROP하는 롤백은 하지 않는다. GitHub 쓰기가 승인되고 열린 PR이 소유하면 PASS/FAIL을 그 PR ledger에 기록한다. 지금 외부 게시·원격 작업은 하지 않는다.
 - [ ] **Step 6: 실제 수행한 검증 문서만 커밋한다.** 한계가 있으면 그대로 남기고 `docs: record personal multiview verification`로 문서 경로만 stage/commit한다. 문서만으로 실제 기능 검증을 완료 처리하지 않는다.
 
 ## 계획 자체 점검 — 2026-10-22

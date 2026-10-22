@@ -30,6 +30,11 @@ const encodeAssetKey = (key: string) =>
     .join("/");
 
 export const apiRoutes = {
+  multiview: {
+    channels: staticRoute("/api/multiview/me/channels"),
+    channel: dynamicRoute("/api/multiview/me/channels/:channelId", (channelId: string) => `/api/multiview/me/channels/${encodeURIComponent(channelId)}` as const),
+    liveStatus: staticRoute("/api/multiview/me/live-status"),
+  },
   publication: { status: staticRoute("/api/publication-status") },
   siteContent: { read: staticRoute("/api/site-content") },
   auth: {
