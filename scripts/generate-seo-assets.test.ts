@@ -1,6 +1,6 @@
 import { getSiteDefinition } from "../contracts/site-definition";
 import { describe, expect, it } from "vitest";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { build } from "vite";
@@ -21,8 +21,10 @@ const shell = `<!doctype html><html lang="ko"><head><title>old</title>
 
 describe("SEO asset generation", () => {
   it("renders site metadata before Vite processes HTML asset URLs", async () => {
-    const root = await mkdtemp(join(tmpdir(), "site-seo-vite-"));
-    if (dirname(root) !== tmpdir()) throw new Error("Unexpected temporary build directory");
+    // Vite resolves symlinks, so its root must use the same physical temporary path.
+    const tempRoot = await realpath(tmpdir());
+    const root = await mkdtemp(join(tempRoot, "site-seo-vite-"));
+    if (dirname(root) !== tempRoot) throw new Error("Unexpected temporary build directory");
     const selected = { ...getSiteDefinition("luvdia"), publicOrigin: "https://luvdia-schedule.info" };
     try {
       await writeFile(join(root, "index.html"), shell.replace('href="old"', 'href="/"')

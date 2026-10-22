@@ -8,8 +8,9 @@ import { join } from "node:path";
 describe("local Worker config isolation", () => {
   it("keeps all resource bindings local and resolves paths from the canonical config", () => {
     const source = { main: "worker/index.ts", assets: { directory: "dist/client" }, d1_databases: [{ binding: "otw_db", migrations_dir: "drizzle", remote: true }], r2_buckets: [{ binding: "ASSET_BUCKET", remote: true }] };
-    const local = createLocalSiteConfig(source, "luvdia", "C:/workspace");
-    expect(local.main.replaceAll("\\", "/")).toBe("C:/workspace/worker/index.ts");
+    const root = join(tmpdir(), "local-site-config");
+    const local = createLocalSiteConfig(source, "luvdia", root);
+    expect(local.main).toBe(join(root, "worker/index.ts"));
     expect(local.vars).toMatchObject({ SITE_ID: "luvdia" });
     expect(local.d1_databases[0].remote).toBe(false);
     expect(local.r2_buckets[0].remote).toBe(false);
