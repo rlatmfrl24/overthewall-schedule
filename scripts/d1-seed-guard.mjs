@@ -1,4 +1,5 @@
 export const LOCAL_SEED_PROTECTED_TABLES = [
+  "multiview_channels",
   "members",
   "member_links",
   "member_profile_images",

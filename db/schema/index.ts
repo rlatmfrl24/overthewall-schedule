@@ -11,6 +11,18 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+export const multiviewChannels = sqliteTable("multiview_channels", {
+  owner_user_id: text().notNull(),
+  channel_id: text().notNull(),
+  channel_name: text().notNull(),
+  channel_image_url: text(),
+  added_at: integer().notNull(),
+}, table => [
+  primaryKey({ columns: [table.owner_user_id, table.channel_id] }),
+  index("idx_multiview_channels_owner_added").on(table.owner_user_id, table.added_at, table.channel_id),
+  check("multiview_channel_identity", sql`length(trim(${table.owner_user_id}))>0 AND length(${table.channel_id})=32 AND ${table.channel_id} NOT GLOB '*[^0-9a-f]*' AND length(trim(${table.channel_name}))>0`),
+]);
+
 export const musicAdminCommandResults = sqliteTable("music_admin_command_results", {
   site_id: text().notNull(),
   actor_user_id: text().notNull(),

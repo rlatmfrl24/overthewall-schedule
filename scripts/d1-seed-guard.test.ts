@@ -31,6 +31,9 @@ const MUSIC_DELETE_ORDER = [
 ];
 
 describe("hasProtectedLocalSeedData", () => {
+  it("includes personal multiview data in the empty-database guard", () => {
+    expect(buildDestructiveRowCountSql()).toContain("(SELECT COUNT(*) FROM multiview_channels)");
+  });
   it("완전히 빈 DB에서만 비강제 seed를 허용한다", () => {
     expect(
       hasProtectedLocalSeedData({ destructive_row_count: 0 }),

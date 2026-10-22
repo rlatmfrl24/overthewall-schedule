@@ -280,6 +280,7 @@ return defineConfig({
           d1Databases: ["otw_db", "transition_target_db"],
           r2Buckets: ["ASSET_BUCKET"],
           bindings: {
+            MULTIVIEW_MIGRATIONS: migrations.filter(({ queries }) => queries.some(query => query.startsWith("CREATE TABLE `multiview_channels`"))),
             ...(mode !== "feature" ? { SITE_SCHEMA_MIGRATIONS_GZIP: gzipSync(JSON.stringify(migrations)).toString("base64") } : {}),
             CONTENT_TRANSITION_CONTROL_MIGRATIONS: accessMigrations(["content_transitions"]),
             SCHEDULE_DAY_MIGRATION_SQL: readFileSync(path.resolve(__dirname, "drizzle/0096_unknown_hex.sql"), "utf8"),
