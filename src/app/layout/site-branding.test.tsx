@@ -18,6 +18,10 @@ it("keeps public Play navigation and points the community link to LuvDia's offic
   expect(items.find(i => i.id === "feed")).toMatchObject({ to: "/feed", requiresAuth: true });
   expect(items.find(i => i.id === "multiview")).toMatchObject({ label: "멀티뷰" });
   expect(items.find(i => i.id === "fan-cafe")).toMatchObject({ label: "공식 팬카페", externalHref: "https://cafe.naver.com/s2dia" });
+  expect(items.find(i => i.id === "related-schedule")).toMatchObject({ label: "오버더월 스케쥴", group: "external", externalHref: "https://otw-schedule.info" });
+  const hidden = getPublicNavigationSections({ isAdmin: false, memberPosts: { visible: false, requiresAuth: false }, showRelatedScheduleLink: false });
+  expect(hidden.flatMap(s => s.items).some(i => i.id === "related-schedule")).toBe(false);
+  expect(hidden.flatMap(s => s.items).some(i => i.id === "fan-cafe")).toBe(true);
 });
 
 it("shows site ownership, nonofficial notice and configured rights contact", () => {

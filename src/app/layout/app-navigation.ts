@@ -55,6 +55,14 @@ export interface NavSection {
   items: NavItem[];
 }
 
+export const relatedScheduleLink: NavItem = {
+  id: "related-schedule",
+  label: site.id === "otw" ? "러브다이아 스케쥴" : "오버더월 스케쥴",
+  icon: ExternalLink,
+  group: "external",
+  externalHref: site.id === "otw" ? "https://luvdia-schedule.info" : "https://otw-schedule.info",
+};
+
 type MemberPostsNavState = {
   visible: boolean;
   requiresAuth: boolean;
@@ -63,6 +71,7 @@ type MemberPostsNavState = {
 type PublicNavigationOptions = {
   isAdmin: boolean;
   memberPosts: MemberPostsNavState;
+  showRelatedScheduleLink?: boolean;
 };
 
 
@@ -112,6 +121,7 @@ export function resolveMemberPostsNavState({
 export function getPublicNavigationSections({
   isAdmin,
   memberPosts,
+  showRelatedScheduleLink = true,
 }: PublicNavigationOptions): NavSection[] {
   const sections: NavSection[] = [
     {
@@ -180,19 +190,20 @@ export function getPublicNavigationSections({
         },
       ],
     },
-    ...(site.fanCafeUrl ? [{
-      id: "external" as const,
+    {
+      id: "external",
       label: "외부 링크",
       items: [
-        {
+        ...(site.fanCafeUrl ? [{
           id: "fan-cafe",
           label: "공식 팬카페",
           icon: ExternalLink,
           group: "external" as const,
           externalHref: site.fanCafeUrl,
-        },
+        }] : []),
+        ...(showRelatedScheduleLink ? [relatedScheduleLink] : []),
       ],
-    }] : []),
+    },
   ];
 
   if (isAdmin) {
@@ -214,7 +225,7 @@ export function getPublicNavigationSections({
   return sections;
 }
 
-export function usePublicNavigationSections() {
+export function usePublicNavigationSections(showRelatedScheduleLink = true) {
   const { isLoaded, isSignedIn, user } = useUser();
   const adminStatusQuery = useAdminStatus(
     isLoaded && isSignedIn ? user?.id : null,
@@ -225,6 +236,7 @@ export function usePublicNavigationSections() {
     useNaverCafePostsConfig();
   return getPublicNavigationSections({
     isAdmin,
+    showRelatedScheduleLink,
     memberPosts: resolveMemberPostsNavState({
       xVisibility: xPostsVisibility,
       cafeEnabled: cafePostsEnabled,
