@@ -1,15 +1,15 @@
 # SUL-39 — 사이트별 개인 멀티뷰 채널 설계
 
-상태: **2026-10-22 사용자 구현 승인, 로컬 구현 진행 중**. 2026-10-22 KST.
+상태: **2026-10-22 사용자 구현 승인, 로컬 구현·대표 흐름 검증, 전체 수용은 일부 미검증**. 2026-10-22 KST.
 
-## 확정 범위와 제안
+## 확정 범위
 
 - 사용자가 확정한 범위: OTW와 LuvDia, 로그인한 일반 회원, 치지직 채널, 사이트별 독립 저장. 유료 회원 조건이나 두 사이트 사이의 목록 동기화는 없다.
 - 2026-10-22 사용자가 사이트별 30개 저장·동시 선택 8개·비회원 흐름 유지를 조건으로 로컬 구현을 승인했다. 원격 migration·외부 게시·배포는 포함하지 않는다.
 - 검토 기준 소스: `f6be40ba40a9a305224a40d209e2cebb2e940082`. 기존 `codex/worker-teardown-20261022` 작업은 보존한다. 실행 시 최신 소스와 [현재 작업](../../current-work.md)을 다시 대조한다.
 - 30개 저장·8개 선택은 사용자가 확정했다. 나머지 세부 동작은 승인된 계획을 따르며 구현 중 판정은 ledger와 검증 보고서에 남긴다.
 
-## 제안하는 사용자 동작
+## 사용자 동작
 
 `/multiview` → 해당 사이트 Clerk 로그인 → `내 채널`에 치지직 URL/채널 ID 입력 → `추가` → 서버가 채널 확인 후 저장 → 목록에서 선택 → 기존 `Mul.Live에서 보기`로 새 탭 이동.
 
@@ -45,9 +45,9 @@
 | GET `/api/multiview/me/channels` | 없음 | `{ items: SavedMultiviewChannel[], limit: 30 }` |
 | POST `/api/multiview/me/channels` | `{ input: string }` | `{ item: SavedMultiviewChannel }`; 중복도 동일한 200 |
 | DELETE `/api/multiview/me/channels/:channelId` | 정규화된 채널 ID | `{ deleted: true }`; 없는 본인 행도 동일 |
-| GET `/api/multiview/me/live-status` | 없음 | `{ items: ChzzkLiveStatusItemDto[], updatedAt: string }` |
+| GET `/api/multiview/me/live-status` | 없음 | `{ items: MultiviewLiveStatusItemDto[], updatedAt: string }` |
 
-`MultiviewChannelMetadata = { channelId: string; channelName: string; channelImageUrl: string | null }`, `SavedMultiviewChannel = MultiviewChannelMetadata & { addedAt: number }`. 시각은 서버 epoch ms이며 `updatedAt`만 ISO 문자열이다. 기존 `ChzzkLiveStatusItemDto.content: null`을 확인 불가로 재사용한다.
+`MultiviewChannelMetadata = { channelId: string; channelName: string; channelImageUrl: string | null }`, `SavedMultiviewChannel = MultiviewChannelMetadata & { addedAt: number }`. 시각은 서버 epoch ms이며 `updatedAt`만 ISO 문자열이다. `MultiviewLiveStatusItemDto.content: null`은 확인 불가다. 실제 polling 응답의 channelId/status/liveTitle/concurrentUserCount만 필수이고 이름/사진은 생략될 수 있다. 기존 공개 CHZZK DTO는 변경하지 않는다.
 
 - 입력: trim 후 1~2,048자. 32자리 hex ID 또는 **HTTPS·정확한 `chzzk.naver.com`·자격증명/비기본 포트 없는** URL의 `/{id}`, `/live/{id}`, `/channel/{id}`만 허용한다. HTTPS 기본 포트 443, 마지막 `/`, query, fragment는 허용하고 ID만 정규화한다. 서버가 입력 URL 자체를 fetch하지 않는다. 저장 입력의 검증을 기존 공개 URL 선택 parser 변경으로 대체하지 않는다.
 - POST body는 UTF-8 최대 4,096 bytes. `input` 외 필드, 잘못된 JSON, 예기치 않은 query는 거절한다. DELETE의 path ID도 검증한다.
