@@ -71,14 +71,32 @@ it("정상 날짜, 빈 종료 날짜, 관리자 저장과 공개 동일 ID 조�
   expect(visible.schedules.map(s => s.id)).toContain(result.scheduleId);
   expect(await d1.prepare("SELECT title FROM schedules WHERE id=?").bind(result.scheduleId).first("title")).toBe(input.title);
 });
-it("일반 회원의 생성·수정·삭제·원본 날짜/멤버 이동 우회를 차단한다", async () => {
-  for (const path of ["/api/schedules/save", "/api/schedules"]) expect((await request(path, "policy-member", input)).status).toBe(403);
+it("비로그인 유리리 일정의 생성·시간 수정·삭제와 익명 변경 기록을 지원한다", async () => {
+  await d1.prepare("INSERT INTO members(uid,code,name) VALUES(3,'u_lili','유리리')").run();
+  const draft = { member_uid: 3, date: "2026-10-22", start_time: "11:00", title: "치레동 랠리 연습", status: "방송" };
+  expect((await request("/api/schedules", undefined, draft)).status).toBe(201);
+  const [created] = await (await request("/api/schedules?date=" + draft.date)).json<{ id: number }[]>();
+  const saved = await request("/api/schedules/save", undefined, { ...draft, id: created.id, start_time: "18:00" });
+  expect(saved.status).toBe(200);
+  expect(await saved.json()).toMatchObject({ success: true, action: "update", scheduleId: created.id });
+  const board = await (await request(`/api/schedule-board?startDate=${draft.date}&endDate=${draft.date}`))
+    .json<{ schedules: { id: number; start_time: string }[] }>();
+  expect(board.schedules).toContainEqual(expect.objectContaining({ id: created.id, start_time: "18:00" }));
+  expect(await d1.prepare("SELECT start_time FROM schedules WHERE id=?").bind(created.id).first("start_time")).toBe("18:00");
+  expect((await request("/api/schedules", undefined, { ...draft, id: created.id, start_time: "19:00" }, "PUT")).status).toBe(200);
+  expect((await request(`/api/schedules?id=${created.id}`, undefined, undefined, "DELETE")).status).toBe(200);
+  expect(await d1.prepare("SELECT id FROM schedules WHERE id=?").bind(created.id).first()).toBeNull();
+  expect((await d1.prepare("SELECT action,actor_id,actor_name FROM update_logs WHERE schedule_id=? ORDER BY id").bind(created.id)
+    .all()).results).toEqual(["create", "update", "update", "delete"].map(action => ({ action, actor_id: null, actor_name: null })));
+});
+it.each([undefined, "policy-member"])("익명·일반 회원의 종료 후 일정 생성·수정·삭제·이동 우회를 차단한다 (%s)", async user => {
+  for (const path of ["/api/schedules/save", "/api/schedules"]) expect((await request(path, user, input)).status).toBe(403);
   await d1.prepare("INSERT INTO schedules(id,member_uid,date,status,title) VALUES(7,1,'2026-11-16','방송','기존 미래 일정')").run();
-  expect((await request("/api/schedules?id=7", "policy-member", undefined, "DELETE")).status).toBe(403);
-  for (const path of ["/api/schedules/save", "/api/schedules"]) expect((await request(path, "policy-member",
+  expect((await request("/api/schedules?id=7", user, undefined, "DELETE")).status).toBe(403);
+  for (const path of ["/api/schedules/save", "/api/schedules"]) expect((await request(path, user,
     { ...input, id: 7, member_uid: 2, date: "2026-11-15" }, path.endsWith("save") ? "POST" : "PUT")).status).toBe(403);
   expect(await d1.prepare("SELECT title FROM schedules WHERE id=7").first("title")).toBe("기존 미래 일정");
-  expect((await request("/api/schedules/save", "policy-member", { ...input, date: "2026-11-15" })).status).toBe(200);
+  expect((await request("/api/schedules/save", user, { ...input, date: "2026-11-15" })).status).toBe(200);
   expect((await request("/api/schedules?id=7", "policy-admin", undefined, "DELETE")).status).toBe(200);
 });
 it("권한 확인 후 원본이 이동해도 쓰기 트랜잭션이 감사 로그까지 롤백한다", async () => {
