@@ -51,9 +51,9 @@ function MemberPicker({ sources, ids, onToggle, loading, membersLoading, hasLoad
   const missing = ids.filter((id) => !knownIds.has(id));
   const pending = !hasLoaded && loading;
   const groups = [
-    { title: "방송 중", items: live, empty: "현재 방송 중인 멤버가 없습니다." },
-    { title: "방송 중이 아닌 멤버", items: offline, empty: "방송 중이 아닌 멤버가 없습니다." },
-    ...(unknown.length ? [{ title: pending ? "상태 확인 중" : "상태 확인 불가", items: unknown, empty: "" }] : []),
+    { key: "live", title: "방송 중", items: live, empty: "현재 방송 중인 멤버가 없습니다." },
+    { key: "offline", title: "방송 중이 아닌 멤버", items: offline, empty: "방송 중이 아닌 멤버가 없습니다." },
+    ...(unknown.length ? [{ key: "unknown", title: pending ? "상태 확인 중" : "상태 확인 불가", items: unknown, empty: "" }] : []),
   ];
 
   return <div className="space-y-6">
@@ -64,7 +64,7 @@ function MemberPicker({ sources, ids, onToggle, loading, membersLoading, hasLoad
     {membersLoading && sources.length === 0 ? <div role="status" aria-label="멤버 불러오는 중" className="grid gap-3 sm:grid-cols-2">
       {Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="h-20" />)}
     </div> : uniqueSources.length === 0 ? <p role="status">선택할 수 있는 CHZZK 멤버가 없습니다.</p> : groups.map((group) => (
-      <section key={group.title} aria-label={group.title} className="space-y-3">
+      <section key={group.key} aria-label={group.title} className="space-y-3">
         <h2 className="flex items-center gap-2 font-semibold"><span>{group.title}</span><span className="text-sm font-normal text-muted-foreground">{group.items.length}</span></h2>
         {group.items.length === 0 ? <p className="text-sm text-muted-foreground">{isError ? "방송 상태를 확인할 수 없습니다." : pending ? "방송 상태를 확인하고 있습니다." : group.empty}</p> :
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{group.items.map((source) => {

@@ -13,9 +13,9 @@ vi.mock("@/features/schedule-board", () => ({ useScheduleData: () => ({ loading:
 import { MultiviewPage } from "./multiview-page";
 const saved = (channelId: string, name = "개인 채널"): SavedMultiviewChannel => ({ channelId, channelName: name, channelImageUrl: null, addedAt: 1 });
 const content = (channelId: string) => ({ channelId, channelName: "공개 채널", channelImageUrl: "", status: "OPEN", liveTitle: "방송 중입니다", concurrentUserCount: 1, liveImageUrl: "", defaultThumbnailImageUrl: "" });
-let rows: SavedMultiviewChannel[], failStatus: boolean, privateCalls: number;
+let rows: SavedMultiviewChannel[], failStatus: boolean, failReadAfterSave: boolean, privateCalls: number;
 beforeEach(() => {
-  window.history.replaceState(null, "", "/multiview"); Object.assign(session, { owner: "alice", isLoaded: true, isSignedIn: true }); rows = []; failStatus = false; privateCalls = 0;
+  window.history.replaceState(null, "", "/multiview"); Object.assign(session, { owner: "alice", isLoaded: true, isSignedIn: true }); rows = []; failStatus = false; failReadAfterSave = false; privateCalls = 0;
   Object.assign(window, { Clerk: { session: { getToken: async () => "own-token" } } });
   vi.stubGlobal("fetch", async (path: string, init: RequestInit) => {
     if (path.startsWith("/api/live-status")) return Response.json({ items: [{ channelId: defaultId, content: content(defaultId) }] });
@@ -27,6 +27,7 @@ beforeEach(() => {
     }
     if (init.method === "DELETE") { rows = rows.filter(x => !path.endsWith(x.channelId)); return Response.json({ deleted: true }); }
     if (path.endsWith("live-status")) return failStatus ? Response.json({ error: { message: "status failed" } }, { status: 503 }) : Response.json({ items: rows.map(x => ({ channelId: x.channelId, content: null })) });
+    if (failReadAfterSave && rows.length) return Response.json({ error: { message: "Read unavailable" } }, { status: 503 });
     return Response.json({ items: [...rows], limit: 30 });
   });
 });
@@ -34,10 +35,16 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); Reflect.deleteProperty(windo
 function mount() { const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); return render(<QueryClientProvider client={client}><MultiviewPage /></QueryClientProvider>); }
 it("adds through the form, reads back, selects beside a default member and deletes without changing the shared URL", async () => {
   mount();
+  fireEvent.click(screen.getByRole("button", { name: "신규 채널 추가하기" }));
   const input = await screen.findByRole("textbox", { name: "치지직 채널 주소 또는 ID" });
   fireEvent.change(input, { target: { value: `https://chzzk.naver.com/${id}` } });
-  fireEvent.click(screen.getByRole("button", { name: "추가" }));
-  fireEvent.click(await screen.findByRole("button", { name: "개인 채널 선택" }));
+  fireEvent.click(screen.getByRole("button", { name: "추가하고 저장" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  const choice = await screen.findByRole("button", { name: "개인 채널 선택" });
+  expect(choice.isConnected).toBe(true);
+  fireEvent.click(choice);
+  await screen.findByRole("button", { name: "개인 채널 선택 해제" });
+  expect(new URLSearchParams(window.location.search).getAll("c")).toEqual([id]);
   fireEvent.click(await screen.findByRole("button", { name: "기본 멤버 선택" }));
   await waitFor(() => expect(new URLSearchParams(window.location.search).getAll("c")).toEqual([id, defaultId]));
   expect(screen.getByRole("link", { name: /Mul.Live에서 보기/ }).getAttribute("href")).toBe(`https://mul.live/${id}/${defaultId}`);
@@ -53,13 +60,19 @@ it("retains anonymous member selection and avoids all personal requests", async 
   fireEvent.click(await screen.findByRole("button", { name: "기본 멤버 선택" }));
   expect(screen.getByRole("link", { name: /Mul.Live에서 보기/ }).getAttribute("href")).toBe(`https://mul.live/${defaultId}`);
   expect(privateCalls).toBe(0);
+  fireEvent.click(screen.getByRole("button", { name: "신규 채널 추가하기" }));
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(screen.queryByRole("textbox")).toBeNull();
+  expect(privateCalls).toBe(0);
 });
 it("passes the current selected channels to Clerk when starting login", async () => {
   session.isSignedIn = false; login.returnUrl = "";
   mount();
   await screen.findByText("LIVE");
   fireEvent.click(screen.getByRole("button", { name: "기본 멤버 선택" }));
+  fireEvent.click(screen.getByRole("button", { name: "신규 채널 추가하기" }));
   fireEvent.click(screen.getByRole("button", { name: "로그인" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(new URL(login.returnUrl, "http://localhost:5173").searchParams.getAll("c")).toEqual([defaultId]);
 });
 it("preserves shared selections while thirty saved channels load and still limits selection to eight", async () => {
@@ -71,8 +84,9 @@ it("preserves shared selections while thirty saved channels load and still limit
   expect(new URLSearchParams(window.location.search).getAll("c")).toEqual(selected);
   expect((screen.getByRole("button", { name: "채널9 선택 불가 (최대 8개)" }) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByText("저장 30/30")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "신규 채널 추가하기" }));
   fireEvent.change(screen.getByRole("textbox", { name: "치지직 채널 주소 또는 ID" }), { target: { value: id } });
-  fireEvent.click(screen.getByRole("button", { name: "추가" }));
+  fireEvent.click(screen.getByRole("button", { name: "추가하고 저장" }));
   await screen.findByText("채널은 사이트별로 최대 30개까지 저장할 수 있어요. 기존 채널을 삭제한 뒤 추가해 주세요.");
   expect(rows).toHaveLength(30);
 });
@@ -82,4 +96,19 @@ it("keeps healthy public LIVE when private statuses fail", async () => {
   await screen.findByRole("button", { name: "개인 채널 선택" });
   expect(await screen.findByText("LIVE")).toBeTruthy();
   expect(screen.getByRole("button", { name: "기본 멤버 선택" })).toBeTruthy();
+});
+it("keeps successful-save readback errors visible after the popup closes and supports retry", async () => {
+  failReadAfterSave = true;
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "신규 채널 추가하기" }));
+  fireEvent.change(await screen.findByRole("textbox"), { target: { value: id } });
+  fireEvent.click(screen.getByRole("button", { name: "추가하고 저장" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(await screen.findByText("저장됐지만 목록을 다시 불러오지 못했어요. 다시 불러와 주세요.")).toBeTruthy();
+  expect(rows).toHaveLength(1);
+  expect(screen.queryByText("채널을 저장했어요. 아래 목록에서 선택해 주세요.")).toBeNull();
+  expect(screen.queryByText("저장 0/30")).toBeNull();
+  failReadAfterSave = false;
+  fireEvent.click(screen.getByRole("button", { name: "목록 다시 불러오기" }));
+  expect(await screen.findByRole("button", { name: "개인 채널 선택" })).toBeTruthy();
 });
