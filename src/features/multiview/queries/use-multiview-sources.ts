@@ -9,6 +9,8 @@ import { queryKeys } from "@/shared/query/query-keys";
 import type { Member } from "@/features/members";
 import { extractMultiviewChzzkChannelId } from "../model/multiview-utils";
 import type { MultiviewSource } from "../model/types";
+import type { SavedMultiviewChannel } from "@contracts/multiview";
+import type { ChzzkLiveStatusItemDto } from "@contracts/chzzk";
 
 const UNIT_ORDER = [
   ["스타데이즈", "stardays", "star days"],
@@ -34,6 +36,8 @@ const getUnitRank = (unitName?: string | null) => {
 export const sortMultiviewSources = (sources: MultiviewSource[]) =>
   [...sources].sort((a, b) => {
     if (a.isLive !== b.isLive) return a.isLive ? -1 : 1;
+    if (!a.member && !b.member) return (a.saved?.addedAt ?? 0) - (b.saved?.addedAt ?? 0) || a.channelId.localeCompare(b.channelId);
+    if (Boolean(a.member) !== Boolean(b.member)) return a.member ? -1 : 1;
 
     const unitRankDiff =
       getUnitRank(a.member?.unit_name) - getUnitRank(b.member?.unit_name);
@@ -45,7 +49,7 @@ export const sortMultiviewSources = (sources: MultiviewSource[]) =>
     );
   });
 
-export function useMultiviewSources(members: Member[]) {
+export function useMultiviewSources(members: Member[], personal?: { channels: SavedMultiviewChannel[]; statuses: ChzzkLiveStatusItemDto[]; loading: boolean; isError: boolean }) {
   const membersWithChzzk = useMemo(
     () =>
       members.filter((member) =>
@@ -84,20 +88,28 @@ export function useMultiviewSources(members: Member[]) {
         return {
           channelId,
           member,
+          statusError: query.isError,
           liveStatus,
           isLive: liveStatus?.status === "OPEN",
         };
       })
       .filter((source): source is MultiviewSource => source !== null);
 
-    return sortMultiviewSources(nextSources);
-  }, [membersWithChzzk, query.data]);
+    const combined = new Map(nextSources.map(source => [source.channelId, source]));
+    const statuses = new Map(personal?.statuses.map(item => [item.channelId, item.content]));
+    for (const saved of personal?.channels ?? []) {
+      const existing = combined.get(saved.channelId);
+      const liveStatus = existing?.liveStatus ?? (personal?.isError ? null : statuses.get(saved.channelId) ?? null);
+      combined.set(saved.channelId, existing ? { ...existing, saved, liveStatus, isLive: liveStatus?.status === "OPEN", statusError: liveStatus ? false : existing.statusError } : { channelId: saved.channelId, saved, liveStatus, isLive: liveStatus?.status === "OPEN", statusError: personal?.isError ?? false });
+    }
+    return sortMultiviewSources([...combined.values()]);
+  }, [membersWithChzzk, query.data, query.isError, personal]);
 
   return {
     sources,
-    loading: query.isFetching,
-    isError: query.isError,
-    hasLoaded: membersWithChzzk.length === 0 ? true : query.isFetched,
+    loading: query.isFetching || Boolean(personal?.loading),
+    isError: query.isError || Boolean(personal?.isError),
+    hasLoaded: (membersWithChzzk.length === 0 || query.isFetched) && !personal?.loading,
     reload: query.refetch,
   };
 }

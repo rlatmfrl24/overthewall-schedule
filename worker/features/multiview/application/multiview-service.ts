@@ -9,9 +9,10 @@ export class MultiviewServiceError extends Error {
 export const createMultiviewService = (repository: MultiviewChannelRepository, reader: MultiviewChannelReader) => ({
   async list(owner: string) { return { items: await repository.list(owner), limit: MAX_SAVED_MULTIVIEW_CHANNELS }; },
   async add(owner: string, channelId: string) {
-    const existing = await repository.find(owner, channelId);
+    const channels = await repository.list(owner);
+    const existing = channels.find(channel => channel.channelId === channelId);
     if (existing) return { item: existing };
-    if ((await repository.list(owner)).length >= MAX_SAVED_MULTIVIEW_CHANNELS) throw new MultiviewServiceError(409, "MULTIVIEW_CHANNEL_LIMIT");
+    if (channels.length >= MAX_SAVED_MULTIVIEW_CHANNELS) throw new MultiviewServiceError(409, "MULTIVIEW_CHANNEL_LIMIT");
     let metadata;
     try { metadata = await reader.resolveChannel(channelId); }
     catch { throw new MultiviewServiceError(503, "MULTIVIEW_UNAVAILABLE"); }

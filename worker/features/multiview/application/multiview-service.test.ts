@@ -11,9 +11,16 @@ function setup(resolve: MultiviewChannelReader["resolveChannel"] = async () => c
     addWithLimit: async (_, value: MultiviewChannelMetadata) => { if (rows.length >= 30) return null; const row = { ...value, addedAt: 1 }; rows.push(row); return row; },
     remove: async (_, id) => { const i = rows.findIndex(x => x.channelId === id); if (i >= 0) rows.splice(i, 1); },
   };
-  return { rows, service: createMultiviewService(repository, { resolveChannel: resolve, readLiveStatuses: async ids => ids.map(channelId => ({ channelId, content: null })) }) };
+  return { rows, repository, service: createMultiviewService(repository, { resolveChannel: resolve, readLiveStatuses: async ids => ids.map(channelId => ({ channelId, content: null })) }) };
 }
 describe("personal multiview service", () => {
+  it("returns a duplicate admitted concurrently between the initial lookup and a full-list read", async () => {
+    const { rows, repository, service } = setup(async () => { throw new Error("provider must not be needed"); });
+    for (let n = 0; n < 29; n++) rows.push({ ...channel, channelId: n.toString(16).padStart(32, "0"), addedAt: 1 });
+    const duplicate = { ...channel, addedAt: 2 }; rows.push(duplicate);
+    repository.find = async () => null;
+    expect(await service.add("alice", channel.channelId)).toEqual({ item: duplicate });
+  });
   it("replays a saved channel without relying on another upstream request", async () => {
     let available = true;
     const { service } = setup(async () => { if (!available) throw new Error("unavailable"); return channel; });
