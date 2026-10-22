@@ -8,6 +8,11 @@ const reader = new ChzzkMultiviewReader();
 beforeEach(() => { clearChzzkServiceCachesForTests(); vi.spyOn(console, "error").mockImplementation(() => undefined); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe("existing public CHZZK channel reader for personal channels", () => {
+  it("accepts the actual polling response without channel metadata fields", async () => {
+    const actual = { status: "CLOSE", channelId: id, liveTitle: "Last stream", concurrentUserCount: 235, openDate: "2026-10-21 20:00:00" };
+    vi.stubGlobal("fetch", async () => Response.json({ code: 200, content: actual }));
+    expect(await reader.readLiveStatuses([id])).toEqual([{ channelId: id, content: actual }]);
+  });
   it("resolves a real channel shape directly without Client credentials or a polling error", async () => {
     vi.stubGlobal("fetch", async (url: RequestInfo | URL, init?: RequestInit) => {
       expect(String(url)).toBe(`https://api.chzzk.naver.com/service/v1/channels/${id}`);

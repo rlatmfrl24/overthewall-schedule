@@ -120,6 +120,7 @@ export function MultiviewPage() {
 
   const pickerProps = { sources, loading, membersLoading, hasLoaded, isError, reload: () => { void reload(); void personal.reload(); }, deletingIds: personal.deletingIds, onRemove: (id: string) => { void personal.remove(id).catch(() => {}); } };
   const toggle = (id: string) => setIds((current) => toggleSelection(current, id));
+  const returnParams = buildMultiviewSearchParams({ channelIds: ids });
 
   return <main data-testid="multiview-root" className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-background text-foreground">
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -133,7 +134,7 @@ export function MultiviewPage() {
               <a href="https://chromewebstore.google.com/detail/mullive-plus/pahcphmhihleneomklgfbbneokhjiaim" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1 font-medium text-foreground underline underline-offset-4">Mul.Live Plus 설치<ExternalLink aria-hidden="true" className="size-4" /></a>
             </AlertDescription>
           </Alert>
-          <PersonalChannelManager key={personal.owner ?? "anonymous"} personal={personal} />
+          <PersonalChannelManager key={personal.owner ?? "anonymous"} personal={personal} returnUrl={`/multiview${returnParams.size ? `?${returnParams}` : ""}`} />
           <MemberPicker {...pickerProps} ids={ids} onToggle={toggle} />
         </div>
       </div>

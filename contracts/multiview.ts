@@ -1,4 +1,4 @@
-import type { ChzzkLiveStatusItemDto } from "./chzzk";
+import type { ChzzkLiveContentDto } from "./chzzk";
 
 export const MAX_SAVED_MULTIVIEW_CHANNELS = 30;
 
@@ -11,7 +11,9 @@ export interface SavedMultiviewChannel extends MultiviewChannelMetadata { addedA
 export interface MultiviewChannelListResponse { items: SavedMultiviewChannel[]; limit: typeof MAX_SAVED_MULTIVIEW_CHANNELS }
 export interface MultiviewChannelAddResponse { item: SavedMultiviewChannel }
 export interface MultiviewChannelDeleteResponse { deleted: true }
-export interface MultiviewLiveStatusResponse { items: ChzzkLiveStatusItemDto[]; updatedAt: string }
+export type MultiviewLiveContentDto = Pick<ChzzkLiveContentDto, "channelId" | "status" | "liveTitle" | "concurrentUserCount"> & Partial<Omit<ChzzkLiveContentDto, "channelId" | "status" | "liveTitle" | "concurrentUserCount">>;
+export interface MultiviewLiveStatusItemDto { channelId: string; content: MultiviewLiveContentDto | null }
+export interface MultiviewLiveStatusResponse { items: MultiviewLiveStatusItemDto[]; updatedAt: string }
 export type MultiviewErrorCode = "MULTIVIEW_INVALID_INPUT" | "MULTIVIEW_AUTH_REQUIRED" | "MULTIVIEW_CHANNEL_NOT_FOUND" | "MULTIVIEW_CHANNEL_LIMIT" | "MULTIVIEW_BODY_TOO_LARGE" | "MULTIVIEW_RATE_LIMITED" | "MULTIVIEW_UNAVAILABLE";
 
 export function parsePersonalMultiviewChannelInput(input: unknown): string | null {

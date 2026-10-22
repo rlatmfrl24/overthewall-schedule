@@ -1,5 +1,4 @@
-import type { ChzzkLiveContentDto, ChzzkLiveStatusItemDto } from "@contracts/chzzk";
-import type { MultiviewChannelMetadata } from "@contracts/multiview";
+import type { MultiviewChannelMetadata, MultiviewLiveContentDto, MultiviewLiveStatusItemDto } from "@contracts/multiview";
 import { fetchChzzkLiveStatusWithDebug } from "./chzzk-api";
 
 const imageUrl = (value: unknown): string | null => {
@@ -7,7 +6,11 @@ const imageUrl = (value: unknown): string | null => {
   try { const url = new URL(value); return url.protocol === "https:" && !url.username && !url.password ? url.href : null; }
   catch { return null; }
 };
-const validLiveContent = (content: ChzzkLiveContentDto | null, channelId: string): content is ChzzkLiveContentDto => Boolean(content && content.channelId === channelId && ["OPEN", "CLOSE"].includes(content.status) && typeof content.channelName === "string" && content.channelName.trim() && typeof content.liveTitle === "string" && Number.isFinite(content.concurrentUserCount) && content.concurrentUserCount >= 0);
+const validLiveContent = (value: unknown, channelId: string): value is MultiviewLiveContentDto => {
+  if (!value || typeof value !== "object") return false;
+  const content = value as Record<string, unknown>;
+  return content.channelId === channelId && (content.status === "OPEN" || content.status === "CLOSE") && typeof content.liveTitle === "string" && typeof content.concurrentUserCount === "number" && Number.isFinite(content.concurrentUserCount) && content.concurrentUserCount >= 0;
+};
 
 export class ChzzkMultiviewReader {
   async resolveChannel(channelId: string): Promise<MultiviewChannelMetadata | null> {
@@ -21,8 +24,8 @@ export class ChzzkMultiviewReader {
     if (data.code !== 200 || channel?.channelId !== channelId || typeof channel.channelName !== "string" || !channel.channelName.trim()) throw new Error("Invalid CHZZK channel response");
     return { channelId, channelName: channel.channelName.trim(), channelImageUrl: imageUrl(channel.channelImageUrl) };
   }
-  async readLiveStatuses(channelIds: readonly string[]): Promise<ChzzkLiveStatusItemDto[]> {
-    const items: ChzzkLiveStatusItemDto[] = channelIds.map(channelId => ({ channelId, content: null }));
+  async readLiveStatuses(channelIds: readonly string[]): Promise<MultiviewLiveStatusItemDto[]> {
+    const items: MultiviewLiveStatusItemDto[] = channelIds.map(channelId => ({ channelId, content: null }));
     let cursor = 0;
     await Promise.all(Array.from({ length: Math.min(4, items.length) }, async () => {
       while (cursor < items.length) {

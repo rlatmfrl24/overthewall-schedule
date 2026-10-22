@@ -6,7 +6,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createMemberFixture } from "@/test/member-fixtures";
 import type { SavedMultiviewChannel } from "@contracts/multiview";
 const session = vi.hoisted(() => ({ owner: "alice", isLoaded: true, isSignedIn: true }));
-vi.mock("@clerk/clerk-react", () => ({ useUser: () => ({ ...session, user: { id: session.owner } }), SignInButton: ({ children }: { children: React.ReactNode }) => children }));
+const login = vi.hoisted(() => ({ returnUrl: "" }));
+vi.mock("@clerk/clerk-react", () => ({ useUser: () => ({ ...session, user: { id: session.owner } }), SignInButton: ({ children, forceRedirectUrl }: { children: React.ReactNode; forceRedirectUrl: string }) => <span onClick={() => { login.returnUrl = forceRedirectUrl; }}>{children}</span> }));
 const defaultId = "f".repeat(32), id = "a".repeat(32);
 vi.mock("@/features/schedule-board", () => ({ useScheduleData: () => ({ loading: false, members: [createMemberFixture({ uid: 1, code: "public", name: "기본 멤버", url_chzzk: `https://chzzk.naver.com/${defaultId}` })] }) }));
 import { MultiviewPage } from "./multiview-page";
@@ -52,6 +53,14 @@ it("retains anonymous member selection and avoids all personal requests", async 
   fireEvent.click(await screen.findByRole("button", { name: "기본 멤버 선택" }));
   expect(screen.getByRole("link", { name: /Mul.Live에서 보기/ }).getAttribute("href")).toBe(`https://mul.live/${defaultId}`);
   expect(privateCalls).toBe(0);
+});
+it("passes the current selected channels to Clerk when starting login", async () => {
+  session.isSignedIn = false; login.returnUrl = "";
+  mount();
+  await screen.findByText("LIVE");
+  fireEvent.click(screen.getByRole("button", { name: "기본 멤버 선택" }));
+  fireEvent.click(screen.getByRole("button", { name: "로그인" }));
+  expect(new URL(login.returnUrl, "http://localhost:5173").searchParams.getAll("c")).toEqual([defaultId]);
 });
 it("preserves shared selections while thirty saved channels load and still limits selection to eight", async () => {
   rows = Array.from({ length: 30 }, (_, n) => saved((n + 1).toString(16).padStart(32, "0"), `채널${n + 1}`));

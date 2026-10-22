@@ -1,5 +1,4 @@
-import type { MultiviewChannelMetadata, SavedMultiviewChannel } from "@contracts/multiview";
-import type { ChzzkLiveStatusItemDto } from "@contracts/chzzk";
+import type { MultiviewChannelMetadata, SavedMultiviewChannel, MultiviewLiveStatusItemDto } from "@contracts/multiview";
 
 export interface MultiviewChannelRepository {
   list(owner: string): Promise<SavedMultiviewChannel[]>;
@@ -9,5 +8,5 @@ export interface MultiviewChannelRepository {
 }
 export interface MultiviewChannelReader {
   resolveChannel(channelId: string): Promise<MultiviewChannelMetadata | null>;
-  readLiveStatuses(channelIds: readonly string[]): Promise<ChzzkLiveStatusItemDto[]>;
+  readLiveStatuses(channelIds: readonly string[]): Promise<MultiviewLiveStatusItemDto[]>;
 }

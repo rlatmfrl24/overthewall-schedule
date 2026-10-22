@@ -9,8 +9,7 @@ import { queryKeys } from "@/shared/query/query-keys";
 import type { Member } from "@/features/members";
 import { extractMultiviewChzzkChannelId } from "../model/multiview-utils";
 import type { MultiviewSource } from "../model/types";
-import type { SavedMultiviewChannel } from "@contracts/multiview";
-import type { ChzzkLiveStatusItemDto } from "@contracts/chzzk";
+import type { SavedMultiviewChannel, MultiviewLiveStatusItemDto } from "@contracts/multiview";
 
 const UNIT_ORDER = [
   ["스타데이즈", "stardays", "star days"],
@@ -49,7 +48,7 @@ export const sortMultiviewSources = (sources: MultiviewSource[]) =>
     );
   });
 
-export function useMultiviewSources(members: Member[], personal?: { channels: SavedMultiviewChannel[]; statuses: ChzzkLiveStatusItemDto[]; loading: boolean; isError: boolean }) {
+export function useMultiviewSources(members: Member[], personal?: { channels: SavedMultiviewChannel[]; statuses: MultiviewLiveStatusItemDto[]; loading: boolean; isError: boolean }) {
   const membersWithChzzk = useMemo(
     () =>
       members.filter((member) =>
