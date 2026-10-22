@@ -1,6 +1,7 @@
 import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import React from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
   fireEvent,
@@ -16,6 +17,7 @@ import type { MultiviewSource } from "../model/types";
 
 const useScheduleDataMock = vi.hoisted(() => vi.fn());
 const useMultiviewSourcesMock = vi.hoisted(() => vi.fn());
+vi.mock("@clerk/clerk-react", () => ({ useUser: () => ({ isLoaded: true, isSignedIn: false, user: null }), SignInButton: ({ children }: { children: React.ReactNode }) => children }));
 
 vi.mock("@/features/schedule-board", () => ({
   useScheduleData: useScheduleDataMock,
@@ -81,7 +83,7 @@ describe("MultiviewPage", () => {
     vi.clearAllMocks();
   });
 
-  const renderPage = () => render(React.createElement(MultiviewPage));
+  const renderPage = () => render(React.createElement(MultiviewPage), { wrapper: ({ children }) => React.createElement(QueryClientProvider, { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }, children) });
   const click = (name: string) => fireEvent.click(screen.getByRole("button", { name }));
 
   it("announces the required extension and keeps embedded viewing disabled after selection", () => {

@@ -65,6 +65,11 @@
   ],
   "ratelimits": [
     {
+      "name": "MULTIVIEW_RATE_LIMITER",
+      "namespace_id": "1003",
+      "simple": { "limit": 6, "period": 60 }
+    },
+    {
       "name": "OTW_PLAY_SUBMISSION_RATE_LIMITER",
       "namespace_id": "1001",
       "simple": {

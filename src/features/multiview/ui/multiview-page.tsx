@@ -1,18 +1,21 @@
 import { site } from "@/shared/config/site";
-import { Check, ExternalLink, MonitorPlay, RotateCcw, X } from "lucide-react";
+import { Check, ExternalLink, MonitorPlay, MoreHorizontal, RotateCcw, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/shared/ui/button";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/shared/ui/dropdown-menu";
 import { useScheduleData } from "@/features/schedule-board";
 import { cn } from "@/shared/lib/utils";
 import { buildMulLiveUrl, buildMultiviewSearchParams, MAX_MULTIVIEW_CHANNELS, parseMultiviewUrlState } from "../model/multiview-utils";
 import type { MultiviewSource } from "../model/types";
 import { useMultiviewSources } from "../queries/use-multiview-sources";
+import { usePersonalMultiview } from "../queries/use-personal-multiview";
+import { PersonalChannelManager } from "./personal-channel-manager";
 
 const initialChannels = () => typeof window === "undefined" ? []
   : parseMultiviewUrlState(new URLSearchParams(window.location.search)).channelIds;
-const sourceName = (source: MultiviewSource) => source.member?.name ?? source.liveStatus?.channelName ?? source.channelId;
+const sourceName = (source: MultiviewSource) => source.member?.name ?? source.liveStatus?.channelName ?? source.saved?.channelName ?? source.channelId;
 const toggleSelection = (ids: string[], id: string) => ids.includes(id)
   ? ids.filter((value) => value !== id)
   : ids.length < MAX_MULTIVIEW_CHANNELS ? [...ids, id] : ids;
@@ -35,20 +38,23 @@ type PickerProps = {
   hasLoaded: boolean;
   isError: boolean;
   reload: () => void;
+  onRemove?: (id: string) => void;
+  deletingIds?: string[];
 };
 
-function MemberPicker({ sources, ids, onToggle, loading, membersLoading, hasLoaded, isError, reload }: PickerProps) {
+function MemberPicker({ sources, ids, onToggle, loading, membersLoading, hasLoaded, isError, reload, onRemove, deletingIds = [] }: PickerProps) {
   const uniqueSources = [...new Map(sources.map((source) => [source.channelId, source])).values()];
   const knownIds = new Set(uniqueSources.map((source) => source.channelId));
-  const live = uniqueSources.filter((source) => !isError && source.isLive);
-  const offline = uniqueSources.filter((source) => !isError && !source.isLive && source.liveStatus?.status === "CLOSE");
-  const unknown = uniqueSources.filter((source) => isError || (!source.isLive && source.liveStatus?.status !== "CLOSE"));
+  const failed = (source: MultiviewSource) => source.statusError ?? isError;
+  const live = uniqueSources.filter((source) => !failed(source) && source.isLive);
+  const offline = uniqueSources.filter((source) => !failed(source) && !source.isLive && source.liveStatus?.status === "CLOSE");
+  const unknown = uniqueSources.filter((source) => failed(source) || (!source.isLive && source.liveStatus?.status !== "CLOSE"));
   const missing = ids.filter((id) => !knownIds.has(id));
   const pending = !hasLoaded && loading;
   const groups = [
-    { title: "방송 중", items: live, empty: "현재 방송 중인 멤버가 없습니다." },
-    { title: "방송 중이 아닌 멤버", items: offline, empty: "방송 중이 아닌 멤버가 없습니다." },
-    ...(unknown.length ? [{ title: pending ? "상태 확인 중" : "상태 확인 불가", items: unknown, empty: "" }] : []),
+    { key: "live", title: "방송 중", items: live, empty: "현재 방송 중인 멤버가 없습니다." },
+    { key: "offline", title: "방송 중이 아닌 멤버", items: offline, empty: "방송 중이 아닌 멤버가 없습니다." },
+    ...(unknown.length ? [{ key: "unknown", title: pending ? "상태 확인 중" : "상태 확인 불가", items: unknown, empty: "" }] : []),
   ];
 
   return <div className="space-y-6">
@@ -59,21 +65,20 @@ function MemberPicker({ sources, ids, onToggle, loading, membersLoading, hasLoad
     {membersLoading && sources.length === 0 ? <div role="status" aria-label="멤버 불러오는 중" className="grid gap-3 sm:grid-cols-2">
       {Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="h-20" />)}
     </div> : uniqueSources.length === 0 ? <p role="status">선택할 수 있는 CHZZK 멤버가 없습니다.</p> : groups.map((group) => (
-      <section key={group.title} aria-label={group.title} className="space-y-3">
+      <section key={group.key} aria-label={group.title} className="space-y-3">
         <h2 className="flex items-center gap-2 font-semibold"><span>{group.title}</span><span className="text-sm font-normal text-muted-foreground">{group.items.length}</span></h2>
         {group.items.length === 0 ? <p className="text-sm text-muted-foreground">{isError ? "방송 상태를 확인할 수 없습니다." : pending ? "방송 상태를 확인하고 있습니다." : group.empty}</p> :
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{group.items.map((source) => {
             const selected = ids.includes(source.channelId);
             const disabled = ids.length >= MAX_MULTIVIEW_CHANNELS && !selected;
             const name = sourceName(source);
-            const isLive = !isError && source.isLive;
-            const isOffline = !isError && source.liveStatus?.status === "CLOSE";
-            return <button key={source.channelId} type="button" aria-pressed={selected} disabled={disabled}
+            const isLive = !failed(source) && source.isLive;
+            const isOffline = !failed(source) && source.liveStatus?.status === "CLOSE";
+            return <div key={source.channelId} role="group" aria-label={`${name} 채널`} className={cn("flex min-w-0 items-stretch rounded-xl border transition-colors", selected ? "border-primary bg-primary/10" : "border-border bg-card")}><button type="button" aria-pressed={selected} disabled={disabled}
               aria-label={disabled ? `${name} 선택 불가 (최대 ${MAX_MULTIVIEW_CHANNELS}개)` : `${name} ${selected ? "선택 해제" : "선택"}`}
               onClick={() => onToggle(source.channelId)}
-              className={cn("flex min-h-20 min-w-0 items-center gap-3 rounded-xl border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
-                selected ? "border-primary bg-primary/10" : "border-border bg-card hover:bg-accent")}>
-              {source.member ? <img src={`/profile/${source.member.code}.webp`} alt="" className="size-11 shrink-0 rounded-full bg-muted object-cover" loading="lazy" /> : <MonitorPlay aria-hidden="true" className="size-11 shrink-0" />}
+              className="flex min-h-20 min-w-0 flex-1 items-center gap-3 rounded-xl p-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+              {source.member ? <img src={`/profile/${source.member.code}.webp`} alt="" className="size-11 shrink-0 rounded-full bg-muted object-cover" loading="lazy" /> : source.saved?.channelImageUrl ? <img src={source.saved.channelImageUrl} alt="" className="size-11 shrink-0 rounded-full bg-muted object-cover" loading="lazy" referrerPolicy="no-referrer" /> : <MonitorPlay aria-hidden="true" className="size-11 shrink-0" />}
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2"><span className="truncate font-semibold">{name}</span>{isLive ? <span className="rounded bg-destructive px-1.5 py-0.5 text-[10px] font-bold text-white">LIVE</span> : null}</span>
                 <span className="mt-1 block truncate text-xs text-muted-foreground">{isLive ? source.liveStatus?.liveTitle || "방송 중" : isOffline ? "방송 중이 아닙니다" : pending ? "상태 확인 중" : "상태 확인 불가"}</span>
@@ -82,7 +87,10 @@ function MemberPicker({ sources, ids, onToggle, loading, membersLoading, hasLoad
               <span aria-hidden="true" className={cn("grid size-5 shrink-0 place-items-center rounded border", selected ? "border-primary bg-primary text-primary-foreground" : "border-input")}>
                 {selected ? <Check className="size-3.5" /> : null}
               </span>
-            </button>;
+            </button>{source.saved && !source.member && onRemove ? <DropdownMenu>
+              <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="m-1 min-h-11 min-w-11 self-center" aria-label={`${name} 채널 메뉴`} disabled={deletingIds.includes(source.channelId)}><MoreHorizontal aria-hidden="true" /></Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="end"><DropdownMenuItem variant="destructive" className="min-h-11" aria-label={`${name} 저장 목록에서 삭제`} onSelect={() => onRemove(source.channelId)}><Trash2 aria-hidden="true" />저장 목록에서 삭제</DropdownMenuItem></DropdownMenuContent>
+            </DropdownMenu> : null}</div>;
           })}</div>}
       </section>
     ))}
@@ -99,7 +107,8 @@ function MemberPicker({ sources, ids, onToggle, loading, membersLoading, hasLoad
 export function MultiviewPage() {
   const [ids, setIds] = useState(initialChannels);
   const { loading: membersLoading, members } = useScheduleData();
-  const { sources, loading, hasLoaded, isError, reload } = useMultiviewSources(members);
+  const personal = usePersonalMultiview();
+  const { sources, loading, hasLoaded, isError, reload } = useMultiviewSources(members, { channels: personal.channels, statuses: personal.statuses, loading: personal.statusLoading, isError: Boolean(personal.statusError) });
 
   useEffect(() => {
     const params = buildMultiviewSearchParams({ channelIds: ids });
@@ -112,8 +121,9 @@ export function MultiviewPage() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  const pickerProps = { sources, loading, membersLoading, hasLoaded, isError, reload: () => { void reload(); } };
+  const pickerProps = { sources, loading, membersLoading, hasLoaded, isError, reload: () => { void reload(); void personal.reload(); }, deletingIds: personal.deletingIds, onRemove: (id: string) => { void personal.remove(id).catch(() => {}); } };
   const toggle = (id: string) => setIds((current) => toggleSelection(current, id));
+  const returnParams = buildMultiviewSearchParams({ channelIds: ids });
 
   return <main data-testid="multiview-root" className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-background text-foreground">
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -127,6 +137,7 @@ export function MultiviewPage() {
               <a href="https://chromewebstore.google.com/detail/mullive-plus/pahcphmhihleneomklgfbbneokhjiaim" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1 font-medium text-foreground underline underline-offset-4">Mul.Live Plus 설치<ExternalLink aria-hidden="true" className="size-4" /></a>
             </AlertDescription>
           </Alert>
+          <PersonalChannelManager key={personal.owner ?? "anonymous"} personal={personal} returnUrl={`/multiview${returnParams.size ? `?${returnParams}` : ""}`} />
           <MemberPicker {...pickerProps} ids={ids} onToggle={toggle} />
         </div>
       </div>

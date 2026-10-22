@@ -82,6 +82,8 @@ const methodNotAllowed = (methods: readonly WorkerRouteMethodContract[]) =>
     status: 405,
     headers: {
       Allow: methods.map(({ method }) => method).join(", "),
+      ...(methods.some(({ auth, cache }) => auth === "member-policy" && cache === "no-store")
+        ? { "Cache-Control": "no-store", Vary: "Authorization, Cookie" } : {}),
     },
   });
 

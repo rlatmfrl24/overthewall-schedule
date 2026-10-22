@@ -1037,6 +1037,13 @@
       "when": 1792483319392,
       "tag": "0148_soft_power_pack",
       "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "6",
+      "when": 1792636239024,
+      "tag": "0149_multiview_channels",
+      "breakpoints": true
     }
   ]
 }

@@ -38,6 +38,7 @@ export interface Env {
   OTW_PLAY_ANALYTICS_READ_TOKEN?: string;
   OTW_PLAY_ANALYTICS?: AnalyticsEngineDataset;
   OTW_PLAY_SUBMISSION_RATE_LIMITER?: RateLimit;
+  MULTIVIEW_RATE_LIMITER?: RateLimit;
   OTW_PLAY_INGESTION_QUEUE?: Queue<unknown>;
   OTW_OPS_CONTROL_QUEUE?: Queue<unknown>;
   OTW_OPS_CRITICAL_QUEUE?: Queue<unknown>;

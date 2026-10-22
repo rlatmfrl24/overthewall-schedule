@@ -265,7 +265,7 @@ const getOrCreateInFlight = async <T>(
 
 export const fetchChzzkLiveStatusWithDebug = async (
   channelId: string,
-  options: Pick<ChzzkFetchOptions, "forceRefresh"> = {},
+  options: Pick<ChzzkFetchOptions, "forceRefresh"> & { signal?: AbortSignal } = {},
 ) => {
   const cached = LIVE_STATUS_CACHE.get(channelId);
   const now = Date.now();
@@ -291,11 +291,13 @@ export const fetchChzzkLiveStatusWithDebug = async (
   let lastErrorBody: string | null = null;
 
   for (const delayMs of retryDelays) {
+    if (options.signal?.aborted) { lastError = "network_error"; break; }
     if (delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     try {
       const res = await fetch(url, {
+        signal: options.signal,
         headers: {
           Accept: "application/json, text/plain, */*",
           "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -340,7 +342,10 @@ export const fetchChzzkLiveStatusWithDebug = async (
         break;
       }
 
+      if (data?.code !== 200) { lastError = "invalid_response"; break; }
       const content = data?.content ?? null;
+      LIVE_STATUS_CACHE.delete(channelId);
+      if (LIVE_STATUS_CACHE.size >= 512) LIVE_STATUS_CACHE.delete(LIVE_STATUS_CACHE.keys().next().value!);
       LIVE_STATUS_CACHE.set(channelId, {
         fetchedAt: Date.now(),
         content,

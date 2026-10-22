@@ -4,7 +4,16 @@ import { workerRouteManifest, workerRouteRegistry } from "./routes";
 
 const env = {} as Env;
 // Independent security/cache contracts, grouped to avoid a second route registry.
+it("keeps unsupported methods on private multiview routes uncacheable", async () => {
+  const response = await workerRouteRegistry.dispatch(new Request("https://example.com/api/multiview/me/channels", { method: "PATCH" }), env);
+  expect(response?.status).toBe(405);
+  expect(response?.headers.get("Cache-Control")).toBe("no-store");
+  expect(response?.headers.get("Vary")).toBe("Authorization, Cookie");
+});
 const expectedPolicies = [
+  {method:"GET",auth:"member-policy",successStatus:200,cache:"no-store",paths:["/api/multiview/me/channels","/api/multiview/me/live-status"]},
+  {method:"POST",auth:"member-policy",successStatus:200,cache:"no-store",paths:["/api/multiview/me/channels"]},
+  {method:"DELETE",auth:"member-policy",successStatus:200,cache:"no-store",paths:["/api/multiview/me/channels/:channelId"]},
   {method:'GET',auth:'optional',successStatus:200,cache:'no-store',paths:['/api/publication-status']},
   {method:'HEAD',auth:'optional',successStatus:200,cache:'no-store',paths:['/api/publication-status']},
   {method:"GET",auth:"admin",successStatus:200,cache:"no-store",paths:["/api/assets/protected-reference"]},
@@ -320,6 +329,7 @@ describe("OTW Worker route manifest", () => {
       "members",
       "naver-cafe",
       "notices",
+      "multiview",
       "operations",
       "otw-play",
       "schedule-board",
