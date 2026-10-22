@@ -29,4 +29,5 @@ overrides:
   rollup: 4.60.4
 
 patchedDependencies:
+  wrangler@4.124.0: patches/wrangler@4.124.0.patch
   wrangler@4.129.1: patches/wrangler@4.129.1.patch
