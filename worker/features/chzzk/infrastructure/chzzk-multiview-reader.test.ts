@@ -8,6 +8,17 @@ const reader = new ChzzkMultiviewReader();
 beforeEach(() => { clearChzzkServiceCachesForTests(); vi.spyOn(console, "error").mockImplementation(() => undefined); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe("existing public CHZZK channel reader for personal channels", () => {
+  it.each([{ unexpected: "value" }, "", "   ", 15, null])("omits an invalid optional name while keeping healthy status and the saved-name fallback", async channelName => {
+    vi.stubGlobal("fetch", async () => Response.json({ code: 200, content: { ...live(id), channelName } }));
+    const { channelName: unusedName, ...safeContent } = live(id);
+    void unusedName;
+    expect(await reader.readLiveStatuses([id])).toEqual([{ channelId: id, content: safeContent }]);
+  });
+  it("drops malformed optional image and date fields at the provider boundary", async () => {
+    const core = { channelId: id, status: "OPEN", liveTitle: "Live", concurrentUserCount: 10 };
+    vi.stubGlobal("fetch", async () => Response.json({ code: 200, content: { ...core, channelImageUrl: {}, liveImageUrl: 1, defaultThumbnailImageUrl: [], openDate: {} } }));
+    expect(await reader.readLiveStatuses([id])).toEqual([{ channelId: id, content: core }]);
+  });
   it("accepts the actual polling response without channel metadata fields", async () => {
     const actual = { status: "CLOSE", channelId: id, liveTitle: "Last stream", concurrentUserCount: 235, openDate: "2026-10-21 20:00:00" };
     vi.stubGlobal("fetch", async () => Response.json({ code: 200, content: actual }));

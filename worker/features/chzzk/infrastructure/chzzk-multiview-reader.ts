@@ -6,10 +6,18 @@ const imageUrl = (value: unknown): string | null => {
   try { const url = new URL(value); return url.protocol === "https:" && !url.username && !url.password ? url.href : null; }
   catch { return null; }
 };
-const validLiveContent = (value: unknown, channelId: string): value is MultiviewLiveContentDto => {
-  if (!value || typeof value !== "object") return false;
+const readLiveContent = (value: unknown, channelId: string): MultiviewLiveContentDto | null => {
+  if (!value || typeof value !== "object") return null;
   const content = value as Record<string, unknown>;
-  return content.channelId === channelId && (content.status === "OPEN" || content.status === "CLOSE") && typeof content.liveTitle === "string" && typeof content.concurrentUserCount === "number" && Number.isFinite(content.concurrentUserCount) && content.concurrentUserCount >= 0;
+  if (content.channelId !== channelId || (content.status !== "OPEN" && content.status !== "CLOSE") || typeof content.liveTitle !== "string" || typeof content.concurrentUserCount !== "number" || !Number.isFinite(content.concurrentUserCount) || content.concurrentUserCount < 0) return null;
+  return {
+    channelId, status: content.status, liveTitle: content.liveTitle, concurrentUserCount: content.concurrentUserCount,
+    ...(typeof content.channelName === "string" && content.channelName.trim() ? { channelName: content.channelName.trim() } : {}),
+    ...(typeof content.channelImageUrl === "string" ? { channelImageUrl: content.channelImageUrl } : {}),
+    ...(typeof content.liveImageUrl === "string" ? { liveImageUrl: content.liveImageUrl } : {}),
+    ...(typeof content.defaultThumbnailImageUrl === "string" ? { defaultThumbnailImageUrl: content.defaultThumbnailImageUrl } : {}),
+    ...(typeof content.openDate === "string" || content.openDate === null ? { openDate: content.openDate } : {}),
+  };
 };
 
 export class ChzzkMultiviewReader {
@@ -32,7 +40,7 @@ export class ChzzkMultiviewReader {
         const item = items[cursor++]!;
         try {
           const result = await fetchChzzkLiveStatusWithDebug(item.channelId, { signal: AbortSignal.timeout(5_000) });
-          if (!result.debug.error && !result.debug.staleCacheUsed && validLiveContent(result.content, item.channelId)) item.content = result.content;
+          if (!result.debug.error && !result.debug.staleCacheUsed) item.content = readLiveContent(result.content, item.channelId);
         } catch { /* One channel's failure must not hide the remaining channels. */ }
       }
     }));
