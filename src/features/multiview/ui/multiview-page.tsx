@@ -1,9 +1,10 @@
 import { site } from "@/shared/config/site";
-import { Check, ExternalLink, MonitorPlay, RotateCcw, X } from "lucide-react";
+import { Check, ExternalLink, MonitorPlay, MoreHorizontal, RotateCcw, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/shared/ui/button";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/shared/ui/dropdown-menu";
 import { useScheduleData } from "@/features/schedule-board";
 import { cn } from "@/shared/lib/utils";
 import { buildMulLiveUrl, buildMultiviewSearchParams, MAX_MULTIVIEW_CHANNELS, parseMultiviewUrlState } from "../model/multiview-utils";
@@ -73,11 +74,10 @@ function MemberPicker({ sources, ids, onToggle, loading, membersLoading, hasLoad
             const name = sourceName(source);
             const isLive = !failed(source) && source.isLive;
             const isOffline = !failed(source) && source.liveStatus?.status === "CLOSE";
-            return <div key={source.channelId} className="flex min-w-0 items-stretch gap-1"><button type="button" aria-pressed={selected} disabled={disabled}
+            return <div key={source.channelId} role="group" aria-label={`${name} 채널`} className={cn("flex min-w-0 items-stretch rounded-xl border transition-colors", selected ? "border-primary bg-primary/10" : "border-border bg-card")}><button type="button" aria-pressed={selected} disabled={disabled}
               aria-label={disabled ? `${name} 선택 불가 (최대 ${MAX_MULTIVIEW_CHANNELS}개)` : `${name} ${selected ? "선택 해제" : "선택"}`}
               onClick={() => onToggle(source.channelId)}
-              className={cn("flex min-h-20 min-w-0 flex-1 items-center gap-3 rounded-xl border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
-                selected ? "border-primary bg-primary/10" : "border-border bg-card hover:bg-accent")}>
+              className="flex min-h-20 min-w-0 flex-1 items-center gap-3 rounded-xl p-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
               {source.member ? <img src={`/profile/${source.member.code}.webp`} alt="" className="size-11 shrink-0 rounded-full bg-muted object-cover" loading="lazy" /> : source.saved?.channelImageUrl ? <img src={source.saved.channelImageUrl} alt="" className="size-11 shrink-0 rounded-full bg-muted object-cover" loading="lazy" referrerPolicy="no-referrer" /> : <MonitorPlay aria-hidden="true" className="size-11 shrink-0" />}
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2"><span className="truncate font-semibold">{name}</span>{isLive ? <span className="rounded bg-destructive px-1.5 py-0.5 text-[10px] font-bold text-white">LIVE</span> : null}</span>
@@ -87,7 +87,10 @@ function MemberPicker({ sources, ids, onToggle, loading, membersLoading, hasLoad
               <span aria-hidden="true" className={cn("grid size-5 shrink-0 place-items-center rounded border", selected ? "border-primary bg-primary text-primary-foreground" : "border-input")}>
                 {selected ? <Check className="size-3.5" /> : null}
               </span>
-            </button>{source.saved && onRemove ? <Button variant="ghost" size="icon" className="min-h-11 min-w-11 self-center" aria-label={`${name} 저장 목록에서 삭제`} disabled={deletingIds.includes(source.channelId)} onClick={() => onRemove(source.channelId)}><X aria-hidden="true" /></Button> : null}</div>;
+            </button>{source.saved && !source.member && onRemove ? <DropdownMenu>
+              <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="m-1 min-h-11 min-w-11 self-center" aria-label={`${name} 채널 메뉴`} disabled={deletingIds.includes(source.channelId)}><MoreHorizontal aria-hidden="true" /></Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="end"><DropdownMenuItem variant="destructive" className="min-h-11" aria-label={`${name} 저장 목록에서 삭제`} onSelect={() => onRemove(source.channelId)}><Trash2 aria-hidden="true" />저장 목록에서 삭제</DropdownMenuItem></DropdownMenuContent>
+            </DropdownMenu> : null}</div>;
           })}</div>}
       </section>
     ))}

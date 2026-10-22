@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createMemberFixture } from "@/test/member-fixtures";
@@ -48,11 +48,28 @@ it("adds through the form, reads back, selects beside a default member and delet
   fireEvent.click(await screen.findByRole("button", { name: "기본 멤버 선택" }));
   await waitFor(() => expect(new URLSearchParams(window.location.search).getAll("c")).toEqual([id, defaultId]));
   expect(screen.getByRole("link", { name: /Mul.Live에서 보기/ }).getAttribute("href")).toBe(`https://mul.live/${id}/${defaultId}`);
-  fireEvent.click(screen.getByRole("button", { name: "개인 채널 저장 목록에서 삭제" }));
+  const card = screen.getByRole("group", { name: "개인 채널 채널" });
+  fireEvent.keyDown(within(card).getByRole("button", { name: "개인 채널 채널 메뉴" }), { key: "Enter" });
+  fireEvent.click(await screen.findByRole("menuitem", { name: "개인 채널 저장 목록에서 삭제" }));
   await waitFor(() => expect(rows).toEqual([]));
-  await waitFor(() => expect(screen.queryByRole("button", { name: "개인 채널 저장 목록에서 삭제" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("button", { name: "개인 채널 채널 메뉴" })).toBeNull());
   expect(new URLSearchParams(window.location.search).getAll("c")).toEqual([id, defaultId]);
   expect(document.querySelector("iframe")).toBeNull();
+});
+it("protects site members even when their channel also appears in the personal saved list", async () => {
+  rows = [saved(defaultId, "중복 저장된 멤버"), saved(id)];
+  mount();
+  await screen.findByRole("button", { name: "개인 채널 선택" });
+  expect(screen.queryByRole("button", { name: "기본 멤버 저장 목록에서 삭제" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "기본 멤버 채널 메뉴" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "기본 멤버 선택" }));
+  expect(new URLSearchParams(window.location.search).getAll("c")).toEqual([defaultId]);
+  fireEvent.keyDown(screen.getByRole("button", { name: "개인 채널 채널 메뉴" }), { key: "Enter" });
+  expect(screen.queryByRole("menuitem", { name: "기본 멤버 저장 목록에서 삭제" })).toBeNull();
+  fireEvent.click(await screen.findByRole("menuitem", { name: "개인 채널 저장 목록에서 삭제" }));
+  await waitFor(() => expect(rows).toEqual([saved(defaultId, "중복 저장된 멤버")]));
+  expect(screen.getByRole("button", { name: "기본 멤버 선택 해제" })).toBeTruthy();
+  expect(new URLSearchParams(window.location.search).getAll("c")).toEqual([defaultId]);
 });
 it("retains anonymous member selection and avoids all personal requests", async () => {
   session.isSignedIn = false;
