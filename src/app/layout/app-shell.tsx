@@ -14,6 +14,7 @@ import { useState, type ComponentProps, type ReactNode } from "react";
 import {
   getPublicSidebarMode,
   isNavItemActive,
+  relatedScheduleLink,
   type NavItem,
   type NavSection,
   usePublicNavigationSections,
@@ -41,6 +42,13 @@ type PublicAppShellProps = {
   children: ReactNode;
 };
 
+type ScheduleLinkPreference = {
+  showRelatedScheduleLink: boolean;
+  onRelatedScheduleLinkChange: (show: boolean) => void;
+};
+
+const SCHEDULE_LINK_STORAGE_KEY = `${site.id}-related-schedule-link-visible`;
+
 type NavItemLinkProps = {
   item: NavItem;
   collapsed?: boolean;
@@ -49,14 +57,33 @@ type NavItemLinkProps = {
 
 export function PublicAppShell({ children }: PublicAppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [showRelatedScheduleLink, setShowRelatedScheduleLink] = useState(() => {
+    try {
+      return localStorage.getItem(SCHEDULE_LINK_STORAGE_KEY) !== "false";
+    } catch {
+      return true;
+    }
+  });
+  const scheduleLinkPreference: ScheduleLinkPreference = {
+    showRelatedScheduleLink,
+    onRelatedScheduleLinkChange: (show) => {
+      setShowRelatedScheduleLink(show);
+      try {
+        localStorage.setItem(SCHEDULE_LINK_STORAGE_KEY, String(show));
+      } catch {
+        // Keep the switch usable when browser storage is unavailable.
+      }
+    },
+  };
   const location = useLocation();
-  const sections = usePublicNavigationSections();
+  const sections = usePublicNavigationSections(showRelatedScheduleLink);
   const sidebarMode = getPublicSidebarMode(location.pathname);
 
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden bg-background font-sans text-foreground">
       {sidebarMode === "compact" ? (
         <PublicSidebar
+          {...scheduleLinkPreference}
           sections={sections}
           collapsed
           className="hidden lg:flex"
@@ -64,11 +91,12 @@ export function PublicAppShell({ children }: PublicAppShellProps) {
       ) : (
         <>
           <PublicSidebar
+            {...scheduleLinkPreference}
             sections={sections}
             collapsed
             className="hidden lg:flex xl:hidden"
           />
-          <PublicSidebar sections={sections} className="hidden xl:flex" />
+          <PublicSidebar {...scheduleLinkPreference} sections={sections} className="hidden xl:flex" />
         </>
       )}
 
@@ -100,7 +128,7 @@ export function PublicAppShell({ children }: PublicAppShellProps) {
           <BrandLink compact onNavigate={() => setMobileOpen(false)} />
 
           <div className="ml-auto flex items-center gap-2">
-            <PublicUserMenu compact />
+            <PublicUserMenu {...scheduleLinkPreference} compact />
           </div>
         </header>
 
@@ -116,11 +144,12 @@ function PublicSidebar({
   sections,
   collapsed = false,
   className,
+  ...scheduleLinkPreference
 }: {
   sections: NavSection[];
   collapsed?: boolean;
   className?: string;
-}) {
+} & ScheduleLinkPreference) {
   return (
     <aside
       className={cn(
@@ -151,7 +180,7 @@ function PublicSidebar({
           collapsed ? "justify-center px-0" : "px-3",
         )}
       >
-        <PublicUserMenu compact={collapsed} side="top" />
+        <PublicUserMenu {...scheduleLinkPreference} compact={collapsed} side="top" />
       </div>
     </aside>
   );
@@ -330,10 +359,12 @@ function BrandLink({
 function PublicUserMenu({
   compact = false,
   side = "bottom",
+  showRelatedScheduleLink,
+  onRelatedScheduleLinkChange,
 }: {
   compact?: boolean;
   side?: "top" | "bottom";
-}) {
+} & ScheduleLinkPreference) {
   const { user } = useUser();
   const { preferenceEnabled, setEnabled } = useAnimations();
   const displayName = user?.username || user?.fullName || user?.firstName || (user ? "회원" : "게스트");
@@ -384,6 +415,10 @@ function PublicUserMenu({
           <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-1 text-sm">
             애니메이션 활성화
             <Switch checked={preferenceEnabled} onCheckedChange={setEnabled} aria-label="애니메이션 활성화" />
+          </label>
+          <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-1 text-sm">
+            {relatedScheduleLink.label} 표시
+            <Switch checked={showRelatedScheduleLink} onCheckedChange={onRelatedScheduleLinkChange} aria-label={`${relatedScheduleLink.label} 표시`} />
           </label>
         </div>
         <div className="border-t p-1.5">

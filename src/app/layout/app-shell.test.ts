@@ -62,11 +62,19 @@ vi.mock("@tanstack/react-router", async () => {
   };
 });
 
-vi.mock("./app-navigation", () => ({
-  getPublicSidebarMode: () => "compact",
-  isNavItemActive: () => false,
-  usePublicNavigationSections: () => [],
-}));
+vi.mock("./app-navigation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./app-navigation")>();
+  return {
+    ...actual,
+    getPublicSidebarMode: () => "compact",
+    isNavItemActive: () => false,
+    usePublicNavigationSections: (showRelatedScheduleLink = true) => actual.getPublicNavigationSections({
+      isAdmin: false,
+      memberPosts: { visible: false, requiresAuth: false },
+      showRelatedScheduleLink,
+    }),
+  };
+});
 
 import { AnimationProvider } from "@/shared/ui/animation-provider";
 import { PublicAppShell } from "./app-shell";
@@ -80,6 +88,46 @@ describe("PublicAppShell", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("lets guests hide and restore the related schedule link and remembers it across visits", () => {
+    clerkState.status = "signed-out";
+    const app = () => React.createElement(PublicAppShell, null, "content");
+    const first = render(app());
+    const link = screen.getByRole("link", { name: "러브다이아 스케쥴" });
+    expect(link.getAttribute("href")).toBe("https://luvdia-schedule.info");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    fireEvent.click(screen.getAllByRole("button", { name: /사용자 메뉴$/ })[0]);
+    const toggle = screen.getByRole("switch", { name: "러브다이아 스케쥴 표시" });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("link", { name: "러브다이아 스케쥴" })).toBeNull();
+    expect(screen.getByRole("link", { name: "공식 팬카페" })).toBeTruthy();
+    expect(localStorage.getItem("otw-related-schedule-link-visible")).toBe("false");
+    first.unmount();
+
+    render(app());
+    expect(screen.queryByRole("link", { name: "러브다이아 스케쥴" })).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: /사용자 메뉴$/ })[0]);
+    const restoredToggle = screen.getByRole("switch", { name: "러브다이아 스케쥴 표시" });
+    expect(restoredToggle.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(restoredToggle);
+    expect(screen.getByRole("link", { name: "러브다이아 스케쥴" })).toBeTruthy();
+    expect(localStorage.getItem("otw-related-schedule-link-visible")).toBe("true");
+  });
+
+  it("keeps the link switch usable when browser storage is blocked", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: () => { throw new Error("storage blocked"); },
+      setItem: () => { throw new Error("storage blocked"); },
+    });
+    render(React.createElement(PublicAppShell, null, "content"));
+    expect(screen.getByRole("link", { name: "러브다이아 스케쥴" })).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: /사용자 메뉴$/ })[0]);
+    fireEvent.click(screen.getByRole("switch", { name: "러브다이아 스케쥴 표시" }));
+    expect(screen.queryByRole("link", { name: "러브다이아 스케쥴" })).toBeNull();
   });
 
   it("persists the profile animation switch across remounts", () => {
