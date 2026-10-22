@@ -87,3 +87,14 @@ SELECT COUNT(*) AS saved_count FROM multiview_channels;
 - 실제 OTW Chrome에서 기본 Local Mina/Local Sora에는 메뉴가 없고 기존 개인 채널에는 카드 안 메뉴가 있는 것을 확인했다. 정상 추가 팝업으로 임시 실재 채널을 저장해 1→2/30, 기본 멤버와 함께 선택→더보기 삭제→1/30을 확인했다. 새로고침한 서버 목록에서도 기존 사용자 저장 채널은 남고 임시 채널만 사라졌으며 기본 멤버·두 선택 ID·Mul.Live 주소는 유지됐다. 원래 사용자 저장 행을 삭제하지 않았다. 로컬 기본 멤버가 fixtures인 기존 한계는 유지한다.
 - 좁은 브라우저 화면에서 카드 내부 버튼과 메뉴를 직접 확인하고 viewport를 복원했다. 실제 모바일 기기 검증은 아니다.
 - 변경 파일 ESLint, `pnpm architecture:check`, `pnpm typecheck:test`, 양 사이트 production build/artifact manifest 모두 PASS. API/DB/migration 변경은 없으며 기존 서버 격리 증거를 재사용했다. 이번에는 배포·원격 작업·전체 preflight를 실행하지 않았다.
+
+## PR·운영 반영 준비 — 2026-10-22
+
+사용자가 전체 검토 후 PR 생성·병합과 양 사이트 배포를 승인했다. 위의 로컬 단계에서 하지 않았던 원격 작업을 이번 단계에서 진행하며, 최종 배포·실제 운영 흐름 판정은 [PR #188](https://github.com/rlatmfrl24/overthewall-schedule/pull/188)의 댓글에 남긴다.
+
+- 최신 master `5d907f90cbee618f94bee8e5633551d6ede3fa14`를 반영한 `36bedf3c2b9b5aae44e7715c1a1183b2c5176b81`에서 전체 49개 변경 파일을 검토했다. 남은 Critical/Important 지적은 없다. 기본 멤버 보호, 본인 추가 채널만 카드 내부 삭제, 사이트별 30개·동시 8개·비회원 흐름 유지가 최종 계약이다.
+- 공식 `pnpm preflight` 전체가 종료 코드 0이다. 391개 파일·3,208개 테스트와 동기화 스크립트 10개 검사, 구조·타입·린트·OTW build/artifact manifest·로컬 D1 doctor·정책 동기화가 PASS다. 시간 제한·병렬 worker·검증 조건을 완화하지 않았다.
+- GitGuardian incident 38841344는 입력 URL의 인증 정보를 거부하는 조건에서 `url.port` 속성을 Generic Password로 감지했다. 실제 비밀값이 없어 해당 단일 incident를 `Not a secret (false positive)`로 분류하고 대시보드 readback을 확인했다. 탐지 규칙이나 전체 보안 검사를 끄지 않았다. Cloudflare PR build `c36261de-dd60-409c-9be9-7cdb33bc98f2`는 SUCCESS이며 운영 master 배포와 구분한다.
+- 05:14 UTC 계정 합산 D1 읽기는 153,869행으로 배경 상한 4,000,000행 아래였다. 양 DB의 대기 migration이 0149 하나임을 확인한 뒤 정식 Wrangler migration 경로로 각각 적용했다. 양쪽 migration head·새 테이블·복합 PK·인덱스·빈 저장 목록을 SELECT로 확인했다. 기존 행 변경·backfill·DROP은 없으며 양쪽 Play 자동화 중지 `true`를 보존했다.
+
+OTW는 master 병합 자동 배포, LuvDia는 같은 병합 소스의 정상 수동 배포를 따른다. 별도 실제 계정/기기·모바일 실기기·실제 방송 재생은 여전히 미검증이며 위 테스트를 해당 실제 수용 결과로 바꾸지 않는다.
