@@ -34,7 +34,7 @@ const resolveAuthorizedActor = async (
   if (env.SITE_ID === "luvdia") actor.isAdmin = authenticatedUser !== null && isAdminUser(env, authenticatedUser.id);
   const requestId=request.headers.get("Idempotency-Key");
   if(requestId && /^[A-Za-z0-9_-]{16,100}$/.test(requestId)) actor.requestId=requestId;
-  const authorized = (env.SITE_ID!=="luvdia" || authenticatedUser!==null) && await service.canWrite(operation, actor, input);
+  const authorized = await service.canWrite(operation, actor, input);
   return { authorized, actor };
 };
 
