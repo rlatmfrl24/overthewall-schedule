@@ -21,6 +21,7 @@ import {
 import { hasScheduledYouTubeFeedWork } from "../../youtube";
 import { editableCollectorSql, publicationHiddenSql } from "../../content-access";
 import { getDb } from "../../../platform/db";
+import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import type { Env } from "../../../platform/types";
 import { extractChzzkChannelId } from "../../../platform/http-helpers";
 import { getLaneForJob } from "../../../platform/scheduled-jobs";
@@ -80,7 +81,7 @@ const planNaverCafeCollection = async (
   const lastCheckedBySource = new Map(
     sources.map((source) => [
       source.id,
-      Number(source.last_attempt_at ?? source.last_success_at) || 0,
+      collectionCadenceAnchor(source.cadence_anchor_at, Number(source.last_attempt_at ?? source.last_success_at) || 0),
     ]),
   );
   const latestPostBySource = new Map(

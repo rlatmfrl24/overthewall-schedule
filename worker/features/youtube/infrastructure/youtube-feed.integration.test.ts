@@ -103,6 +103,20 @@ afterEach(async () => {
 });
 
 describe("YouTube public Shorts storage cost", () => {
+  it.each(["scheduled", "manual"] as const)("keeps actual source timestamps and anchors only %s feed cadence", async origin => {
+    const slot = Date.parse("2026-10-22T23:23:00Z"), actual = slot + 45_000;
+    vi.spyOn(Date, "now").mockReturnValue(actual);
+    await seedSource();
+    await database.prepare("UPDATE youtube_feed_sources SET next_check_at=?").bind(slot).run();
+    fakeYouTube(0);
+    expect(await runScheduledYouTubeFeedCollection({ ...testEnv, YOUTUBE_API_KEY: "test" }, origin, slot)).toMatchObject({ succeeded: 1, failed: 0 });
+    expect(await database.prepare("SELECT last_attempt_at,last_success_at,next_check_at FROM youtube_feed_sources WHERE id=1").first()).toEqual({
+      last_attempt_at: actual, last_success_at: actual, next_check_at: (origin === "scheduled" ? slot : actual) + 6 * 3_600_000,
+    });
+    expect(await hasScheduledYouTubeFeedWork({ ...testEnv, YOUTUBE_API_KEY: "test" }, slot + 6 * 3_600_000 - 1)).toBe(false);
+    expect(await hasScheduledYouTubeFeedWork({ ...testEnv, YOUTUBE_API_KEY: "test" }, slot + 6 * 3_600_000)).toBe(origin === "scheduled");
+  });
+
   it("serves an initialized complete page repeatedly without registry writes or legacy cache scans", async () => {
     await seedSource();
     await seedLegacyCache();

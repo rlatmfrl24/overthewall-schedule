@@ -5,6 +5,7 @@ import { naverCafeSources, type NaverCafeSource } from "@db/schema";
 import { and, asc, isNull, sql } from "drizzle-orm";
 import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
 import { getDb } from "../../../platform/db";
+import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import { pMap } from "../../../platform/http-helpers";
 import type { Env } from "../../../platform/types";
 import {
@@ -472,6 +473,7 @@ const writeNaverSourceState = async (
     syncBase?: number | null;
     syncNewest?: number | null;
     attemptedAt: number;
+    cadenceAnchorAt?: number;
     succeededAt?: number | null;
     nextCheckAt: number;
     errorCode?: string | null;
@@ -485,7 +487,7 @@ const writeNaverSourceState = async (
        collection_started_at = COALESCE(collection_started_at, ?),
        initialization_completed_at = COALESCE(?, initialization_completed_at),
        last_seen_article_id = ?, sync_page = ?, sync_base_article_id = ?,
-       sync_newest_article_id = ?, last_attempt_at = ?,
+       sync_newest_article_id = ?, last_attempt_at = ?, cadence_anchor_at = ?,
        last_success_at = COALESCE(?, last_success_at), next_check_at = ?,
        consecutive_failures = CASE WHEN ? IS NULL THEN 0 ELSE consecutive_failures + 1 END,
        last_error_code = ?, updated_at = CURRENT_TIMESTAMP
@@ -498,6 +500,7 @@ const writeNaverSourceState = async (
     values.syncBase ?? null,
     values.syncNewest ?? null,
     values.attemptedAt,
+    values.cadenceAnchorAt ?? values.attemptedAt,
     values.succeededAt ?? null,
     values.nextCheckAt,
     values.errorCode ?? null,
@@ -511,8 +514,10 @@ const collectNaverSourceNewFeed = async (
   source: NaverCafeSourceInput,
   cacheDb: D1Database | undefined,
   siteId: SiteId,
+  scheduledFor?: number | null,
 ) => {
   const attemptedAt = now();
+  const cadenceAnchorAt = collectionCadenceAnchor(scheduledFor, attemptedAt);
   if (cacheDb && getHiddenMemberCodes(siteId, attemptedAt).length && await cacheDb.prepare(
     `SELECT 1 FROM naver_cafe_sources s WHERE s.id=? AND ${publicationHiddenSql("naver_cafe_sources", "s", siteId)}`,
   ).bind(source.id).first()) throw new NaverCafeSourceError("source_cutover", "disabled");
@@ -541,6 +546,7 @@ const collectNaverSourceNewFeed = async (
       if (!initialized) {
         await writeNaverSourceState(cacheDb, source, {
           initializedAt: attemptedAt,
+          cadenceAnchorAt,
           collectionStartedAt: startedAt,
           lastSeen: newestId,
           attemptedAt,
@@ -572,6 +578,7 @@ const collectNaverSourceNewFeed = async (
       syncPage: complete ? null : startPage + pagesRead,
       syncBase: complete ? null : baseId,
       syncNewest: complete ? null : newestId,
+      cadenceAnchorAt: complete ? cadenceAnchorAt : attemptedAt,
       attemptedAt,
       succeededAt: now(),
       nextCheckAt: now() + (collected.length > 0 ? 60 : 180) * 60_000,
@@ -1024,6 +1031,7 @@ export const collectNaverCafePostsForSources = async (
     cacheDb?: D1Database;
     size?: number;
     trigger: NaverCafeCollectionTrigger;
+    scheduledFor?: number | null;
     siteId?: SiteId;
   },
 ): Promise<NaverCafeCollectionResult> => {
@@ -1059,7 +1067,8 @@ export const collectNaverCafePostsForSources = async (
           return { posts: [], source: sourceToStatus(source, "disabled") };
         }
         try {
-          const result = await collectNaverSourceNewFeed(source, options.cacheDb, options.siteId??"otw");
+          const result = await collectNaverSourceNewFeed(source, options.cacheDb, options.siteId??"otw",
+            options.trigger === "scheduled" ? options.scheduledFor : undefined);
           return {
             posts: result.posts,
             source: sourceToStatus(source, "ok", {

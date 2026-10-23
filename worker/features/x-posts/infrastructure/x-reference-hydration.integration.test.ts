@@ -279,6 +279,25 @@ describe("X replies use stored context or a completed relation", () => {
 });
 
 describe("X durable reference hydration", () => {
+  it.each([null, "page2"])("anchors scheduled source cadence but keeps actual continuation time (%s)", async nextToken => {
+    const slot = Date.parse("2026-10-22T23:23:00Z"), actual = slot + 45_000;
+    vi.spyOn(Date, "now").mockReturnValue(actual);
+    await db.prepare("INSERT INTO settings(key,value) VALUES('x_cost_optimizer_enabled','true'),('x_collection_interval_hours','0.5'),('x_reference_preview_mode','link_only')").run();
+    await db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at) VALUES('member','1','member','100',0,0,1)").run();
+    vi.mocked(fetch).mockImplementation(async input => {
+      const url = new URL(String(input));
+      if (url.pathname === "/2/users/by") return json({ data: [{ id: "1", username: "member" }] });
+      if (url.pathname === "/2/users/1/tweets") return json({ data: [{ id: "200", text: "new", created_at: new Date(actual).toISOString() }], meta: nextToken ? { next_token: nextToken } : {} });
+      throw new Error(`Unexpected provider ${url.pathname}`);
+    });
+    expect(await runXCollectionForHandles({ ...testEnv, X_BEARER_TOKEN: "test" }, ["member"], "scheduled", slot)).toMatchObject({ postsStored: 1 });
+    expect(await db.prepare("SELECT last_seen_post_id,sync_pagination_token,last_attempt_at,last_success_at,next_check_at,lease_token FROM x_post_sources WHERE handle='member'").first()).toEqual({
+      last_seen_post_id: nextToken ? "100" : "200", sync_pagination_token: nextToken,
+      last_attempt_at: actual, last_success_at: actual,
+      next_check_at: nextToken ? actual + 15 * 60_000 : slot + 30 * 60_000, lease_token: null,
+    });
+  });
+
   it.each(["100", null])(
     "does not acknowledge a partial page when cursor persistence fails (base %s)",
     async (base) => {

@@ -1323,6 +1323,7 @@ export const naverCafeSources = sqliteTable(
     sync_page: integer("sync_page"),
     sync_base_article_id: integer("sync_base_article_id"),
     sync_newest_article_id: integer("sync_newest_article_id"),
+    cadence_anchor_at: integer("cadence_anchor_at"),
     last_attempt_at: integer("last_attempt_at"),
     last_success_at: integer("last_success_at"),
     next_check_at: integer("next_check_at"),

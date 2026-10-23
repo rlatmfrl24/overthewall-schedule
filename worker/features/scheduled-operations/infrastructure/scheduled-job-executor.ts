@@ -21,7 +21,7 @@ import {
   scanAndPersistRecentChzzkObservations,
   type AutoUpdateResult,
 } from "../../schedules";
-import { runXCollectionForHandles } from "../../x-posts";
+import { runXCollectionForHandles, recordXCollectionCompletion } from "../../x-posts";
 import { runScheduledYouTubeFeedCollection } from "../../youtube";
 import { getDb } from "../../../platform/db";
 import type { Env } from "../../../platform/types";
@@ -313,7 +313,7 @@ export class ScheduledJobExecutor {
           throw new Error("invalid_x_collection_shard");
         }
         return toXCollectionOutcome(
-          await runXCollectionForHandles(this.env, handles, run.source),
+          await runXCollectionForHandles(this.env, handles, run.source, run.scheduled_for),
         );
       }
       case "naver_cafe_collection": {
@@ -329,6 +329,7 @@ export class ScheduledJobExecutor {
           siteId: parseSiteId(this.env.SITE_ID),
           size: Number(continuation.size) || NAVER_CAFE_COLLECTION_SIZE,
           trigger: run.source,
+          scheduledFor: run.scheduled_for,
         });
         const failed = result.sources.filter((source) =>
           !["ok", "stale", "disabled"].includes(source.status)
@@ -343,7 +344,7 @@ export class ScheduledJobExecutor {
         };
       }
       case "youtube_feed_collection": {
-        const result = await runScheduledYouTubeFeedCollection(this.env, run.source);
+        const result = await runScheduledYouTubeFeedCollection(this.env, run.source, run.scheduled_for);
         return toYouTubeFeedCollectionOutcome(result);
       }
       case "schedule_auto_update": {
@@ -522,10 +523,8 @@ export class ScheduledJobExecutor {
     }
     const completedAt = String(run.finishedAt ?? Date.now());
     if (run.jobType === "x_collection") {
-      await writeSetting(this.env, "x_collection_last_run", completedAt);
-      if (run.status === "succeeded") {
-        await writeSetting(this.env, "x_collection_last_success", completedAt);
-      }
+      await recordXCollectionCompletion(this.env, { completedAt: Number(completedAt), source: run.source,
+        scheduledFor: run.scheduledFor, successful: run.status === "succeeded" });
     } else if (run.jobType === "naver_cafe_collection") {
       await writeSetting(
         this.env,

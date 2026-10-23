@@ -5,6 +5,8 @@ import { meterD1 } from "../../../test-support/d1-meter";
 import { siteEnv } from "../../../test-support/site-env";
 import type { Env } from "../../../platform/types";
 import { ScheduledJobPlanner } from "./scheduled-job-planner";
+import { ScheduledJobExecutor } from "./scheduled-job-executor";
+import { collectNaverCafePostsForSources, readEnabledNaverCafeSources } from "../../naver-cafe";
 import { hasScheduledYouTubeFeedWork, runScheduledYouTubeFeedCollection } from "../../youtube";
 
 const db = env.otw_db;
@@ -23,6 +25,65 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(() => vi.restoreAllMocks());
+
+it.each([1, 3, 6])("plans cafe at the %sh scheduled boundary without rounding actual attempts", async interval => {
+  const id = 900500 + interval;
+  await db.prepare("UPDATE naver_cafe_sources SET enabled=0").run();
+  await seedCafeSource(id, interval).run();
+  await db.prepare("UPDATE naver_cafe_sources SET last_attempt_at=?,cadence_anchor_at=? WHERE id=?")
+    .bind(scheduledFor - interval * hour + 45_000, scheduledFor - interval * hour, id).run();
+  await seedCafePost(id, id, interval === 1 ? 0 : interval === 3 ? 2 : 8).run();
+  const planner = new ScheduledJobPlanner(runtime(), {} as never);
+  expect(await planner.planScheduled("naver_cafe_collection", scheduledFor - 1)).toEqual([]);
+  expect((await planner.planScheduled("naver_cafe_collection", scheduledFor))[0].continuation).toMatchObject({ sourceIds: [id] });
+});
+
+it.each(["scheduled", "manual"] as const)("persists cafe actual timestamps and %s cadence in the same progress update", async trigger => {
+  const actual = scheduledFor + 45_000, id = trigger === "scheduled" ? 900611 : 900612;
+  vi.spyOn(Date, "now").mockReturnValue(actual);
+  await db.prepare("UPDATE naver_cafe_sources SET enabled=0").run();
+  await seedCafeSource(id, 6).run();
+  await db.prepare("UPDATE naver_cafe_sources SET collection_started_at=1,initialization_completed_at=1,last_seen_article_id=1 WHERE id=?").bind(id).run();
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ result: { articleList: [] } }));
+  const sources = await readEnabledNaverCafeSources(runtime());
+  expect(await collectNaverCafePostsForSources(sources, { cacheDb: db, siteId: "otw", trigger, scheduledFor })).toMatchObject({ success: true });
+  expect(await db.prepare("SELECT last_attempt_at,last_success_at,cadence_anchor_at FROM naver_cafe_sources WHERE id=?").bind(id).first()).toEqual({
+    last_attempt_at: actual, last_success_at: actual, cadence_anchor_at: trigger === "scheduled" ? scheduledFor : actual,
+  });
+});
+
+const finalizeX = (source: "manual" | "scheduled", status: string, completedAt: number, slot: number, database = db) =>
+  new ScheduledJobExecutor(runtime(database), { readRunDto: async () => ({ jobType: "x_collection", source, status, finishedAt: completedAt, scheduledFor: slot }) } as never)
+    .finalizeLegacyState("fixture-x");
+
+it("atomically records X cadence while preserving real completion and rejecting stale finalizers", async () => {
+  await db.prepare("DELETE FROM settings WHERE key IN ('x_collection_last_run','x_collection_last_success','x_collection_cadence_state')").run();
+  const complete = scheduledFor + 45_000, meter = meterD1(db);
+  await finalizeX("scheduled", "succeeded", complete, scheduledFor, meter.db);
+  expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_last_run'").first("value")).toBe(String(complete));
+  expect(JSON.parse(await db.prepare("SELECT value FROM settings WHERE key='x_collection_cadence_state'").first<string>("value") ?? "null"))
+    .toEqual({ completedAt: complete, anchorAt: scheduledFor });
+  const snapshot = (await db.prepare("SELECT key,value FROM settings WHERE key LIKE 'x_collection_%' ORDER BY key").all()).results;
+  await finalizeX("scheduled", "failed", complete - 1, scheduledFor - hour);
+  expect((await db.prepare("SELECT key,value FROM settings WHERE key LIKE 'x_collection_%' ORDER BY key").all()).results).toEqual(snapshot);
+  const repeat = meterD1(db);
+  await finalizeX("scheduled", "succeeded", complete, scheduledFor, repeat.db);
+  expect(repeat.summary().rowsWritten).toBe(0);
+  await db.prepare("CREATE TRIGGER cadence_fail BEFORE UPDATE ON settings WHEN NEW.key='x_collection_cadence_state' BEGIN SELECT RAISE(ABORT,'cadence write failed'); END").run();
+  try {
+    await expect(finalizeX("scheduled", "succeeded", complete + hour, scheduledFor + hour)).rejects.toThrow();
+    expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_last_run'").first("value")).toBe(String(complete));
+  } finally { await db.prepare("DROP TRIGGER cadence_fail").run(); }
+  console.info("X_CADENCE_STATE_D1_COST", JSON.stringify({ initial: meter.summary(), replay: repeat.summary() }));
+});
+
+it.each([["scheduled", "partial"], ["scheduled", "failed"], ["manual", "succeeded"]] as const)("uses actual time for %s/%s X completion", async (source, status) => {
+  const complete = scheduledFor + 2 * hour;
+  await db.prepare("DELETE FROM settings WHERE key='x_collection_cadence_state' OR key='x_collection_last_run'").run();
+  await finalizeX(source, status, complete, scheduledFor);
+  expect(JSON.parse(await db.prepare("SELECT value FROM settings WHERE key='x_collection_cadence_state'").first<string>("value") ?? "null"))
+    .toEqual({ completedAt: complete, anchorAt: complete });
+});
 
 const seedCafeSource = (id: number, attemptedHoursAgo: number, enabled = 1) => db.prepare(
   `INSERT INTO naver_cafe_sources(id,name,cafe_id,menu_id,cafe_url,enabled,last_attempt_at)

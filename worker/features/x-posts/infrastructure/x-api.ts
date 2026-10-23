@@ -1,4 +1,5 @@
 import type { SiteId } from "@contracts/site-definition";
+import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import { publicationHiddenSql } from "../../content-access";
 import { pMap } from "../../../platform/http-helpers";
 import type {
@@ -206,6 +207,7 @@ type XHandlePostsResult = {
 };
 
 type FetchXPostsForHandlesOptions = {
+  scheduledFor?: number | null;
   siteId?: SiteId;
   storedPage?: import("@contracts/member-posts").MemberPostsPageRequest;
   bearerToken?: string | null;
@@ -240,6 +242,7 @@ export type XApiUsageTracker = {
 };
 
 type CollectXPostsOptions = {
+  scheduledFor?: number | null;
   siteId?: SiteId;
   bearerToken?: string | null;
   maxResults?: number;
@@ -1557,6 +1560,7 @@ const writeXSyncContinuation = async (
   },
   effectiveIntervalMs = X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS,
   siteId: SiteId = "otw",
+  scheduledFor?: number | null,
 ) => {
   if (!cacheDb) return;
   const checkedAt = now();
@@ -1611,7 +1615,7 @@ const writeXSyncContinuation = async (
         checkedAt,
         checkedAt,
         checkedAt,
-        checkedAt + (state.nextToken ? 15 * 60_000 : effectiveIntervalMs),
+        state.nextToken ? checkedAt + 15 * 60_000 : collectionCadenceAnchor(scheduledFor, checkedAt) + effectiveIntervalMs,
         state.nextToken,
         state.nextToken ? state.basePostId : null,
         state.nextToken ? state.newestPostId : null,
@@ -2502,6 +2506,7 @@ const fetchXPostsForUser = async (
   effectiveIntervalMs = X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS,
   deferReferenceHydration = false,
   siteId: SiteId = "otw",
+  scheduledFor?: number | null,
 ): Promise<{
   posts: XPostItem[];
   error: string | null;
@@ -2692,7 +2697,7 @@ const fetchXPostsForUser = async (
           basePostId: syncToken ? stored?.syncBasePostId ?? null : sinceId,
           newestPostId: lastSeenPostId,
           completedPostId: lastSeenPostId,
-        }, effectiveIntervalMs, siteId);
+        }, effectiveIntervalMs, siteId, scheduledFor);
       } catch (error) {
         console.warn("Failed to acknowledge stored X timeline page", error);
         entry.storageError = "x_post_storage_failed";
@@ -2857,6 +2862,7 @@ export const fetchXPostsForHandles = async (
     effectiveIntervalMinutes = 120,
     deferReferenceHydration = false,
     siteId = "otw",
+    scheduledFor,
   } = options;
   const normalizedHandles = Array.from(
     new Set(handles.map(normalizeHandle).filter(Boolean)),
@@ -3063,6 +3069,7 @@ export const fetchXPostsForHandles = async (
               effectiveIntervalMinutes * 60_000,
               deferReferenceHydration,
               siteId,
+              scheduledFor,
             );
           return {
             handle,
@@ -3273,6 +3280,7 @@ export const collectXPostsForHandles = async (
     coalescedHandles = 0,
     afterTimeline,
     siteId = "otw",
+    scheduledFor,
   } = options;
   const startedAt = now();
   const normalizedHandles = Array.from(
@@ -3404,6 +3412,7 @@ export const collectXPostsForHandles = async (
       continuationMaxResults: X_COLLECTION_MAX_RESULTS,
       referencePreviewMode,
       effectiveIntervalMinutes,
+      scheduledFor: source === "scheduled" ? scheduledFor : undefined,
     });
     if (afterTimeline && content.byHandle.some(item => item.storageError || item.error === "budget_unavailable")) {
       throw new XApiError("X collection persistence unavailable", 503, { code: "budget_unavailable" });

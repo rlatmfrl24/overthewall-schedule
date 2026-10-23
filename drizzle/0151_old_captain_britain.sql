@@ -1,0 +1,1 @@
+ALTER TABLE `naver_cafe_sources` ADD `cadence_anchor_at` integer;
