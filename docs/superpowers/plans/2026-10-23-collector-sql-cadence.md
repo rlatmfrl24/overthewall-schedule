@@ -55,11 +55,11 @@
 
 ### Task 4: 실제 로컬 흐름·리뷰·PR
 
-- [ ] 기존 Cron→Workflow→Outbox→Queue→수집→완료를 로컬 provider로 실행하고 저장 시각/cursor/상태 재조회. 운영 provider 검증으로 표현하지 않는다.
-- [ ] `pnpm d1:reset:local -- --validate-only`; 관련 테스트는 vitest.all.config.ts의 unit/worker-integration/worker-schema/worker-workflow 프로젝트 사용. 타입·변경 파일 lint·구조 검사.
-- [ ] 독립 whole-branch 리뷰1회 및 유효한 지적 수정. 최종 코드의 `pnpm preflight`1회(실패 시 영향 검사만 재검증하며 composed 결과로 구분).
-- [ ] 완료한 변경만 커밋/push하고 일반 PR 생성·task 연결. 원인·시간 계약·전후 비용·schema 선행 적용·남은 운영 한계를 기록.
-- [ ] PR HEAD/CI/기존 리뷰/충돌 확인, material PASS/FAIL 댓글. 병합·배포·원격 migration 없음.
+- [x] 기존 Cron→Workflow→Outbox→Queue→수집→완료를 로컬 provider로 실행하고 저장 시각/cursor/상태 재조회. 운영 provider 검증으로 표현하지 않는다.
+- [x] `pnpm d1:reset:local -- --validate-only`; 관련 테스트는 vitest.all.config.ts의 unit/worker-integration/worker-schema/worker-workflow 프로젝트 사용. 타입·변경 파일 lint·구조 검사.
+- [x] 독립 whole-branch 리뷰1회 및 유효한 지적 수정. 최종 코드의 `pnpm preflight`1회(실패 시 영향 검사만 재검증하며 composed 결과로 구분).
+- [x] 완료한 변경만 커밋/push하고 일반 PR 생성·task 연결. 원인·시간 계약·전후 비용·schema 선행 적용·남은 운영 한계를 기록.
+- [x] PR HEAD/CI/기존 리뷰/충돌 확인, material PASS/FAIL 댓글. 병합·배포·원격 migration 없음.
 
 ## 완료 판정
 

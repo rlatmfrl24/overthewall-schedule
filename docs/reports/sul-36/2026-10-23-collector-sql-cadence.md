@@ -37,7 +37,15 @@ Node24.20.0 / pnpm11.7.0 / 새 의존성0. 각 작업의 RED 실패를 확인한
 - 실제 native Workflow5건 PASS: X·카페·YouTube 각각 Cron→Workflow→Outbox→Queue→수집→실제 D1 저장/readback, 같은 예약 재전달에서 run/provider 호출 증가0. 기존 일정 Workflow/Queue와 finalizer 회귀도 통과했다. 정상 Worker·Workflow·Queue는 그대로 실행하고 외부 provider 경계만 로컬 응답으로 대체했다.
 - 타입, 변경 파일 ESLint, architecture 검사 PASS.
 - `pnpm d1:reset:local -- --validate-only`: 전체 migration151건 임시 D1 실제 적용/검증 PASS, 기존 로컬 DB 교체 없음.
-- 독립 리뷰 후 관련5파일125건과 비용 schema20건 PASS. 아래 지연·역순·DTO 회귀를 포함한다. 최종 preflight와 PR 상태는 실행 후 보완한다.
+- 독립 리뷰 후 관련5파일125건과 비용 schema20건 PASS. 아래 지연·역순·DTO 회귀를 포함한다.
+
+### 최종 preflight의 조합 검증
+
+최종 구현 `630cb6d75acceff0e2fb9c78fa7cdf90b3e39b95`에서 `pnpm preflight`를 한 번 실행했다. 구조·타입·린트는 PASS, 전체 Vitest는391파일/3,257건 PASS와 migration reader 성능1건 FAIL이었다. reader의 측정5,780.7647ms가 기존5,000ms 기준을 넘었다. 같은 코드·기준·설정에서 해당 파일5건을 재실행해 PASS했다(파일 테스트 총4.55초). 기존 Wrangler7자 문맥 patch 적용을 확인했고, 추가 SQL은 전체23,946,693바이트 중196바이트다. 성능 변동의 근본 원인은 이번 범위에서 확정하지 않았으며 전체 부하에서 재발 가능성을 남긴다. timeout·assertion·worker 수·이력 범위를 완화하거나 전체 suite를 반복하지 않았다.
+
+실패 뒤 미실행된 동기화 테스트10건, OTW 빌드, 로컬 D1 doctor, agent mirror check도 별도로 PASS했다. 따라서 **공식 단계의 조합 검증은 PASS이며, `pnpm preflight` 단일 명령 전체 PASS로 표현하지 않는다.** 운영 API/원격 doctor 검사는 실행하지 않았다. LuvDia 최종 빌드와 양 사이트 artifact manifest 검사도 PASS했다. [PR #191](https://github.com/rlatmfrl24/overthewall-schedule/pull/191)을 일반 PR로 생성해 task에 연결했다. 게시 시 GitGuardian·Cloudflare 자동 빌드 PASS, 충돌 없음이며 필수 GitHub check/승인 규칙은 없었다. 자동 Codex 리뷰는 별도 진행 상태로 확인했으며 완료 판정으로 사용하지 않았다. 최종 HEAD와 이후 결과는 PR evidence 댓글이 소유한다.
+
+구현 기록: `847dc431`(카페 SQL), `5de2df29`(membership), `3fc111f3`(cadence), `efa68730`(native 흐름), `630cb6d7`(리뷰 수정). 이후 문서만 바뀌는 커밋은 검증한 실행 코드와 설정을 바꾸지 않는다.
 
 ## 독립 리뷰와 수정
 
@@ -57,3 +65,5 @@ Drizzle가 `0150_ambitious_scrambler.sql`(인덱스)과 `0151_old_captain_britai
 계정 합산 UTC 하루5M행, 배경4M/더 엄격한 제한과 집계 불가 시 신규 유예·기존 작업 복구를 유지한다. X30분·카페1/3/6시간·YouTube6시간/메타24시간 설정, Play·AI 중지, LuvDia AI=false와 공개·권한·보관·공유 소유자·빙하유 일정 정책을 변경하지 않았다.
 
 운영 D1/수집 API 조회·원격 migration·강제 수집·병합·배포·X webhook 등록은0회다. 로컬 provider 흐름은 실서비스 공급자의 동작 증명이 아니다. 예약 주기 복원은 실행량을 늘릴 수 있으며 실제 일일 비용과5M 준수는 향후 승인된 배포 후 관측 전까지 미확인이다.
+
+Cloudflare 자동 PR 빌드는 version 7285ecfb-bcd9-4d40-b51e-ffc0b72dbc77을 생성했다. Worker deployments 메타데이터만 GET으로 확인한 최근 운영 배포는2026-10-22T16:31:56.515081Z의 fedcccba-1b46-4256-bf62-7f020df85a1a이며, 이 PR 버전의 운영 활성화는 없었다. D1나 수집 API 조회와 구별한다.

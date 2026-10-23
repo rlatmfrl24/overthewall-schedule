@@ -9,6 +9,12 @@
 주기 설정값·계정 합산 UTC 하루5M/배경4M 및 더 엄격한 제한·Play/AI 중지·공개/권한 정책은 유지한다.
 이번 범위는 로컬과 PR까지다. 운영 D1/수집 API 조회·원격 migration·강제 수집·병합·배포·X webhook 도입은 실행하지 않는다.
 다른 작업의 배포 승인은 이 변경에 확대하지 않는다.
+로컬 구현과 독립 리뷰 수정, 실제 native Workflow/Queue 수집·저장 검증을 완료하고
+[PR #191](https://github.com/rlatmfrl24/overthewall-schedule/pull/191)을 일반 PR로 게시했다.
+전체 preflight의 migration reader 성능1건은 첫 실행5.78초로 FAIL, 같은5초 기준 재검증 PASS였다.
+나머지 단계와 양 사이트 빌드는 PASS이며 조합 검증으로 구분한다. 상세 비용·검증·미확정 성능 변동은
+[검증 기록](reports/sul-36/2026-10-23-collector-sql-cadence.md)에 남겼다.
+운영 D1/수집 API·원격 migration·강제 수집·병합·운영 배포는 실행하지 않았다. PR 최종 상태는 evidence 댓글이 소유한다.
 
 ## SUL-39 개인 멀티뷰 — 전체 검토·PR·병합·양 사이트 배포 승인, 2026-10-22
 
