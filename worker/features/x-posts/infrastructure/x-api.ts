@@ -131,6 +131,7 @@ type CachedXPostsEntry = {
 
 type StoredXPostsEntry = CachedXPostsEntry & {
   lastCheckedAt: number | null;
+  cadenceAnchorAt: number | null;
   lastSeenPostId: string | null;
   lastError: string | null;
   collectionStartedAt: number | null;
@@ -168,6 +169,8 @@ type XPostSourceRow = {
   username: string | null;
   last_seen_post_id: string | null;
   last_checked_at: number | string;
+  last_success_at?: number | string | null;
+  cadence_anchor_at?: number | string | null;
   updated_at: number | string;
   last_error: string | null;
   collection_started_at: number | string | null;
@@ -1134,7 +1137,7 @@ const readStoredPostSource = async (
         `SELECT handle, user_id, username, last_seen_post_id, last_checked_at,
                 updated_at, last_error, collection_started_at,
                 initialization_completed_at, sync_pagination_token,
-                sync_base_post_id, sync_newest_post_id
+                sync_base_post_id, sync_newest_post_id, last_success_at, cadence_anchor_at
          FROM x_post_sources
          WHERE handle = ?`,
       )
@@ -1240,6 +1243,8 @@ const storedPostsEntry = (
     userId: source?.user_id ?? rows[0]?.user_id ?? null,
     posts: richXLinkPreviewEnabled ? posts : stripStoredXLinkedPostPreviews(posts),
     lastCheckedAt: safeLastCheckedAt,
+    cadenceAnchorAt: safeLastCheckedAt !== null && Number(source?.last_success_at) === safeLastCheckedAt
+      ? collectionCadenceAnchor(Number(source?.cadence_anchor_at), safeLastCheckedAt) : safeLastCheckedAt,
     lastSeenPostId:
       source?.collection_started_at != null
         ? source.last_seen_post_id ?? null
@@ -1564,24 +1569,25 @@ const writeXSyncContinuation = async (
 ) => {
   if (!cacheDb) return;
   const checkedAt = now();
+  const cadenceAnchorAt = state.nextToken ? checkedAt : collectionCadenceAnchor(scheduledFor, checkedAt);
   // Cursor, continuation and success timestamps form one durable acknowledgement.
   // A failed statement leaves the previous range intact for infrastructure retry.
     await cacheDb
       .prepare(
-        `WITH incoming(handle,user_id,username,last_seen_post_id,last_checked_at,
+        `WITH incoming(handle,user_id,username,last_seen_post_id,last_checked_at,cadence_anchor_at,
            updated_at,last_error,collection_started_at,initialization_completed_at,
            last_attempt_at,last_success_at,next_check_at,consecutive_failures,last_error_code,
            sync_pagination_token,sync_base_post_id,sync_newest_post_id) AS
-         (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?))
+         (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?))
          INSERT INTO x_post_sources (
-           handle, user_id, username, last_seen_post_id, last_checked_at,
+           handle, user_id, username, last_seen_post_id, last_checked_at, cadence_anchor_at,
            updated_at, last_error, collection_started_at,
            initialization_completed_at, last_attempt_at, last_success_at,
            next_check_at, consecutive_failures, last_error_code,
            sync_pagination_token, sync_base_post_id, sync_newest_post_id
          )
          SELECT iif(${publicationHiddenSql("x_post_sources", "incoming", siteId)},json('site_member_cutover'),handle),
-           user_id,username,last_seen_post_id,last_checked_at,updated_at,last_error,
+           user_id,username,last_seen_post_id,last_checked_at,cadence_anchor_at,updated_at,last_error,
            collection_started_at,initialization_completed_at,last_attempt_at,last_success_at,
            next_check_at,consecutive_failures,last_error_code,sync_pagination_token,sync_base_post_id,sync_newest_post_id
          FROM incoming WHERE 1
@@ -1593,6 +1599,7 @@ const writeXSyncContinuation = async (
            sync_base_post_id = excluded.sync_base_post_id,
            sync_newest_post_id = excluded.sync_newest_post_id,
            last_checked_at = excluded.last_checked_at,
+           cadence_anchor_at = excluded.cadence_anchor_at,
            collection_started_at = COALESCE(x_post_sources.collection_started_at, excluded.collection_started_at),
            initialization_completed_at = COALESCE(x_post_sources.initialization_completed_at, excluded.initialization_completed_at),
            last_attempt_at = excluded.last_attempt_at,
@@ -1609,13 +1616,14 @@ const writeXSyncContinuation = async (
         user.username,
         state.nextToken ? state.basePostId : state.completedPostId,
         checkedAt,
+        cadenceAnchorAt,
         checkedAt,
         null,
         checkedAt,
         checkedAt,
         checkedAt,
         checkedAt,
-        state.nextToken ? checkedAt + 15 * 60_000 : collectionCadenceAnchor(scheduledFor, checkedAt) + effectiveIntervalMs,
+        state.nextToken ? checkedAt + 15 * 60_000 : cadenceAnchorAt + effectiveIntervalMs,
         state.nextToken,
         state.nextToken ? state.basePostId : null,
         state.nextToken ? state.newestPostId : null,
@@ -3211,7 +3219,9 @@ const getCollectionRefreshIntervalMs = (entry: StoredXPostsEntry) => {
 
 const shouldRefreshCollectionHandle = (entry: StoredXPostsEntry | null, timestamp = now()) => {
   if (!entry || entry.lastCheckedAt === null) return true;
-  return timestamp - entry.lastCheckedAt >= getCollectionRefreshIntervalMs(entry);
+  const anchorAt = entry.lastError || entry.syncPaginationToken || entry.lastCheckedAt > timestamp
+    ? entry.lastCheckedAt : collectionCadenceAnchor(entry.cadenceAnchorAt, entry.lastCheckedAt);
+  return timestamp - anchorAt >= getCollectionRefreshIntervalMs(entry);
 };
 
 const getXCollectionHandlesToRefresh = async (

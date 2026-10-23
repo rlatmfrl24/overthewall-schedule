@@ -64,3 +64,7 @@
 ## 완료 판정
 
 로컬 결과/정책/상태 보존과 SQL 비용 비교, 독립 리뷰 및 PR 근거가 있어야 한다. 주기 복원으로 실제 작업량은 늘 수 있다. 운영 절감량과 계정 하루5M 준수는 향후 별도 승인된 배포 후 관측 전까지 미확인이다.
+
+## 실행 중 판단 — PR #191 검토
+
+X optimizer-off 경로는 별도의 기존 적응형2/12/24시간 판정도 사용한다. 예약시각에서 실제 완료시각을 빼면 이 경계가 늦어져 승인한 시작시각 간격 계약을 충족하지 못한다. `x_post_sources.cadence_anchor_at` nullable 열을0152로 추가하고 기존 cursor UPSERT에서 함께 저장한다. 실제 last_success_at/last_checked_at의 일치와 기존 helper 검증을 통과한 anchor만 사용한다. next_check_at에서 현재 effective interval을 역산하면 설정/예산 제한이 바뀐 경우 틀릴 수 있어 사용하지 않는다. 별도 SQL·전수 backfill·정책·주기값 변경은 없다. 운영 적용 시0150→0151→0152까지 schema를 선행한다.

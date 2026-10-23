@@ -24,6 +24,7 @@ import { linkedPostKey, linkedUserKey } from "./x-reference-store";
 import { connectStoredReplyReferences } from "./x-reply-reference";
 import type { XPostDto } from "@contracts/x-posts";
 import { runXCollectionForHandles } from "./x-collection";
+import { meterD1 } from "../../../test-support/d1-meter";
 
 const testEnv = { ...env, SITE_ID: "otw" } as Env & { X_REFERENCE_MIGRATIONS: D1Migration[] };
 const db = testEnv.otw_db;
@@ -279,6 +280,41 @@ describe("X replies use stored context or a completed relation", () => {
 });
 
 describe("X durable reference hydration", () => {
+  it.each([2, 12, 24])("keeps the optimizer-off %sh adaptive boundary on scheduled starts", async intervalHours => {
+    const slot = Date.parse("2026-10-22T23:23:00Z"), firstActual = slot + 45_000;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(firstActual);
+    await db.prepare("INSERT INTO settings(key,value) VALUES('x_cost_optimizer_enabled','false'),('x_collection_interval_hours','0.5'),('x_reference_preview_mode','link_only')").run();
+    await db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at) VALUES('member','1','member','100',0,0,1)").run();
+    let pages = 0;
+    vi.mocked(fetch).mockImplementation(async input => {
+      const url = new URL(String(input));
+      if (url.pathname === "/2/users/by") return json({ data: [{ id: "1", username: "member" }] });
+      if (url.pathname === "/2/users/1/tweets") return json({ data: [{ id: String(200 + pages++), text: "new",
+        created_at: new Date(slot - (intervalHours === 12 ? 2 : intervalHours === 24 ? 8 : 0) * 86_400_000).toISOString() }], meta: {} });
+      throw new Error(`Unexpected provider ${url.pathname}`);
+    });
+    const meter = meterD1(db);
+    const runtime = { ...testEnv, otw_db: meter.db, X_BEARER_TOKEN: "test" };
+    await runXCollectionForHandles(runtime, ["member"], "scheduled", slot);
+    const nextSlot = slot + intervalHours * 3_600_000;
+    clock.mockReturnValue(nextSlot - 1);
+    await runXCollectionForHandles(runtime, ["member"], "scheduled", nextSlot - 1);
+    expect(pages).toBe(1);
+    clock.mockReturnValue(nextSlot + 45_000);
+    await runXCollectionForHandles(runtime, ["member"], "scheduled", nextSlot);
+    expect(pages).toBe(2);
+    expect(await db.prepare("SELECT last_checked_at,last_success_at,cadence_anchor_at FROM x_post_sources WHERE handle='member'").first())
+      .toEqual({ last_checked_at: nextSlot + 45_000, last_success_at: nextSlot + 45_000, cadence_anchor_at: nextSlot });
+    const acknowledgements = meter.entries.filter(entry => entry.sql.startsWith("WITH incoming(handle,user_id,username,last_seen_post_id,last_checked_at,cadence_anchor_at"));
+    expect(acknowledgements).toHaveLength(2);
+    const ack = acknowledgements[1];
+    const legacySql = ack.sql.replace("cadence_anchor_at = excluded.cadence_anchor_at,", "")
+      .replaceAll("cadence_anchor_at,", "").replace("(VALUES (?,", "(VALUES (");
+    const legacy = await db.prepare(legacySql).bind(...ack.args.slice(0, 5), ...ack.args.slice(6)).run();
+    expect(ack.rowsWritten).toBe(legacy.meta.rows_written);
+    console.info("X_HANDLE_CADENCE_D1_COST", JSON.stringify({ intervalHours, before: legacy.meta.rows_written, after: ack.rowsWritten }));
+  });
+
   it.each([[true, "complete"], [false, "complete"], [true, "retry"], [true, "retry-before"], [true, "continuation"]] as const)("revalidates an old scheduled X item (optimizer %s, %s)", async (optimizer, state) => {
     const slot = Date.parse("2026-10-22T23:23:00Z"), actual = slot + 26 * 3_600_000;
     vi.spyOn(Date, "now").mockReturnValue(actual);

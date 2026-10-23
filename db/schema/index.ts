@@ -809,6 +809,7 @@ export const xPostSources = sqliteTable("x_post_sources", {
   sync_base_post_id: text("sync_base_post_id"),
   sync_newest_post_id: text("sync_newest_post_id"),
   last_attempt_at: integer("last_attempt_at"),
+  cadence_anchor_at: integer("cadence_anchor_at"),
   last_success_at: integer("last_success_at"),
   next_check_at: integer("next_check_at"),
   consecutive_failures: integer("consecutive_failures").notNull().default(0),

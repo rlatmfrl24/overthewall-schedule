@@ -65,6 +65,8 @@ type FakePostSourceRecord = {
   username: string | null;
   last_seen_post_id: string | null;
   last_checked_at: number;
+  last_success_at?: number | null;
+  cadence_anchor_at?: number | null;
   updated_at: number;
   last_error: string | null;
   collection_started_at?: number | null;
@@ -289,6 +291,8 @@ const makeCacheDb = (
                 }
               }
               if (sql.includes("INSERT INTO x_post_sources")) {
+                const hasCadence = sql.includes("cadence_anchor_at");
+                const sourceArgs = hasCadence ? [...args.slice(0, 5), ...args.slice(6)] : args;
                 const [
                   handle,
                   userId,
@@ -297,7 +301,7 @@ const makeCacheDb = (
                   lastCheckedAt,
                   updatedAt,
                   lastError,
-                ] = args;
+                ] = sourceArgs;
                 const key = String(handle);
                 const current = sources.get(key);
                 sources.set(key, {
@@ -317,9 +321,10 @@ const makeCacheDb = (
                   last_error: lastError === null ? null : String(lastError),
                   ...(sql.includes("sync_pagination_token") ? {
                     last_seen_post_id: lastSeenPostId === null ? null : String(lastSeenPostId),
-                    sync_pagination_token: args[12] === null ? null : String(args[12]),
-                    sync_base_post_id: args[13] === null ? null : String(args[13]),
-                    sync_newest_post_id: args[14] === null ? null : String(args[14]),
+                    sync_pagination_token: sourceArgs[12] === null ? null : String(sourceArgs[12]),
+                    sync_base_post_id: sourceArgs[13] === null ? null : String(sourceArgs[13]),
+                    sync_newest_post_id: sourceArgs[14] === null ? null : String(sourceArgs[14]),
+                    ...(hasCadence ? { cadence_anchor_at: Number(args[5]), last_success_at: Number(sourceArgs[10]) } : {}),
                   } : {}),
                 });
               }
