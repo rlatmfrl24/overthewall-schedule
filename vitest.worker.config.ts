@@ -104,6 +104,7 @@ return defineConfig({
         workflows:{SCHEDULED_OPERATIONS_WORKFLOW:{name:"scheduled-native-test",className:"ScheduledOperationsWorkflow"}},
         queueProducers:{OTW_OPS_BACKGROUND_QUEUE:"otw-ops-background"},queueConsumers:{"otw-ops-background":{maxBatchSize:1,maxBatchTimeout:0,maxRetries:0}},outboundService:"native-workflow-provider",
       };
+      Object.assign(nativeWorkflowWorker.bindings, { X_BEARER_TOKEN: "native-fixture", YOUTUBE_API_KEY: "native-fixture" });
       // Small feature fixtures consume the exact canonical access DDL for their tables.
       // Stable per-table migration names let combined fixtures deduplicate members.
       const accessMigrations = (tables: string[]) => [...tables.map(table => ({

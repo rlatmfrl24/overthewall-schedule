@@ -59,6 +59,14 @@ const finalizeX = (source: "manual" | "scheduled", status: string, completedAt: 
 it("atomically records X cadence while preserving real completion and rejecting stale finalizers", async () => {
   await db.prepare("DELETE FROM settings WHERE key IN ('x_collection_last_run','x_collection_last_success','x_collection_cadence_state')").run();
   const complete = scheduledFor + 45_000, meter = meterD1(db);
+  const legacy = meterD1(db);
+  for (const key of ["x_collection_last_run", "x_collection_last_success"]) {
+    await legacy.db.prepare(`INSERT INTO settings(key,value,updated_at) VALUES(?,?,?)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at
+      WHERE CAST(settings.value AS INTEGER)<CAST(excluded.value AS INTEGER)`)
+      .bind(key, String(complete), String(complete)).run();
+  }
+  await db.prepare("DELETE FROM settings WHERE key IN ('x_collection_last_run','x_collection_last_success')").run();
   await finalizeX("scheduled", "succeeded", complete, scheduledFor, meter.db);
   expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_last_run'").first("value")).toBe(String(complete));
   expect(JSON.parse(await db.prepare("SELECT value FROM settings WHERE key='x_collection_cadence_state'").first<string>("value") ?? "null"))
@@ -74,7 +82,7 @@ it("atomically records X cadence while preserving real completion and rejecting 
     await expect(finalizeX("scheduled", "succeeded", complete + hour, scheduledFor + hour)).rejects.toThrow();
     expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_last_run'").first("value")).toBe(String(complete));
   } finally { await db.prepare("DROP TRIGGER cadence_fail").run(); }
-  console.info("X_CADENCE_STATE_D1_COST", JSON.stringify({ initial: meter.summary(), replay: repeat.summary() }));
+  console.info("X_CADENCE_STATE_D1_COST", JSON.stringify({ legacy: legacy.summary(), initial: meter.summary(), replay: repeat.summary() }));
 });
 
 it.each([["scheduled", "partial"], ["scheduled", "failed"], ["manual", "succeeded"]] as const)("uses actual time for %s/%s X completion", async (source, status) => {
