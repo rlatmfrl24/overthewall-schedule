@@ -178,6 +178,7 @@ export const contentTransitionMembership = sqliteTable("content_transition_membe
 }, table => [
   primaryKey({ columns: [table.transition_id, table.root_table, table.root_key, table.row_table, table.row_key] }),
   index("idx_content_transition_membership_row").on(table.transition_id, table.row_table, table.row_key),
+  index("idx_content_transition_membership_lookup").on(table.row_table, table.row_key, table.transition_id),
 ]);
 export const contentTransitionImages = sqliteTable("content_transition_images", {
   transition_id: text().notNull().references(() => contentTransitions.id, { onDelete: "cascade" }),

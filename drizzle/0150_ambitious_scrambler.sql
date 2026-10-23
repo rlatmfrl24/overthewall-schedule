@@ -1,0 +1,1 @@
+CREATE INDEX `idx_content_transition_membership_lookup` ON `content_transition_membership` (`row_table`,`row_key`,`transition_id`);

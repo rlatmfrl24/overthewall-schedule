@@ -5,6 +5,7 @@ import { meterD1 } from "../../../test-support/d1-meter";
 import { siteEnv } from "../../../test-support/site-env";
 import type { Env } from "../../../platform/types";
 import { ScheduledJobPlanner } from "./scheduled-job-planner";
+import { hasScheduledYouTubeFeedWork, runScheduledYouTubeFeedCollection } from "../../youtube";
 
 const db = env.otw_db;
 const hour = 3_600_000;
@@ -66,4 +67,74 @@ it("does not inspect cafe post history when no source is eligible", async () => 
   expect(await new ScheduledJobPlanner(runtime(meter.db), {} as never).planScheduled("naver_cafe_collection", scheduledFor)).toEqual([]);
   expect(meter.entries.some(entry => entry.sql.includes("naver_cafe_posts"))).toBe(false);
   expect(meter.summary().rowsWritten).toBe(0);
+});
+
+it("seeks YouTube policy membership without changing fenced metadata candidates", async () => {
+  vi.spyOn(Date, "now").mockReturnValue(scheduledFor);
+  const index = await db.prepare("SELECT sql FROM sqlite_master WHERE name='idx_content_transition_membership_lookup'").first<{ sql: string }>();
+  expect(index, "migration must install the row-first membership index").not.toBeNull();
+  await db.batch([
+    db.prepare("DELETE FROM youtube_feed_videos"), db.prepare("DELETE FROM youtube_feed_sources"),
+    db.prepare("DELETE FROM kirinuki_channels"), db.prepare("UPDATE members SET youtube_channel_id=NULL"),
+    db.prepare("UPDATE member_links SET youtube_channel_id=NULL"),
+    db.prepare(`INSERT INTO content_transitions(id,source_site,target_site,source_resource,target_resource,local_site,local_resource,generation,protocol,manifest_digest,plan_json,phase)
+      VALUES('cadence-fence','otw','luvdia','otw-db','luvdia-db','otw','otw-db',2,1,'cadence','{}','complete')`),
+  ]);
+  for (let n = 1; n <= 20; n++) {
+    const id = 900400 + n, channel = `UC${String(n).padStart(22, "0")}`;
+    await db.batch([
+      db.prepare("INSERT INTO kirinuki_channels(id,channel_name,channel_url,youtube_channel_id) VALUES(?,'cost','https://youtube.com',?)").bind(id, channel),
+      db.prepare(`INSERT INTO youtube_feed_sources(id,source_kind,kirinuki_channel_id,youtube_channel_id,uploads_playlist_id,enabled,collection_started_at,initialization_completed_at,backfill_exhausted_at,next_check_at,created_at,updated_at)
+        VALUES(?,'kirinuki',?,?,'uploads',1,1,1,1,?,?,?)`).bind(id, id, channel, scheduledFor + 24 * hour, scheduledFor, scheduledFor),
+      db.prepare("INSERT INTO youtube_feed_videos(video_id,source_id,title,published_at,fetched_at) VALUES(?,?,'cost',1,?)").bind(`cadence-video-${n}`, id, scheduledFor - 48 * hour),
+    ]);
+  }
+  await db.prepare(`WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000)
+    INSERT INTO content_transition_membership(transition_id,root_table,root_key,row_table,row_key)
+    SELECT 'cadence-fence','youtube_feed_sources',json_array(10000+x),'youtube_feed_sources',json_array(10000+x) FROM n`).run();
+  await db.prepare("INSERT INTO content_transition_membership(transition_id,root_table,root_key,row_table,row_key) VALUES('cadence-fence','youtube_feed_sources','[900420]','youtube_feed_sources','[900420]')").run();
+  vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
+    const url = new URL(String(input));
+    if (!url.pathname.endsWith("/videos")) throw new Error(`Unexpected provider ${url.pathname}`);
+    return Response.json({ items: (url.searchParams.get("id") ?? "").split(",").map(id => ({
+      id, snippet: { title: id, publishedAt: "2026-10-21T00:00:00Z" }, contentDetails: { duration: "PT30S" }, statistics: { viewCount: "1" },
+    })) });
+  });
+  const capture = meterD1(db), collectorEnv = { ...runtime(capture.db), YOUTUBE_API_KEY: "local-fixture" };
+  expect(await hasScheduledYouTubeFeedWork(collectorEnv, scheduledFor)).toBe(true);
+  expect(await runScheduledYouTubeFeedCollection(collectorEnv)).toMatchObject({ metadataRefreshed: 19, failed: 0 });
+  const work = capture.entries.find(entry => entry.sql.includes("AS has_work"))!;
+  const metadata = capture.entries.find(entry => entry.sql.includes("json_group_array(row_key)"))!;
+  await db.prepare("UPDATE youtube_feed_videos SET fetched_at=?").bind(scheduledFor - 48 * hour).run();
+  const read = async () => {
+    const meter = meterD1(db);
+    const workRows = await meter.db.prepare(work.sql).bind(...work.args).all();
+    const metadataRows = await meter.db.prepare(metadata.sql).bind(...metadata.args).all();
+    return { entries: meter.entries, summary: meter.summary(), workRows: workRows.results, metadataRows: metadataRows.results };
+  };
+  const indexed = await read();
+  expect(indexed.metadataRows).toHaveLength(19);
+  expect(indexed.metadataRows.some(row => row.video_id === "cadence-video-20")).toBe(false);
+  const plan = await db.prepare(`EXPLAIN QUERY PLAN ${metadata.sql}`).bind(...metadata.args).all<{ detail: string }>();
+  expect(plan.results.some(row => row.detail.includes("SEARCH held USING COVERING INDEX idx_content_transition_membership_lookup"))).toBe(true);
+  await db.prepare("DROP INDEX idx_content_transition_membership_lookup").run();
+  try {
+    const membershipWrite = async () => {
+      const insert = await db.prepare("INSERT INTO content_transition_membership(transition_id,root_table,root_key,row_table,row_key) VALUES('cadence-fence','youtube_feed_sources','[999999]','youtube_feed_sources','[999999]')").run();
+      const remove = await db.prepare("DELETE FROM content_transition_membership WHERE transition_id='cadence-fence' AND row_key='[999999]'").run();
+      return { insertRowsWritten: insert.meta.rows_written, deleteRowsWritten: remove.meta.rows_written };
+    };
+    const writesBefore = await membershipWrite();
+    const unindexed = await read();
+    expect(indexed.workRows).toEqual(unindexed.workRows);
+    expect(indexed.metadataRows).toEqual(unindexed.metadataRows);
+    expect(indexed.summary.rowsRead).toBeLessThan(unindexed.summary.rowsRead / 10);
+    const recreate = await db.prepare(index!.sql).run();
+    const writesAfter = await membershipWrite();
+    expect(writesAfter.insertRowsWritten).toBe(writesBefore.insertRowsWritten + 1);
+    expect(writesAfter.deleteRowsWritten).toBe(writesBefore.deleteRowsWritten);
+    console.info("YOUTUBE_MEMBERSHIP_D1_COST", JSON.stringify({ before: unindexed.summary, after: indexed.summary, indexBuild: recreate.meta, writesBefore, writesAfter }));
+  } finally {
+    await db.prepare(index!.sql.replace("CREATE INDEX", "CREATE INDEX IF NOT EXISTS")).run();
+  }
 });
