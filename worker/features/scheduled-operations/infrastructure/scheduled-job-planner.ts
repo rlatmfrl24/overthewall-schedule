@@ -70,9 +70,13 @@ const planNaverCafeCollection = async (
   const sources = await readEnabledNaverCafeSources(env);
   if (sources.length === 0) return [];
   const latestPosts = await env.otw_db.prepare(
-    `SELECT source_id AS sourceId, MAX(created_at) AS latestPostAt
-     FROM naver_cafe_posts WHERE hidden_at IS NULL GROUP BY source_id`,
-  ).all<{ sourceId: number; latestPostAt: string | null }>();
+    `SELECT CAST(requested.value AS INTEGER) AS sourceId,
+       (SELECT created_at FROM naver_cafe_posts INDEXED BY idx_naver_cafe_posts_source_hidden_created
+        WHERE source_id = CAST(requested.value AS INTEGER) AND hidden_at IS NULL
+        ORDER BY created_at DESC LIMIT 1) AS latestPostAt
+     FROM json_each(?) requested`,
+  ).bind(JSON.stringify(sources.map(source => source.id)))
+    .all<{ sourceId: number; latestPostAt: string | null }>();
   const lastCheckedBySource = new Map(
     sources.map((source) => [
       source.id,
