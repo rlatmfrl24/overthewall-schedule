@@ -3,6 +3,7 @@ import { publicationHiddenSql } from "../../content-access";
 import { parseSiteId } from "@contracts/site-definition";
 import { officialChannelTargetsSql } from "./official-channel-targets";
 import { contentRowHeldSql, contentRowMovedSql } from "../../content-access";
+import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import type {
   YouTubeShortsResponseDto,
   YouTubeVideoDto,
@@ -418,6 +419,7 @@ const initializeSource = async (
   source: FeedSource,
   timestamp: number,
   origin: YouTubeRequestOrigin,
+  cadenceAnchorAt = timestamp,
 ) => {
   const uploads = await resolveUploadsPlaylist(env, source, origin);
   const page = await fetchPlaylistPage(env, source, uploads, null, origin);
@@ -446,7 +448,7 @@ const initializeSource = async (
       nextPageToken ? null : timestamp,
       timestamp,
       timestamp,
-      timestamp + 6 * 60 * 60_000,
+      cadenceAnchorAt + 6 * 60 * 60_000,
       timestamp,
       source.id,
     );
@@ -454,7 +456,7 @@ const initializeSource = async (
   return { discovered: ids.length, shortsStored, exhausted: !nextPageToken };
 };
 
-const collectSource = async (env: Env, source: FeedSource, timestamp: number, origin: YouTubeRequestOrigin) => {
+const collectSource = async (env: Env, source: FeedSource, timestamp: number, origin: YouTubeRequestOrigin, cadenceAnchorAt = timestamp) => {
   const needsOfficialInitialization =
     source.source_kind === "official" &&
     (!source.initialization_completed_at ||
@@ -465,14 +467,14 @@ const collectSource = async (env: Env, source: FeedSource, timestamp: number, or
       return { discovered: 0, shortsStored: 0, exhausted: false };
     }
     try {
-      return await initializeSource(env, source, timestamp, origin);
+      return await initializeSource(env, source, timestamp, origin, cadenceAnchorAt);
     } catch (error) {
       await recordBackfillFailure(env, source, timestamp, error);
       throw error;
     }
   }
   if (!source.initialization_completed_at || !source.uploads_playlist_id) {
-    return initializeSource(env, source, timestamp, origin);
+    return initializeSource(env, source, timestamp, origin, cadenceAnchorAt);
   }
 
   const base = source.sync_base_video_id ?? source.last_seen_video_id;
@@ -529,7 +531,7 @@ const collectSource = async (env: Env, source: FeedSource, timestamp: number, or
       complete ? null : newest,
       timestamp,
       timestamp,
-      timestamp + 6 * 60 * 60_000,
+      (complete ? cadenceAnchorAt : timestamp) + 6 * 60 * 60_000,
       timestamp,
       source.id,
     );
@@ -816,7 +818,7 @@ export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) =
   return Number(row?.has_work) === 1;
 };
 
-export const runScheduledYouTubeFeedCollection = async (env: Env, origin: "manual" | "scheduled" = "scheduled") => {
+export const runScheduledYouTubeFeedCollection = async (env: Env, origin: "manual" | "scheduled" = "scheduled", scheduledFor?: number | null) => {
   if (!env.YOUTUBE_API_KEY?.trim()) {
     return {
       status: "skipped" as const,
@@ -834,6 +836,7 @@ export const runScheduledYouTubeFeedCollection = async (env: Env, origin: "manua
     };
   }
   const timestamp = Date.now();
+  const cadenceAnchorAt = origin === "scheduled" ? collectionCadenceAnchor(scheduledFor, timestamp) : timestamp;
   await syncSourceRegistry(env, timestamp);
   const metadata = await refreshStaleMetadata(env, timestamp, origin);
   const rows = await env.otw_db
@@ -845,15 +848,17 @@ export const runScheduledYouTubeFeedCollection = async (env: Env, origin: "manua
          backfill_lease_until, backfill_retry_after, consecutive_failures
        FROM youtube_feed_sources
        WHERE enabled = 1 AND NOT ${sourceMovedSql(env,"youtube_feed_sources")} AND (
-         next_check_at IS NULL OR next_check_at <= ? OR
+         next_check_at IS NULL OR next_check_at <= CASE WHEN consecutive_failures > 0 OR sync_page_token IS NOT NULL THEN ? ELSE ? END OR
          (source_kind = 'official' AND backfill_page_token IS NULL
           AND backfill_exhausted_at IS NULL)
-       )
+       ) AND (last_attempt_at IS NULL OR last_attempt_at < ? OR consecutive_failures > 0 OR sync_page_token IS NOT NULL
+         OR initialization_completed_at IS NULL
+         OR (source_kind = 'official' AND backfill_page_token IS NULL AND backfill_exhausted_at IS NULL))
        ORDER BY CASE WHEN source_kind = 'official' AND backfill_page_token IS NULL
          AND backfill_exhausted_at IS NULL THEN 0 ELSE 1 END,
          next_check_at, id LIMIT 8`,
     )
-    .bind(timestamp)
+    .bind(timestamp, cadenceAnchorAt, cadenceAnchorAt)
     .all<FeedSource>();
   let succeeded = 0;
   let failed = 0;
@@ -862,7 +867,8 @@ export const runScheduledYouTubeFeedCollection = async (env: Env, origin: "manua
   let quotaBlocked = metadata.quotaBlocked;
   for (const source of rows.results ?? []) {
     try {
-      const result = await collectSource(env, source, timestamp, origin);
+      const result = await collectSource(env, source, timestamp, origin,
+        source.sync_page_token || source.consecutive_failures > 0 ? timestamp : cadenceAnchorAt);
       shortsStored += result.shortsStored;
       exhaustedSources += result.exhausted ? 1 : 0;
       succeeded += 1;

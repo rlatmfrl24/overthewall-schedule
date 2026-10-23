@@ -6,6 +6,25 @@ import {
 } from "./x-collection";
 
 describe("x collection schedule", () => {
+  it("does not use a cadence state whose actual completion is still in the future", () => {
+    const now = Date.parse("2026-10-22T00:53:00Z"), completedAt = now + 45_000;
+    expect(getXCollectionScheduleDecision("0.5", String(completedAt), now,
+      JSON.stringify({ completedAt, anchorAt: now - 30 * 60_000 })).shouldRun).toBe(false);
+  });
+  it.each([0.5, 1, 2, 6, 12, 24])("uses the scheduled anchor at the %sh boundary while retaining actual completion", interval => {
+    const anchorAt = Date.parse("2026-10-22T23:23:00Z");
+    const completedAt = anchorAt + 45_000;
+    const state = JSON.stringify({ anchorAt, completedAt });
+    const due = anchorAt + interval * 3_600_000;
+    expect(getXCollectionScheduleDecision(String(interval), String(completedAt), due - 1, state).shouldRun).toBe(false);
+    expect(getXCollectionScheduleDecision(String(interval), String(completedAt), due, state)).toMatchObject({ shouldRun: true, lastRun: completedAt });
+  });
+
+  it.each([null, "bad json", "null", "{}", JSON.stringify({ anchorAt: 1, completedAt: 1 }), JSON.stringify({ anchorAt: 9e15, completedAt: 9e15 })])("falls back to actual completion for legacy or mismatched state %s", state => {
+    const now = Date.parse("2026-10-22T00:53:00Z");
+    expect(getXCollectionScheduleDecision("0.5", String(now - 1_755_000), now, state).shouldRun).toBe(false);
+  });
+
   it("대소문자가 다른 동일 handle을 하나의 lower-case source로 정규화한다", () => {
     expect(normalizeXCollectionHandles([
       " Kurenai_Natsuki ",

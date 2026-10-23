@@ -178,6 +178,7 @@ export const contentTransitionMembership = sqliteTable("content_transition_membe
 }, table => [
   primaryKey({ columns: [table.transition_id, table.root_table, table.root_key, table.row_table, table.row_key] }),
   index("idx_content_transition_membership_row").on(table.transition_id, table.row_table, table.row_key),
+  index("idx_content_transition_membership_lookup").on(table.row_table, table.row_key, table.transition_id),
 ]);
 export const contentTransitionImages = sqliteTable("content_transition_images", {
   transition_id: text().notNull().references(() => contentTransitions.id, { onDelete: "cascade" }),
@@ -808,6 +809,7 @@ export const xPostSources = sqliteTable("x_post_sources", {
   sync_base_post_id: text("sync_base_post_id"),
   sync_newest_post_id: text("sync_newest_post_id"),
   last_attempt_at: integer("last_attempt_at"),
+  cadence_anchor_at: integer("cadence_anchor_at"),
   last_success_at: integer("last_success_at"),
   next_check_at: integer("next_check_at"),
   consecutive_failures: integer("consecutive_failures").notNull().default(0),
@@ -1322,6 +1324,7 @@ export const naverCafeSources = sqliteTable(
     sync_page: integer("sync_page"),
     sync_base_article_id: integer("sync_base_article_id"),
     sync_newest_article_id: integer("sync_newest_article_id"),
+    cadence_anchor_at: integer("cadence_anchor_at"),
     last_attempt_at: integer("last_attempt_at"),
     last_success_at: integer("last_success_at"),
     next_check_at: integer("next_check_at"),

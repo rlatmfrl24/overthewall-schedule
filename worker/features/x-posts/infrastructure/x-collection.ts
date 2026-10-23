@@ -6,8 +6,9 @@ import {
   parseXCollectionIntervalHours,
 } from "@contracts/configuration";
 import type { XReferenceHydrationResultDto } from "@contracts/x-posts";
-import { members } from "@db/schema";
-import { sql } from "drizzle-orm";
+import { members, settings } from "@db/schema";
+import { inArray, sql } from "drizzle-orm";
+import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import { getDb, type DbInstance } from "../../../platform/db";
 import { getSetting, updateSetting } from "../../../platform/http-helpers";
 import type { Env } from "../../../platform/types";
@@ -215,10 +216,18 @@ export const getXCollectionScheduleDecision = (
   intervalValue: string | null | undefined,
   lastRunValue: string | null | undefined,
   currentTime = Date.now(),
+  cadenceStateValue?: string | null,
 ): XCollectionScheduleDecision => {
   const intervalHours = parseXCollectionIntervalHours(intervalValue);
   const lastRun = normalizeLastRun(lastRunValue);
-  const elapsedMs = lastRun > 0 ? currentTime - lastRun : Number.POSITIVE_INFINITY;
+  let anchorAt = lastRun;
+  try {
+    const state = JSON.parse(cadenceStateValue ?? "null");
+    if (lastRun <= currentTime && state?.completedAt === lastRun && typeof state.anchorAt === "number") {
+      anchorAt = collectionCadenceAnchor(state.anchorAt, lastRun);
+    }
+  } catch { /* Legacy or malformed state retains completion-based eligibility. */ }
+  const elapsedMs = lastRun > 0 ? currentTime - anchorAt : Number.POSITIVE_INFINITY;
   return {
     shouldRun: lastRun <= 0 || elapsedMs >= intervalHours * 60 * 60 * 1000,
     intervalHours,
@@ -253,6 +262,7 @@ export const runXCollectionForHandles = async (
   env: Env,
   handles: string[],
   source: XCollectionSource,
+  scheduledFor?: number | null,
 ): Promise<XCollectionRunResult> => {
   if (getHiddenMemberCodes(parseSiteId(env.SITE_ID), Date.now()).length) {
     const allowed = new Set(await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID)));
@@ -274,6 +284,7 @@ export const runXCollectionForHandles = async (
         : X_COLLECTION_MAX_RESULTS,
       richXLinkPreviewEnabled: false,
       source,
+      scheduledFor: source === "scheduled" ? scheduledFor : undefined,
       optimizerEnabled: policy.optimizerEnabled,
       effectiveIntervalMinutes: policy.effectiveIntervalMinutes,
       referencePreviewMode: policy.referencePreviewMode,
@@ -320,15 +331,46 @@ export const getScheduledXCollectionDecision = async (
   db: DbInstance,
   currentTime = Date.now(),
 ) => {
-  const intervalValue = await getSetting(db, X_COLLECTION_INTERVAL_SETTING_KEY);
+  const rows = await db.select({ key: settings.key, value: settings.value }).from(settings).where(inArray(settings.key,
+    [X_COLLECTION_INTERVAL_SETTING_KEY, X_COLLECTION_LAST_RUN_SETTING_KEY, "x_collection_cadence_state"]));
+  const values = new Map(rows.map(row => [row.key, row.value]));
+  const intervalValue = values.get(X_COLLECTION_INTERVAL_SETTING_KEY);
   const normalizedInterval = normalizeXCollectionIntervalHours(intervalValue);
   if (intervalValue !== normalizedInterval) {
     await updateSetting(db, X_COLLECTION_INTERVAL_SETTING_KEY, normalizedInterval);
   }
-  const lastRunValue = await getSetting(db, X_COLLECTION_LAST_RUN_SETTING_KEY);
+  const lastRunValue = values.get(X_COLLECTION_LAST_RUN_SETTING_KEY);
   return getXCollectionScheduleDecision(
     normalizedInterval,
     lastRunValue,
     currentTime,
+    values.get("x_collection_cadence_state"),
   );
+};
+
+export const recordXCollectionCompletion = async (env: Env, completion: {
+  completedAt: number; source: XCollectionSource; scheduledFor?: number | null; successful: boolean;
+}) => {
+  const { completedAt, source, successful } = completion;
+  const anchorAt = source === "scheduled" && successful
+    ? collectionCadenceAnchor(completion.scheduledFor, completedAt) : completedAt;
+  const updates = [
+    [X_COLLECTION_LAST_RUN_SETTING_KEY, String(completedAt)],
+    ["x_collection_cadence_state", JSON.stringify({ completedAt, anchorAt })],
+    ...(successful ? [["x_collection_last_success", String(completedAt)]] : []),
+  ];
+  await env.otw_db.batch(updates.map(([key, value]) => env.otw_db.prepare(
+    `INSERT INTO settings(key,value,updated_at)
+     SELECT ?,?,? WHERE NOT EXISTS(SELECT 1 FROM settings WHERE key=? AND CAST(value AS INTEGER)>?)
+     ON CONFLICT(key) DO UPDATE SET value=CASE
+       WHEN settings.key='x_collection_cadence_state' AND json_valid(settings.value) THEN CASE
+         WHEN json_type(settings.value,'$.anchorAt')='integer'
+           AND json_extract(settings.value,'$.anchorAt') <= json_extract(settings.value,'$.completedAt')
+           AND json_extract(settings.value,'$.anchorAt') > ?
+         THEN json_set(excluded.value,'$.anchorAt',?) ELSE excluded.value END
+       ELSE excluded.value END,updated_at=excluded.updated_at
+     WHERE settings.updated_at IS NOT excluded.updated_at
+       OR (settings.key <> 'x_collection_cadence_state' AND settings.value IS NOT excluded.value)`,
+  ).bind(key, value, String(completedAt), key === "x_collection_last_success" ? key : X_COLLECTION_LAST_RUN_SETTING_KEY,
+    completedAt, anchorAt, completedAt)));
 };

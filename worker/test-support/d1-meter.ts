@@ -1,7 +1,7 @@
 /** Real local D1 metadata; fixture writes and EXPLAIN stay outside this meter. */
 export function meterD1(database: D1Database) {
   const entries: Array<{ sql: string; args: unknown[]; rowsRead: number; rowsWritten: number }> = [];
-  const originals = new WeakMap<object, D1PreparedStatement>();
+  const originals = new WeakMap<object, { statement: D1PreparedStatement; sql: string; args: unknown[] }>();
   const record = (sql: string, args: unknown[], result: D1Result) => entries.push({ sql, args, rowsRead: result.meta.rows_read, rowsWritten: result.meta.rows_written });
   const wrap = (statement: D1PreparedStatement, sql: string, args: unknown[] = []): D1PreparedStatement => {
     const proxy = new Proxy(statement, { get(target, key) {
@@ -19,15 +19,16 @@ export function meterD1(database: D1Database) {
       const value = Reflect.get(target, key, target);
       return typeof value === "function" ? value.bind(target) : value;
     } });
-    originals.set(proxy, statement);
+    originals.set(proxy, { statement, sql, args });
     return proxy;
   };
   const measured = new Proxy(database, { get(target, key) {
     if (key === "prepare") return (sql: string) => wrap(target.prepare(sql), sql);
     if (key === "batch") return async (statements: D1PreparedStatement[]) => {
       // Run through the original batch to retain its transaction semantics.
-      const results = await target.batch(statements.map(statement => originals.get(statement) ?? statement));
-      results.forEach(result => record("batch", [], result));
+      const originalsForBatch = statements.map(statement => originals.get(statement));
+      const results = await target.batch(statements.map((statement, index) => originalsForBatch[index]?.statement ?? statement));
+      results.forEach((result, index) => record(originalsForBatch[index]?.sql ?? "batch", originalsForBatch[index]?.args ?? [], result));
       return results;
     };
     const value = Reflect.get(target, key, target);

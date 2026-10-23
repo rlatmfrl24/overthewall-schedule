@@ -1,4 +1,5 @@
 import type { SiteId } from "@contracts/site-definition";
+import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import { publicationHiddenSql } from "../../content-access";
 import { pMap } from "../../../platform/http-helpers";
 import type {
@@ -130,6 +131,7 @@ type CachedXPostsEntry = {
 
 type StoredXPostsEntry = CachedXPostsEntry & {
   lastCheckedAt: number | null;
+  cadenceAnchorAt: number | null;
   lastSeenPostId: string | null;
   lastError: string | null;
   collectionStartedAt: number | null;
@@ -167,6 +169,8 @@ type XPostSourceRow = {
   username: string | null;
   last_seen_post_id: string | null;
   last_checked_at: number | string;
+  last_success_at?: number | string | null;
+  cadence_anchor_at?: number | string | null;
   updated_at: number | string;
   last_error: string | null;
   collection_started_at: number | string | null;
@@ -206,6 +210,7 @@ type XHandlePostsResult = {
 };
 
 type FetchXPostsForHandlesOptions = {
+  scheduledFor?: number | null;
   siteId?: SiteId;
   storedPage?: import("@contracts/member-posts").MemberPostsPageRequest;
   bearerToken?: string | null;
@@ -240,6 +245,7 @@ export type XApiUsageTracker = {
 };
 
 type CollectXPostsOptions = {
+  scheduledFor?: number | null;
   siteId?: SiteId;
   bearerToken?: string | null;
   maxResults?: number;
@@ -1131,7 +1137,7 @@ const readStoredPostSource = async (
         `SELECT handle, user_id, username, last_seen_post_id, last_checked_at,
                 updated_at, last_error, collection_started_at,
                 initialization_completed_at, sync_pagination_token,
-                sync_base_post_id, sync_newest_post_id
+                sync_base_post_id, sync_newest_post_id, last_success_at, cadence_anchor_at
          FROM x_post_sources
          WHERE handle = ?`,
       )
@@ -1237,6 +1243,8 @@ const storedPostsEntry = (
     userId: source?.user_id ?? rows[0]?.user_id ?? null,
     posts: richXLinkPreviewEnabled ? posts : stripStoredXLinkedPostPreviews(posts),
     lastCheckedAt: safeLastCheckedAt,
+    cadenceAnchorAt: safeLastCheckedAt !== null && Number(source?.last_success_at) === safeLastCheckedAt
+      ? collectionCadenceAnchor(Number(source?.cadence_anchor_at), safeLastCheckedAt) : safeLastCheckedAt,
     lastSeenPostId:
       source?.collection_started_at != null
         ? source.last_seen_post_id ?? null
@@ -1557,27 +1565,29 @@ const writeXSyncContinuation = async (
   },
   effectiveIntervalMs = X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS,
   siteId: SiteId = "otw",
+  scheduledFor?: number | null,
 ) => {
   if (!cacheDb) return;
   const checkedAt = now();
+  const cadenceAnchorAt = state.nextToken ? checkedAt : collectionCadenceAnchor(scheduledFor, checkedAt);
   // Cursor, continuation and success timestamps form one durable acknowledgement.
   // A failed statement leaves the previous range intact for infrastructure retry.
     await cacheDb
       .prepare(
-        `WITH incoming(handle,user_id,username,last_seen_post_id,last_checked_at,
+        `WITH incoming(handle,user_id,username,last_seen_post_id,last_checked_at,cadence_anchor_at,
            updated_at,last_error,collection_started_at,initialization_completed_at,
            last_attempt_at,last_success_at,next_check_at,consecutive_failures,last_error_code,
            sync_pagination_token,sync_base_post_id,sync_newest_post_id) AS
-         (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?))
+         (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?))
          INSERT INTO x_post_sources (
-           handle, user_id, username, last_seen_post_id, last_checked_at,
+           handle, user_id, username, last_seen_post_id, last_checked_at, cadence_anchor_at,
            updated_at, last_error, collection_started_at,
            initialization_completed_at, last_attempt_at, last_success_at,
            next_check_at, consecutive_failures, last_error_code,
            sync_pagination_token, sync_base_post_id, sync_newest_post_id
          )
          SELECT iif(${publicationHiddenSql("x_post_sources", "incoming", siteId)},json('site_member_cutover'),handle),
-           user_id,username,last_seen_post_id,last_checked_at,updated_at,last_error,
+           user_id,username,last_seen_post_id,last_checked_at,cadence_anchor_at,updated_at,last_error,
            collection_started_at,initialization_completed_at,last_attempt_at,last_success_at,
            next_check_at,consecutive_failures,last_error_code,sync_pagination_token,sync_base_post_id,sync_newest_post_id
          FROM incoming WHERE 1
@@ -1589,6 +1599,7 @@ const writeXSyncContinuation = async (
            sync_base_post_id = excluded.sync_base_post_id,
            sync_newest_post_id = excluded.sync_newest_post_id,
            last_checked_at = excluded.last_checked_at,
+           cadence_anchor_at = excluded.cadence_anchor_at,
            collection_started_at = COALESCE(x_post_sources.collection_started_at, excluded.collection_started_at),
            initialization_completed_at = COALESCE(x_post_sources.initialization_completed_at, excluded.initialization_completed_at),
            last_attempt_at = excluded.last_attempt_at,
@@ -1605,13 +1616,14 @@ const writeXSyncContinuation = async (
         user.username,
         state.nextToken ? state.basePostId : state.completedPostId,
         checkedAt,
+        cadenceAnchorAt,
         checkedAt,
         null,
         checkedAt,
         checkedAt,
         checkedAt,
         checkedAt,
-        checkedAt + (state.nextToken ? 15 * 60_000 : effectiveIntervalMs),
+        state.nextToken ? checkedAt + 15 * 60_000 : cadenceAnchorAt + effectiveIntervalMs,
         state.nextToken,
         state.nextToken ? state.basePostId : null,
         state.nextToken ? state.newestPostId : null,
@@ -2502,6 +2514,7 @@ const fetchXPostsForUser = async (
   effectiveIntervalMs = X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS,
   deferReferenceHydration = false,
   siteId: SiteId = "otw",
+  scheduledFor?: number | null,
 ): Promise<{
   posts: XPostItem[];
   error: string | null;
@@ -2692,7 +2705,8 @@ const fetchXPostsForUser = async (
           basePostId: syncToken ? stored?.syncBasePostId ?? null : sinceId,
           newestPostId: lastSeenPostId,
           completedPostId: lastSeenPostId,
-        }, effectiveIntervalMs, siteId);
+        }, effectiveIntervalMs, siteId,
+        stored?.syncPaginationToken || stored?.lastError || (stored?.lastCheckedAt ?? 0) >= (scheduledFor ?? Infinity) ? undefined : scheduledFor);
       } catch (error) {
         console.warn("Failed to acknowledge stored X timeline page", error);
         entry.storageError = "x_post_storage_failed";
@@ -2857,6 +2871,7 @@ export const fetchXPostsForHandles = async (
     effectiveIntervalMinutes = 120,
     deferReferenceHydration = false,
     siteId = "otw",
+    scheduledFor,
   } = options;
   const normalizedHandles = Array.from(
     new Set(handles.map(normalizeHandle).filter(Boolean)),
@@ -3063,6 +3078,7 @@ export const fetchXPostsForHandles = async (
               effectiveIntervalMinutes * 60_000,
               deferReferenceHydration,
               siteId,
+              scheduledFor,
             );
           return {
             handle,
@@ -3201,9 +3217,11 @@ const getCollectionRefreshIntervalMs = (entry: StoredXPostsEntry) => {
   return X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS;
 };
 
-const shouldRefreshCollectionHandle = (entry: StoredXPostsEntry | null) => {
+const shouldRefreshCollectionHandle = (entry: StoredXPostsEntry | null, timestamp = now()) => {
   if (!entry || entry.lastCheckedAt === null) return true;
-  return now() - entry.lastCheckedAt >= getCollectionRefreshIntervalMs(entry);
+  const anchorAt = entry.lastError || entry.syncPaginationToken || entry.lastCheckedAt > timestamp
+    ? entry.lastCheckedAt : collectionCadenceAnchor(entry.cadenceAnchorAt, entry.lastCheckedAt);
+  return timestamp - anchorAt >= getCollectionRefreshIntervalMs(entry);
 };
 
 const getXCollectionHandlesToRefresh = async (
@@ -3211,6 +3229,7 @@ const getXCollectionHandlesToRefresh = async (
   maxResults: number,
   richXLinkPreviewEnabled: boolean,
   cacheDb?: XCacheDb,
+  scheduledFor?: number | null,
 ) => {
   if (!cacheDb) return handles;
 
@@ -3222,7 +3241,9 @@ const getXCollectionHandlesToRefresh = async (
       richXLinkPreviewEnabled,
       cacheDb,
     );
-    if (shouldRefreshCollectionHandle(stored)) {
+    const timestamp = stored?.syncPaginationToken || stored?.lastError
+      ? now() : collectionCadenceAnchor(scheduledFor, now());
+    if (shouldRefreshCollectionHandle(stored, timestamp)) {
       handlesToRefresh.push(handle);
     }
   }
@@ -3232,16 +3253,20 @@ const getXCollectionHandlesToRefresh = async (
 const getOptimizedXCollectionHandlesToRefresh = async (
   handles: string[],
   cacheDb?: XCacheDb,
+  scheduledFor?: number | null,
 ) => {
   if (!cacheDb) return handles;
   const due: string[] = [];
   const timestamp = now();
   for (const handle of handles) {
     const row = await cacheDb.prepare(
-      `SELECT next_check_at FROM x_post_sources WHERE handle = ?`,
-    ).bind(normalizeHandle(handle)).first<{ next_check_at: number | string | null }>();
+      `SELECT next_check_at,last_attempt_at,sync_pagination_token,consecutive_failures FROM x_post_sources WHERE handle = ?`,
+    ).bind(normalizeHandle(handle)).first<{ next_check_at: number | string | null; last_attempt_at: number | null; sync_pagination_token: string | null; consecutive_failures: number }>();
     const nextCheckAt = Number(row?.next_check_at ?? 0);
-    if (!Number.isFinite(nextCheckAt) || nextCheckAt <= timestamp) due.push(handle);
+    const resuming = Boolean(row?.sync_pagination_token || row?.consecutive_failures);
+    const dueAt = resuming ? timestamp : collectionCadenceAnchor(scheduledFor, timestamp);
+    if ((!Number.isFinite(nextCheckAt) || nextCheckAt <= dueAt) &&
+      (resuming || (row?.last_attempt_at ?? 0) < dueAt)) due.push(handle);
   }
   return due;
 };
@@ -3273,6 +3298,7 @@ export const collectXPostsForHandles = async (
     coalescedHandles = 0,
     afterTimeline,
     siteId = "otw",
+    scheduledFor,
   } = options;
   const startedAt = now();
   const normalizedHandles = Array.from(
@@ -3356,12 +3382,13 @@ export const collectXPostsForHandles = async (
     const handlesToRefresh = source === "manual"
       ? normalizedHandles
       : optimizerEnabled
-        ? await getOptimizedXCollectionHandlesToRefresh(normalizedHandles, cacheDb)
+        ? await getOptimizedXCollectionHandlesToRefresh(normalizedHandles, cacheDb, scheduledFor)
       : await getXCollectionHandlesToRefresh(
         normalizedHandles,
         maxResults,
         richXLinkPreviewEnabled,
         cacheDb,
+        scheduledFor,
       );
 
     if (handlesToRefresh.length === 0) {
@@ -3404,6 +3431,7 @@ export const collectXPostsForHandles = async (
       continuationMaxResults: X_COLLECTION_MAX_RESULTS,
       referencePreviewMode,
       effectiveIntervalMinutes,
+      scheduledFor: source === "scheduled" ? scheduledFor : undefined,
     });
     if (afterTimeline && content.byHandle.some(item => item.storageError || item.error === "budget_unavailable")) {
       throw new XApiError("X collection persistence unavailable", 503, { code: "budget_unavailable" });

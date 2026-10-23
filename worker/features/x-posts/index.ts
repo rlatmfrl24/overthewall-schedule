@@ -16,7 +16,7 @@ export {
 export {
   redactStoredXPosts
 } from "./infrastructure/x-api";
-export { getScheduledXCollectionDecision, readActiveXHandles, runXCollection, runXCollectionForHandles } from "./infrastructure/x-collection";
+export { getScheduledXCollectionDecision, readActiveXHandles, runXCollection, runXCollectionForHandles, recordXCollectionCompletion } from "./infrastructure/x-collection";
 export {
   readXHistoryHealth,
   readXHistoryPosts

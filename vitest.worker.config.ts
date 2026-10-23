@@ -73,6 +73,7 @@ const SCHEDULED_OPERATIONS_MIGRATION_NAME = "0068_fixed_amazoness.sql";
 const SCHEDULED_OPERATIONS_PARTIAL_MIGRATION_NAME = "0071_gifted_romulus.sql";
 let schemaMigrations: ReturnType<typeof readD1Migrations> | undefined;
 const schemaTests = [
+  "worker/features/scheduled-operations/infrastructure/collector-sql-cadence.integration.test.ts",
   "worker/features/scheduled-operations/infrastructure/scheduled-auto-update.integration.test.ts",
   "worker/app/admin-catalog-replay.integration.test.ts",
   "worker/app/work-queue-flow.integration.test.ts",
@@ -103,6 +104,7 @@ return defineConfig({
         workflows:{SCHEDULED_OPERATIONS_WORKFLOW:{name:"scheduled-native-test",className:"ScheduledOperationsWorkflow"}},
         queueProducers:{OTW_OPS_BACKGROUND_QUEUE:"otw-ops-background"},queueConsumers:{"otw-ops-background":{maxBatchSize:1,maxBatchTimeout:0,maxRetries:0}},outboundService:"native-workflow-provider",
       };
+      Object.assign(nativeWorkflowWorker.bindings, { X_BEARER_TOKEN: "native-fixture", YOUTUBE_API_KEY: "native-fixture" });
       // Small feature fixtures consume the exact canonical access DDL for their tables.
       // Stable per-table migration names let combined fixtures deduplicate members.
       const accessMigrations = (tables: string[]) => [...tables.map(table => ({
@@ -309,7 +311,7 @@ return defineConfig({
               ...otwPlayCatalogMigrations,
               ...accessMigrations(["members", "youtube_feed_videos", "content_transitions"]), ...efficiencyIndexes("youtube_feed_"), ...efficiencyIndexes("scheduled_")],
             X_REFERENCE_MIGRATIONS: [...migrations.filter(({ name }) =>
-              /^(0000_|0011_|0023_|0025_|0026_|0068_|0071_|0072_|0075_|0077_|0078_|0079_|0083_|0084_|0137_|0138_)/.test(name)
+              /^(0000_|0011_|0023_|0025_|0026_|0068_|0071_|0072_|0075_|0077_|0078_|0079_|0083_|0084_|0137_|0138_|0152_)/.test(name)
             ).map(migration => /^(0071_|0072_)/.test(migration.name)
               ? { ...migration, queries: migration.queries.filter(query => /^\s*ALTER TABLE `x_/.test(query)) }
               : migration), ...accessMigrations(["members", "x_posts", "x_post_facts"]), ...efficiencyIndexes("x_")],
