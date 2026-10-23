@@ -8,6 +8,7 @@ import { ScheduledJobPlanner } from "./scheduled-job-planner";
 import { ScheduledJobExecutor } from "./scheduled-job-executor";
 import { collectNaverCafePostsForSources, readEnabledNaverCafeSources } from "../../naver-cafe";
 import { hasScheduledYouTubeFeedWork, runScheduledYouTubeFeedCollection } from "../../youtube";
+import { D1NaverCafeApplication } from "../../naver-cafe/infrastructure/d1-naver-cafe-application";
 
 const db = env.otw_db;
 const hour = 3_600_000;
@@ -25,6 +26,57 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(() => vi.restoreAllMocks());
+
+it.each([1, 3, 6])("does not replay a %sh cafe slot already checked after its scheduled time", async interval => {
+  const id = 901500 + interval;
+  await db.prepare("UPDATE naver_cafe_sources SET enabled=0").run();
+  await seedCafeSource(id, interval).run();
+  await seedCafePost(id, id, interval === 1 ? 0 : interval === 3 ? 2 : 8).run();
+  await db.prepare("UPDATE naver_cafe_sources SET last_attempt_at=?,cadence_anchor_at=? WHERE id=?")
+    .bind(scheduledFor + 45_000, scheduledFor - interval * hour, id).run();
+  expect(await new ScheduledJobPlanner(runtime(), {} as never).planScheduled("naver_cafe_collection", scheduledFor)).toEqual([]);
+});
+
+it("keeps cafe cadence out of the serialized source DTO", async () => {
+  const id = 901600;
+  await seedCafeSource(id, 6).run();
+  const sources = await new D1NaverCafeApplication(runtime()).listSources(true);
+  const serialized = await Response.json(sources).json<Array<Record<string, unknown>>>();
+  expect(serialized.find(source => source.id === id)).toHaveProperty("last_attempt_at");
+  expect(serialized.some(source => "cadence_anchor_at" in source)).toBe(false);
+});
+
+it.each(["complete", "retry", "continuation"])("revalidates an old cafe item against latest %s progress", async state => {
+  const id = 901610 + ["complete", "retry", "continuation"].indexOf(state), actual = scheduledFor + 2 * hour;
+  vi.spyOn(Date, "now").mockReturnValue(actual);
+  await db.prepare("UPDATE naver_cafe_sources SET enabled=0").run();
+  await seedCafeSource(id, 6).run();
+  await db.prepare(`UPDATE naver_cafe_sources SET initialization_completed_at=1,collection_started_at=1,
+    last_attempt_at=?,cadence_anchor_at=?,last_seen_article_id=100,sync_page=?,last_error_code=? WHERE id=?`)
+    .bind(scheduledFor + hour, scheduledFor + hour, state === "continuation" ? 2 : null,
+      state === "retry" ? "provider_error" : null, id).run();
+  const provider = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ result: { articleList: [] } }));
+  const sources = await readEnabledNaverCafeSources(runtime());
+  await collectNaverCafePostsForSources(sources, { cacheDb: db, siteId: "otw", trigger: "scheduled", scheduledFor });
+  expect(provider).toHaveBeenCalledTimes(state === "complete" ? 0 : 1);
+  expect(await db.prepare("SELECT cadence_anchor_at FROM naver_cafe_sources WHERE id=?").bind(id).first("cadence_anchor_at"))
+    .toBe(state === "complete" ? scheduledFor + hour : actual);
+});
+
+it("keeps X success history and cadence monotonic when finalizers arrive out of order", async () => {
+  await db.prepare("DELETE FROM settings WHERE key IN ('x_collection_last_run','x_collection_last_success','x_collection_cadence_state')").run();
+  await finalizeX("scheduled", "succeeded", scheduledFor - hour, scheduledFor - hour);
+  await finalizeX("scheduled", "failed", scheduledFor + 60_000, scheduledFor);
+  await finalizeX("scheduled", "succeeded", scheduledFor, scheduledFor - hour);
+  expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_last_success'").first("value")).toBe(String(scheduledFor));
+  expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_last_run'").first("value")).toBe(String(scheduledFor + 60_000));
+  await finalizeX("scheduled", "succeeded", scheduledFor + 120_000, scheduledFor - hour);
+  expect(JSON.parse(await db.prepare("SELECT value FROM settings WHERE key='x_collection_cadence_state'").first<string>("value") ?? "null"))
+    .toEqual({ completedAt: scheduledFor + 120_000, anchorAt: scheduledFor + 120_000 });
+  const replay = meterD1(db);
+  await finalizeX("scheduled", "succeeded", scheduledFor + 120_000, scheduledFor - hour, replay.db);
+  expect(replay.summary().rowsWritten).toBe(0);
+});
 
 it.each([1, 3, 6])("plans cafe at the %sh scheduled boundary without rounding actual attempts", async interval => {
   const id = 900500 + interval;
@@ -46,10 +98,16 @@ it.each(["scheduled", "manual"] as const)("persists cafe actual timestamps and %
   await db.prepare("UPDATE naver_cafe_sources SET collection_started_at=1,initialization_completed_at=1,last_seen_article_id=1 WHERE id=?").bind(id).run();
   vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ result: { articleList: [] } }));
   const sources = await readEnabledNaverCafeSources(runtime());
-  expect(await collectNaverCafePostsForSources(sources, { cacheDb: db, siteId: "otw", trigger, scheduledFor })).toMatchObject({ success: true });
+  const meter = meterD1(db);
+  expect(await collectNaverCafePostsForSources(sources, { cacheDb: meter.db, siteId: "otw", trigger, scheduledFor })).toMatchObject({ success: true });
   expect(await db.prepare("SELECT last_attempt_at,last_success_at,cadence_anchor_at FROM naver_cafe_sources WHERE id=?").bind(id).first()).toEqual({
     last_attempt_at: actual, last_success_at: actual, cadence_anchor_at: trigger === "scheduled" ? scheduledFor : actual,
   });
+  const progress = meter.entries.find(entry => entry.sql.startsWith("UPDATE naver_cafe_sources SET"))!;
+  const before = await db.prepare(progress.sql.replace("cadence_anchor_at = ?,", ""))
+    .bind(...progress.args.slice(0, 7), ...progress.args.slice(8)).run();
+  expect(progress.rowsWritten).toBe(before.meta.rows_written);
+  console.info("CAFE_CADENCE_WRITE_COST", JSON.stringify({ trigger, before: before.meta.rows_written, after: progress.rowsWritten }));
 });
 
 const finalizeX = (source: "manual" | "scheduled", status: string, completedAt: number, slot: number, database = db) =>
@@ -190,8 +248,9 @@ it("seeks YouTube policy membership without changing fenced metadata candidates"
   try {
     const membershipWrite = async () => {
       const insert = await db.prepare("INSERT INTO content_transition_membership(transition_id,root_table,root_key,row_table,row_key) VALUES('cadence-fence','youtube_feed_sources','[999999]','youtube_feed_sources','[999999]')").run();
-      const remove = await db.prepare("DELETE FROM content_transition_membership WHERE transition_id='cadence-fence' AND row_key='[999999]'").run();
-      return { insertRowsWritten: insert.meta.rows_written, deleteRowsWritten: remove.meta.rows_written };
+      const update = await db.prepare("UPDATE content_transition_membership SET row_key='[999998]' WHERE transition_id='cadence-fence' AND row_table='youtube_feed_sources' AND row_key='[999999]'").run();
+      const remove = await db.prepare("DELETE FROM content_transition_membership WHERE transition_id='cadence-fence' AND row_key='[999998]'").run();
+      return { insertRowsWritten: insert.meta.rows_written, updateRowsWritten: update.meta.rows_written, deleteRowsWritten: remove.meta.rows_written };
     };
     const writesBefore = await membershipWrite();
     const unindexed = await read();

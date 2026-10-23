@@ -361,8 +361,16 @@ export const recordXCollectionCompletion = async (env: Env, completion: {
   ];
   await env.otw_db.batch(updates.map(([key, value]) => env.otw_db.prepare(
     `INSERT INTO settings(key,value,updated_at)
-     SELECT ?,?,? WHERE NOT EXISTS(SELECT 1 FROM settings WHERE key='x_collection_last_run' AND CAST(value AS INTEGER)>?)
-     ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at
-     WHERE settings.value IS NOT excluded.value OR settings.updated_at IS NOT excluded.updated_at`,
-  ).bind(key, value, String(completedAt), completedAt)));
+     SELECT ?,?,? WHERE NOT EXISTS(SELECT 1 FROM settings WHERE key=? AND CAST(value AS INTEGER)>?)
+     ON CONFLICT(key) DO UPDATE SET value=CASE
+       WHEN settings.key='x_collection_cadence_state' AND json_valid(settings.value) THEN CASE
+         WHEN json_type(settings.value,'$.anchorAt')='integer'
+           AND json_extract(settings.value,'$.anchorAt') <= json_extract(settings.value,'$.completedAt')
+           AND json_extract(settings.value,'$.anchorAt') > ?
+         THEN json_set(excluded.value,'$.anchorAt',?) ELSE excluded.value END
+       ELSE excluded.value END,updated_at=excluded.updated_at
+     WHERE settings.updated_at IS NOT excluded.updated_at
+       OR (settings.key <> 'x_collection_cadence_state' AND settings.value IS NOT excluded.value)`,
+  ).bind(key, value, String(completedAt), key === "x_collection_last_success" ? key : X_COLLECTION_LAST_RUN_SETTING_KEY,
+    completedAt, anchorAt, completedAt)));
 };

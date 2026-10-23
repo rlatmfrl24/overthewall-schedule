@@ -81,7 +81,9 @@ const planNaverCafeCollection = async (
   const lastCheckedBySource = new Map(
     sources.map((source) => [
       source.id,
-      collectionCadenceAnchor(source.cadence_anchor_at, Number(source.last_attempt_at ?? source.last_success_at) || 0),
+      Number(source.last_attempt_at ?? source.last_success_at) > timestamp
+        ? Number(source.last_attempt_at ?? source.last_success_at)
+        : collectionCadenceAnchor(source.cadence_anchor_at, Number(source.last_attempt_at ?? source.last_success_at) || 0),
     ]),
   );
   const latestPostBySource = new Map(

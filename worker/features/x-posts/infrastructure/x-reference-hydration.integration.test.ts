@@ -279,6 +279,29 @@ describe("X replies use stored context or a completed relation", () => {
 });
 
 describe("X durable reference hydration", () => {
+  it.each([[true, "complete"], [false, "complete"], [true, "retry"], [true, "retry-before"], [true, "continuation"]] as const)("revalidates an old scheduled X item (optimizer %s, %s)", async (optimizer, state) => {
+    const slot = Date.parse("2026-10-22T23:23:00Z"), actual = slot + 26 * 3_600_000;
+    vi.spyOn(Date, "now").mockReturnValue(actual);
+    await db.prepare("INSERT INTO settings(key,value) VALUES('x_cost_optimizer_enabled','true'),('x_collection_interval_hours','0.5'),('x_reference_preview_mode','link_only')").run();
+    await db.prepare("UPDATE settings SET value=? WHERE key='x_cost_optimizer_enabled'").bind(String(optimizer)).run();
+    const previous = state === "retry-before" ? slot - 45_000 : slot + 3_600_000;
+    await db.prepare(`INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,last_attempt_at,updated_at,collection_started_at,next_check_at,sync_pagination_token,consecutive_failures,last_error)
+      VALUES('member','1','member','100',?,?,0,1,?,?,?,?)`)
+      .bind(previous, previous, slot + 90 * 60_000, state === "continuation" ? "page2" : null,
+        state.startsWith("retry") ? 1 : 0, state.startsWith("retry") ? "provider_error" : null).run();
+    vi.mocked(fetch).mockImplementation(async input => {
+      const url = new URL(String(input));
+      if (url.pathname === "/2/users/by") return json({ data: [{ id: "1", username: "member" }] });
+      if (url.pathname === "/2/users/1/tweets") return json({ data: [{ id: "200", text: "new", created_at: new Date(actual).toISOString() }], meta: {} });
+      throw new Error(`Unexpected provider ${url.pathname}`);
+    });
+    await runXCollectionForHandles({ ...testEnv, X_BEARER_TOKEN: "test" }, ["member"], "scheduled", slot);
+    expect(fetch).toHaveBeenCalledTimes(state === "complete" ? 0 : 2);
+    expect(await db.prepare("SELECT next_check_at FROM x_post_sources WHERE handle='member'").first("next_check_at"))
+      .toBe(state === "complete" ? slot + 90 * 60_000 : actual + 30 * 60_000);
+    expect(await db.prepare("SELECT lease_token FROM x_post_sources WHERE handle='member'").first("lease_token")).toBeNull();
+  });
+
   it.each([null, "page2"])("anchors scheduled source cadence but keeps actual continuation time (%s)", async nextToken => {
     const slot = Date.parse("2026-10-22T23:23:00Z"), actual = slot + 45_000;
     vi.spyOn(Date, "now").mockReturnValue(actual);

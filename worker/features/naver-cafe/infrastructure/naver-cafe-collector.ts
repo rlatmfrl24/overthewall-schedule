@@ -31,6 +31,8 @@ export type NaverCafeSourceInput = Pick<
   | "sync_page"
   | "sync_base_article_id"
   | "sync_newest_article_id"
+  | "last_attempt_at"
+  | "last_error_code"
 >>;
 
 export type NaverCafePostItem = {
@@ -517,7 +519,12 @@ const collectNaverSourceNewFeed = async (
   scheduledFor?: number | null,
 ) => {
   const attemptedAt = now();
-  const cadenceAnchorAt = collectionCadenceAnchor(scheduledFor, attemptedAt);
+  const cadenceAnchorAt = collectionCadenceAnchor(
+    source.sync_page || source.last_error_code ? undefined : scheduledFor, attemptedAt);
+  if (scheduledFor != null && (source.last_attempt_at ?? 0) >= cadenceAnchorAt &&
+    !source.sync_page && !source.last_error_code) {
+    return { posts: [], pagesRead: 0, initialized: false };
+  }
   if (cacheDb && getHiddenMemberCodes(siteId, attemptedAt).length && await cacheDb.prepare(
     `SELECT 1 FROM naver_cafe_sources s WHERE s.id=? AND ${publicationHiddenSql("naver_cafe_sources", "s", siteId)}`,
   ).bind(source.id).first()) throw new NaverCafeSourceError("source_cutover", "disabled");

@@ -103,6 +103,19 @@ afterEach(async () => {
 });
 
 describe("YouTube public Shorts storage cost", () => {
+  it.each(["complete", "retry", "continuation"])("does not rewind an old YouTube slot after latest %s progress", async state => {
+    const slot = Date.parse("2026-10-22T23:23:00Z"), actual = slot + 8 * 3_600_000;
+    vi.spyOn(Date, "now").mockReturnValue(actual);
+    await seedSource();
+    await database.prepare("UPDATE youtube_feed_sources SET last_attempt_at=?,last_success_at=?,next_check_at=?,consecutive_failures=?,sync_page_token=?")
+      .bind(slot + 3_600_000, slot + 3_600_000, slot + 7 * 3_600_000, state === "retry" ? 1 : 0, state === "continuation" ? "page2" : null).run();
+    const provider = fakeYouTube(0);
+    await runScheduledYouTubeFeedCollection({ ...testEnv, YOUTUBE_API_KEY: "test" }, "scheduled", slot);
+    expect(provider).toHaveBeenCalledTimes(state === "complete" ? 0 : 1);
+    expect(await database.prepare("SELECT next_check_at FROM youtube_feed_sources WHERE id=1").first("next_check_at"))
+      .toBe(state === "complete" ? slot + 7 * 3_600_000 : actual + 6 * 3_600_000);
+  });
+
   it.each(["scheduled", "manual"] as const)("keeps actual source timestamps and anchors only %s feed cadence", async origin => {
     const slot = Date.parse("2026-10-22T23:23:00Z"), actual = slot + 45_000;
     vi.spyOn(Date, "now").mockReturnValue(actual);

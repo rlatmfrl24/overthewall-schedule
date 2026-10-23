@@ -2697,7 +2697,8 @@ const fetchXPostsForUser = async (
           basePostId: syncToken ? stored?.syncBasePostId ?? null : sinceId,
           newestPostId: lastSeenPostId,
           completedPostId: lastSeenPostId,
-        }, effectiveIntervalMs, siteId, scheduledFor);
+        }, effectiveIntervalMs, siteId,
+        stored?.syncPaginationToken || stored?.lastError || (stored?.lastCheckedAt ?? 0) >= (scheduledFor ?? Infinity) ? undefined : scheduledFor);
       } catch (error) {
         console.warn("Failed to acknowledge stored X timeline page", error);
         entry.storageError = "x_post_storage_failed";
@@ -3208,9 +3209,9 @@ const getCollectionRefreshIntervalMs = (entry: StoredXPostsEntry) => {
   return X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS;
 };
 
-const shouldRefreshCollectionHandle = (entry: StoredXPostsEntry | null) => {
+const shouldRefreshCollectionHandle = (entry: StoredXPostsEntry | null, timestamp = now()) => {
   if (!entry || entry.lastCheckedAt === null) return true;
-  return now() - entry.lastCheckedAt >= getCollectionRefreshIntervalMs(entry);
+  return timestamp - entry.lastCheckedAt >= getCollectionRefreshIntervalMs(entry);
 };
 
 const getXCollectionHandlesToRefresh = async (
@@ -3218,6 +3219,7 @@ const getXCollectionHandlesToRefresh = async (
   maxResults: number,
   richXLinkPreviewEnabled: boolean,
   cacheDb?: XCacheDb,
+  scheduledFor?: number | null,
 ) => {
   if (!cacheDb) return handles;
 
@@ -3229,7 +3231,9 @@ const getXCollectionHandlesToRefresh = async (
       richXLinkPreviewEnabled,
       cacheDb,
     );
-    if (shouldRefreshCollectionHandle(stored)) {
+    const timestamp = stored?.syncPaginationToken || stored?.lastError
+      ? now() : collectionCadenceAnchor(scheduledFor, now());
+    if (shouldRefreshCollectionHandle(stored, timestamp)) {
       handlesToRefresh.push(handle);
     }
   }
@@ -3239,16 +3243,20 @@ const getXCollectionHandlesToRefresh = async (
 const getOptimizedXCollectionHandlesToRefresh = async (
   handles: string[],
   cacheDb?: XCacheDb,
+  scheduledFor?: number | null,
 ) => {
   if (!cacheDb) return handles;
   const due: string[] = [];
   const timestamp = now();
   for (const handle of handles) {
     const row = await cacheDb.prepare(
-      `SELECT next_check_at FROM x_post_sources WHERE handle = ?`,
-    ).bind(normalizeHandle(handle)).first<{ next_check_at: number | string | null }>();
+      `SELECT next_check_at,last_attempt_at,sync_pagination_token,consecutive_failures FROM x_post_sources WHERE handle = ?`,
+    ).bind(normalizeHandle(handle)).first<{ next_check_at: number | string | null; last_attempt_at: number | null; sync_pagination_token: string | null; consecutive_failures: number }>();
     const nextCheckAt = Number(row?.next_check_at ?? 0);
-    if (!Number.isFinite(nextCheckAt) || nextCheckAt <= timestamp) due.push(handle);
+    const resuming = Boolean(row?.sync_pagination_token || row?.consecutive_failures);
+    const dueAt = resuming ? timestamp : collectionCadenceAnchor(scheduledFor, timestamp);
+    if ((!Number.isFinite(nextCheckAt) || nextCheckAt <= dueAt) &&
+      (resuming || (row?.last_attempt_at ?? 0) < dueAt)) due.push(handle);
   }
   return due;
 };
@@ -3364,12 +3372,13 @@ export const collectXPostsForHandles = async (
     const handlesToRefresh = source === "manual"
       ? normalizedHandles
       : optimizerEnabled
-        ? await getOptimizedXCollectionHandlesToRefresh(normalizedHandles, cacheDb)
+        ? await getOptimizedXCollectionHandlesToRefresh(normalizedHandles, cacheDb, scheduledFor)
       : await getXCollectionHandlesToRefresh(
         normalizedHandles,
         maxResults,
         richXLinkPreviewEnabled,
         cacheDb,
+        scheduledFor,
       );
 
     if (handlesToRefresh.length === 0) {

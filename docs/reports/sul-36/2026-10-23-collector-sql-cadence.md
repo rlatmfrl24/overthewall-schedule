@@ -18,10 +18,11 @@
 | 카페 계획: 대상5개·무관 글5,000개 | 10,032 | 32 | 전체 계획2문, 쓰기0 |
 | YouTube 존재 검사+메타 후보: source20개·무관 membership5,000개·fence1개 | 207,138 | 2,099 | SELECT2문, 쓰기0 |
 
-- 카페 계획은 무관 이력 추가 전후 모두32행이다. 현재 통합 fixture에서는 기존 전역 최신 글 SQL만10,015행을 읽는다. 첫 전후 비교의 전체 계획10,032행과 서로 다른 분모임을 구분한다.
+- 카페 계획은 무관 이력 추가 전후 모두32행이다. 리뷰 회귀를 추가한 현재 통합 fixture에서는 기존 전역 최신 글 SQL만10,021행을 읽는다. 첫 전후 비교의 전체 계획10,032행과 서로 다른 분모임을 구분한다.
 - membership 정책 조회는 `SCAN held`에서 `SEARCH held USING COVERING INDEX idx_content_transition_membership_lookup`로 바뀐다. 결과와 정렬이 같고 fenced source의 영상은 계속 제외된다.
-- 5,001개 membership fixture의 인덱스 재생성은 읽기10,123행·쓰기5,002행이었다. membership 단건 INSERT는 쓰기3→4행, DELETE는 양쪽1행으로 계측됐다. DELETE 수치를 근거로 인덱스 유지 작업 자체가 없다고 해석하지 않는다.
-- X 성공 완료의 최초 저장은 기존2문/읽기0/쓰기4행 → 새3문/읽기5/쓰기6행이다. 추가 내부 상태1개 때문이며 정확한 재전달은 새3문/읽기9/쓰기0행이다. 정상 주기 복원과 상태 저장을 비용 절감으로 포장하지 않는다.
+- 5,001개 membership fixture의 인덱스 재생성은 읽기10,123행·쓰기5,002행이었다. membership 단건 INSERT와 row_key UPDATE는 각각 쓰기3→4행, DELETE는 양쪽1행으로 계측됐다. DELETE 수치를 근거로 인덱스 유지 작업 자체가 없다고 해석하지 않는다.
+- X 성공 완료의 최초 저장은 기존2문/읽기0/쓰기4행 → 새3문/읽기4/쓰기6행이다. 추가 내부 상태1개 때문이며 정확한 재전달은 새3문/읽기9/쓰기0행이다. 정상 주기 복원과 상태 저장을 비용 절감으로 포장하지 않는다.
+- 카페 실제 progress UPDATE에서 새 cadence 대입만 뺀 문장과 비교한 쓰기는 scheduled/manual 모두1→1행이다. 별도 SQL이나 이력 backfill은 추가하지 않는다. 열 저장 바이트와 운영 총쓰기량의 동일성을 뜻하지 않는다.
 
 ## 실행한 검증
 
@@ -36,7 +37,18 @@ Node24.20.0 / pnpm11.7.0 / 새 의존성0. 각 작업의 RED 실패를 확인한
 - 실제 native Workflow5건 PASS: X·카페·YouTube 각각 Cron→Workflow→Outbox→Queue→수집→실제 D1 저장/readback, 같은 예약 재전달에서 run/provider 호출 증가0. 기존 일정 Workflow/Queue와 finalizer 회귀도 통과했다. 정상 Worker·Workflow·Queue는 그대로 실행하고 외부 provider 경계만 로컬 응답으로 대체했다.
 - 타입, 변경 파일 ESLint, architecture 검사 PASS.
 - `pnpm d1:reset:local -- --validate-only`: 전체 migration151건 임시 D1 실제 적용/검증 PASS, 기존 로컬 DB 교체 없음.
-- 독립 리뷰·최종 preflight·PR 상태: 최종 검증 후 이 문서와 PR ledger에 보완한다.
+- 독립 리뷰 후 관련5파일125건과 비용 schema20건 PASS. 아래 지연·역순·DTO 회귀를 포함한다. 최종 preflight와 PR 상태는 실행 후 보완한다.
+
+## 독립 리뷰와 수정
+
+기준 `6cf385f8`, 최초 검토 HEAD `efa68730`의 전체 변경을 별도 reviewer가 읽기 전용으로 검토했다. Important2건과 Minor2건을 확인해 모두 같은 범위에서 수정했다. 검토 재현은 메모리 SQLite였으며, 구현자는 실제 로컬 D1 회귀로 확인했다.
+
+- 지연된 과거 예약은 source의 최신 정상 진행과 다시 대조한다. X optimizer on/off·카페·YouTube에서 이미 충족된 예약은 provider를 다시 부르지 않는다. 진행 중 페이지와 실제 실패 재시도는 실제시각 기준으로 이어받고 다음 확인 시각을 과거로 되돌리지 않는다.
+- 카페1/3/6시간 planner는 실제 점검이 해당 예약 이후면 과거 슬롯의 새 작업을 만들지 않는다.
+- 역순 X finalizer는 완료/cadence 쌍의 최신성을 지키면서 성공 키는 자체 최댓값을 보존한다. 오래된 anchor의 같은 최종 결과를 재전달해도 쓰기0행이다.
+- 카페 source의 새 내부 열은 실제 application projection과 JSON 직렬화에서 제외한다. 기존 응답 필드는 유지한다.
+
+추가 회귀의 최초14FAIL 중2건은 공유 fixture ID 중복을 바로잡았고, 실제 동작 실패와 구분했다. X optimizer off, clamp된 finalizer 재전달, 예약 이전에 발생한 실패의 성공 재시도도 별도 RED→GREEN으로 확인했다. reviewer의 제한된 수정 확인에서 남긴 마지막 X 재시도 경계는 `lastError` fallback 추가와 실제 D1 테스트로 닫았다. 미해결 유효 지적은 없다.
 
 ## migration과 운영 한계
 

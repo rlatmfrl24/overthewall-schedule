@@ -27,31 +27,31 @@
 
 **소유:** scheduled-job-planner 및 관련 unit/로컬 D1 integration.
 **인터페이스:** 기존 NewScheduledItem/대상 source ID/샤딩 유지.
-- [ ] source별 최신 글·숨김 제외·빈 대상·활동별 주기/샤딩 회귀를 추가하고 실패 확인.
-- [ ] 검증된 source ID에만 기존 `(source_id,hidden_at,created_at)` 인덱스로 역순 LIMIT1 조회. 전체 GROUP BY/MAX 제거. 새 인덱스 없음.
-- [ ] 같은 fixture 결과/정렬·SQL 수·로컬 D1 rows_read/rows_written·실행계획 비교. 무관 이력 증가에도 전체 스캔 금지.
-- [ ] 관련 unit/Worker integration 통과 후 로컬 커밋.
+- [x] source별 최신 글·숨김 제외·빈 대상·활동별 주기/샤딩 회귀를 추가하고 실패 확인.
+- [x] 검증된 source ID에만 기존 `(source_id,hidden_at,created_at)` 인덱스로 역순 LIMIT1 조회. 전체 GROUP BY/MAX 제거. 새 인덱스 없음.
+- [x] 같은 fixture 결과/정렬·SQL 수·로컬 D1 rows_read/rows_written·실행계획 비교. 무관 이력 증가에도 전체 스캔 금지.
+- [x] 관련 unit/Worker integration 통과 후 로컬 커밋.
 
 ### Task 2: YouTube 보관·이관 membership 인덱스
 
 **소유:** db/schema/index.ts, 생성 migration, YouTube/정책 로컬 D1 integration.
 **인터페이스:** SQL 조건·공개 결과·기존 영상 인덱스 유지.
-- [ ] 무관 membership 증가로 정책 조회가 SCAN인 비용 회귀를 추가하고 실패 확인.
-- [ ] `(row_table,row_key,transition_id)` 인덱스를 추가하고 Drizzle로 생성. transition 중심 기존 인덱스 유지.
-- [ ] 작업 존재 검사·메타 후보의 SEARCH 및 결과 동등성 확인. JSON projection/OR→CASE 변경 제외.
-- [ ] 새 인덱스 생성/삽입·삭제·갱신 비용 기록, 로컬 검증 후 커밋. 원격 적용 없음.
+- [x] 무관 membership 증가로 정책 조회가 SCAN인 비용 회귀를 추가하고 실패 확인.
+- [x] `(row_table,row_key,transition_id)` 인덱스를 추가하고 Drizzle로 생성. transition 중심 기존 인덱스 유지.
+- [x] 작업 존재 검사·메타 후보의 SEARCH 및 결과 동등성 확인. JSON projection/OR→CASE 변경 제외.
+- [x] 새 인덱스 생성/삽입·삭제·갱신 비용 기록, 로컬 검증 후 커밋. 원격 적용 없음.
 
 ### Task 3: 예약 기준과 실제 처리시각 분리
 
 **소유:** scheduled-job-executor/planner, X·카페·YouTube 수집과 기존 상태 갱신.
 **인터페이스:** 각 내부 수집 진입에 optional scheduledFor를 전달. 외부 HTTP 계약은 변경하지 않는다.
-- [ ] X00:23→00:23:45 완료→00:53 가능, 카페1/3/6h, YouTube6h 경계를 실패 테스트로 고정.
-- [ ] X controller는 `x_collection_cadence_state`에 완료시각/주기 기준을 저장하고 기존 완료 상태와 원자적·단조 갱신. 정상 정규 완료만 scheduled_for, 수동/실패/partial은 실제시각. legacy/불일치 상태는 실제시각 fallback.
-- [ ] X handle 정상 완료 next_check_at도 예약 기준. continuation·cooldown·실패 backoff·lease는 실제시각 유지.
-- [ ] 카페 nullable cadence_anchor_at을 기존 progress UPDATE에 포함. 정상 정규 점검은 예약시각, 수동/실패는 실제시각. planner는 이 기준으로 기존 적응형 간격 계산.
-- [ ] YouTube 정상 피드 next_check_at은 예약+6h. 실제 시도/성공·메타 시각, 초기화·backfill·재시도 보호 유지.
-- [ ] 유효하지 않은 예약/기존 행은 기존 실제시각 fallback. 새 전수 backfill 없음. 중복·지연·상태 역전·진행 중 작업·cursor 회귀·계획 후 정책 변경 검증.
-- [ ] schema 변경을 Drizzle로 생성하고 전체 로컬 chain 검증. 관련 unit/integration/workflow 및 비용 비교 후 커밋.
+- [x] X00:23→00:23:45 완료→00:53 가능, 카페1/3/6h, YouTube6h 경계를 실패 테스트로 고정.
+- [x] X controller는 `x_collection_cadence_state`에 완료시각/주기 기준을 저장하고 기존 완료 상태와 원자적·단조 갱신. 정상 정규 완료만 scheduled_for, 수동/실패/partial은 실제시각. legacy/불일치 상태는 실제시각 fallback.
+- [x] X handle 정상 완료 next_check_at도 예약 기준. continuation·cooldown·실패 backoff·lease는 실제시각 유지.
+- [x] 카페 nullable cadence_anchor_at을 기존 progress UPDATE에 포함. 정상 정규 점검은 예약시각, 수동/실패는 실제시각. planner는 이 기준으로 기존 적응형 간격 계산.
+- [x] YouTube 정상 피드 next_check_at은 예약+6h. 실제 시도/성공·메타 시각, 초기화·backfill·재시도 보호 유지.
+- [x] 유효하지 않은 예약/기존 행은 기존 실제시각 fallback. 새 전수 backfill 없음. 중복·지연·상태 역전·진행 중 작업·cursor 회귀·계획 후 정책 변경 검증.
+- [x] schema 변경을 Drizzle로 생성하고 전체 로컬 chain 검증. 관련 unit/integration/workflow 및 비용 비교 후 커밋.
 
 ### Task 4: 실제 로컬 흐름·리뷰·PR
 
