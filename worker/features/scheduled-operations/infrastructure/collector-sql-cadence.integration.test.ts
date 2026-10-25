@@ -6,6 +6,8 @@ import { siteEnv } from "../../../test-support/site-env";
 import type { Env } from "../../../platform/types";
 import { ScheduledJobPlanner } from "./scheduled-job-planner";
 import { ScheduledJobExecutor } from "./scheduled-job-executor";
+import { handleScheduledJobQueue } from "../../../app/scheduled-queue";
+import { D1ScheduledJobRepository } from "../../../platform/scheduled-jobs";
 import { collectNaverCafePostsForSources, readEnabledNaverCafeSources } from "../../naver-cafe";
 import { hasScheduledYouTubeFeedWork, runScheduledYouTubeFeedCollection } from "../../youtube";
 import { D1NaverCafeApplication } from "../../naver-cafe/infrastructure/d1-naver-cafe-application";
@@ -26,6 +28,91 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(() => vi.restoreAllMocks());
+
+it.each(["otw", "luvdia"] as const)("keeps the newer X slot due after an older retry finishes last on %s", async site => {
+  const oldSlot = Date.parse("2026-10-24T02:23:28.140Z"), newerSlot = oldSlot + hour / 2;
+  const newerComplete = newerSlot + 28_273, lateComplete = oldSlot + 40 * 60_000 + 15_620;
+  await db.batch([
+    db.prepare("DELETE FROM settings WHERE key IN ('x_collection_last_run','x_collection_last_success','x_collection_cadence_state')"),
+    db.prepare("UPDATE members SET url_twitter=NULL"),
+    db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(901700,'late_x_retry','Late X retry','https://x.com/late_x_retry') ON CONFLICT(uid) DO UPDATE SET url_twitter=excluded.url_twitter"),
+    ...[["x_collection_enabled", "true"], ["x_collection_interval_hours", "0.5"]].map(([key,value]) =>
+      db.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key,value)),
+  ]);
+  await finalizeX("scheduled", "succeeded", newerComplete, newerSlot);
+  const meter = meterD1(db);
+  await finalizeX("scheduled", "succeeded", lateComplete, oldSlot, meter.db);
+  const planner = new ScheduledJobPlanner({ ...runtime(), ...siteEnv(site) }, {} as never);
+  const nextSlot = newerSlot + hour / 2;
+  expect(await planner.planScheduled("x_collection", nextSlot - 1)).toEqual([]);
+  expect(await planner.planScheduled("x_collection", nextSlot)).toMatchObject([
+    { continuation: { handles: ["late_x_retry"] } },
+  ]);
+  expect(JSON.parse(await db.prepare("SELECT value FROM settings WHERE key='x_collection_cadence_state'").first<string>("value") ?? "null"))
+    .toEqual({ completedAt: lateComplete, anchorAt: newerSlot });
+  expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_last_success'").first("value")).toBe(String(lateComplete));
+  const replay = meterD1(db);
+  await finalizeX("scheduled", "succeeded", lateComplete, oldSlot, replay.db);
+  expect(replay.summary().rowsWritten).toBe(0);
+  console.info("X_LATE_RETRY_FINALIZER_COST", JSON.stringify({ site, completion: meter.summary(), replay: replay.summary() }));
+});
+
+it.each(["mismatched", "malformed", "null"])("keeps actual-time fallback when an old X finalizer finds %s cadence", async state => {
+  const oldSlot = Date.parse("2026-10-24T02:23:28.140Z"), newerSlot = oldSlot + hour / 2;
+  const newerComplete = newerSlot + 28_273, lateComplete = oldSlot + 40 * 60_000 + 15_620;
+  await db.prepare("DELETE FROM settings WHERE key IN ('x_collection_last_run','x_collection_last_success','x_collection_cadence_state')").run();
+  await finalizeX("scheduled", "succeeded", newerComplete, newerSlot);
+  await db.batch([
+    db.prepare("UPDATE settings SET value=? WHERE key='x_collection_last_run'").bind(String(newerSlot + 5 * 60_000)),
+    db.prepare("UPDATE settings SET value=? WHERE key='x_collection_cadence_state'")
+      .bind(state === "mismatched" ? JSON.stringify({ completedAt: newerComplete, anchorAt: newerSlot }) : state === "null" ? "null" : "bad json"),
+  ]);
+  await finalizeX("scheduled", "succeeded", lateComplete, oldSlot);
+  expect(JSON.parse(await db.prepare("SELECT value FROM settings WHERE key='x_collection_cadence_state'").first<string>("value") ?? "null"))
+    .toEqual({ completedAt: lateComplete, anchorAt: lateComplete });
+});
+
+it("acknowledges a cooldown retry without fetching again or postponing the newer X slot", async () => {
+  const oldSlot = Date.parse("2026-10-24T02:23:28.140Z"), newerSlot = oldSlot + hour / 2;
+  let actual = oldSlot + 45_000;
+  vi.spyOn(Date, "now").mockImplementation(() => actual);
+  const provider = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected provider request"));
+  const repository = new D1ScheduledJobRepository(db);
+  await db.prepare("DELETE FROM settings WHERE key IN ('x_collection_last_run','x_collection_last_success','x_collection_cadence_state')").run();
+  const run = await repository.createRun({ jobType: "x_collection", source: "scheduled", idempotencyKey: "late-cooldown-retry", scheduledFor: oldSlot });
+  const items = await repository.addItems(run.id, ["finished-shard", "retry-shard"].map(targetKey => ({
+    targetKey, phase: "collect", lane: "x", continuation: { handles: ["late_cooldown"] },
+  })));
+  const sibling = await repository.claimItem(items[0]);
+  await repository.completeItem(sibling!, { status: "succeeded", result: { status: "success" } });
+  const firstAttempt = await repository.claimItem(items[1]);
+  await repository.releaseItemForRetry(firstAttempt!, "fixture_interruption", "Local replay of interrupted delivery");
+  const newerComplete = newerSlot + 28_273;
+  await finalizeX("scheduled", "succeeded", newerComplete, newerSlot);
+  await db.batch([
+    db.prepare("UPDATE members SET url_twitter=NULL"),
+    db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(901701,'late_cooldown','Late cooldown','https://x.com/late_cooldown')"),
+    ...[["x_collection_enabled", "true"], ["x_collection_interval_hours", "0.5"], ["x_cost_optimizer_enabled", "true"], ["x_reference_preview_mode", "link_only"]].map(([key,value]) =>
+      db.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key,value)),
+    db.prepare(`INSERT INTO x_post_sources(handle,user_id,last_seen_post_id,last_checked_at,last_attempt_at,last_success_at,cadence_anchor_at,next_check_at,collection_started_at,initialization_completed_at,updated_at)
+      VALUES('late_cooldown','local-user','200',?,?,?,?,?,1,1,?)`).bind(newerComplete,newerComplete,newerComplete,newerSlot,newerSlot + hour / 2,newerComplete),
+  ]);
+  actual = oldSlot + 40 * 60_000 + 15_620;
+  const ack = vi.fn(), retry = vi.fn();
+  await handleScheduledJobQueue({ queue: "otw-ops-background", messages: [{
+    body: { schemaVersion: 1, messageType: "scheduled_job_item", runId: run.id, itemId: items[1], phase: "collect" }, ack, retry,
+  }] } as unknown as MessageBatch<unknown>, { ...runtime(), X_BEARER_TOKEN: "local-unused" });
+  expect(ack).toHaveBeenCalledOnce();
+  expect(retry).not.toHaveBeenCalled();
+  expect(provider).not.toHaveBeenCalled();
+  const item = await repository.readItem(items[1]);
+  expect(item).toMatchObject({ attempts: 2, status: "skipped", last_error_code: "all_handles_cooldown" });
+  expect(JSON.parse(item!.result_json!)).toMatchObject({ success: false, error: "all_handles_cooldown", apiCalls: 0 });
+  expect(await repository.readRun(run.id)).toMatchObject({ status: "succeeded", finished_at: actual });
+  expect(await db.prepare("SELECT last_seen_post_id,lease_token,next_check_at FROM x_post_sources WHERE handle='late_cooldown'").first())
+    .toEqual({ last_seen_post_id: "200", lease_token: null, next_check_at: newerSlot + hour / 2 });
+  expect((await new ScheduledJobPlanner(runtime(), repository).planScheduled("x_collection", newerSlot + hour / 2)).length).toBeGreaterThan(0);
+});
 
 it.each([1, 3, 6])("does not replay a %sh cafe slot already checked after its scheduled time", async interval => {
   const id = 901500 + interval;
@@ -72,7 +159,7 @@ it("keeps X success history and cadence monotonic when finalizers arrive out of 
   expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_last_run'").first("value")).toBe(String(scheduledFor + 60_000));
   await finalizeX("scheduled", "succeeded", scheduledFor + 120_000, scheduledFor - hour);
   expect(JSON.parse(await db.prepare("SELECT value FROM settings WHERE key='x_collection_cadence_state'").first<string>("value") ?? "null"))
-    .toEqual({ completedAt: scheduledFor + 120_000, anchorAt: scheduledFor + 120_000 });
+    .toEqual({ completedAt: scheduledFor + 120_000, anchorAt: scheduledFor + 60_000 });
   const replay = meterD1(db);
   await finalizeX("scheduled", "succeeded", scheduledFor + 120_000, scheduledFor - hour, replay.db);
   expect(replay.summary().rowsWritten).toBe(0);
