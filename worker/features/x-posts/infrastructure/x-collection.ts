@@ -354,20 +354,24 @@ export const recordXCollectionCompletion = async (env: Env, completion: {
   const { completedAt, source, successful } = completion;
   const anchorAt = source === "scheduled" && successful
     ? collectionCadenceAnchor(completion.scheduledFor, completedAt) : completedAt;
+  // A late older run must retain the newer cadence anchor, not restart its interval.
+  // Validate cadence against the previous last-run before replacing it in this atomic batch.
   const updates = [
-    [X_COLLECTION_LAST_RUN_SETTING_KEY, String(completedAt)],
     ["x_collection_cadence_state", JSON.stringify({ completedAt, anchorAt })],
+    [X_COLLECTION_LAST_RUN_SETTING_KEY, String(completedAt)],
     ...(successful ? [["x_collection_last_success", String(completedAt)]] : []),
   ];
   await env.otw_db.batch(updates.map(([key, value]) => env.otw_db.prepare(
     `INSERT INTO settings(key,value,updated_at)
      SELECT ?,?,? WHERE NOT EXISTS(SELECT 1 FROM settings WHERE key=? AND CAST(value AS INTEGER)>?)
      ON CONFLICT(key) DO UPDATE SET value=CASE
-       WHEN settings.key='x_collection_cadence_state' AND json_valid(settings.value) THEN CASE
-         WHEN json_type(settings.value,'$.anchorAt')='integer'
-           AND json_extract(settings.value,'$.anchorAt') <= json_extract(settings.value,'$.completedAt')
-           AND json_extract(settings.value,'$.anchorAt') > ?
-         THEN json_set(excluded.value,'$.anchorAt',?) ELSE excluded.value END
+       WHEN settings.key='x_collection_cadence_state' THEN json_set(excluded.value,'$.anchorAt',CAST(COALESCE(
+         CASE WHEN json_valid(settings.value) THEN CASE
+           WHEN json_type(settings.value,'$.anchorAt')='integer'
+             AND json_extract(settings.value,'$.anchorAt') > 0
+             AND json_extract(settings.value,'$.anchorAt') <= json_extract(settings.value,'$.completedAt')
+             AND json_extract(settings.value,'$.completedAt')=(SELECT CAST(value AS INTEGER) FROM settings WHERE key='x_collection_last_run')
+           THEN MAX(json_extract(settings.value,'$.anchorAt'),?) END END,?) AS INTEGER))
        ELSE excluded.value END,updated_at=excluded.updated_at
      WHERE settings.updated_at IS NOT excluded.updated_at
        OR (settings.key <> 'x_collection_cadence_state' AND settings.value IS NOT excluded.value)`,
