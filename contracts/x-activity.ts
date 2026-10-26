@@ -65,6 +65,7 @@ export interface XActivityStatusDto {
     site: "otw" | "luvdia"; enabled: boolean; targetCount: number; activeCount: number;
     failedCount: number; pauseReason: string | null; resumeAt: number | null; lastError: string | null;
   }>;
+  /** Member subscriptions for this site; common totals remain in sites/providerActiveCount. */
   subscriptions?: Array<{
     userId: string | null; handle: string; site: "otw" | "luvdia"; state: string;
     subscriptionId: string | null; expiresAt: number | null; error: string | null;

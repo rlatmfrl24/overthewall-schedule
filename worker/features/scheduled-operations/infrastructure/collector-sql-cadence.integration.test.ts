@@ -11,6 +11,8 @@ import { D1ScheduledJobRepository } from "../../../platform/scheduled-jobs";
 import { collectNaverCafePostsForSources, readEnabledNaverCafeSources } from "../../naver-cafe";
 import { hasScheduledYouTubeFeedWork, runScheduledYouTubeFeedCollection } from "../../youtube";
 import { D1NaverCafeApplication } from "../../naver-cafe/infrastructure/d1-naver-cafe-application";
+import { D1SharedXBudget, D1SharedXApiGateway } from "../../x-posts/infrastructure/x-shared-budget";
+import { clearXServiceCachesForTests } from "../../x-posts/infrastructure/x-api";
 
 const db = env.otw_db;
 const hour = 3_600_000;
@@ -28,6 +30,52 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(() => vi.restoreAllMocks());
+
+it("recovers affordable X accounts and retries blocked ranges at the next 24-hour scheduled run", async () => {
+  let actual = Date.parse("2026-10-27T04:53:00Z");
+  const users=["1607408138545950791","1607408138545950792"];
+  vi.spyOn(Date,"now").mockImplementation(()=>actual);
+  clearXServiceCachesForTests();
+  await db.batch([
+    ...["x_post_references","x_post_facts","x_posts","x_post_sources","x_api_cache","x_api_usage_events","x_api_usage_daily","x_api_resource_daily","scheduled_usage_daily","x_shared_requests","x_shared_budgets"].map(table=>db.prepare("DELETE FROM "+table)),
+    db.prepare("UPDATE members SET url_twitter=NULL"),
+    db.prepare("DELETE FROM settings WHERE key IN ('x_collection_last_run','x_collection_last_success','x_collection_cadence_state')"),
+    ...[["x_collection_enabled","true"],["x_cost_optimizer_enabled","true"],["x_collection_interval_hours","24"],["x_reference_preview_mode","link_only"],["x_collection_daily_budget_cents","100"]].map(([key,value])=>db.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key,value)),
+    ...["recovery_a","recovery_b"].flatMap((handle,i)=>[
+      db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(?,?,?,?)").bind(901790+i,handle,handle,"https://x.com/"+handle),
+      db.prepare("INSERT INTO x_post_sources(handle,user_id,last_seen_post_id,last_checked_at,next_check_at,collection_started_at,initialization_completed_at,updated_at) VALUES(?,?,?,0,0,1,1,0)").bind(handle,users[i],"2114000000000000000"),
+      db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES(?,'user',?,?,?)").bind("x:user:v1:"+handle,JSON.stringify({user:{id:users[i],username:handle}}),actual,actual+30*24*hour),
+    ]),
+  ]);
+  await new D1SharedXBudget(db).initialize([{day:"2026-10-27",used:0,reserved:0},{day:"2026-10-27",used:875000,reserved:0}]);
+  const calls=vi.spyOn(globalThis,"fetch").mockImplementation(async input=>{
+    const url=new URL(String(input));
+    const user=url.pathname.split("/")[3],id=user==="1607408138545950791"?"2115000000000000001":"2115000000000000002";
+    if(!url.pathname.endsWith("/tweets"))throw new Error("Unexpected paid lookup: "+url.pathname);
+    return Response.json({data:url.searchParams.get("since_id")===id?[]:[{id,author_id:user,text:"scheduled recovery",created_at:new Date(actual-60000).toISOString()}]});
+  });
+  const application={...runtime(),SITE_ID:"otw",X_BEARER_TOKEN:"local-test",X_API_GATEWAY:new D1SharedXApiGateway({db,site:"otw",token:"local-test",admitD1:async()=>true})} as Env;
+  const repository=new D1ScheduledJobRepository(db),planner=new ScheduledJobPlanner(application,repository),executor=new ScheduledJobExecutor(application,repository);
+  const execute=async()=>{
+    const run=await repository.createRun({jobType:"x_collection",source:"scheduled",idempotencyKey:"budget-recovery:"+actual,scheduledFor:actual});
+    const items=await planner.plan(run);expect(items).toHaveLength(1);
+    const item=await repository.claimItem(items[0]);expect(item).not.toBeNull();
+    const outcome=await executor.execute(item!);await repository.completeItem(item!,outcome);await executor.finalizeLegacyState(run.id);return outcome;
+  };
+  const first=await execute();
+  expect(first.result).toMatchObject({refreshedHandles:1,error:"budget_exceeded"});
+  expect(calls).toHaveBeenCalledTimes(1);
+  const blocked=await db.prepare("SELECT handle,last_seen_post_id FROM x_post_sources WHERE last_error_code='budget_exceeded'").first<{handle:string;last_seen_post_id:string}>();
+  expect(blocked?.last_seen_post_id).toBe("2114000000000000000");
+  expect(await db.prepare("SELECT COUNT(*) AS n FROM x_posts").first("n")).toBe(1);
+  actual=Date.parse("2026-10-28T00:01:00Z");
+  expect(await planner.planScheduled("x_collection",actual)).toEqual([]);
+  actual=Date.parse("2026-10-28T04:53:00Z")+1;
+  await execute();
+  expect(await db.prepare("SELECT COUNT(*) AS n FROM x_posts").first("n")).toBe(2);
+  expect(await db.prepare("SELECT last_error_code FROM x_post_sources WHERE handle=?").bind(blocked!.handle).first("last_error_code")).toBeNull();
+  expect(await new D1SharedXBudget(db).read()).toMatchObject({day:"2026-10-28",reserved:0,used:5000});
+});
 
 it.each(["otw", "luvdia"] as const)("keeps the newer X slot due after an older retry finishes last on %s", async site => {
   const oldSlot = Date.parse("2026-10-24T02:23:28.140Z"), newerSlot = oldSlot + hour / 2;
