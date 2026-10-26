@@ -32,6 +32,8 @@ describe("site artifact identity", () => {
       expect(() => verifySiteBuildManifest("luvdia", { ...manifest, gitCommit: "unverified" }, root)).toThrow(/missing commit/);
       writeFileSync(configPath, JSON.stringify({ ...generated, vars: { ...generated.vars, SITE_ID: "otw" } }));
       expect(() => verifySiteBuildManifest("luvdia", manifest, root)).toThrow(/different site or Worker identity/);
+      writeFileSync(configPath, JSON.stringify({ ...generated, services: [] }));
+      expect(() => verifySiteBuildManifest("luvdia", manifest, root)).toThrow(/services binding identity/);
       writeFileSync(configPath, JSON.stringify({ ...generated, assets: { directory: "../../otw/client" } }));
       expect(() => verifySiteBuildManifest("luvdia", manifest, root)).toThrow(/assets/);
       writeFileSync(join(root, "wrangler.luvdia.jsonc"), "{}");

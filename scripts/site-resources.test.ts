@@ -6,6 +6,11 @@ import { createLocalSiteConfig } from "./local-site-config.mjs";
 
 const readConfig = (id: "otw" | "luvdia") => ts.parseConfigFileTextToJson(id, readFileSync(id === "otw" ? "wrangler.jsonc" : "wrangler.luvdia.jsonc", "utf8")).config;
 describe("physical site resource configuration", () => {
+  it.each(["otw","luvdia"] as const)("keeps the final %s X RPC binding present",site=>{
+    expect(readConfig(site).services).toEqual([site==="otw"
+      ?{binding:"X_ACTIVITY_LUVDIA",service:"luvdia-schedule",entrypoint:"XActivitySiteRpc"}
+      :{binding:"X_ACTIVITY_COORDINATOR",service:"overthewall-schedule",entrypoint:"XActivityCoordinatorRpc"}]);
+  });
   it("pins activity RPC to the peer site's named entrypoint and permits receiver-only preparation",()=>{
     const config=readConfig("otw");
     config.services=[{binding:"X_ACTIVITY_LUVDIA",service:"luvdia-schedule",entrypoint:"XActivitySiteRpc"}];

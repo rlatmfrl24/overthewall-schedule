@@ -13,6 +13,11 @@
 새 유료 수집은 당일 양 사이트 지출/예약 및 별도 canary 비용을 보존한 공통 장부가 준비된 뒤 활성화한다.
 새 별도 독립 검증 런·유료 canary·사진/영상 자연 발생 대기·장시간 관측은 추가하지 않고 기존 빌드·자동 CI와 필수 readback을 사용한다.
 
+[PR #193](https://github.com/rlatmfrl24/overthewall-schedule/pull/193) 준비 HEAD `7d54ea8`에서 기존 자동 CI398개 파일·3290건과 타입·린트·구조·OTW 빌드가 통과했다(기존 플랫폼 한정3건 생략).
+양 사이트에 추가 migration0153–0156을 적용하고 LuvDia 수신 포트 준비 버전 `e696eb02-539d-4ebe-a6d6-3391f83919a2`를 배포했다.
+이는 아직 전체 전환 완료가 아니며 공통 장부·새 구독은 미활성이다. 최종 양방향 binding의 CI·OTW 병합 자동 배포·LuvDia 최종 배포·전체 적용/readback이 남아 있다.
+기존 서명 키는 값 노출·재발급 없이 미배포 버전에 등록했다. 공급자 지출 설정은 변경하지 않았다. 최종 판정은 해당 PR의 evidence 댓글이 소유한다.
+
 사용자가 정기 멤버 timeline 스캔을 신규 피드 구독으로 전환하는 방향의 조사를 요청했다.
 [공식 API·현재 코드 검토](operations/x-feed-subscription-research.md)에 XAA 공개 `post.create` webhook 우선안,
 현재 저장 경로 재사용, 미디어·복구·역순 처리와 기존 예산을 보존할 조건을 정리했다.

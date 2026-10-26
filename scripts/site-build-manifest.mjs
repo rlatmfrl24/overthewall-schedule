@@ -72,6 +72,7 @@ export const verifySiteBuildManifest = (siteId, manifest = readJson(resolve(getS
     ["r2_buckets", ["binding", "bucket_name"]],
     ["workflows", ["binding", "name", "class_name"]],
     ["analytics_engine_datasets", ["binding", "dataset"]],
+    ["services", ["binding", "service", "entrypoint"]],
   ]) {
     const identity = config => (config[kind] ?? []).map(binding => fields.map(field => binding[field])).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
     if (JSON.stringify(identity(canonical.config)) !== JSON.stringify(identity(generated))) throw new Error(`Generated ${kind} binding identity differs from canonical resources.`);

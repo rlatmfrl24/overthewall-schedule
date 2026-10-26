@@ -3,6 +3,9 @@
   "name": "luvdia-schedule",
   "keep_vars": true,
   "main": "worker/index.ts",
+  "services": [
+    { "binding": "X_ACTIVITY_COORDINATOR", "service": "overthewall-schedule", "entrypoint": "XActivityCoordinatorRpc" }
+  ],
   "compatibility_date": "2025-11-25",
   "assets": {
     "directory": "./dist/luvdia/client",
