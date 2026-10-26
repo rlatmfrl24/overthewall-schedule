@@ -68,7 +68,7 @@ export class D1XActivityCoordinator {
       pauseReason:current?.pauseReason??null,resumeAt:current?.resumeAt??null,budgetDay:budget.day,budgetReady:budget.seeded,sites,
       providerActiveCount:new Set(rows.results.filter(row=>row.subscription_id&&row.status!=="stopped"&&(row.expires_at??0)>Date.now()).map(row=>row.subscription_id)).size,
       cachePurgePending:snapshot?.cachePurgePending??0,coordinatorError,
-      subscriptions:rows.results.map(row=>({userId:row.user_id,handle:row.handle,site:row.site,state:row.target_error?"error":row.status??row.target_status,
+      subscriptions:rows.results.filter(row=>row.site===site).map(row=>({userId:row.user_id,handle:row.handle,site:row.site,state:row.target_error?"error":row.status??row.target_status,
         subscriptionId:row.subscription_id,expiresAt:row.expires_at,error:row.target_error??row.last_error})),
       recovery:snapshot?{intervalHours:snapshot.recovery.intervalHours,lastSuccessAt:snapshot.recovery.lastSuccessAt,pendingSources:snapshot.recovery.pendingSources,budget:recoveryBudget}:undefined};
   }

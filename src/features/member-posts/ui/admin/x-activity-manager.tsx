@@ -52,7 +52,7 @@ export function XActivityManager(){
         {!!data.cachePurgePending&&<p role="status">공통 임시 캐시 정리 대기 {data.cachePurgePending}건 · 피드 원문은 이미 제거됐습니다.</p>}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <caption className="mb-2 text-left font-medium">허용 멤버별 구독 상태</caption>
+            <caption className="mb-2 text-left font-medium">이 사이트 허용 멤버별 구독 상태</caption>
             <thead><tr><th className="p-2">사이트 / 계정</th><th className="p-2">상태</th><th className="p-2">만료 / 실패 사유</th></tr></thead>
             <tbody>{data.subscriptions?.map(item=><tr className="border-t" key={item.site+":"+item.handle}>
               <td className="p-2">{item.site} / @{item.handle}</td><td className="p-2">{labels[item.state]??"대기"}</td>

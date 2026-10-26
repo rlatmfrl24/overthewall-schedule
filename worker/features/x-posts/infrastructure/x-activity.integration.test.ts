@@ -67,6 +67,15 @@ beforeEach(async()=>{
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();vi.useRealTimers();});
 
 describe("XAA multi-site collection and common money boundary",()=>{
+  it("returns only the current site's member subscriptions while keeping common totals",async()=>{
+    await coordinator().start("otw");await coordinator().start("luvdia");
+    for(const [site,handle] of [["otw","member"],["luvdia","peer"]] as const){
+      const status=await coordinator().status(site);
+      expect(status.subscriptions?.map(row=>({site:row.site,handle:row.handle}))).toEqual([{site,handle}]);
+      expect(status.providerActiveCount).toBe(2);
+      expect(status.sites).toHaveLength(2);
+    }
+  });
   it.each(["snapshot","events"] as const)("does not return an empty normal receipt list when the site %s read fails",async(method)=>{
     vi.spyOn(D1XActivitySite.prototype,method).mockRejectedValue(new Error("site read failed"));
     await expect(coordinator().status("otw")).rejects.toMatchObject({code:"x_activity_connection_unavailable",status:503});
