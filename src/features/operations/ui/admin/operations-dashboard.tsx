@@ -90,7 +90,7 @@ const formatDuration = (startedAt: number | null, finishedAt: number | null) => 
 
 const runLabel = (jobType: OperationRun["jobType"]) =>
   ({
-    x_collection: "X 게시글 수집",
+    x_collection: "X REST 누락 복구",
     naver_cafe_collection: "네이버 카페 수집",
     youtube_feed_collection: "YouTube 신규 피드 수집",
     schedule_auto_update: "자동 업데이트",
@@ -278,6 +278,14 @@ function IssuePanel({ issues, updatedAt }: { issues: OperationsIssue[]; updatedA
         action: "작업별 최신 상태와 전체 이력에서 실패·재시도 항목을 확인하세요.",
       };
     }
+    if (issue.code.startsWith("x_rest_")) return {
+      impact: "최근 REST 누락 복구 실행 이력에 확인할 항목이 있습니다. 현재 웹훅 구독 상태와 별개입니다.",
+      action: "REST 누락 복구 이력의 실행 시각과 사유를 확인하세요. 과거 실패 기록은 보존됩니다.",
+    };
+    if (issue.code.startsWith("x_webhook_")) return {
+      impact: "현재 웹훅 구독·수신 상태를 확인해야 합니다.",
+      action: "상태 새로고침 또는 웹훅 수집 상세에서 최신 조회 결과와 실패한 대상을 확인하세요.",
+    };
     if (issue.code.startsWith("x_")) {
       return {
         impact: "X 신규 게시물의 피드 반영이 늦어질 수 있습니다.",
@@ -629,7 +637,7 @@ function RetentionPolicyTable({ policies }: { policies: DataRetentionPolicyStatu
   return <Table><TableHeader><TableRow><TableHead>정책</TableHead><TableHead>보존</TableHead><TableHead>현재 삭제 대상</TableHead></TableRow></TableHeader><TableBody>{policies.map((policy) => <TableRow key={policy.id}><TableCell>{policy.category === "scheduled_operations" ? "정기 작업 · " : ""}{policy.label}</TableCell><TableCell>{policy.retentionDays}일</TableCell><TableCell>{policy.prunableRows.toLocaleString("ko-KR")}건</TableCell></TableRow>)}</TableBody></Table>;
 }
 
-export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog }: { view?: "all" | "home" | "resources" | "history"; onRefresh?: () => void; referenceBacklog?: ReactNode } = {}) {
+export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog, xWebhook, xWebhookIssue }: { view?: "all" | "home" | "resources" | "history"; onRefresh?: () => void; referenceBacklog?: ReactNode; xWebhook?: ReactNode; xWebhookIssue?: OperationsIssue | null } = {}) {
   const [search, updateSearch] = useConsoleSearch();
   const jobType = scheduledJobTypes.find((type) => type === search.source);
   const runStatus = scheduledJobStatuses.find((status) => status === search.state);
@@ -662,7 +670,6 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog 
   const d1WriteGuard = data?.scheduledOperations.d1WriteGuard;
   const summaries = jobSummariesQuery.data?.summaries ?? [];
   const youtubeSummary = summaries.find((item) => item.jobType === "youtube_feed_collection");
-  const latestStoredXRun = data?.xCollection.recentRuns.find((run) => run.postsStored > 0);
   const xIssues = data?.summary.issues.filter((issue) => issue.code.startsWith("x_")) ?? [];
   const naverIssues = data?.summary.issues.filter((issue) => issue.code.startsWith("naver_")) ?? [];
   const autoIssues = data?.summary.issues.filter((issue) => issue.code.startsWith("auto_") || issue.code.startsWith("pending_schedule")) ?? [];
@@ -685,7 +692,7 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog 
       </section>}
       {data && (view === "all" || view === "home") ? <section className="space-y-3" aria-labelledby="attention-heading">
         <h2 id="attention-heading" className="sr-only">지금 확인할 것</h2>
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]" data-testid="operations-attention-grid"><IssuePanel issues={data.summary.issues} updatedAt={data.updatedAt} /><QueueHealthCard activeRunCount={data.scheduledOperations.activeRunCount} outboxBacklog={data.scheduledOperations.outboxBacklog} staleLeaseCount={data.scheduledOperations.staleLeaseCount} used={queue!.used} limit={queue!.limit} usedPercent={Math.max(0, Math.min(100, queue!.usedPercent))} /></div>
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]" data-testid="operations-attention-grid"><IssuePanel issues={xWebhookIssue ? [...data.summary.issues,xWebhookIssue] : data.summary.issues} updatedAt={data.updatedAt} /><QueueHealthCard activeRunCount={data.scheduledOperations.activeRunCount} outboxBacklog={data.scheduledOperations.outboxBacklog} staleLeaseCount={data.scheduledOperations.staleLeaseCount} used={queue!.used} limit={queue!.limit} usedPercent={Math.max(0, Math.min(100, queue!.usedPercent))} /></div>
       </section> : null}
 
       {data && view === "home" && <section aria-label="사람의 검토 필요" className="rounded-lg border bg-card p-3">
@@ -712,7 +719,8 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog 
         <SectionHeading id="collection-heading" title="수집 상태" description="공급자별 최근 정상 점검과 실제 수집 결과를 구분합니다." />
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <StatusCard title="자동 업데이트" value={data.autoUpdate.enabled ? statusLabel(autoIssues.length ? data.summary.status : "ok") : "비활성"} detail={`최근 정상 ${formatDateTime(data.autoUpdate.lastRun)} · 대기 ${data.autoUpdate.pending.total}건`} href="/admin/collection?source=schedule" icon={CalendarClock} tone={data.autoUpdate.enabled ? toneForIssues(autoIssues) : "neutral"} />
-          <StatusCard title="X 신규 게시물" value={data.xCollection.enabled ? statusLabel(xIssues.some((issue) => issue.severity === "critical") ? "critical" : xIssues.length ? "warning" : "ok") : "비활성"} detail={`최근 점검 ${formatDateTime(data.xCollection.lastRun)} · 신규 저장 ${formatDateTime(latestStoredXRun?.finishedAt)} · UTC 예산 ${data.xCollection.usage.quota.todayBudgetUsedPercent}%`} href="/admin/collection?source=x#x-monitoring" icon={MessageSquareText} tone={data.xCollection.enabled ? toneForIssues(xIssues) : "neutral"} />
+          {xWebhook}
+          <StatusCard title="X REST 누락 복구" value={data.xCollection.enabled ? statusLabel(xIssues.some((issue) => issue.severity === "critical") ? "critical" : xIssues.length ? "warning" : "ok") : "비활성"} detail={`최근 정상 ${formatDateTime(data.xCollection.lastRun)} · 최근 실행 ${formatDateTime(data.xCollection.latestRun?.startedAt)} · 사이트 조회 보호 한도 ${data.xCollection.usage.quota.todayBudgetUsedPercent}%`} href="/admin/collection?source=x#x-monitoring" icon={MessageSquareText} tone={data.xCollection.enabled ? toneForIssues(xIssues) : "neutral"} />
           <StatusCard title="네이버 카페" value={data.naverCafe.enabled ? statusLabel(naverIssues.some((issue) => issue.severity === "critical") ? "critical" : naverIssues.length ? "warning" : "ok") : "비활성"} detail={`활성 ${data.naverCafe.enabledSourceCount}/${data.naverCafe.sourceCount} · 최근 점검 ${formatDateTime(data.naverCafe.collection.lastRun)}`} href="/admin/collection?source=naver-cafe#naver-cafe-monitoring" icon={Coffee} tone={data.naverCafe.enabled ? toneForIssues(naverIssues) : "neutral"} />
           <StatusCard
             title="YouTube 신규 피드"

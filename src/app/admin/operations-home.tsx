@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { OperationsDashboard } from "@/features/operations";
-import { fetchXHistoryHealth, xReferenceHealthQueryKey } from "@/features/member-posts";
+import { fetchXHistoryHealth, xReferenceHealthQueryKey, useXActivityStatus, XActivityStatusCard, xWebhookIssue } from "@/features/member-posts";
 import { QueryReadback } from "@/shared/ui/query-readback";
 
 export function OperationsHome() {
   const references = useQuery({queryKey: xReferenceHealthQueryKey, queryFn: fetchXHistoryHealth, staleTime: 30_000});
   const health = references.data?.referenceHydration;
-  return <OperationsDashboard view="home" onRefresh={() => { void references.refetch(); }} referenceBacklog={<div className="space-y-1 text-sm">
+  const activity=useXActivityStatus();
+  return <OperationsDashboard view="home" xWebhook={<XActivityStatusCard query={activity} headingLevel={3} href="/admin/collection?source=x#x-webhook-monitoring" />} xWebhookIssue={xWebhookIssue(activity.data,activity.isError)} onRefresh={() => { void references.refetch(); void activity.refetch(); }} referenceBacklog={<div className="space-y-1 text-sm">
     <div className="grid gap-x-4 gap-y-1 sm:grid-cols-3">
       {([
         ["X 원문 대기", health?.pendingPosts],

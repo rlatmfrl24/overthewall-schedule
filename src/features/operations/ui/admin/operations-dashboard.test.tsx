@@ -301,6 +301,21 @@ describe("OperationsDashboard", () => {
     expect(screen.getByText("잔여 5")).toBeTruthy();
   });
 
+  it("keeps REST history warnings separate from the current webhook card and lookup failures",async()=>{
+    const status=makeOperationsStatus();
+    status.summary.issues=[{code:"x_rest_recovery_latest_failed",severity:"warning",message:"최근 X REST 실행은 공통 예산 확인 불가로 차단되었습니다."}];
+    fetchOperationsStatusMock.mockResolvedValue(status);
+    const view=render(<OperationsDashboard view="home" xWebhook={<article>구독 정상 · 신규 수신 대기</article>} />,{wrapper:createQueryWrapper()});
+    await screen.findByRole("heading",{name:"X REST 누락 복구"});
+    expect(screen.getByText("구독 정상 · 신규 수신 대기")).toBeTruthy();
+    expect(screen.getByText(/과거 실패 기록은 보존됩니다/)).toBeTruthy();
+    expect(within(screen.getByRole("heading",{name:"X REST 누락 복구"}).closest("article")!).getByText("주의")).toBeTruthy();
+    view.rerender(<OperationsDashboard view="home" xWebhook={<article>최신 웹훅 상태 확인 불가</article>} xWebhookIssue={{code:"x_webhook_status_unavailable",severity:"warning",message:"웹훅 조회 실패"}} />);
+    expect(screen.queryByText("구독 정상 · 신규 수신 대기")).toBeNull();
+    expect(screen.getByText(/웹훅 조회 실패/)).toBeTruthy();
+    expect(screen.queryByText(/X 신규 게시물의 피드 반영이 늦어질 수 있습니다/)).toBeNull();
+  });
+
   it("keeps zero outbox neutral while calling out stale leases", async () => {
     render(createElement(OperationsDashboard), { wrapper: createQueryWrapper() });
 

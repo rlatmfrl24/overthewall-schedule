@@ -20,6 +20,7 @@ export const xReasonLabel = (code: string | null | undefined) => {
     not_found_or_unavailable: "접근 불가",
     upstream_unavailable: "공급자 응답 오류",
     budget_unavailable: "예산 정보 확인 오류",
+    shared_budget_unavailable: "공통 예산 확인 불가로 REST 실행 차단",
     all_handles_cooldown: "계정 수집 주기 대기",
     missing_bearer_token: "X 인증 설정 확인 필요",
   };

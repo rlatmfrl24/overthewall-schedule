@@ -519,6 +519,18 @@ describe("operations worker route", () => {
     expect(preparedSql.some((sql) => /^\s*(?:INSERT|UPDATE|DELETE)\b/i.test(sql))).toBe(false);
   });
 
+  it("preserves a failed REST run as history without declaring current webhook collection critical",async()=>{
+    const failedAt=Date.now()-30*60_000;
+    const response=await handleOperations(new Request("https://example.com/api/operations/status?windowHours=24"),makeEnv(makeStatusD1({},[{
+      id:2853,source:"scheduled",started_at:failedAt,finished_at:failedAt+1000,status:"failed",error:"shared_budget_unavailable",
+      checked_handles:5,refreshed_handles:0,posts_returned:0,posts_stored:0,api_calls:0,estimated_cost_micros:0,
+    }])));
+    const body=await response.json() as {summary:{issues:Array<{code:string;severity:string;message:string}>};xCollection:{latestRun:{status:string;error:string}}};
+    expect(body.xCollection.latestRun).toMatchObject({status:"failed",error:"shared_budget_unavailable"});
+    expect(body.summary.issues).toContainEqual(expect.objectContaining({code:"x_rest_recovery_latest_failed",severity:"warning"}));
+    expect(body.summary.issues.some(issue=>issue.code==="x_collection_latest_failed")).toBe(false);
+  });
+
   it("모든 핸들이 쿨다운 중인 정상 no-op을 최근 X 수집으로 인정한다", async () => {
     const healthyNoOpAt = Date.now() - 30 * 60_000;
     const response = await handleOperations(
@@ -564,7 +576,7 @@ describe("operations worker route", () => {
     expect(response.status).toBe(200);
     expect(body.xCollection.lastRun).toBe(healthyNoOpAt);
     expect(body.summary.issues.map((issue) => issue.code)).not.toContain(
-      "x_collection_stale",
+      "x_rest_recovery_stale",
     );
   });
 
@@ -613,7 +625,7 @@ describe("operations worker route", () => {
     expect(response.status).toBe(200);
     expect(body.xCollection.lastRun).toBe(oldSuccessAt);
     expect(body.summary.issues.map((issue) => issue.code)).toContain(
-      "x_collection_stale",
+      "x_rest_recovery_stale",
     );
   });
 
@@ -663,7 +675,7 @@ describe("operations worker route", () => {
     expect(response.status).toBe(200);
     expect(body.xCollection.lastRun).toBe(partialProgressAt);
     expect(body.summary.issues.map((issue) => issue.code)).not.toContain(
-      "x_collection_stale",
+      "x_rest_recovery_stale",
     );
   });
 
