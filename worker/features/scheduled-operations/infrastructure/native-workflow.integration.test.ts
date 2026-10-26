@@ -21,7 +21,11 @@ beforeAll(async () => {
   }
 }, 120000);
 
-beforeEach(async () => { await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/reset"); });
+beforeEach(async () => {
+  await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/reset");
+  await db.prepare("UPDATE x_activity_coordinator SET ready=1").run();
+  await db.prepare("INSERT INTO x_shared_budgets(day,used,reserved,limit_value,seed_detail,updated_at) VALUES(?,0,0,1000000,'{}',0) ON CONFLICT(day) DO UPDATE SET used=0,reserved=0").bind(new Date(Date.now()).toISOString().slice(0,10)).run();
+});
 
 it.each(["x_collection", "naver_cafe_collection", "youtube_feed_collection"] as const)("persists %s cadence through ordinary Cron, native Workflow and Queue", async jobType => {
   const started = Date.now(), minute = jobType === "naver_cafe_collection" ? 13 : 23;
@@ -39,7 +43,7 @@ it.each(["x_collection", "naver_cafe_collection", "youtube_feed_collection"] as 
       ["x_cost_optimizer_enabled", "true"], ["x_reference_preview_mode", "link_only"], ["x_collection_last_run", "0"], ["otw_play_automation_paused", "true"]]
       .map(([key, value]) => db.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key, value)),
   ]);
-  if (jobType === "x_collection") await db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at,initialization_completed_at,next_check_at) VALUES('native_collect','native-collector-user','native_collect','100',0,0,1,1,0)").run();
+  if (jobType === "x_collection") await db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at,initialization_completed_at,next_check_at) VALUES('native_collect','1000000000001','native_collect','100',0,0,1,1,0)").run();
   if (jobType === "naver_cafe_collection") await db.prepare("INSERT INTO naver_cafe_sources(id,name,cafe_id,menu_id,cafe_url,member_uid,enabled,collection_started_at,initialization_completed_at,last_seen_article_id) VALUES(900050,'Native cafe','98765432','1','https://cafe.naver.com/native',900050,1,1,1,1)").run();
   if (jobType === "youtube_feed_collection") await db.prepare("INSERT INTO youtube_feed_sources(id,source_kind,member_uid,youtube_channel_id,uploads_playlist_id,collection_started_at,initialization_completed_at,backfill_exhausted_at,next_check_at,created_at,updated_at) VALUES(900050,'official',900050,?,'native-uploads',1,1,1,0,1,1)").bind(channel).run();
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => bindings.NATIVE_WORKFLOW_PROVIDER.fetch(input, init));

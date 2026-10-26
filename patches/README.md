@@ -12,3 +12,10 @@ port for parallel CLI processes and preserves migration transactions and errors.
 stable on Windows. When upgrading Wrangler, check the upstream implementation
 and rerun `scripts/d1-local-transport.test.ts` and both sites' validate-only CLI
 before updating or removing the patch.
+
+`wrangler@4.124.0.patch` preserves SQL marker context in the test pool's migration
+reader without repeatedly flattening growing strings. Quoted bodies now retain
+only the closing delimiter's suffix for matching too. The existing canonical
+five-second check, full migration set and compound/quoted SQL regressions remain.
+SQL and quoted bodies accumulate fragments and join at statement boundaries,
+avoiding long chains of per-character strings and their garbage collection cost.

@@ -7,6 +7,9 @@
   "name": "overthewall-schedule",
   "keep_vars": true,
   "main": "worker/index.ts",
+  "services": [
+    { "binding": "X_ACTIVITY_LUVDIA", "service": "luvdia-schedule", "entrypoint": "XActivitySiteRpc" }
+  ],
   "compatibility_date": "2025-11-25",
   "assets": {
     "directory": "./dist/otw/client",

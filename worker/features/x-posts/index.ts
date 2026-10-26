@@ -21,6 +21,11 @@ export {
   readXHistoryHealth,
   readXHistoryPosts
 } from "./infrastructure/x-history";
+export { D1XActivityCoordinator } from "./infrastructure/x-activity-coordinator";
+export { D1XActivitySite } from "./infrastructure/x-activity-site";
+export { XActivityError, type XActivityService } from "./application/x-activity-service";
+export { createXActivityHandler } from "./http/x-activity";
+export { D1SharedXApiGateway, D1SharedXBudget, readSiteXBudget } from "./infrastructure/x-shared-budget";
 export {
   buildXPostsApplication,
   xPostFeedService,

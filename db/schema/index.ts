@@ -825,6 +825,137 @@ export const xPostSources = sqliteTable("x_post_sources", {
 export type XPostSource = typeof xPostSources.$inferSelect;
 export type NewXPostSource = typeof xPostSources.$inferInsert;
 
+// One-member XAA rollout; independent from the REST completeness watermark.
+export const xActivityState = sqliteTable("x_activity_state", {
+  id: integer().primaryKey(),
+  handle: text().notNull(),
+  user_id: text("user_id").notNull(),
+  tag: text().notNull(),
+  enabled: integer({ mode: "boolean" }).notNull().default(false),
+  status: text().notNull().default("stopped"),
+  webhook_id: text("webhook_id"),
+  subscription_id: text("subscription_id"),
+  expires_at: integer("expires_at"),
+  lease_until: integer("lease_until").notNull().default(0),
+  last_error: text("last_error"),
+  updated_at: integer("updated_at").notNull(),
+}, table => [check("x_activity_single_member", sql`${table.id} = 1`)]);
+
+export const xActivityInbox = sqliteTable("x_activity_inbox", {
+  event_id: text("event_id").primaryKey(),
+  post_id: text("post_id").notNull(),
+  handle: text().notNull(),
+  user_id: text("user_id").notNull(),
+  payload: text(),
+  hydrated_payload: text("hydrated_payload"),
+  received_at: integer("received_at").notNull(),
+  charged: integer({ mode: "boolean" }).notNull().default(false),
+  status: text().notNull().default("pending"),
+  media_source: text("media_source").notNull().default("pending"),
+  media_count: integer("media_count").notNull().default(0),
+  media_types: text("media_types").notNull().default(""),
+  lease_until: integer("lease_until").notNull().default(0),
+  next_attempt_at: integer("next_attempt_at").notNull().default(0),
+  lookup_attempted_at: integer("lookup_attempted_at"),
+  lookup_attempts: integer("lookup_attempts").notNull().default(0),
+  last_error: text("last_error"),
+}, table => [
+  index("idx_x_activity_pending").on(table.status, table.next_attempt_at),
+  index("idx_x_activity_received").on(table.received_at),
+  index("idx_x_activity_post").on(table.post_id),
+]);
+
+export const xSharedBudgets = sqliteTable("x_shared_budgets", {
+  day: text().primaryKey(),
+  used: integer().notNull().default(0),
+  reserved: integer().notNull().default(0),
+  limit_value: integer("limit_value").notNull().default(1_000_000),
+  seed_detail: text("seed_detail").notNull(),
+  updated_at: integer("updated_at").notNull(),
+}, table => [check("x_shared_budget_nonnegative", sql`${table.used} >= 0 AND ${table.reserved} >= 0 AND ${table.limit_value} = 1000000`)]);
+
+export const xSharedRequests = sqliteTable("x_shared_requests", {
+  id: text().primaryKey(),
+  site: text().$type<"otw" | "luvdia">().notNull(),
+  operation: text().notNull(),
+  path: text().notNull(),
+  status: text().notNull(),
+  claim_token: text("claim_token").notNull(),
+  estimate: integer().notNull(),
+  cost: integer().notNull().default(0),
+  result: text(),
+  post_ids: text("post_ids").notNull().default("[]"),
+  day: text().notNull(),
+  created_at: integer("created_at").notNull(),
+  updated_at: integer("updated_at").notNull(),
+}, table => [index("idx_x_shared_requests_day").on(table.day, table.status)]);
+
+export const xActivityCoordinator = sqliteTable("x_activity_coordinator", {
+  id: integer().primaryKey(),
+  ready: integer({ mode: "boolean" }).notNull().default(false),
+  webhook_id: text("webhook_id"),
+  webhook_url: text("webhook_url"),
+  lease_until: integer("lease_until").notNull().default(0),
+  bootstrap_extra_day: text("bootstrap_extra_day"),
+  bootstrap_extra_micros: integer("bootstrap_extra_micros").notNull().default(0),
+  last_error: text("last_error"),
+  updated_at: integer("updated_at").notNull(),
+}, table => [check("x_activity_coordinator_singleton", sql`${table.id} = 1`)]);
+
+export const xActivitySites = sqliteTable("x_activity_sites", {
+  site: text().$type<"otw" | "luvdia">().primaryKey(),
+  enabled: integer({ mode: "boolean" }).notNull().default(false),
+  pause_reason: text("pause_reason"),
+  resume_at: integer("resume_at"),
+  synced_at: integer("synced_at"),
+  last_error: text("last_error"),
+  updated_at: integer("updated_at").notNull(),
+});
+
+export const xActivityTargets = sqliteTable("x_activity_targets", {
+  site: text().$type<"otw" | "luvdia">().notNull(),
+  handle: text().notNull(),
+  user_id: text("user_id"),
+  enabled: integer({ mode: "boolean" }).notNull().default(true),
+  status: text().notNull().default("pending"),
+  last_error: text("last_error"),
+  updated_at: integer("updated_at").notNull(),
+}, table => [primaryKey({ columns: [table.site, table.handle] }), index("idx_x_activity_target_user").on(table.user_id, table.enabled)]);
+
+export const xActivitySubscriptions = sqliteTable("x_activity_subscriptions", {
+  user_id: text("user_id").primaryKey(),
+  tag: text().notNull().unique(),
+  subscription_id: text("subscription_id").unique(),
+  webhook_id: text("webhook_id"),
+  expires_at: integer("expires_at"),
+  status: text().notNull().default("pending"),
+  lease_until: integer("lease_until").notNull().default(0),
+  last_error: text("last_error"),
+  updated_at: integer("updated_at").notNull(),
+});
+
+export const xActivityDispatch = sqliteTable("x_activity_dispatch", {
+  event_id: text("event_id").primaryKey(),
+  post_id: text("post_id").notNull(),
+  user_id: text("user_id").notNull(),
+  payload: text(),
+  received_at: integer("received_at").notNull(),
+  charged: integer({ mode: "boolean" }).notNull().default(false),
+  otw_status: text("otw_status").notNull().default("not_target"),
+  luvdia_status: text("luvdia_status").notNull().default("not_target"),
+  lease_until: integer("lease_until").notNull().default(0),
+  next_attempt_at: integer("next_attempt_at").notNull().default(0),
+  last_error: text("last_error"),
+}, table => [index("idx_x_activity_dispatch_pending").on(table.next_attempt_at, table.received_at), index("idx_x_activity_dispatch_post").on(table.post_id)]);
+
+export const xActivityCacheRedactions = sqliteTable("x_activity_cache_redactions", {
+  post_id: text("post_id").primaryKey(),
+  created_at: integer("created_at").notNull(),
+  completed_at: integer("completed_at"),
+  next_attempt_at: integer("next_attempt_at").notNull().default(0),
+  last_error: text("last_error"),
+}, table => [index("idx_x_activity_redaction_pending").on(table.next_attempt_at).where(sql`${table.completed_at} IS NULL`)]);
+
 export const xPostReferences = sqliteTable(
   "x_post_references",
   {

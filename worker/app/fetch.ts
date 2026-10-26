@@ -10,6 +10,7 @@ import { readSitePublicationAccess } from "./site-publication";
 import { SITE_OPENS_AT } from "@contracts/site-publication";
 import { apiRoutes } from "@contracts/api-routes";
 import { requireAdminUser } from "../platform/auth";
+import { withXGateway } from "./x-gateway";
 
 
 type SerializedError = {
@@ -84,6 +85,13 @@ const handleFetch = async (
   const url = new URL(request.url);
 
   try {
+    const { site } = getWorkerSiteResources(env);
+    env = withXGateway(env);
+    // The shared ingress authenticates X itself and must keep serving the other site during an OTW hold.
+    if(env.SITE_ID==="otw"&&url.pathname===apiRoutes.xPosts.activityWebhook.pattern){
+      const webhook=await workerRouteRegistry.dispatch(request,env,ctx);
+      if(webhook)return webhook;
+    }
     const publicationResponse = await readSitePublicationAccess(request, env);
     if (publicationResponse) return publicationResponse;
     if (url.pathname === apiRoutes.assets.protectedReference.pattern) {
@@ -95,7 +103,6 @@ const handleFetch = async (
     catch { return new Response(null,{status:404,headers:{"Cache-Control":"private, no-store"}}); }
     if(assetPath==="/profile/__artifact.json") return new Response(null,{status:404,headers:{"Cache-Control":"private, no-store"}});
 
-    const { site } = getWorkerSiteResources(env);
     if (assetPath.startsWith("/profile/") && /\.[a-z0-9]+$/i.test(assetPath) || assetPath.startsWith("/r2-assets/")) return await handleAsset(request, env);
     let dependencies: ReturnType<typeof createSiteSeoDependencies> | undefined;
     const readDependencies = () => dependencies ??= createSiteSeoDependencies(env, request.headers.has("Authorization") || request.headers.has("Cookie"));

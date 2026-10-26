@@ -233,6 +233,7 @@ describe("scheduled job executor outcomes", () => {
   });
 
   it("maps a successful X collection to a succeeded item", () => {
+    expect(toXCollectionOutcome({ ...result("success"), pendingSources: 1 })).toMatchObject({status:"partial",errorCode:"x_collection_continuation_pending"});
     expect(toXCollectionOutcome(result("success"))).toMatchObject({
       status: "succeeded",
       result: { status: "success" },

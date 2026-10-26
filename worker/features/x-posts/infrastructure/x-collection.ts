@@ -1,4 +1,5 @@
 import { getHiddenMemberCodes } from "@contracts/site-publication";
+import { unavailableXApiGateway } from "@contracts/x-activity";
 import { publicationHiddenSql } from "../../content-access";
 import { parseSiteId, type SiteId } from "@contracts/site-definition";
 import {
@@ -50,6 +51,7 @@ export type XCollectionRunResult = Omit<
 > & Partial<XCollectionObservability> & {
   referenceHydration?: XReferenceHydrationResultDto;
   success: boolean;
+  pendingSources?: number;
   error: string | null;
   updatedAt: string;
 };
@@ -249,12 +251,12 @@ export const readActiveXHandles = async (db: DbInstance, siteId: SiteId = "otw")
 };
 
 const normalizeCollectionResult = (
-  result: XCollectionServiceResult & Partial<XCollectionObservability>,
+  result: XCollectionServiceResult & Partial<XCollectionObservability> & { pendingSources?: number },
   updatedAtMs: number,
 ): XCollectionRunResult => ({
   ...result,
-  success: result.status === "success",
-  error: "error" in result ? result.error ?? null : null,
+  success: result.status === "success" && !result.pendingSources,
+  error: ("error" in result ? result.error ?? null : null) ?? (result.pendingSources ? "x_collection_continuation_pending" : null),
   updatedAt: new Date(updatedAtMs).toISOString(),
 });
 
@@ -276,6 +278,7 @@ export const runXCollectionForHandles = async (
       await backfillXPostReferencesFromStoredPosts(env.otw_db,parseSiteId(env.SITE_ID),100);
     }
     const result = await collectXPostsForHandles(lease.claimed, {
+      gateway: env.X_API_GATEWAY ?? unavailableXApiGateway,
       bearerToken: env.X_BEARER_TOKEN,
       cacheDb: env.otw_db,
       siteId: parseSiteId(env.SITE_ID),
@@ -290,10 +293,13 @@ export const runXCollectionForHandles = async (
       referencePreviewMode: policy.referencePreviewMode,
       coalescedHandles: lease.coalesced,
       afterTimeline: (tracker) => hydrateXReferences({ db: env.otw_db,siteId:parseSiteId(env.SITE_ID), handles: lease.claimed,
-        bearerToken: env.X_BEARER_TOKEN ?? "", mode: policy.referencePreviewMode, tracker }),
+        bearerToken: env.X_BEARER_TOKEN ?? "shared-gateway", mode: policy.referencePreviewMode, tracker }),
     });
+    const pendingSources=lease.claimed.length ? await env.otw_db.prepare("SELECT COUNT(*) AS count FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_pagination_token IS NOT NULL")
+      .bind(JSON.stringify(lease.claimed)).first<number>("count") : 0;
     return normalizeCollectionResult({
       ...result,
+      pendingSources:Number(pendingSources??0),
       effectiveIntervalMinutes: policy.effectiveIntervalMinutes,
       fallbackReason: policy.fallbackReason,
       coalescedHandles: lease.coalesced,
@@ -312,11 +318,11 @@ export const runXCollection = async (
   const result = await runXCollectionForHandles(env, handles, source);
   const updatedAtMs = Date.now();
 
-  if (
+  if (!result.pendingSources && (
     result.status === "success" ||
     result.status === "failed" ||
     ("error" in result && result.error === "all_handles_cooldown")
-  ) {
+  )) {
     await updateSetting(
       db,
       X_COLLECTION_LAST_RUN_SETTING_KEY,

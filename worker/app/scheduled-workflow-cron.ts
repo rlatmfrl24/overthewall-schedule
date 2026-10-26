@@ -4,6 +4,8 @@ import { isRetiredScheduledJob, type ScheduledJobType } from "@contracts/schedul
 import { ScheduledJobCoordinator } from "../features/scheduled-operations";
 import type { Env } from "../platform/types";
 import { getWorkerSiteResources } from "../platform/site";
+import { buildXActivityService } from "./x-activity";
+import { withXGateway } from "./x-gateway";
 
 export const SCHEDULED_WORKFLOW_CRON = "3,13,23,33,53 * * * *";
 
@@ -88,6 +90,7 @@ export async function filterRunnableScheduledWorkflowJobs(
 }
 
 export async function handleScheduledWorkflowCron(event:ScheduledController,env:Env):Promise<void> {
+  env = withXGateway(env);
   getWorkerSiteResources(env);if(event.cron!==SCHEDULED_WORKFLOW_CRON)return;
   await dispatchScheduledWorkflows(event,env);
 }
@@ -98,7 +101,9 @@ async function dispatchScheduledWorkflows(event:ScheduledController,env:Env):Pro
     event.scheduledTime,
   );
   if (selectedJobs.length === 0) return;
-  const budget = await new CloudflareD1ReadBudget(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_D1_TOKEN).read();
+  const budget = await new CloudflareD1ReadBudget(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_D1_TOKEN, env.OTW_PLAY_D1_READ_DAILY_TARGET).read();
+  try { if (env.X_CLIENT_SECRET || env.X_ACTIVITY_COORDINATOR) await buildXActivityService(env).reconcile(budget.status === "available" && await hasScheduledD1WriteCapacity(env, event.scheduledTime)); }
+  catch (error) { console.error("x_activity_reconciliation_failed", error instanceof Error ? error.message : "unknown"); }
   const jobs = budget.status === "available" ? selectedJobs : selectedJobs.filter(job => job === "ingestion_recovery");
   if (jobs.length === 0) return;
   const workflow = env.SCHEDULED_OPERATIONS_WORKFLOW;

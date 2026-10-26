@@ -6,6 +6,22 @@ import { createLocalSiteConfig } from "./local-site-config.mjs";
 
 const readConfig = (id: "otw" | "luvdia") => ts.parseConfigFileTextToJson(id, readFileSync(id === "otw" ? "wrangler.jsonc" : "wrangler.luvdia.jsonc", "utf8")).config;
 describe("physical site resource configuration", () => {
+  it.each(["otw","luvdia"] as const)("keeps the final %s X RPC binding present",site=>{
+    expect(readConfig(site).services).toEqual([site==="otw"
+      ?{binding:"X_ACTIVITY_LUVDIA",service:"luvdia-schedule",entrypoint:"XActivitySiteRpc"}
+      :{binding:"X_ACTIVITY_COORDINATOR",service:"overthewall-schedule",entrypoint:"XActivityCoordinatorRpc"}]);
+  });
+  it("pins activity RPC to the peer site's named entrypoint and permits receiver-only preparation",()=>{
+    const config=readConfig("otw");
+    config.services=[{binding:"X_ACTIVITY_LUVDIA",service:"luvdia-schedule",entrypoint:"XActivitySiteRpc"}];
+    expect(()=>assertSiteResourceConfig(config,"otw")).not.toThrow();
+    for(const change of [{service:"overthewall-schedule"},{entrypoint:"default"},{binding:"X_ACTIVITY_COORDINATOR"}]){
+      const broken=structuredClone(config);Object.assign(broken.services[0],change);
+      expect(()=>assertSiteResourceConfig(broken,"otw")).toThrow(/fixed peer/);
+    }
+    const receiver=readConfig("luvdia");delete receiver.services;
+    expect(()=>assertSiteResourceConfig(receiver,"luvdia")).not.toThrow();
+  });
   it("keeps personal multiview rate limits separate between site deployments", () => {
     const limits = ["otw", "luvdia"].map(id => readConfig(id as "otw" | "luvdia").ratelimits.find((item: { name: string }) => item.name === "MULTIVIEW_RATE_LIMITER"));
     expect(limits.map(item => item?.simple)).toEqual([{ limit: 6, period: 60 }, { limit: 6, period: 60 }]);

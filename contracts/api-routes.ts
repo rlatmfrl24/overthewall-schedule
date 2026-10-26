@@ -354,6 +354,8 @@ export const apiRoutes = {
     },
   },
   xPosts: {
+    activity: staticRoute("/api/x/activity"),
+    activityWebhook: staticRoute("/api/x/activity/webhook"),
     config: staticRoute("/api/x/config"),
     read: staticRoute("/api/x/posts"),
     redact: dynamicRoute(

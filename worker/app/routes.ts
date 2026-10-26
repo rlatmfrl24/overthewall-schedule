@@ -104,8 +104,10 @@ import {
   buildXPostsApplication,
   createManualXCollectionHandler,
   createXPostsHandler,
+  createXActivityHandler,
   xPostFeedService,
 } from "../features/x-posts";
+import { buildXActivityService } from "./x-activity";
 import {
   buildYouTubeApplication, createYouTubeHistoryHandler, D1AdminYouTubeHistoryReader,
   createKirinukiHandler,
@@ -291,6 +293,7 @@ const handleOperations = createOperationsHandler({
     ),
 });
 const handleXPosts = createXPostsHandler(buildXPostsApplication);
+const handleXActivity = createXActivityHandler(buildXActivityService);
 const handleManualXCollection = createManualXCollectionHandler(
   buildXPostsApplication,
   (env, actor, idempotencyKey) =>
@@ -1172,6 +1175,14 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
       }),
     ),
     handler: handleXPosts,
+  },
+  {
+    id: "x-posts.activity", owner: "x-posts", path: apiRoutes.xPosts.activity.pattern,
+    methods: methods(get(ADMIN_NO_STORE), post(ADMIN_NO_STORE), del(ADMIN_NO_STORE)), handler: handleXActivity,
+  },
+  {
+    id: "x-posts.activity-webhook", owner: "x-posts", path: apiRoutes.xPosts.activityWebhook.pattern,
+    methods: methods(get(PUBLIC_NO_STORE), post(PUBLIC_NO_STORE)), handler: handleXActivity,
   },
   {
     id: "x-posts.read",

@@ -130,6 +130,7 @@ export const toXCollectionOutcome = (
     return { status: result.refreshedHandles > 0 ? "partial" : "failed", result,
       errorCode: result.referenceHydration.errorCode, error: "X 원문 보강 재시도 대기" };
   }
+  if(result.pendingSources)return {status:"partial",result,errorCode:result.error??"x_collection_continuation_pending",error:"X 누락 수집 다음 페이지 대기"};
   if (result.status === "success") return succeeded(result);
   const error = result.error ?? `x_collection_${result.status}`;
   return {

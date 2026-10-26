@@ -17,8 +17,8 @@ export default {
     if(url.origin === "https://api.cloudflare.com" && request.method === "POST" && url.pathname === "/client/v4/graphql") return Response.json({data:{viewer:{accounts:[{usage:[{sum:{rowsRead:1000}}]}]}}});
     calls.push(`${request.method} ${url.href}`);
     if (request.method === "GET" && url.origin === "https://api.x.com") {
-      if (url.pathname === "/2/users/by") return Response.json({ data: [{ id: "native-collector-user", username: "native_collect" }] });
-      if (url.pathname === "/2/users/native-collector-user/tweets") return Response.json({
+      if (url.pathname === "/2/users/by") return Response.json({ data: [{ id: "1000000000001", username: "native_collect" }] });
+      if (url.pathname === "/2/users/1000000000001/tweets") return Response.json({
         data: [{ id: "200", text: "Native collection", created_at: new Date().toISOString() }], meta: { newest_id: "200" },
       });
     }

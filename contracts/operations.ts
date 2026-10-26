@@ -394,6 +394,7 @@ export interface AutoUpdateRunResultDto {
 
 export interface XCollectionRunResultDto {
   success: boolean;
+  pendingSources?: number;
   status: "success" | "skipped" | "failed";
   checkedHandles: number;
   refreshedHandles: number;

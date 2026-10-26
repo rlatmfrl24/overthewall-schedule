@@ -1,15 +1,17 @@
 diff --git a/wrangler-dist/cli.js b/wrangler-dist/cli.js
-index 1b503ac735a9d79156e60150c5d56e53f9182842..4367844d447d830e79b602e843b7f804eeb47f26 100644
+index 1b503ac735a9d79156e60150c5d56e53f9182842..420887de2827d8bf80072f0d3750fd4e17fc3c41 100644
 --- a/wrangler-dist/cli.js
 +++ b/wrangler-dist/cli.js
-@@ -348321,25 +348321,31 @@ function normalizeSqlLineEndings(sql) {
+@@ -348320,26 +348320,32 @@ function normalizeSqlLineEndings(sql) {
+ }
  function splitSqlIntoStatements(sql) {
    const statements = [];
-   let str = "";
+-  let str = "";
++  let parts = [];
 +  let tail = "";
 +  // Track marker context separately to avoid flattening the growing SQL per character.
 +  const append = (value) => {
-+    str += value;
++    parts.push(value);
 +    tail = (tail + value).slice(-7);
 +  };
    const compoundStatementStack = [];
@@ -51,7 +53,7 @@ index 1b503ac735a9d79156e60150c5d56e53f9182842..4367844d447d830e79b602e843b7f804
            continue;
          }
        case `/`:
-@@ -348359,22 +348365,23 @@ function splitSqlIntoStatements(sql) {
+@@ -348359,27 +348365,28 @@ function splitSqlIntoStatements(sql) {
            consumeUntilMarker(iterator, "*/");
            break;
          } else {
@@ -61,8 +63,10 @@ index 1b503ac735a9d79156e60150c5d56e53f9182842..4367844d447d830e79b602e843b7f804
          }
        case `;`:
          if (compoundStatementStack.length === 0) {
-           statements.push(str);
-           str = "";
+-          statements.push(str);
+-          str = "";
++          statements.push(parts.join(""));
++          parts = [];
 +          tail = "";
          } else {
 -          str += char;
@@ -79,3 +83,26 @@ index 1b503ac735a9d79156e60150c5d56e53f9182842..4367844d447d830e79b602e843b7f804
        compoundStatementStack.unshift(isCompoundStatementEnd);
      }
      next = iterator.next();
+   }
+-  statements.push(str);
++  statements.push(parts.join(""));
+   return statements.map((statement) => statement.trim()).filter((statement) => statement.length > 0);
+ }
+ function consumeWhile(iterator, predicate) {
+@@ -348395,7 +348402,15 @@ function consumeWhile(iterator, predicate) {
+   return str;
+ }
+ function consumeUntilMarker(iterator, endMarker) {
+-  return consumeWhile(iterator, (str) => !str.endsWith(endMarker));
++  const parts = [];
++  let tail = "";
++  for (let next = iterator.next(); !next.done; next = iterator.next()) {
++    parts.push(next.value);
++    // Quoted SQL can be huge; matching needs only the delimiter-sized suffix.
++    tail = endMarker.length === 1 ? next.value : (tail + next.value).slice(-endMarker.length);
++    if (tail === endMarker) break;
++  }
++  return parts.join("");
+ }
+ function isDollarQuoteIdentifier(str) {
+   const lastChar = str.slice(-1);

@@ -1,4 +1,5 @@
 import type { SiteId } from "@contracts/site-definition";
+import type { XApiGateway } from "@contracts/x-activity";
 import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import { publicationHiddenSql } from "../../content-access";
 import { pMap } from "../../../platform/http-helpers";
@@ -37,6 +38,7 @@ type XUsersByUsernamesResponse = {
 type XTimelinePost = {
   id: string;
   text?: string;
+  note_tweet?: { text?: string; entities?: XTimelinePost["entities"] };
   created_at?: string;
   conversation_id?: string;
   in_reply_to_user_id?: string;
@@ -210,6 +212,7 @@ type XHandlePostsResult = {
 };
 
 type FetchXPostsForHandlesOptions = {
+  gateway?: XApiGateway;
   scheduledFor?: number | null;
   siteId?: SiteId;
   storedPage?: import("@contracts/member-posts").MemberPostsPageRequest;
@@ -232,6 +235,7 @@ type FetchXPostsForHandlesOptions = {
 type XApiUsageOperation = "user_lookup" | "timeline" | "tweet_lookup";
 
 export type XApiUsageTracker = {
+  gateway?: XApiGateway;
   apiCalls: number;
   estimatedCostMicros: number;
   reservedCostMicros: number;
@@ -245,6 +249,7 @@ export type XApiUsageTracker = {
 };
 
 type CollectXPostsOptions = {
+  gateway?: XApiGateway;
   scheduledFor?: number | null;
   siteId?: SiteId;
   bearerToken?: string | null;
@@ -802,6 +807,7 @@ const writeXApiUsageEvent = async (
   response: XApiResponseWithResources | null,
   usageTracker?: XApiUsageTracker,
   unmeasuredCostMicros = 0,
+  costOverrideMicros?: number,
 ) => {
   const estimate = response
     ? estimateXApiUsage(operation, response)
@@ -812,6 +818,7 @@ const writeXApiUsageEvent = async (
         resourceCount: 0,
         estimatedCostMicros: Math.max(0, Math.trunc(unmeasuredCostMicros)),
       };
+  if (costOverrideMicros !== undefined) estimate.estimatedCostMicros = Math.max(0, Math.trunc(costOverrideMicros));
   if (usageTracker) {
     usageTracker.apiCalls += 1;
     usageTracker.estimatedCostMicros += estimate.estimatedCostMicros;
@@ -924,6 +931,9 @@ export const requestXApi = async <T>(
     operation?: XApiUsageOperation;
     usageTracker?: XApiUsageTracker;
     estimatedCostMicros?: number;
+    gateway?: XApiGateway;
+    requestId?: string;
+    backoffDb?: XCacheDb;
   } = {},
 ): Promise<T> => {
   let settleBudgetReservation: XApiBudgetSettlement = noopXApiBudgetSettlement;
@@ -934,7 +944,7 @@ export const requestXApi = async <T>(
   let usageRecorded = false;
   try {
   if (options.operation) {
-    await assertXApiNotBackedOff(options.cacheDb);
+    await assertXApiNotBackedOff(options.backoffDb ?? options.cacheDb);
     reservedCostMicros = options.estimatedCostMicros ?? estimateXApiRequestCostMicros(
       options.operation,
       path,
@@ -953,6 +963,21 @@ export const requestXApi = async <T>(
   }
 
   try {
+    const gateway = options.gateway ?? options.usageTracker?.gateway;
+    if (gateway && options.operation) {
+      const result = await gateway.execute({ id: options.requestId ?? crypto.randomUUID(), path,
+        operation: options.operation, estimatedCostMicros: reservedCostMicros });
+      actualUsedMicros = result.costMicros;
+      requestDispatched = result.dispatched;
+      responseStatus = result.status;
+      if (result.dispatched && !result.cached) {
+        usageRecorded = true;
+        await writeXApiUsageEvent(options.cacheDb, options.operation, path, result.status,
+          result.ok ? result.body as XApiResponseWithResources : null, options.usageTracker, result.costMicros, result.costMicros);
+      }
+      if (!result.ok) throw new XApiError(result.error ?? "shared_x_api_failed", result.status, { code: result.error, sourceStatus: result.dispatched ? result.status : undefined });
+      return result.body as T;
+    }
     requestDispatched = true;
     actualUsedMicros = reservedCostMicros;
     const response = await fetch(`${X_API_BASE_URL}${path}`, {
@@ -966,7 +991,7 @@ export const requestXApi = async <T>(
 
     if (!response.ok) {
       if (response.status === 429) {
-        await writeXApiBackoff(options.cacheDb, response);
+        await writeXApiBackoff(options.backoffDb ?? options.cacheDb, response);
       }
       if (options.operation) {
         usageRecorded = true;
@@ -1440,7 +1465,7 @@ const replaySafePostValueSql = ["quote", "reply"].reduce((value, relation) =>
     THEN json_set(${value},'$.${relation}.post',json_extract(x_posts.value,'$.${relation}.post'))
     ELSE ${value} END`, "excluded.value");
 
-const writeStoredPosts = async (
+export const writeStoredPosts = async (
   cacheDb: XCacheDb | undefined,
   handle: string,
   user: XApiUser,
@@ -1539,6 +1564,10 @@ export const redactStoredXPosts = async (
          WHERE post_id IN (${ids.map(() => "?").join(", ")})`,
       ).bind(redactedAt, redactedAt, ...ids),
       ...prepareXReferenceRedaction(cacheDb, ids, redactedAt),
+      cacheDb.prepare(`UPDATE x_activity_inbox SET payload=NULL,hydrated_payload=NULL,status='skipped',lease_until=0,last_error='post_redacted'
+        WHERE post_id IN (${ids.map(() => "?").join(", ")})`).bind(...ids),
+      ...ids.map(id=>cacheDb.prepare(`INSERT INTO x_activity_cache_redactions(post_id,created_at,completed_at,next_attempt_at)
+        VALUES(?,?,NULL,0) ON CONFLICT(post_id) DO UPDATE SET completed_at=NULL,next_attempt_at=0,last_error=NULL`).bind(id,redactedAt)),
     ];
     const results=commit?await commit(ids[0]!,statements):await cacheDb.batch(statements);
     redacted += Array.isArray(results) ? results[0].results.length : results.redacted;
@@ -1957,7 +1986,8 @@ export const normalizeXTimelineResponse = (
 
   return (response.data ?? []).map((post) => {
     const media = normalizeXMediaItems(post.attachments?.media_keys, mediaByKey);
-    const links = (post.entities?.urls ?? [])
+    const content = typeof post.note_tweet?.text === "string" ? post.note_tweet : post;
+    const links = (content.entities?.urls ?? [])
       .map((item): XPostLinkItem | null => {
         if (!item.url) return null;
         const resolvedUrl = item.unwound_url ?? item.expanded_url ?? item.url;
@@ -1984,7 +2014,7 @@ export const normalizeXTimelineResponse = (
 
     return {
       id: post.id,
-      text: post.text ?? "",
+      text: content.text ?? "",
       createdAt: post.created_at ?? new Date(0).toISOString(),
       url: buildXPostUrl(username, post.id),
       username,
@@ -2264,7 +2294,7 @@ const fetchLinkedXPostsByIds = async (
 
   const params = new URLSearchParams({
     ids: idsToFetch.join(","),
-    "tweet.fields": "author_id,created_at,public_metrics,attachments",
+    "tweet.fields": "author_id,created_at,public_metrics,attachments,note_tweet",
     expansions: "attachments.media_keys",
     "media.fields": "url,preview_image_url,type,width,height,alt_text",
   });
@@ -2612,7 +2642,7 @@ const fetchXPostsForUser = async (
     max_results: String(collectionLimit),
     exclude: "retweets",
     "tweet.fields":
-      "created_at,public_metrics,attachments,entities,referenced_tweets,conversation_id,in_reply_to_user_id",
+      "created_at,public_metrics,attachments,entities,referenced_tweets,conversation_id,in_reply_to_user_id,note_tweet",
     expansions: "attachments.media_keys",
     "media.fields": "url,preview_image_url,type,width,height,alt_text",
   });
@@ -2876,11 +2906,12 @@ export const fetchXPostsForHandles = async (
   const normalizedHandles = Array.from(
     new Set(handles.map(normalizeHandle).filter(Boolean)),
   );
-  const token = bearerToken?.trim();
+  const token = bearerToken?.trim() || (options.gateway ? "shared-gateway" : undefined);
   const resultByHandle = new Map<string, XHandlePostsResult>();
   const stalePostsByHandle = new Map<string, CachedXPostsEntry>();
   const handlesToRefresh: string[] = [];
   const activeUsageTracker = usageTracker ?? {
+    gateway: options.gateway,
     apiCalls: 0,
     estimatedCostMicros: 0,
     reservedCostMicros: 0,
@@ -2892,6 +2923,7 @@ export const fetchXPostsForHandles = async (
     forceRefreshPath: forceRefresh ? forceRefreshPath ?? "unknown" : null,
   };
   if (usageTracker) {
+    usageTracker.gateway ??= options.gateway;
     usageTracker.source ??= usageSource ?? null;
     usageTracker.forceRefreshPath ??= forceRefresh
       ? forceRefreshPath ?? "unknown"
@@ -3305,6 +3337,7 @@ export const collectXPostsForHandles = async (
     new Set(handles.map(normalizeHandle).filter(Boolean)),
   );
   const tracker: XApiUsageTracker = {
+    gateway: options.gateway,
     apiCalls: 0,
     estimatedCostMicros: 0,
     reservedCostMicros: 0,
@@ -3350,7 +3383,7 @@ export const collectXPostsForHandles = async (
     return result;
   }
 
-  const token = bearerToken?.trim();
+  const token = bearerToken?.trim() || (options.gateway ? "shared-gateway" : undefined);
   if (!token) {
     const result = {
       checkedHandles: normalizedHandles.length,
@@ -3418,6 +3451,7 @@ export const collectXPostsForHandles = async (
     }
 
     const content = await fetchXPostsForHandles(handlesToRefresh, {
+      gateway: options.gateway,
       bearerToken: token,
       cacheDb,
       maxResults,
