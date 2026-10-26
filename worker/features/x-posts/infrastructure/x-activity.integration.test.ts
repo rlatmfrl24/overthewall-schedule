@@ -42,7 +42,7 @@ const provider=async(input:RequestInfo|URL,init?:RequestInit)=>{
   if(url.pathname==="/2/tweets")return json({data:[{id:postId,author_id:userId,attachments:{media_keys:["video"]}}],includes:{media:[{media_key:"video",type:"video",preview_image_url:"https://pbs.twimg.com/video_thumb/1.jpg"}]}});
   if(url.pathname==="/2/users/"+userId+"/tweets"){
     timelinePage++;
-    return json({data:[{id:timelinePage===1?"2114100000000000000":postId,text:"REST recovery",created_at:new Date(Date.now()-60000).toISOString()}],...(timelinePage===1?{meta:{next_token:"page-two"}}:{})});
+    return json({data:[{id:timelinePage===1?postId:"2114100000000000000",text:"REST recovery",created_at:new Date(Date.now()-60000).toISOString()}],...(timelinePage===1?{meta:{next_token:"page-two"}}:{})});
   }
   throw new Error("Unexpected external request "+method+" "+url.pathname);
 };

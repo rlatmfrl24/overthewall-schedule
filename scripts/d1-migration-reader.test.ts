@@ -48,3 +48,12 @@ ${trigger}; ${body}; ${quoted}; SELECT 'END; BEGIN;' AS value; SELECT 42;`);
     queries: [arithmetic, trigger, body, quoted, "SELECT 'END; BEGIN;' AS value", "SELECT 42"],
   }]);
 });
+
+it("preserves long quoted bodies and multi-character dollar delimiters", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "otw-d1-quoted-"));
+  temporaryDirectories.push(directory);
+  const value = "value BEGIN; CASE; END; 한글😀 ".repeat(20_000);
+  const queries = [`SELECT '${value}' AS quoted`, `SELECT $body$${value}$body$ AS dollar`, "SELECT 42"];
+  writeFileSync(path.join(directory, "0001_long.sql"), queries.join("; ") + ";");
+  expect(await readD1Migrations(directory)).toEqual([{name:"0001_long.sql",queries}]);
+});

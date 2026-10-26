@@ -511,3 +511,10 @@ RPC stub은 임의 메서드가 존재하는 것처럼 보일 수 있으므로 `
 새 별도 검증 pipeline 대신 기존 Workers Builds의 `WORKERS_CI=1` 경로에 기존 타입·린트·전체 테스트·구조/정책 검사를 연결했다.
 [공식 빌드 환경 변수](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/#environment-variables)를 따른다.
 추가 유료 canary·자연 사진/영상 대기는 수행하지 않는다. 최종 CI·배포·등록 readback은 이 절의 후속 기록 또는 소유 PR evidence 댓글로 확정한다.
+
+준비 HEAD `a804ee9`의 기존 자동 CI는3284건 통과·4건 실패·기존3건 생략이었다.
+사이트 주소를 빠뜨린 테스트2개와 REST 내림차순이 반대인 표본1개를 수정했다.
+마이그레이션 reader는5593ms로 기존5000ms 검사를 넘었다. 기존 pnpm patch에서 큰 따옴표 본문의 매 문자마다
+누적 문자열에 `endsWith`를 적용하던 경로를 닫는 구분자 길이의 suffix 비교로 바꿨다.
+기존 compound·주석·quote 파싱 흐름, SQL 원문과 전체 migration 입력을 보존하고 긴 한글·이모지/dollar quote 회귀를 기존 CI에 추가했다.
+검사 시간·병렬 수·skip/retry 정책은 바꾸지 않았다. 의존성 버전 변경 없이 patch hash만 갱신했다.

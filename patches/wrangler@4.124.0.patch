@@ -1,5 +1,5 @@
 diff --git a/wrangler-dist/cli.js b/wrangler-dist/cli.js
-index 1b503ac735a9d79156e60150c5d56e53f9182842..4367844d447d830e79b602e843b7f804eeb47f26 100644
+index 1b503ac735a9d79156e60150c5d56e53f9182842..517d2e63367271a423e57ab2bc16ec5c719dffbd 100644
 --- a/wrangler-dist/cli.js
 +++ b/wrangler-dist/cli.js
 @@ -348321,25 +348321,31 @@ function normalizeSqlLineEndings(sql) {
@@ -79,3 +79,19 @@ index 1b503ac735a9d79156e60150c5d56e53f9182842..4367844d447d830e79b602e843b7f804
        compoundStatementStack.unshift(isCompoundStatementEnd);
      }
      next = iterator.next();
+@@ -348395,7 +348402,14 @@ function consumeWhile(iterator, predicate) {
+   return str;
+ }
+ function consumeUntilMarker(iterator, endMarker) {
+-  return consumeWhile(iterator, (str) => !str.endsWith(endMarker));
++  let str = "", tail = "";
++  for (let next = iterator.next(); !next.done; next = iterator.next()) {
++    str += next.value;
++    // Quoted SQL can be huge; matching needs only the delimiter-sized suffix.
++    tail = endMarker.length === 1 ? next.value : (tail + next.value).slice(-endMarker.length);
++    if (tail === endMarker) break;
++  }
++  return str;
+ }
+ function isDollarQuoteIdentifier(str) {
+   const lastChar = str.slice(-1);
