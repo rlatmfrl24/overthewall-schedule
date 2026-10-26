@@ -95,7 +95,8 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
           {!activity.isError&&activity.isFetching&&recoveryBudget&&<p className="text-muted-foreground">REST 예산 갱신 중 · 아래는 이전 조회값입니다.</p>}
           {recoveryBudget?<>
             <div className="grid gap-1 sm:grid-cols-2"><p>첫 페이지 예상 예약 <strong>{money(recoveryBudget.firstPagesMicros)}</strong></p><p>사용 가능 <strong>{money(recoveryBudget.availableMicros)}</strong></p></div>
-            <p>대상 {recoveryBudget.targetCount}개 · 계정당 {recoveryBudget.pageSize}개 · 페이지당 예약 {money(recoveryBudget.perPageMicros)}</p>
+            <p>대상 {recoveryBudget.targetCount}개 · 신규 스캔 계정당 {recoveryBudget.pageSize}개 · 기본 페이지 예약 {money(recoveryBudget.perPageMicros)}</p>
+            {!!activity.data?.recovery?.pendingSources&&<p>이월 커서 {activity.data.recovery.pendingSources}개는 계정당 {recoveryBudget.continuationPageSize}개 요청으로 포함했습니다.</p>}
             <p className="text-muted-foreground">공통 잔여 {money(recoveryBudget.sharedRemainingMicros)} · 사이트 보호 잔여 {money(recoveryBudget.siteRemainingMicros)} · 계정 캐시 갱신 상한 {money(recoveryBudget.identityMicros)} 포함</p>
             {!activity.isError&&!activity.isFetching&&recoveryBudget.firstPagesMicros>recoveryBudget.availableMicros&&<p role="alert">첫 페이지 예상 예약액이 사용 가능액보다 큽니다. 실제 요청별 잔여 예산을 확인하며 진행합니다.</p>}
           </>:<p>{activity.isPending?"REST 예산 산정 중":"REST 필요액·잔여액 확인 불가 · 웹훅 상태와 공통 장부를 새로고침해주세요."}</p>}

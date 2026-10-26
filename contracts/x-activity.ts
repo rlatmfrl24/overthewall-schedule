@@ -35,7 +35,7 @@ export const isXActivityQueueMessage = (value: unknown): value is XActivityQueue
 };
 
 export interface XRecoveryBudgetEstimate {
-  targetCount: number; pageSize: number; perPageMicros: number; firstPagesMicros: number;
+  targetCount: number; pageSize: number; continuationPageSize: number; perPageMicros: number; firstPagesMicros: number;
   identityMicros: number; siteLimitMicros: number;
 }
 

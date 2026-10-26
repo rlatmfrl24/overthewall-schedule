@@ -67,6 +67,14 @@ beforeEach(async()=>{
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();vi.useRealTimers();});
 
 describe("XAA multi-site collection and common money boundary",()=>{
+  it("includes the real continuation page for pending cursors alongside new optimized scans",async()=>{
+    await db.prepare("UPDATE settings SET value='true' WHERE key='x_cost_optimizer_enabled'").run();
+    await db.prepare("UPDATE x_post_sources SET sync_pagination_token='next-page'").run();
+    await db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(2,'second','Second','https://x.com/second')").run();
+    await db.prepare("INSERT INTO x_post_sources(handle,user_id,last_checked_at,updated_at) VALUES('second',?,0,0)").bind(peerUserId).run();
+    expect((await coordinator().status("otw")).recovery).toMatchObject({pendingSources:1,budget:{targetCount:2,pageSize:5,continuationPageSize:25,identityMicros:20000,firstPagesMicros:320000}});
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it.each(["cold","expired"])("includes identity refresh headroom for a known source with a %s user cache",async(cache)=>{
     await db.prepare("DELETE FROM x_api_cache WHERE key='x:user:v1:member'").run();
     if(cache==="expired")await db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES('x:user:v1:member','user',?,?,?)")

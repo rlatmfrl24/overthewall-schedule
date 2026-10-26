@@ -43,12 +43,15 @@ export class D1XActivitySite {
     const optimized=await this.db.prepare("SELECT value FROM settings WHERE key='x_cost_optimizer_enabled'").first<string>("value")==="true";
     const pageSize=optimized?X_OPTIMIZED_FIRST_PAGE_RESULTS:X_COLLECTION_MAX_RESULTS;
     const perPageMicros=estimateXApiRequestCostMicros("timeline",`/users/1/tweets?max_results=${pageSize}`);
+    const pendingSources=recovery?.pendingSources??0;
+    const continuationMicros=estimateXApiRequestCostMicros("timeline",`/users/1/tweets?max_results=${X_COLLECTION_MAX_RESULTS}`);
     // A source ID does not guarantee a fresh user cache, so include refresh headroom for every target.
     const identityMicros=estimateXApiRequestCostMicros("user_lookup","/users/by?"+new URLSearchParams({usernames:handles.join(",")}));
     return { site: this.options.siteId, collectionEnabled: enabled, targets: handles.map(handle=>({handle,userId:users.get(handle)??null})),
       budget: await readSiteXBudget(this.db), cachePurgePending:Number(cachePurgePending??0), recovery: {
-        intervalHours: Number(interval ?? 24), lastSuccessAt: recovery?.lastSuccessAt ?? null, pendingSources: recovery?.pendingSources ?? 0,
-        estimate:{targetCount:handles.length,pageSize,perPageMicros,firstPagesMicros:handles.length*perPageMicros+identityMicros,identityMicros,siteLimitMicros:await readDailyBudgetMicros(this.db)},
+        intervalHours: Number(interval ?? 24), lastSuccessAt: recovery?.lastSuccessAt ?? null, pendingSources,
+        estimate:{targetCount:handles.length,pageSize,continuationPageSize:X_COLLECTION_MAX_RESULTS,perPageMicros,
+          firstPagesMicros:(handles.length-pendingSources)*perPageMicros+pendingSources*continuationMicros+identityMicros,identityMicros,siteLimitMicros:await readDailyBudgetMicros(this.db)},
       } };
   }
   async rememberUser(handle: string, user: XApiUser) {

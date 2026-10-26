@@ -97,7 +97,7 @@ const makeSettings = () => ({
 const makeActivity = () => ({configured:true,site:"otw",mode:"normal",subscription:null,callbackUrl:null,
   budget:{limitMicros:1000000,usedMicros:360000,reservedMicros:0,strictDailyCap:false},budgetReady:true,budgetDay:"2026-10-26",
   events:[],sites:[{site:"otw",enabled:true,targetCount:5,activeCount:5,failedCount:0,pauseReason:null,resumeAt:null,lastError:null}],subscriptions:[],
-  recovery:{intervalHours:24,lastSuccessAt:null,pendingSources:0,budget:{day:"2026-10-26",targetCount:5,pageSize:5,perPageMicros:50000,firstPagesMicros:300000,
+  recovery:{intervalHours:24,lastSuccessAt:null,pendingSources:0,budget:{day:"2026-10-26",targetCount:5,pageSize:5,continuationPageSize:25,perPageMicros:50000,firstPagesMicros:300000,
     identityMicros:50000,siteLimitMicros:1000000,sharedRemainingMicros:640000,siteRemainingMicros:900000,availableMicros:640000}}});
 
 describe("MemberPostSettingsManager", () => {
@@ -340,7 +340,7 @@ describe("MemberPostSettingsManager", () => {
     const preview=await screen.findByRole("region",{name:"REST 실행 전 예산"});
     await waitFor(()=>expect(preview.textContent).toContain("첫 페이지 예상 예약 $0.300"));
     expect(preview.textContent).toContain("사용 가능 $0.640");
-    expect(preview.textContent).toContain("대상 5개 · 계정당 5개");
+    expect(preview.textContent).toContain("대상 5개 · 신규 스캔 계정당 5개");
     expect(preview.textContent).toContain("추가 페이지·인용 원문 보강");
     expect(fetchXActivityMock).toHaveBeenCalledTimes(1);
     expect(runXCollectionNowMock).not.toHaveBeenCalled();
@@ -363,6 +363,16 @@ describe("MemberPostSettingsManager", () => {
     const preview=await screen.findByRole("region",{name:"REST 실행 전 예산"});
     expect(within(preview).getByText(/REST 필요액·잔여액 확인 불가/)).toBeTruthy();
     expect(preview.textContent).not.toContain("사용 가능 $0.000");
+    expect(runXCollectionNowMock).not.toHaveBeenCalled();
+  });
+  it("explains the larger first request when an unfinished cursor must continue",async()=>{
+    const pending=makeActivity();
+    pending.recovery.pendingSources=1;
+    pending.recovery.budget.firstPagesMicros=500000;
+    fetchXActivityMock.mockResolvedValue(pending);
+    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
+    expect(await screen.findByText("이월 커서 1개는 계정당 25개 요청으로 포함했습니다.")).toBeTruthy();
+    expect(screen.getByText(/첫 페이지 예상 예약/).textContent).toContain("$0.500");
     expect(runXCollectionNowMock).not.toHaveBeenCalled();
   });
   it("explains a first-page shortfall without spending or reallocating the common budget",async()=>{
