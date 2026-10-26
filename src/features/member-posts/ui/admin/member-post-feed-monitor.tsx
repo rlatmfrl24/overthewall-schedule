@@ -126,6 +126,7 @@ export function MemberPostFeedMonitor({
   operationsUpdatedAt,
   onReloadOperations,
   children,
+  xActivity,
   onRunXCollection,
   isRunningXCollection = false,
   onRunNaverCafeCheck,
@@ -142,6 +143,7 @@ export function MemberPostFeedMonitor({
   operationsUpdatedAt: number;
   onReloadOperations: () => Promise<unknown>;
   children?: ReactNode;
+  xActivity?: ReactNode;
   onRunXCollection?: () => void;
   isRunningXCollection?: boolean;
   onRunNaverCafeCheck?: () => void;
@@ -318,7 +320,7 @@ export function MemberPostFeedMonitor({
                 ) : (
                   <Play className="h-3.5 w-3.5" />
                 )}
-                지금 수집
+                REST 누락 복구 실행
               </Button>
             ) : null}
             {!isX && onRunNaverCafeCheck ? (
@@ -354,6 +356,7 @@ export function MemberPostFeedMonitor({
         <QueryReadback updatedAt={operationsUpdatedAt} fetching={operationsLoading} error={operationsError} className="my-0" />
       </header>
       <div className="space-y-3">
+        {isX && xActivity}
         {isX ? (
           <XCollectionOverview
             operations={operationsStatus} loading={operationsLoading} error={operationsError}

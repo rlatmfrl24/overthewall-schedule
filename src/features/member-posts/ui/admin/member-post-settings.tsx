@@ -52,6 +52,7 @@ import {
 } from "./member-post-feed-monitor";
 import { XPostHistoryManager } from "./x-post-history-manager";
 import { XActivityManager } from "./x-activity-manager";
+import { xActivityQueryKey } from "../../api/x-activity-api";
 import { openXSettings } from "./x-settings-navigation";
 
 const VISIBILITY_OPTIONS: Array<{
@@ -179,6 +180,7 @@ export function MemberPostSettingsManager({
         queryClient.invalidateQueries({ queryKey: queryKeys.settings.detail() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }),
         queryClient.invalidateQueries({ queryKey: xReferenceHealthQueryKey }),
+        queryClient.invalidateQueries({ queryKey: xActivityQueryKey }),
       ]);
     },
     [queryClient],
@@ -190,6 +192,7 @@ export function MemberPostSettingsManager({
         settingsQuery.refetch(), operationsQuery.refetch(),
         queryClient.refetchQueries({ queryKey: queryKeys.operations.runs(), type: "active" }),
         queryClient.refetchQueries({ queryKey: xReferenceHealthQueryKey, type: "active" }),
+        queryClient.refetchQueries({ queryKey: xActivityQueryKey, type: "active" }),
       ]);
 
     } catch (error) {
@@ -646,6 +649,7 @@ export function MemberPostSettingsManager({
               operationsUpdatedAt={operationsQuery.dataUpdatedAt}
               onReloadOperations={loadSettings}
               onRunXCollection={settings ? () => void handleRunXCollectionNow() : undefined}
+              xActivity={<XActivityManager />}
               isRunningXCollection={isRunningCollection || (
                 collectionRun?.jobType === "x_collection" &&
                 (!collectionRunQuery.data || ["queued", "running"].includes(collectionRunQuery.data.status))
@@ -933,7 +937,6 @@ export function MemberPostSettingsManager({
                 <strong>답글 표시 정책</strong><br />
                 저장된 미리보기 유지 · 미확보 원문은 관계와 링크 표시 · 추가 X 조회 없음
               </p>
-              <XActivityManager />
               <XPostHistoryManager enabled={isXHistoryAnalyticsEnabled} />
             </div>
             </MemberPostFeedMonitor>

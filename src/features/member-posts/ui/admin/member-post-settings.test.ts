@@ -19,6 +19,7 @@ const updateSettingsMock = vi.hoisted(() => vi.fn());
 const runXCollectionNowMock = vi.hoisted(() => vi.fn());
 const runNaverCafeCheckNowMock = vi.hoisted(() => vi.fn());
 const fetchOperationsStatusMock = vi.hoisted(() => vi.fn());
+const fetchXActivityMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 const useScheduleDataMock = vi.hoisted(() => vi.fn());
 const useXPostsMock = vi.hoisted(() => vi.fn());
@@ -45,6 +46,10 @@ vi.mock("@/features/operations", () => ({
 vi.mock("../../api/x-history-api", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../api/x-history-api")>(),
   fetchXHistoryHealth: fetchXHistoryHealthMock,
+}));
+vi.mock("../../api/x-activity-api",()=>({
+  xActivityQueryKey:["member-posts","x-activity"],fetchXActivity:fetchXActivityMock,
+  startXActivity:vi.fn(),stopXActivity:vi.fn(),
 }));
 
 vi.mock("@/shared/ui/toast", () => ({
@@ -90,6 +95,9 @@ const makeSettings = () => ({
 
 describe("MemberPostSettingsManager", () => {
   beforeEach(() => {
+    fetchXActivityMock.mockResolvedValue({configured:true,site:"otw",mode:"normal",subscription:null,callbackUrl:null,
+      budget:{limitMicros:1000000,usedMicros:60000,reservedMicros:0,strictDailyCap:false},budgetReady:true,budgetDay:"2026-10-26",
+      events:[],sites:[{site:"otw",enabled:true,targetCount:5,activeCount:5,failedCount:0,pauseReason:null,resumeAt:null,lastError:null}],subscriptions:[]});
     Element.prototype.scrollIntoView = vi.fn();
     fetchOperationRunsMock.mockResolvedValue({ runs: [] });
     fetchXHistoryHealthMock.mockResolvedValue({
@@ -322,6 +330,18 @@ describe("MemberPostSettingsManager", () => {
     }
   });
 
+  it("refreshes current webhook state from the top refresh without opening settings",async()=>{
+    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
+    await waitFor(()=>expect(fetchXActivityMock).toHaveBeenCalledTimes(1));
+    const before=fetchXActivityMock.mock.calls.length;
+    fireEvent.click(screen.getByRole("button",{name:"상태 새로고침"}));
+    await waitFor(()=>expect(fetchXActivityMock.mock.calls.length).toBeGreaterThan(before));
+    expect(screen.getByRole("heading",{name:"REST 누락 복구"})).toBeTruthy();
+    expect(screen.getByRole("heading",{name:"웹훅 신규 게시물"})).toBeTruthy();
+    expect(runXCollectionNowMock).not.toHaveBeenCalled();
+    expect(updateSettingsMock).not.toHaveBeenCalled();
+  });
+
   it("X 탭에서 핵심 운영 정보와 설정을 한 작업 공간에 밀집해 표시한다", async () => {
     render(createElement(MemberPostSettingsManager), {
       wrapper: createQueryWrapper(),
@@ -371,7 +391,7 @@ describe("MemberPostSettingsManager", () => {
     );
     expect(fetchOperationsStatusMock).toHaveBeenCalledWith(24);
 
-    const runButton = screen.getByRole("button", { name: /지금 수집/ });
+    const runButton = screen.getByRole("button", { name: "REST 누락 복구 실행" });
     fireEvent.click(runButton);
 
     await waitFor(() => expect(runXCollectionNowMock).toHaveBeenCalled());

@@ -794,16 +794,16 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
   );
   if (xEnabled && latestXRun?.status === "failed") {
     issues.push({
-      severity: "critical",
-      code: "x_collection_latest_failed",
-      message: "최근 X 게시글 수집이 실패했습니다.",
+      severity: "warning",
+      code: "x_rest_recovery_latest_failed",
+      message: latestXRun.error === "shared_budget_unavailable" ? "최근 X REST 실행은 공통 예산 확인 불가로 차단되었습니다." : "최근 X REST 누락 복구 실행이 실패했습니다.",
     });
   }
   if (xEnabled) {
     addStaleIssue(
       issues,
-      "x_collection_stale",
-      "X 게시글 수집 정상 이력이 오래되었습니다.",
+      "x_rest_recovery_stale",
+      "X REST 누락 복구의 정상 이력이 오래되었습니다.",
       latestXCollectionAt,
       xInterval * 2 * 60 * 60_000,
       now,

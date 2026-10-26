@@ -67,10 +67,10 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
         : xCollectionStatusText(latestRun);
   return <div className="space-y-3">
     <div className="grid items-stretch gap-3 md:grid-cols-2">
-      <Card aria-label="X 게시물 수집 상태" className="min-w-0 gap-0 py-0 shadow-none">
+      <Card aria-label="X REST 누락 복구 상태" className="min-w-0 gap-0 py-0 shadow-none">
         <CardHeader className="px-3 py-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="flex items-center gap-2 text-sm font-semibold"><FileText className="size-4" />게시물 수집</h2>
+          <h2 className="flex items-center gap-2 text-sm font-semibold"><FileText className="size-4" />REST 누락 복구</h2>
           <Button variant="ghost" size="sm" onClick={() => openXSettings("x-collection-settings")} aria-label="게시물 수집 설정 열기">설정</Button>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -86,7 +86,7 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
           <div><dt className="text-xs text-muted-foreground">다음 수집 가능</dt><dd className="mt-1 break-keep font-medium">{!enabled ? "자동 수집 중지" : error || loading || !x ? "확인 불가" : formatXEligibility(x.nextEligibleAt)}</dd></div>
         </dl>
         {Array.from(new Set(known.flatMap((item) => item.collection?.error ? [item.collection.error] : []))).map((reason) => <p key={reason} className="text-[13px]">{xReasonLabel(reason)}</p>)}
-        <p className="mt-auto border-t pt-2 text-[13px]"><span className="mr-2 text-xs text-muted-foreground">자동 수집</span>{error || loading || !x ? "설정 확인 불가" : (enabled ? "활성" : "중지") + " · " + x.intervalHours + "시간 주기"}</p>
+        <p className="mt-auto border-t pt-2 text-[13px]"><span className="mr-2 text-xs text-muted-foreground">REST 누락 복구</span>{error || loading || !x ? "설정 확인 불가" : (enabled ? "활성" : "중지") + " · " + x.intervalHours + "시간 주기"}</p>
         </CardContent>
       </Card>
       <XReferenceHealth />
@@ -158,7 +158,7 @@ function ItemResult({ item }: { item: XCollectionOperationItemDto }) {
 export function XCollectionRuns({ runs, loading, error, updatedAt }: { runs: OperationRunDto[]; loading: boolean; error: boolean; updatedAt: number }) {
   const [expanded, setExpanded] = useState<string[]>([]);
   return <section aria-label="X 실행 이력" className="space-y-3 border-t pt-3">
-    <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-sm font-semibold">최근 정기·수동 작업 로그</h3><p className="text-xs text-muted-foreground">최근 10개 실행 · 행을 펼쳐 처리 결과 확인</p></div>
+    <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-sm font-semibold">REST 누락 복구 실행 이력</h3><p className="text-xs text-muted-foreground">최근 10개 실행 · 과거 실패 기록 포함</p></div>
     {error && <p role="alert" className="text-sm text-destructive">작업 이력을 갱신하지 못했습니다.{runs.length > 0 ? " 이전 조회: " + formatXTime(updatedAt) : ""}</p>}
     {!error && runs.length > 0 && Date.now() - updatedAt > 120_000 && <p role="status" className="text-sm text-muted-foreground">이전 조회 결과 · {formatXTime(updatedAt)}</p>}
     {loading && <p role="status" className="text-sm text-muted-foreground">작업 이력 확인 중</p>}
