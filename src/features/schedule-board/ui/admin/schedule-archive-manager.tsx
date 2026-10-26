@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { addDays, format, subDays } from "date-fns";
+import { getHiddenMemberCodes } from "@contracts/site-publication";
 import { MemberProfilePage } from "@/features/members";
+import { site } from "@/shared/config/site";
 import { Button } from "@/shared/ui/button";
 import { DateNavigation } from "@/shared/ui/date-navigation";
 import { useScheduleBoard } from "../../queries/use-schedule-board";
@@ -11,6 +13,8 @@ export function ScheduleArchiveManager() {
   const [date, setDate] = useState(new Date());
   const day = format(date, "yyyy-MM-dd");
   const { members, schedules, loading, error } = useScheduleBoard(day, day, true);
+  const hiddenCodes = getHiddenMemberCodes(site.id, Date.now());
+  const profileMembers = members.filter(member => !hiddenCodes.includes(member.code));
   return <section className="space-y-4" aria-label="일정 보관 조회">
     <h2 className="font-semibold">일정 보관 조회</h2>
     <p className="text-sm text-muted-foreground">관리자 보관 일정은 읽기 전용입니다. 일반 일정은 일정 화면에서 관리할 수 있습니다.</p>
@@ -19,8 +23,8 @@ export function ScheduleArchiveManager() {
     }} /></label><DateNavigation previousLabel="이전 날짜" nextLabel="다음 날짜" todayLabel="오늘" compactTodayLabel="오늘"
       isCurrent={day === format(new Date(), "yyyy-MM-dd")} onPrevious={() => setDate(subDays(date, 1))}
       onNext={() => setDate(addDays(date, 1))} onToday={() => setDate(new Date())} /></div>
-    <div className="flex flex-wrap gap-2">{members.map(member => <Button variant="outline" key={member.uid} onClick={() => setProfile(profile === member.code ? null : member.code)}>{member.name} 프로필{member.content_access === "admin_archive" ? " · 관리자 보관" : ""}</Button>)}</div>
-    {profile && <MemberProfilePage code={profile} includeArchived />}
+    <div className="flex flex-wrap gap-2">{profileMembers.map(member => <Button variant="outline" key={member.uid} onClick={() => setProfile(profile === member.code ? null : member.code)}>{member.name} 프로필{member.content_access === "admin_archive" ? " · 관리자 보관" : ""}</Button>)}</div>
+    {profile && profileMembers.some(member => member.code === profile) && <MemberProfilePage code={profile} includeArchived />}
     {error ? <p role="alert">일정을 불러오지 못했습니다. 관리자 로그인 상태를 확인해 주세요.</p>
       : loading ? <p>불러오는 중…</p> : <ul className="divide-y rounded border">
         {schedules.map(schedule => <li key={schedule.id} className="space-y-1 p-3">
