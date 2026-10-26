@@ -67,12 +67,31 @@ beforeEach(async()=>{
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();vi.useRealTimers();});
 
 describe("XAA multi-site collection and common money boundary",()=>{
+  it.each(["snapshot","events"] as const)("does not return an empty normal receipt list when the site %s read fails",async(method)=>{
+    vi.spyOn(D1XActivitySite.prototype,method).mockRejectedValue(new Error("site read failed"));
+    await expect(coordinator().status("otw")).rejects.toMatchObject({code:"x_activity_connection_unavailable",status:503});
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("previews the media headroom actually reserved by the shared gateway",async()=>{
+    await db.prepare("UPDATE settings SET value='true' WHERE key='x_cost_optimizer_enabled'").run();
+    const preview=(await coordinator().status("otw")).recovery?.budget;
+    let release!:(response:Response)=>void;
+    const calls=vi.fn(()=>new Promise<Response>(resolve=>{release=resolve;}));vi.stubGlobal("fetch",calls);
+    const pending=gateway("otw").execute({id:"preview-reservation",operation:"timeline",path:`/users/${userId}/tweets?max_results=5&expansions=attachments.media_keys`,estimatedCostMicros:50000});
+    await vi.waitFor(()=>expect(calls).toHaveBeenCalledTimes(1));
+    const reserved=await db.prepare("SELECT estimate FROM x_shared_requests WHERE id='preview-reservation'").first<number>("estimate");
+    release(json({data:[]}));await pending;
+    expect(reserved).toBe(125000);
+    expect(preview?.perPageMicros).toBe(reserved);
+    expect(preview?.firstPagesMicros).toBe(135000);
+    expect(preview?.siteFirstPagesMicros).toBe(60000);
+  });
   it("includes the real continuation page for pending cursors alongside new optimized scans",async()=>{
     await db.prepare("UPDATE settings SET value='true' WHERE key='x_cost_optimizer_enabled'").run();
     await db.prepare("UPDATE x_post_sources SET sync_pagination_token='next-page'").run();
     await db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(2,'second','Second','https://x.com/second')").run();
     await db.prepare("INSERT INTO x_post_sources(handle,user_id,last_checked_at,updated_at) VALUES('second',?,0,0)").bind(peerUserId).run();
-    expect((await coordinator().status("otw")).recovery).toMatchObject({pendingSources:1,budget:{targetCount:2,pageSize:5,continuationPageSize:25,identityMicros:20000,firstPagesMicros:320000}});
+    expect((await coordinator().status("otw")).recovery).toMatchObject({pendingSources:1,budget:{targetCount:2,pageSize:5,continuationPageSize:25,identityMicros:20000,firstPagesMicros:770000,siteFirstPagesMicros:320000}});
     expect(fetch).not.toHaveBeenCalled();
   });
   it.each(["cold","expired"])("includes identity refresh headroom for a known source with a %s user cache",async(cache)=>{
@@ -80,7 +99,7 @@ describe("XAA multi-site collection and common money boundary",()=>{
     if(cache==="expired")await db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES('x:user:v1:member','user',?,?,?)")
       .bind(JSON.stringify({user:{id:userId,username:"member"}}),Date.now()-86400000,Date.now()-1).run();
     expect((await local("otw").snapshot()).targets[0]?.userId).toBe(userId);
-    expect((await coordinator().status("otw")).recovery?.budget).toMatchObject({identityMicros:10000,firstPagesMicros:260000});
+    expect((await coordinator().status("otw")).recovery?.budget).toMatchObject({identityMicros:10000,firstPagesMicros:635000,siteFirstPagesMicros:260000});
     expect(fetch).not.toHaveBeenCalled();
   });
   it.each([true,false])("previews REST first-page reservations from the real policy without spending or writing (optimizer=%s)",async(optimized)=>{
@@ -91,7 +110,7 @@ describe("XAA multi-site collection and common money boundary",()=>{
     const siteBefore=await db.prepare("SELECT * FROM scheduled_usage_daily").all();
     const result=await coordinator().status("otw");
     expect(result.recovery).toMatchObject({budget:{day:new Date().toISOString().slice(0,10),targetCount:1,pageSize:optimized?5:25,
-      perPageMicros:optimized?50000:250000,firstPagesMicros:optimized?60000:260000,identityMicros:10000,
+      perPageMicros:optimized?125000:625000,firstPagesMicros:optimized?135000:635000,siteFirstPagesMicros:optimized?60000:260000,identityMicros:10000,
       siteLimitMicros:1000000,sharedRemainingMicros:620000,siteRemainingMicros:350000,availableMicros:350000}});
     expect((await db.prepare("SELECT * FROM x_shared_budgets").all()).results).toEqual(before.results);
     expect((await db.prepare("SELECT * FROM scheduled_usage_daily").all()).results).toEqual(siteBefore.results);
@@ -102,7 +121,7 @@ describe("XAA multi-site collection and common money boundary",()=>{
     await db.prepare("UPDATE x_post_sources SET user_id=NULL").run();
     await db.prepare("UPDATE settings SET value='10' WHERE key='x_collection_daily_budget_cents'").run();
     await db.prepare("INSERT INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES(?,'all','x_api_cost_micros',80000,10000,100000,0)").bind(new Date().toISOString().slice(0,10)).run();
-    expect((await coordinator().status("otw")).recovery).toMatchObject({budget:{identityMicros:10000,firstPagesMicros:260000,siteLimitMicros:100000,availableMicros:10000}});
+    expect((await coordinator().status("otw")).recovery).toMatchObject({budget:{identityMicros:10000,firstPagesMicros:635000,siteFirstPagesMicros:260000,siteLimitMicros:100000,availableMicros:10000}});
     expect(fetch).not.toHaveBeenCalled();
   });
   it("leaves REST preview unavailable when the common ledger is not prepared",async()=>{

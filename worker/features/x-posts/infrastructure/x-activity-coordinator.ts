@@ -55,7 +55,8 @@ export class D1XActivityCoordinator {
     const current=sites.find(row=>row.site===site);
     let snapshot:XActivitySiteSnapshot|null=null;
     let events:XActivityStatusDto["events"]=[];
-    try{snapshot=await this.options.sites[site].snapshot();events=await this.options.sites[site].events();}catch{/* Failed site remains explicitly unavailable. */}
+    try{snapshot=await this.options.sites[site].snapshot();events=await this.options.sites[site].events();}
+    catch{throw new XActivityError("x_activity_connection_unavailable",503);}
     const connected=await this.options.peerReady().catch(()=>false);
     const estimate=snapshot?.recovery.estimate;
     const siteRemainingMicros=estimate&&snapshot?Math.max(0,estimate.siteLimitMicros-snapshot.budget.used-snapshot.budget.reserved):0;

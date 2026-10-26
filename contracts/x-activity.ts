@@ -36,7 +36,7 @@ export const isXActivityQueueMessage = (value: unknown): value is XActivityQueue
 
 export interface XRecoveryBudgetEstimate {
   targetCount: number; pageSize: number; continuationPageSize: number; perPageMicros: number; firstPagesMicros: number;
-  identityMicros: number; siteLimitMicros: number;
+  identityMicros: number; siteLimitMicros: number; siteFirstPagesMicros: number;
 }
 
 export interface XActivityStatusDto {

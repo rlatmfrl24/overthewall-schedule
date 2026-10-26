@@ -5,7 +5,7 @@ import { readActiveXHandles } from "./d1-active-handles";
 import { normalizeXTimelineResponse, requestXApi, writeStoredPosts, invalidateXPostMemoryCache, XApiError, estimateXApiRequestCostMicros, readDailyBudgetMicros, type XApiUser, type XTweetLookupResponse } from "./x-api";
 import { X_COLLECTION_MAX_RESULTS, X_OPTIMIZED_FIRST_PAGE_RESULTS } from "./x-collection";
 import { readXReferenceBudget } from "./x-reference-budget";
-import { readSiteXBudget } from "./x-shared-budget";
+import { readSiteXBudget, estimateXSharedApiReservationMicros } from "./x-shared-budget";
 
 interface Options {
   db: D1Database; siteId: SiteId; gateway: XApiGateway;
@@ -42,16 +42,21 @@ export class D1XActivitySite {
     const cachePurgePending=await this.db.prepare("SELECT COUNT(*) AS count FROM x_activity_cache_redactions WHERE completed_at IS NULL").first<number>("count");
     const optimized=await this.db.prepare("SELECT value FROM settings WHERE key='x_cost_optimizer_enabled'").first<string>("value")==="true";
     const pageSize=optimized?X_OPTIMIZED_FIRST_PAGE_RESULTS:X_COLLECTION_MAX_RESULTS;
-    const perPageMicros=estimateXApiRequestCostMicros("timeline",`/users/1/tweets?max_results=${pageSize}`);
+    const pagePath=(size:number)=>`/users/1/tweets?max_results=${size}&expansions=attachments.media_keys`;
+    const perPageMicros=estimateXSharedApiReservationMicros("timeline",pagePath(pageSize));
+    const sitePerPageMicros=estimateXApiRequestCostMicros("timeline",pagePath(pageSize));
     const pendingSources=recovery?.pendingSources??0;
-    const continuationMicros=estimateXApiRequestCostMicros("timeline",`/users/1/tweets?max_results=${X_COLLECTION_MAX_RESULTS}`);
+    const continuationMicros=estimateXSharedApiReservationMicros("timeline",pagePath(X_COLLECTION_MAX_RESULTS));
+    const siteContinuationMicros=estimateXApiRequestCostMicros("timeline",pagePath(X_COLLECTION_MAX_RESULTS));
     // A source ID does not guarantee a fresh user cache, so include refresh headroom for every target.
     const identityMicros=estimateXApiRequestCostMicros("user_lookup","/users/by?"+new URLSearchParams({usernames:handles.join(",")}));
     return { site: this.options.siteId, collectionEnabled: enabled, targets: handles.map(handle=>({handle,userId:users.get(handle)??null})),
       budget: await readSiteXBudget(this.db), cachePurgePending:Number(cachePurgePending??0), recovery: {
         intervalHours: Number(interval ?? 24), lastSuccessAt: recovery?.lastSuccessAt ?? null, pendingSources,
         estimate:{targetCount:handles.length,pageSize,continuationPageSize:X_COLLECTION_MAX_RESULTS,perPageMicros,
-          firstPagesMicros:(handles.length-pendingSources)*perPageMicros+pendingSources*continuationMicros+identityMicros,identityMicros,siteLimitMicros:await readDailyBudgetMicros(this.db)},
+          firstPagesMicros:(handles.length-pendingSources)*perPageMicros+pendingSources*continuationMicros+identityMicros,
+          siteFirstPagesMicros:(handles.length-pendingSources)*sitePerPageMicros+pendingSources*siteContinuationMicros+identityMicros,
+          identityMicros,siteLimitMicros:await readDailyBudgetMicros(this.db)},
       } };
   }
   async rememberUser(handle: string, user: XApiUser) {
