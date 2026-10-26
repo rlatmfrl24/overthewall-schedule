@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from "recharts";
 import type { OperationsStatusResponse } from "@/features/operations";
 import { useXReferenceHealth } from "../../queries/use-x-reference-health";
+import { useXActivityStatus } from "../../queries/use-x-activity-status";
 import { formatXEligibility, formatXTime, xCollectionItemLabel, xCollectionStatusText, xCollectionResultText, xHydrationResultText, xReasonLabel } from "../../model/x-collection-monitoring";
 import { openXSettings } from "./x-settings-navigation";
 import { XReferenceHealth } from "./x-reference-health";
@@ -57,6 +58,8 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
   latestRun: OperationRunDto | undefined; runsLoading: boolean; runsError: boolean; runsUpdatedAt: number; enabled: boolean;
 }) {
   const query = useXReferenceHealth();
+  const activity=useXActivityStatus();
+  const recoveryBudget=activity.data?.recovery?.budget;
   const x = operations?.xCollection;
   const items = latestRun?.xCollection?.items ?? [];
   const known = items.filter((item) => item.collection !== null);
@@ -86,6 +89,20 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
           <div><dt className="text-xs text-muted-foreground">다음 수집 가능</dt><dd className="mt-1 break-keep font-medium">{!enabled ? "자동 수집 중지" : error || loading || !x ? "확인 불가" : formatXEligibility(x.nextEligibleAt)}</dd></div>
         </dl>
         {Array.from(new Set(known.flatMap((item) => item.collection?.error ? [item.collection.error] : []))).map((reason) => <p key={reason} className="text-[13px]">{xReasonLabel(reason)}</p>)}
+        <section aria-label="REST 실행 전 예산" className="space-y-2 border-t pt-2 text-[13px]">
+          <h3 className="font-medium">REST 실행 전 예산{recoveryBudget?` · ${recoveryBudget.day} UTC`:""}</h3>
+          {activity.isError&&<p role="alert">REST 예산 산정 최신 조회 실패{recoveryBudget?" · 아래는 이전 조회값입니다.":""}</p>}
+          {!activity.isError&&activity.isFetching&&recoveryBudget&&<p className="text-muted-foreground">REST 예산 갱신 중 · 아래는 이전 조회값입니다.</p>}
+          {recoveryBudget?<>
+            <div className="grid gap-1 sm:grid-cols-2"><p>공통 첫 페이지 예상 예약 <strong>{money(recoveryBudget.firstPagesMicros)}</strong></p><p>사용 가능 <strong>{money(recoveryBudget.availableMicros)}</strong></p></div>
+            <p>사이트 보호 예약 {money(recoveryBudget.siteFirstPagesMicros)}</p>
+            <p>대상 {recoveryBudget.targetCount}개 · 신규 스캔 계정당 {recoveryBudget.pageSize}개 · 기본 페이지 예약 {money(recoveryBudget.perPageMicros)}</p>
+            {!!activity.data?.recovery?.pendingSources&&<p>이월 커서 {activity.data.recovery.pendingSources}개는 계정당 {recoveryBudget.continuationPageSize}개 요청으로 포함했습니다.</p>}
+            <p className="text-muted-foreground">공통 잔여 {money(recoveryBudget.sharedRemainingMicros)} · 사이트 보호 잔여 {money(recoveryBudget.siteRemainingMicros)} · 계정 캐시 갱신 상한 {money(recoveryBudget.identityMicros)} 포함</p>
+            {!activity.isError&&!activity.isFetching&&(recoveryBudget.firstPagesMicros>recoveryBudget.sharedRemainingMicros||recoveryBudget.siteFirstPagesMicros>recoveryBudget.siteRemainingMicros)&&<p role="alert">공통 또는 사이트 예상 예약액이 해당 잔여액보다 큽니다. 실제 요청별 잔여 예산을 확인하며 진행합니다.</p>}
+          </>:<p>{activity.isPending?"REST 예산 산정 중":"REST 필요액·잔여액 확인 불가 · 웹훅 상태와 공통 장부를 새로고침해주세요."}</p>}
+          <p className="text-xs text-muted-foreground">조회 시점의 첫 요청 예약 합계이며 한 번에 차감하는 금액이 아닙니다. 공통·사이트 기준을 각각 비교하고 별도 배정 없이 요청별 예약·정산합니다. 유효한 계정 캐시는 재조회하지 않으며 실제 비용은 응답량에 따라 다릅니다. 추가 페이지·인용 원문 보강 비용은 별도입니다.</p>
+        </section>
         <p className="mt-auto border-t pt-2 text-[13px]"><span className="mr-2 text-xs text-muted-foreground">REST 누락 복구</span>{error || loading || !x ? "설정 확인 불가" : (enabled ? "활성" : "중지") + " · " + x.intervalHours + "시간 주기"}</p>
         </CardContent>
       </Card>

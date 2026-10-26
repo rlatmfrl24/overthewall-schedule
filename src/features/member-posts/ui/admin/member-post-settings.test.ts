@@ -7,6 +7,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
@@ -93,11 +94,15 @@ const makeSettings = () => ({
   x_collection_last_run: null,
 });
 
+const makeActivity = () => ({configured:true,site:"otw",mode:"normal",subscription:null,callbackUrl:null,
+  budget:{limitMicros:1000000,usedMicros:360000,reservedMicros:0,strictDailyCap:false},budgetReady:true,budgetDay:"2026-10-26",
+  events:[],sites:[{site:"otw",enabled:true,targetCount:5,activeCount:5,failedCount:0,pauseReason:null,resumeAt:null,lastError:null}],subscriptions:[],
+  recovery:{intervalHours:24,lastSuccessAt:null,pendingSources:0,budget:{day:"2026-10-26",targetCount:5,pageSize:5,continuationPageSize:25,perPageMicros:125000,firstPagesMicros:675000,siteFirstPagesMicros:300000,
+    identityMicros:50000,siteLimitMicros:1000000,sharedRemainingMicros:640000,siteRemainingMicros:900000,availableMicros:640000}}});
+
 describe("MemberPostSettingsManager", () => {
   beforeEach(() => {
-    fetchXActivityMock.mockResolvedValue({configured:true,site:"otw",mode:"normal",subscription:null,callbackUrl:null,
-      budget:{limitMicros:1000000,usedMicros:60000,reservedMicros:0,strictDailyCap:false},budgetReady:true,budgetDay:"2026-10-26",
-      events:[],sites:[{site:"otw",enabled:true,targetCount:5,activeCount:5,failedCount:0,pauseReason:null,resumeAt:null,lastError:null}],subscriptions:[]});
+    fetchXActivityMock.mockResolvedValue(makeActivity());
     Element.prototype.scrollIntoView = vi.fn();
     fetchOperationRunsMock.mockResolvedValue({ runs: [] });
     fetchXHistoryHealthMock.mockResolvedValue({
@@ -330,6 +335,67 @@ describe("MemberPostSettingsManager", () => {
     }
   });
 
+  it("shows REST reservation estimates and effective remaining budget before a paid run",async()=>{
+    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
+    const preview=await screen.findByRole("region",{name:"REST 실행 전 예산"});
+    await waitFor(()=>expect(preview.textContent).toContain("첫 페이지 예상 예약 $0.675"));
+    expect(preview.textContent).toContain("사용 가능 $0.640");
+    expect(preview.textContent).toContain("대상 5개 · 신규 스캔 계정당 5개");
+    expect(preview.textContent).toContain("추가 페이지·인용 원문 보강");
+    expect(fetchXActivityMock).toHaveBeenCalledTimes(1);
+    expect(runXCollectionNowMock).not.toHaveBeenCalled();
+    expect(updateSettingsMock).not.toHaveBeenCalled();
+  });
+  it("marks cached REST budget figures as previous values when the top refresh fails",async()=>{
+    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
+    await screen.findByText(/첫 페이지 예상 예약/);
+    fetchXActivityMock.mockRejectedValueOnce(new Error("offline"));
+    fireEvent.click(screen.getByRole("button",{name:"상태 새로고침"}));
+    expect(await screen.findByText("REST 예산 산정 최신 조회 실패 · 아래는 이전 조회값입니다.")).toBeTruthy();
+    expect(runXCollectionNowMock).not.toHaveBeenCalled();
+  });
+  it("does not invent zero remaining budget when an older peer has no estimate",async()=>{
+    const legacy=makeActivity();
+    delete (legacy.recovery as {budget?:unknown}).budget;
+    fetchXActivityMock.mockResolvedValue(legacy);
+    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
+    await screen.findByText(/구독 정상/);
+    const preview=await screen.findByRole("region",{name:"REST 실행 전 예산"});
+    expect(within(preview).getByText(/REST 필요액·잔여액 확인 불가/)).toBeTruthy();
+    expect(preview.textContent).not.toContain("사용 가능 $0.000");
+    expect(runXCollectionNowMock).not.toHaveBeenCalled();
+  });
+  it("explains the larger first request when an unfinished cursor must continue",async()=>{
+    const pending=makeActivity();
+    pending.recovery.pendingSources=1;
+    pending.recovery.budget.firstPagesMicros=1175000;
+    pending.recovery.budget.siteFirstPagesMicros=500000;
+    fetchXActivityMock.mockResolvedValue(pending);
+    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
+    expect(await screen.findByText("이월 커서 1개는 계정당 25개 요청으로 포함했습니다.")).toBeTruthy();
+    expect(screen.getByText(/첫 페이지 예상 예약/).textContent).toContain("$1.175");
+    expect(runXCollectionNowMock).not.toHaveBeenCalled();
+  });
+  it("explains a first-page shortfall without spending or reallocating the common budget",async()=>{
+    const limited=makeActivity();
+    limited.recovery.budget.availableMicros=10000;
+    limited.recovery.budget.siteRemainingMicros=10000;
+    fetchXActivityMock.mockResolvedValue(limited);
+    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
+    expect(await screen.findByText(/예상 예약액이 해당 잔여액보다 큽니다/)).toBeTruthy();
+    expect(runXCollectionNowMock).not.toHaveBeenCalled();
+    expect(updateSettingsMock).not.toHaveBeenCalled();
+  });
+  it("compares common and site reservation requirements against their own remaining amounts",async()=>{
+    const enough=makeActivity();
+    Object.assign(enough.recovery.budget,{firstPagesMicros:675000,siteFirstPagesMicros:300000,availableMicros:350000,sharedRemainingMicros:700000,siteRemainingMicros:350000});
+    fetchXActivityMock.mockResolvedValue(enough);
+    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
+    await screen.findByText(/구독 정상/);
+    expect(screen.queryByText(/예상 예약액이.*잔여액보다 큽니다/)).toBeNull();
+    expect(screen.queryByText(/첫 페이지 예상 예약액이 사용 가능액보다 큽니다/)).toBeNull();
+    expect(runXCollectionNowMock).not.toHaveBeenCalled();
+  });
   it("refreshes current webhook state from the top refresh without opening settings",async()=>{
     render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
     await waitFor(()=>expect(fetchXActivityMock).toHaveBeenCalledTimes(1));

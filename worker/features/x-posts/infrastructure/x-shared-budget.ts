@@ -52,6 +52,14 @@ export class D1SharedXBudget {
   }
 }
 
+export const estimateXSharedApiReservationMicros = (operation: XApiGatewayRequest["operation"], path: string, requestedEstimate = 0) => {
+  const query = new URLSearchParams(path.split("?")[1]);
+  const ids = query.get("ids")?.split(",").filter(Boolean).length ?? 0;
+  const count = operation === "timeline" ? Number(query.get("max_results") ?? 25) : ids;
+  const mediaReserve = query.get("expansions")?.split(",").includes("attachments.media_keys") ? count * 15_000 : 0;
+  return Math.max(estimateXApiRequestCostMicros(operation,path) + mediaReserve, requestedEstimate);
+};
+
 export class D1SharedXApiGateway implements XApiGateway {
   private readonly db: D1Database;
   private readonly site: SiteId;
@@ -86,11 +94,7 @@ export class D1SharedXApiGateway implements XApiGateway {
       if (!this.token || !await this.admitD1()) return failure("shared_budget_unavailable");
       const budget = await new D1SharedXBudget(this.db).ensureDay();
       if (!budget.seeded) return failure("shared_budget_unavailable");
-      const query = new URLSearchParams(input.path.split("?")[1]);
-      const ids = query.get("ids")?.split(",").filter(Boolean).length ?? 0;
-      const count = input.operation === "timeline" ? Number(query.get("max_results") ?? 25) : ids;
-      const mediaReserve = query.get("expansions")?.split(",").includes("attachments.media_keys") ? count * 15_000 : 0;
-      const estimate = Math.max(estimateXApiRequestCostMicros(input.operation,input.path) + mediaReserve, input.estimatedCostMicros ?? 0);
+      const estimate = estimateXSharedApiReservationMicros(input.operation,input.path,input.estimatedCostMicros);
       if (!Number.isSafeInteger(estimate) || estimate <= 0 || estimate > 1_000_000) return failure("invalid_x_gateway_estimate",400);
       const day = budget.day;
       const token = crypto.randomUUID();
