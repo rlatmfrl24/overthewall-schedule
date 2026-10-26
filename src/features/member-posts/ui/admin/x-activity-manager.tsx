@@ -15,6 +15,7 @@ const labels:Record<string,string>={
   x_collection_disabled:"기존 게시물 수집이 켜져 있고 사이트가 공개된 상태에서 적용할 수 있습니다.",
   x_activity_subscription_owned_elsewhere:"같은 계정에 다른 소유자의 구독이 있습니다. 해당 구독은 변경하지 않았습니다.",
   x_activity_user_unavailable:"X 계정을 확인하거나 현재 멤버와 연결할 수 없습니다.",
+  x_activity_inventory_incomplete:"X의 전체 구독 목록을 확인하지 못해 등록·해지를 보류했습니다. 잠시 후 상태를 확인해주세요.",
   post_lookup_unavailable:"X에서 원문을 조회할 수 없습니다.",
   media_details_missing:"조회 결과에 미디어 표시 정보가 부족합니다.",
 };

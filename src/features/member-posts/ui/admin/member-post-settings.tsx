@@ -763,7 +763,7 @@ export function MemberPostSettingsManager({
                     Cron 수집 사용
                   </Label>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    저장된 게시글을 우선 표시하고, 정기 수집에서만 X API를 호출합니다.
+                    저장된 게시글을 표시하며, 신규 글은 구독으로 받고 정기 수집은 누락을 보완합니다.
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
@@ -791,7 +791,7 @@ export function MemberPostSettingsManager({
                     사이트 조회 보호 한도 센트
                   </Label>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    이 사이트의 유료 조회에 추가로 적용하는 보호 한도입니다. 실제 비용은 양 사이트 합산 UTC 하루 $1 목표 안에서 관리합니다. 웹훅은 위의 구독 제어로 중지합니다.
+                    이 사이트의 유료 조회에 추가로 적용하는 보호 한도입니다. 실제 비용은 양 사이트 합산 UTC 하루 $1 목표 안에서 관리합니다. 웹훅은 신규 피드 구독에서 중지합니다.
                   </p>
                 </div>
                 <div className="flex w-full shrink-0 gap-2 sm:w-48">

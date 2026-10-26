@@ -25,7 +25,7 @@ const photo=(tag:string)=>body(tag,{attachments:{media_keys:["photo"]},note_twee
 const tag=async()=>String(await db.prepare("SELECT tag FROM x_activity_subscriptions WHERE user_id=?").bind(userId).first("tag"));
 const provider=async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=new URL(String(input)),method=init?.method??"GET",value=init?.body?JSON.parse(String(init.body)):null;
-  if(url.pathname==="/2/webhooks"&&method==="GET")return json({data:hooks});
+  if(url.pathname==="/2/webhooks"&&method==="GET")return json(hooks.length?{data:hooks,meta:{result_count:hooks.length}}:{meta:{result_count:0}});
   if(url.pathname==="/2/webhooks"&&method==="POST"){hooks=[{id:"hook",url:value.url,valid:true}];return json({data:hooks[0]});}
   if(url.pathname==="/2/webhooks/hook"&&method==="DELETE"){hooks=[];return json({data:{deleted:true}});}
   if(url.pathname==="/2/activity/subscriptions"&&method==="GET")return json({data:remote});
@@ -67,6 +67,15 @@ beforeEach(async()=>{
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();vi.useRealTimers();});
 
 describe("XAA multi-site collection and common money boundary",()=>{
+  it.each([{}, {meta:{result_count:1}}, {data:null,meta:{result_count:0}}, {meta:{result_count:0,next_token:"more"}}, {data:[],meta:{result_count:1}}, {meta:{result_count:0},errors:[{detail:"unavailable"}]}])("keeps supplier mutations blocked for an unconfirmed inventory %j",async(response)=>{
+    const calls=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>new URL(String(input)).pathname==="/2/activity/subscriptions"?json(response):provider(input,init));
+    vi.stubGlobal("fetch",calls);
+    await coordinator().start("otw");
+    expect((await coordinator().status("otw")).coordinatorError).toBe("x_activity_inventory_incomplete");
+    expect(calls.mock.calls.every(([,init])=>(init?.method??"GET")==="GET")).toBe(true);
+    expect(remote).toHaveLength(0);expect(hooks).toHaveLength(0);
+  });
+
   it("recovers an uncertain webhook creation for cleanup and leaves foreign subscriptions untouched",async()=>{
     let lost=true;
     vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{

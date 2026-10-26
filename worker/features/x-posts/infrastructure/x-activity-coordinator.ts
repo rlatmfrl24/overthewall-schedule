@@ -30,10 +30,12 @@ export class D1XActivityCoordinator {
     return await response.json() as T;
   }
   private async inventory<T>(path:string){
-    const result=await this.provider<{data?:T[];errors?:unknown[];meta?:{next_token?:string}}>(path);
+    const result=await this.provider<{data?:T[];errors?:unknown[];meta?:{next_token?:string;result_count?:number}}>(path);
+    const data=result.data===undefined&&result.meta?.result_count===0?[]:result.data;
     // shortcut: reject truncated app inventories; paginate before supporting 1000 subscriptions.
-    if(!Array.isArray(result.data)||result.errors?.length||result.meta?.next_token||result.data.length>=1000)throw new XActivityError("x_activity_inventory_incomplete",502);
-    return result.data;
+    if(!Array.isArray(data)||(result.errors!==undefined&&(!Array.isArray(result.errors)||result.errors.length>0))||result.meta?.next_token||data.length>=1000||
+      (result.meta?.result_count!==undefined&&result.meta.result_count!==data.length))throw new XActivityError("x_activity_inventory_incomplete",502);
+    return data;
   }
   private subscriptions(){return this.inventory<Subscription>("/activity/subscriptions");}
   private hooks(){return this.inventory<{id:string;url:string;valid:boolean}>("/webhooks");}
