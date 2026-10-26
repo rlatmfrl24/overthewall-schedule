@@ -485,7 +485,7 @@ const readDailyUsageMicros = async (
   }
 };
 
-const readDailyBudgetMicros = async (cacheDb: XCacheDb | undefined) => {
+export const readDailyBudgetMicros = async (cacheDb: XCacheDb | undefined) => {
   const value = cacheDb ? (await cacheDb.prepare("SELECT value FROM settings WHERE key = ?")
     .bind("x_collection_daily_budget_cents").first<{ value: string | null }>())?.value : null;
   const cents = Number.parseInt(value ?? "", 10);

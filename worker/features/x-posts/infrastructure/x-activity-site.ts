@@ -2,7 +2,8 @@ import type { SiteId } from "@contracts/site-definition";
 import type { XApiGateway, XActivitySiteSnapshot, XActivityStatusDto } from "@contracts/x-activity";
 import { parseXActivityEvent, xActivityMediaReady, type XActivityEvent } from "../domain/x-activity";
 import { readActiveXHandles } from "./d1-active-handles";
-import { normalizeXTimelineResponse, requestXApi, writeStoredPosts, invalidateXPostMemoryCache, XApiError, type XApiUser, type XTweetLookupResponse } from "./x-api";
+import { normalizeXTimelineResponse, requestXApi, writeStoredPosts, invalidateXPostMemoryCache, XApiError, estimateXApiRequestCostMicros, readDailyBudgetMicros, type XApiUser, type XTweetLookupResponse } from "./x-api";
+import { X_COLLECTION_MAX_RESULTS, X_OPTIMIZED_FIRST_PAGE_RESULTS } from "./x-collection";
 import { readXReferenceBudget } from "./x-reference-budget";
 import { readSiteXBudget } from "./x-shared-budget";
 
@@ -39,8 +40,16 @@ export class D1XActivitySite {
       .bind(JSON.stringify(handles)).first<{lastSuccessAt:number|null;pendingSources:number}>();
     const interval = await this.db.prepare("SELECT value FROM settings WHERE key='x_collection_interval_hours'").first<string>("value");
     const cachePurgePending=await this.db.prepare("SELECT COUNT(*) AS count FROM x_activity_cache_redactions WHERE completed_at IS NULL").first<number>("count");
+    const optimized=await this.db.prepare("SELECT value FROM settings WHERE key='x_cost_optimizer_enabled'").first<string>("value")==="true";
+    const pageSize=optimized?X_OPTIMIZED_FIRST_PAGE_RESULTS:X_COLLECTION_MAX_RESULTS;
+    const perPageMicros=estimateXApiRequestCostMicros("timeline",`/users/1/tweets?max_results=${pageSize}`);
+    // A source ID does not guarantee a fresh user cache, so include refresh headroom for every target.
+    const identityMicros=estimateXApiRequestCostMicros("user_lookup","/users/by?"+new URLSearchParams({usernames:handles.join(",")}));
     return { site: this.options.siteId, collectionEnabled: enabled, targets: handles.map(handle=>({handle,userId:users.get(handle)??null})),
-      budget: await readSiteXBudget(this.db), cachePurgePending:Number(cachePurgePending??0), recovery: { intervalHours: Number(interval ?? 24), lastSuccessAt: recovery?.lastSuccessAt ?? null, pendingSources: recovery?.pendingSources ?? 0 } };
+      budget: await readSiteXBudget(this.db), cachePurgePending:Number(cachePurgePending??0), recovery: {
+        intervalHours: Number(interval ?? 24), lastSuccessAt: recovery?.lastSuccessAt ?? null, pendingSources: recovery?.pendingSources ?? 0,
+        estimate:{targetCount:handles.length,pageSize,perPageMicros,firstPagesMicros:handles.length*perPageMicros+identityMicros,identityMicros,siteLimitMicros:await readDailyBudgetMicros(this.db)},
+      } };
   }
   async rememberUser(handle: string, user: XApiUser) {
     if (!/^[1-9]\d{0,24}$/.test(user.id) || user.protected || user.username.toLowerCase()!==handle ||

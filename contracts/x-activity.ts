@@ -34,6 +34,11 @@ export const isXActivityQueueMessage = (value: unknown): value is XActivityQueue
   return (item.type === "x_activity" || item.type === "x_activity_dispatch") && typeof item.eventId === "string" && /^[A-Za-z0-9_:-]{1,256}$/.test(item.eventId);
 };
 
+export interface XRecoveryBudgetEstimate {
+  targetCount: number; pageSize: number; perPageMicros: number; firstPagesMicros: number;
+  identityMicros: number; siteLimitMicros: number;
+}
+
 export interface XActivityStatusDto {
   configured: boolean;
   callbackUrl: string | null;
@@ -64,7 +69,9 @@ export interface XActivityStatusDto {
     userId: string | null; handle: string; site: "otw" | "luvdia"; state: string;
     subscriptionId: string | null; expiresAt: number | null; error: string | null;
   }>;
-  recovery?: { intervalHours: number; lastSuccessAt: number | null; pendingSources: number };
+  recovery?: { intervalHours: number; lastSuccessAt: number | null; pendingSources: number;
+    budget?: XRecoveryBudgetEstimate & {day: string; sharedRemainingMicros: number; siteRemainingMicros: number; availableMicros: number};
+  };
 }
 
 export interface XActivitySiteSnapshot {
@@ -72,7 +79,7 @@ export interface XActivitySiteSnapshot {
   collectionEnabled: boolean;
   targets: Array<{ handle: string; userId: string | null }>;
   budget: { day: string; used: number; reserved: number };
-  recovery: { intervalHours: number; lastSuccessAt: number | null; pendingSources: number };
+  recovery: { intervalHours: number; lastSuccessAt: number | null; pendingSources: number; estimate?: XRecoveryBudgetEstimate };
   cachePurgePending?: number;
 }
 export interface XActivityUserIdentity { id: string; username: string; protected?: boolean }

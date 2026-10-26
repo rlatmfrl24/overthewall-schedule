@@ -27,8 +27,8 @@ const X_COLLECTION_INTERVAL_SETTING_KEY = "x_collection_interval_hours";
 const X_COLLECTION_LAST_RUN_SETTING_KEY = "x_collection_last_run";
 // Background collection uses a bounded 25-post page. Public feed limits stay
 // independent (5..20) and always read stored D1 content.
-const X_COLLECTION_MAX_RESULTS = 25;
-const X_OPTIMIZED_FIRST_PAGE_RESULTS = 5;
+export const X_COLLECTION_MAX_RESULTS = 25;
+export const X_OPTIMIZED_FIRST_PAGE_RESULTS = 5;
 const X_SOURCE_LEASE_MS = 10 * 60_000;
 
 type XCollectionSource = "manual" | "scheduled";

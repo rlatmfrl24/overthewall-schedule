@@ -57,6 +57,10 @@ export class D1XActivityCoordinator {
     let events:XActivityStatusDto["events"]=[];
     try{snapshot=await this.options.sites[site].snapshot();events=await this.options.sites[site].events();}catch{/* Failed site remains explicitly unavailable. */}
     const connected=await this.options.peerReady().catch(()=>false);
+    const estimate=snapshot?.recovery.estimate;
+    const siteRemainingMicros=estimate&&snapshot?Math.max(0,estimate.siteLimitMicros-snapshot.budget.used-snapshot.budget.reserved):0;
+    const recoveryBudget=estimate&&snapshot?.budget.day===budget.day&&budget.seeded?{...estimate,day:budget.day,
+      sharedRemainingMicros:budget.remaining,siteRemainingMicros,availableMicros:Math.min(budget.remaining,siteRemainingMicros)}:undefined;
     const mode:XActivityStatusDto["mode"]=!connected||!budget.seeded||!snapshot?"unavailable":current?.pauseReason==="budget"?"budget_paused":current?.pauseReason==="site"?"site_paused":!current?.enabled?"user_paused":current.lastError||current.failedCount||coordinatorError||events.some(event=>event.error)?"partial":current.activeCount!==current.targetCount?"registering":"normal";
     return {configured:!!(connected&&this.options.bearerToken&&this.options.clientSecret),callbackUrl:this.callback,subscription:null,
       budget:{limitMicros:budget.limit,usedMicros:budget.used,reservedMicros:budget.reserved,strictDailyCap:false},events,site,mode,
@@ -64,7 +68,8 @@ export class D1XActivityCoordinator {
       providerActiveCount:new Set(rows.results.filter(row=>row.subscription_id&&row.status!=="stopped"&&(row.expires_at??0)>Date.now()).map(row=>row.subscription_id)).size,
       cachePurgePending:snapshot?.cachePurgePending??0,coordinatorError,
       subscriptions:rows.results.map(row=>({userId:row.user_id,handle:row.handle,site:row.site,state:row.target_error?"error":row.status??row.target_status,
-        subscriptionId:row.subscription_id,expiresAt:row.expires_at,error:row.target_error??row.last_error})),recovery:snapshot?.recovery};
+        subscriptionId:row.subscription_id,expiresAt:row.expires_at,error:row.target_error??row.last_error})),
+      recovery:snapshot?{intervalHours:snapshot.recovery.intervalHours,lastSuccessAt:snapshot.recovery.lastSuccessAt,pendingSources:snapshot.recovery.pendingSources,budget:recoveryBudget}:undefined};
   }
 
   async start(site:SiteId){

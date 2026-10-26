@@ -14,6 +14,14 @@ const status:XActivityStatusDto={configured:true,callbackUrl:"https://app/api/x/
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 const open=()=>{const details=screen.getByText("X 신규 피드 구독").closest("details")!;details.open=true;fireEvent(details,new Event("toggle"));};
 describe("X activity whole-site controls",()=>{
+  it("keeps excluded and unavailable receipts visible in the recent sample",async()=>{
+    vi.mocked(fetchXActivity).mockResolvedValue({...status,mode:"normal",events:["complete","pending","failed","skipped","unavailable"].map((state,index)=>({
+      postId:String(10000+index),receivedAt:Date.now(),status:state,mediaSource:"pending" as const,mediaCount:0,mediaTypes:"",error:null}))});
+    render(createElement(XActivityManager),{wrapper:createQueryWrapper()});
+    expect(await screen.findByText(/처리 제외 1/)).toBeTruthy();
+    expect(screen.getByText(/원문 미확보 1/)).toBeTruthy();
+    expect(screen.getByText(/최근 수신 5건 기준/)).toBeTruthy();
+  });
   it("shows an initial lookup failure without a normal state or actionable controls",async()=>{
     vi.mocked(fetchXActivity).mockRejectedValue(new Error("offline"));
     render(createElement(XActivityManager),{wrapper:createQueryWrapper()});open();
