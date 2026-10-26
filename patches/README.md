@@ -17,3 +17,5 @@ before updating or removing the patch.
 reader without repeatedly flattening growing strings. Quoted bodies now retain
 only the closing delimiter's suffix for matching too. The existing canonical
 five-second check, full migration set and compound/quoted SQL regressions remain.
+SQL and quoted bodies accumulate fragments and join at statement boundaries,
+avoiding long chains of per-character strings and their garbage collection cost.
