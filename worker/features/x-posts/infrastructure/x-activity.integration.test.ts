@@ -140,6 +140,28 @@ describe("XAA multi-site collection and common money boundary",()=>{
     expect(JSON.parse((await db.prepare("SELECT value FROM x_posts WHERE id=?").bind(postId).first<string>("value"))!)).toEqual({});
   });
 
+  it("reuses one completed media response when both sites request it concurrently",async()=>{
+    await peer.prepare("UPDATE members SET url_twitter='https://x.com/member'").run();
+    await peer.prepare("UPDATE x_post_sources SET handle='member',username='member',user_id=?").bind(userId).run();
+    await coordinator().start("otw");await coordinator().start("luvdia");
+    const event=body(await tag()),id=parseXActivityEvent(event)!.eventId;
+    await coordinator().accept(event);await coordinator().deliver(id);
+    let release!:(response:Response)=>void,requested!:()=>void;
+    const started=new Promise<void>(resolve=>{requested=resolve;});
+    const fetches=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      if(new URL(String(input)).pathname==="/2/tweets"){requested();return new Promise<Response>(resolve=>{release=resolve;});}
+      return provider(input,init);
+    });vi.stubGlobal("fetch",fetches);
+    const first=local("otw").process(id);await started;
+    await local("luvdia").process(id);
+    expect(await peer.prepare("SELECT lookup_attempts FROM x_activity_inbox").first("lookup_attempts")).toBe(0);
+    release(await provider("https://api.x.com/2/tweets"));await first;
+    vi.spyOn(Date,"now").mockReturnValue(Date.now()+60_001);
+    await local("luvdia").process(id);
+    expect(fetches).toHaveBeenCalledTimes(1);
+    for(const database of [db,peer])expect(await database.prepare("SELECT status FROM x_activity_inbox").first("status")).toBe("complete");
+  });
+
   it("atomically reserves the combined budget and keeps both sites' pre-rollout spend and holds",async()=>{
     await db.prepare("DELETE FROM x_shared_budgets").run();
     await db.prepare("UPDATE x_activity_coordinator SET bootstrap_extra_day=?,bootstrap_extra_micros=15000").bind(new Date(Date.now()).toISOString().slice(0,10)).run();

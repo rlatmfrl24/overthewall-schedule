@@ -2,7 +2,7 @@ import type { SiteId } from "@contracts/site-definition";
 import type { XApiGateway, XActivitySiteSnapshot, XActivityStatusDto } from "@contracts/x-activity";
 import { parseXActivityEvent, xActivityMediaReady, type XActivityEvent } from "../domain/x-activity";
 import { readActiveXHandles } from "./d1-active-handles";
-import { normalizeXTimelineResponse, requestXApi, writeStoredPosts, invalidateXPostMemoryCache, type XApiUser, type XTweetLookupResponse } from "./x-api";
+import { normalizeXTimelineResponse, requestXApi, writeStoredPosts, invalidateXPostMemoryCache, XApiError, type XApiUser, type XTweetLookupResponse } from "./x-api";
 import { readXReferenceBudget } from "./x-reference-budget";
 import { readSiteXBudget } from "./x-shared-budget";
 
@@ -152,7 +152,13 @@ export class D1XActivitySite {
         try {
           lookup = await requestXApi<XTweetLookupResponse>(`/tweets?${query}`, "shared-gateway", { cacheDb: this.db, operation: "tweet_lookup", estimatedCostMicros: 25_000,
             gateway: this.options.gateway, requestId: `${eventId}:media:${new Date(Date.now()).toISOString().slice(0,10)}` });
-        } catch (error) { await this.defer(row, lease, errorCode(error)); return; }
+        } catch (error) {
+          if(error instanceof XApiError&&error.code==="x_gateway_request_in_progress"){
+            await this.db.prepare("UPDATE x_activity_inbox SET lookup_attempted_at=NULL,lookup_attempts=MAX(0,lookup_attempts-1),next_attempt_at=?,last_error=? WHERE event_id=? AND lease_until=? AND status='pending'")
+              .bind(Date.now()+60_000,error.code,eventId,lease).run();
+          }else await this.defer(row, lease, errorCode(error));
+          return;
+        }
         const post = lookup.data?.find(post => post.id === row.post_id && post.author_id === row.user_id);
         if (!post) { await this.finish(row, "unavailable", lease, "post_lookup_unavailable"); return; }
         const persisted = await this.db.prepare("UPDATE x_activity_inbox SET hydrated_payload=? WHERE event_id=? AND lease_until=? AND status='pending' RETURNING event_id").bind(JSON.stringify(lookup), eventId, lease).first();
