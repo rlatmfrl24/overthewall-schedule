@@ -4,6 +4,7 @@ import {
   pendingSchedules,
 } from "@db/schema";
 import type { ScheduledOperationsWorkflowParams } from "@contracts/scheduled-operations";
+import type { XApiGateway, XApiGatewayRequest, XApiGatewayResult, XActivitySitePort, XActivityStatusDto, XActivityControlResult, XSharedBudgetState } from "@contracts/x-activity";
 
 export interface Env {
   SITE_PUBLICATION_HOLD?: string;
@@ -26,6 +27,17 @@ export interface Env {
   OTW_PLAY_D1_READ_DAILY_TARGET?: string;
   OTW_PLAY_AI_REVIEW_QUEUE?: Queue<unknown>;
   X_BEARER_TOKEN?: string;
+  X_CLIENT_SECRET?: string;
+  X_API_GATEWAY?: XApiGateway;
+  X_ACTIVITY_COORDINATOR?: {
+    gatewayForLuvdia(input: XApiGatewayRequest): Promise<XApiGatewayResult>;
+    budgetForLuvdia(): Promise<XSharedBudgetState>;
+    redactForLuvdia(postId:string): Promise<void>;
+    protocol(): Promise<{ version: number; site: string }>;
+    statusForLuvdia(): Promise<XActivityStatusDto>;
+    controlForLuvdia(action: "start" | "stop"): Promise<XActivityControlResult>;
+  };
+  X_ACTIVITY_LUVDIA?: XActivitySitePort & { protocol(): Promise<{version:number;site:string}> };
   VITE_CLERK_PUBLISHABLE_KEY?: string;
   CLERK_JWKS_URL?: string;
   CLERK_ISSUER?: string;

@@ -149,6 +149,7 @@ export interface XReferenceHydrationHealthDto {
     byRelation?: Array<{ relation: "reply" | "quote"; pendingPosts: number; pendingAuthors: number; terminal: number }>;
     pendingReasons?: XReferencePendingReasonDto[];
     globalBudget?: { limitMicros: number; usedMicros: number; reservedMicros: number };
+    sharedBudget?: boolean;
 }
 
 export interface XHistoryHealthResponseDto {

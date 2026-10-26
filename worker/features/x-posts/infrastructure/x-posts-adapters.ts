@@ -1,5 +1,6 @@
 import { parseSiteId } from "@contracts/site-definition";
-import type { XPostDto, XPostsByHandleDto } from "@contracts/x-posts";
+import { unavailableXApiGateway } from "@contracts/x-activity";
+import type { XPostDto, XPostsByHandleDto, XHistoryHealthResponseDto } from "@contracts/x-posts";
 import { getDb } from "../../../platform/db";
 import {
   insertAdminAuditLog,
@@ -46,6 +47,7 @@ export const buildXPostsApplication = (env: Env) => {
     fetchPosts: async (handles, options) => {
       try {
         return await fetchXPostsForHandles(handles, {
+          gateway: env.X_API_GATEWAY ?? unavailableXApiGateway,
           bearerToken: env.X_BEARER_TOKEN,
           cacheDb: env.otw_db,
           siteId: parseSiteId(env.SITE_ID),
@@ -119,7 +121,15 @@ export const buildXPostsApplication = (env: Env) => {
       });
     },
     readHistoryPosts: (options) => readXHistoryPosts(env.otw_db, options),
-    readHistoryHealth: () => readXHistoryHealth(env.otw_db),
+    readHistoryHealth: async () => {
+      const health:XHistoryHealthResponseDto=await readXHistoryHealth(env.otw_db);
+      const budget=await(env.X_API_GATEWAY??unavailableXApiGateway).readBudget().catch(()=>unavailableXApiGateway.readBudget());
+      if(health.referenceHydration){
+        health.referenceHydration.sharedBudget=true;
+        health.referenceHydration.globalBudget=budget.seeded?{limitMicros:budget.limit,usedMicros:budget.used,reservedMicros:budget.reserved}:undefined;
+      }
+      return health;
+    },
     warn: (message, error) => console.warn(message, error),
   });
 };
@@ -153,6 +163,7 @@ export const xPostFeedService: XPostFeedService = {
   extractHandle: (value) => extractXHandleFromUrl(value),
   fetchPosts: (handles, options) =>
     fetchXPostsForHandles(handles, {
+      gateway: unavailableXApiGateway,
       siteId: options.siteId,
       ...(options.storedPage ? { storedPage: options.storedPage } : {}),
       bearerToken: options.bearerToken,

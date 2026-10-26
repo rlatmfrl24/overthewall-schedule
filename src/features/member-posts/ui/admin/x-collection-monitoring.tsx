@@ -41,7 +41,7 @@ export function XCollectionBudget({ health }: { health: XReferenceHydrationHealt
     <CardHeader className="px-3 py-2"><h2 className="flex flex-wrap items-center gap-2 text-sm font-semibold"><Wallet className="size-4" />X API 예산 <span className="text-xs font-normal text-muted-foreground">{health ? health.budgetDay + " UTC" : "확인 중"}</span></h2></CardHeader>
     <CardContent className="space-y-2 px-3 pb-3">
     <div className="grid gap-4 md:grid-cols-2">
-      {global ? <BudgetRow title="전체 X 예산" used={global.usedMicros} reserved={global.reservedMicros} limit={global.limitMicros} /> : <p className="text-sm text-muted-foreground">전체 예산 정보 확인 불가</p>}
+      {global ? <BudgetRow title={health.sharedBudget?"양 사이트 합산 X 예산":"전체 X 예산"} used={global.usedMicros} reserved={global.reservedMicros} limit={global.limitMicros} /> : <p className="text-sm text-muted-foreground">공통 예산 정보 확인 불가 · 유료 조회 중지</p>}
       {health ? <BudgetRow title="원문 보강 한도 · 전체 예산에 포함" used={health.budgetUsedMicros} reserved={health.budgetReservedMicros} limit={health.budgetLimitMicros} /> : <p className="text-sm text-muted-foreground">원문 보강 예산 정보 확인 불가</p>}
     </div>
     <div className="flex flex-wrap items-baseline justify-between gap-2 border-t pt-2">

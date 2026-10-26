@@ -25,9 +25,13 @@ import { connectStoredReplyReferences } from "./x-reply-reference";
 import type { XPostDto } from "@contracts/x-posts";
 import { runXCollectionForHandles } from "./x-collection";
 import { meterD1 } from "../../../test-support/d1-meter";
+import { D1SharedXApiGateway } from "./x-shared-budget";
+import type { Env as WorkerEnv } from "../../../platform/types";
 
-const testEnv = { ...env, SITE_ID: "otw" } as Env & { X_REFERENCE_MIGRATIONS: D1Migration[] };
+const testEnv = { ...env, SITE_ID: "otw" } as unknown as WorkerEnv & { X_REFERENCE_MIGRATIONS: D1Migration[] };
 const db = testEnv.otw_db;
+const seedSharedDay=()=>db.prepare("INSERT OR IGNORE INTO x_shared_budgets(day,used,reserved,limit_value,seed_detail,updated_at) VALUES(?,0,0,1000000,'{}',0)").bind(new Date(Date.now()).toISOString().slice(0,10)).run();
+testEnv.X_API_GATEWAY=new D1SharedXApiGateway({db,site:"otw",token:"test",admitD1:async()=>true});
 const tracker = (): XApiUsageTracker => ({
   apiCalls: 0,
   estimatedCostMicros: 0,
@@ -120,6 +124,8 @@ beforeEach(async () => {
     await db.prepare(`DELETE FROM ${table}`).run();
   }
   await db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(1,'member','Member','https://x.com/member')").run();
+  await db.prepare("UPDATE x_activity_coordinator SET ready=1").run();
+  await db.prepare("INSERT INTO x_shared_budgets(day,used,reserved,limit_value,seed_detail,updated_at) VALUES(?,0,0,1000000,'{}',0) ON CONFLICT(day) DO UPDATE SET used=0,reserved=0").bind(new Date(Date.now()).toISOString().slice(0,10)).run();
   clearXServiceCachesForTests();
   vi.stubGlobal("fetch", vi.fn());
 });
@@ -283,6 +289,7 @@ describe("X durable reference hydration", () => {
   it.each([2, 12, 24])("keeps the optimizer-off %sh adaptive boundary on scheduled starts", async intervalHours => {
     const slot = Date.parse("2026-10-22T23:23:00Z"), firstActual = slot + 45_000;
     const clock = vi.spyOn(Date, "now").mockReturnValue(firstActual);
+    await seedSharedDay();
     await db.prepare("INSERT INTO settings(key,value) VALUES('x_cost_optimizer_enabled','false'),('x_collection_interval_hours','0.5'),('x_reference_preview_mode','link_only')").run();
     await db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at) VALUES('member','1','member','100',0,0,1)").run();
     let pages = 0;
@@ -318,6 +325,7 @@ describe("X durable reference hydration", () => {
   it.each([[true, "complete"], [false, "complete"], [true, "retry"], [true, "retry-before"], [true, "continuation"]] as const)("revalidates an old scheduled X item (optimizer %s, %s)", async (optimizer, state) => {
     const slot = Date.parse("2026-10-22T23:23:00Z"), actual = slot + 26 * 3_600_000;
     vi.spyOn(Date, "now").mockReturnValue(actual);
+    await seedSharedDay();
     await db.prepare("INSERT INTO settings(key,value) VALUES('x_cost_optimizer_enabled','true'),('x_collection_interval_hours','0.5'),('x_reference_preview_mode','link_only')").run();
     await db.prepare("UPDATE settings SET value=? WHERE key='x_cost_optimizer_enabled'").bind(String(optimizer)).run();
     const previous = state === "retry-before" ? slot - 45_000 : slot + 3_600_000;
@@ -341,6 +349,7 @@ describe("X durable reference hydration", () => {
   it.each([null, "page2"])("anchors scheduled source cadence but keeps actual continuation time (%s)", async nextToken => {
     const slot = Date.parse("2026-10-22T23:23:00Z"), actual = slot + 45_000;
     vi.spyOn(Date, "now").mockReturnValue(actual);
+    await seedSharedDay();
     await db.prepare("INSERT INTO settings(key,value) VALUES('x_cost_optimizer_enabled','true'),('x_collection_interval_hours','0.5'),('x_reference_preview_mode','link_only')").run();
     await db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at) VALUES('member','1','member','100',0,0,1)").run();
     vi.mocked(fetch).mockImplementation(async input => {

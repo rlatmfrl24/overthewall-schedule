@@ -51,6 +51,7 @@ import {
   type MemberPostSource,
 } from "./member-post-feed-monitor";
 import { XPostHistoryManager } from "./x-post-history-manager";
+import { XActivityManager } from "./x-activity-manager";
 import { openXSettings } from "./x-settings-navigation";
 
 const VISIBILITY_OPTIONS: Array<{
@@ -787,10 +788,10 @@ export function MemberPostSettingsManager({
                     htmlFor="x-daily-budget"
                     className="text-sm font-semibold"
                   >
-                    전체 X 일일 예산 센트
+                    사이트 조회 보호 한도 센트
                   </Label>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    게시물 수집과 원문 보강이 공유하는 전체 예산입니다. UTC 하루 기준으로 적용합니다.
+                    이 사이트의 유료 조회에 추가로 적용하는 보호 한도입니다. 실제 비용은 양 사이트 합산 UTC 하루 $1 목표 안에서 관리합니다. 웹훅은 위의 구독 제어로 중지합니다.
                   </p>
                 </div>
                 <div className="flex w-full shrink-0 gap-2 sm:w-48">
@@ -932,6 +933,7 @@ export function MemberPostSettingsManager({
                 <strong>답글 표시 정책</strong><br />
                 저장된 미리보기 유지 · 미확보 원문은 관계와 링크 표시 · 추가 X 조회 없음
               </p>
+              <XActivityManager />
               <XPostHistoryManager enabled={isXHistoryAnalyticsEnabled} />
             </div>
             </MemberPostFeedMonitor>

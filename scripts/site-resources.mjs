@@ -13,6 +13,10 @@ export const assertSiteResourceConfig = (config, siteId) => {
   parseSiteId(siteId);
   const vars = config.vars ?? {};
   if (vars.SITE_ID !== siteId) throw new Error("Resource config site identity mismatch.");
+  const rpc=siteId==="otw"?{binding:"X_ACTIVITY_LUVDIA",service:"luvdia-schedule",entrypoint:"XActivitySiteRpc"}
+    :{binding:"X_ACTIVITY_COORDINATOR",service:"overthewall-schedule",entrypoint:"XActivityCoordinatorRpc"};
+  const activityBindings=(config.services??[]).filter(item=>String(item.binding).startsWith("X_ACTIVITY_"));
+  if(activityBindings.length>1||activityBindings.some(item=>item.binding!==rpc.binding||item.service!==rpc.service||item.entrypoint!==rpc.entrypoint))throw new Error("X activity RPC must target the fixed peer site and entrypoint.");
   parseSiteStorageResources(vars);
   for (const [variable, inventory, binding, field] of [
     ["SITE_D1_DATABASE_NAME", "d1_databases", "otw_db", "database_name"],
