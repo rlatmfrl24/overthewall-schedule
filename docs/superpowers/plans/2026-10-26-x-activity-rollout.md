@@ -22,35 +22,37 @@
 
 **Files:** `contracts/x-activity.ts`, `db/schema/index.ts`, generated migrations, `worker/features/x-posts/infrastructure/x-shared-budget.ts`, `worker/app/x-gateway.ts`, `x-api.ts`, collection/reference adapters and runtime entry points.
 
-- [ ] Add UTC shared budget, idempotent request results, per-site controls/targets and owned subscriptions/dispatch inbox schema. Keep legacy singleton table; import its state in an additional generated data migration.
-- [ ] Add typed serializable request/result ports. Route all production user/timeline/post/reference reads through the OTW gateway. Supply the port explicitly from runtime composition, including Queue/manual paths; missing RPC/ledger must not use direct X.
-- [ ] Atomically reserve before provider dispatch; account uncertain dispatched requests conservatively. Reuse existing cost estimation and local observational ledgers. Persist request identity/result to prevent replayed event hydration from invoking the provider twice.
-- [ ] Seed the first day from both sites' used/reserved amounts and the documented external canary cost. Roll over new UTC days without resetting the old day.
-- [ ] Include concurrency, retry/uncertain response, unavailable ledger and cross-site accounting regressions in the existing CI suite.
+- [x] Add UTC shared budget, idempotent request results, per-site controls/targets and owned subscriptions/dispatch inbox schema. Keep legacy singleton table; import its state in an additional generated data migration.
+- [x] Add typed serializable request/result ports. Route all production user/timeline/post/reference reads through the OTW gateway. Supply the port explicitly from runtime composition, including Queue/manual paths; missing RPC/ledger must not use direct X.
+- [x] Atomically reserve before provider dispatch; account uncertain dispatched requests conservatively. Reuse existing cost estimation and local observational ledgers. Persist request identity/result to prevent replayed event hydration from invoking the provider twice.
+- [x] Seed the first day from both sites' used/reserved amounts and the documented external canary cost. Roll over new UTC days without resetting the old day.
+- [x] Include concurrency, retry/uncertain response, unavailable ledger and cross-site accounting regressions in the existing CI suite.
 
 ## 2. Multi-member coordinator and private RPC
 
 **Files:** x-activity service/domain/HTTP/infrastructure, new named Worker entrypoints, `worker/index.ts`, queue/cron composition, site configs and local test bindings.
 
-- [ ] Site RPC calculates active allowed targets and rechecks policy before local receipt/storage. Caller/site roles are fixed by separate binding methods; no client-selected site, account or callback.
-- [ ] Resolve missing user IDs through the shared paid gateway, then update account identity without marking REST ranges complete. Sync targets individually; keep unrelated registrations running after an individual failure.
-- [ ] Deduplicate subscriptions by X user_id, retain owned ID/tag/webhook/event/filter evidence, refresh expiry through POST, and reconcile source removal plus uncertain registration/deletion.
-- [ ] Authenticate callback, record cost once and durably dispatch to each allowed site. Retry partial fanout through the existing typed background Queue; retain per-site processing and tombstones.
-- [ ] Stop owned subscriptions near the budget target. Budget stops alone resume at the next UTC day; user/site stops remain. Expose connection protocol/readiness explicitly.
-- [ ] Include duplicate delivery, source isolation, midnight resume, direct-stop preservation and partial registration regressions in existing CI.
+- [x] Site RPC calculates active allowed targets and rechecks policy before local receipt/storage. Caller/site roles are fixed by separate binding methods; no client-selected site, account or callback.
+- [x] Resolve missing user IDs through the shared paid gateway, then update account identity without marking REST ranges complete. Sync targets individually; keep unrelated registrations running after an individual failure.
+- [x] Deduplicate subscriptions by X user_id, retain owned ID/tag/webhook/event/filter evidence, refresh expiry through POST, and reconcile source removal plus uncertain registration/deletion.
+- [x] Authenticate callback, record cost once and durably dispatch to each allowed site. Retry partial fanout through the existing typed background Queue; retain per-site processing and tombstones.
+- [x] Stop owned subscriptions near the budget target. Budget stops alone resume at the next UTC day; user/site stops remain. Expose connection protocol/readiness explicitly.
+- [x] Include duplicate delivery, source isolation, midnight resume, direct-stop preservation and partial registration regressions in existing CI.
 
 ## 3. Administrator flow and 24-hour recovery
 
 **Files:** activity DTO/API/UI, collection scheduler/health readers, current-work/runbook.
 
-- [ ] Replace arbitrary single handle input with whole allowed-site apply/stop/resume controls and multi-member rows. Show site counts, failures, global budget, stop reason/resume time, recent deliveries and REST recovery state.
-- [ ] Set 24-hour recovery only as part of prepared activation. Retain existing cursors/continuations and preserve incomplete/error semantics. Do not restore high-frequency collection during rollback/retry.
-- [ ] Include the interrupted-cursor and actual reachable admin flow regressions in existing CI.
+- [x] Replace arbitrary single handle input with whole allowed-site apply/stop/resume controls and multi-member rows. Show site counts, failures, global budget, stop reason/resume time, recent deliveries and REST recovery state.
+- [x] Set 24-hour recovery only as part of prepared activation. Retain existing cursors/continuations and preserve incomplete/error semantics. Do not restore high-frequency collection during rollback/retry.
+- [x] Include the interrupted-cursor and actual reachable admin flow regressions in existing CI.
 
 ## 4. Compatible release and mandatory readback
 
-- [ ] Read current account D1 analytics before remote D1 access; retain account 5M/background4M protection and other held automation.
-- [ ] Commit the integrated X scope, open/attach its PR and use the existing automatic build/CI route. No new paid or independent validation runs.
-- [ ] Apply additive migrations compatible with old Workers. Prepare named receiver exports in LuvDia without unready mutual bindings, then use OTW's normal merge-triggered build for the coordinator and LuvDia binding, then deploy LuvDia's final coordinator binding. Keep new paid activity off until both sides and the shared budget are ready.
-- [ ] Seed existing-day usage/holds, activate allowed targets, change recovery cadence to24h, and read back actual artifact identity, migrations, target/subscription counts, cadence, shared budget and failure scope.
-- [ ] Report actual partial failures without losing data/cursors or raising budgets. Natural media quality and long-running observation belong to the user after release.
+- [x] Read current account D1 analytics before remote D1 access; retain account 5M/background4M protection and other held automation.
+- [x] Commit the integrated X scope, open/attach its PR and use the existing automatic build/CI route. No new paid or independent validation runs.
+- [x] Apply additive migrations compatible with old Workers. Prepare named receiver exports in LuvDia without unready mutual bindings, then use OTW's normal merge-triggered build for the coordinator and LuvDia binding, then deploy LuvDia's final coordinator binding. Keep new paid activity off until both sides and the shared budget are ready.
+- [x] Seed existing-day usage/holds, activate allowed targets, change recovery cadence to24h, and read back actual artifact identity, migrations, target/subscription counts, cadence, shared budget and failure scope.
+- [x] Report actual partial failures without losing data/cursors or raising budgets. Natural media quality and long-running observation belong to the user after release.
+
+운영 반영 완료(2026-10-26 14:26 KST): [PR194 실제 관리자·공급자/DB readback](https://github.com/rlatmfrl24/overthewall-schedule/pull/194#issuecomment-6408933733). 자연 미디어·장기 복구/갱신 관측은 승인대로 이후 확인한다.
