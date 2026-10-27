@@ -128,6 +128,7 @@ export function MemberPostFeedMonitor({
   children,
   xActivity,
   onRunXCollection,
+  onRunXPending,
   isRunningXCollection = false,
   onRunNaverCafeCheck,
   isRunningNaverCafeCheck = false,
@@ -145,6 +146,7 @@ export function MemberPostFeedMonitor({
   children?: ReactNode;
   xActivity?: ReactNode;
   onRunXCollection?: () => void;
+  onRunXPending?: () => void;
   isRunningXCollection?: boolean;
   onRunNaverCafeCheck?: () => void;
   isRunningNaverCafeCheck?: boolean;
@@ -363,6 +365,7 @@ export function MemberPostFeedMonitor({
             latestRun={operationRunsQuery.data?.runs[0]} runsLoading={operationRunsQuery.isLoading}
             runsError={operationRunsQuery.isError} runsUpdatedAt={operationRunsQuery.dataUpdatedAt}
             enabled={xCollectionEnabled}
+            onRunPending={onRunXPending} isRunning={isRunningXCollection}
           />
         ) : (
           <Card className="grid grid-cols-2 gap-0 py-0 shadow-none lg:grid-cols-4">

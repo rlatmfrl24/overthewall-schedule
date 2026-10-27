@@ -120,9 +120,9 @@ export async function runAutoUpdateNow(): Promise<OperationRunAccepted> {
   });
 }
 
-export async function runXCollectionNow(): Promise<OperationRunAccepted> {
+export async function runXCollectionNow(scope?: "pending"): Promise<OperationRunAccepted> {
   return apiFetch<OperationRunAccepted>(
-    apiRoutes.xPosts.runCollectionNow.build(),
+    apiRoutes.xPosts.runCollectionNow.build() + (scope === "pending" ? "?scope=pending" : ""),
     { method: "POST", headers: makeIdempotencyHeaders() },
   );
 }

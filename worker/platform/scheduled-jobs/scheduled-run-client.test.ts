@@ -106,6 +106,14 @@ describe("ScheduledRunClient", () => {
     }, { contentType: "json" });
   });
 
+  it("rejects idempotency reuse across full and pending-only X collection scopes", async () => {
+    const send=vi.fn();
+    mocks.createRun.mockResolvedValue({...run,job_type:"x_collection",summary_json:null});
+    const client=new ScheduledRunClient({otw_db:{} as D1Database,OTW_OPS_CONTROL_QUEUE:{send}} as unknown as Env);
+    await expect(client.createManualRun("x_collection",{actorId:"admin"},"same-key",{xCollectionScope:"pending"})).rejects.toThrow("scheduled_run_scope_conflict");
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("terminal run retry는 control message를 보내지 않고 거절 상태를 보존한다", async () => {
     const send = vi.fn().mockResolvedValue(undefined);
     mocks.retryRun.mockResolvedValue({

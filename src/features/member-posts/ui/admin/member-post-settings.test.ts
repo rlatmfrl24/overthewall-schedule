@@ -373,8 +373,10 @@ describe("MemberPostSettingsManager", () => {
     fetchXActivityMock.mockResolvedValue(pending);
     render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
     expect(await screen.findByText("이월 커서 1개는 계정당 25개 요청으로 포함했습니다.")).toBeTruthy();
+    expect(screen.getByText(/다음 페이지당 공통 예약/).textContent).toContain("$0.625");
+    fireEvent.click(screen.getByRole("button", {name:"미완료 페이지만 복구"}));
+    await waitFor(() => expect(runXCollectionNowMock).toHaveBeenCalledWith("pending"));
     expect(screen.getByText(/첫 페이지 예상 예약/).textContent).toContain("$1.175");
-    expect(runXCollectionNowMock).not.toHaveBeenCalled();
   });
   it("explains a first-page shortfall without spending or reallocating the common budget",async()=>{
     const limited=makeActivity();
@@ -385,6 +387,16 @@ describe("MemberPostSettingsManager", () => {
     expect(await screen.findByText(/예상 예약액이 해당 잔여액보다 큽니다/)).toBeTruthy();
     expect(runXCollectionNowMock).not.toHaveBeenCalled();
     expect(updateSettingsMock).not.toHaveBeenCalled();
+  });
+
+  it("does not allow a continuation request when its reservation exceeds the shared remainder",async()=>{
+    const pending=makeActivity();
+    pending.recovery.pendingSources=1;
+    pending.recovery.budget.sharedRemainingMicros=600000;
+    fetchXActivityMock.mockResolvedValue(pending);
+    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
+    expect(await screen.findByRole("button",{name:"미완료 페이지만 복구"})).toHaveProperty("disabled",true);
+    expect(runXCollectionNowMock).not.toHaveBeenCalled();
   });
   it("compares common and site reservation requirements against their own remaining amounts",async()=>{
     const enough=makeActivity();

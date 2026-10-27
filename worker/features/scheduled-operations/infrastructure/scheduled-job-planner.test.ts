@@ -217,6 +217,19 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     );
   });
 
+  it("plans a pending-only manual run for active handles with continuation cursors only", async () => {
+    const {env, prepare}=makeEnv({x_collection_enabled:"true"});
+    mocks.readActiveXHandles.mockResolvedValue(["member_a","member_b"]);
+    const original=prepare.getMockImplementation()!;
+    prepare.mockImplementation((sql: string) => sql.includes("sync_pagination_token")
+      ? {bind: () => ({all: async () => ({results:[{handle:"member_b"},{handle:"retired"}]})})} as never
+      : original(sql));
+    const repository={addItems:vi.fn(async (_id:string,items:NewScheduledItem[])=>items)};
+    const run={...makeRun("x_collection","manual",1),summary_json:JSON.stringify({xCollectionScope:"pending"})};
+    await new ScheduledJobPlanner(env,repository as never).plan(run);
+    expect(repository.addItems).toHaveBeenCalledWith(run.id,[expect.objectContaining({continuation:{handles:["member_b"]}})]);
+  });
+
   it("scheduled auto-update는 configured interval 이전에 channel scan을 만들지 않는다", async () => {
     const timestamp = Date.UTC(2026, 7, 31, 12);
     const { env, prepare } = makeEnv({

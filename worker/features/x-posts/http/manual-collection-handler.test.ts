@@ -96,6 +96,14 @@ describe("manual X collection handler", () => {
     expect(runXCollectionMock).not.toHaveBeenCalled();
   });
 
+  it("미완료 페이지 전용 요청을 명시적으로 전달하고 잘못된 범위는 거절한다", async () => {
+    const request = (scope: string) => new Request(`https://example.com/api/settings/x-collection/run-now?scope=${scope}`, {method:"POST"});
+    expect((await handleManualXCollection(request("pending"), env)).status).toBe(202);
+    expect(enqueueMock).toHaveBeenLastCalledWith(env, expect.anything(), null, "pending");
+    expect((await handleManualXCollection(request("other"), env)).status).toBe(400);
+    expect(enqueueMock).toHaveBeenCalledTimes(1);
+  });
+
   it("대기열 접수 실패를 503으로 변환한다", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     enqueueMock.mockRejectedValue(new Error("queue unavailable"));

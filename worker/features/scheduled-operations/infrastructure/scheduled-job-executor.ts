@@ -314,7 +314,8 @@ export class ScheduledJobExecutor {
           throw new Error("invalid_x_collection_shard");
         }
         return toXCollectionOutcome(
-          await runXCollectionForHandles(this.env, handles, run.source, run.scheduled_for),
+          await runXCollectionForHandles(this.env, handles, run.source, run.scheduled_for,
+            run.source === "manual" && typeof run.summary_json === "string" && JSON.parse(run.summary_json)?.xCollectionScope === "pending"),
         );
       }
       case "naver_cafe_collection": {
@@ -523,7 +524,7 @@ export class ScheduledJobExecutor {
       return;
     }
     const completedAt = String(run.finishedAt ?? Date.now());
-    if (run.jobType === "x_collection") {
+    if (run.jobType === "x_collection" && run.summary?.xCollectionScope !== "pending") {
       await recordXCollectionCompletion(this.env, { completedAt: Number(completedAt), source: run.source,
         scheduledFor: run.scheduledFor, successful: run.status === "succeeded" });
     } else if (run.jobType === "naver_cafe_collection") {

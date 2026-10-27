@@ -75,6 +75,11 @@ describe("operations api", () => {
     );
   });
 
+  it("sends the explicit pending-only scope for a continuation run", async () => {
+    await runXCollectionNow("pending");
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/x-collection/run-now?scope=pending",expect.objectContaining({method:"POST"}));
+  });
+
   it("데이터 보존 status와 dry-run·실행 prune을 구분한다", async () => {
     await fetchDataRetentionStatus();
     await runDataRetentionPrune({ dryRun: true });
