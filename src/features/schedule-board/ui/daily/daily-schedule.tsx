@@ -677,8 +677,13 @@ export const DailySchedule = ({
               data-daily-context-row="true"
             >
               {ddayForToday.length > 0 && (
-                <div className="flex flex-col gap-2 h-full w-full lg:w-auto lg:min-w-[300px] lg:max-w-[460px]">
-                  <div className="flex flex-col gap-2 w-full flex-1 h-full">
+                <div className="flex min-w-0 flex-col gap-2 w-full lg:w-auto lg:min-w-[300px] lg:max-w-[460px]">
+                  <div
+                    className="flex min-w-0 flex-col gap-2 w-full lg:flex-row lg:overflow-x-auto"
+                    role="group"
+                    aria-label="기념일"
+                    tabIndex={0}
+                  >
                     {ddayForToday.map((dday) => {
                       const palette =
                         (dday.colors?.length ? dday.colors : undefined) ||
@@ -705,7 +710,7 @@ export const DailySchedule = ({
                         <div
                           key={dday.id}
                           className={cn(
-                            "flex items-center gap-3 px-3 py-2 rounded-xl border shadow-md text-sm font-semibold h-full",
+                            "flex min-h-14 min-w-0 items-center gap-3 px-3 py-2 rounded-xl border shadow-md text-sm font-semibold lg:min-w-[180px] lg:flex-1",
                             dday.isToday
                               ? dday.colors?.length
                                 ? "text-white"
@@ -716,7 +721,7 @@ export const DailySchedule = ({
                         >
                           <span
                             className={cn(
-                              "inline-flex items-center px-2 py-1 rounded-full text-xs font-black",
+                              "inline-flex shrink-0 items-center whitespace-nowrap px-2 py-1 rounded-full text-xs font-black",
                               dday.isToday
                                 ? "bg-white/25"
                                 : "bg-white/80 text-amber-900 dark:bg-black/30 dark:text-amber-50",
@@ -725,7 +730,7 @@ export const DailySchedule = ({
                             {formatDDayLabel(dday.daysUntil)}
                           </span>
                           <div className="flex flex-col min-w-0">
-                            <span className="truncate">
+                            <span className="truncate" title={`${dday.title}${dday.anniversaryLabel ? ` · ${dday.anniversaryLabel}` : ""}`}>
                               {dday.title}
                               {dday.anniversaryLabel
                                 ? ` · ${dday.anniversaryLabel}`
@@ -740,7 +745,7 @@ export const DailySchedule = ({
               )}
               {visibleNotices.length > 0 && (
                 <div
-                  className="w-full h-full flex-1"
+                  className="w-full min-w-0 flex-1 lg:self-start"
                   data-daily-notice-slot="true"
                 >
                   <NoticeBanner notices={visibleNotices} />

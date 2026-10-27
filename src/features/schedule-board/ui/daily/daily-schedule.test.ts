@@ -1,7 +1,7 @@
 import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import { format } from "date-fns";
-import { createElement } from "react";
+import { createElement, type ReactNode } from "react";
 import {
   cleanup,
   fireEvent,
@@ -40,6 +40,8 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
     await importOriginal<typeof import("@tanstack/react-router")>();
   return {
     ...actual,
+    Link: ({ children, ...props }: { children: ReactNode; title?: string; className?: string; "aria-label"?: string }) =>
+      createElement("a", { href: "/notice", title: props.title, className: props.className, "aria-label": props["aria-label"] }, children),
     useNavigate: () => navigateMock,
   };
 });
@@ -83,8 +85,7 @@ const makeBoard = (): ScheduleBoardResponse => {
   };
 };
 
-const setBoardState = () => {
-  const board = makeBoard();
+const setBoardState = (board = makeBoard()) => {
   useScheduleBoardMock.mockReturnValue({
     board,
     members: board.members,
@@ -144,6 +145,46 @@ describe("DailySchedule", () => {
     vi.clearAllMocks();
     vi.restoreAllMocks();
   });
+
+  it.each([[0, 0], [1, 0], [2, 0], [3, 0], [0, 1], [1, 1], [2, 1], [3, 1]])(
+    "renders %i D-days and %i notices without losing long titles or leaving empty slots",
+    (ddayCount, noticeCount) => {
+      const board = makeBoard();
+      const longTitle = "공백없는아주긴기념일제목".repeat(20);
+      board.ddays = Array.from({ length: ddayCount }, (_, id) => ({
+        id, title: `${longTitle}${id}`, date: board.startDate,
+        type: "event", description: null, color: null, created_at: null,
+      }));
+      board.notices = Array.from({ length: noticeCount }, (_, id) => ({
+        id, content: `긴 공지 제목 ${longTitle}`, links: [], image_urls: [],
+        related_member_uids: [], url: null, thumbnail_url: null, type: "notice",
+        publisher_type: "otw", publisher_member_uid: null, is_active: true,
+        is_featured: true, started_at: null, ended_at: null, created_at: null,
+      }));
+      setBoardState(board);
+      const { container } = render(createElement(DailySchedule), { wrapper: createQueryWrapper() });
+      const row = container.querySelector("[data-daily-context-row]");
+      if (!ddayCount && !noticeCount) {
+        expect(row).toBeNull();
+        return;
+      }
+      // jsdom checks content/visibility; height and clipping are checked in the browser.
+      expect(row?.children).toHaveLength(Number(ddayCount > 0) + Number(noticeCount > 0));
+      expect(screen.queryAllByText("D-DAY")).toHaveLength(ddayCount);
+      for (const dday of board.ddays) {
+        const title = screen.getByText(dday.title);
+        expect(title.getAttribute("title")).toBe(dday.title);
+        const group = screen.getByRole("group", { name: "기념일" });
+        expect(group.contains(title)).toBe(true);
+        expect(group.tabIndex).toBe(0);
+      }
+      const noticeSlot = row?.querySelector("[data-daily-notice-slot]");
+      expect(Boolean(noticeSlot)).toBe(Boolean(noticeCount));
+      if (noticeCount) {
+        expect(screen.getByText(board.notices[0].content).getAttribute("title")).toBe(board.notices[0].content);
+      }
+    },
+  );
 
   it("offers legacy exports only in the timeline menu without replacing the default actions", async () => {
     render(createElement(DailySchedule), { wrapper: createQueryWrapper() });
