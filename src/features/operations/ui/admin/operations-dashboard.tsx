@@ -637,7 +637,7 @@ function RetentionPolicyTable({ policies }: { policies: DataRetentionPolicyStatu
   return <Table><TableHeader><TableRow><TableHead>정책</TableHead><TableHead>보존</TableHead><TableHead>현재 삭제 대상</TableHead></TableRow></TableHeader><TableBody>{policies.map((policy) => <TableRow key={policy.id}><TableCell>{policy.category === "scheduled_operations" ? "정기 작업 · " : ""}{policy.label}</TableCell><TableCell>{policy.retentionDays}일</TableCell><TableCell>{policy.prunableRows.toLocaleString("ko-KR")}건</TableCell></TableRow>)}</TableBody></Table>;
 }
 
-export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog, xWebhook, xWebhookIssue }: { view?: "all" | "home" | "resources" | "history"; onRefresh?: () => void; referenceBacklog?: ReactNode; xWebhook?: ReactNode; xWebhookIssue?: OperationsIssue | null } = {}) {
+export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog, xWebhook, xWebhookIssue, xRestPendingSources }: { view?: "all" | "home" | "resources" | "history"; onRefresh?: () => void; referenceBacklog?: ReactNode; xWebhook?: ReactNode; xWebhookIssue?: OperationsIssue | null; xRestPendingSources?: number | null } = {}) {
   const [search, updateSearch] = useConsoleSearch();
   const jobType = scheduledJobTypes.find((type) => type === search.source);
   const runStatus = scheduledJobStatuses.find((status) => status === search.state);
@@ -670,7 +670,10 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog,
   const d1WriteGuard = data?.scheduledOperations.d1WriteGuard;
   const summaries = jobSummariesQuery.data?.summaries ?? [];
   const youtubeSummary = summaries.find((item) => item.jobType === "youtube_feed_collection");
-  const xIssues = data?.summary.issues.filter((issue) => issue.code.startsWith("x_")) ?? [];
+  const xRestPendingIssue: OperationsIssue | null = xRestPendingSources === null
+    ? {code: "x_rest_pending_unavailable", severity: "warning", message: "REST 누락 복구의 미완료 페이지를 확인하지 못했습니다."}
+    : xRestPendingSources ? {code: "x_rest_pending", severity: "warning", message: `REST 누락 복구의 다음 페이지가 ${xRestPendingSources}개 남아 있습니다.`} : null;
+  const xIssues = [...(data?.summary.issues.filter((issue) => issue.code.startsWith("x_")) ?? []), ...(xRestPendingIssue ? [xRestPendingIssue] : [])];
   const naverIssues = data?.summary.issues.filter((issue) => issue.code.startsWith("naver_")) ?? [];
   const autoIssues = data?.summary.issues.filter((issue) => issue.code.startsWith("auto_") || issue.code.startsWith("pending_schedule")) ?? [];
   const toneForIssues = (issues: OperationsIssue[]): StatusTone => issues.some((issue) => issue.severity === "critical") ? "critical" : issues.length > 0 ? "warning" : "success";
@@ -692,7 +695,7 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog,
       </section>}
       {data && (view === "all" || view === "home") ? <section className="space-y-3" aria-labelledby="attention-heading">
         <h2 id="attention-heading" className="sr-only">지금 확인할 것</h2>
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]" data-testid="operations-attention-grid"><IssuePanel issues={xWebhookIssue ? [...data.summary.issues,xWebhookIssue] : data.summary.issues} updatedAt={data.updatedAt} /><QueueHealthCard activeRunCount={data.scheduledOperations.activeRunCount} outboxBacklog={data.scheduledOperations.outboxBacklog} staleLeaseCount={data.scheduledOperations.staleLeaseCount} used={queue!.used} limit={queue!.limit} usedPercent={Math.max(0, Math.min(100, queue!.usedPercent))} /></div>
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]" data-testid="operations-attention-grid"><IssuePanel issues={[...data.summary.issues, ...(xWebhookIssue ? [xWebhookIssue] : []), ...(xRestPendingIssue ? [xRestPendingIssue] : [])]} updatedAt={data.updatedAt} /><QueueHealthCard activeRunCount={data.scheduledOperations.activeRunCount} outboxBacklog={data.scheduledOperations.outboxBacklog} staleLeaseCount={data.scheduledOperations.staleLeaseCount} used={queue!.used} limit={queue!.limit} usedPercent={Math.max(0, Math.min(100, queue!.usedPercent))} /></div>
       </section> : null}
 
       {data && view === "home" && <section aria-label="사람의 검토 필요" className="rounded-lg border bg-card p-3">
