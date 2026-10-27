@@ -46,6 +46,10 @@ const run = (items = [item()]): OperationRunDto => ({
 const show = (value: OperationRunDto) => render(createElement(XCollectionRuns, { runs: [value], loading: false, error: false, updatedAt: Date.now() }));
 
 describe("XCollectionRuns", () => {
+  it("identifies a pending-only manual run in the history", () => {
+    show({...run(),source:"manual",summary:{xCollectionScope:"pending"}});
+    expect(screen.getByRole("button",{name:/전체 결과/}).textContent).toContain("이월 복구");
+  });
   it("keeps overall partial and collection success separate from failed hydration", () => {
     show(run());
     const row = screen.getByRole("button", { name: /전체 결과/ });

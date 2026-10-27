@@ -22,6 +22,7 @@ const statusLabel = (status: string) => ({
   partial: "일부 실패", failed: "실패", skipped: "건너뜀", throttled: "제한됨",
 }[status] ?? status);
 const failed = (status: string) => ["failed", "partial", "throttled"].includes(status);
+const runType = (run: OperationRunDto) => run.summary?.xCollectionScope === "pending" ? "이월 복구" : run.source === "manual" ? "수동" : "정기";
 
 function BudgetRow({ title, used, reserved, limit }: { title: string; used: number; reserved: number; limit: number }) {
   const percent = limit > 0 ? Math.min(100, Math.round((used + reserved) / limit * 100)) : 0;
@@ -85,7 +86,7 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
         {stale && <p role="alert" className="text-xs text-amber-700 dark:text-amber-300">이전 조회 결과입니다. 마지막 조회 {formatXTime(runsUpdatedAt)}</p>}
         <dl className="grid grid-cols-2 items-baseline gap-x-4 gap-y-3 text-[13px] tabular-nums">
           <div><dt className="text-xs text-muted-foreground">최근 실행 저장</dt><dd className="mt-1 text-xl font-semibold">{known.length ? known.reduce((sum, item) => sum + item.collection!.postsStored, 0) : "—"}<span className="ml-1 text-xs font-normal">건</span></dd></div>
-          <div><dt className="text-xs text-muted-foreground">실행 유형</dt><dd className="mt-1 font-medium">{latestRun ? latestRun.source === "manual" ? "수동" : "정기" : "기록 없음"}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">실행 유형</dt><dd className="mt-1 font-medium">{latestRun ? runType(latestRun) : "기록 없음"}</dd></div>
           <div><dt className="text-xs text-muted-foreground">최근 실행</dt><dd className="mt-1 font-medium">{formatXTime(latestRun?.startedAt ?? latestRun?.acceptedAt)}</dd></div>
           <div><dt className="text-xs text-muted-foreground">다음 수집 가능</dt><dd className="mt-1 break-keep font-medium">{!enabled ? "자동 수집 중지" : error || loading || !x ? "확인 불가" : formatXEligibility(x.nextEligibleAt)}</dd></div>
         </dl>
@@ -187,7 +188,7 @@ export function XCollectionRuns({ runs, loading, error, updatedAt }: { runs: Ope
         <button type="button" className="grid w-full grid-cols-[1fr_auto] items-center gap-2 px-3 py-3 text-left text-xs hover:bg-muted/30 focus-visible:outline-2 focus-visible:outline-ring md:grid-cols-[130px_58px_86px_minmax(0,1fr)_minmax(0,1fr)_20px] md:gap-3"
           aria-expanded={expanded.includes(run.runId)} aria-controls={"x-run-" + run.runId}
           onClick={() => setExpanded((current) => current.includes(run.runId) ? current.filter((id) => id !== run.runId) : [...current, run.runId])}>
-          <span>{formatXTime(run.startedAt ?? run.acceptedAt)}</span><span>{run.source === "manual" ? "수동" : "정기"}</span>
+          <span>{formatXTime(run.startedAt ?? run.acceptedAt)}</span><span>{runType(run)}</span>
           <span><span className="mr-1 md:sr-only">전체 결과: </span><Badge variant={failed(run.status) ? "destructive" : "secondary"}>{statusLabel(run.status)}</Badge></span>
           <span className="col-span-2 md:col-span-1"><span className="mr-1 md:sr-only">게시물 수집: </span>{xCollectionResultText(run)}</span>
           <span className="col-span-2 md:col-span-1"><span className="mr-1 md:sr-only">원문 보강: </span>{xHydrationResultText(run)}</span>
