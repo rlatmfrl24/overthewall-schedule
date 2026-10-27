@@ -38,6 +38,8 @@ Drizzle에서 생성했다. 기존 migration은 수정하지 않았고, 새 SQL�
 
 수치는 각각 해당 로컬 fixture의 실제 meta다. 실제 운영 테이블 크기·추가 쓰기·구축량은 아직 확인하지 않았다. 기존 인덱스는 유지한다. 원격 적용 시 계정 read/write 예산과 기존 더 엄격한 제한 안에서 **0157→0158 순서 선행 적용 후 코드 반영**을 계획해야 한다. 이번 작업은 원격 적용을 승인하거나 실행하지 않는다.
 
+독립 리뷰의 전체 파일 재실행에서는 다른 fixture 행도 존재해 YouTube 두 SELECT32,699→4,279행, 메타12,244→64행을 관측했다. 위 표는 단독 회귀 실행의 원본 수치다. 실행별 데이터 분모 차이를 동일 수치의 재현으로 바꾸지 않으며 공통으로 결과 동일성·SELECT 쓰기0·관련 INSERT+1행을 확인했다.
+
 ## 회귀·정책 검증
 
 - RED: idle6,007>12 → GREEN7; 미래 retry·expired/live/null lease와 진짜 partial/failed/skipped/throttled reconciliation 총계 보존.
@@ -51,6 +53,14 @@ Drizzle에서 생성했다. 기존 migration은 수정하지 않았고, 새 SQL�
 - 기존 작업 트리는 별도 open PR200을 소유하므로 새 native worktree를 사용했다. 잘못 분리하면 다른 PR 변경이 섞일 수 있어 branch base와 staged 파일을 확인한다.
 - 처음 전체 YouTube 두 SELECT에500행 상한을 잡았지만, 무관한 registry 대조 비용도 포함된 지표였다. 실제 entry별 원인을 확인해 메타 후보<200 및 전후 전체 비용 비교를 각각 검증한다. 정책 SQL을 줄이거나 전체 비용을 숨기지 않는다. 이 구분이 틀리면 개선률을 과장할 수 있으므로 원본 두 비용을 함께 보존한다.
 - 새 로컬 DB 초기화·doctor는 독립 리뷰와 병행하는 최종 검증으로 이동했다. 임시 D1 전체158개 migration 검증은 먼저 통과했다. PR 게시 전 doctor 통과 조건은 유지하며, 순서 조정이 실패를 숨기지 않도록 최종 결과를 별도 기록한다.
+- 독립 리뷰가 추가 개선 범위 밖으로 구분한 active run/registry 잔여 비용과 YouTube partial 근거 재설계는 유지한다. 잘못 판단하면 잔여 읽기가 남으므로 제거했다고 보고하지 않는다. 운영 구축량·일일5M·UI/provider 확인 및 별도 PR200은 명시적 승인 범위 밖이며, 잘못 확대하면 원격 변경 위험이 있어 이번 작업에서 수행하지 않는다.
+
+## 독립 리뷰와 현재 검증
+
+- `0391a5e9..bff8be5e`의 전체 변경을 독립 리뷰했다. material finding·유보 minor·authority drift 없음. 리뷰어 직접 재실행99건 PASS, 생성 snapshot/prevId/journal 순서와 축소 migration fixture 연결을 확인했다.
+- 임시 D1에 실제158개 numbered migration 적용 후 `--validate-only` PASS, 기존 로컬 DB 보존. 별도로 이 새 작업 트리에만 동일 체인을 적용해 로컬 DB를 초기화했다.
+- 관련75건, 타입 검사와 변경 코드 lint PASS. 독립 리뷰 후 최종 코드에서 `pnpm preflight`를 한 번 실행해 전체 PASS했다: architecture·타입·전체 lint·Vitest400파일/3,347건·Node 규칙 테스트10건·OTW build·로컬 D1 doctor·mirror check. 별도 LuvDia build도 PASS했다.
+- 검증 대상 구현 HEAD는 `bff8be5e`다. 이후 검증 결과 문서만 갱신하며 코드·설정·lockfile·migration 입력은 동일하다. 원본 로그는 작업 트리 `.tmp/d1-operations-read/`에 남긴다.
 
 ## 남는 한계
 
