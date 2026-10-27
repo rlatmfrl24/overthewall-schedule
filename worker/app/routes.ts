@@ -296,11 +296,12 @@ const handleXPosts = createXPostsHandler(buildXPostsApplication);
 const handleXActivity = createXActivityHandler(buildXActivityService);
 const handleManualXCollection = createManualXCollectionHandler(
   buildXPostsApplication,
-  (env, actor, idempotencyKey) =>
+  (env, actor, idempotencyKey, scope) =>
     new ScheduledRunClient(env).createManualRun(
       "x_collection",
       actor,
       idempotencyKey,
+      scope === "pending" ? {xCollectionScope: "pending"} : undefined,
     ),
 );
 const handleMemberPosts = createMemberPostsHandler({

@@ -327,6 +327,7 @@ export class D1ScheduledJobRepository {
     scheduledBucket?: string | null;
     scheduledFor?: number | null;
     actor?: ScheduledJobActor;
+    initialSummary?: Record<string, unknown>;
   }) {
     const now = this.clock();
     const id = this.createId();
@@ -334,8 +335,8 @@ export class D1ScheduledJobRepository {
       `INSERT INTO scheduled_job_runs (
          id, job_type, source, idempotency_key, scheduled_bucket, status,
          actor_id, actor_name, actor_ip, scheduled_for, accepted_at,
-         created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?)
+         created_at, updated_at, summary_json
+       ) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(idempotency_key) DO NOTHING`,
     ).bind(
       id,
@@ -350,6 +351,7 @@ export class D1ScheduledJobRepository {
       now,
       now,
       now,
+      input.initialSummary ? JSON.stringify(input.initialSummary) : null,
     ).run();
     const run = await this.readRunByIdempotencyKey(input.idempotencyKey);
     if (!run) throw new Error("scheduled_run_create_failed");

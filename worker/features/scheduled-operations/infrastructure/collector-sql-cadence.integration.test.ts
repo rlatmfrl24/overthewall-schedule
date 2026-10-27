@@ -13,6 +13,7 @@ import { hasScheduledYouTubeFeedWork, runScheduledYouTubeFeedCollection } from "
 import { D1NaverCafeApplication } from "../../naver-cafe/infrastructure/d1-naver-cafe-application";
 import { D1SharedXBudget, D1SharedXApiGateway } from "../../x-posts/infrastructure/x-shared-budget";
 import { clearXServiceCachesForTests } from "../../x-posts/infrastructure/x-api";
+import { clearActiveXHandlesCacheForTests } from "../../x-posts/infrastructure/d1-active-handles";
 
 const db = env.otw_db;
 const hour = 3_600_000;
@@ -30,6 +31,40 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(() => vi.restoreAllMocks());
+
+it("recovers only a pending X cursor within the shared budget without moving the site cadence", async () => {
+  const actual=Date.now(), day=new Date(actual).toISOString().slice(0,10);
+  const user="1607408138545950791", base="2114000000000000000", newest="2115000000000000001";
+  clearXServiceCachesForTests(); clearActiveXHandlesCacheForTests();
+  await db.batch([
+    ...["x_post_references","x_post_facts","x_posts","x_post_sources","x_api_cache","x_api_usage_events","x_api_usage_daily","x_api_resource_daily","scheduled_usage_daily","x_shared_requests","x_shared_budgets"].map(table=>db.prepare("DELETE FROM "+table)),
+    db.prepare("UPDATE members SET url_twitter=NULL"),
+    ...[["x_collection_enabled","true"],["x_cost_optimizer_enabled","true"],["x_collection_interval_hours","24"],["x_reference_preview_mode","link_only"],["x_collection_daily_budget_cents","100"],["x_collection_last_run","123456"]].map(([key,value])=>db.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key,value)),
+    ...["pending_member","other_member"].map((handle,i)=>db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(?,?,?,?) ON CONFLICT(uid) DO UPDATE SET url_twitter=excluded.url_twitter").bind(902000+i,handle,handle,"https://x.com/"+handle)),
+    db.prepare("INSERT INTO x_post_sources(handle,user_id,last_seen_post_id,last_checked_at,next_check_at,collection_started_at,initialization_completed_at,updated_at,sync_pagination_token,sync_base_post_id,sync_newest_post_id) VALUES('pending_member',?,?,0,0,1,1,0,'page-two',?,?)").bind(user,base,base,newest),
+    db.prepare("INSERT INTO x_post_sources(handle,last_checked_at,next_check_at,updated_at) VALUES('other_member',0,0,0)"),
+    db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES('x:user:v1:pending_member','user',?,?,?)").bind(JSON.stringify({user:{id:user,username:"pending_member"}}),actual,actual+hour),
+  ]);
+  await new D1SharedXBudget(db).initialize([{day,used:250000,reserved:0},{day,used:0,reserved:0}]);
+  const calls=vi.spyOn(globalThis,"fetch").mockImplementation(async input=>{
+    const url=new URL(String(input));
+    expect(url.pathname).toBe(`/2/users/${user}/tweets`);
+    expect(url.searchParams.get("pagination_token")).toBe("page-two");
+    return Response.json({data:[{id:newest,author_id:user,text:"pending page",created_at:new Date(actual-60000).toISOString()}]});
+  });
+  const application={...runtime(),SITE_ID:"otw",X_BEARER_TOKEN:"local-test",X_API_GATEWAY:new D1SharedXApiGateway({db,site:"otw",token:"local-test",admitD1:async()=>true})} as Env;
+  const repository=new D1ScheduledJobRepository(db),planner=new ScheduledJobPlanner(application,repository),executor=new ScheduledJobExecutor(application,repository);
+  const run=await repository.createRun({jobType:"x_collection",source:"manual",idempotencyKey:"pending-only:"+actual,initialSummary:{xCollectionScope:"pending"}});
+  const items=await planner.plan(run);expect(items).toHaveLength(1);
+  const item=await repository.claimItem(items[0]);expect(JSON.parse(item!.continuation_json!)).toEqual({handles:["pending_member"]});
+  const outcome=await executor.execute(item!);expect(outcome.status).toBe("succeeded");
+  await repository.completeItem(item!,outcome);await executor.finalizeLegacyState(run.id);
+  expect(calls).toHaveBeenCalledTimes(1);
+  expect(await db.prepare("SELECT sync_pagination_token,last_seen_post_id FROM x_post_sources WHERE handle='pending_member'").first()).toEqual({sync_pagination_token:null,last_seen_post_id:newest});
+  expect(await db.prepare("SELECT COUNT(*) AS n FROM x_posts WHERE handle='pending_member'").first("n")).toBe(1);
+  expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_last_run'").first("value")).toBe("123456");
+  expect((await new D1SharedXBudget(db).read()).used).toBeLessThanOrEqual(1000000);
+});
 
 it("recovers affordable X accounts and retries blocked ranges at the next 24-hour scheduled run", async () => {
   let actual = Date.parse("2026-10-27T04:53:00Z");

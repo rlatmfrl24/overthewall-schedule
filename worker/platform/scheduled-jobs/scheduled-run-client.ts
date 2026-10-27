@@ -57,6 +57,7 @@ export class ScheduledRunClient {
     jobType: ScheduledJobType,
     actor: ScheduledJobActor,
     requestedIdempotencyKey?: string | null,
+    initialSummary?: Record<string, unknown>,
   ): Promise<OperationRunAcceptedDto> {
     const idempotencyKey = requestedIdempotencyKey?.trim() ||
       `manual:${jobType}:${crypto.randomUUID()}`;
@@ -65,7 +66,11 @@ export class ScheduledRunClient {
       source: "manual",
       idempotencyKey,
       actor,
+      initialSummary,
     });
+    if ((initialSummary?.xCollectionScope === "pending") !== (run.job_type === "x_collection" && typeof run.summary_json === "string" && JSON.parse(run.summary_json)?.xCollectionScope === "pending")) {
+      throw new Error("scheduled_run_scope_conflict");
+    }
     let acceptedRun = run;
     if (["failed", "partial", "throttled"].includes(run.status)) {
       const retry = await this.repository.retryRun(run.id);

@@ -53,9 +53,10 @@ export function XCollectionBudget({ health }: { health: XReferenceHydrationHealt
   </Card>;
 }
 
-export function XCollectionOverview({ operations, loading, error, latestRun, runsLoading, runsError, runsUpdatedAt, enabled }: {
+export function XCollectionOverview({ operations, loading, error, latestRun, runsLoading, runsError, runsUpdatedAt, enabled, onRunPending, isRunning }: {
   operations: OperationsStatusResponse | null; loading: boolean; error: boolean;
   latestRun: OperationRunDto | undefined; runsLoading: boolean; runsError: boolean; runsUpdatedAt: number; enabled: boolean;
+  onRunPending?: () => void; isRunning?: boolean;
 }) {
   const query = useXReferenceHealth();
   const activity=useXActivityStatus();
@@ -97,7 +98,7 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
             <div className="grid gap-1 sm:grid-cols-2"><p>공통 첫 페이지 예상 예약 <strong>{money(recoveryBudget.firstPagesMicros)}</strong></p><p>사용 가능 <strong>{money(recoveryBudget.availableMicros)}</strong></p></div>
             <p>사이트 보호 예약 {money(recoveryBudget.siteFirstPagesMicros)}</p>
             <p>대상 {recoveryBudget.targetCount}개 · 신규 스캔 계정당 {recoveryBudget.pageSize}개 · 기본 페이지 예약 {money(recoveryBudget.perPageMicros)}</p>
-            {!!activity.data?.recovery?.pendingSources&&<p>이월 커서 {activity.data.recovery.pendingSources}개는 계정당 {recoveryBudget.continuationPageSize}개 요청으로 포함했습니다.</p>}
+            {!!activity.data?.recovery?.pendingSources&&<div className="space-y-1"><p>이월 커서 {activity.data.recovery.pendingSources}개는 계정당 {recoveryBudget.continuationPageSize}개 요청으로 포함했습니다.</p><p>다음 페이지당 공통 예약 {money(recoveryBudget.perPageMicros * recoveryBudget.continuationPageSize / recoveryBudget.pageSize)} (계정 갱신·보강 별도)</p><Button variant="outline" size="sm" onClick={onRunPending} disabled={!onRunPending || !enabled || isRunning || activity.isError || activity.isFetching || recoveryBudget.sharedRemainingMicros < recoveryBudget.perPageMicros * recoveryBudget.continuationPageSize / recoveryBudget.pageSize}>미완료 페이지만 복구</Button></div>}
             <p className="text-muted-foreground">공통 잔여 {money(recoveryBudget.sharedRemainingMicros)} · 사이트 보호 잔여 {money(recoveryBudget.siteRemainingMicros)} · 계정 캐시 갱신 상한 {money(recoveryBudget.identityMicros)} 포함</p>
             {!activity.isError&&!activity.isFetching&&(recoveryBudget.firstPagesMicros>recoveryBudget.sharedRemainingMicros||recoveryBudget.siteFirstPagesMicros>recoveryBudget.siteRemainingMicros)&&<p role="alert">공통 또는 사이트 예상 예약액이 해당 잔여액보다 큽니다. 실제 요청별 잔여 예산을 확인하며 진행합니다.</p>}
           </>:<p>{activity.isPending?"REST 예산 산정 중":"REST 필요액·잔여액 확인 불가 · 웹훅 상태와 공통 장부를 새로고침해주세요."}</p>}

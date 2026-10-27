@@ -221,6 +221,7 @@ export function MemberPostSettingsManager({
       queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.memberPosts.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.all }),
+      queryClient.invalidateQueries({ queryKey: xActivityQueryKey }),
     ]);
   }, [collectionRunQuery.data, queryClient]);
 
@@ -411,11 +412,11 @@ export function MemberPostSettingsManager({
     }
   };
 
-  const handleRunXCollectionNow = async () => {
+  const handleRunXCollectionNow = async (scope?: "pending") => {
     if (!settings) return;
     setIsRunningCollection(true);
     try {
-      const accepted = await runXCollectionNow();
+      const accepted = await runXCollectionNow(scope);
       setCollectionRun(accepted);
       void queryClient.invalidateQueries({ queryKey: queryKeys.operations.runs() });
       toast({
@@ -649,6 +650,7 @@ export function MemberPostSettingsManager({
               operationsUpdatedAt={operationsQuery.dataUpdatedAt}
               onReloadOperations={loadSettings}
               onRunXCollection={settings ? () => void handleRunXCollectionNow() : undefined}
+              onRunXPending={settings ? () => void handleRunXCollectionNow("pending") : undefined}
               xActivity={<XActivityManager />}
               isRunningXCollection={isRunningCollection || (
                 collectionRun?.jobType === "x_collection" &&

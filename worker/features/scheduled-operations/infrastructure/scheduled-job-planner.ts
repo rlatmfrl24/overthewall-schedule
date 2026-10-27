@@ -43,6 +43,7 @@ const planXCollection = async (
   env: Env,
   source: ScheduledJobRunRecord["source"],
   timestamp: number,
+  pendingOnly = false,
 ): Promise<NewScheduledItem[]> => {
   const rows = await env.otw_db.prepare(
     `SELECT value FROM settings WHERE key = 'x_collection_enabled'`,
@@ -55,7 +56,13 @@ const planXCollection = async (
     );
     if (!decision.shouldRun) return [];
   }
-  const handles = await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID));
+  let handles = await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID));
+  if (pendingOnly && handles.length) {
+    const pending = await env.otw_db.prepare("SELECT handle FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_pagination_token IS NOT NULL")
+      .bind(JSON.stringify(handles)).all<{handle:string}>();
+    const pendingHandles = new Set(pending.results.map(row => row.handle));
+    handles = handles.filter(handle => pendingHandles.has(handle));
+  }
   return chunk(handles, 4).map((shard, index) => ({
     targetKey: `handles:${index}:${shard.join(",")}`,
     phase: "collect",
@@ -285,7 +292,8 @@ export class ScheduledJobPlanner {
 
   async plan(run: ScheduledJobRunRecord) {
     const timestamp = run.scheduled_for ?? Date.now();
-    const items = await this.buildItems(
+    const pendingOnly = run.job_type === "x_collection" && run.source === "manual" && typeof run.summary_json === "string" && JSON.parse(run.summary_json)?.xCollectionScope === "pending";
+    const items = pendingOnly ? await planXCollection(this.env, run.source, timestamp, true) : await this.buildItems(
       run.job_type,
       run.source,
       timestamp,

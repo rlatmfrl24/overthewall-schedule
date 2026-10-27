@@ -523,7 +523,7 @@ export class ScheduledJobExecutor {
       return;
     }
     const completedAt = String(run.finishedAt ?? Date.now());
-    if (run.jobType === "x_collection") {
+    if (run.jobType === "x_collection" && run.summary?.xCollectionScope !== "pending") {
       await recordXCollectionCompletion(this.env, { completedAt: Number(completedAt), source: run.source,
         scheduledFor: run.scheduledFor, successful: run.status === "succeeded" });
     } else if (run.jobType === "naver_cafe_collection") {

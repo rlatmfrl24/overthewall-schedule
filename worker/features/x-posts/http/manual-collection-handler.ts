@@ -13,6 +13,7 @@ export type EnqueueManualXCollection = (
   env: Env,
   actor: ReturnType<typeof getActorInfo>,
   idempotencyKey: string | null,
+  scope?: "pending",
 ) => Promise<OperationRunAcceptedDto>;
 
 export const createManualXCollectionHandler =
@@ -37,6 +38,8 @@ export const createManualXCollectionHandler =
 
   const admin = await requireAdminUser(request, env);
   if (!admin.ok) return admin.response;
+  const scope = url.searchParams.get("scope");
+  if (scope !== null && scope !== "pending") return new Response("Invalid collection scope", {status: 400});
   const actor = getActorInfo(request, admin.user);
   void buildApplication;
   try {
@@ -44,6 +47,7 @@ export const createManualXCollectionHandler =
       env,
       actor,
       request.headers.get("Idempotency-Key"),
+      ...(scope === "pending" ? ["pending" as const] : []),
     );
     return Response.json(accepted, {
       status: 202,
