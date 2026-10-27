@@ -7,8 +7,8 @@ import type { XActivityStatusDto } from "@contracts/x-activity";
 import { OperationsHome } from "./operations-home";
 
 const { fetchActivity, fetchReferences } = vi.hoisted(() => ({ fetchActivity: vi.fn(), fetchReferences: vi.fn() }));
-vi.mock("@/features/operations",()=>({OperationsDashboard:({onRefresh,xWebhook,xWebhookIssue}:{onRefresh:()=>void;xWebhook:ReactNode;xWebhookIssue?:{message:string}})=>createElement("main",null,
-  createElement("button",{onClick:onRefresh},"상태 새로고침"),xWebhook,xWebhookIssue&&createElement("p",{"data-testid":"issue"},xWebhookIssue.message))}));
+vi.mock("@/features/operations",()=>({OperationsDashboard:({onRefresh,xWebhook,xWebhookIssue,xRestPendingSources}:{onRefresh:()=>void;xWebhook:ReactNode;xWebhookIssue?:{message:string};xRestPendingSources?:number|null})=>createElement("main",null,
+  createElement("button",{onClick:onRefresh},"상태 새로고침"),xWebhook,xWebhookIssue&&createElement("p",{"data-testid":"issue"},xWebhookIssue.message),createElement("p",{"data-testid":"rest-pending"},String(xRestPendingSources)))}));
 vi.mock("@/features/member-posts",async()=>({
   fetchXHistoryHealth:fetchReferences,xReferenceHealthQueryKey:["references"],
   ...await import("@/features/member-posts/queries/use-x-activity-status"),
@@ -43,4 +43,16 @@ it("shows dashboard lookup failure and previous values without claiming current 
   expect(screen.getByText(/이전 확인/)).toBeTruthy();
   expect(screen.queryByText(/^구독 정상/)).toBeNull();
   expect(screen.getByTestId("issue").textContent).toContain("현재 웹훅 상태를 조회하지 못했습니다");
+});
+
+it("refreshes pending REST cursors and does not use stale data after a lookup failure",async()=>{
+  fetchActivity.mockResolvedValue({...normal,recovery:{intervalHours:24,lastSuccessAt:null,pendingSources:1}});
+  render(createElement(OperationsHome),{wrapper:createQueryWrapper()});
+  await waitFor(()=>expect(screen.getByTestId("rest-pending").textContent).toBe("1"));
+  fetchActivity.mockResolvedValue({...normal,recovery:{intervalHours:24,lastSuccessAt:null,pendingSources:0}});
+  fireEvent.click(screen.getByRole("button",{name:"상태 새로고침"}));
+  await waitFor(()=>expect(screen.getByTestId("rest-pending").textContent).toBe("0"));
+  fetchActivity.mockRejectedValueOnce(new Error("offline"));
+  fireEvent.click(screen.getByRole("button",{name:"상태 새로고침"}));
+  await waitFor(()=>expect(screen.getByTestId("rest-pending").textContent).toBe("null"));
 });

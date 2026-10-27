@@ -316,6 +316,19 @@ describe("OperationsDashboard", () => {
     expect(screen.queryByText(/X 신규 게시물의 피드 반영이 늦어질 수 있습니다/)).toBeNull();
   });
 
+  it("shows an unfinished REST continuation until the pending cursor is cleared", async () => {
+    const view = render(<OperationsDashboard view="home" xRestPendingSources={1} />, {wrapper: createQueryWrapper()});
+    const card = (await screen.findByRole("heading", {name: "X REST 누락 복구"})).closest("article")!;
+    expect(within(card).getByText("주의")).toBeTruthy();
+    expect(screen.getByText(/REST 누락 복구의 다음 페이지가 1개 남아 있습니다/)).toBeTruthy();
+    view.rerender(<OperationsDashboard view="home" xRestPendingSources={0} />);
+    expect(within(card).getByText("정상")).toBeTruthy();
+    expect(screen.queryByText(/REST 누락 복구의 다음 페이지가 1개 남아 있습니다/)).toBeNull();
+    view.rerender(<OperationsDashboard view="home" xRestPendingSources={null} />);
+    expect(within(card).getByText("주의")).toBeTruthy();
+    expect(screen.getByText(/REST 누락 복구의 미완료 페이지를 확인하지 못했습니다/)).toBeTruthy();
+  });
+
   it("keeps zero outbox neutral while calling out stale leases", async () => {
     render(createElement(OperationsDashboard), { wrapper: createQueryWrapper() });
 
