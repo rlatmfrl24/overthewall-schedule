@@ -265,6 +265,7 @@ export const runXCollectionForHandles = async (
   handles: string[],
   source: XCollectionSource,
   scheduledFor?: number | null,
+  pendingOnly = false,
 ): Promise<XCollectionRunResult> => {
   if (getHiddenMemberCodes(parseSiteId(env.SITE_ID), Date.now()).length) {
     const allowed = new Set(await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID)));
@@ -273,11 +274,18 @@ export const runXCollectionForHandles = async (
   const policy = await resolveXEffectiveCollectionPolicy(env);
   const lease = await claimXSourceLeases(env, handles, Date.now());
   try {
-    if (lease.claimed.length) {
+    let claimed = lease.claimed;
+    if (pendingOnly && claimed.length) {
+      const pending = await env.otw_db.prepare("SELECT handle FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_pagination_token IS NOT NULL")
+        .bind(JSON.stringify(claimed)).all<{handle:string}>();
+      const pendingHandles = new Set(pending.results.map(row => row.handle));
+      claimed = claimed.filter(handle => pendingHandles.has(handle));
+    }
+    if (claimed.length) {
       await backfillXPostFactsFromStoredPosts(env.otw_db,parseSiteId(env.SITE_ID),100);
       await backfillXPostReferencesFromStoredPosts(env.otw_db,parseSiteId(env.SITE_ID),100);
     }
-    const result = await collectXPostsForHandles(lease.claimed, {
+    const result = await collectXPostsForHandles(claimed, {
       gateway: env.X_API_GATEWAY ?? unavailableXApiGateway,
       bearerToken: env.X_BEARER_TOKEN,
       cacheDb: env.otw_db,
@@ -292,11 +300,11 @@ export const runXCollectionForHandles = async (
       effectiveIntervalMinutes: policy.effectiveIntervalMinutes,
       referencePreviewMode: policy.referencePreviewMode,
       coalescedHandles: lease.coalesced,
-      afterTimeline: (tracker) => hydrateXReferences({ db: env.otw_db,siteId:parseSiteId(env.SITE_ID), handles: lease.claimed,
+      afterTimeline: (tracker) => hydrateXReferences({ db: env.otw_db,siteId:parseSiteId(env.SITE_ID), handles: claimed,
         bearerToken: env.X_BEARER_TOKEN ?? "shared-gateway", mode: policy.referencePreviewMode, tracker }),
     });
-    const pendingSources=lease.claimed.length ? await env.otw_db.prepare("SELECT COUNT(*) AS count FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_pagination_token IS NOT NULL")
-      .bind(JSON.stringify(lease.claimed)).first<number>("count") : 0;
+    const pendingSources=claimed.length ? await env.otw_db.prepare("SELECT COUNT(*) AS count FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_pagination_token IS NOT NULL")
+      .bind(JSON.stringify(claimed)).first<number>("count") : 0;
     return normalizeCollectionResult({
       ...result,
       pendingSources:Number(pendingSources??0),

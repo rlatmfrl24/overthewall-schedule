@@ -42,7 +42,7 @@ it("recovers only a pending X cursor within the shared budget without moving the
     ...[["x_collection_enabled","true"],["x_cost_optimizer_enabled","true"],["x_collection_interval_hours","24"],["x_reference_preview_mode","link_only"],["x_collection_daily_budget_cents","100"],["x_collection_last_run","123456"]].map(([key,value])=>db.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key,value)),
     ...["pending_member","other_member"].map((handle,i)=>db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(?,?,?,?) ON CONFLICT(uid) DO UPDATE SET url_twitter=excluded.url_twitter").bind(902000+i,handle,handle,"https://x.com/"+handle)),
     db.prepare("INSERT INTO x_post_sources(handle,user_id,last_seen_post_id,last_checked_at,next_check_at,collection_started_at,initialization_completed_at,updated_at,sync_pagination_token,sync_base_post_id,sync_newest_post_id) VALUES('pending_member',?,?,0,0,1,1,0,'page-two',?,?)").bind(user,base,base,newest),
-    db.prepare("INSERT INTO x_post_sources(handle,last_checked_at,next_check_at,updated_at) VALUES('other_member',0,0,0)"),
+    db.prepare("INSERT INTO x_post_sources(handle,last_checked_at,next_check_at,updated_at,sync_pagination_token) VALUES('other_member',0,0,0,'other-page')"),
     db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES('x:user:v1:pending_member','user',?,?,?)").bind(JSON.stringify({user:{id:user,username:"pending_member"}}),actual,actual+hour),
   ]);
   await new D1SharedXBudget(db).initialize([{day,used:250000,reserved:0},{day,used:0,reserved:0}]);
@@ -56,7 +56,8 @@ it("recovers only a pending X cursor within the shared budget without moving the
   const repository=new D1ScheduledJobRepository(db),planner=new ScheduledJobPlanner(application,repository),executor=new ScheduledJobExecutor(application,repository);
   const run=await repository.createRun({jobType:"x_collection",source:"manual",idempotencyKey:"pending-only:"+actual,initialSummary:{xCollectionScope:"pending"}});
   const items=await planner.plan(run);expect(items).toHaveLength(1);
-  const item=await repository.claimItem(items[0]);expect(JSON.parse(item!.continuation_json!)).toEqual({handles:["pending_member"]});
+  await db.prepare("UPDATE x_post_sources SET sync_pagination_token=NULL WHERE handle='other_member'").run();
+  const item=await repository.claimItem(items[0]);expect(JSON.parse(item!.continuation_json!).handles).toEqual(expect.arrayContaining(["pending_member","other_member"]));
   const outcome=await executor.execute(item!);expect(outcome.status).toBe("succeeded");
   await repository.completeItem(item!,outcome);await executor.finalizeLegacyState(run.id);
   expect(calls).toHaveBeenCalledTimes(1);

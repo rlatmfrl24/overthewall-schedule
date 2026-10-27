@@ -314,7 +314,8 @@ export class ScheduledJobExecutor {
           throw new Error("invalid_x_collection_shard");
         }
         return toXCollectionOutcome(
-          await runXCollectionForHandles(this.env, handles, run.source, run.scheduled_for),
+          await runXCollectionForHandles(this.env, handles, run.source, run.scheduled_for,
+            run.source === "manual" && typeof run.summary_json === "string" && JSON.parse(run.summary_json)?.xCollectionScope === "pending"),
         );
       }
       case "naver_cafe_collection": {
