@@ -1,0 +1,2 @@
+CREATE INDEX `idx_member_links_youtube_owner` ON `member_links` (`youtube_channel_id`,`member_uid`);--> statement-breakpoint
+CREATE INDEX `idx_members_youtube_channel` ON `members` (`youtube_channel_id`);

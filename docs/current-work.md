@@ -10,6 +10,15 @@
 이번 SQL 범위는 PR까지이며 운영 D1/업무 API·강제 수집·원격 migration·병합·배포·설정 변경은 하지 않는다.
 별도로 승인된 UTC10/28 자연 webhook/24시간 REST 관측은 읽기 전용이며 SQL 수정/배포 권한을 갖지 않는다.
 
+## D1 Operations 조회 개선 — 2026-10-27
+
+사용자가 유휴 큐·최신 성공 조회·YouTube 소유권 인덱스의 순차 구현·로컬 검증·PR 게시를 승인했다.
+[계획](superpowers/plans/2026-10-27-d1-operations-read.md)과 [비용·검증 기록](reports/2026-10-27-d1-operations-read.md)을 따른다.
+큐의 정확한 총계·전역 stale lease·미래 재시도, finished_at 기준과 진짜 YouTube partial/outbox 근거, 공유 소유자·이관 fence와 최종 쓰기 guard를 유지한다.
+계정 UTC일5M/배경4M 및 더 엄격한 제한, Play/AI중지·공개/권한 정책·주기 설정은 변경하지 않는다.
+이번 범위는 별도 PR까지이며 운영 D1/업무 API·강제 수집·원격 migration·병합·배포·자동화 변경을 하지 않는다.0157–0158은 로컬 생성·검증만 수행한다.
+세 구현·비용 회귀·독립 리뷰를 완료했다. 최종 preflight 전체3,347건·양 사이트 빌드·로컬 D1 doctor·migration158개 체인이 통과했다. 실제 운영 절감량과 구축 비용은 미확정이다.
+
 ## X REST 이월 확인·구독 목록 범위 — 2026-10-27
 
 사용자가 정기 REST 부분 처리/다음 날 재개 확인과 LuvDia 과거 실패 설명, 구독 설정의 OTW 멤버 혼입 수정을 요청했다.
