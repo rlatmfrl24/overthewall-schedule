@@ -115,13 +115,13 @@ export function NoticeBanner({
 
   return (
     <div className="h-full w-full" data-snapshot-exclude="true">
-      <div className="group/banner relative h-full min-h-12 overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm transition-colors hover:border-foreground/20">
+      <div className="group/banner relative flex h-full min-h-14 items-center overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm transition-colors hover:border-foreground/20">
         <div
           className={cn("absolute inset-y-0 left-0 w-1", noticeConfig.accentClass)}
           aria-hidden="true"
         />
 
-        <div className="flex h-full min-h-12 items-center gap-2 py-2 pl-3 pr-2 sm:pl-4 sm:pr-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-3 pr-2 sm:pl-4 sm:pr-3">
           <Link
             to="/notice"
             search={{ noticeId: undefined }}
@@ -164,7 +164,7 @@ export function NoticeBanner({
                   >
                     {noticeConfig.label}
                   </span>
-                  <span className="min-w-0 truncate text-[13px] font-semibold text-foreground sm:text-sm">
+                  <span className="min-w-0 truncate text-[13px] font-semibold text-foreground sm:text-sm" title={currentNotice.content}>
                     {currentNotice.content}
                   </span>
                   {opensDirectly ? (
