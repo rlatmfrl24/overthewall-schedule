@@ -4002,6 +4002,9 @@ export const scheduledJobRuns = sqliteTable(
     index("idx_scheduled_job_runs_status_accepted").on(table.status, sql`${table.accepted_at} DESC`, sql`${table.id} DESC`),
     index("idx_scheduled_job_runs_accepted").on(sql`${table.accepted_at} DESC`, sql`${table.id} DESC`),
     index("idx_scheduled_job_runs_job_accepted").on(table.job_type, sql`${table.accepted_at} DESC`, sql`${table.id} DESC`),
+    index("idx_scheduled_job_runs_success_finished")
+      .on(table.job_type, sql`${table.finished_at} DESC`, sql`${table.id} DESC`)
+      .where(sql`${table.status} = 'succeeded' AND ${table.finished_at} IS NOT NULL`),
     uniqueIndex("uidx_scheduled_job_runs_idempotency").on(
       table.idempotency_key,
     ),

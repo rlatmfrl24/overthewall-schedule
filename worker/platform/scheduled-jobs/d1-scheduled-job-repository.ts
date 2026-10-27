@@ -1204,15 +1204,18 @@ export class D1ScheduledJobRepository {
 
   async readLatestSuccessfulRunTimes() {
     const rows = await this.db.prepare(
-      `SELECT job_type AS jobType, MAX(finished_at) AS latestSuccessAt
-       FROM scheduled_job_runs
-       WHERE job_type IN (${scheduledJobTypes.map(() => "?").join(", ")})
-         AND status = 'succeeded' AND finished_at IS NOT NULL
-         AND (job_type <> 'youtube_feed_collection' OR NOT EXISTS(
-           SELECT 1 FROM scheduled_job_items item WHERE item.run_id=scheduled_job_runs.id AND item.status='partial'
-         ))
-       GROUP BY job_type`,
-    ).bind(...scheduledJobTypes).all<{
+      `SELECT r.job_type AS jobType, r.finished_at AS latestSuccessAt
+       FROM json_each(?) requested CROSS JOIN scheduled_job_runs r
+       WHERE r.rowid = (
+         SELECT candidate.rowid FROM scheduled_job_runs candidate
+         WHERE candidate.job_type = requested.value
+           AND candidate.status = 'succeeded' AND candidate.finished_at IS NOT NULL
+           AND (candidate.job_type <> 'youtube_feed_collection' OR NOT EXISTS(
+             SELECT 1 FROM scheduled_job_items item WHERE item.run_id=candidate.id AND item.status='partial'
+           ))
+         ORDER BY candidate.finished_at DESC, candidate.id DESC LIMIT 1
+       ) ORDER BY r.job_type`,
+    ).bind(JSON.stringify(scheduledJobTypes)).all<{
       jobType: ScheduledJobType;
       latestSuccessAt: number | string;
     }>();

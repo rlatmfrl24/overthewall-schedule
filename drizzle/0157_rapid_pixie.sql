@@ -1,0 +1,1 @@
+CREATE INDEX `idx_scheduled_job_runs_success_finished` ON `scheduled_job_runs` (`job_type`,"finished_at" DESC,"id" DESC) WHERE "scheduled_job_runs"."status" = 'succeeded' AND "scheduled_job_runs"."finished_at" IS NOT NULL;

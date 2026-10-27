@@ -37,6 +37,45 @@ beforeEach(async () => {
 });
 
 describe("D1 scheduled job state machine", () => {
+  it("bounds latest-success reads by job type while preserving completion order and missing jobs", async () => {
+    await db.prepare(`WITH RECURSIVE history(n) AS (
+      VALUES (1) UNION ALL SELECT n+1 FROM history WHERE n<4000
+    ) INSERT INTO scheduled_job_runs (
+      id,job_type,source,idempotency_key,status,accepted_at,finished_at,created_at,updated_at
+    ) SELECT 'success-'||n,CASE WHEN n%2=0 THEN 'x_collection' ELSE 'naver_cafe_collection' END,
+      'scheduled','success-'||n,'succeeded',?+n,?+n,?,?+n FROM history`)
+      .bind(timestamp,timestamp,timestamp,timestamp).run();
+    const insert = (id: string, status: string, accepted: number, finished: number | null) => db.prepare(`
+      INSERT INTO scheduled_job_runs(id,job_type,source,idempotency_key,status,accepted_at,finished_at,created_at,updated_at)
+      VALUES(?,'x_collection','scheduled',?,?,?,?,?,?)`)
+      .bind(id,id,status,accepted,finished,timestamp,timestamp+10_000);
+    await db.batch([
+      insert('older-accepted-last-finished','succeeded',timestamp+1,timestamp+6000),
+      insert('newer-accepted-earlier-finished','succeeded',timestamp+7000,timestamp+5000),
+      insert('failed','failed',timestamp+8000,timestamp+9000),
+      insert('partial','partial',timestamp+8001,timestamp+9001),
+      insert('unfinished','succeeded',timestamp+8002,null),
+    ]);
+    const measured=meterD1(db);
+    expect(await new D1ScheduledJobRepository(measured.db).readLatestSuccessfulRunTimes()).toEqual([
+      {jobType:'naver_cafe_collection',latestSuccessAt:timestamp+3999},
+      {jobType:'x_collection',latestSuccessAt:timestamp+6000},
+    ]);
+    console.info('LATEST_SUCCESS_D1_COST',JSON.stringify(measured.summary()));
+    expect(measured.summary().rowsRead).toBeLessThan(50);
+    expect(measured.summary().rowsWritten).toBe(0);
+
+    const indexName='idx_scheduled_job_runs_success_finished';
+    const indexSql=await db.prepare("SELECT sql FROM sqlite_master WHERE name=?").bind(indexName).first<string>('sql');
+    expect(indexSql).toBeTruthy();
+    await db.prepare(`DROP INDEX ${indexName}`).run();
+    const before=await insert('before-index','succeeded',timestamp,timestamp).run();
+    const build=await db.prepare(indexSql!).run();
+    const after=await insert('after-index','succeeded',timestamp,timestamp).run();
+    console.info('LATEST_SUCCESS_INDEX_COST',JSON.stringify({build:build.meta,insertBefore:before.meta,insertAfter:after.meta}));
+    expect(after.meta.rows_written-before.meta.rows_written).toBe(1);
+  });
+
   it.each([true,false])("replaces retry match targets atomically and permits an empty new plan: %s",async(hasTargets)=>{
     const repository=createRepository();
     const run=await repository.createRun({jobType:"schedule_auto_update",source:"manual",idempotencyKey:"retry-plan"});
