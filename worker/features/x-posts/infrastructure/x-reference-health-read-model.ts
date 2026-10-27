@@ -16,28 +16,38 @@ const normalDeferral = new Set(["", "budget_exceeded", "preview_budget_exceeded"
 
 /** One read of persisted relation state; no provider calls, repairs or budget reservations. */
 export async function readXReferenceHealthCounts(db: Pick<D1Database, "prepare">) {
+  // Group before stage fan-out; CROSS JOIN filters settled references before parent lookups.
   const rows = await db.prepare(`
-    WITH visible_references AS (
-      SELECT r.*, p.value AS post_value FROM x_post_references r JOIN x_posts p ON p.id = r.source_post_id
+    WITH grouped AS MATERIALIZED (
+      SELECT r.relation_type AS relation, r.resolution_state, r.hydrated_at IS NULL AS needs_body,
+        r.author_state, r.last_error_code AS post_code, r.author_last_error_code AS author_code,
+        CASE WHEN r.relation_type='reply' AND r.resolution_state<>'terminal' THEN
+          CASE WHEN json_valid(p.value) AND json_extract(p.value,'$.reply.post.id')=r.referenced_post_id
+            THEN 'preview' ELSE 'link' END END AS reply_display,
+        COUNT(*) AS amount, MIN(r.created_at) AS oldest,
+        MIN(r.next_attempt_at) AS post_next, MIN(r.author_next_attempt_at) AS author_next
+      FROM x_post_references r CROSS JOIN x_posts p ON p.id=r.source_post_id
       WHERE p.hidden_at IS NULL AND p.content_removed_at IS NULL
+        AND (r.relation_type='reply' OR r.resolution_state='terminal'
+          OR (r.relation_type='quote' AND (
+            (r.resolution_state IN ('pending','local','link_only') AND r.hydrated_at IS NULL)
+            OR (r.author_state='pending' AND r.resolution_state<>'terminal'))))
+      GROUP BY relation, r.resolution_state, needs_body, r.author_state, post_code, author_code, reply_display
     ), stages AS (
-      SELECT relation_type AS relation, 'post' AS stage,
-        CASE WHEN resolution_state = 'terminal' THEN 'terminal' ELSE 'pending' END AS state,
-        last_error_code AS code, created_at, next_attempt_at AS next
-      FROM visible_references
-      WHERE resolution_state = 'terminal'
-        OR (relation_type='quote' AND resolution_state IN ('pending', 'local', 'link_only') AND hydrated_at IS NULL)
+      SELECT relation, 'post' AS stage,
+        CASE WHEN resolution_state='terminal' THEN 'terminal' ELSE 'pending' END AS state,
+        post_code AS code, amount, oldest, post_next AS next
+      FROM grouped WHERE resolution_state='terminal'
+        OR (relation='quote' AND resolution_state IN ('pending','local','link_only') AND needs_body)
       UNION ALL
-      SELECT relation_type, 'author', 'pending', author_last_error_code, created_at, author_next_attempt_at
-      FROM visible_references WHERE relation_type='quote' AND author_state = 'pending' AND resolution_state <> 'terminal'
+      SELECT relation, 'author', 'pending', author_code, amount, oldest, author_next
+      FROM grouped WHERE relation='quote' AND author_state='pending' AND resolution_state<>'terminal'
       UNION ALL
-      SELECT relation_type, 'post',
-        CASE WHEN json_valid(post_value) AND json_extract(post_value,'$.reply.post.id')=referenced_post_id
-          THEN 'preview' ELSE 'link' END, NULL, created_at, NULL
-      FROM visible_references WHERE relation_type='reply' AND resolution_state<>'terminal'
+      SELECT relation, 'post', reply_display, NULL, amount, oldest, NULL
+      FROM grouped WHERE relation='reply' AND resolution_state<>'terminal'
     )
-    SELECT relation, stage, state, code, COUNT(*) AS count,
-      MIN(created_at) AS oldest, MIN(next) AS next
+    SELECT relation, stage, state, code, SUM(amount) AS count,
+      MIN(oldest) AS oldest, MIN(next) AS next
     FROM stages GROUP BY relation, stage, state, code
     ORDER BY relation, stage, state, code
   `).all<Group>();
