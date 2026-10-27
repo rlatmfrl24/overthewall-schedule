@@ -52,7 +52,7 @@ Account-wide UTC-day reads5M; background4M and stricter existing limits. Play/AI
 - [ ] Add D1 cost/policy regression with irrelevant member/link growth, OTW shared remaining owners, LuvDia and fences. Expected: existing reverse lookups exceed the ceiling.
 - [ ] Add only the two canonical indexes and generate migration; preserve policy query and final write guard.
 - [ ] Run related collector/YouTube/publication checks. Expected: PASS with actual local rows_read/rows_written and index plan evidence.
-- [ ] Validate full migration chain using `pnpm d1:reset:local -- --validate-only`; initialize only this fresh worktree's local DB for doctor. Expected: chain/doctor PASS, no remote access.
+- [ ] Validate full migration chain using `pnpm d1:reset:local -- --validate-only`. Expected: chain PASS, existing local DBs preserved, no remote access.
 - [ ] Record construction/write costs and commit task3.
 
 ### Task 4: Whole-branch verification and publication
@@ -60,6 +60,7 @@ Account-wide UTC-day reads5M; background4M and stricter existing limits. Play/AI
 **Files:** task report and current-work entry; all earlier task files are inputs.
 
 - [ ] Prepare review package from branch base to final commit and dispatch one independent reviewer. Fix material findings with RED→GREEN tests.
+- [ ] Complete the fresh worktree's local D1 initialization and doctor while reviewing final code. Expected: numbered migration chain and local doctor PASS before PR publication.
 - [ ] Run final type/lint/affected checks and `pnpm preflight` once after fixes. Expected: PASS; if environment failure occurs, retain prior passes and finish failed/unreached steps as composed verification.
 - [ ] Validate both site builds, inspect staged diff for scope/secrets and publish normal PR with root causes, measured local cost, index write/build cost and migration-before-release requirement.
 - [ ] Attach PR; inspect exact head, existing comments/reviews, CI and conflicts, record material evidence on PR. Expected: current published HEAD and no known material unresolved findings; no merge/deploy.

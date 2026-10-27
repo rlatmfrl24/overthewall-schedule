@@ -367,6 +367,76 @@ it("does not inspect cafe post history when no source is eligible", async () => 
   expect(meter.summary().rowsWritten).toBe(0);
 });
 
+it("indexes YouTube ownership without changing shared owners, site policy or fenced metadata", async () => {
+  vi.spyOn(Date, "now").mockReturnValue(scheduledFor);
+  await db.batch([
+    db.prepare("DELETE FROM youtube_feed_videos"),db.prepare("DELETE FROM youtube_feed_sources"),
+    db.prepare("DELETE FROM kirinuki_channels"),db.prepare("UPDATE members SET youtube_channel_id=NULL"),
+    db.prepare("UPDATE member_links SET youtube_channel_id=NULL"),
+    db.prepare("INSERT INTO members(uid,code,name) VALUES(903001,'owner-visible','Owner'),(903002,'owner-main','Main'),(903003,'owner-held','Held')"),
+    db.prepare(`WITH RECURSIVE n(x) AS(VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1000)
+      INSERT INTO members(uid,code,name) SELECT 910000+x,'owner-noise-'||x,'Noise' FROM n`),
+    db.prepare(`WITH RECURSIVE n(x) AS(VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1000)
+      INSERT INTO member_links(member_uid,type,label,url,enabled) SELECT 903001,'youtube_vod','Noise','https://youtube.com/noise',1 FROM n`),
+    db.prepare(`INSERT INTO content_transitions(id,source_site,target_site,source_resource,target_resource,local_site,local_resource,generation,protocol,manifest_digest,plan_json,phase)
+      VALUES('owner-fence','otw','luvdia','otw-db','luvdia-db','otw','otw-db',2,1,'owner','{}','source_fenced')`),
+  ]);
+  const hidden=await db.prepare("SELECT uid FROM members WHERE code='bing_hayu'").first<number>('uid');
+  const channels=[1,2,3,4].map(n=>`UC${String(903100+n).padStart(22,'0')}`);
+  await db.batch([
+    db.prepare("UPDATE members SET youtube_channel_id=?,is_deprecated=0 WHERE uid=?").bind(channels[1],hidden),
+    db.prepare("UPDATE members SET youtube_channel_id=? WHERE uid=903002").bind(channels[2]),
+    db.prepare("UPDATE members SET youtube_channel_id=? WHERE uid=903003").bind(channels[3]),
+    ...[hidden,903001].map(uid=>db.prepare("INSERT INTO member_links(member_uid,type,label,url,youtube_channel_id,enabled) VALUES(?,'youtube_vod','Shared','https://youtube.com/shared',?,1)").bind(uid,channels[0])),
+  ]);
+  for(let n=0;n<4;n++)await db.batch([
+    db.prepare(`INSERT INTO youtube_feed_sources(id,source_kind,member_uid,youtube_channel_id,uploads_playlist_id,enabled,collection_started_at,initialization_completed_at,backfill_exhausted_at,next_check_at,created_at,updated_at)
+      VALUES(?,'official',?,?,'uploads',1,1,1,1,?,1,1)`).bind(903101+n,[903001,hidden,903002,903003][n],channels[n],scheduledFor+24*hour),
+    db.prepare("INSERT INTO youtube_feed_videos(video_id,source_id,title,published_at,fetched_at) VALUES(?,?,'Owner',1,?)").bind('owner-video-'+n,903101+n,scheduledFor-48*hour),
+  ]);
+  await db.prepare("INSERT INTO content_transition_membership(transition_id,root_table,root_key,row_table,row_key) VALUES('owner-fence','youtube_feed_sources','[903104]','youtube_feed_sources','[903104]')").run();
+  vi.spyOn(globalThis,'fetch').mockImplementation(async input=>{
+    const url=new URL(String(input));
+    if(!url.pathname.endsWith('/videos'))throw new Error('Unexpected provider '+url.pathname);
+    return Response.json({items:(url.searchParams.get('id')??'').split(',').map(id=>({id,snippet:{title:id,publishedAt:'2026-10-21T00:00:00Z'},contentDetails:{duration:'PT30S'},statistics:{viewCount:'1'}}))});
+  });
+  const capture=meterD1(db),collectorEnv={...runtime(capture.db),YOUTUBE_API_KEY:'local-fixture'};
+  expect(await hasScheduledYouTubeFeedWork(collectorEnv,scheduledFor)).toBe(true);
+  expect(await runScheduledYouTubeFeedCollection(collectorEnv)).toMatchObject({metadataRefreshed:2,failed:0});
+  const work=capture.entries.find(row=>row.sql.includes('AS has_work'))!;
+  const metadata=capture.entries.find(row=>row.sql.includes('json_group_array(row_key)'))!;
+  const read=async()=>{
+    await db.prepare("UPDATE youtube_feed_videos SET fetched_at=?").bind(scheduledFor-48*hour).run();
+    const meter=meterD1(db);
+    await meter.db.prepare(work.sql).bind(...work.args).all();
+    const rows=await meter.db.prepare(metadata.sql).bind(...metadata.args).all<{video_id:string}>();
+    return {cost:meter.summary(),metadataReads:meter.entries[1].rowsRead,ids:rows.results.map(row=>row.video_id)};
+  };
+  const indexed=await read();
+  expect(indexed.ids).toEqual(['owner-video-0','owner-video-2']);
+  console.info('YOUTUBE_OWNER_INDEXED_COST',JSON.stringify({total:indexed.cost,metadataReads:indexed.metadataReads}));
+  expect(indexed.metadataReads).toBeLessThan(200);
+  expect(indexed.cost.rowsWritten).toBe(0);
+  const indexes=(await db.prepare("SELECT name,sql FROM sqlite_master WHERE name IN ('idx_members_youtube_channel','idx_member_links_youtube_owner')").all<{name:string;sql:string}>()).results;
+  expect(indexes).toHaveLength(2);
+  await db.batch(indexes.map(index=>db.prepare(`DROP INDEX ${index.name}`)));
+  try {
+    const unindexed=await read();expect(unindexed.ids).toEqual(indexed.ids);
+    expect(indexed.cost.rowsRead).toBeLessThan(unindexed.cost.rowsRead/4);
+    expect(indexed.metadataReads).toBeLessThan(unindexed.metadataReads/10);
+    const memberInsert=(uid:number)=>db.prepare("INSERT INTO members(uid,code,name,youtube_channel_id) VALUES(?,?,'Write',?)").bind(uid,'write-'+uid,channels[0]);
+    const linkInsert=()=>db.prepare("INSERT INTO member_links(member_uid,type,label,url,youtube_channel_id) VALUES(903001,'youtube_vod','Write','https://youtube.com/write',?)").bind(channels[0]);
+    const writesBefore=await db.batch([memberInsert(903010),linkInsert()]);
+    const builds=await db.batch(indexes.map(index=>db.prepare(index.sql)));
+    const writesAfter=await db.batch([memberInsert(903011),linkInsert()]);
+    expect(writesAfter.map((row,i)=>row.meta.rows_written-writesBefore[i].meta.rows_written)).toEqual([1,1]);
+    console.info('YOUTUBE_OWNER_D1_COST',JSON.stringify({before:unindexed.cost,after:indexed.cost,metadataBefore:unindexed.metadataReads,metadataAfter:indexed.metadataReads,builds:builds.map(row=>row.meta),insertBefore:writesBefore.map(row=>row.meta.rows_written),insertAfter:writesAfter.map(row=>row.meta.rows_written)}));
+  } finally {await db.batch(indexes.map(index=>db.prepare(index.sql.replace('CREATE INDEX','CREATE INDEX IF NOT EXISTS'))));}
+  const luv=meterD1(db);
+  expect(await runScheduledYouTubeFeedCollection({...runtime(luv.db),...siteEnv('luvdia'),YOUTUBE_API_KEY:'local-fixture'} as Env)).toMatchObject({metadataRefreshed:3,failed:0});
+  expect(await db.prepare("SELECT fetched_at FROM youtube_feed_videos WHERE video_id='owner-video-3'").first('fetched_at')).toBe(scheduledFor-48*hour);
+});
+
 it("seeks YouTube policy membership without changing fenced metadata candidates", async () => {
   vi.spyOn(Date, "now").mockReturnValue(scheduledFor);
   const index = await db.prepare("SELECT sql FROM sqlite_master WHERE name='idx_content_transition_membership_lookup'").first<{ sql: string }>();

@@ -567,7 +567,8 @@ export const members = sqliteTable(
     is_deprecated: integer("is_deprecated", { mode: "boolean" }),
   },
   (table) => [check("members_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
-    index("idx_members_code").on(table.code)],
+    index("idx_members_code").on(table.code),
+    index("idx_members_youtube_channel").on(table.youtube_channel_id)],
 );
 
 export const memberProfileImages = sqliteTable(
@@ -605,6 +606,7 @@ export const memberLinks = sqliteTable(
   },
   (table) => [
     index("idx_member_links_member_uid").on(table.member_uid),
+    index("idx_member_links_youtube_owner").on(table.youtube_channel_id, table.member_uid),
     index("idx_member_links_member_sort").on(table.member_uid, table.sort_order),
     check(
       "member_links_type_check",
