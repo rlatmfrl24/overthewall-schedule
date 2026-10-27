@@ -21,7 +21,48 @@ beforeEach(async () => {
   ]);
 });
 
+const retainDeliveries = async (runId: string, count: number, status: string) => {
+  await db.prepare(`WITH RECURSIVE history(n) AS (
+    VALUES (1) UNION ALL SELECT n + 1 FROM history WHERE n < ?
+  ) INSERT INTO scheduled_job_items (
+    id, run_id, target_key, phase, lane, status, available_at, created_at, updated_at
+  ) SELECT 'retained-' || n, ?, 'target-' || n, 'collect', 'x', 'succeeded', ?, ?, ? FROM history`)
+    .bind(count, runId, now, now, now).run();
+  await db.prepare(`INSERT INTO scheduled_outbox (
+    id, run_id, item_id, lane, event_type, status, available_at, reconciled_at, created_at, updated_at
+  ) SELECT id, run_id, id, lane, 'reconcile', ?, ?, ?, ?, ? FROM scheduled_job_items`)
+    .bind(status, now, now, now, now).run();
+};
+
 describe("scheduled operations queue state", () => {
+  it("skips retained pending reconciliation for completed runs while preserving global stale leases", async () => {
+    await insertRun("closed", "succeeded").run();
+    await retainDeliveries("closed", 2000, "pending");
+    await db.prepare(`INSERT INTO scheduled_job_items (
+      id, run_id, target_key, phase, lane, status, lease_until, available_at, created_at, updated_at
+    ) VALUES ('stale', 'closed', 'stale', 'collect', 'x', 'running', ?, ?, ?, ?)`)
+      .bind(now - 1, now, now, now).run();
+    const result = await db.prepare(SCHEDULED_QUEUE_STATE_SQL).bind(now, now).all();
+    expect(result.results).toEqual([{
+      activeRunCount: 0, staleLeaseCount: 1, outboxBacklog: 0, oldestOutboxAvailableAt: null,
+    }]);
+    console.info("IDLE_QUEUE_D1_COST", JSON.stringify(result.meta));
+    expect(result.meta.rows_read).toBeLessThanOrEqual(12);
+    expect(result.meta.rows_written).toBe(0);
+  });
+
+  it("does not scan all completed items in a large active mostly-dispatched run", async () => {
+    await insertRun("active", "running").run();
+    await retainDeliveries("active", 2000, "dispatched");
+    const result = await db.prepare(SCHEDULED_QUEUE_STATE_SQL).bind(now, now).all();
+    expect(result.results).toEqual([{
+      activeRunCount: 1, staleLeaseCount: 0, outboxBacklog: 0, oldestOutboxAvailableAt: null,
+    }]);
+    console.info("ACTIVE_QUEUE_D1_COST", JSON.stringify(result.meta));
+    expect(result.meta.rows_read).toBeLessThanOrEqual(20);
+    expect(result.meta.rows_written).toBe(0);
+  });
+
   it("reads at most ten rows with no backlog and 2,130 retained deliveries under stale statistics", async () => {
     await insertRun("history", "succeeded").run();
     await db.prepare(`WITH RECURSIVE history(n) AS (
