@@ -5,6 +5,7 @@ import type { SiteId } from "@contracts/site-definition";
 import { historicalReviewDeletedSql } from "./historical-review-sql";
 import { readHistoricalMaterials } from "./read-historical-materials";
 import { projectionStatements } from "./d1-catalog-projection";
+import { lookupExternalIdentity } from "./external-identity-lookup";
 import type {
   OtwPlayAdminCatalogSubjectInput,
   OtwPlayIngestionCandidateItemDto,
@@ -1629,28 +1630,32 @@ export class D1IngestionRepository implements IngestionRepository {
       definitions.set(key, subject);
     }
 
+    // Capture the revision before identity lookups so an intervening registration cannot escape the batch fence.
+    const meta = await this.database.prepare(
+      `SELECT catalog.revision, read_model.revision AS read_model_revision
+       FROM music_catalog_meta AS catalog
+       JOIN music_public_read_model_meta AS read_model ON read_model.id = catalog.id
+       WHERE catalog.id = 1`,
+    ).first<{ revision: number; read_model_revision: number }>();
+    if (!meta || Number(meta.revision) !== Number(meta.read_model_revision)) {
+      throw new IngestionRepositoryError("unavailable", "Catalog read model is not ready for review materialization");
+    }
     const resolved = new Map<string, string>();
+    const externalNames = new Map<string, string>();
     const statements: D1PreparedStatement[] = [];
     let createdEntityCount = 0;
     const createdEntityIds: string[] = [];
     for (const [key, subject] of definitions) {
       const normalizedName = normalizeOtwPlaySearchText(subject.displayName);
-      const existing = await this.database.prepare(
-        `SELECT id, archived_at FROM music_entities
-         WHERE member_uid IS NULL AND entity_kind = ? AND normalized_name = ?
-         LIMIT 1`,
-      ).bind(subject.entityKind, normalizedName).first<{
-        id: string;
-        archived_at: number | null;
-      }>();
-      if (existing) {
-        if (existing.archived_at !== null) {
-          throw new IngestionRepositoryError(
-            "validation_failed",
-            "The matching external identity is archived",
-          );
-        }
-        resolved.set(key, existing.id);
+      const pendingId = externalNames.get(normalizedName);
+      if (pendingId) {
+        resolved.set(key, pendingId);
+        continue;
+      }
+      const match = await lookupExternalIdentity(this.database, subject.displayName);
+      if (match.error) throw new IngestionRepositoryError("validation_failed", match.error);
+      if (match.entity) {
+        resolved.set(key, match.entity.id);
         continue;
       }
       const entityId = ids.entityIds[key];
@@ -1695,6 +1700,7 @@ export class D1IngestionRepository implements IngestionRepository {
         ),
       );
       resolved.set(key, entityId);
+      externalNames.set(normalizedName, entityId);
       createdEntityCount += 1;
       createdEntityIds.push(entityId);
     }
@@ -1862,24 +1868,17 @@ export class D1IngestionRepository implements IngestionRepository {
     if (!changesCatalog) {
       return {
         input,
-        statements: [],
+        // Reused name/alias matches must remain valid until the candidate write commits.
+        statements: definitions.size > 0 ? [this.database.prepare(
+          `UPDATE music_catalog_meta
+           SET id = CASE WHEN revision = ? THEN 1 ELSE 2 END
+           WHERE id = 1`,
+        ).bind(Number(meta.revision))] : [],
         expectedCatalogRevision: null,
         createdEntityCount: 0,
         createdEntityIds: [],
         createdSong: false,
       };
-    }
-    const meta = await this.database.prepare(
-      `SELECT catalog.revision, read_model.revision AS read_model_revision
-       FROM music_catalog_meta AS catalog
-       JOIN music_public_read_model_meta AS read_model ON read_model.id = catalog.id
-       WHERE catalog.id = 1`,
-    ).first<{ revision: number; read_model_revision: number }>();
-    if (!meta || Number(meta.revision) !== Number(meta.read_model_revision)) {
-      throw new IngestionRepositoryError(
-        "unavailable",
-        "Catalog read model is not ready for review materialization",
-      );
     }
     return {
       input,

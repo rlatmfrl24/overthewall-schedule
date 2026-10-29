@@ -348,6 +348,8 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
             ? "곡·가창·승인 채널·제안 또는 저장된 후보 검수에 연결된 외부 주체는 삭제할 수 없습니다. 연결을 먼저 교정하거나 보관 처리해 주세요."
             : label === "제안 승인" && error instanceof ApiError
               ? `제안 승인에 실패했습니다. ${error.message}${error.code ? ` (${error.code})` : ""}${error.requestId ? ` · 요청 ID: ${error.requestId}` : ""}`
+              : error instanceof ApiError && error.code === "PLAY_ADMIN_VALIDATION_FAILED"
+                ? error.message
               : `${label.startsWith("source:") ? "source 재검사" : label} 작업에 실패했습니다.`;
       toast({
         variant: "error",
@@ -639,6 +641,7 @@ function ProposalSection({
   const selected =
     proposals.find((proposal) => proposal.id === selectedId) ??
     null;
+  const submittedUrl = selected?.submittedUrl;
   const initializedProposal = useRef<string | null>(null);
   const [reviewVersion, setReviewVersion] = useState<number | null>(null);
   const proposalSnapshot = JSON.stringify([
@@ -663,7 +666,7 @@ function ProposalSection({
   if (selected && selected.status !== "pending_review") approvalBlockers.push("이미 처리된 제안입니다. 작성 중인 입력은 보존했습니다.");
   if (reviewReleaseType === "broadcast" && !reviewBroadcast.extent) approvalBlockers.push("완곡 또는 일부 가창 여부를 확인해 주세요.");
   if (savingLocal) approvalBlockers.push("영상·채널을 확인하고 있습니다.");
-  else if (!approvalPreflight) approvalBlockers.push("영상·채널 확인을 먼저 실행해 주세요.");
+  else if (!approvalPreflight) approvalBlockers.push("영상·채널 정보를 확인하지 못했습니다. 다시 확인해 주세요.");
   if (approvalPreflight?.duplicate) approvalBlockers.push("이미 등록된 영상입니다. 기존 카탈로그 항목을 확인해 주세요.");
   if (approvalPreflight?.channel.state === "revoked") approvalBlockers.push("승인이 취소된 채널입니다. 채널 관리에서 상태를 확인해 주세요.");
   if (channelNeedsConfirmation && (reviewChannelOwners.length === 0 || reviewChannelOwners.some((owner) => !owner.submittedNameSnapshot.trim()))) approvalBlockers.push("공식 채널의 소유자를 입력해 주세요.");
@@ -761,16 +764,16 @@ function ProposalSection({
     return proposalSubject(owner, `proposal-channel-owner-${index}`);
   };
 
-  const verifySelected = async () => {
-    if (!selected) return;
-    const selectedProposalId = selected.id;
+  const verifySelected = useCallback(async () => {
+    if (!submittedUrl) return;
+    const selectedProposalId = selectedId;
     const requestId = ++approvalPreflightRequestId.current;
     setSavingLocal(true);
     setApprovalPreflight(null);
     setPreflightError(null);
     try {
       const result = await preflightOtwPlayCatalogEntry({
-          youtubeUrl: selected.submittedUrl,
+          youtubeUrl: submittedUrl,
           startSeconds: 0,
         });
       if (
@@ -784,7 +787,12 @@ function ProposalSection({
     } finally {
       if (requestId === approvalPreflightRequestId.current) setSavingLocal(false);
     }
-  };
+  }, [selectedId, submittedUrl]);
+  useEffect(() => {
+    if (!active || selected?.status !== "pending_review" || selected.contentAccess === "admin_archive") return;
+    void verifySelected();
+    return () => { approvalPreflightRequestId.current += 1; };
+  }, [active, selected?.status, selected?.contentAccess, verifySelected]);
   const approveSelected = async () => {
     if (!selected || !approvalPreflight || approvalBlockers.length > 0) return;
     if (channelNeedsConfirmation && reviewChannelOwners.length === 0) return;
@@ -832,7 +840,6 @@ function ProposalSection({
             isPrimary: index === 0,
           })),
         };
-    if (!await confirm({ title: "제안을 승인하고 게시할까요?", description: "최신 영상·채널 metadata와 실제 가창 credit을 확인하고 게시할까요?", confirmLabel: "승인하고 게시" })) return;
     const command:OtwPlayAdminApproveProposalRequest={
         expectedVersion: reviewVersion ?? selected.version,
         expectedCatalogRevision: approvalPreflight.catalogRevision,
@@ -1387,7 +1394,7 @@ function ProposalSection({
                   <p className="font-semibold">최종 확인 및 승인</p>
                   <Button type="button" size="sm" variant="outline" disabled={savingLocal || saving !== null} onClick={() => void verifySelected()}>
                     {savingLocal ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-                    영상·채널 확인
+                    영상·채널 다시 확인
                   </Button>
                 </div>
                 {preflightError && <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">영상·채널 확인 실패: {preflightError}</p>}

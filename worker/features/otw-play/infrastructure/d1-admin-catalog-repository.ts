@@ -1,6 +1,7 @@
 type VideoCatalogEvent={id:string;aggregateType:"entity"|"channel"|"song"|"performance"|"proposal";aggregateId:string;eventType:string;afterJson:string|null;now:number};
 import { decrementGramStatsStatements, projectionStatements } from "./d1-catalog-projection";
 import {catalogBatchError} from "./catalog-batch-error";
+import { lookupExternalIdentity } from "./external-identity-lookup";
 import { readHistoricalMaterials } from "./read-historical-materials";
 import { isArchivedYouTubeVideo, archivedYouTubeVideoSql } from './archived-youtube-video';
 import { publicationHiddenSql } from '../../content-access';
@@ -940,6 +941,11 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     try { await this.database.batch([...statements,...appendRevisionStatements(this.database,expectedRevision,now),...this.requestResultStatement(result,now)]); }
     catch(error) { throw catalogBatchError(error)??error; }
   }
+  private async findExternalIdentity(displayName: string, excludeId?: string) {
+    const match = await lookupExternalIdentity(this.database, displayName, excludeId);
+    if (match.error) throw new AdminCatalogRepositoryError("validation_failed", match.error);
+    return match.entity;
+  }
   private guardCollection(statements:D1PreparedStatement[],videos:ReadonlyArray<{videoId:string|null;channelId:string}>,performanceId:string|null=null) {
     const guard=()=>this.database.prepare(`WITH observed AS(SELECT json_extract(value,'$.videoId') video_id,json_extract(value,'$.channelId') channel_id FROM json_each(?))
       SELECT iif(NOT EXISTS(SELECT 1 FROM observed WHERE ${archivedYouTubeVideoSql('observed.video_id',this.siteId,'observed.channel_id')})
@@ -991,6 +997,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   ) {
 
     const meta = await this.readRevision();
+    if (input.memberUid == null && await this.findExternalIdentity(input.displayName)) {
+      throw new AdminCatalogRepositoryError("validation_failed", "이미 등록된 가수입니다. 기존 가수를 선택해 주세요.", { displayName: "duplicate_artist" });
+    }
     const normalizedName = normalizeOtwPlaySearchText(input.displayName);
     const statements = [
       this.database
@@ -1039,6 +1048,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   ) {
 
     const meta = await this.readRevision();
+    if (input.memberUid == null && await this.findExternalIdentity(input.displayName, input.id)) {
+      throw new AdminCatalogRepositoryError("validation_failed", "이미 등록된 가수입니다. 기존 가수를 선택해 주세요.", { displayName: "duplicate_artist" });
+    }
     const affectedRows = await this.database
       .prepare(
         `
@@ -1312,6 +1324,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     const catalog = await this.readCatalog({ subjects: input.originalArtists.map(a => a.subject) });
     const entityStatements: D1PreparedStatement[] = [];
     const resolved = new Map<string, { id: string; displayName: string }>();
+    const externalNames = new Map<string, { id: string; displayName: string }>();
     for (const artist of input.originalArtists) {
       const subject = artist.subject;
       if (subject.kind === "entity") {
@@ -1400,6 +1413,13 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         continue;
       }
 
+      const normalizedName = normalizeOtwPlaySearchText(subject.displayName);
+      const existingExternal = externalNames.get(normalizedName) ?? await this.findExternalIdentity(subject.displayName);
+      if (existingExternal) {
+        resolved.set(key, existingExternal);
+        continue;
+      }
+
       const entityId = ids.entityIds[key];
       const entityEventId = ids.entityEventIds[key];
       if (!entityId || !entityEventId) {
@@ -1443,6 +1463,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         id: entityId,
         displayName: subject.displayName.trim(),
       });
+      externalNames.set(normalizedName, resolved.get(key)!);
     }
     const artists = input.originalArtists.map((artist) => {
       const key =
@@ -2069,21 +2090,13 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       }
 
       const normalizedName = normalizeOtwPlaySearchText(subject.displayName);
-      const existingExternal = catalog.entities.find((item) =>
-        item.memberUid === null && item.entityKind === subject.entityKind &&
-        item.normalizedName === normalizedName,
-      );
+      const existingExternal = await this.findExternalIdentity(subject.displayName);
       if (existingExternal) {
-        if (existingExternal.archivedAt !== null) {
-          throw new AdminCatalogRepositoryError(
-            "validation_failed", "The existing external identity is archived",
-          );
-        }
-        resolved.set(key, { id: existingExternal.id, displayName: existingExternal.displayName });
+        resolved.set(key, existingExternal);
         continue;
       }
       const existingSubject = allSubjects.find((item) =>
-        item.kind === "new_external" && item.entityKind === subject.entityKind &&
+        item.kind === "new_external" &&
         normalizeOtwPlaySearchText(item.displayName) === normalizedName &&
         resolved.has(subjectKey(item)!),
       );
@@ -2693,6 +2706,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     }
     const entityStatements: D1PreparedStatement[] = [];
     const resolved = new Map<string, { id: string; displayName: string }>();
+    const externalNames = new Map<string, { id: string; displayName: string }>();
     for (const participant of input.participants) {
       const subject = participant.subject;
       if (subject.kind === "entity") {
@@ -2769,6 +2783,13 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         continue;
       }
 
+      const normalizedName = normalizeOtwPlaySearchText(subject.displayName);
+      const existingExternal = externalNames.get(normalizedName) ?? await this.findExternalIdentity(subject.displayName);
+      if (existingExternal) {
+        resolved.set(key, existingExternal);
+        continue;
+      }
+
       const entityId = ids.entityIds[key];
       const entityEventId = ids.entityEventIds[key];
       if (!entityId || !entityEventId) {
@@ -2800,6 +2821,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         id: entityId,
         displayName: subject.displayName.trim(),
       });
+      externalNames.set(normalizedName, resolved.get(key)!);
     }
     const participants = input.participants.map((participant) => {
       const key =
