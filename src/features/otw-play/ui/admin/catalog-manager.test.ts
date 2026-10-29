@@ -182,7 +182,6 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
     const title = await screen.findByLabelText("곡명");
     expect(protectedInput()).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
     await screen.findByText(/영상·채널 확인 완료/);
     fireEvent.click(screen.getByRole("checkbox"));
     expect(protectedInput()).toBe(false);
@@ -763,10 +762,8 @@ describe("OtwPlayCatalogManager", () => {
       name: "확인 후 승인·게시",
     }) as HTMLButtonElement;
     expect(approveButton.disabled).toBe(true);
-    expect(screen.getByText("영상·채널 확인을 먼저 실행해 주세요.")).toBeTruthy();
     expect(within(screen.getByLabelText("선택한 장르(분류)")).getByText("J-POP")).toBeTruthy();
 
-    fireEvent.click(await screen.findByRole("button", { name: "영상·채널 확인" }));
     await waitFor(() => expect(preflightEntryMock).toHaveBeenCalledWith({
       youtubeUrl: proposal.submittedUrl,
       startSeconds: 0,
@@ -813,8 +810,26 @@ describe("OtwPlayCatalogManager", () => {
         }),
        expect.any(String),),
     );
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(confirm).not.toHaveBeenCalled();
     confirm.mockRestore();
+  });
+
+  it("automatically checks a proposal and publishes without a second confirmation dialog", async () => {
+    confirmationMock.mockResolvedValue(false);
+    renderCatalogManager();
+    fireEvent.click(await screen.findByRole("tab", { name: "가져오기/검수" }));
+    await selectOption("검수 출처", "사용자 제안");
+    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
+    await screen.findByText(/영상·채널 확인 완료/);
+    const approve = screen.getByRole("button", { name: "확인 후 승인·게시" });
+    expect(approve).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(approve).toHaveProperty("disabled", false);
+    fireEvent.click(approve);
+    await waitFor(() => expect(approveProposalMock).toHaveBeenCalledWith("proposal-1", expect.objectContaining({
+      expectedVersion: 2, expectedCatalogRevision: 7, singingCreditConfirmed: true, publish: true,
+    }), expect.any(String)));
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({ variant: "success", description: "제안 승인 작업을 완료했습니다." }));
   });
 
   it("preserves the proposal and reports the server reason and request ID when approval fails", async () => {
@@ -826,7 +841,6 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(await screen.findByRole("tab", { name: "가져오기/검수" }));
     await selectOption("검수 출처", "사용자 제안");
     fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    fireEvent.click(await screen.findByRole("button", { name: "영상·채널 확인" }));
     await screen.findByText(/영상·채널 확인 완료/);
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "확인 후 승인·게시" }));
@@ -843,9 +857,8 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(await screen.findByRole("tab", { name: "가져오기/검수" }));
     await selectOption("검수 출처", "사용자 제안");
     fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    const verify = await screen.findByRole("button", { name: "영상·채널 확인" });
+    const verify = await screen.findByRole("button", { name: "영상·채널 다시 확인" });
     const approve = screen.getByRole("button", { name: "확인 후 승인·게시" });
-    fireEvent.click(verify);
     await screen.findByText(/영상·채널 확인 완료/);
     fireEvent.click(screen.getByRole("checkbox"));
     expect(approve).toHaveProperty("disabled", false);
@@ -893,7 +906,6 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(await screen.findByRole("tab", { name: "가져오기/검수" }));
     await selectOption("검수 출처", "사용자 제안");
     fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    fireEvent.click(await screen.findByRole("button", { name: "영상·채널 확인" }));
     await screen.findByText("channel unknown");
     const approveButton = screen.getByRole("button", { name: "확인 후 승인·게시" }) as HTMLButtonElement;
     fireEvent.click(screen.getByRole("checkbox"));
@@ -952,7 +964,7 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(await screen.findByRole("tab", { name: "가져오기/검수" }));
     await selectOption("검수 출처", "사용자 제안");
     fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    fireEvent.click(await screen.findByRole("button", { name: "영상·채널 확인" }));
+    await waitFor(() => expect(preflightEntryMock).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByRole("button", { name: "검수 목록으로" }));
     await act(async () => resolvePreflight({
       catalogRevision: 7,
@@ -997,7 +1009,6 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(await screen.findByRole("tab", { name: "가져오기/검수" }));
     await selectOption("검수 출처", "사용자 제안");
     fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    fireEvent.click(await screen.findByRole("button", { name: "영상·채널 확인" }));
     await screen.findByText("channel unknown");
     fireEvent.click(screen.getByRole("button", { name: "소유자 추가" }));
     fireEvent.click(screen.getByLabelText("1번째 채널 소유 identity"));
@@ -1073,7 +1084,6 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(await screen.findByRole("tab", { name: "가져오기/검수" }));
     await selectOption("검수 출처", "사용자 제안");
     fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    fireEvent.click(await screen.findByRole("button", { name: "영상·채널 확인" }));
     await waitFor(() => expect(preflightEntryMock).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "확인 후 승인·게시" }));
@@ -1128,7 +1138,7 @@ describe("OtwPlayCatalogManager", () => {
     });
   });
 
-  it.each([false,true])("keeps external identity edits in the unified channel screen after a failed command (accepted=%s)", async accepted => {
+  it.each([false,true,"duplicate"] as const)("keeps external identity edits in the unified channel screen after a failed command (accepted=%s)", async accepted => {
     fetchCatalogMock.mockResolvedValueOnce({
       ...catalog,
       entities: [
@@ -1144,7 +1154,7 @@ describe("OtwPlayCatalogManager", () => {
         },
       ],
     });
-    updateEntityMock.mockRejectedValueOnce(accepted?new ApiError("동시 변경이 발생했습니다. 최신 상태를 확인한 뒤 다시 저장해 주세요.",409,{code:"CONTENT_CONFLICT"}):new Error("write failed"));
+    updateEntityMock.mockRejectedValueOnce(accepted === "duplicate" ? new ApiError("이미 등록된 가수입니다. 기존 가수를 선택해 주세요.",422,{code:"PLAY_ADMIN_VALIDATION_FAILED"}) : accepted?new ApiError("동시 변경이 발생했습니다. 최신 상태를 확인한 뒤 다시 저장해 주세요.",409,{code:"CONTENT_CONFLICT"}):new Error("write failed"));
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -1162,9 +1172,9 @@ describe("OtwPlayCatalogManager", () => {
     expect(screen.queryByLabelText(/slug/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "수정 저장" }));
 
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(accepted?{variant:"error",description:expect.stringContaining("동시 변경")}:{variant:"error",description:"외부 identity 수정 작업에 실패했습니다."}));
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(accepted === "duplicate" ? {variant:"error",description:"이미 등록된 가수입니다. 기존 가수를 선택해 주세요."} : accepted?{variant:"error",description:expect.stringContaining("동시 변경")}:{variant:"error",description:"외부 identity 수정 작업에 실패했습니다."}));
     expect(nameInput.value).toBe("입력 보존");
-    if(accepted) {
+    if(accepted === true) {
       const original=updateEntityMock.mock.calls[0];expect(original[1]).toMatch(/^[A-Za-z0-9_-]{16,100}$/);
       updateEntityMock.mockResolvedValueOnce({});fireEvent.click(screen.getByRole("button",{name:"수정 저장"}));
       await waitFor(()=>expect(updateEntityMock).toHaveBeenCalledTimes(2));expect(updateEntityMock.mock.calls[1]).toEqual(original);

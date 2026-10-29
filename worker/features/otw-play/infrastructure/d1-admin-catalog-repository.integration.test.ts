@@ -196,6 +196,49 @@ beforeEach(async () => {
 });
 
 describe("D1AdminCatalogRepository", () => {
+  it("blocks cross-kind artist duplicates by normalized name and alias without side effects", async () => {
+    const repository = new D1AdminCatalogRepository(db);
+    const canonical = await createEntity(repository, "요루시카");
+    await db.prepare("INSERT INTO music_entity_aliases (entity_id,alias,normalized_alias) VALUES (?, 'Yorushika', 'yorushika')").bind(canonical.data.id).run();
+    const before = await repository.readCatalog();
+    for (const displayName of ["요루시카", "  요루시카!  ", " ＹＯＲＵＳＨＩＫＡ "]) {
+      await expect(repository.createEntity({ entityKind: "group", displayName, slug: id("duplicate-slug") }, actor,
+        { entityId: id("entity"), eventId: id("event") }, NOW + 1)).rejects.toMatchObject({ code: "validation_failed" });
+    }
+    expect(await repository.readCatalog()).toEqual(before);
+  });
+
+  it("blocks duplicate artist renames while allowing the same artist to update itself", async () => {
+    const repository = new D1AdminCatalogRepository(db);
+    const canonical = await createEntity(repository, "요루시카");
+    const other = await createEntity(repository, "Other artist", "group");
+    await db.prepare("INSERT INTO music_entity_aliases (entity_id,alias,normalized_alias) VALUES (?, 'Yorushika', 'yorushika')").bind(canonical.data.id).run();
+    await expect(repository.updateEntity({ id: other.data.id, expectedVersion: other.data.version, entityKind: "group",
+      displayName: "YORUSHIKA", slug: other.data.slug, archived: false }, actor, id("event"), NOW + 1)).rejects.toMatchObject({ code: "validation_failed" });
+    const updated = await repository.updateEntity({ id: canonical.data.id, expectedVersion: canonical.data.version, entityKind: "person",
+      displayName: "요루시카", slug: canonical.data.slug, archived: false }, actor, id("event"), NOW + 2);
+    expect(updated.data.id).toBe(canonical.data.id);
+    expect(updated.data.version).toBe(canonical.data.version + 1);
+  });
+
+  it("does not recreate an archived artist under another kind", async () => {
+    const repository = new D1AdminCatalogRepository(db);
+    const canonical = await createEntity(repository, "Reserved artist");
+    await repository.updateEntity({ id: canonical.data.id, expectedVersion: canonical.data.version, entityKind: "person",
+      displayName: canonical.data.displayName, slug: canonical.data.slug, archived: true }, actor, id("event"), NOW + 1);
+    await expect(repository.createEntity({ entityKind: "group", displayName: "RESERVED ARTIST", slug: "reserved-group" }, actor,
+      { entityId: id("entity"), eventId: id("event") }, NOW + 2)).rejects.toMatchObject({ code: "validation_failed" });
+  });
+
+  it("allows only one concurrent registration across artist kinds", async () => {
+    const repository = new D1AdminCatalogRepository(db);
+    const attempts = await Promise.allSettled((["person", "group"] as const).map(entityKind => repository.createEntity({
+      entityKind, displayName: "Concurrent artist", slug: `concurrent-${entityKind}`,
+    }, actor, { entityId: id("entity"), eventId: id("event") }, NOW)));
+    expect(attempts.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect((await repository.readCatalog()).entities).toHaveLength(1);
+  });
+
   it("creates a draft and marks its ingestion candidate converted in one catalog batch", async () => {
     const repository = new D1AdminCatalogRepository(db);
     const singer = await createEntity(repository, "Candidate Singer");
@@ -2126,7 +2169,7 @@ describe("D1AdminCatalogRepository", () => {
     expect(Number(strayEvent?.count)).toBe(0);
   });
 
-  it("creates a new original artist and updates the song in one catalog batch", async () => {
+  it.each([false, true])("creates or reuses an original artist in one song update batch: %s", async (reuseArtist) => {
     const repository = new D1AdminCatalogRepository(db);
     const previousArtist = await createEntity(repository, "Previous Artist", "person");
     const song = await repository.createSong(
@@ -2150,8 +2193,10 @@ describe("D1AdminCatalogRepository", () => {
       { songId: id("song"), eventId: id("event") },
       NOW,
     );
+    if (reuseArtist) await db.prepare("INSERT INTO music_entity_aliases (entity_id,alias,normalized_alias) VALUES (?, 'New Original Artist', 'new original artist')").bind(previousArtist.data.id).run();
+    const displayName = reuseArtist ? previousArtist.data.displayName : "New Original Artist";
     const before = await repository.readCatalog();
-    const entityId = id("entity");
+    const entityId = reuseArtist ? previousArtist.data.id : id("entity");
 
     const updated = await repository.updateSong({
       input: {
@@ -2169,7 +2214,7 @@ describe("D1AdminCatalogRepository", () => {
               kind: "new_external",
               clientKey: "new-artist-chip",
               displayName: "New Original Artist",
-              entityKind: "person",
+              entityKind: "group",
             },
             creditOrder: 0,
             isPrimary: true,
@@ -2194,7 +2239,7 @@ describe("D1AdminCatalogRepository", () => {
       originalArtists: [
         {
           entityId,
-          displayName: "New Original Artist",
+          displayName,
           creditOrder: 0,
           isPrimary: true,
         },
@@ -2204,7 +2249,7 @@ describe("D1AdminCatalogRepository", () => {
     expect(after.readModelRevision).toBe(updated.catalogRevision);
     expect(after.entities).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: entityId, displayName: "New Original Artist" }),
+        expect.objectContaining({ id: entityId, displayName }),
       ]),
     );
     const searchTerm = await db
@@ -2214,7 +2259,7 @@ describe("D1AdminCatalogRepository", () => {
       )
       .bind(song.data.id)
       .first<{ normalized_term: string }>();
-    expect(searchTerm?.normalized_term).toBe("new original artist");
+    expect(searchTerm?.normalized_term).toBe(reuseArtist ? "previous artist" : "new original artist");
   });
 
   it("fails closed instead of healing an already stale public read model", async () => {
@@ -2534,7 +2579,7 @@ describe("D1AdminCatalogRepository", () => {
             originalArtists: [
               {
                 subject: reuseArtist
-                  ? { kind: "new_external", clientKey: "proposal-artist", displayName: "  PROPOSAL Artist  ", entityKind: "person" }
+                  ? { kind: "new_external", clientKey: "proposal-artist", displayName: "  PROPOSAL Artist  ", entityKind: "group" }
                   : { kind: "entity", entityId: artist.data.id },
                 creditOrder: 0,
                 isPrimary: true,
@@ -2714,7 +2759,7 @@ describe("D1AdminCatalogRepository", () => {
     expect(Number(leakedTerms?.count)).toBe(0);
   });
 
-  it("atomically corrects every performance field and rebuilds participant identities and projections", async () => {
+  it.each([false, true])("corrects a performance atomically and creates or reuses a participant: %s", async (reuseArtist) => {
     const repository = new D1AdminCatalogRepository(db);
     const fixture = await createDraftFixture(
       repository,
@@ -2751,7 +2796,7 @@ describe("D1AdminCatalogRepository", () => {
       )
       .run();
     const memberEntityId = id("entity-member");
-    const guestEntityId = id("entity-guest");
+    const guestEntityId = reuseArtist ? (await createEntity(repository, "수정 게스트", "group")).data.id : id("entity-guest");
     const revisionBefore = (await repository.readCatalog()).revision;
 
     const updated = await repository.updatePerformance({

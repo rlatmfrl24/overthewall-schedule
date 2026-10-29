@@ -111,6 +111,180 @@ const completeDetails = async () => {
 };
 
 describe("OtwPlaySubmissionPage", () => {
+  const namesakes = [
+    { entityId: "yorushika-person", displayName: "요루시카", memberUid: null, entityKind: "person", isExactMatch: true },
+    { entityId: "yorushika-group", displayName: "요루시카", memberUid: null, entityKind: "group", isExactMatch: true },
+  ];
+
+  const selectNamesake = async (label: string, index: number) => {
+    fireEvent.change(screen.getByLabelText(label), { target: { value: "요루시카" } });
+    const results = await screen.findByLabelText(`${label.replace(" *", "")} 검색 결과`);
+    await waitFor(() => expect(within(results).getAllByRole("button", { name: /요루시카/ })).toHaveLength(2));
+    fireEvent.click(within(results).getAllByRole("button", { name: /요루시카/ })[index]);
+  };
+
+  it("selects namesakes independently, blocks the same ID, and removes only the chosen identity", async () => {
+    mocks.searchArtists.mockResolvedValue(namesakes);
+    renderPage(); await verifyVideo(); await startNewSong();
+    await selectNamesake("원곡 가수 *", 0);
+    await selectNamesake("원곡 가수 *", 1);
+    const selected = screen.getByLabelText("원곡 가수 선택 목록");
+    expect(within(selected).getAllByRole("button", { name: /제거/ })).toHaveLength(2);
+    await selectNamesake("원곡 가수 *", 1);
+    expect(screen.getByRole("alert").textContent).toContain("이미 추가한");
+    fireEvent.change(screen.getByLabelText("원곡 가수 *"), { target: { value: "" } });
+    fireEvent.click(within(selected).getAllByRole("button", { name: /제거/ })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
+    fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "검수 요청하기" }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      originalArtists: [{ kind: "external", displayName: "요루시카", entityId: "yorushika-group" }],
+    })));
+  });
+
+  it("shows artist names without internal IDs or kinds and does not choose ambiguous matches on Enter", async () => {
+    mocks.searchArtists.mockResolvedValue(namesakes);
+    renderPage(); await verifyVideo(); await startNewSong();
+    fireEvent.change(screen.getByLabelText("원곡 가수 *"), { target: { value: "요루시카" } });
+    expect(await screen.findAllByRole("button", { name: "요루시카" })).toHaveLength(2);
+    expect(screen.getByLabelText("원곡 가수 검색 결과").textContent).not.toMatch(/yorushika|등록 ID|개인|그룹/);
+    fireEvent.keyDown(screen.getByLabelText("원곡 가수 *"), { key: "Enter" });
+    expect(screen.queryByLabelText("원곡 가수 선택 목록")).toBeNull();
+    expect(screen.queryByRole("button", { name: /새 가수로 추가/ })).toBeNull();
+  });
+
+  it("keeps original artist and external participant identities separate when their names match", async () => {
+    mocks.searchArtists.mockResolvedValue(namesakes);
+    renderPage(); await verifyVideo(); await startNewSong();
+    await selectNamesake("원곡 가수 *", 0);
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
+    fireEvent.click(screen.getByText("외부 참여자·세부 역할 (선택)"));
+    await selectNamesake("외부 참여자", 1);
+    fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "검수 요청하기" }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      originalArtists: [{ kind: "external", displayName: "요루시카", entityId: "yorushika-person" }],
+      participants: [
+        { kind: "member", memberUid: 1, participantRole: "vocal" },
+        { kind: "external", displayName: "요루시카", entityId: "yorushika-group", participantRole: "vocal" },
+      ],
+    })));
+  });
+
+  it("preserves interleaved participant order, namesake IDs and roles on a note-only save", async () => {
+    mocks.update.mockResolvedValueOnce({ ...submission, version: 8, note: "메모만 수정" });
+    mocks.editDetail.mockReturnValue({ isPending: false, isError: false, data: {
+      ...submission, version: 7, editable: true, withdrawable: true,
+      originalArtists: namesakes.map((artist, creditOrder) => ({ ...artist, creditOrder })),
+      participants: [
+        { ...namesakes[0], creditOrder: 0, participantRole: "other" },
+        { creditOrder: 1, memberUid: 1, displayName: member.name, participantRole: "vocal" },
+        { ...namesakes[1], creditOrder: 2, participantRole: "chorus" },
+      ],
+    } });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(<QueryClientProvider client={client}><UnsavedChangesContext value={{ register: mocks.registerDirty, confirm: async () => false }}><OtwPlaySubmissionPage editId="proposal-one" initialKind="official_cover" /></UnsavedChangesContext></QueryClientProvider>);
+    await waitFor(() => expect(mocks.registerDirty.mock.calls.at(-1)?.[1]).toBe(false));
+    expect(await screen.findByText("저장된 제안 영상")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "가창자" })).getAllByRole("listitem").map(item => item.textContent)).toEqual([
+      expect.stringContaining("요루시카"), expect.stringContaining(member.name), expect.stringContaining("요루시카"),
+    ]);
+    fireEvent.change(await screen.findByLabelText("관리자에게 전할 메모 (선택)"), { target: { value: "메모만 수정" } });
+    fireEvent.click(screen.getByRole("button", { name: "수정 저장" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith("proposal-one", expect.objectContaining({
+      expectedVersion: 7, note: "메모만 수정",
+      originalArtists: namesakes.map(artist => ({ kind: "external", displayName: artist.displayName, entityId: artist.entityId })),
+      participants: [
+        { kind: "external", displayName: "요루시카", entityId: "yorushika-person", participantRole: "other" },
+        { kind: "member", memberUid: 1, participantRole: "vocal" },
+        { kind: "external", displayName: "요루시카", entityId: "yorushika-group", participantRole: "chorus" },
+      ],
+    }), expect.any(String)));
+    expect(mocks.preflight).not.toHaveBeenCalled();
+    await screen.findByText("곡 제안 수정 완료");
+  });
+
+  it("requires video verification after changing a saved proposal URL", async () => {
+    mocks.editDetail.mockReturnValue({ isPending: false, isError: false, data: {
+      ...submission, version: 7, editable: true, withdrawable: true,
+      originalArtists: [{ displayName: "원곡 가수", memberUid: null, creditOrder: 0 }],
+      participants: [{ displayName: member.name, memberUid: 1, creditOrder: 0, participantRole: "vocal" }],
+    } });
+    renderPage("proposal-one");
+    await screen.findByLabelText("관리자에게 전할 메모 (선택)");
+    fireEvent.click(screen.getByRole("button", { name: "유형·영상 수정" }));
+    fireEvent.change(screen.getByLabelText("YouTube 영상 URL"), { target: { value: "https://youtu.be/ASRCBcCY_qE" } });
+    mocks.preflight.mockRejectedValueOnce(new Error("offline"));
+    fireEvent.click(screen.getByRole("button", { name: /영상 확인/ }));
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("button", { name: "수정 저장" })).toBeNull();
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.preflight.mock.calls[0]?.[0]).toEqual({ youtubeUrl: "https://youtu.be/ASRCBcCY_qE" });
+  });
+
+  it("keeps a member UID distinct from an external artist with the same name", async () => {
+    mocks.searchArtists.mockResolvedValue([
+      { ...namesakes[0], memberUid: 1 }, namesakes[1],
+    ]);
+    renderPage(); await verifyVideo(); await startNewSong();
+    await selectNamesake("원곡 가수 *", 0);
+    await selectNamesake("원곡 가수 *", 1);
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
+    fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "검수 요청하기" }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ originalArtists: [
+      { kind: "member", memberUid: 1 },
+      { kind: "external", displayName: "요루시카", entityId: "yorushika-group" },
+    ] })));
+  });
+
+  it("keeps namesake participant roles independent through removal and reselection", async () => {
+    mocks.searchArtists.mockResolvedValue(namesakes);
+    renderPage(); await verifyVideo(); await startNewSong();
+    await selectNamesake("원곡 가수 *", 0);
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
+    fireEvent.click(screen.getByText("외부 참여자·세부 역할 (선택)"));
+    await selectNamesake("외부 참여자", 0);
+    await selectNamesake("외부 참여자", 1);
+    fireEvent.click(screen.getAllByLabelText("요루시카 가창 역할")[0]);
+    fireEvent.click(await screen.findByRole("option", { name: "기타 참여" }));
+    fireEvent.click(screen.getAllByLabelText("요루시카 가창 역할")[1]);
+    fireEvent.click(await screen.findByRole("option", { name: "코러스" }));
+    const selected = screen.getByLabelText("외부 참여자 선택 목록");
+    fireEvent.click(within(selected).getAllByRole("button", { name: "요루시카 제거" })[0]);
+    expect(screen.getByLabelText("요루시카 가창 역할").textContent).toContain("코러스");
+    await selectNamesake("외부 참여자", 0);
+    expect(screen.getAllByLabelText("요루시카 가창 역할")[1].textContent).toContain("메인 보컬");
+    fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "검수 요청하기" }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ participants: [
+      { kind: "member", memberUid: 1, participantRole: "vocal" },
+      { kind: "external", displayName: "요루시카", entityId: "yorushika-group", participantRole: "chorus" },
+      { kind: "external", displayName: "요루시카", entityId: "yorushika-person", participantRole: "vocal" },
+    ] })));
+  });
+
+  it("does not attach a previous artist ID to a newly selected song snapshot", async () => {
+    mocks.searchArtists.mockResolvedValue(namesakes);
+    renderPage(); await verifyVideo(); await startNewSong();
+    await selectNamesake("원곡 가수 *", 0);
+    fireEvent.click(screen.getByRole("button", { name: "다른 곡 검색" }));
+    mocks.preflight.mockResolvedValue({ ...preflight, songCandidates: [{ id: "song-other", title: "다른 곡", originalArtists: ["요루시카"] }] });
+    fireEvent.click(screen.getByRole("button", { name: "검색" }));
+    fireEvent.click(await screen.findByRole("button", { name: /다른 곡.*요루시카/ }));
+    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(member.name) }));
+    fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "검수 요청하기" }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      suggestedSongId: "song-other", originalArtists: [{ kind: "external", displayName: "요루시카" }],
+    })));
+  });
+
   it("searches first and submits the selected existing artist ID", async () => {
     mocks.searchArtists.mockResolvedValue([{ entityId: "iu", displayName: "아이유", memberUid: null, entityKind: "person", isExactMatch: true }]);
     renderPage();
@@ -333,12 +507,10 @@ describe("OtwPlaySubmissionPage", () => {
     renderPage("proposal-one");
 
     expect(screen.queryByText("저장하지 않은 제목")).toBeNull();
-    expect((screen.getByLabelText("YouTube 영상 URL") as HTMLInputElement).value).toBe(preflight.canonicalUrl);
+    await screen.findByLabelText("관리자에게 전할 메모 (선택)");
+    expect(screen.getByRole("link", { name: "YouTube에서 보기" }).getAttribute("href")).toBe(preflight.canonicalUrl);
     expect(sessionStorage.getItem("otw-play:member-submission-draft:v1:edit:proposal-one")).toBeNull();
-    await verifyVideo();
-    expect((screen.getByLabelText("곡명 *") as HTMLInputElement).value).toBe("테스트 커버");
-    fireEvent.click(screen.getByRole("button", { name: "가창자 선택하기" }));
-    fireEvent.click(screen.getByRole("button", { name: "제안 내용 확인하기" }));
+    expect(screen.getByText("테스트 커버")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "수정 저장" }));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(
       "proposal-one",

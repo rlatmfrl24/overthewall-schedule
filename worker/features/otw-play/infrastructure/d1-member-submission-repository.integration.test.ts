@@ -79,6 +79,47 @@ beforeEach(async () => {
 });
 
 describe("D1MemberSubmissionRepository", () => {
+  it("returns one row per entity across aliases and retains namesake IDs through create, replay and edit", async () => {
+    const repository = new D1MemberSubmissionRepository(db);
+    const personId = "submission-candidate-yorushika-person";
+    const groupId = "submission-candidate-yorushika-group";
+    await db.batch([personId, groupId].map((id, index) => db.prepare(`INSERT INTO music_entities
+      (id, entity_kind, display_name, normalized_name, slug, created_at, updated_at)
+      VALUES (?, ?, '요루시카', '요루시카', ?, 0, 0)`).bind(id, index ? "group" : "person", id)));
+    await db.batch(["ヨルシカ", "yorushika", "yorushika band", "요루시카 밴드"].map(alias => db.prepare(`INSERT INTO music_entity_aliases
+      (entity_id, alias, normalized_alias, locale, alias_kind) VALUES (?, ?, ?, NULL, 'stage_name')`).bind(groupId, alias, alias)));
+    expect(await repository.searchArtists("요루시카")).toEqual([
+      expect.objectContaining({ entityId: groupId, entityKind: "group", isExactMatch: true }),
+      expect.objectContaining({ entityId: personId, entityKind: "person", isExactMatch: true }),
+    ]);
+    for (const alias of ["ヨルシカ", "yorushika", "요루시카 밴드"]) {
+      expect(await repository.searchArtists(alias)).toEqual([expect.objectContaining({ entityId: groupId })]);
+    }
+    const originalArtists = [personId, groupId].map(entityId => ({ kind: "external" as const, displayName: "요루시카", entityId }));
+    const participants = [
+      ...input("1").participants,
+      { kind: "external" as const, displayName: "요루시카", entityId: groupId, participantRole: "chorus" as const },
+      { kind: "external" as const, displayName: "요루시카", entityId: personId, participantRole: "other" as const },
+    ];
+    const result = await create(repository, "member-a", "1", { originalArtists, participants });
+    expect(result.data.originalArtists.map(artist => artist.entityId)).toEqual([personId, groupId]);
+    expect(result.data.participants.map(artist => [artist.entityId, artist.participantRole])).toEqual([
+      [undefined, "chorus"], [groupId, "chorus"], [personId, "other"],
+    ]);
+    expect((await create(repository, "member-a", "1", { originalArtists, participants })).idempotentReplay).toBe(true);
+    const updated = await repository.update({ userId: "member-a", proposalId: result.data.id, eventId: "namesake-edit", now: NOW + 2,
+      videoId: result.data.youtubeVideoId, canonicalUrl: result.data.youtubeUrl,
+      input: { ...input("1"), originalArtists, participants, expectedVersion: result.data.version, note: "메모만 수정" } });
+    expect(updated.originalArtists).toEqual(result.data.originalArtists);
+    expect(updated.participants).toEqual(result.data.participants);
+    const persisted = await db.prepare(`SELECT resolved_entity_id FROM music_cover_proposal_original_artists
+      WHERE proposal_id = ? ORDER BY credit_order`).bind(result.data.id).all<{ resolved_entity_id: string }>();
+    expect(persisted.results.map(artist => artist.resolved_entity_id)).toEqual([personId, groupId]);
+    await db.prepare("UPDATE music_entities SET archived_at = 1 WHERE id = ?").bind(groupId).run();
+    expect(await repository.searchArtists("요루시카")).toEqual([expect.objectContaining({ entityId: personId })]);
+    await expect(create(repository, "member-a", "2", { originalArtists })).rejects.toMatchObject({ code: "invalid_request" });
+  });
+
   it("searches existing artists and preserves selected IDs through submission, replay and edit", async () => {
     const repository = new D1MemberSubmissionRepository(db);
     await db.prepare(`INSERT INTO music_entities

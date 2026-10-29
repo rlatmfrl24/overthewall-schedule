@@ -28,6 +28,7 @@ import type {
   OtwPlayMemberSubmissionDto,
   OtwPlayParticipantRole,
   OtwPlaySubmissionParticipantInput,
+  OtwPlaySubmissionSubjectInput,
   OtwPlaySubmissionPreflightDto,
   OtwPlaySubmissionSongCandidateDto,
 } from "@contracts/otw-play";
@@ -78,6 +79,17 @@ const newClientRequestId = () => crypto.randomUUID();
 const normalizedText = (value: string) =>
   value.normalize("NFKC").trim().replace(/\s+/gu, " ");
 const comparableText = (value: string) => normalizedText(value).toLowerCase();
+type SelectedArtist = {
+  displayName: string;
+  memberUid: number | null;
+  entityId?: string;
+};
+const artistIdentity = (artist: SelectedArtist) => artist.memberUid !== null
+  ? `member:${artist.memberUid}`
+  : artist.entityId ? `entity:${artist.entityId}` : `name:${comparableText(artist.displayName)}`;
+const artistSubject = (artist: SelectedArtist): OtwPlaySubmissionSubjectInput => artist.memberUid !== null
+  ? { kind: "member", memberUid: artist.memberUid }
+  : { kind: "external", displayName: artist.displayName, ...(artist.entityId ? { entityId: artist.entityId } : {}) };
 
 function ChipInput({
   id,
@@ -89,19 +101,17 @@ function ChipInput({
   required = false,
   draft,
   onDraftChange: setDraft,
-  onSelect,
   externalOnly = false,
 }: {
   id: string;
   label: string;
-  values: string[];
-  onChange: (values: string[]) => void;
+  values: SelectedArtist[];
+  onChange: (values: SelectedArtist[]) => void;
   placeholder: string;
   maxValues: number;
   required?: boolean;
   draft: string;
   onDraftChange: (value: string) => void;
-  onSelect: (artist: OtwPlaySubmissionArtistDto) => void;
   externalOnly?: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
@@ -127,16 +137,15 @@ function ChipInput({
       setError("OTW 멤버는 위의 참여 멤버 목록에서 선택해 주세요.");
       return;
     }
-    const value = artist?.displayName ?? normalizedText(draft);
-    if (!value) return setError("추가할 이름을 입력해 주세요.");
-    if (values.some((item) => comparableText(item) === comparableText(value))) {
+    const value = artist ?? { displayName: normalizedText(draft), memberUid: null };
+    if (!value.displayName) return setError("추가할 이름을 입력해 주세요.");
+    if (values.some(item => artistIdentity(item) === artistIdentity(value))) {
       return setError("이미 추가한 이름입니다.");
     }
     if (values.length >= maxValues) {
       return setError(`최대 ${maxValues}명까지 추가할 수 있습니다.`);
     }
     onChange([...values, value]);
-    if (artist) onSelect(artist);
     setDraft("");
     setError(null);
   };
@@ -156,12 +165,12 @@ function ChipInput({
       {values.length ? (
         <div className="flex flex-wrap gap-2" aria-label={`${label} 선택 목록`}>
           {values.map((value) => (
-            <Badge key={value} variant="secondary" className="gap-1 py-1">
-              {value}
+            <Badge key={artistIdentity(value)} variant="secondary" className="max-w-full gap-1 whitespace-normal break-all py-1">
+              {value.displayName}
               <button
                 type="button"
-                aria-label={`${value} 제거`}
-                onClick={() => onChange(values.filter((item) => item !== value))}
+                aria-label={`${value.displayName} 제거`}
+                onClick={() => onChange(values.filter(item => artistIdentity(item) !== artistIdentity(value)))}
               ><X className="size-3" /></button>
             </Badge>
           ))}
@@ -183,7 +192,7 @@ function ChipInput({
         {!currentSearch || search.isPending || search.isFetching ? <p role="status" className="text-sm text-muted-foreground">기존 가수를 검색하고 있습니다.</p>
           : search.isError ? <div role="alert" className="text-sm"><p>가수 검색에 실패했습니다. 다시 검색해 주세요.</p><Button type="button" variant="outline" onClick={() => void search.refetch()}>다시 검색</Button></div>
           : <>
-            {results.length ? <ul className="max-h-56 overflow-y-auto">{results.map(artist => <li key={artist.entityId}><Button type="button" variant="ghost" className="h-auto w-full justify-between whitespace-normal text-left" disabled={values.length >= maxValues} onClick={() => commit(artist)}><span>{artist.displayName}</span><span className="ml-2 text-xs text-muted-foreground">{artist.memberUid !== null ? "OTW 멤버" : artist.entityKind === "group" ? "그룹" : "기존 가수"}</span></Button></li>)}</ul> : <p className="text-sm text-muted-foreground">등록된 가수가 없습니다.</p>}
+            {results.length ? <ul className="max-h-56 overflow-y-auto">{results.map(artist => <li key={artist.entityId}><Button type="button" variant="ghost" className="h-auto w-full justify-between whitespace-normal text-left" disabled={values.length >= maxValues} onClick={() => commit(artist)}><span className="min-w-0 break-all">{artist.displayName}</span></Button></li>)}</ul> : <p className="text-sm text-muted-foreground">등록된 가수가 없습니다.</p>}
             {!exactMatches.length ? <><p className="text-sm text-muted-foreground">찾는 가수가 없으면 새 가수로 추가해 주세요.</p><Button type="button" variant="outline" onClick={() => commit()} disabled={!ready || values.length >= maxValues}><Plus /> “{normalizedText(draft)}” 새 가수로 추가</Button></> : null}
           </>}
       </div> : null}
@@ -213,12 +222,12 @@ function MemberSelector({ members, selectedUids, onChange, maxReached }: {
   </div>;
 }
 
-function VideoSummary({ preflight, expanded = false }: { preflight: OtwPlaySubmissionPreflightDto; expanded?: boolean }) {
+function VideoSummary({ preflight, expanded = false, saved = false }: { preflight: OtwPlaySubmissionPreflightDto; expanded?: boolean; saved?: boolean }) {
   return (
     <div className={`grid items-center gap-3 ${expanded ? "grid-cols-[96px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)]" : "grid-cols-[88px_minmax(0,1fr)] sm:grid-cols-[112px_minmax(0,1fr)]"}`}>
       <img src={preflight.thumbnailUrl} alt="확인한 YouTube 영상 썸네일" className="aspect-video w-full rounded-lg object-cover" />
       <div className="min-w-0 self-center text-sm">
-        <p className="font-medium text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="mr-1 inline size-4" /> {preflight.video ? "영상 확인 완료" : "영상 정보 재확인 필요"}</p>
+        <p className="font-medium text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="mr-1 inline size-4" /> {preflight.video ? "영상 확인 완료" : saved ? "저장된 제안 영상" : "영상 정보 재확인 필요"}</p>
         <a href={preflight.canonicalUrl} target="_blank" rel="noreferrer" className="mt-1 block text-xs text-muted-foreground underline-offset-4 hover:underline">YouTube에서 보기</a>
         {preflight.video ? <><p className={`mt-1 font-medium ${expanded ? "break-words text-base leading-relaxed" : "line-clamp-2"}`}>{preflight.video.title}</p><p className={`mt-1 text-muted-foreground ${expanded ? "text-sm" : "text-xs"}`}>{expanded ? "업로더: " : ""}{preflight.video.channelName} · {expanded ? "영상 길이: " : ""}{preflight.video.durationSeconds == null ? "길이 미확인" : `${Math.floor(preflight.video.durationSeconds / 60)}:${String(preflight.video.durationSeconds % 60).padStart(2, "0")}`}</p></> : null}
       </div>
@@ -316,15 +325,14 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
   const [songMode, setSongMode] = useState<"new" | "existing">("existing");
   const [suggestedSongId, setSuggestedSongId] = useState<string | null>(null);
   const [songTags, setSongTags] = useState<string[]>([]);
-  const [originalArtists, setOriginalArtists] = useState<string[]>([]);
-  const [artistEntityIds, setArtistEntityIds] = useState<Record<string, string>>({});
+  const [originalArtists, setOriginalArtists] = useState<SelectedArtist[]>([]);
   const [memberUids, setMemberUids] = useState<number[]>([]);
-  const [externalParticipants, setExternalParticipants] = useState<string[]>([]);
+  const [externalParticipants, setExternalParticipants] = useState<SelectedArtist[]>([]);
+  const [participantOrder, setParticipantOrder] = useState<string[]>([]);
   const [memberRoles, setMemberRoles] = useState<Record<number, OtwPlayParticipantRole>>({});
   const [externalRoles, setExternalRoles] = useState<Record<string, OtwPlayParticipantRole>>({});
   const [note, setNote] = useState("");
   const [expectedVersion, setExpectedVersion] = useState<number | null>(null);
-  const [originalArtistMemberUids, setOriginalArtistMemberUids] = useState<Record<string, number>>({});
   const [editBaseline, setEditBaseline] = useState<string | null>(null);
   const [preflight, setPreflight] = useState<OtwPlaySubmissionPreflightDto | null>(null);
   const [candidateSearchAttempted, setCandidateSearchAttempted] = useState(false);
@@ -391,13 +399,6 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
     const submission = editDetail.data;
     if (!editId || !submission || initializedEditId.current === editId) return;
     initializedEditId.current = editId;
-    setArtistEntityIds(Object.fromEntries([...submission.originalArtists, ...submission.participants]
-      .flatMap(artist => artist.memberUid === null && artist.entityId ? [[artist.displayName, artist.entityId]] : [])));
-    setOriginalArtistMemberUids(Object.fromEntries(
-      submission.originalArtists.flatMap((artist) =>
-        artist.memberUid === null ? [] : [[artist.displayName, artist.memberUid]],
-      ),
-    ));
     const memberParticipants = submission.participants.filter(
       (participant) => participant.memberUid !== null,
     );
@@ -405,7 +406,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
       (participant) => participant.memberUid === null,
     );
     setExpectedVersion(submission.version);
-    setStep(0);
+    setStep(3);
     setClientRequestId(submission.clientRequestId);
     setYoutubeUrl(submission.youtubeUrl);
     setTitle(submission.title);
@@ -414,14 +415,21 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
     setSongMode(submission.suggestedSongId ? "existing" : "new");
     setSuggestedSongId(submission.suggestedSongId);
     setSongTags(submission.tags);
-    setOriginalArtists(submission.originalArtists.map((artist) => artist.displayName));
+    setOriginalArtists(submission.originalArtists.map(artist => ({
+      displayName: artist.displayName, memberUid: artist.memberUid,
+      ...(artist.entityId ? { entityId: artist.entityId } : {}),
+    })));
+    setParticipantOrder(submission.participants.map(participant => artistIdentity({ ...participant, entityId: participant.entityId ?? undefined })));
     setMemberUids(memberParticipants.map((participant) => participant.memberUid!));
-    setExternalParticipants(external.map((participant) => participant.displayName));
+    setExternalParticipants(external.map(artist => ({
+      displayName: artist.displayName, memberUid: artist.memberUid,
+      ...(artist.entityId ? { entityId: artist.entityId } : {}),
+    })));
     setMemberRoles(Object.fromEntries(
       memberParticipants.map((participant) => [participant.memberUid!, participant.participantRole]),
     ));
     setExternalRoles(Object.fromEntries(
-      external.map((participant) => [participant.displayName, participant.participantRole]),
+      external.map(participant => [artistIdentity(participant), participant.participantRole]),
     ));
     setNote(submission.note ?? "");
     setPreflight({
@@ -443,7 +451,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
         entityId: artist.memberUid === null ? artist.entityId : undefined,
         displayName: artist.displayName,
       })),
-      participants: [...memberParticipants, ...external].map((participant) => ({
+      participants: submission.participants.map((participant) => ({
         memberUid: participant.memberUid,
         entityId: participant.memberUid === null ? participant.entityId : undefined,
         displayName: participant.displayName,
@@ -459,19 +467,22 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
     () => (members.data ?? []).filter((member) => memberUids.includes(member.uid)),
     [memberUids, members.data],
   );
-  const participants = useMemo<OtwPlaySubmissionParticipantInput[]>(() => [
-    ...memberUids.map((memberUid) => ({
-      kind: "member" as const,
-      memberUid,
-      participantRole: memberRoles[memberUid] ?? "vocal",
-    })),
-    ...externalParticipants.map((displayName) => ({
-      kind: "external" as const,
-      displayName,
-      ...(artistEntityIds[displayName] ? { entityId: artistEntityIds[displayName] } : {}),
-      participantRole: externalRoles[displayName] ?? "vocal",
-    })),
-  ], [externalParticipants, externalRoles, memberRoles, memberUids, artistEntityIds]);
+  const participants = useMemo<OtwPlaySubmissionParticipantInput[]>(() => {
+    const selected: SelectedArtist[] = [
+      ...memberUids.map(memberUid => ({ displayName: "", memberUid })),
+      ...externalParticipants,
+    ];
+    const order = new Map(participantOrder.map((key, index) => [key, index]));
+    return selected.sort((left, right) =>
+      (order.get(artistIdentity(left)) ?? participantOrder.length) -
+      (order.get(artistIdentity(right)) ?? participantOrder.length),
+    ).map(artist => ({
+      ...artistSubject(artist),
+      participantRole: artist.memberUid !== null
+        ? memberRoles[artist.memberUid] ?? "vocal"
+        : externalRoles[artistIdentity(artist)] ?? "vocal",
+    }));
+  }, [externalParticipants, externalRoles, memberRoles, memberUids, participantOrder]);
   const currentEditSnapshot = useMemo(
     () => JSON.stringify({
       submissionKind, broadcast,
@@ -479,10 +490,10 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
       title,
       suggestedSongId,
       tags: songMode === "new" ? songTags : [],
-      originalArtists: originalArtists.map((displayName) => ({
-        memberUid: originalArtistMemberUids[displayName] ?? null,
-        entityId: originalArtistMemberUids[displayName] ? undefined : artistEntityIds[displayName],
-        displayName,
+      originalArtists: originalArtists.map(artist => ({
+        memberUid: artist.memberUid,
+        entityId: artist.memberUid !== null ? undefined : artist.entityId,
+        displayName: artist.displayName,
       })),
       participants: participants.map((participant) => ({
         memberUid: participant.kind === "member" ? participant.memberUid : null,
@@ -495,7 +506,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
       })),
       note: note || null,
     }),
-    [submissionKind, broadcast, members.data, note, artistEntityIds, originalArtistMemberUids, originalArtists, participants, songMode, songTags, suggestedSongId, title, youtubeUrl],
+    [submissionKind, broadcast, members.data, note, originalArtists, participants, songMode, songTags, suggestedSongId, title, youtubeUrl],
   );
   const dirty = !success && (editId
     ? editBaseline !== null && (currentEditSnapshot !== editBaseline || Boolean(originalArtistDraft || externalParticipantDraft))
@@ -509,10 +520,10 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
         label: `${member.oshi_mark ? `${member.oshi_mark} ` : ""}${member.name}`,
         role: memberRoles[member.uid] ?? "vocal",
       })),
-      ...externalParticipants.map((displayName) => ({
-        key: `external:${displayName}`,
-        label: displayName,
-        role: externalRoles[displayName] ?? "vocal",
+      ...externalParticipants.map(artist => ({
+        key: `external:${artistIdentity(artist)}`,
+        label: artist.displayName,
+        role: externalRoles[artistIdentity(artist)] ?? "vocal",
       })),
     ],
     [externalParticipants, externalRoles, memberRoles, selectedMembers],
@@ -526,8 +537,8 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
       setMemberRoles((current) => ({ ...current, [uid]: role }));
       return;
     }
-    const displayName = key.slice("external:".length);
-    setExternalRoles((current) => ({ ...current, [displayName]: role }));
+    const identity = key.slice("external:".length);
+    setExternalRoles((current) => ({ ...current, [identity]: role }));
   };
 
   const verifyVideo = async () => {
@@ -580,8 +591,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
     setSongMode("existing");
     setSuggestedSongId(candidate.id);
     setTitle(candidate.title);
-    setOriginalArtists(candidate.originalArtists);
-    setOriginalArtistMemberUids({});
+    setOriginalArtists(candidate.originalArtists.map(displayName => ({ displayName, memberUid: null })));
     setSongTags([]);
   };
   const selectNewSong = () => { setSongMode("new"); setSuggestedSongId(null); };
@@ -590,15 +600,18 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
     setSongMode("existing");
     setSuggestedSongId(null);
     setOriginalArtists([]);
-    setOriginalArtistMemberUids({});
     setSongTags([]);
     setCandidateSearchAttempted(false);
     setMessage(null);
   };
   const songSelected = songMode === "new" || suggestedSongId !== null;
+  const videoReady = Boolean(preflight && !preflight.duplicate && (preflight.video || (
+    editId && editDetail.data?.youtubeUrl === youtubeUrl &&
+    (editDetail.data.submissionKind ?? "official_cover") === submissionKind
+  )));
   const canReview = title.trim().length > 0 && originalArtists.length > 0 && originalArtists.length <= ORIGINAL_ARTIST_LIMIT && participantCount > 0 && participantCount <= PARTICIPANT_LIMIT && (songMode === "new" || suggestedSongId !== null);
   const continueToSingers = () => {
-    if (!preflight?.video) { setMessage("영상 정보를 다시 확인해 주세요. 곡 입력은 유지됩니다."); setStep(0); return; }
+    if (!videoReady) { setMessage("영상 정보를 다시 확인해 주세요. 곡 입력은 유지됩니다."); setStep(0); return; }
     if (originalArtistDraft.trim()) { setMessage("검색 결과에서 원곡 가수를 선택하거나 새 가수로 추가해 주세요."); return; }
     const artists = originalArtists;
     if (!title.trim() || !songSelected || !artists.length || artists.length > ORIGINAL_ARTIST_LIMIT) {
@@ -620,17 +633,15 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
     setMessage(null); setStep(3);
   };
   const resetForm = () => {
-    setArtistEntityIds({});
-    setOriginalArtistMemberUids({});
     preflightRequestId.current += 1;
     setSubmissionKind(initialKind ?? null); setBroadcast(emptySubmissionBroadcast()); setOriginalArtistDraft(""); setExternalParticipantDraft("");
     setStep(0); setClientRequestId(newClientRequestId()); setYoutubeUrl(""); setTitle("");
     setSongMode("existing"); setSuggestedSongId(null); setSongTags([]); setOriginalArtists([]); setMemberUids([]);
-    setExternalParticipants([]); setMemberRoles({}); setExternalRoles({}); setNote(""); setPreflight(null); setCandidateSearchAttempted(false);
+    setExternalParticipants([]); setParticipantOrder([]); setMemberRoles({}); setExternalRoles({}); setNote(""); setPreflight(null); setCandidateSearchAttempted(false);
     setMessage(null); setSuccess(null);
   };
 
-  const submissionDisabled = !preflight?.video || !canReview || !submissionKind || submitMutation.isPending || Boolean(editId && expectedVersion === null);
+  const submissionDisabled = !videoReady || !canReview || !submissionKind || submitMutation.isPending || Boolean(editId && expectedVersion === null);
   const navigationBusy = preflightMutation.isPending || submitMutation.isPending;
   const changeStep = (requestedStep: number) => {
     if (navigationBusy) return;
@@ -643,7 +654,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
   };
   const submitProposal = () => {
     if (submissionDisabled) return;
-    submitMutation.mutate({ clientRequestId, submissionKind: submissionKind ?? "official_cover", broadcast: submissionKind === "singing_clip" ? broadcast : null, youtubeUrl, title, suggestedSongId, tags: songMode === "new" ? songTags : [], originalArtists: originalArtists.map((displayName) => originalArtistMemberUids[displayName] ? { kind: "member", memberUid: originalArtistMemberUids[displayName] } : { kind: "external", displayName, ...(artistEntityIds[displayName] ? { entityId: artistEntityIds[displayName] } : {}) }), participants, note: note || null });
+    submitMutation.mutate({ clientRequestId, submissionKind: submissionKind ?? "official_cover", broadcast: submissionKind === "singing_clip" ? broadcast : null, youtubeUrl, title, suggestedSongId, tags: songMode === "new" ? songTags : [], originalArtists: originalArtists.map(artistSubject), participants, note: note || null });
   };
   const finalButtonText = submitMutation.isPending ? (editId ? "저장 중" : "제출 중") : (editId ? "수정 저장" : "검수 요청하기");
 
@@ -720,7 +731,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
               <Input id="submission-youtube-url" value={youtubeUrl} onChange={(event) => { preflightRequestId.current += 1; setYoutubeUrl(event.target.value); setPreflight(null); setMessage(null); }} placeholder="https://www.youtube.com/watch?v=..." maxLength={500} aria-invalid={Boolean(message)} />
               <p className="text-xs text-muted-foreground">{submissionKind === "singing_clip" ? "한 곡을 담은 편집 영상의 주소를 입력해 주세요. 전체 다시보기에서 구간을 지정하는 신청은 받지 않습니다." : "OTW 멤버가 참여한 공식 커버 영상 주소를 입력해 주세요. 오리지널곡은 이번 신청 대상에 포함되지 않습니다."}</p>
             </div>
-            {preflight && !preflight.duplicate ? <VideoSummary preflight={preflight} /> : null}
+            {preflight && !preflight.duplicate ? <VideoSummary preflight={preflight} saved={videoReady} /> : null}
             {preflight?.duplicate ? <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">이미 {preflight.duplicate === "catalog" ? "카탈로그에 등록된" : "검토 중인"} 영상입니다.</p> : null}
 
           </div>
@@ -728,7 +739,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
 
         <Step>
           <div className="space-y-4">
-            {preflight ? <VideoSummary preflight={preflight} /> : null}
+            {preflight ? <VideoSummary preflight={preflight} saved={videoReady} /> : null}
             <fieldset className="min-w-0 space-y-4">
               <legend className="sr-only">곡 정보</legend>
               <div className="flex min-h-9 items-center justify-between gap-3">
@@ -770,7 +781,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
                 ) : (
                   <div className="space-y-3">
 
-                    {songMode === "new" ? <div className="space-y-2"><Label htmlFor="submission-title">곡명 *</Label><Input id="submission-title" placeholder="한국어 제목 (원어 제목)" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={300} /></div> : <div className="py-2"><p className="break-words font-medium">{title}</p><p className="mt-1 text-sm text-muted-foreground">{originalArtists.join(", ")}</p></div>}
+                    {songMode === "new" ? <div className="space-y-2"><Label htmlFor="submission-title">곡명 *</Label><Input id="submission-title" placeholder="한국어 제목 (원어 제목)" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={300} /></div> : <div className="py-2"><p className="break-words font-medium">{title}</p><p className="mt-1 text-sm text-muted-foreground">{originalArtists.map(artist => artist.displayName).join(", ")}</p></div>}
                   </div>
                 )}
                 {songSelected ? <>
@@ -791,19 +802,8 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
                   draft={originalArtistDraft}
                   onDraftChange={setOriginalArtistDraft}
                   label="원곡 가수"
-                  onSelect={artist => {
-                    if (artist.memberUid !== null) setOriginalArtistMemberUids(current => ({ ...current, [artist.displayName]: artist.memberUid! }));
-                    else setArtistEntityIds(current => ({ ...current, [artist.displayName]: artist.entityId }));
-                  }}
                   values={originalArtists}
-                  onChange={(values) => {
-                    setOriginalArtists(values);
-                    setOriginalArtistMemberUids((current) =>
-                      Object.fromEntries(
-                        Object.entries(current).filter(([name]) => values.includes(name)),
-                      ),
-                    );
-                  }}
+                  onChange={setOriginalArtists}
                   placeholder="가수명 입력"
                   maxValues={ORIGINAL_ARTIST_LIMIT}
                   required
@@ -822,7 +822,10 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
               <div className="space-y-4">
                 <div className="flex items-start justify-between gap-3 text-sm"><span className="text-muted-foreground">함께 부른 멤버도 빠짐없이 골라 주세요.</span><span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs font-medium tabular-nums">{participantCount}/{PARTICIPANT_LIMIT}</span></div>
                 <MemberSelector members={members.data ?? []} selectedUids={memberUids} onChange={setMemberUids} maxReached={participantCount >= PARTICIPANT_LIMIT} />
-                <details className="pt-1"><summary className="cursor-pointer text-sm font-medium">외부 참여자·세부 역할 (선택)</summary><div className="mt-4 space-y-4"><ChipInput externalOnly onSelect={artist => setArtistEntityIds(current => ({ ...current, [artist.displayName]: artist.entityId }))} draft={externalParticipantDraft} onDraftChange={setExternalParticipantDraft} id="submission-external-participants" label="외부 참여자" values={externalParticipants} onChange={setExternalParticipants} placeholder="외부 인물 또는 그룹명" maxValues={Math.max(PARTICIPANT_LIMIT - memberUids.length, 0)} />
+                <details className="pt-1"><summary className="cursor-pointer text-sm font-medium">외부 참여자·세부 역할 (선택)</summary><div className="mt-4 space-y-4"><ChipInput externalOnly draft={externalParticipantDraft} onDraftChange={setExternalParticipantDraft} id="submission-external-participants" label="외부 참여자" values={externalParticipants} onChange={values => {
+                  setExternalParticipants(values);
+                  setExternalRoles(current => Object.fromEntries(Object.entries(current).filter(([key]) => values.some(artist => artistIdentity(artist) === key))));
+                }} placeholder="외부 인물 또는 그룹명" maxValues={Math.max(PARTICIPANT_LIMIT - memberUids.length, 0)} />
                 <ParticipantRoleEditor items={participantRoleItems} onRoleChange={changeParticipantRole} /></div></details>
                 {participantCount === 0 ? <p className="text-sm text-muted-foreground">멤버를 고르면 다음으로 넘어갈 수 있어요.</p> : null}
               </div>
@@ -835,22 +838,27 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
           <div className="space-y-4">
             <ReviewCard title="제안할 영상" action={<Button type="button" variant="outline" size="sm" disabled={navigationBusy} onClick={() => setStep(0)}>유형·영상 수정</Button>}>
               <p className="mb-3 text-sm text-muted-foreground">신청 유형 <span className="ml-2 font-semibold text-foreground">{submissionKind === "singing_clip" ? "노래 클립" : "공식 커버"}</span></p>
-              {preflight ? <VideoSummary preflight={preflight} expanded /> : null}
+              {preflight ? <VideoSummary preflight={preflight} expanded saved={videoReady} /> : null}
             </ReviewCard>
             <ReviewCard title="노래 정보" action={<Button type="button" variant="outline" size="sm" disabled={navigationBusy} onClick={() => setStep(1)}>노래 수정</Button>}>
               <dl className="space-y-4">
                 <div><dt className="text-sm text-muted-foreground">곡명</dt><dd className="mt-1 break-words text-xl font-semibold leading-relaxed">{title}</dd><dd className="mt-1 text-sm text-muted-foreground">{songMode === "existing" ? "카탈로그에 등록된 곡과 연결합니다." : "새로운 곡으로 제안합니다."}</dd></div>
-                <div><dt className="text-sm text-muted-foreground">원곡 가수</dt><dd className="mt-1 break-words text-base font-medium">{originalArtists.join(", ")}</dd></div>
+                <div><dt className="text-sm text-muted-foreground">원곡 가수</dt><dd className="mt-1 break-words text-base font-medium">{originalArtists.map(artist => artist.displayName).join(", ")}</dd></div>
                 <div><dt className="text-sm text-muted-foreground">장르(분류)</dt><dd className="mt-2">{songMode === "existing" ? <p className="text-sm">카탈로그에 등록된 분류를 사용합니다.</p> : songTags.length ? <div className="flex flex-wrap gap-2">{songTags.map(tag => <Badge key={tag} variant="secondary" className="text-sm">{tag}</Badge>)}</div> : <p className="text-sm text-muted-foreground">선택하지 않았어요.</p>}</dd></div>
               </dl>
             </ReviewCard>
             <ReviewCard title="가창자" action={<Button type="button" variant="outline" size="sm" disabled={navigationBusy} onClick={() => setStep(2)}>가창자 수정</Button>}>
               <ul className="grid gap-4 sm:grid-cols-2">
-                {selectedMembers.map(member => <li key={member.uid} className="flex items-center gap-3">
-                  <img src={`/profile/${member.code}.webp`} alt="" className="size-11 rounded-full object-cover" />
-                  <div className="min-w-0"><p className="break-words text-base font-semibold">{member.oshi_mark} {member.name}</p><p className="mt-1 text-sm text-muted-foreground">OTW 멤버 · {participantRoleLabel[memberRoles[member.uid] ?? "vocal"]}</p></div>
-                </li>)}
-                {externalParticipants.map(name => <li key={name}><p className="break-words text-base font-semibold">{name}</p><p className="mt-1 text-sm text-muted-foreground">외부 참여자 · {participantRoleLabel[externalRoles[name] ?? "vocal"]}</p></li>)}
+                {participants.map(participant => {
+                  if (participant.kind === "member") {
+                    const member = members.data?.find(item => item.uid === participant.memberUid);
+                    return member ? <li key={`member:${member.uid}`} className="flex items-center gap-3">
+                      <img src={`/profile/${member.code}.webp`} alt="" className="size-11 rounded-full object-cover" />
+                      <div className="min-w-0"><p className="break-words text-base font-semibold">{member.oshi_mark} {member.name}</p><p className="mt-1 text-sm text-muted-foreground">OTW 멤버 · {participantRoleLabel[participant.participantRole ?? "vocal"]}</p></div>
+                    </li> : null;
+                  }
+                  return <li key={artistIdentity({ ...participant, memberUid: null })}><p className="break-words text-base font-semibold">{participant.displayName}</p><p className="mt-1 text-sm text-muted-foreground">외부 참여자 · {participantRoleLabel[participant.participantRole ?? "vocal"]}</p></li>;
+                })}
               </ul>
             </ReviewCard>
             {submissionKind === "singing_clip" ? <ReviewCard title="방송 정보" action={<Button type="button" variant="outline" size="sm" disabled={navigationBusy} onClick={() => setStep(2)}>방송 정보 수정</Button>}>

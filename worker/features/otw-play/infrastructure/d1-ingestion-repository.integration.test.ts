@@ -119,6 +119,57 @@ beforeEach(async () => {
 });
 
 describe("D1IngestionRepository", () => {
+  it.each(["reuse", "rename", "ambiguous", "archived", "register"] as const)("reuses an alias across kinds and rejects intervening catalog changes: %s", async (scenario) => {
+    const repository = new D1IngestionRepository(db);
+    await db.batch([
+      db.prepare("INSERT INTO music_entity_aliases (entity_id,alias,normalized_alias) VALUES ('entity-1','Review Alias','review alias')"),
+      db.prepare("INSERT INTO music_songs (id,slug,title,normalized_title,dedupe_key,is_otw_original,created_at,updated_at) VALUES ('ingestion-ready-existing-song','ready-existing-song','Existing Song','existing song','ready-existing-song',0,?,?)").bind(NOW,NOW),
+    ]);
+    const job = await repository.createJob({ jobId: "alias-ready-job", actorUserId: "admin-1", input, preflight, now: NOW });
+    const children = await repository.recordPlaylistPage(await repository.readMessage(job.message.idempotencyKey), {
+      items: [{ videoId: "AAAAAAAAAAA", position: 0, playlistItemId: "alias-ready-item" }], nextPageToken: null,
+    }, NOW + 1);
+    await repository.recordVideoBatch(await repository.readMessage(children[0]!.idempotencyKey), [approvedVideoObservation("AAAAAAAAAAA")], NOW + 2);
+    if (scenario === "ambiguous") await db.prepare("INSERT INTO music_entities(id,entity_kind,display_name,normalized_name,slug,version,created_at,updated_at) VALUES ('ingestion-ready-namesake','group','Review Alias','review alias','ready-namesake',0,?,?)").bind(NOW,NOW).run();
+    if (scenario === "archived") await db.prepare("UPDATE music_entities SET archived_at=? WHERE id='entity-1'").bind(NOW).run();
+    const before = await db.prepare("SELECT status,version,review_input_json FROM music_ingestion_candidates WHERE id='youtube:AAAAAAAAAAA'").first();
+    const guarded = new D1IngestionRepository({
+      prepare: (sql: string) => {
+        const statement = db.prepare(sql);
+        if (scenario !== "register" || !sql.includes("WITH candidates AS")) return statement;
+        return { bind: (...values: unknown[]) => ({ all: async <T>() => {
+          const observed = await statement.bind(...values).all<T>();
+          await new D1AdminCatalogRepository(db).createEntity({ entityKind: "person", displayName: "Concurrent New Singer", slug: "ready-concurrent" },
+            { userId: "admin-2", displayName: "Other Admin", ipAddress: null },
+            { entityId: "ingestion-ready-concurrent", eventId: "ingestion-ready-concurrent-event" }, NOW + 3);
+          return observed;
+        } }) };
+      },
+      batch: async (statements: D1PreparedStatement[]) => {
+        if (scenario === "rename") await new D1AdminCatalogRepository(db).updateEntity({
+          id: "entity-1", expectedVersion: 0, entityKind: "person", displayName: "Renamed Singer",
+          slug: "review-singer", archived: false,
+        }, { userId: "admin-2", displayName: "Other Admin", ipAddress: null }, "ingestion-ready-rename-event", NOW + 3);
+        return db.batch(statements);
+      },
+    } as unknown as D1Database);
+    const saving = guarded.saveCandidateReview({ candidateId: "youtube:AAAAAAAAAAA", expectedVersion: 1,
+      input: { ...reviewInput, song: { kind: "existing", songId: "ingestion-ready-existing-song" }, participants: [{
+        subject: { kind: "new_external", clientKey: "alias-singer", displayName: scenario === "register" ? "Concurrent New Singer" : " REVIEW ALIAS! ", entityKind: "group" }, participantRole: "vocal", creditOrder: 0,
+      }] }, actorUserId: "admin-1", eventId: "ingestion-ready-alias-review", now: NOW + 3,
+      catalogMaterialization: { entityIds: { "external:alias-singer": "ingestion-ready-unwanted-duplicate" }, entityEventIds: { "external:alias-singer": "ingestion-ready-unwanted-event" }, songId: "unused-song", songEventId: "unused-song-event" },
+    });
+    if (scenario !== "reuse") {
+      await expect(saving).rejects.toMatchObject({ code: ["rename", "register"].includes(scenario) ? "stale_message" : "validation_failed" });
+      expect(await db.prepare("SELECT status,version,review_input_json FROM music_ingestion_candidates WHERE id='youtube:AAAAAAAAAAA'").first()).toEqual(before);
+      expect(await db.prepare("SELECT id FROM music_ingestion_events WHERE id='ingestion-ready-alias-review'").first()).toBeNull();
+    } else {
+      expect((await saving).reviewInput?.participants[0]?.subject).toEqual({ kind: "entity", entityId: "entity-1" });
+    }
+    expect(await db.prepare("SELECT id FROM music_entities WHERE id='ingestion-ready-unwanted-duplicate'").first()).toBeNull();
+    if (scenario === "register") expect(await db.prepare("SELECT id FROM music_entities WHERE normalized_name='concurrent new singer'").all()).toMatchObject({results:[{id:"ingestion-ready-concurrent"}]});
+  });
+
   it.each(["unchanged", "refresh_metadata", "ignore"] as const)(
     "keeps channel approval bound to its requested candidate version during %s",
     async (concurrentAction) => {
