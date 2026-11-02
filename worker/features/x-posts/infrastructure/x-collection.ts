@@ -16,6 +16,10 @@ import type { Env } from "../../../platform/types";
 import {
   collectXPostsForHandles,
   extractXHandleFromUrl,
+  estimateXSharedApiReservationMicros,
+  estimateXApiRequestCostMicros,
+  readDailyBudgetMicros,
+  readSiteXBudget,
 } from "./x-api";
 import {
   backfillXPostFactsFromStoredPosts,
@@ -266,6 +270,7 @@ export const runXCollectionForHandles = async (
   source: XCollectionSource,
   scheduledFor?: number | null,
   pendingOnly = false,
+  recoveryAnchorAt?: number,
 ): Promise<XCollectionRunResult> => {
   if (getHiddenMemberCodes(parseSiteId(env.SITE_ID), Date.now()).length) {
     const allowed = new Set(await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID)));
@@ -296,6 +301,7 @@ export const runXCollectionForHandles = async (
       richXLinkPreviewEnabled: false,
       source,
       scheduledFor: source === "scheduled" ? scheduledFor : undefined,
+      recoveryAnchorAt,
       optimizerEnabled: policy.optimizerEnabled,
       effectiveIntervalMinutes: policy.effectiveIntervalMinutes,
       referencePreviewMode: policy.referencePreviewMode,
@@ -339,6 +345,20 @@ export const runXCollection = async (
   }
 
   return { ...result, updatedAt: new Date(updatedAtMs).toISOString() };
+};
+
+export const readDueXRecoveryHandles = async (env: Env, handles: string[], timestamp: number) => {
+  if (!handles.length) return [];
+  const budget = await env.X_API_GATEWAY?.readBudget();
+  const minimum = estimateXSharedApiReservationMicros("timeline", `/users/1/tweets?max_results=${X_OPTIMIZED_FIRST_PAGE_RESULTS}&expansions=attachments.media_keys`);
+  if (!budget?.seeded || budget.remaining < minimum) return [];
+  const site = await readSiteXBudget(env.otw_db);
+  if ((await readDailyBudgetMicros(env.otw_db))-site.used-site.reserved < estimateXApiRequestCostMicros("timeline", `/users/1/tweets?max_results=${X_OPTIMIZED_FIRST_PAGE_RESULTS}&expansions=attachments.media_keys`)) return [];
+  const rows = await env.otw_db.prepare(`SELECT handle FROM x_post_sources
+    WHERE handle IN (SELECT value FROM json_each(?)) AND deactivated_at IS NULL AND next_check_at<=?
+      AND (sync_pagination_token IS NOT NULL OR last_error_code='budget_exceeded')
+    ORDER BY COALESCE(last_success_at,0),handle`).bind(JSON.stringify(handles),timestamp).all<{handle:string}>();
+  return rows.results.map(row=>row.handle);
 };
 
 export const getScheduledXCollectionDecision = async (

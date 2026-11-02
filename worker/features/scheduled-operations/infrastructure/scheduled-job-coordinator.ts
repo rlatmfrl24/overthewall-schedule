@@ -113,7 +113,7 @@ export class ScheduledJobCoordinator {
       );
       return this.repository.readRun(run.id);
     }
-    await this.repository.addItems(run.id, plannedItems);
+    await this.planner.addPlannedItems(run, plannedItems);
     await this.dispatchRun(run.id);
     return this.repository.readRun(run.id);
   }

@@ -1,6 +1,7 @@
 import type { SiteId } from "@contracts/site-definition";
 import type { XApiGateway, XApiGatewayRequest, XApiGatewayResult } from "@contracts/x-activity";
-import { estimateXApiRequestCostMicros, requestXApi, XApiError, type XApiUsageTracker } from "./x-api";
+import { xActivityMediaReady } from "../domain/x-activity";
+import { estimateXSharedApiReservationMicros, requestXApi, XApiError, type XApiUsageTracker, type XTweetLookupResponse } from "./x-api";
 
 export interface XBudgetSnapshot { day: string; used: number; reserved: number }
 export interface XSharedBudget extends XBudgetSnapshot { limit: number; remaining: number; seeded: boolean }
@@ -8,13 +9,7 @@ const DAY = 86_400_000;
 const failure = (error: string, status = 503): XApiGatewayResult => ({ ok: false, status, error, costMicros: 0, cached: false, dispatched: false });
 const utcDay = () => new Date(Date.now()).toISOString().slice(0,10);
 
-export async function readSiteXBudget(db: D1Database): Promise<XBudgetSnapshot> {
-  const day = utcDay();
-  const row = await db.prepare("SELECT used,reserved FROM scheduled_usage_daily WHERE day=? AND lane='all' AND resource='x_api_cost_micros'").bind(day).first<{ used: number; reserved: number }>();
-  const start = Date.parse(`${day}T00:00:00Z`);
-  const total = row ? row.used : await db.prepare("SELECT COALESCE(SUM(estimated_cost_micros),0) AS used FROM x_api_usage_events WHERE created_at>=? AND created_at<?").bind(start,start+DAY).first<number>("used");
-  return { day, used: Number(total ?? 0), reserved: Number(row?.reserved ?? 0) };
-}
+export { readSiteXBudget } from "./x-api";
 
 export class D1SharedXBudget {
   private readonly db: D1Database;
@@ -51,14 +46,6 @@ export class D1SharedXBudget {
       remaining: row ? Math.max(0,row.limit_value-row.used-row.reserved) : 0, seeded: !!row };
   }
 }
-
-export const estimateXSharedApiReservationMicros = (operation: XApiGatewayRequest["operation"], path: string, requestedEstimate = 0) => {
-  const query = new URLSearchParams(path.split("?")[1]);
-  const ids = query.get("ids")?.split(",").filter(Boolean).length ?? 0;
-  const count = operation === "timeline" ? Number(query.get("max_results") ?? 25) : ids;
-  const mediaReserve = query.get("expansions")?.split(",").includes("attachments.media_keys") ? count * 15_000 : 0;
-  return Math.max(estimateXApiRequestCostMicros(operation,path) + mediaReserve, requestedEstimate);
-};
 
 export class D1SharedXApiGateway implements XApiGateway {
   private readonly db: D1Database;
@@ -97,6 +84,22 @@ export class D1SharedXApiGateway implements XApiGateway {
       const estimate = estimateXSharedApiReservationMicros(input.operation,input.path,input.estimatedCostMicros);
       if (!Number.isSafeInteger(estimate) || estimate <= 0 || estimate > 1_000_000) return failure("invalid_x_gateway_estimate",400);
       const day = budget.day;
+      if (input.operation === "tweet_lookup" && input.id.startsWith("otw:xaa:") && input.id.endsWith(`:media:${day}`)) {
+        const completed = await this.db.prepare(`SELECT result FROM x_shared_requests
+          WHERE day=? AND operation=? AND path=? AND status='complete' AND json_extract(result,'$.ok')=1
+          AND json_array_length(result,'$.body.data')=1 AND COALESCE(json_array_length(result,'$.body.errors'),0)=0
+          AND EXISTS(SELECT 1 FROM x_activity_dispatch WHERE event_id=?
+            AND post_id=json_extract(result,'$.body.data[0].id') AND user_id=json_extract(result,'$.body.data[0].author_id'))
+          AND NOT EXISTS(SELECT 1 FROM x_shared_requests WHERE id=?) ORDER BY updated_at DESC LIMIT 1`)
+          .bind(day,input.operation,input.path,input.id.slice(0,-`:media:${day}`.length),input.id).first<{ result: string }>();
+        if (completed) {
+          const result = JSON.parse(completed.result) as XApiGatewayResult;
+          const body = result.body as XTweetLookupResponse, post = body.data![0]!;
+          if (!post.attachments?.media_keys?.length || xActivityMediaReady({ post, includes: body.includes ?? {} })) {
+            return { ...result, cached: true, costMicros: 0, dispatched: false };
+          }
+        }
+      }
       const token = crypto.randomUUID();
       const timestamp = Date.now();
       await this.db.batch([

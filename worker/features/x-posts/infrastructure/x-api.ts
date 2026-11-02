@@ -1,5 +1,5 @@
 import type { SiteId } from "@contracts/site-definition";
-import type { XApiGateway } from "@contracts/x-activity";
+import type { XApiGateway, XApiGatewayRequest } from "@contracts/x-activity";
 import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import { publicationHiddenSql } from "../../content-access";
 import { pMap } from "../../../platform/http-helpers";
@@ -236,6 +236,7 @@ type XApiUsageOperation = "user_lookup" | "timeline" | "tweet_lookup";
 
 export type XApiUsageTracker = {
   gateway?: XApiGateway;
+  recoveryAnchorAt?: number;
   apiCalls: number;
   estimatedCostMicros: number;
   reservedCostMicros: number;
@@ -250,6 +251,7 @@ export type XApiUsageTracker = {
 
 type CollectXPostsOptions = {
   gateway?: XApiGateway;
+  recoveryAnchorAt?: number;
   scheduledFor?: number | null;
   siteId?: SiteId;
   bearerToken?: string | null;
@@ -328,6 +330,7 @@ const X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS = 2 * 60 * 60_000;
 const X_COLLECTION_IDLE_CHECK_INTERVAL_MS = 12 * 60 * 60_000;
 const X_COLLECTION_DORMANT_CHECK_INTERVAL_MS = 24 * 60 * 60_000;
 const X_COLLECTION_ERROR_BACKOFF_MS = 6 * 60 * 60_000;
+const X_COLLECTION_CONTINUATION_CHECK_INTERVAL_MS = 15 * 60_000;
 const X_COLLECTION_RATE_LIMIT_BACKOFF_MS = 60 * 60_000;
 const X_DAILY_BUDGET_CENTS_DEFAULT = 100;
 const X_POST_READ_COST_MICROS = 5_000;
@@ -494,6 +497,14 @@ export const readDailyBudgetMicros = async (cacheDb: XCacheDb | undefined) => {
   return Math.min(100, safeCents) * 10_000;
 };
 
+export async function readSiteXBudget(db: XCacheDb) {
+  const day = new Date(now()).toISOString().slice(0,10);
+  const row = await db.prepare("SELECT used,reserved FROM scheduled_usage_daily WHERE day=? AND lane='all' AND resource='x_api_cost_micros'").bind(day).first<{ used: number; reserved: number }>();
+  const start = Date.parse(`${day}T00:00:00Z`);
+  const total = row ? row.used : await db.prepare("SELECT COALESCE(SUM(estimated_cost_micros),0) AS used FROM x_api_usage_events WHERE created_at>=? AND created_at<?").bind(start,start+86_400_000).first<number>("used");
+  return { day, used: Number(total ?? 0), reserved: Number(row?.reserved ?? 0) };
+}
+
 const readXApiBackoffUntil = async (cacheDb: XCacheDb | undefined) => {
   const value = cacheDb ? (await cacheDb.prepare("SELECT value FROM settings WHERE key = ?")
     .bind(X_API_BACKOFF_UNTIL_SETTING_KEY).first<{ value: string | null }>())?.value : null;
@@ -601,6 +612,21 @@ export const estimateXApiRequestCostMicros = (
     X_COLLECTION_MAX_RESULTS,
   );
   return maxResults * (X_POST_READ_COST_MICROS + X_MEDIA_READ_COST_MICROS);
+};
+
+export const estimateXSharedApiReservationMicros = (operation: XApiGatewayRequest["operation"], path: string, requestedEstimate = 0) => {
+  const query = new URLSearchParams(path.split("?")[1]);
+  const ids = query.get("ids")?.split(",").filter(Boolean).length ?? 0;
+  const count = operation === "timeline" ? Number(query.get("max_results") ?? 25) : ids;
+  const mediaReserve = query.get("expansions")?.split(",").includes("attachments.media_keys") ? count * 15_000 : 0;
+  return Math.max(estimateXApiRequestCostMicros(operation,path) + mediaReserve, requestedEstimate);
+};
+
+export const getXTimelinePageSize = (requested: number, remainingMicros: number, siteRemainingMicros: number) => {
+  const path = "/users/1/tweets?max_results=1&expansions=attachments.media_keys";
+  return Math.min(requested, Math.max(5, Math.min(
+    Math.floor(remainingMicros / estimateXSharedApiReservationMicros("timeline",path)),
+    Math.floor(siteRemainingMicros / estimateXApiRequestCostMicros("timeline",path)))));
 };
 
 type XApiBudgetSettlement = (actualUsedMicros?: number) => Promise<void>;
@@ -1652,7 +1678,7 @@ const writeXSyncContinuation = async (
         checkedAt,
         checkedAt,
         checkedAt,
-        state.nextToken ? checkedAt + 15 * 60_000 : cadenceAnchorAt + effectiveIntervalMs,
+        state.nextToken ? checkedAt + X_COLLECTION_CONTINUATION_CHECK_INTERVAL_MS : cadenceAnchorAt + effectiveIntervalMs,
         state.nextToken,
         state.nextToken ? state.basePostId : null,
         state.nextToken ? state.newestPostId : null,
@@ -1668,7 +1694,7 @@ const writeStoredPostSourceError = async (
   if (!cacheDb || !lastError) return;
 
   const checkedAt = now();
-  const retryAt = checkedAt + (lastError === "rate_limited"
+  const retryAt = checkedAt + (lastError === "budget_exceeded" ? X_COLLECTION_CONTINUATION_CHECK_INTERVAL_MS : lastError === "rate_limited"
     ? X_COLLECTION_RATE_LIMIT_BACKOFF_MS
     : X_COLLECTION_ERROR_BACKOFF_MS);
   try {
@@ -2598,9 +2624,15 @@ const fetchXPostsForUser = async (
     Boolean((stored?.posts.length ?? 0) > 0 || (cached?.posts.length ?? 0) > 0)
       ? relationCollectionLimit
       : maxResults;
-  const collectionLimit = stored?.syncPaginationToken
+  const requestedLimit = stored?.syncPaginationToken
     ? continuationMaxResults
     : baseCollectionLimit;
+  let collectionLimit = requestedLimit;
+  if (forceRefresh && usageTracker?.gateway && cacheDb) {
+    const shared = await usageTracker.gateway.readBudget();
+    const site = await readSiteXBudget(cacheDb);
+    collectionLimit = getXTimelinePageSize(requestedLimit,shared.remaining,(await readDailyBudgetMicros(cacheDb))-site.used-site.reserved);
+  }
 
   if (hasRelationMarker && !forceRefresh && cached && isCacheFresh(cached)) {
     return {
@@ -2736,7 +2768,7 @@ const fetchXPostsForUser = async (
           newestPostId: lastSeenPostId,
           completedPostId: lastSeenPostId,
         }, effectiveIntervalMs, siteId,
-        stored?.syncPaginationToken || stored?.lastError || (stored?.lastCheckedAt ?? 0) >= (scheduledFor ?? Infinity) ? undefined : scheduledFor);
+        usageTracker?.recoveryAnchorAt ?? (stored?.syncPaginationToken || stored?.lastError || (stored?.lastCheckedAt ?? 0) >= (scheduledFor ?? Infinity) ? undefined : scheduledFor));
       } catch (error) {
         console.warn("Failed to acknowledge stored X timeline page", error);
         entry.storageError = "x_post_storage_failed";
@@ -3133,7 +3165,7 @@ export const fetchXPostsForHandles = async (
           };
         }
       },
-      X_POSTS_BATCH_CONCURRENCY,
+      activeUsageTracker.purpose === "collection" ? 1 : X_POSTS_BATCH_CONCURRENCY,
     );
 
     for (const item of fetchedResults) {
@@ -3227,8 +3259,8 @@ const getCollectionRefreshIntervalMs = (entry: StoredXPostsEntry) => {
   if (entry.lastError === "rate_limited") {
     return X_COLLECTION_RATE_LIMIT_BACKOFF_MS;
   }
-  if (entry.lastError === "budget_exceeded") {
-    return X_COLLECTION_DORMANT_CHECK_INTERVAL_MS;
+  if (entry.lastError === "budget_exceeded" || (entry.syncPaginationToken && !entry.lastError)) {
+    return X_COLLECTION_CONTINUATION_CHECK_INTERVAL_MS;
   }
   if (isRecoverableExternalError(entry.lastError)) {
     return X_COLLECTION_ERROR_BACKOFF_MS;
@@ -3338,6 +3370,7 @@ export const collectXPostsForHandles = async (
   );
   const tracker: XApiUsageTracker = {
     gateway: options.gateway,
+    recoveryAnchorAt: options.recoveryAnchorAt,
     apiCalls: 0,
     estimatedCostMicros: 0,
     reservedCostMicros: 0,

@@ -42,7 +42,7 @@ const mediaUrl = (value: unknown) => {
 };
 
 // The current feed displays a video poster and opens X; native playback is separate.
-export function xActivityMediaReady(event: XActivityEvent): boolean {
+export function xActivityMediaReady(event: { post: Record<string, unknown>; includes: XActivityEvent["includes"] }): boolean {
   const attachments = event.post.attachments;
   if (!record(attachments) || !Array.isArray(attachments.media_keys)) return false;
   return attachments.media_keys.every(key => {

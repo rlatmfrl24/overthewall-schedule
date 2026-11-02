@@ -2,10 +2,10 @@ import type { SiteId } from "@contracts/site-definition";
 import type { XApiGateway, XActivitySiteSnapshot, XActivityStatusDto } from "@contracts/x-activity";
 import { parseXActivityEvent, xActivityMediaReady, type XActivityEvent } from "../domain/x-activity";
 import { readActiveXHandles } from "./d1-active-handles";
-import { normalizeXTimelineResponse, requestXApi, writeStoredPosts, invalidateXPostMemoryCache, XApiError, estimateXApiRequestCostMicros, readDailyBudgetMicros, type XApiUser, type XTweetLookupResponse } from "./x-api";
+import { normalizeXTimelineResponse, requestXApi, writeStoredPosts, invalidateXPostMemoryCache, XApiError, estimateXApiRequestCostMicros, estimateXSharedApiReservationMicros, getXTimelinePageSize, readDailyBudgetMicros, type XApiUser, type XTweetLookupResponse } from "./x-api";
 import { X_COLLECTION_MAX_RESULTS, X_OPTIMIZED_FIRST_PAGE_RESULTS } from "./x-collection";
 import { readXReferenceBudget } from "./x-reference-budget";
-import { readSiteXBudget, estimateXSharedApiReservationMicros } from "./x-shared-budget";
+import { readSiteXBudget } from "./x-shared-budget";
 
 interface Options {
   db: D1Database; siteId: SiteId; gateway: XApiGateway;
@@ -41,22 +41,26 @@ export class D1XActivitySite {
     const interval = await this.db.prepare("SELECT value FROM settings WHERE key='x_collection_interval_hours'").first<string>("value");
     const cachePurgePending=await this.db.prepare("SELECT COUNT(*) AS count FROM x_activity_cache_redactions WHERE completed_at IS NULL").first<number>("count");
     const optimized=await this.db.prepare("SELECT value FROM settings WHERE key='x_cost_optimizer_enabled'").first<string>("value")==="true";
-    const pageSize=optimized?X_OPTIMIZED_FIRST_PAGE_RESULTS:X_COLLECTION_MAX_RESULTS;
+    const shared=await this.options.gateway.readBudget();
+    const budget=await readSiteXBudget(this.db),siteLimitMicros=await readDailyBudgetMicros(this.db);
+    const remaining=siteLimitMicros-budget.used-budget.reserved;
+    const pageSize=getXTimelinePageSize(optimized?X_OPTIMIZED_FIRST_PAGE_RESULTS:X_COLLECTION_MAX_RESULTS,shared.remaining,remaining);
+    const continuationPageSize=getXTimelinePageSize(X_COLLECTION_MAX_RESULTS,shared.remaining,remaining);
     const pagePath=(size:number)=>`/users/1/tweets?max_results=${size}&expansions=attachments.media_keys`;
     const perPageMicros=estimateXSharedApiReservationMicros("timeline",pagePath(pageSize));
     const sitePerPageMicros=estimateXApiRequestCostMicros("timeline",pagePath(pageSize));
     const pendingSources=recovery?.pendingSources??0;
-    const continuationMicros=estimateXSharedApiReservationMicros("timeline",pagePath(X_COLLECTION_MAX_RESULTS));
-    const siteContinuationMicros=estimateXApiRequestCostMicros("timeline",pagePath(X_COLLECTION_MAX_RESULTS));
+    const continuationMicros=estimateXSharedApiReservationMicros("timeline",pagePath(continuationPageSize));
+    const siteContinuationMicros=estimateXApiRequestCostMicros("timeline",pagePath(continuationPageSize));
     // A source ID does not guarantee a fresh user cache, so include refresh headroom for every target.
     const identityMicros=estimateXApiRequestCostMicros("user_lookup","/users/by?"+new URLSearchParams({usernames:handles.join(",")}));
     return { site: this.options.siteId, collectionEnabled: enabled, targets: handles.map(handle=>({handle,userId:users.get(handle)??null})),
-      budget: await readSiteXBudget(this.db), cachePurgePending:Number(cachePurgePending??0), recovery: {
+      budget, cachePurgePending:Number(cachePurgePending??0), recovery: {
         intervalHours: Number(interval ?? 24), lastSuccessAt: recovery?.lastSuccessAt ?? null, pendingSources,
-        estimate:{targetCount:handles.length,pageSize,continuationPageSize:X_COLLECTION_MAX_RESULTS,perPageMicros,
+        estimate:{targetCount:handles.length,pageSize,continuationPageSize,perPageMicros,
           firstPagesMicros:(handles.length-pendingSources)*perPageMicros+pendingSources*continuationMicros+identityMicros,
           siteFirstPagesMicros:(handles.length-pendingSources)*sitePerPageMicros+pendingSources*siteContinuationMicros+identityMicros,
-          identityMicros,siteLimitMicros:await readDailyBudgetMicros(this.db)},
+          identityMicros,siteLimitMicros},
       } };
   }
   async rememberUser(handle: string, user: XApiUser) {
@@ -183,7 +187,7 @@ export class D1XActivitySite {
       }
       const post = await write(lookup);
       const ready = rawReady || (lookup && (!lookup.data?.[0]?.attachments?.media_keys?.length ||
-        xActivityMediaReady({ ...event, post: { ...event.post, ...lookup.data[0] }, includes: lookup.includes as XActivityEvent["includes"] })));
+        xActivityMediaReady({ ...event, post: { ...event.post, ...lookup.data[0] }, includes: lookup.includes ?? {} })));
       if (!ready) { await this.finish(row, "unavailable", lease, "media_details_missing"); return; }
       await this.db.prepare("UPDATE x_activity_inbox SET media_source=?,media_count=?,media_types=? WHERE event_id=? AND lease_until=? AND status='pending'")
         .bind(lookup ? "lookup" : "raw", post.media.length, [...new Set(post.media.map(item => item.type))].join(", "), eventId, lease).run();
