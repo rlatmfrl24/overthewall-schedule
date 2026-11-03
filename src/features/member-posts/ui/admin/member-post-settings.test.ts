@@ -21,6 +21,7 @@ const runXCollectionNowMock = vi.hoisted(() => vi.fn());
 const runNaverCafeCheckNowMock = vi.hoisted(() => vi.fn());
 const fetchOperationsStatusMock = vi.hoisted(() => vi.fn());
 const fetchXActivityMock = vi.hoisted(() => vi.fn());
+const fetchXCollectionStatusMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 const useScheduleDataMock = vi.hoisted(() => vi.fn());
 const useXPostsMock = vi.hoisted(() => vi.fn());
@@ -51,6 +52,12 @@ vi.mock("../../api/x-history-api", async (importOriginal) => ({
 vi.mock("../../api/x-activity-api",()=>({
   xActivityQueryKey:["member-posts","x-activity"],fetchXActivity:fetchXActivityMock,
   startXActivity:vi.fn(),stopXActivity:vi.fn(),
+}));
+
+vi.mock("../../api/x-collection-api", () => ({
+  xCollectionQueryKey: ["member-posts", "x-collection"],
+  fetchXCollectionStatus: fetchXCollectionStatusMock,
+  changeXCollectionSource: vi.fn(),
 }));
 
 vi.mock("@/shared/ui/toast", () => ({
@@ -102,6 +109,7 @@ const makeActivity = () => ({configured:true,site:"otw",mode:"normal",subscripti
 
 describe("MemberPostSettingsManager", () => {
   beforeEach(() => {
+    fetchXCollectionStatusMock.mockResolvedValue({primarySource:"x_api",observedAt:Date.now(),fxembed:{intervalMinutes:30,lastSuccessAt:null,lastCompletedAt:null,pendingSources:0,failedSources:0},xApi:{intervalHours:24,lastRegularCompletedAt:null,nextRegularEligibleAt:0,pendingSources:0,failedSources:0,budgetReady:true},accounts:[],webhook:{state:"disabled",siteActiveCount:0,reason:null,error:null}});
     fetchXActivityMock.mockResolvedValue(makeActivity());
     Element.prototype.scrollIntoView = vi.fn();
     fetchOperationRunsMock.mockResolvedValue({ runs: [] });
@@ -375,7 +383,7 @@ describe("MemberPostSettingsManager", () => {
     expect(await screen.findByText("이월 커서 1개는 계정당 25개 요청으로 포함했습니다.")).toBeTruthy();
     expect(screen.getByText(/다음 페이지당 공통 예약/).textContent).toContain("$0.625");
     fireEvent.click(screen.getByRole("button", {name:"미완료 페이지만 복구"}));
-    await waitFor(() => expect(runXCollectionNowMock).toHaveBeenCalledWith("pending"));
+    await waitFor(() => expect(runXCollectionNowMock).toHaveBeenCalledWith("pending", undefined));
     expect(screen.getByText(/첫 페이지 예상 예약/).textContent).toContain("$1.175");
   });
   it("explains a first-page shortfall without spending or reallocating the common budget",async()=>{
@@ -414,7 +422,7 @@ describe("MemberPostSettingsManager", () => {
     const before=fetchXActivityMock.mock.calls.length;
     fireEvent.click(screen.getByRole("button",{name:"상태 새로고침"}));
     await waitFor(()=>expect(fetchXActivityMock.mock.calls.length).toBeGreaterThan(before));
-    expect(screen.getByRole("heading",{name:"REST 누락 복구"})).toBeTruthy();
+    expect(screen.getByRole("heading",{name:"게시물 수집 실행"})).toBeTruthy();
     expect(screen.getByRole("heading",{name:"웹훅 신규 게시물"})).toBeTruthy();
     expect(runXCollectionNowMock).not.toHaveBeenCalled();
     expect(updateSettingsMock).not.toHaveBeenCalled();
@@ -469,7 +477,7 @@ describe("MemberPostSettingsManager", () => {
     );
     expect(fetchOperationsStatusMock).toHaveBeenCalledWith(24);
 
-    const runButton = screen.getByRole("button", { name: "REST 누락 복구 실행" });
+    const runButton = await screen.findByRole("button", { name: "기본 수집원으로 실행" });
     fireEvent.click(runButton);
 
     await waitFor(() => expect(runXCollectionNowMock).toHaveBeenCalled());
@@ -479,6 +487,14 @@ describe("MemberPostSettingsManager", () => {
         description: "X 게시글 수집이 대기열에 등록되었습니다.",
       }),
     );
+  });
+
+  it("uses the confirmed Fx source for ordinary runs", async () => {
+    const status = await fetchXCollectionStatusMock();
+    fetchXCollectionStatusMock.mockResolvedValue({ ...status, primarySource: "fxembed" });
+    render(createElement(MemberPostSettingsManager), { wrapper: createQueryWrapper() });
+    fireEvent.click(await screen.findByRole("button", { name: "기본 수집원으로 실행" }));
+    await waitFor(() => expect(runXCollectionNowMock).toHaveBeenCalledWith(undefined, "fxembed"));
   });
 
   it("네이버 카페 탭은 소스 설정과 진단을 하나의 작업 공간에 표시한다", async () => {

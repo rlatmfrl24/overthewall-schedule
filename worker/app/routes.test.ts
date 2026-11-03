@@ -11,6 +11,8 @@ it("keeps unsupported methods on private multiview routes uncacheable", async ()
   expect(response?.headers.get("Vary")).toBe("Authorization, Cookie");
 });
 const expectedPolicies = [
+  {method:"GET",auth:"admin",successStatus:200,cache:"no-store",paths:["/api/x/collection"]},
+  {method:"PATCH",auth:"admin",successStatus:200,cache:"no-store",paths:["/api/x/collection"]},
   {method:"GET",auth:"public",successStatus:200,cache:"no-store",paths:["/api/x/activity/webhook"]},
   {method:"POST",auth:"public",successStatus:200,cache:"no-store",paths:["/api/x/activity/webhook"]},
   {method:"GET",auth:"admin",successStatus:200,cache:"no-store",paths:["/api/x/activity"]},
