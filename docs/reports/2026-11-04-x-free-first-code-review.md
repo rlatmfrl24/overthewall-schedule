@@ -1,5 +1,7 @@
 # 무료 우선 X 수집 두 축 코드 리뷰 — 2026-11-04
 
+> 후속: 이 보고서의 RSS·혼합 보완82/117회 지적은 `a945b5cc`에서 처리량·안전장치를 유지한50회 이하 회귀와 독립 재검토로 보완했다. [후속 결과·정확한 범위와 한계](2026-11-04-x-rss-d1-free-budget.md)가 최신이다. 아래 본문은 `9f10bcba` 당시의 검증·미해결 판정이며, legacy/manual 모든 X 경로의50회 적합으로 확대 해석하지 않는다.
+
 추가 요청한 Matt Pocock code-review에 따라 Standards와 Spec을 독립 subagent로 병렬 검토했다. 최초 결과는 Standards hard 1/heuristic 1, Spec 3건이었다. 기능 지적과 후속 INSERT 증거 회귀를 수정한 최종 코드 `9f10bcbafee850734e555cdf70855738de6f696e`에서 원래 지적은 모두 addressed다. **Standards hard P1 1건과 Spec 조건부 환경 미충족 1건이 남으며, 둘 다 Free50 적용 시 정상 Queue의 D1 호출 한도 초과다. Free 적합·운영 준비 PASS가 아니다.** 구현·로컬 검증 승인 범위에서만 수정하며 배포·운영 전환·실제 유료 API 호출·push/PR/merge는 보류한다.
 
 비교는 `git diff a6b9463111eba8c8a40a27856da55d2a74fce69e...HEAD`를 고정해 최초 HEAD `c62fffad4f6eaaedaaf3915131caefa3d7505694`에서 수행했다. merge-base도 시작점과 같음을 확인했고 변경 diff는 비어 있지 않다. 최초에는 응답을 기다리는 동안 문서화된 구현 시작점을 사용했고, 이후 사용자가 **“이번 무료 우선 구현 시작점 a6b94631부터”**라고 확인했다. 기준 변경은 없다. 이전 혼합 수집 전체를 master와 비교한 결과는 아니다. commit의 issue 참조가 없어 승인된 [설계](../superpowers/specs/2026-11-03-x-free-first-collection-design.md)·[계획](../superpowers/plans/2026-11-03-x-free-first-collection.md)을 Spec으로 사용했다. Standards는 canonical .agent 규칙과 Design.md 및 skill의 smell 기준을 사용했다.

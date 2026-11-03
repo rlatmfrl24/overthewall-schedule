@@ -2,6 +2,14 @@
 
 이 문서가 작업의 단일 진입점이다. 날짜별 보고서는 당시 증거이며 새 실행 지시가 아니다.
 
+## RSS 혼합 보완 D1 Free 최적화·로컬 재검증 완료 — 2026-11-04
+
+최신 사용자 지시: 남은 D1 호출 문제를 처리량·안전장치 유지하에 Queue 실행당50회 이하로 최적화하고 로컬 검증·재리뷰한다. 사용자는 범위를 **RSS·혼합 보완 Queue 전체(기존82/117회 지적)**로 확인했다. [후속 실행 계획](superpowers/plans/2026-11-04-x-rss-d1-free-budget.md)을 Subagent-driven/TDD로 구현했다. 최종 기능 소스 `a945b5cc6670bff7e93e6cce1653cf654c07741c`에서 공통 원자적 writer·후보별 원자 checkpoint·기존 공식 예약/정산·Queue tail을 최적화했다. 실제 전체 Queue hard50 회귀는 무료5개30회, 무료5+예산 허용 공식28개46회, 정상 outbox8 포함48회, 결합 오류 복구50회였다. 모든 profile quota 거절0, RSS DLQ10개/80전송34회다. 저장 전 다음 후보 조회나 정상 처리량 축소는 없다.
+
+독립 Standards/Spec 리뷰는 예산 파싱 중복P3와 ACK 실패+Queue 예산 거절의51번째 호출P1을 찾았고 한 수정 묶음과 fresh scoped 재검토로 둘 다 해소했다. 각 축 열린 지적0이다. 전체420파일3,806건+Node10은 고정df9 소스에서 통과했고, 수정 후 영향 integration234/schema-native57/unit91·강화 정산2사례·타입·구조·변경 lint 및 최종a945 양 사이트 build/manifest가 통과한 composed verification이다. 새 source에서 전체 명령 재실행으로 보고하지 않는다. [후속 결과·9개 판단·행 비용·한계](reports/2026-11-04-x-rss-d1-free-budget.md)에 증거를 기록했다. binding 감소와 함께 읽기 행은 늘었고 실제 청구 절감은 미측정이다.
+
+모든 검사 이후 실제 app DB를 읽기 전용으로 재확인했다. 기존748글·총433/577·공식source8개씩/커서/시각·과거usage/cost·복원행을 보존했고 두 site는 `x_api`/RSS 비활성/웹훅 Disabled·rollout행 부재다. 배포·운영 전환·실제 유료 API 호출·원격 mutation·push/PR/merge·Play/AI 재개는 계속 보류한다. 수동 JSON·별도 인용/작성자 보강 전부의50회 재설계는 이번 범위 밖이다. 원본 checkout/junction·기존 app DB와 다른 작업을 보존했고 branch/worktree는 유지한다. 동일migration0164 입력의 기존 근거를 재사용하며 merge 준비용 preflight는 수행하지 않았다. 아래 보고서는 당시 역사로 읽으며 보류된 외부 효과를 자동 재개하지 않는다.
+
 ## 무료 우선 X 수집 로컬 검증·리뷰 — Free 호출 한도 미해결 — 2026-11-04
 
 11/03 승인한7개 작업의 구현과 범위별 검증을 진행했다. [실제 결과·39개 판단 원장·한계](reports/2026-11-04-x-free-first-collection-implementation.md)에 정상 관리자 적용→JSON, 실제 :53 tick의 기존 scheduled handler→native Workflow→Queue→실제 RSS/Fx→D1→공개 카드 증거를 기록했다. 최종 소스 `9f10bcbafee850734e555cdf70855738de6f696e`에서 Node24 전체419파일3,761건+보조10건, 양 사이트 빌드·타입·구조·변경 lint가 통과했다. 사용자가 확인한 시작점 `a6b94631`부터 [Matt 두 축 리뷰](reports/2026-11-04-x-free-first-code-review.md)를 수행했고 관리자 갱신·중복 후보 판정·실제 admission 우선순위·terminal 제외·실패 경로까지의 실제 INSERT 증거를 보완했다. 원래 기능 지적은 모두 addressed이며 최종 narrow 재검토도 확인했다.
