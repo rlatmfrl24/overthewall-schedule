@@ -1,5 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { unavailableXApiGateway, type XApiGatewayReceiptRequest, type XApiGatewayRequest, type XActivityControlResult } from "@contracts/x-activity";
+import { unavailableXApiGateway, type XApiGatewayReceiptRequest, type XApiGatewayRequest, type XActivityControlResult, type XActivitySiteControlRequest } from "@contracts/x-activity";
 import type { Env } from "../platform/types";
 import { buildXGateway } from "./x-gateway";
 import { buildXActivityCoordinator, buildXActivitySite } from "./x-activity";
@@ -51,6 +51,13 @@ export class XActivitySiteRpc extends WorkerEntrypoint<Env> {
   async rememberUser(handle:string,user:XActivityUserIdentity){return this.#local().rememberUser(handle,user);}
   async accept(body:unknown){return this.#local().accept(body);}
   async events(){return this.#local().events();}
+  async controlFenced(request:XActivitySiteControlRequest){
+    const local=this.#local().withControlFence(request.fence);
+    if(request.action==="primary")return local.setPrimarySource(request.source);
+    if(request.action==="webhook")return local.setWebhookDisabled(request.disabled);
+    if(request.action==="recovery")return local.setRecoveryInterval();
+    throw new Error("x_activity_invalid_control");
+  }
   async setRecoveryInterval(){return this.#local().setRecoveryInterval();}
   async setPrimarySource(source:XCollectionProvider){return this.#local().setPrimarySource(source);}
   async setWebhookDisabled(disabled:boolean){return this.#local().setWebhookDisabled(disabled);}

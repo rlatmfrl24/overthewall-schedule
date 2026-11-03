@@ -17,8 +17,8 @@ let timelinePage=0;
 const json=(value:unknown)=>Response.json(value);
 const gateway=(site:"otw"|"luvdia")=>new D1SharedXApiGateway({db,site,token:"test",admitD1:async()=>true});
 const local=(site:"otw"|"luvdia")=>new D1XActivitySite({db:site==="otw"?db:peer,siteId:site,gateway:gateway(site),publicationOpen:()=>true,dispatch:async id=>{queued.push({site,id});}});
-const coordinator=()=>new D1XActivityCoordinator({db,origin:"https://otw.example",bearerToken:"test",clientSecret:"secret",gateway:gateway("otw"),
-  sites:{otw:local("otw"),luvdia:local("luvdia")},peerReady:async()=>true,admitD1:async()=>true,dispatch:async id=>{queued.push({site:"dispatch",id});}});
+const coordinator=(overrides:Partial<ConstructorParameters<typeof D1XActivityCoordinator>[0]>={})=>new D1XActivityCoordinator({db,origin:"https://otw.example",bearerToken:"test",clientSecret:"secret",gateway:gateway("otw"),
+  controlSite:(site,fence)=>local(site).withControlFence(fence),sites:{otw:local("otw"),luvdia:local("luvdia")},peerReady:async()=>true,admitD1:async()=>true,dispatch:async id=>{queued.push({site:"dispatch",id});},...overrides});
 const body=(tag:string,extra:Record<string,unknown>={},id=postId)=>({data:{event_uuid:id,event_type:"post.create",filter:{user_id:userId},tag,
   payload:{id,author_id:userId,text:"short",created_at:new Date(Date.now()).toISOString(),...extra},includes:{media:[{media_key:"photo",type:"photo",url:"https://pbs.twimg.com/media/photo.jpg"}]}}});
 const photo=(tag:string)=>body(tag,{attachments:{media_keys:["photo"]},note_tweet:{text:"complete long note",entities:{urls:[]}}});
@@ -53,7 +53,7 @@ beforeEach(async()=>{
   for(const database of [db,peer]){
     await applyD1Migrations(database,bindings.X_REFERENCE_MIGRATIONS);
     await database.batch(["x_activity_inbox","x_activity_dispatch","x_activity_targets","x_activity_subscriptions","x_shared_requests","x_shared_budgets","x_activity_cache_redactions","x_post_references","x_post_facts","x_posts","x_post_sources","x_api_usage_events","x_api_usage_daily","x_api_resource_daily","x_api_cache","scheduled_usage_daily","members"].map(table=>database.prepare("DELETE FROM "+table)));
-    await database.prepare("DELETE FROM settings WHERE key IN ('x_collection_primary_source','x_webhook_disabled')").run();
+    await database.prepare("DELETE FROM settings WHERE key IN ('x_collection_primary_source','x_webhook_disabled','x_collection_hybrid_policy','x_collection_hybrid_activated_at','x_activity_control_fence')").run();
     await database.prepare("INSERT INTO settings(key,value,updated_at) VALUES('x_collection_enabled','true',0),('x_collection_daily_budget_cents','100',0),('x_cost_optimizer_enabled','false',0) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run();
     await database.prepare("UPDATE x_activity_sites SET enabled=0,pause_reason='user',resume_at=NULL,last_error=NULL").run();
     await database.prepare("UPDATE x_activity_coordinator SET ready=0,lease_until=0,webhook_id=NULL,webhook_url=NULL,bootstrap_extra_micros=0,last_error=NULL").run();
@@ -79,7 +79,7 @@ describe("XAA multi-site collection and common money boundary",()=>{
     vi.mocked(fetch).mockClear();
     await db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_collection_interval_hours','2')").run();
     await control.setPrimarySource("otw","fxembed");
-    expect((await local("otw").snapshot()).recovery.intervalHours).toBe(24);
+    expect((await local("otw").snapshot()).recovery.intervalHours).toBe(12);
     await control.reconcile(true);
     await local("otw").process(eventId);
     expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value")).toBe("fxembed");
@@ -103,13 +103,168 @@ describe("XAA multi-site collection and common money boundary",()=>{
   });
   it("keeps Disabled through rollback and requires explicit webhook reactivation",async()=>{
     const control=coordinator();await control.start("otw");await control.setPrimarySource("otw","fxembed");
-    await expect(control.start("otw")).rejects.toMatchObject({status:409,code:"x_activity_hybrid_disabled"});
     const budget=await new D1SharedXBudget(db).read();
     await control.setPrimarySource("otw","x_api");
     expect(remote).toHaveLength(0);expect(hooks).toHaveLength(1);
     expect(await db.prepare("SELECT enabled FROM x_activity_sites WHERE site='otw'").first("enabled")).toBe(0);
     await control.start("otw");expect(remote).toHaveLength(1);
     expect((await new D1SharedXBudget(db).read()).used).toBe(budget.used);
+  });
+  it("allows_manual_webhook_with_fx_primary and idempotent_policy_apply_preserves_explicit_enable",async()=>{
+    const control=coordinator();await control.setPrimarySource("otw","fxembed");
+    expect(await local("otw").snapshot()).toMatchObject({hybridPolicy:"rss_v1",recovery:{intervalHours:12}});
+    await control.start("otw");
+    expect(remote).toHaveLength(1);
+    const activation=await db.prepare("SELECT value FROM settings WHERE key='x_collection_hybrid_activated_at'").first("value");
+    await control.setPrimarySource("otw","fxembed");
+    expect(await db.prepare("SELECT enabled FROM x_activity_sites WHERE site='otw'").first("enabled")).toBe(1);
+    expect(await db.prepare("SELECT value FROM settings WHERE key='x_webhook_disabled'").first("value")).toBe("false");
+    expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_hybrid_activated_at'").first("value")).toBe(activation);
+    const event=photo(await tag()),id=parseXActivityEvent(event)!.eventId;
+    await control.accept(event);await control.deliver(id);await local("otw").process(id);
+    expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(id).first("status")).toBe("complete");
+    const saved=structuredClone(hooks);await control.stop("otw");expect(hooks).toEqual(saved);
+  });
+  it("disabled_never_resubscribes_after_utc_reset",async()=>{
+    const control=coordinator();await control.setPrimarySource("otw","fxembed");
+    const saved=structuredClone(hooks);vi.mocked(fetch).mockClear();
+    const now=Date.now();vi.spyOn(Date,"now").mockReturnValue(now+86400000);
+    await control.reconcile(true);
+    expect(remote).toHaveLength(0);expect(hooks).toEqual(saved);
+    expect(vi.mocked(fetch).mock.calls.filter(([,init])=>init?.method==="POST")).toHaveLength(0);
+  });
+  it("old_peer_cannot_report_policy_applied",async()=>{
+    const old=local("luvdia");vi.spyOn(old,"setPrimarySource").mockResolvedValue();
+    const control=new D1XActivityCoordinator({db,origin:"https://otw.example",bearerToken:"test",clientSecret:"secret",gateway:gateway("otw"),controlSite:(site,fence)=>({...local(site).withControlFence(fence),setPrimarySource:()=>old.setPrimarySource("fxembed"),setWebhookDisabled:disabled=>local(site).withControlFence(fence).setWebhookDisabled(disabled),setRecoveryInterval:()=>local(site).withControlFence(fence).setRecoveryInterval()}),sites:{otw:local("otw"),luvdia:old},peerReady:async()=>true,admitD1:async()=>true,dispatch:async()=>{}});
+    await expect(control.setPrimarySource("luvdia","fxembed")).rejects.toThrow("x_activity_policy_readback_failed");
+    expect(await db.prepare("SELECT pause_reason FROM x_activity_sites WHERE site='luvdia'").first("pause_reason")).toBe("hybrid_transition");
+  });
+  it.each([false,true])("stale_reconcile_cannot_override_disable and latest reconcile recovers a stopped NULL late create (delete fails=%s)",async(failDelete)=>{
+    let rejectDelete=false;
+    let entered!:()=>void,release!:()=>void;
+    const started=new Promise<void>(r=>{entered=r;}),paused=new Promise<void>(r=>{release=r;});
+    vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      if(new URL(String(input)).pathname==="/2/activity/subscriptions"&&init?.method==="POST"){entered();await paused;}
+      if(rejectDelete&&init?.method==="DELETE")return new Response(null,{status:500});
+      return provider(input,init);
+    }));
+    const control=coordinator(),starting=control.start("otw");await started;
+    await db.prepare("UPDATE x_activity_coordinator SET lease_until=0").run();
+    await control.stop("otw");
+    const stopped=await db.prepare("SELECT * FROM x_activity_subscriptions").first();
+    release();await starting;
+    expect(await db.prepare("SELECT * FROM x_activity_subscriptions").first()).toEqual(stopped);
+    expect(remote).toHaveLength(1);
+    rejectDelete=failDelete;
+    await control.reconcile(true);
+    if(failDelete){
+      expect(remote).toHaveLength(1);
+      expect((await control.status("otw")).sites?.find(site=>site.site==="otw")).toMatchObject({enabled:false,activeCount:1});
+      rejectDelete=false;await control.reconcile(true);
+    }
+    expect(remote).toHaveLength(0);
+    expect(await db.prepare("SELECT enabled FROM x_activity_sites WHERE site='otw'").first("enabled")).toBe(0);
+  });
+  it("does not activate policy or delete a subscription whose ownership tag changed",async()=>{
+    const control=coordinator();await control.start("otw");
+    remote[0].tag="foreign-owner";const foreign=structuredClone(remote);vi.mocked(fetch).mockClear();
+    await expect(control.setPrimarySource("otw","fxembed")).rejects.toThrow("x_activity_ownership_mismatch");
+    expect(remote).toEqual(foreign);
+    expect((await local("otw").snapshot()).hybridPolicy).not.toBe("rss_v1");
+    expect(vi.mocked(fetch).mock.calls.filter(([,init])=>init?.method==="DELETE")).toHaveLength(0);
+  });
+  it("applies the policy to legacy Fx while preserving explicit Enabled and its endpoint",async()=>{
+    await db.prepare("INSERT INTO settings(key,value) VALUES('x_collection_primary_source','fxembed')").run();
+    const control=coordinator();await control.start("otw");const saved=structuredClone(remote);
+    expect((await local("otw").snapshot()).recovery.intervalHours).toBe(24);
+    await control.setPrimarySource("otw","fxembed");
+    expect(await local("otw").snapshot()).toMatchObject({hybridPolicy:"rss_v1",recovery:{intervalHours:12}});
+    expect(remote).toEqual(saved);
+    expect(await db.prepare("SELECT enabled FROM x_activity_sites WHERE site='otw'").first("enabled")).toBe(1);
+  });
+  it("never replays an event accepted while Disabled after a later manual enable",async()=>{
+    const control=coordinator();await control.setPrimarySource("otw","fxembed");
+    const event=photo("unused"),id=parseXActivityEvent(event)!.eventId;
+    expect(await local("otw").accept(event)).toBe(false);
+    await control.start("otw");await local("otw").process(id);
+    expect(await db.prepare("SELECT status,payload FROM x_activity_inbox WHERE event_id=?").bind(id).first()).toEqual({status:"skipped",payload:null});
+    expect(await db.prepare("SELECT id FROM x_posts WHERE id=?").bind(postId).first()).toBeNull();
+  });
+  it("fences delayed site controls by durable revision, token and expiry across instances",async()=>{
+    const old={revision:1,token:crypto.randomUUID(),expiresAt:Date.now()+60000};
+    const newer={revision:2,token:crypto.randomUUID(),expiresAt:Date.now()+60000};
+    await local("luvdia").withControlFence(old).setWebhookDisabled(false);
+    await local("luvdia").withControlFence(newer).setWebhookDisabled(true);
+    await expect(local("luvdia").withControlFence(old).setWebhookDisabled(false)).rejects.toThrow();
+    await expect(local("luvdia").withControlFence({...newer,token:crypto.randomUUID()}).setPrimarySource("fxembed")).rejects.toThrow();
+    await expect(local("luvdia").withControlFence({...newer,revision:3,expiresAt:Date.now()-1}).setWebhookDisabled(false)).rejects.toThrow();
+    expect(await peer.prepare("SELECT value FROM settings WHERE key='x_webhook_disabled'").first("value")).toBe("true");
+    expect((await local("luvdia").snapshot()).hybridPolicy).not.toBe("rss_v1");
+  });
+  it("denies a stale no-op state write before dispatching another remote create",async()=>{
+    const control=coordinator();await control.start("otw");
+    remote[0].expires_at=new Date(Date.now()+10000).toISOString();
+    const before=await db.prepare("SELECT * FROM x_activity_subscriptions").first();
+    const calls=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      if(new URL(String(input)).pathname==="/2/webhooks"&&(init?.method??"GET")==="GET")await db.prepare("UPDATE x_activity_coordinator SET lease_token='replacement'").run();
+      return provider(input,init);
+    });vi.stubGlobal("fetch",calls);
+    await control.reconcile(true);
+    expect(calls.mock.calls.filter(([,init])=>init?.method==="POST")).toHaveLength(0);
+    expect(await db.prepare("SELECT * FROM x_activity_subscriptions").first()).toEqual(before);
+    expect(await db.prepare("SELECT lease_token FROM x_activity_coordinator").first("lease_token")).toBe("replacement");
+  });
+  it.each(["site","coordinator"])("checks Disabled atomically at the %s event admission boundary",async(boundary)=>{
+    const control=coordinator();await control.start("otw");
+    let entered!:()=>void,release!:()=>void;
+    const started=new Promise<void>(r=>{entered=r;}),paused=new Promise<void>(r=>{release=r;});
+    const delayed=new Proxy(db,{get(target,key){
+      if(key==="batch")return async(statements:D1PreparedStatement[])=>{entered();await paused;return target.batch(statements);};
+      const value=Reflect.get(target,key,target);return typeof value==="function"?value.bind(target):value;
+    }});
+    const receiver=boundary==="site"?new D1XActivitySite({db:delayed,siteId:"otw",gateway:gateway("otw"),publicationOpen:()=>true,dispatch:async()=>{}}):
+      new D1XActivityCoordinator({db:delayed,origin:"https://otw.example",bearerToken:"test",clientSecret:"secret",gateway:gateway("otw"),controlSite:(site,fence)=>local(site).withControlFence(fence),sites:{otw:local("otw"),luvdia:local("luvdia")},peerReady:async()=>true,admitD1:async()=>true,dispatch:async()=>{}});
+    const event=photo(await tag()),id=parseXActivityEvent(event)!.eventId;
+    const pending=receiver.accept(event);await started;await control.stop("otw");release();await pending;
+    await control.start("otw");await control.deliver(id);await local("otw").process(id);
+    expect(await db.prepare("SELECT id FROM x_posts WHERE id=?").bind(postId).first()).toBeNull();
+    if(boundary==="site")expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(id).first("status")).toBe("skipped");
+    else expect(await db.prepare("SELECT otw_status FROM x_activity_dispatch WHERE event_id=?").bind(id).first("otw_status")).toBe("not_target");
+  });
+  it("finishes a policy retry whose site write succeeded before the RPC response was lost",async()=>{
+    let lost=true;
+    const control=coordinator({controlSite:(site,fence)=>{
+      const bound=local(site).withControlFence(fence);
+      return {setWebhookDisabled:value=>bound.setWebhookDisabled(value),setRecoveryInterval:()=>bound.setRecoveryInterval(),setPrimarySource:async source=>{
+        await bound.setPrimarySource(source);if(lost){lost=false;throw new Error("response_lost");}
+      }};
+    }});
+    await expect(control.setPrimarySource("luvdia","fxembed")).rejects.toThrow("response_lost");
+    await control.setPrimarySource("luvdia","fxembed");
+    expect((await control.status("luvdia")).sites?.find(site=>site.site==="luvdia")).toMatchObject({enabled:false,pauseReason:"hybrid",lastError:null});
+    await control.start("luvdia");expect(remote).toHaveLength(1);
+  });
+  it("retains a failed site-disable error until a successful administrator retry",async()=>{
+    const control=coordinator({controlSite:(site,fence)=>{
+      const bound=local(site).withControlFence(fence);
+      return {setRecoveryInterval:()=>bound.setRecoveryInterval(),setPrimarySource:source=>bound.setPrimarySource(source),setWebhookDisabled:async disabled=>{
+        if(disabled)throw new Error("site_disable_unavailable");await bound.setWebhookDisabled(disabled);
+      }};
+    }});
+    await control.start("otw");await expect(control.stop("otw")).rejects.toThrow("site_disable_unavailable");
+    await control.reconcile(true);
+    expect((await control.status("otw")).sites?.find(site=>site.site==="otw")).toMatchObject({enabled:false,lastError:"site_disable_unavailable"});
+    await coordinator().stop("otw");
+    expect((await control.status("otw")).sites?.find(site=>site.site==="otw")).toMatchObject({enabled:false,lastError:null});
+  });
+  it("reports a known lingering remote subscription when collection removes its active target",async()=>{
+    const control=coordinator();await control.start("otw");
+    await db.prepare("UPDATE settings SET value='false' WHERE key='x_collection_enabled'").run();
+    vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>init?.method==="DELETE"?new Response(null,{status:500}):provider(input,init)));
+    await control.reconcile(true);
+    const status=await control.status("otw");
+    expect(status.sites?.find(site=>site.site==="otw")).toMatchObject({enabled:false,targetCount:0,activeCount:1,failedCount:1});
+    expect(status.providerActiveCount).toBe(1);expect(remote).toHaveLength(1);
   });
   it("initializes REST budget independently of starting a webhook",async()=>{
     await db.prepare("DELETE FROM x_shared_budgets").run();await db.prepare("UPDATE x_activity_coordinator SET ready=0").run();
@@ -159,13 +314,16 @@ describe("XAA multi-site collection and common money boundary",()=>{
     const request=await db.prepare("SELECT status,cost FROM x_shared_requests WHERE operation='tweet_lookup'").first<{status:string;cost:number}>();
     expect(request?.status).toBe("complete");expect(request?.cost).toBeGreaterThan(0);
     expect((await new D1SharedXBudget(db).read()).reserved).toBe(0);
-    expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(eventId).first("status")).toBe("complete");
+    expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(eventId).first("status")).toBe("skipped");
+    await control.start("otw");await local("otw").process(eventId);
+    expect(await db.prepare("SELECT count(*) n FROM x_shared_requests WHERE operation='tweet_lookup'").first("n")).toBe(1);
+    expect(await db.prepare("SELECT cost FROM x_shared_requests WHERE operation='tweet_lookup'").first("cost")).toBe(request?.cost);
     expect(calls.mock.calls.filter(([input])=>new URL(String(input)).pathname==="/2/tweets")).toHaveLength(1);
   });
-  it("treats the primary Fx setting as authoritative for a late dispatch even if the local disable flag is absent",async()=>{
+  it("treats explicit Disabled as authoritative for late dispatch across primary sources",async()=>{
     const control=coordinator();await control.start("otw");const pending=body(await tag(),{attachments:{media_keys:["missing"]}}),eventId=parseXActivityEvent(pending)!.eventId;
     await control.setPrimarySource("otw","fxembed");
-    await db.prepare("DELETE FROM settings WHERE key='x_webhook_disabled'").run();
+    await control.setPrimarySource("otw","x_api");
     vi.mocked(fetch).mockClear();
     await local("otw").accept(pending);await local("otw").process(eventId);
     expect(await db.prepare("SELECT status,last_error FROM x_activity_inbox WHERE event_id=?").bind(eventId).first()).toEqual({status:"skipped",last_error:"webhook_hybrid_disabled"});

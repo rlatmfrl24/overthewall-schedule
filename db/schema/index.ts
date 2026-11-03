@@ -930,6 +930,8 @@ export const xActivityCoordinator = sqliteTable("x_activity_coordinator", {
   ready: integer({ mode: "boolean" }).notNull().default(false),
   webhook_id: text("webhook_id"),
   webhook_url: text("webhook_url"),
+  lease_token: text("lease_token"),
+  control_revision: integer("control_revision").notNull().default(0),
   lease_until: integer("lease_until").notNull().default(0),
   bootstrap_extra_day: text("bootstrap_extra_day"),
   bootstrap_extra_micros: integer("bootstrap_extra_micros").notNull().default(0),

@@ -1,0 +1,1 @@
+ALTER TABLE `x_activity_coordinator` ADD `control_revision` integer DEFAULT 0 NOT NULL;

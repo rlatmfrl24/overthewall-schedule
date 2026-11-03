@@ -290,6 +290,13 @@ export const runXCollectionForHandles = async (
   const lease = await claimXSourceLeases(env, handles, Date.now());
   try {
     let claimed = lease.claimed;
+    if (!independent && claimed.length) {
+      // A legacy run supersedes old hybrid completion proof, never its actual pagination cursor.
+      await env.otw_db.prepare(`UPDATE x_post_sources SET sync_origin_scope=NULL,sync_origin_started_at=NULL,sync_timeline_completed_at=NULL
+        WHERE handle IN (SELECT value FROM json_each(?)) AND lease_token=? AND lease_until>?
+        AND (sync_origin_scope IS NOT NULL OR sync_origin_started_at IS NOT NULL OR sync_timeline_completed_at IS NOT NULL)`)
+        .bind(JSON.stringify(claimed),lease.token,Date.now()).run();
+    }
     if (independent && claimed.length) {
       const rows = await env.otw_db.prepare(`SELECT source.*,COALESCE(fx.fallback_active,0) AS fallback_active FROM x_post_sources source
         LEFT JOIN x_fx_sources fx ON fx.handle=source.handle WHERE source.handle IN (SELECT value FROM json_each(?))`)

@@ -1,8 +1,9 @@
-import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
+import { applyD1Migrations, createExecutionContext, env, type D1Migration } from "cloudflare:test";
 import { beforeAll, beforeEach, afterEach, expect, it, vi } from "vitest";
 import { handleWorkerFetch } from "./fetch";
 import { handleWorkerQueue } from "./worker-queue";
 import {buildXActivityCoordinator,buildXActivitySite} from "./x-activity";
+import { XActivitySiteRpc, XActivityCoordinatorRpc } from "./x-rpc";
 import {buildXGateway} from "./x-gateway";
 import { clearAuthCachesForTests } from "../platform/auth";
 import { siteEnv } from "../test-support/site-env";
@@ -28,12 +29,12 @@ const runtime = { ...bindings, ...siteEnv(), SITE_PUBLIC_ORIGIN: origin,
 } as unknown as Env;
 const peerRuntime={...runtime,...siteEnv("luvdia"),SITE_PUBLIC_ORIGIN:"https://luvdia-schedule.info",CLERK_AUTHORIZED_PARTIES:"https://luvdia-schedule.info",otw_db:bindings.transition_target_db,
   OTW_OPS_BACKGROUND_QUEUE:{send:async(body:unknown)=>{queued.push({site:"luvdia",body});}}} as unknown as Env;
-runtime.X_ACTIVITY_LUVDIA={protocol:async()=>({version:1,site:"luvdia"}),snapshot:()=>buildXActivitySite(peerRuntime).snapshot(),
+runtime.X_ACTIVITY_LUVDIA={controlFenced:request=>new XActivitySiteRpc(createExecutionContext(),peerRuntime).controlFenced(request),protocol:async()=>({version:1,site:"luvdia"}),snapshot:()=>buildXActivitySite(peerRuntime).snapshot(),
   rememberUser:(handle,user)=>buildXActivitySite(peerRuntime).rememberUser(handle,user),accept:body=>buildXActivitySite(peerRuntime).accept(body),
   events:()=>buildXActivitySite(peerRuntime).events(),setRecoveryInterval:()=>buildXActivitySite(peerRuntime).setRecoveryInterval(),setPrimarySource:source=>buildXActivitySite(peerRuntime).setPrimarySource(source),setWebhookDisabled:disabled=>buildXActivitySite(peerRuntime).setWebhookDisabled(disabled)};
 peerRuntime.X_ACTIVITY_COORDINATOR={protocol:async()=>({version:1,site:"otw"}),gatewayForLuvdia:input=>buildXGateway(runtime,"luvdia").execute(input),
   budgetForLuvdia:()=>buildXGateway(runtime,"luvdia").readBudget(),redactForLuvdia:id=>buildXGateway(runtime,"luvdia").redactPost(id),
-  statusForLuvdia:()=>buildXActivityCoordinator(runtime).status("luvdia"),controlForLuvdia:async action=>({ok:true,value:await(action==="start"?buildXActivityCoordinator(runtime).start("luvdia"):buildXActivityCoordinator(runtime).stop("luvdia"))}),setCollectionForLuvdia:async source=>({ok:true,value:await buildXActivityCoordinator(runtime).setPrimarySource("luvdia",source)})};
+  statusForLuvdia:()=>buildXActivityCoordinator(runtime).status("luvdia"),controlForLuvdia:action=>new XActivityCoordinatorRpc(createExecutionContext(),runtime).controlForLuvdia(action),setCollectionForLuvdia:source=>new XActivityCoordinatorRpc(createExecutionContext(),runtime).setCollectionForLuvdia(source)};
 async function request(path: string, user?: string, init: RequestInit = {}, requestRuntime=runtime) {
   const requestOrigin=requestRuntime.SITE_PUBLIC_ORIGIN??origin;
   const headers = new Headers(init.headers);
@@ -53,7 +54,7 @@ beforeEach(async () => {
   clearAuthCachesForTests(); queued.length = 0;
   for(const database of [db,bindings.transition_target_db]){
     await database.batch(["x_activity_inbox","x_activity_dispatch","x_activity_targets","x_activity_subscriptions","x_shared_requests","x_shared_budgets","x_activity_cache_redactions","x_post_references","x_post_facts","x_posts","x_fx_sources","x_post_sources","x_api_usage_events","x_api_usage_daily","x_api_resource_daily","x_api_cache","scheduled_usage_daily","admin_audit_logs","members"].map(table=>database.prepare("DELETE FROM "+table)));
-    await database.prepare("DELETE FROM settings WHERE key IN ('x_collection_primary_source','x_webhook_disabled')").run();
+    await database.prepare("DELETE FROM settings WHERE key IN ('x_collection_primary_source','x_webhook_disabled','x_collection_hybrid_policy','x_collection_hybrid_activated_at','x_activity_control_fence')").run();
     await database.prepare("UPDATE x_activity_sites SET enabled=0,pause_reason='user',last_error=NULL").run();
     await database.prepare("UPDATE x_activity_coordinator SET ready=0,lease_until=0,webhook_id=NULL,webhook_url=NULL,bootstrap_extra_micros=0,last_error=NULL").run();
   }
@@ -82,7 +83,6 @@ it("controls hybrid collection through authenticated site routes and reports off
   expect((await patch("fxembed")).status).toBe(200);
   expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value")).toBe("fxembed");
   expect(await bindings.transition_target_db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value")).not.toBe("fxembed");
-  expect((await request("/api/x/activity", "activity-admin", { method: "POST", body: JSON.stringify({ action: "resume", acknowledgeUncappedDelivery: true }) })).status).toBe(409);
   expect((await patch("fxembed", peerRuntime)).status).toBe(200);
   expect(await bindings.transition_target_db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value")).toBe("fxembed");
   await db.prepare("UPDATE x_post_sources SET last_error='budget_exceeded',sync_pagination_token='pending' WHERE handle='member'").run();
@@ -115,12 +115,16 @@ it("uses real admin JWT authorization, callback CRC/HMAC, queue routing and publ
     if (path === "/2/activity/subscriptions" && init?.method === "GET") return Response.json({ data: subscriptions });
     throw new Error(`Unexpected external request ${init?.method} ${url}`);
   }));
+  expect((await request("/api/x/collection","activity-admin",{method:"PATCH",body:JSON.stringify({primarySource:"fxembed"})})).status).toBe(200);
+  expect((await buildXActivitySite(runtime).snapshot()).hybridPolicy).toBe("rss_v1");
   expect((await request("/api/x/activity")).status).toBe(401);
   expect((await request("/api/x/activity", "ordinary-member")).status).toBe(403);
   const started = await request("/api/x/activity", "activity-admin", { method: "POST", body: JSON.stringify({ action: "start", acknowledgeUncappedDelivery: true }) });
   expect(started.status).toBe(200);
   expect(await started.json()).toMatchObject({ mode:"normal",sites:expect.arrayContaining([{site:"otw",enabled:true,targetCount:1,activeCount:1,failedCount:0,pauseReason:null,resumeAt:null,lastError:null}]) });
   expect((await request("/api/x/activity","activity-admin",{method:"POST",body:JSON.stringify({action:"start",acknowledgeUncappedDelivery:true})},peerRuntime)).status).toBe(200);
+  expect((await request("/api/x/collection","activity-admin",{method:"PATCH",body:JSON.stringify({primarySource:"fxembed"})})).status).toBe(200);
+  expect(await db.prepare("SELECT enabled FROM x_activity_sites WHERE site='otw'").first("enabled")).toBe(1);
   expect(subscriptions).toHaveLength(1);
   const postId = "2114516278392348991";
   const raw = JSON.stringify({ data: { event_uuid: postId, event_type: "post.create", tag: subscriptions[0]!.tag,
@@ -143,4 +147,47 @@ it("uses real admin JWT authorization, callback CRC/HMAC, queue routing and publ
   expect((await request("/api/x/activity", "activity-admin")).status).toBe(200);
   expect(await db.prepare("SELECT status FROM x_activity_inbox").first("status")).toBe("complete");
   expect(await bindings.transition_target_db.prepare("SELECT status FROM x_activity_inbox").first("status")).toBe("complete");
+});
+
+it.each(["missing_fence","wrong_site","wrong_version"])("fails closed through normal admin RPC for %s peer",async(reason)=>{
+  const original=runtime.X_ACTIVITY_LUVDIA!;
+  runtime.X_ACTIVITY_LUVDIA={...original,...(reason==="missing_fence"?{controlFenced:undefined}:{protocol:async()=>({version:reason==="wrong_version"?0:1,site:reason==="wrong_site"?"otw":"luvdia"})})};
+  vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL)=>{
+    const url=String(input);
+    if(url===`${issuer}/.well-known/jwks.json`)return Response.json({keys:[{...jwk,kid:"activity-key",alg:"RS256",use:"sig"}]});
+    if(url==="https://api.cloudflare.com/client/v4/graphql")return Response.json({data:{viewer:{accounts:[{usage:[{sum:{rowsRead:100}}]}]}}});
+    throw new Error("unexpected external mutation "+url);
+  }));
+  try{
+    const response=await request("/api/x/collection","activity-admin",{method:"PATCH",body:JSON.stringify({primarySource:"fxembed"})},peerRuntime);
+    expect(response.status).toBe(503);
+    expect((await buildXActivitySite(peerRuntime).snapshot()).hybridPolicy).not.toBe("rss_v1");
+    expect(vi.mocked(fetch).mock.calls.some(([input])=>String(input).startsWith("https://api.x.com"))).toBe(false);
+  }finally{runtime.X_ACTIVITY_LUVDIA=original;}
+});
+
+it("a delayed normal RPC start cannot overwrite a newer administrator stop",async()=>{
+  const original=runtime.X_ACTIVITY_LUVDIA!;
+  let entered!:()=>void,release!:()=>void;
+  const started=new Promise<void>(r=>{entered=r;}),paused=new Promise<void>(r=>{release=r;});
+  runtime.X_ACTIVITY_LUVDIA={...original,controlFenced:async input=>{
+    if(input.action==="webhook"&&!input.disabled){entered();await paused;}
+    return original.controlFenced!(input);
+  }};
+  vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL)=>{
+    const url=String(input);
+    if(url===`${issuer}/.well-known/jwks.json`)return Response.json({keys:[{...jwk,kid:"activity-key",alg:"RS256",use:"sig"}]});
+    if(url==="https://api.cloudflare.com/client/v4/graphql")return Response.json({data:{viewer:{accounts:[{usage:[{sum:{rowsRead:100}}]}]}}});
+    if(new URL(url).pathname==="/2/activity/subscriptions")return Response.json({data:[]});
+    throw new Error("unexpected external mutation "+url);
+  }));
+  try{
+    expect((await request("/api/x/collection","activity-admin",{method:"PATCH",body:JSON.stringify({primarySource:"fxembed"})},peerRuntime)).status).toBe(200);
+    const pending=request("/api/x/activity","activity-admin",{method:"POST",body:JSON.stringify({action:"start",acknowledgeUncappedDelivery:true})},peerRuntime);
+    await started;await db.prepare("UPDATE x_activity_coordinator SET lease_until=0").run();
+    expect((await request("/api/x/activity","activity-admin",{method:"DELETE"},peerRuntime)).status).toBe(200);
+    release();expect((await pending).status).toBe(503);
+    expect(await bindings.transition_target_db.prepare("SELECT value FROM settings WHERE key='x_webhook_disabled'").first("value")).toBe("true");
+    expect(await db.prepare("SELECT enabled FROM x_activity_sites WHERE site='luvdia'").first("enabled")).toBe(0);
+  }finally{release();runtime.X_ACTIVITY_LUVDIA=original;}
 });

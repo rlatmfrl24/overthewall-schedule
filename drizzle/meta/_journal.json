@@ -1135,6 +1135,20 @@
       "when": 1793704191357,
       "tag": "0162_moaning_mandrill",
       "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "6",
+      "when": 1793715637357,
+      "tag": "0163_breezy_manta",
+      "breakpoints": true
+    },
+    {
+      "idx": 164,
+      "version": "6",
+      "when": 1793716107679,
+      "tag": "0164_worthless_wilson_fisk",
+      "breakpoints": true
     }
   ]
 }

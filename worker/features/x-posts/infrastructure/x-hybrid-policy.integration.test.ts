@@ -174,3 +174,46 @@ it("keeps genuine retryable reference errors pending even when their retry is no
   await collect("pending");
   expect(await source()).toMatchObject({ last_completed_at: null, regular_completed_at: null, sync_origin_scope: "regular", sync_timeline_completed_at: timestamp });
 });
+
+it("retires old hybrid final-page proof under the legacy account lease before returning to Fx",async()=>{
+  const calls=provider(()=>page());
+  await db.prepare("UPDATE x_post_sources SET sync_origin_scope='regular',sync_origin_started_at=?,sync_timeline_completed_at=?,last_error='derived_pending'").bind(timestamp-HOUR,timestamp-HOUR).run();
+  await db.prepare("UPDATE settings SET value='x_api' WHERE key='x_collection_primary_source'").run();
+  await runXCollectionForHandles(runtime,["member"],"manual");
+  expect(await source()).toMatchObject({sync_origin_scope:null,sync_origin_started_at:null,sync_timeline_completed_at:null,last_seen_post_id:"200"});
+  const before=calls.length;
+  clearXServiceCachesForTests();clock.mockReturnValue(timestamp+13*HOUR);
+  await db.prepare("UPDATE settings SET value='fxembed' WHERE key='x_collection_primary_source'").run();
+  await collect("regular");
+  expect(calls.length).toBe(before+1);
+  expect((await source())?.regular_completed_at).toBe(timestamp+13*HOUR);
+});
+
+it("an expired old hybrid collector cannot restore completion proof after a legacy claim",async()=>{
+  let entered!:()=>void,release!:()=>void;
+  const started=new Promise<void>(resolve=>{entered=resolve;}),paused=new Promise<void>(resolve=>{release=resolve;});
+  let first=true;
+  const calls=provider(async()=>{if(first){first=false;entered();await paused;}return page();});
+  const pending=collect("regular");
+  const rejected=expect(pending).rejects.toThrow();
+  await started;
+  await db.prepare("UPDATE settings SET value='x_api' WHERE key='x_collection_primary_source'").run();
+  clock.mockReturnValue(timestamp+11*60_000);clearXServiceCachesForTests();
+  await runXCollectionForHandles(runtime,["member"],"manual");
+  release();await rejected;
+  expect(await source()).toMatchObject({sync_origin_scope:null,sync_origin_started_at:null,sync_timeline_completed_at:null});
+  await db.prepare("UPDATE settings SET value='fxembed' WHERE key='x_collection_primary_source'").run();
+  clock.mockReturnValue(timestamp+13*HOUR);clearXServiceCachesForTests();
+  const before=calls.length;await collect("regular");expect(calls.length).toBe(before+1);
+});
+
+it("rollback retires hybrid proof without dropping a real unfinished pagination cursor",async()=>{
+  const calls=provider(url=>page(url.searchParams.has("pagination_token")?null:"page2"));
+  await collect("regular");
+  expect(await source()).toMatchObject({sync_origin_scope:"regular",sync_pagination_token:"page2"});
+  await db.prepare("UPDATE settings SET value='x_api' WHERE key='x_collection_primary_source'").run();
+  clock.mockReturnValue(timestamp+HOUR);clearXServiceCachesForTests();
+  await runXCollectionForHandles(runtime,["member"],"manual");
+  expect(calls).toHaveLength(2);expect(calls[1].searchParams.get("pagination_token")).toBe("page2");
+  expect(await source()).toMatchObject({sync_origin_scope:null,sync_pagination_token:null,last_seen_post_id:"200"});
+});

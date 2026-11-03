@@ -45,6 +45,7 @@ export interface XRecoveryBudgetEstimate {
 
 export interface XActivityStatusDto {
   primarySource?: import("./x-collection").XCollectionProvider;
+  hybridPolicy?: import("./x-collection").XHybridPolicy;
   configured: boolean;
   callbackUrl: string | null;
   subscription: null | {
@@ -83,6 +84,7 @@ export interface XActivityStatusDto {
 export interface XActivitySiteSnapshot {
   site: "otw" | "luvdia";
   primarySource?: import("./x-collection").XCollectionProvider;
+  hybridPolicy?: import("./x-collection").XHybridPolicy;
   collectionEnabled: boolean;
   targets: Array<{ handle: string; userId: string | null }>;
   budget: { day: string; used: number; reserved: number };
@@ -100,3 +102,10 @@ export interface XActivitySitePort {
   setWebhookDisabled(disabled: boolean): Promise<void>;
 }
 export type XActivityControlResult = {ok:true;value:XActivityStatusDto}|{ok:false;error:string;status:number};
+
+export interface XActivityControlFence { revision: number; token: string; expiresAt: number }
+export type XActivitySiteControlPort = Pick<XActivitySitePort,"setPrimarySource"|"setWebhookDisabled"|"setRecoveryInterval">;
+export type XActivitySiteControlRequest = { fence: XActivityControlFence } & (
+  { action: "primary"; source: import("./x-collection").XCollectionProvider } |
+  { action: "webhook"; disabled: boolean } | { action: "recovery" }
+);
