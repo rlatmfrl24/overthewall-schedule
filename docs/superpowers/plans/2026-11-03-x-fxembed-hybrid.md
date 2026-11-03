@@ -83,13 +83,15 @@
 
 ## Task 5: 실제 경로 검증과 운영 전환
 
-- [ ] 로컬 관리자→수집원 변경→정상 작업→실제Fx→D1→공개 카드. SQL 주입/샘플로 대체하지 않는다.
-- [ ] 공식 타임라인이 Fx 미발견을 독립 발견·중복 카드 없이 추가. 알려진 ID lookup과 구분.
-- [ ] 장애/복귀·경합·UTC 예산 이월·Disabled·기존 글/커서 보존.
-- [ ] Node24 관련 Vitest, typecheck:test, architecture:check, 변경 lint, 양 사이트 build, migration 체인·D1 doctor. preflight는 최종 병합 준비에서만.
+- [x] 로컬 관리자→수집원 변경→정상 작업→실제Fx→D1→공개 카드. OTW80·LuvDia152건 실제 저장. 환경 복원의 멤버 설정과 실제 수집을 보고서에서 구분하며 게시물·cursor SQL 주입/샘플 화면으로 대체하지 않는다.
+- [ ] 실제 공식 정상 주기에서 Fx 미발견을 독립 발견·중복 카드 없이 추가. 타임라인 독립 복구는 native/D1에서 검증했고, 알려진 ID lookup으로 대체하지 않았다. 추가 강제 유료 실험은 하지 않는다.
+- [x] 장애/복귀·경합·UTC 예산 이월·Disabled·기존 글/커서 보존. 결정적 D1/native 회귀와 실제 양 사이트 저장 readback을 구분해 보고한다.
+- [x] Node24 관련 Vitest, typecheck:test, architecture:check, 변경 lint, 양 사이트 build, migration 체인·D1 doctor. 전체 실행과 후속 영향 범위의 합성 검증은 보고서를 따른다. preflight는 최종 병합 준비에서만.
 - [ ] 승인된 릴리스에서 OTW→LuvDia 관리자 전환, 각 원격 소유 구독0/Disabled/실제Worker·D1·공개 readback 후 다음 사이트.
 - [ ] 정상 주기/기존 원장 관측. 추가 강제 유료 실험·자동 증액 없음.
-- [ ] rollback primary=x_api, webhookDisabled 유지, 필요 시만 수동 재활성화. 데이터/커서/원장 rollback 없음.
-- [ ] 결과·한계 current-work/해당 PR 기록, 명시 파일만 stage.
+- [x] rollback primary=x_api, webhookDisabled 유지, 필요 시만 수동 재활성화. 데이터/커서/원장 rollback 없음. 제어 D1 통합 테스트에서 검증했으며 운영 rollback을 실행한 것은 아니다.
+- [x] 결과·한계 current-work/구현 보고서 기록, 명시 파일만 stage. PR은 아직 생성하지 않아 PR 댓글은 미실시다.
+
+구현·로컬 실제 경로 검증과 조건부 운영 전환을 구분한다. 미체크 항목은 승인된 릴리스·정상 공식 유료 주기·실제 청구 관측 대기이며, 이 문서가 운영 작업 자동 재개 지시는 아니다.
 
 **완료 기준:** 양 사이트 정상 공개 경로 및 공식 독립 복구·계정 fallback·병합·Disabled를 authoritative readback으로 확인한다. 구현/로컬 검증과 조건부 운영 전환을 구분한다. 절감은 원장과 실제 청구를 구분하며 고정 절감률·무누락을 주장하지 않는다.
