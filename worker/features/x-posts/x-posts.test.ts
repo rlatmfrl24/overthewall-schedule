@@ -233,7 +233,7 @@ const makeCacheDb = (
                 const userIds = new Set(versions.map(post => (post.reply as { inReplyToUserId?: string } | null | undefined)?.inReplyToUserId));
                 let rows: unknown[] = [];
                 if (sql.includes("SELECT p.*")) rows = [...posts.values()].filter(post => ids.has(post.id)).map(post => ({ source_authority: null, content_hash: null, revision: 0, content_removed_at: null, content_access: "normal", publication_hidden: 0, ...post }));
-                else if (sql.includes("SELECT handle,user_id,username")) rows = [...sources.values()].filter(source => source.handle === args[1] || userIds.has(source.user_id ?? ""));
+                else if (sql.includes("SELECT s.handle,COALESCE(s.user_id,f.user_id)")) rows = [...sources.values()].filter(source => source.handle === args[1] || userIds.has(source.user_id ?? ""));
                 else if (sql.includes("SELECT key,value,expires_at")) rows = [...store].filter(([key, value]) => Number(value.expires_at) > Date.now() && ([...ids].some(id => key === `x:linked-post:v1:${id}`) || [...userIds].some(id => key === `x:linked-user:v1:${id}`))).map(([key, value]) => ({ key, ...value }));
                 else if (sql.includes("SELECT key,value FROM settings")) rows = [...store].filter(([key]) => ["x_history_analytics_enabled", "x_history_retention_days"].includes(key)).map(([key, value]) => ({ key, value: value.value }));
                 return { results: [{ data: JSON.stringify(rows) }] as T[] };

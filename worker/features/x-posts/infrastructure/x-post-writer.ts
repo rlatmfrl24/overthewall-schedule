@@ -119,7 +119,8 @@ export async function commitStoredPosts(
     query(`${relations} SELECT post_id FROM x_post_facts f WHERE post_id IN (SELECT id FROM targets) AND (content_access='admin_archive' OR ${publicationHiddenSql("x_post_facts", "f", siteId)}) ORDER BY post_id`, ["post_id"]),
     query(`${relations} SELECT DISTINCT referenced_post_id FROM x_post_references INDEXED BY idx_x_post_references_target WHERE referenced_post_id IN (SELECT id FROM targets) AND resolution_state='terminal' ORDER BY referenced_post_id`, ["referenced_post_id"]),
     query(`${relations} SELECT key,value,expires_at FROM x_api_cache WHERE key IN (SELECT 'x:linked-post:v1:'||id FROM targets UNION SELECT 'x:linked-user:v1:'||id FROM users) AND expires_at>max(CAST((julianday('now')-2440587.5)*86400000 AS INTEGER),${Date.now()}) ORDER BY key`, ["key", "value", "expires_at"]),
-    query(`${relations} SELECT handle,user_id,username FROM x_post_sources WHERE handle=? OR user_id IN (SELECT id FROM users) ORDER BY handle`, ["handle", "user_id", "username"], [input, handle]),
+    query(`${relations} SELECT s.handle,COALESCE(s.user_id,f.user_id) user_id,s.username FROM x_post_sources s
+      LEFT JOIN x_fx_sources f ON f.handle=s.handle WHERE s.handle=? OR s.user_id IN (SELECT id FROM users) ORDER BY s.handle`, ["handle", "user_id", "username"], [input, handle]),
     query(`SELECT uid,name,url_twitter,is_deprecated,content_access,${publicationHiddenSql("members", "members", siteId)} publication_hidden FROM members ORDER BY uid`, ["uid", "name", "url_twitter", "is_deprecated", "content_access", "publication_hidden"], []),
     query("SELECT key,value FROM settings WHERE key IN ('x_history_analytics_enabled','x_history_retention_days') ORDER BY key", ["key", "value"], []),
   ];
@@ -165,6 +166,7 @@ export async function commitStoredPosts(
         if (merged.changed || repair) byId.set(incoming.id, { row, merged: { ...merged, changed: merged.changed || Boolean(previous?.merged.changed) }, count: (previous?.count ?? 0) + 1 });
       }
       const plans = [...byId.values()];
+      if (!plans.length) return { count: 0, insertedIds: [] };
       // Related roots committed together are also valid local reply targets.
       for (const { merged } of plans) {
         const p = merged.post;

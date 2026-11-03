@@ -5,6 +5,7 @@ import { D1ScheduledJobRepository } from "../../../platform/scheduled-jobs/d1-sc
 import { runDataRetentionPolicyPrune } from "../../operations/infrastructure/data-retention";
 import { writeStoredPosts } from "./x-api";
 import { ScheduledJobExecutor } from "../../scheduled-operations/infrastructure/scheduled-job-executor";
+import { runFxCollectionForHandles } from "./fx-collection";
 
 const runtime = { ...env, SITE_ID: "otw" } as Env & { X_REFERENCE_MIGRATIONS: D1Migration[]; SCHEDULED_OPERATIONS_MIGRATIONS: D1Migration[] };
 const db = runtime.otw_db;
@@ -48,6 +49,27 @@ beforeEach(async () => {
   }));
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+it("stores RSS after normal Fx-only bootstrap without initializing official identity or cursor", async () => {
+  await db.batch([db.prepare("DELETE FROM x_post_sources"), db.prepare("DELETE FROM x_fx_sources")]);
+  now = Math.floor(now / 1000) * 1000;
+  const author = { id: "101", screen_name: "member", protected: false };
+  const fresh = (id: string) => ({ type: "status", id, text: id, created_at: new Date(now + 1000).toUTCString(), author, media: {} });
+  vi.mocked(fetch).mockResolvedValueOnce(Response.json({ code: 200, user: author }))
+    .mockResolvedValueOnce(Response.json({ code: 200, results: [fresh("125")], cursor: {} }));
+  expect(await runFxCollectionForHandles(runtime, ["member"], "manual")).toMatchObject({ status: "success", postsStored: 1 });
+  const official = () => db.prepare("SELECT user_id,last_seen_post_id,sync_pagination_token,last_success_at,last_completed_at FROM x_post_sources").first();
+  const before = await official();
+  expect(before).toEqual({ user_id: null, last_seen_post_id: null, sync_pagination_token: null, last_success_at: null, last_completed_at: null });
+  expect(await db.prepare("SELECT user_id FROM x_fx_sources").first("user_id")).toBe("101");
+  vi.mocked(fetch).mockImplementation(async input => new URL(String(input)).pathname.endsWith("feed.xml")
+    ? new Response(`<rss version="2.0"><channel><item><guid>https://x.com/member/status/126</guid><pubDate>${new Date(now + 1000).toUTCString()}</pubDate></item></channel></rss>`)
+    : Response.json({ code: 200, status: fresh("126") }));
+  const entry = await createItem();
+  expect(await runItem(entry, state())).toMatchObject({ status: "complete", stats: { freeApiCalls: 1, paidApiCalls: 0, postsStored: 1 } });
+  expect(await db.prepare("SELECT user_id,content_hash FROM x_posts WHERE id='126'").first()).toMatchObject({ user_id: "101", content_hash: expect.stringMatching(/^[a-f0-9]{64}$/) });
+  expect(await official()).toEqual(before);
+});
 
 it("rss_success_does_not_repair_json_or_official_clock and resumes a terminal partial without scanning", async () => {
   let active = 0, peak = 0;

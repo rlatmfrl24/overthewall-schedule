@@ -138,6 +138,36 @@ const beforeCommit = (change: () => Promise<unknown>) => {
   });
 };
 
+it.each([false, true])("uses one snapshot for a complete unchanged or protected root: protected=%s", async protectedPost => {
+  await writeStoredPosts(db, "member", user, [post], 1, "otw");
+  if (protectedPost) await db.prepare("UPDATE x_posts SET hidden_at=3 WHERE id='123'").run();
+  const before = await read(), measured = meterD1(db);
+  expect(await writeStoredPosts(measured.db, "member", user, [post], 2, "otw")).toMatchObject({ ok: true, count: 0, insertedIds: [] });
+  expect(measured.bindingCalls).toBe(1);
+  expect(measured.summary().rowsWritten).toBe(0);
+  expect(await read()).toEqual(before);
+});
+
+it("rejects turnover of the trusted Fx fallback identity before atomic commit", async () => {
+  vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const fence = await seedRssFence();
+  await db.batch([db.prepare("UPDATE x_post_sources SET user_id=NULL"), db.prepare("UPDATE x_fx_sources SET user_id='101'")]);
+  let changed = false;
+  beforeCommit(async () => { changed = true; await db.prepare("UPDATE x_fx_sources SET user_id='999'").run(); });
+  expect(await writeStoredPosts(db, "member", user, [post], 2, "otw", { origin: "fxembed", completeness: complete }, fence)).toMatchObject({ ok: false, error: "post_author_mismatch", insertedIds: [] });
+  expect(changed).toBe(true);
+  expect(await read()).toBeNull();
+});
+
+it("retains official identity precedence over the Fx fallback", async () => {
+  vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const fence = await seedRssFence();
+  await db.prepare("UPDATE x_fx_sources SET user_id='999'").run();
+  expect(await writeStoredPosts(db, "member", user, [post], 2, "otw", { origin: "fxembed", completeness: complete }, fence)).toMatchObject({ ok: true, insertedIds: [post.id] });
+  expect(await writeStoredPosts(db, "member", { id: "999", username: "member" }, [{ ...post, id: "124" }], 3, "otw", { origin: "fxembed", completeness: complete }, fence)).toMatchObject({ ok: false, error: "post_author_mismatch", insertedIds: [] });
+  expect(await db.prepare("SELECT id FROM x_posts WHERE id='124'").first()).toBeNull();
+});
+
 it.each([
   ["collection stop", "UPDATE settings SET value='false' WHERE key='x_collection_enabled'"],
   ["identity change", "UPDATE x_post_sources SET user_id='999' WHERE handle='member'"],
@@ -180,7 +210,9 @@ it("repairs pre-existing hash-NULL partial rows without claiming an INSERT", asy
   await writeStoredPosts(db, "member", user, [post], 1, "otw");
   await db.batch([db.prepare("UPDATE x_posts SET content_hash=NULL WHERE id='123'"), db.prepare("DELETE FROM x_post_facts WHERE post_id='123'"), db.prepare("DELETE FROM x_post_references WHERE source_post_id='123'")]);
   const before = await read();
-  expect(await writeStoredPosts(db, "member", user, [post], 2, "otw")).toMatchObject({ ok: true, count: 1, insertedIds: [] });
+  const measured = meterD1(db);
+  expect(await writeStoredPosts(measured.db, "member", user, [post], 2, "otw")).toMatchObject({ ok: true, count: 1, insertedIds: [] });
+  expect(measured.bindingCalls).toBe(2);
   expect((await read())!.revision).toBe(before!.revision);
   expect(await db.prepare("SELECT count(*) n FROM x_post_facts").first("n")).toBe(1);
   expect(await db.prepare("SELECT referenced_post_id FROM x_post_references WHERE source_post_id='123'").first("referenced_post_id")).toBe("122");
