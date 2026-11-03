@@ -1,3 +1,4 @@
+import type { XCollectionProvider } from "@contracts/x-collection";
 import type { SiteId } from "@contracts/site-definition";
 import type { XActivitySitePort, XActivitySiteSnapshot, XActivityStatusDto, XApiGateway } from "@contracts/x-activity";
 import { XActivityError } from "../application/x-activity-service";
@@ -49,7 +50,7 @@ export class D1XActivityCoordinator {
     const sites=controls.results.map(control=>{
       const targets=rows.results.filter(row=>row.site===control.site);
       return {site:control.site,enabled:!!control.enabled,targetCount:targets.length,
-        activeCount:targets.filter(row=>row.subscription_id&&row.status!=="stopped"&&(row.expires_at??0)>Date.now()).length,
+        activeCount:targets.filter(row=>row.subscription_id&&row.status!=="stopped"&&(row.expires_at??0)>Date.now()&&(control.enabled||!rows.results.some(peer=>peer.site!==control.site&&peer.user_id===row.user_id&&controls.results.some(other=>other.site===peer.site&&other.enabled&&!other.pause_reason&&!other.last_error)))).length,
         failedCount:targets.filter(row=>row.target_error||row.last_error).length,pauseReason:control.pause_reason,resumeAt:control.resume_at,lastError:control.last_error};
     });
     const current=sites.find(row=>row.site===site);
@@ -62,8 +63,8 @@ export class D1XActivityCoordinator {
     const siteRemainingMicros=estimate&&snapshot?Math.max(0,estimate.siteLimitMicros-snapshot.budget.used-snapshot.budget.reserved):0;
     const recoveryBudget=estimate&&snapshot?.budget.day===budget.day&&budget.seeded?{...estimate,day:budget.day,
       sharedRemainingMicros:budget.remaining,siteRemainingMicros,availableMicros:Math.min(budget.remaining,siteRemainingMicros)}:undefined;
-    const mode:XActivityStatusDto["mode"]=!connected||!budget.seeded||!snapshot?"unavailable":current?.pauseReason==="budget"?"budget_paused":current?.pauseReason==="site"?"site_paused":!current?.enabled?"user_paused":current.lastError||current.failedCount||coordinatorError||events.some(event=>event.error)?"partial":current.activeCount!==current.targetCount?"registering":"normal";
-    return {configured:!!(connected&&this.options.bearerToken&&this.options.clientSecret),callbackUrl:this.callback,subscription:null,
+    const mode:XActivityStatusDto["mode"]=!connected||!budget.seeded||!snapshot?"unavailable":current?.pauseReason==="budget"?"budget_paused":current?.pauseReason==="site"?"site_paused":!current?.enabled?(current?.lastError||current?.failedCount?"partial":"user_paused"):current.lastError||current.failedCount||coordinatorError||events.some(event=>event.error)?"partial":current.activeCount!==current.targetCount?"registering":"normal";
+    return {primarySource:snapshot?.primarySource??"x_api",configured:!!(connected&&this.options.bearerToken&&this.options.clientSecret),callbackUrl:this.callback,subscription:null,
       budget:{limitMicros:budget.limit,usedMicros:budget.used,reservedMicros:budget.reserved,strictDailyCap:false},events,site,mode,
       pauseReason:current?.pauseReason??null,resumeAt:current?.resumeAt??null,budgetDay:budget.day,budgetReady:budget.seeded,sites,
       providerActiveCount:new Set(rows.results.filter(row=>row.subscription_id&&row.status!=="stopped"&&(row.expires_at??0)>Date.now()).map(row=>row.subscription_id)).size,
@@ -73,21 +74,77 @@ export class D1XActivityCoordinator {
       recovery:snapshot?{intervalHours:snapshot.recovery.intervalHours,lastSuccessAt:snapshot.recovery.lastSuccessAt,pendingSources:snapshot.recovery.pendingSources,budget:recoveryBudget}:undefined};
   }
 
-  async start(site:SiteId){
-    if(!this.options.clientSecret||!this.options.bearerToken||!await this.options.peerReady())throw new XActivityError("x_activity_connection_unavailable",503);
+  async initializeBudget(){
+    if(!await this.options.peerReady())throw new XActivityError("x_activity_connection_unavailable",503);
     if(!await this.options.admitD1())throw new XActivityError("d1_budget_unavailable",503);
+    const money=new D1SharedXBudget(this.db),budget=await money.ensureDay();
+    if(!budget.seeded&&await this.db.prepare("SELECT ready FROM x_activity_coordinator WHERE id=1").first<number>("ready")===1)throw new XActivityError("shared_budget_unavailable",503);
     const snapshots=await Promise.all([this.options.sites.otw.snapshot(),this.options.sites.luvdia.snapshot()]);
-    const snapshot=snapshots.find(item=>item.site===site);
-    if(!snapshot?.collectionEnabled)throw new XActivityError("x_collection_disabled");
-    await new D1SharedXBudget(this.db).initialize(snapshots.map(item=>item.budget));
-    await this.options.sites[site].setRecoveryInterval();
-    await this.db.prepare("UPDATE x_activity_sites SET enabled=1,pause_reason=NULL,resume_at=NULL,last_error=NULL,updated_at=? WHERE site=?").bind(Date.now(),site).run();
+    if(snapshots[0].site!=="otw"||snapshots[1].site!=="luvdia")throw new XActivityError("x_activity_site_identity_mismatch",503);
+    return new D1SharedXBudget(this.db).initialize(snapshots.map(item=>item.budget));
+  }
+
+  private async control<T>(action:()=>Promise<T>):Promise<T>{
+    const now=Date.now(),lease=now+10*60_000;
+    const claimed=await this.db.prepare("UPDATE x_activity_coordinator SET lease_until=? WHERE id=1 AND lease_until<=? RETURNING id").bind(lease,now).first();
+    if(!claimed)throw new XActivityError("x_activity_control_busy",409);
+    try{return await action();}finally{await this.db.prepare("UPDATE x_activity_coordinator SET lease_until=0 WHERE id=1 AND lease_until=?").bind(lease).run();}
+  }
+
+  async setPrimarySource(site:SiteId,source:XCollectionProvider){
+    if(!["fxembed","x_api"].includes(source))throw new XActivityError("invalid_x_collection_provider",400);
+    if(source==="x_api"){
+      await this.control(async()=>{
+        await this.options.sites[site].setPrimarySource(source);
+        await this.db.prepare("UPDATE x_activity_sites SET pause_reason='hybrid_rollback',last_error=NULL,updated_at=? WHERE site=? AND enabled=0 AND pause_reason IN ('hybrid','hybrid_transition')").bind(Date.now(),site).run();
+      });
+      return this.status(site);
+    }
+    await this.initializeBudget();
+    if(!(await this.options.sites[site].snapshot()).collectionEnabled)throw new XActivityError("x_collection_disabled");
+    await this.control(async()=>{
+      await this.db.prepare("UPDATE x_activity_sites SET enabled=0,pause_reason='hybrid_transition',resume_at=NULL,last_error=NULL,updated_at=? WHERE site=?").bind(Date.now(),site).run();
+      await this.options.sites[site].setWebhookDisabled(true);
+      try{
+      await this.syncSite(site);
+      const needed=(await this.db.prepare(`SELECT DISTINCT t.user_id FROM x_activity_targets t JOIN x_activity_sites s ON s.site=t.site
+        WHERE t.site<>? AND t.enabled=1 AND s.enabled=1 AND s.pause_reason IS NULL AND s.last_error IS NULL AND t.user_id IS NOT NULL`).bind(site).all<{user_id:string}>()).results.map(row=>row.user_id);
+      const inventory=await this.subscriptions();
+      const owned=(await this.db.prepare("SELECT * FROM x_activity_subscriptions").all<Owned>()).results.filter(row=>!needed.includes(row.user_id));
+      for(const row of owned)await this.removeOwned(row,inventory);
+      const remaining=await this.subscriptions();
+      if(owned.some(row=>remaining.some(remote=>remote.tag===row.tag||Boolean(row.subscription_id&&remote.subscription_id===row.subscription_id))))throw new XActivityError("x_activity_stop_readback_failed",502);
+      await this.options.sites[site].setPrimarySource(source);
+      await this.db.prepare("UPDATE x_activity_sites SET enabled=0,pause_reason='hybrid',last_error=NULL,updated_at=? WHERE site=?").bind(Date.now(),site).run();
+    }catch(error){
+      await this.db.prepare("UPDATE x_activity_sites SET last_error=?,updated_at=? WHERE site=?").bind(message(error),Date.now(),site).run();
+      throw error;
+      }
+    });
+    return this.status(site);
+  }
+
+  async start(site:SiteId){
+    await this.control(async()=>{
+      const snapshot=await this.options.sites[site].snapshot();
+      const pause=await this.db.prepare("SELECT pause_reason FROM x_activity_sites WHERE site=?").bind(site).first<string>("pause_reason");
+      if(snapshot.primarySource==="fxembed"||pause==="hybrid_transition")throw new XActivityError("x_activity_hybrid_disabled",409);
+      if(!this.options.clientSecret||!this.options.bearerToken)throw new XActivityError("x_activity_connection_unavailable",503);
+      if(!snapshot.collectionEnabled)throw new XActivityError("x_collection_disabled");
+      await this.initializeBudget();
+      await this.options.sites[site].setRecoveryInterval();
+      await this.options.sites[site].setWebhookDisabled(false);
+      await this.db.prepare("UPDATE x_activity_sites SET enabled=1,pause_reason=NULL,resume_at=NULL,last_error=NULL,updated_at=? WHERE site=?").bind(Date.now(),site).run();
+    });
     await this.reconcile(true);
     return this.status(site);
   }
 
   async stop(site:SiteId){
-    await this.db.prepare("UPDATE x_activity_sites SET enabled=0,pause_reason='user',resume_at=NULL,last_error=NULL,updated_at=? WHERE site=?").bind(Date.now(),site).run();
+    await this.control(async()=>{
+      await this.options.sites[site].setWebhookDisabled(true);
+      await this.db.prepare("UPDATE x_activity_sites SET enabled=0,pause_reason=CASE WHEN pause_reason IN ('hybrid','hybrid_transition','hybrid_rollback') THEN pause_reason ELSE 'user' END,resume_at=NULL,last_error=NULL,updated_at=? WHERE site=?").bind(Date.now(),site).run();
+    });
     await this.reconcile(await this.options.admitD1());
     return this.status(site);
   }
@@ -103,8 +160,8 @@ export class D1XActivityCoordinator {
           ON CONFLICT(site,handle) DO UPDATE SET user_id=excluded.user_id,enabled=1,
           last_error=CASE WHEN excluded.user_id IS NOT NULL THEN NULL ELSE x_activity_targets.last_error END,updated_at=excluded.updated_at`)
           .bind(site,target.handle,target.userId,now)),
-        this.db.prepare(`UPDATE x_activity_sites SET synced_at=?,last_error=NULL,enabled=CASE WHEN ?=0 THEN 0 ELSE enabled END,
-          pause_reason=CASE WHEN ?=0 AND COALESCE(pause_reason,'')!='user' THEN 'site' ELSE pause_reason END,updated_at=? WHERE site=?`)
+        this.db.prepare(`UPDATE x_activity_sites SET synced_at=?,last_error=CASE WHEN pause_reason='hybrid_transition' THEN last_error ELSE NULL END,enabled=CASE WHEN ?=0 THEN 0 ELSE enabled END,
+          pause_reason=CASE WHEN ?=0 AND COALESCE(pause_reason,'') NOT IN ('user','hybrid','hybrid_transition','hybrid_rollback') THEN 'site' ELSE pause_reason END,updated_at=? WHERE site=?`)
           .bind(now,snapshot.collectionEnabled?1:0,snapshot.collectionEnabled?1:0,now,site),
       ]);
     }catch(error){await this.db.prepare("UPDATE x_activity_sites SET last_error=?,updated_at=? WHERE site=?").bind(message(error),Date.now(),site).run();}
@@ -136,6 +193,7 @@ export class D1XActivityCoordinator {
   }
 
   private async removeUnusedHook(){
+    if(await this.db.prepare("SELECT 1 FROM x_activity_sites WHERE pause_reason IN ('hybrid','hybrid_transition','hybrid_rollback') LIMIT 1").first())return;
     const state=await this.db.prepare("SELECT webhook_id,webhook_url FROM x_activity_coordinator WHERE id=1").first<{webhook_id:string|null;webhook_url:string|null}>();
     if(!state?.webhook_id&&state?.webhook_url!==this.callback)return;
     const hook=(await this.hooks()).find(item=>(item.id===state.webhook_id||!state.webhook_id)&&item.url===this.callback);

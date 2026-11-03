@@ -36,6 +36,7 @@ export interface Env {
     protocol(): Promise<{ version: number; site: string }>;
     statusForLuvdia(): Promise<XActivityStatusDto>;
     controlForLuvdia(action: "start" | "stop"): Promise<XActivityControlResult>;
+    setCollectionForLuvdia(source: import("@contracts/x-collection").XCollectionProvider): Promise<XActivityControlResult>;
   };
   X_ACTIVITY_LUVDIA?: XActivitySitePort & { protocol(): Promise<{version:number;site:string}> };
   VITE_CLERK_PUBLISHABLE_KEY?: string;

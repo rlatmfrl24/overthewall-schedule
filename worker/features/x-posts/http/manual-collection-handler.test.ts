@@ -103,6 +103,15 @@ describe("manual X collection handler", () => {
     expect((await handleManualXCollection(request("other"), env)).status).toBe(400);
     expect(enqueueMock).toHaveBeenCalledTimes(1);
   });
+  it("passes the explicit provider while keeping pending scope and the legacy default", async () => {
+    const request = (query: string) => new Request(`https://example.com/api/settings/x-collection/run-now?${query}`, {method:"POST"});
+    expect((await handleManualXCollection(request("provider=fxembed"), env)).status).toBe(202);
+    expect(enqueueMock).toHaveBeenLastCalledWith(env, expect.anything(), null, undefined, "fxembed");
+    expect((await handleManualXCollection(request("scope=pending&provider=x_api"), env)).status).toBe(202);
+    expect(enqueueMock).toHaveBeenLastCalledWith(env, expect.anything(), null, "pending", "x_api");
+    expect((await handleManualXCollection(request("provider=unknown"), env)).status).toBe(400);
+    expect(enqueueMock).toHaveBeenCalledTimes(2);
+  });
 
   it("대기열 접수 실패를 503으로 변환한다", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);

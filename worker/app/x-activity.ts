@@ -13,7 +13,7 @@ async function send(env:Env,message:XActivityQueueMessage){
   await env.OTW_OPS_BACKGROUND_QUEUE.send(message);
 }
 const missingPeer=():never=>{throw new Error("x_activity_connection_unavailable");};
-const unavailableSite:XActivitySitePort={snapshot:async()=>missingPeer(),rememberUser:async()=>missingPeer(),accept:async()=>missingPeer(),events:async()=>missingPeer(),setRecoveryInterval:async()=>missingPeer()};
+const unavailableSite:XActivitySitePort={snapshot:async()=>missingPeer(),rememberUser:async()=>missingPeer(),accept:async()=>missingPeer(),events:async()=>missingPeer(),setRecoveryInterval:async()=>missingPeer(),setPrimarySource:async()=>missingPeer(),setWebhookDisabled:async()=>missingPeer()};
 
 export function buildXActivitySite(input:Env){
   const env=withXGateway(input),{site}=getWorkerSiteResources(env);

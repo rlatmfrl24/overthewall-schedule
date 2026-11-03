@@ -46,6 +46,16 @@ const run = (items = [item()]): OperationRunDto => ({
 const show = (value: OperationRunDto) => render(createElement(XCollectionRuns, { runs: [value], loading: false, error: false, updatedAt: Date.now() }));
 
 describe("XCollectionRuns", () => {
+  it("identifies Fx work and keeps a successful unfinished traversal pending", () => {
+    const value = item();
+    value.collection = { ...value.collection!, provider: "fxembed", scope: "regular", pendingSources: 1 };
+    value.referenceHydration = null;
+    show(run([value]));
+    expect(screen.getByRole("button", { name: /전체 결과/ }).textContent).toContain("다음 페이지 대기");
+    fireEvent.click(screen.getByRole("button", { name: /전체 결과/ }));
+    expect(screen.getByText("FxEmbed · 정기")).toBeTruthy();
+    expect(screen.getAllByText("FxEmbed 실행 · 유료 원문 조회 없음")).toHaveLength(2);
+  });
   it("identifies a pending-only manual run in the history", () => {
     show({...run(),source:"manual",summary:{xCollectionScope:"pending"}});
     expect(screen.getByRole("button",{name:/전체 결과/}).textContent).toContain("이월 복구");

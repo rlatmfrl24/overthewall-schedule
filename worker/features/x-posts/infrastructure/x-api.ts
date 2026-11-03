@@ -168,6 +168,7 @@ type XStoredPostRow = {
 };
 
 type XPostSourceRow = {
+  fx_last_success_at?: number | null;
   handle: string;
   user_id: string | null;
   username: string | null;
@@ -1361,11 +1362,9 @@ const readStoredPostsForHandles = async (
     try {
       const [sourceRows, postRows] = await Promise.all([
         cacheDb.prepare(
-          `SELECT handle, user_id, username, last_seen_post_id, last_checked_at,
-             updated_at, last_error, collection_started_at,
-             initialization_completed_at, sync_pagination_token,
-             sync_base_post_id, sync_newest_post_id
-           FROM x_post_sources WHERE handle IN (${chunk.map(() => "?").join(",")})`,
+          `SELECT source.*, CASE WHEN (SELECT value FROM settings WHERE key='x_collection_primary_source')='fxembed' THEN fx.last_success_at END AS fx_last_success_at
+           FROM x_post_sources source LEFT JOIN x_fx_sources fx ON fx.handle=source.handle
+           WHERE source.handle IN (${chunk.map(() => "?").join(",")})`,
         ).bind(...chunk).all<XPostSourceRow>().catch((error) => {
           console.warn("Failed to read stored X post sources", error);
           return { results: [] as XPostSourceRow[] };
@@ -1393,7 +1392,9 @@ const readStoredPostsForHandles = async (
       }
       const staged = new Map<string, StoredXPostsEntry | null>();
       for (const handle of chunk) {
-        staged.set(handle, storedPostsEntry(sources.get(handle) ?? null, posts.get(handle) ?? [], richXLinkPreviewEnabled));
+        const source=sources.get(handle),entry=storedPostsEntry(source ?? null,posts.get(handle) ?? [],richXLinkPreviewEnabled);
+        const fxSuccess=Number(source?.fx_last_success_at ?? 0);
+        staged.set(handle,entry&&fxSuccess>entry.fetchedAt?{...entry,fetchedAt:fxSuccess,lastCheckedAt:fxSuccess,expiresAt:fxSuccess+X_POSTS_CACHE_POLICY.freshTtlMs,lastError:null}:entry);
       }
       const filtered = new Map((await filterArchivedXReferences(cacheDb,
         [...staged.values()].flatMap(entry => entry?.posts ?? []), siteId)).map(post => [post.id, post]));
@@ -1499,29 +1500,36 @@ export const writeStoredPosts = async (
   if (!cacheDb || posts.length === 0) return { ok: true, count: 0, error: null };
   const normalizedHandle = normalizeHandle(handle);
   const changedPosts: XPostItem[] = [];
+  const revisions = new Map<string, number>();
   try {
     for (const incoming of posts) {
       let saved = false;
       for (let attempt = 0; attempt < 4; attempt++) {
         const row = await cacheDb.prepare(
-          "SELECT value,source_authority,revision,hidden_at,content_removed_at,content_access,user_id,handle FROM x_posts WHERE id=?",
-        ).bind(incoming.id).first<{ value: string; source_authority: string | null; revision: number; hidden_at: number | null; content_removed_at: number | null; content_access: string; user_id: string | null; handle: string }>();
+          "SELECT value,source_authority,content_hash,revision,hidden_at,content_removed_at,content_access,user_id,handle FROM x_posts WHERE id=?",
+        ).bind(incoming.id).first<{ value: string; source_authority: string | null; content_hash: string | null; revision: number; hidden_at: number | null; content_removed_at: number | null; content_access: string; user_id: string | null; handle: string }>();
         if (row && (row.hidden_at !== null || row.content_removed_at !== null || row.content_access !== "normal")) { saved = true; break; }
         if (row && (row.handle !== normalizedHandle || (row.user_id && row.user_id !== user.id))) throw new Error("post_author_mismatch");
         const merged = mergeStoredXPost(row ? { post: JSON.parse(row.value) as XPostItem, authority: row.source_authority ? JSON.parse(row.source_authority) as XPostAuthority : null } : null, incoming, typeof context === "function" ? context(incoming) : context);
-        if (!merged.changed) { saved = true; break; }
+        if (!merged.changed) {
+          // A sourced row is complete only after its facts and references are durable.
+          if (row?.source_authority && row.content_hash === null) {
+            changedPosts.push(merged.post);
+            revisions.set(incoming.id, row.revision);
+          }
+          saved = true; break;
+        }
         const value = JSON.stringify(merged.post);
-        const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(xPostContentKey(merged.post))))].map(byte => byte.toString(16).padStart(2,"0")).join("");
         const result = row
-          ? await cacheDb.prepare(`UPDATE x_posts SET value=?,source_authority=?,content_hash=?,revision=revision+1,fetched_at=?
+          ? await cacheDb.prepare(`UPDATE x_posts SET value=?,source_authority=?,content_hash=NULL,revision=revision+1,fetched_at=?
               WHERE id=? AND revision=? AND value=? AND hidden_at IS NULL AND content_removed_at IS NULL AND content_access='normal'
               AND NOT (${publicationHiddenSql("x_posts", "x_posts", siteId)})`)
-              .bind(value, JSON.stringify(merged.authority), hash, fetchedAt, incoming.id, row.revision, row.value).run()
+              .bind(value, JSON.stringify(merged.authority), fetchedAt, incoming.id, row.revision, row.value).run()
           : await cacheDb.prepare(`INSERT INTO x_posts(id,handle,user_id,username,value,created_at,first_seen_at,fetched_at,source_authority,content_hash,revision)
-              SELECT iif(${publicationHiddenSql("x_post_sources","incoming",siteId)},json('site_member_cutover'),?),?,?,?,?,?,?,?,?,?,1
+              SELECT iif(${publicationHiddenSql("x_post_sources","incoming",siteId)},json('site_member_cutover'),?),?,?,?,?,?,?,?,?,NULL,1
               FROM (SELECT ? AS handle) incoming WHERE 1 ON CONFLICT(id) DO NOTHING`)
-              .bind(incoming.id, normalizedHandle, user.id, incoming.username, value, incoming.createdAt, fetchedAt, fetchedAt, JSON.stringify(merged.authority), hash, normalizedHandle).run();
-        if (result.meta.changes) { changedPosts.push(merged.post); saved = true; break; }
+              .bind(incoming.id, normalizedHandle, user.id, incoming.username, value, incoming.createdAt, fetchedAt, fetchedAt, JSON.stringify(merged.authority), normalizedHandle).run();
+        if (result.meta.changes) { changedPosts.push(merged.post); revisions.set(incoming.id, (row?.revision ?? 0) + 1); saved = true; break; }
       }
       if (!saved) throw new Error("post_revision_conflict");
     }
@@ -1529,6 +1537,15 @@ export const writeStoredPosts = async (
       const connectedPosts = await connectStoredReplyReferences(cacheDb, changedPosts);
       await recordXPostFacts(cacheDb, normalizedHandle, connectedPosts, fetchedAt, siteId);
       await recordXPostReferences(cacheDb, connectedPosts, fetchedAt, siteId);
+      for (const post of connectedPosts) {
+        const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(xPostContentKey(post))))].map(byte => byte.toString(16).padStart(2,"0")).join("");
+        const ack = await cacheDb.prepare("UPDATE x_posts SET content_hash=? WHERE id=? AND revision=? AND content_hash IS NULL AND hidden_at IS NULL AND content_removed_at IS NULL AND content_access='normal'")
+          .bind(hash, post.id, revisions.get(post.id)!).run();
+        if (!ack.meta.changes) {
+          const pending = await cacheDb.prepare("SELECT 1 FROM x_posts WHERE id=? AND content_hash IS NULL AND hidden_at IS NULL AND content_removed_at IS NULL AND content_access='normal'").bind(post.id).first();
+          if (pending) throw new Error("post_revision_conflict");
+        }
+      }
       invalidateXPostMemoryCache();
     }
     return { ok: true, count: changedPosts.length, error: null };

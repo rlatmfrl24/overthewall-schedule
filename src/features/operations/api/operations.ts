@@ -120,9 +120,12 @@ export async function runAutoUpdateNow(): Promise<OperationRunAccepted> {
   });
 }
 
-export async function runXCollectionNow(scope?: "pending"): Promise<OperationRunAccepted> {
+export async function runXCollectionNow(scope?: "pending", provider?: import("@contracts/x-collection").XCollectionProvider): Promise<OperationRunAccepted> {
+  const query=new URLSearchParams();
+  if(scope)query.set("scope",scope);
+  if(provider)query.set("provider",provider);
   return apiFetch<OperationRunAccepted>(
-    apiRoutes.xPosts.runCollectionNow.build() + (scope === "pending" ? "?scope=pending" : ""),
+    apiRoutes.xPosts.runCollectionNow.build() + (query.size ? `?${query}` : ""),
     { method: "POST", headers: makeIdempotencyHeaders() },
   );
 }

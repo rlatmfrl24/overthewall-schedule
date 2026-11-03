@@ -72,10 +72,10 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
         : xCollectionStatusText(latestRun);
   return <div className="space-y-3">
     <div className="grid items-stretch gap-3 md:grid-cols-2">
-      <Card aria-label="X REST 누락 복구 상태" className="min-w-0 gap-0 py-0 shadow-none">
+      <Card aria-label="X 게시물 수집 실행 상태" className="min-w-0 gap-0 py-0 shadow-none">
         <CardHeader className="px-3 py-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="flex items-center gap-2 text-sm font-semibold"><FileText className="size-4" />REST 누락 복구</h2>
+          <h2 className="flex items-center gap-2 text-sm font-semibold"><FileText className="size-4" />게시물 수집 실행</h2>
           <Button variant="ghost" size="sm" onClick={() => openXSettings("x-collection-settings")} aria-label="게시물 수집 설정 열기">설정</Button>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -155,6 +155,7 @@ function ItemResult({ item }: { item: XCollectionOperationItemDto }) {
     <div className="grid gap-3 md:grid-cols-2">
       {(item.status === "queued" || item.status === "running") && <p className="text-xs text-muted-foreground md:col-span-2">현재 작업이 진행 중입니다. 아래에 남아 있는 결과는 이전 시도에서 저장된 값입니다.</p>}
       <div className="space-y-1"><p className="font-medium">게시물 수집</p>
+        {c?.provider && <p>{c.provider === "fxembed" ? "FxEmbed" : "공식 X"} · {c.scope === "pending" ? "미완료 재개" : c.scope === "fallback" ? "장애 임시 수집" : "정기"}</p>}
         <p>{c ? xCollectionItemLabel(c) + " · 계정 확인 " + c.checkedHandles + "개 · 갱신 " + c.refreshedHandles + "개" : "수집 결과 기록 없음"}</p>
         {c && <p className="text-muted-foreground">응답 {c.postsReturned}건 · 저장 {c.postsStored}건</p>}
         {c?.error && <p className="break-words">{xReasonLabel(c.error)}</p>}
@@ -166,7 +167,7 @@ function ItemResult({ item }: { item: XCollectionOperationItemDto }) {
           <p className="text-muted-foreground">이월 {h.deferred} · 오류 {h.failed} · 접근 불가 {h.terminal} · 중복 작업 병합 {h.coalesced}</p>
           {h.errorCode && <p className="break-words">{xReasonLabel(h.errorCode)}</p>}
           {h.retryAt !== null && <p>보강 재시도: {formatXEligibility(h.retryAt)}</p>}
-        </> : <p className="text-muted-foreground">보강 결과 기록 없음</p>}
+        </> : <p className="text-muted-foreground">{c?.provider === "fxembed" ? "FxEmbed 실행 · 유료 원문 조회 없음" : "보강 결과 기록 없음"}</p>}
       </div>
     </div>
     <p className="text-xs text-muted-foreground">시도 {item.attempts}회 · 결과 갱신 {formatXTime(item.updatedAt)}{item.retryPending ? " · 작업 재시도 대기: " + formatXEligibility(item.nextRetryAt) : ""}</p>

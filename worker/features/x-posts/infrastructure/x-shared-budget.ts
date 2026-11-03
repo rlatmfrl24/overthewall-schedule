@@ -52,8 +52,10 @@ export class D1SharedXApiGateway implements XApiGateway {
   private readonly site: SiteId;
   private readonly token: string | undefined;
   private readonly admitD1: () => Promise<boolean>;
-  constructor(options: { db: D1Database; site: SiteId; token?: string; admitD1: () => Promise<boolean> }) {
+  private readonly bootstrapBudget: (() => Promise<void>) | undefined;
+  constructor(options: { db: D1Database; site: SiteId; token?: string; admitD1: () => Promise<boolean>; bootstrapBudget?: () => Promise<void> }) {
     this.db = options.db; this.site = options.site; this.token = options.token; this.admitD1 = options.admitD1;
+    this.bootstrapBudget = options.bootstrapBudget;
   }
   readBudget(){return new D1SharedXBudget(this.db).read();}
 
@@ -79,7 +81,10 @@ export class D1SharedXApiGateway implements XApiGateway {
     if (expected !== input.operation) return failure("invalid_x_gateway_request",400);
     try {
       if (!this.token || !await this.admitD1()) return failure("shared_budget_unavailable");
-      const budget = await new D1SharedXBudget(this.db).ensureDay();
+      let budget = await new D1SharedXBudget(this.db).ensureDay();
+      if (!budget.seeded && this.bootstrapBudget && await this.db.prepare("SELECT ready FROM x_activity_coordinator WHERE id=1").first<number>("ready") === 0) {
+        await this.bootstrapBudget(); budget = await new D1SharedXBudget(this.db).ensureDay();
+      }
       if (!budget.seeded) return failure("shared_budget_unavailable");
       const estimate = estimateXSharedApiReservationMicros(input.operation,input.path,input.estimatedCostMicros);
       if (!Number.isSafeInteger(estimate) || estimate <= 0 || estimate > 1_000_000) return failure("invalid_x_gateway_estimate",400);

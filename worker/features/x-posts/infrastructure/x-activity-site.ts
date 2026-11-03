@@ -1,3 +1,4 @@
+import type { XCollectionProvider } from "@contracts/x-collection";
 import type { SiteId } from "@contracts/site-definition";
 import type { XApiGateway, XActivitySiteSnapshot, XActivityStatusDto } from "@contracts/x-activity";
 import { parseXActivityEvent, xActivityMediaReady, type XActivityEvent } from "../domain/x-activity";
@@ -16,6 +17,7 @@ interface Inbox {
   hydrated_payload: string | null; received_at: number; lookup_attempted_at: number | null; lookup_attempts: number;
 }
 const DAY = 86_400_000;
+const WEBHOOK_DISABLED_SQL = "EXISTS(SELECT 1 FROM settings WHERE (key='x_webhook_disabled' AND value='true') OR (key='x_collection_primary_source' AND value='fxembed'))";
 const nextDay = () => (Math.floor(Date.now()/DAY)+1)*DAY;
 const errorCode = (error: unknown) => error instanceof Error ? error.message.slice(0,250) : "x_activity_failed";
 
@@ -29,6 +31,18 @@ export class D1XActivitySite {
   private async sourceAllowed(handle: string, userId: string) {
     return (await readActiveXHandles(this.db,this.options.siteId)).has(handle) &&
       !!await this.db.prepare("SELECT handle FROM x_post_sources WHERE handle=? AND user_id=? AND deactivated_at IS NULL").bind(handle,userId).first();
+  }
+  private async webhookDisabled(){return Boolean(await this.db.prepare(`SELECT 1 WHERE ${WEBHOOK_DISABLED_SQL}`).first());}
+  async setPrimarySource(source:XCollectionProvider){
+    if(!["fxembed","x_api"].includes(source))throw new Error("invalid_x_collection_provider");
+    if(source==="fxembed"&&!await this.webhookDisabled())throw new Error("webhook_disable_required");
+    await this.db.prepare("INSERT INTO settings(key,value,updated_at) VALUES('x_collection_primary_source',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE settings.value<>excluded.value").bind(source,Date.now()).run();
+  }
+  async setWebhookDisabled(disabled:boolean){
+    if(typeof disabled!=="boolean")throw new Error("invalid_webhook_control");
+    if(!disabled&&await this.db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value")==="fxembed")throw new Error("x_activity_hybrid_disabled");
+    await this.db.prepare("INSERT INTO settings(key,value,updated_at) VALUES('x_webhook_disabled',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE settings.value<>excluded.value").bind(String(disabled),Date.now()).run();
+    if(disabled)await this.db.prepare("UPDATE x_activity_inbox SET payload=NULL,hydrated_payload=NULL,status='skipped',last_error='webhook_hybrid_disabled',lease_until=0 WHERE status='pending' AND lease_until<=?").bind(Date.now()).run();
   }
   async snapshot(): Promise<XActivitySiteSnapshot> {
     const enabled = await this.collectionEnabled();
@@ -54,7 +68,7 @@ export class D1XActivitySite {
     const siteContinuationMicros=estimateXApiRequestCostMicros("timeline",pagePath(continuationPageSize));
     // A source ID does not guarantee a fresh user cache, so include refresh headroom for every target.
     const identityMicros=estimateXApiRequestCostMicros("user_lookup","/users/by?"+new URLSearchParams({usernames:handles.join(",")}));
-    return { site: this.options.siteId, collectionEnabled: enabled, targets: handles.map(handle=>({handle,userId:users.get(handle)??null})),
+    return { site: this.options.siteId, primarySource: await this.db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value")==="fxembed"?"fxembed":"x_api", collectionEnabled: enabled, targets: handles.map(handle=>({handle,userId:users.get(handle)??null})),
       budget, cachePurgePending:Number(cachePurgePending??0), recovery: {
         intervalHours: Number(interval ?? 24), lastSuccessAt: recovery?.lastSuccessAt ?? null, pendingSources,
         estimate:{targetCount:handles.length,pageSize,continuationPageSize,perPageMicros,
@@ -93,12 +107,13 @@ export class D1XActivitySite {
     const source = await this.db.prepare("SELECT handle FROM x_post_sources WHERE user_id=? AND handle IN (SELECT value FROM json_each(?)) AND deactivated_at IS NULL LIMIT 1")
       .bind(event.userId,JSON.stringify(handles)).first<{handle:string}>();
     if (!source) return false;
+    const disabled=await this.webhookDisabled();
     const removed=await this.db.prepare("SELECT id FROM x_posts WHERE id=? AND (hidden_at IS NOT NULL OR content_removed_at IS NOT NULL OR content_access!='normal')").bind(event.post.id).first();
     const timestamp=Date.now();
     const fresh="EXISTS(SELECT 1 FROM x_activity_inbox WHERE event_id=? AND charged=0)";
     await this.db.batch([
-      this.db.prepare("INSERT OR IGNORE INTO x_activity_inbox(event_id,post_id,handle,user_id,payload,received_at,status) VALUES(?,?,?,?,?,?,?)")
-        .bind(event.eventId,event.post.id,source.handle,event.userId,removed?null:JSON.stringify(body),timestamp,removed?"skipped":"pending"),
+      this.db.prepare("INSERT OR IGNORE INTO x_activity_inbox(event_id,post_id,handle,user_id,payload,received_at,status,last_error) VALUES(?,?,?,?,?,?,?,?)")
+        .bind(event.eventId,event.post.id,source.handle,event.userId,removed||disabled?null:JSON.stringify(body),timestamp,removed||disabled?"skipped":"pending",disabled?"webhook_hybrid_disabled":null),
       this.db.prepare(`INSERT INTO x_api_usage_events(operation,endpoint,resource_type,resource_count,estimated_cost_micros,status,created_at,detail)
         SELECT 'activity_event','/2/activity/post.create','shared_event',1,0,200,?,? WHERE ${fresh}`)
         .bind(timestamp,JSON.stringify({source:"xaa",purpose:"collection",sharedEventCostMicros:5000,postId:event.post.id}),event.eventId),
@@ -107,7 +122,7 @@ export class D1XActivitySite {
     const pending=await this.db.prepare("SELECT event_id FROM x_activity_inbox WHERE event_id=? AND status='pending' AND lease_until<=? AND next_attempt_at<=?")
       .bind(event.eventId,timestamp,timestamp).first();
     if(pending) await this.options.dispatch(event.eventId);
-    return !removed;
+    return !removed&&!disabled;
   }
   async recover() {
     const redactions=await this.db.prepare("SELECT post_id FROM x_activity_cache_redactions WHERE completed_at IS NULL AND next_attempt_at<=? ORDER BY next_attempt_at LIMIT 20").bind(Date.now()).all<{post_id:string}>();
@@ -138,6 +153,7 @@ export class D1XActivitySite {
     const row = await this.db.prepare("UPDATE x_activity_inbox SET lease_until=? WHERE event_id=? AND status='pending' AND lease_until<=? AND next_attempt_at<=? RETURNING *").bind(lease, eventId, timestamp, timestamp).first<Inbox>();
     if (!row) return;
     try {
+      if(await this.webhookDisabled()){await this.finish(row,"skipped",lease,"webhook_hybrid_disabled");return;}
       const event = row.payload ? parseXActivityEvent(JSON.parse(row.payload)) : null;
       const removed = await this.db.prepare("SELECT id FROM x_posts WHERE id=? AND (hidden_at IS NOT NULL OR content_removed_at IS NOT NULL OR content_access!='normal')").bind(row.post_id).first();
       if (!event || removed || !await this.collectionEnabled() || !await this.sourceAllowed(row.handle, row.user_id) ||
@@ -166,8 +182,8 @@ export class D1XActivitySite {
         if (budget.globalUsed + budget.globalReserved + 25_000 > budget.globalLimit) {
           await this.defer(row, lease, "budget_exceeded"); return;
         }
-        const admitted = await this.db.prepare("UPDATE x_activity_inbox SET lookup_attempted_at=?,lookup_attempts=lookup_attempts+1 WHERE event_id=? AND lease_until=? AND status='pending' RETURNING event_id").bind(timestamp, eventId, lease).first();
-        if (!admitted) return;
+        const admitted = await this.db.prepare(`UPDATE x_activity_inbox SET lookup_attempted_at=?,lookup_attempts=lookup_attempts+1 WHERE event_id=? AND lease_until=? AND status='pending' AND NOT (${WEBHOOK_DISABLED_SQL}) RETURNING event_id`).bind(timestamp, eventId, lease).first();
+        if (!admitted) { if(await this.webhookDisabled())await this.finish(row,"skipped",lease,"webhook_hybrid_disabled");return; }
         const query = new URLSearchParams({ ids: row.post_id, "tweet.fields": "author_id,created_at,attachments,entities,referenced_tweets,conversation_id,in_reply_to_user_id,note_tweet,public_metrics",
           expansions: "attachments.media_keys", "media.fields": "media_key,type,url,preview_image_url,width,height,alt_text" });
         try {
@@ -200,7 +216,8 @@ export class D1XActivitySite {
   private finish(row: Inbox, status: string, lease: number, error: string | null = null) {
     return this.db.prepare("UPDATE x_activity_inbox SET status=?,payload=NULL,hydrated_payload=NULL,last_error=? WHERE event_id=? AND lease_until=? AND status='pending'").bind(status, error, row.event_id, lease).run();
   }
-  private defer(row: Inbox, lease: number, error: string) {
+  private async defer(row: Inbox, lease: number, error: string) {
+    if(await this.webhookDisabled())return this.finish(row,"skipped",lease,"webhook_hybrid_disabled");
     return this.db.prepare("UPDATE x_activity_inbox SET next_attempt_at=?,last_error=? WHERE event_id=? AND lease_until=? AND status='pending'").bind(nextDay(), error, row.event_id, lease).run();
   }
 

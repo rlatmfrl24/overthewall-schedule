@@ -28,6 +28,7 @@ export const xReasonLabel = (code: string | null | undefined) => {
 };
 
 export function xCollectionItemLabel(result: NonNullable<XCollectionOperationItemDto["collection"]>) {
+  if (result.status === "success" && result.pendingSources) return "다음 페이지 대기";
   if (result.status === "success") return "성공";
   const progressed = result.postsStored > 0 || result.refreshedHandles > 0;
   if (result.status === "skipped") return progressed ? "일부 수집 후 대기" : "건너뜀";
@@ -41,6 +42,7 @@ export function xCollectionStatusText(run: OperationRunDto | null | undefined) {
   const incomplete = items.some((item) => item.status === "queued" || item.status === "running") || results.length !== items.length;
   if (incomplete) return "진행 중 또는 일부 결과 미확인";
   if (results.some((result) => result.status === "failed")) return "실패 포함";
+  if (results.some(result => result.pendingSources)) return "일부 수집 · 다음 페이지 대기";
   if (results.every((result) => result.status === "skipped")) {
     return results.some((result) => result.postsStored > 0 || result.refreshedHandles > 0) ? "일부 수집 후 대기" : "건너뜀";
   }
@@ -54,7 +56,9 @@ export function xCollectionResultText(run: OperationRunDto | null | undefined) {
 }
 
 export function xHydrationResultText(run: OperationRunDto) {
-  const items = run.xCollection?.items ?? [];
+  const allItems = run.xCollection?.items ?? [];
+  const items = allItems.filter(item => item.collection?.provider !== "fxembed");
+  if (!items.length && allItems.length) return "FxEmbed 실행 · 유료 원문 조회 없음";
   const results = items.flatMap((item) => item.referenceHydration ? [item.referenceHydration] : []);
   if (!results.length) return "보강 결과 기록 없음";
   const label = results.some((result) => result.status === "failed" || result.failed > 0) ? "오류·재시도 대기"

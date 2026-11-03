@@ -27,6 +27,9 @@ export { runFxCollectionForHandles } from "./infrastructure/fx-collection";
 export { readHybridXCollectionTargets, isHybridRegularCollectionComplete } from "./infrastructure/x-hybrid-policy";
 export { XActivityError, type XActivityService } from "./application/x-activity-service";
 export { createXActivityHandler } from "./http/x-activity";
+export { createXCollectionHandler } from "./http/x-collection";
+export { createXCollectionApplication } from "./application/x-collection-service";
+export { readXCollectionStatus } from "./infrastructure/x-collection-status";
 export { D1SharedXApiGateway, D1SharedXBudget, readSiteXBudget } from "./infrastructure/x-shared-budget";
 export {
   buildXPostsApplication,

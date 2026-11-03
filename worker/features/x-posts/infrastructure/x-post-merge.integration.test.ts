@@ -46,6 +46,21 @@ it("concurrent Fx and official updates converge to official content", async () =
     writeStoredPosts(db, "member", user, [{ ...post, text: "Fx" }], 1, "otw", { origin: "fxembed", completeness: complete }),
     writeStoredPosts(db, "member", user, [post], 2, "otw", { origin: "x_api", completeness: complete }),
   ]);
-  expect(results.every(result => result.ok)).toBe(true);
+  expect(results.some(result => result.ok)).toBe(true);
+  expect(results.filter(result => !result.ok).every(result => result.error === "post_revision_conflict")).toBe(true);
   expect(JSON.parse((await read())!.value).text).toBe(post.text);
+  expect(await db.prepare("SELECT content_hash FROM x_posts WHERE id='123'").first("content_hash")).toMatch(/^[a-f0-9]{64}$/);
+});
+it("retries incomplete secondary writes before acknowledging an identical replay", async () => {
+  await db.exec("CREATE TRIGGER fail_reference BEFORE INSERT ON x_post_references WHEN NEW.source_post_id='123' BEGIN SELECT RAISE(ABORT,'reference failure'); END;");
+  try {
+    expect((await writeStoredPosts(db, "member", user, [post], 1, "otw")).ok).toBe(false);
+    expect(await read()).not.toBeNull();
+  } finally { await db.exec("DROP TRIGGER fail_reference;"); }
+  expect((await writeStoredPosts(db, "member", user, [post], 2, "otw")).ok).toBe(true);
+  expect(await db.prepare("SELECT referenced_post_id FROM x_post_references WHERE source_post_id='123'").first("referenced_post_id")).toBe("122");
+  const statements: string[] = [];
+  const observed = { prepare(sql: string) { statements.push(sql); return db.prepare(sql); } };
+  expect(await writeStoredPosts(observed, "member", user, [post], 3, "otw")).toMatchObject({ ok: true, count: 0 });
+  expect(statements.every(sql => /^SELECT\b/.test(sql))).toBe(true);
 });

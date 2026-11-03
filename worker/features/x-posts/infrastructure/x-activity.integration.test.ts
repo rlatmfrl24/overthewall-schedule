@@ -53,6 +53,7 @@ beforeEach(async()=>{
   for(const database of [db,peer]){
     await applyD1Migrations(database,bindings.X_REFERENCE_MIGRATIONS);
     await database.batch(["x_activity_inbox","x_activity_dispatch","x_activity_targets","x_activity_subscriptions","x_shared_requests","x_shared_budgets","x_activity_cache_redactions","x_post_references","x_post_facts","x_posts","x_post_sources","x_api_usage_events","x_api_usage_daily","x_api_resource_daily","x_api_cache","scheduled_usage_daily","members"].map(table=>database.prepare("DELETE FROM "+table)));
+    await database.prepare("DELETE FROM settings WHERE key IN ('x_collection_primary_source','x_webhook_disabled')").run();
     await database.prepare("INSERT INTO settings(key,value,updated_at) VALUES('x_collection_enabled','true',0),('x_collection_daily_budget_cents','100',0),('x_cost_optimizer_enabled','false',0) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run();
     await database.prepare("UPDATE x_activity_sites SET enabled=0,pause_reason='user',resume_at=NULL,last_error=NULL").run();
     await database.prepare("UPDATE x_activity_coordinator SET ready=0,lease_until=0,webhook_id=NULL,webhook_url=NULL,bootstrap_extra_micros=0,last_error=NULL").run();
@@ -67,6 +68,107 @@ beforeEach(async()=>{
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();vi.useRealTimers();});
 
 describe("XAA multi-site collection and common money boundary",()=>{
+  it("switches to Fx only after owned remote subscriptions stop, preserving peer subscriptions, hook and history",async()=>{
+    const control=coordinator();await control.start("otw");await control.start("luvdia");
+    const pending=body(await tag(),{attachments:{media_keys:["missing"]}});
+    const eventId=parseXActivityEvent(pending)!.eventId;
+    await control.accept(pending);
+    await control.deliver(eventId);
+    const before=await db.prepare("SELECT COUNT(*) AS n FROM x_activity_inbox").first("n");
+    const savedHooks=structuredClone(hooks);
+    vi.mocked(fetch).mockClear();
+    await control.setPrimarySource("otw","fxembed");
+    await control.reconcile(true);
+    await local("otw").process(eventId);
+    expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value")).toBe("fxembed");
+    expect((await control.status("otw")).sites?.find(site=>site.site==="otw")).toMatchObject({enabled:false,activeCount:0,pauseReason:"hybrid"});
+    expect(remote.map(item=>(item.filter as {user_id:string}).user_id)).toEqual([peerUserId]);
+    expect(hooks).toEqual(savedHooks);
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM x_activity_inbox").first("n")).toBe(before);
+    expect(await db.prepare("SELECT status,last_error FROM x_activity_inbox WHERE event_id=?").bind(eventId).first()).toEqual({status:"skipped",last_error:"webhook_hybrid_disabled"});
+    expect(vi.mocked(fetch).mock.calls.some(([input,init])=>String(input).includes("/activity/subscriptions")&&init?.method==="POST")).toBe(false);
+    expect(vi.mocked(fetch).mock.calls.some(([input])=>String(input).includes("/tweets"))).toBe(false);
+  });
+  it("leaves an explicit disabled failure when remote stop fails and never reports Fx as applied",async()=>{
+    const control=coordinator();await control.start("otw");
+    vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>init?.method==="DELETE"?new Response(null,{status:500}):provider(input,init)));
+    await expect(control.setPrimarySource("otw","fxembed")).rejects.toThrow();
+    expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value")).not.toBe("fxembed");
+    expect(await db.prepare("SELECT enabled,last_error FROM x_activity_sites WHERE site='otw'").first()).toMatchObject({enabled:0,last_error:expect.stringContaining("500")});
+    expect(remote).toHaveLength(1);
+    await control.reconcile(true);
+    expect((await control.status("otw")).sites?.find(site=>site.site==="otw")).toMatchObject({enabled:false,activeCount:1,lastError:expect.stringContaining("500")});
+  });
+  it("keeps Disabled through rollback and requires explicit webhook reactivation",async()=>{
+    const control=coordinator();await control.start("otw");await control.setPrimarySource("otw","fxembed");
+    await expect(control.start("otw")).rejects.toMatchObject({status:409,code:"x_activity_hybrid_disabled"});
+    const budget=await new D1SharedXBudget(db).read();
+    await control.setPrimarySource("otw","x_api");
+    expect(remote).toHaveLength(0);expect(hooks).toHaveLength(1);
+    expect(await db.prepare("SELECT enabled FROM x_activity_sites WHERE site='otw'").first("enabled")).toBe(0);
+    await control.start("otw");expect(remote).toHaveLength(1);
+    expect((await new D1SharedXBudget(db).read()).used).toBe(budget.used);
+  });
+  it("initializes REST budget independently of starting a webhook",async()=>{
+    await db.prepare("DELETE FROM x_shared_budgets").run();await db.prepare("UPDATE x_activity_coordinator SET ready=0").run();
+    await coordinator().initializeBudget();
+    expect((await new D1SharedXBudget(db).read()).seeded).toBe(true);
+    const application={...env,SITE_ID:"otw",otw_db:db,X_BEARER_TOKEN:"test",X_API_GATEWAY:gateway("otw")} as Env;
+    await runXCollectionForHandles(application,["member"],"manual");
+    const completed=await runXCollectionForHandles(application,["member"],"manual");
+    expect(completed.status).toBe("success");expect(completed.pendingSources).toBe(0);
+    expect(remote).toHaveLength(0);expect(hooks).toHaveLength(0);
+    expect(await db.prepare("SELECT SUM(enabled) AS count FROM x_activity_sites").first("count")).toBe(0);
+  });
+  it("does not reconstruct a previously initialized missing money ledger automatically",async()=>{
+    await db.prepare("DELETE FROM x_shared_budgets").run();
+    const bootstrap=vi.fn(async()=>{await new D1SharedXBudget(db).initialize([await readSiteXBudget(db),await readSiteXBudget(peer)]);});
+    const guarded=new D1SharedXApiGateway({db,site:"otw",token:"test",admitD1:async()=>true,bootstrapBudget:bootstrap});
+    const result=await guarded.execute({id:"lost-ledger",operation:"user_lookup",path:"/users/by?usernames=member"});
+    expect(result.ok).toBe(false);expect(bootstrap).not.toHaveBeenCalled();expect(fetch).not.toHaveBeenCalled();
+    await expect(coordinator().setPrimarySource("otw","fxembed")).rejects.toMatchObject({code:"shared_budget_unavailable"});
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM x_shared_budgets").first("n")).toBe(0);
+  });
+  it("preserves a common subscription needed by the other active site",async()=>{
+    await peer.prepare("UPDATE members SET url_twitter='https://x.com/member'").run();
+    await peer.prepare("UPDATE x_post_sources SET handle='member',user_id=?,username='member'").bind(userId).run();
+    const control=coordinator();await control.start("otw");await control.start("luvdia");
+    expect(remote).toHaveLength(1);
+    await control.setPrimarySource("otw","fxembed");
+    expect(remote).toHaveLength(1);
+    const status=await control.status("otw");
+    expect(status.sites?.find(site=>site.site==="otw")).toMatchObject({enabled:false,activeCount:0});
+    expect(status.sites?.find(site=>site.site==="luvdia")).toMatchObject({enabled:true,activeCount:1});
+  });
+  it("settles a hydration already in flight when switching to Disabled without starting another",async()=>{
+    const control=coordinator();await control.start("otw");
+    const pending=body(await tag(),{attachments:{media_keys:["missing"]}}),eventId=parseXActivityEvent(pending)!.eventId;
+    await control.accept(pending);await control.deliver(eventId);
+    let entered!:()=>void,release!:()=>void;
+    const started=new Promise<void>(resolve=>{entered=resolve;}),response=new Promise<void>(resolve=>{release=resolve;});
+    const calls=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      if(new URL(String(input)).pathname==="/2/tweets"){entered();await response;}
+      return provider(input,init);
+    });
+    vi.stubGlobal("fetch",calls);
+    const processing=local("otw").process(eventId);await started;
+    expect((await new D1SharedXBudget(db).read()).reserved).toBeGreaterThan(0);
+    await control.setPrimarySource("otw","fxembed");release();await processing;
+    const request=await db.prepare("SELECT status,cost FROM x_shared_requests WHERE operation='tweet_lookup'").first<{status:string;cost:number}>();
+    expect(request?.status).toBe("complete");expect(request?.cost).toBeGreaterThan(0);
+    expect((await new D1SharedXBudget(db).read()).reserved).toBe(0);
+    expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(eventId).first("status")).toBe("complete");
+    expect(calls.mock.calls.filter(([input])=>new URL(String(input)).pathname==="/2/tweets")).toHaveLength(1);
+  });
+  it("treats the primary Fx setting as authoritative for a late dispatch even if the local disable flag is absent",async()=>{
+    const control=coordinator();await control.start("otw");const pending=body(await tag(),{attachments:{media_keys:["missing"]}}),eventId=parseXActivityEvent(pending)!.eventId;
+    await control.setPrimarySource("otw","fxembed");
+    await db.prepare("DELETE FROM settings WHERE key='x_webhook_disabled'").run();
+    vi.mocked(fetch).mockClear();
+    await local("otw").accept(pending);await local("otw").process(eventId);
+    expect(await db.prepare("SELECT status,last_error FROM x_activity_inbox WHERE event_id=?").bind(eventId).first()).toEqual({status:"skipped",last_error:"webhook_hybrid_disabled"});
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it("settles each background timeline before reserving the next account",async()=>{
     await db.prepare("UPDATE x_shared_budgets SET used=250000").run();
     await db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(2,'second','Second','https://x.com/second')").run();

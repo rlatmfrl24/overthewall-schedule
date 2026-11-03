@@ -67,3 +67,15 @@ it("does not count a lease collision or user stop as provider failure", async ()
   expect(fetch).not.toHaveBeenCalled();
   expect(await db.prepare("SELECT COUNT(*) AS n FROM x_fx_sources").first("n")).toBe(0);
 });
+it("does not acknowledge a page until failed reference writes are durably retried", async () => {
+  const status = { ...raw("123"), replying_to: { status: "122", screen_name: "member" } };
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => Response.json({ code: 200, results: [status], cursor: {} })));
+  await db.exec("CREATE TRIGGER fail_fx_reference BEFORE INSERT ON x_post_references WHEN NEW.source_post_id='123' BEGIN SELECT RAISE(ABORT,'reference failure'); END;");
+  try {
+    expect((await runFxCollectionForHandles(runtime, ["member"], "manual")).status).toBe("failed");
+    expect(await db.prepare("SELECT last_success_at,last_completed_at,consecutive_failures FROM x_fx_sources").first()).toEqual({ last_success_at: null, last_completed_at: null, consecutive_failures: 0 });
+  } finally { await db.exec("DROP TRIGGER fail_fx_reference;"); }
+  expect((await runFxCollectionForHandles(runtime, ["member"], "manual")).status).toBe("success");
+  expect(await db.prepare("SELECT referenced_post_id FROM x_post_references WHERE source_post_id='123'").first("referenced_post_id")).toBe("122");
+  expect(await db.prepare("SELECT last_completed_at FROM x_fx_sources").first("last_completed_at")).toBeTypeOf("number");
+});

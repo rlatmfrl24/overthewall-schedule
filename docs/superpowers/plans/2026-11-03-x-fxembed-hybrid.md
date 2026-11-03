@@ -76,10 +76,10 @@
 
 **UI:** Fx 기본·공식 보강·웹훅 Disabled 별도. Fx 성공이 공식 실패/예산 이월을 감추지 않는다. 조회는 기존 상태/원장 읽기, 관측 쓰기 없음. 권한·사이트·감사 유지.
 
-- [ ] RED: owned subscriptions0, 자동등록0, start409, history 보존, REST bootstrap 독립.
-- [ ] 구현: 제어 API/RPC/UI/감사.
-- [ ] GREEN: 권한·타사이트 구독 보존·중지 실패·수동 재활성화.
-- [ ] 커밋: `feat(x): retain disabled webhooks and expose hybrid controls`.
+- [x] RED: owned subscriptions0, 자동등록0, start409, history 보존, REST bootstrap 독립.
+- [x] 구현: 제어 API/RPC/UI/감사.
+- [x] GREEN: 권한·타사이트 구독 보존·중지 실패·수동 재활성화.
+- [x] 커밋: `feat(x): retain disabled webhooks and expose hybrid controls`.
 
 ## Task 5: 실제 경로 검증과 운영 전환
 

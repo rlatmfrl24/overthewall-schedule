@@ -6,6 +6,7 @@ import type { Env } from "../platform/types";
 import { getWorkerSiteResources } from "../platform/site";
 import { buildXActivityService } from "./x-activity";
 import { withXGateway } from "./x-gateway";
+import { D1SharedXBudget } from "../features/x-posts";
 
 export const SCHEDULED_WORKFLOW_CRON = "3,13,23,33,53 * * * *";
 
@@ -102,7 +103,14 @@ async function dispatchScheduledWorkflows(event:ScheduledController,env:Env):Pro
   );
   if (selectedJobs.length === 0) return;
   const budget = await new CloudflareD1ReadBudget(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_D1_TOKEN, env.OTW_PLAY_D1_READ_DAILY_TARGET).read();
-  try { if (env.X_CLIENT_SECRET || env.X_ACTIVITY_COORDINATOR) await buildXActivityService(env).reconcile(budget.status === "available" && await hasScheduledD1WriteCapacity(env, event.scheduledTime)); }
+  const canProcess = budget.status === "available" && await hasScheduledD1WriteCapacity(env, event.scheduledTime);
+  if (canProcess && selectedJobs.includes("x_collection") && getWorkerSiteResources(env).site.id === "otw") {
+    try {
+      const shared = new D1SharedXBudget(env.otw_db);
+      if (!(await shared.read()).seeded && await env.otw_db.prepare("SELECT 1 FROM x_activity_coordinator WHERE id=1 AND ready=1").first()) await shared.ensureDay();
+    } catch (error) { console.error("x_shared_budget_rollover_failed", error instanceof Error ? error.message : "unknown"); }
+  }
+  try { if (env.X_CLIENT_SECRET || env.X_ACTIVITY_COORDINATOR) await buildXActivityService(env).reconcile(canProcess); }
   catch (error) { console.error("x_activity_reconciliation_failed", error instanceof Error ? error.message : "unknown"); }
   const jobs = budget.status === "available" ? selectedJobs : selectedJobs.filter(job => job === "ingestion_recovery");
   if (jobs.length === 0) return;

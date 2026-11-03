@@ -90,7 +90,7 @@ const formatDuration = (startedAt: number | null, finishedAt: number | null) => 
 
 const runLabel = (jobType: OperationRun["jobType"]) =>
   ({
-    x_collection: "X REST 누락 복구",
+    x_collection: "X 게시물 수집",
     naver_cafe_collection: "네이버 카페 수집",
     youtube_feed_collection: "YouTube 신규 피드 수집",
     schedule_auto_update: "자동 업데이트",

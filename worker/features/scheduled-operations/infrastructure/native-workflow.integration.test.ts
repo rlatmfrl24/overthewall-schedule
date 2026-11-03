@@ -192,11 +192,16 @@ it("finalizes and replays an ordinary scheduled receipt without consulting retir
   expect(JSON.parse((await db.prepare("SELECT result_json FROM scheduled_job_items WHERE id='owning-finalizer-item'").first<string>("result_json"))!)).toEqual({...result,obsoletePending:1});
 });
 
-it("collects Fx and official regular items through native Cron Workflow and Queue with independent completion", async () => {
+it.each([false,true])("collects Fx and official regular items through native Cron Workflow and Queue with independent completion (UTC rollover=%s)", async rollover => {
   const started = Date.now();
   let slot = Math.floor(started / 3_600_000) * 3_600_000 + 23 * 60_000;
   if (slot > started) slot -= 3_600_000;
   const inspector = await introspectWorkflow(bindings.NATIVE_SCHEDULED_WORKFLOW);
+  if(rollover){
+    const day=new Date(started-86400000).toISOString().slice(0,10);
+    await db.prepare("DELETE FROM x_shared_budgets").run();
+    await db.prepare("INSERT INTO x_shared_budgets(day,used,reserved,limit_value,seed_detail,updated_at) VALUES(?,0,0,1000000,'{}',0)").bind(day).run();
+  }
   await db.batch([
     db.prepare("DELETE FROM scheduled_job_runs WHERE job_type='x_collection'"),
     db.prepare("UPDATE settings SET value='false' WHERE key LIKE 'scheduled_v2_%_enabled'"),

@@ -17,6 +17,9 @@ export function xActivityErrorMessage(value: unknown) {
     x_activity_subscription_owned_elsewhere:"같은 계정에 다른 소유자의 구독이 있습니다. 해당 구독은 변경하지 않았습니다.",
     x_activity_user_unavailable:"X 계정을 확인하거나 현재 멤버와 연결할 수 없습니다.",
     x_activity_inventory_incomplete:"X의 전체 구독 목록을 확인하지 못해 등록·해지를 보류했습니다. 잠시 후 상태를 확인해주세요.",
+    x_activity_hybrid_disabled:"FxEmbed 혼합 수집 중에는 웹훅을 켤 수 없습니다. 공식 X 기본 모드로 복귀한 뒤 직접 재활성화하세요.",
+    x_activity_control_busy:"다른 구독 제어가 진행 중입니다. 완료 후 상태를 새로고침해 주세요.",
+    webhook_hybrid_disabled:"웹훅 Disabled로 처리에서 제외했습니다. 새 유료 보강을 실행하지 않았습니다.",
     d1_budget_unavailable:"데이터베이스 예산을 확인할 수 없어 처리를 보류했습니다.",
     post_lookup_unavailable:"X에서 원문을 조회할 수 없습니다.",
     media_details_missing:"조회 결과에 미디어 표시 정보가 부족합니다.",
@@ -25,6 +28,7 @@ export function xActivityErrorMessage(value: unknown) {
   return messages[code]??"요청을 완료하지 못했습니다. 상태를 새로고침해 실패한 대상을 확인해주세요.";
 }
 export function xActivityStateLabel(data: XActivityStatusDto) {
+  if (data.primarySource === "fxembed" && data.sites?.find(site => site.site === data.site)?.enabled === false && !data.coordinatorError && !data.sites.some(site => site.site === data.site && (site.lastError || site.failedCount))) return "웹훅 Disabled";
   if (!data.configured) return "웹훅 연결·인증 확인 필요";
   const mode = data.mode ?? "unavailable";
   return mode === "normal" && data.events.length === 0 ? "구독 정상 · 신규 수신 대기" : modes[mode];
