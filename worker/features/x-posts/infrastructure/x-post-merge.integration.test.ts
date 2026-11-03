@@ -69,6 +69,8 @@ it("retries incomplete secondary writes before acknowledging an identical replay
 const seedRssFence = async () => {
   const until = Date.now() + 600_000;
   await db.batch([
+    db.prepare("DELETE FROM x_post_facts WHERE post_id='123'"),
+    db.prepare("DELETE FROM x_post_references WHERE source_post_id='123'"),
     ...[["x_collection_enabled", "true"], ["x_collection_primary_source", "fxembed"], ["x_collection_hybrid_policy", "rss_v1"], ["x_collection_hybrid_activated_at", "1"], ["x_history_analytics_enabled", "true"]].map(([key, value]) => db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)").bind(key, value)),
     db.prepare("INSERT OR REPLACE INTO members(uid,code,name,url_twitter,content_access) VALUES(1,'member','Member','https://x.com/member','normal')"),
     db.prepare("INSERT OR REPLACE INTO x_post_sources(handle,user_id,collection_started_at,last_checked_at,updated_at,lease_token,lease_until) VALUES('member','101',1,0,0,'source-lease',?)").bind(until),
@@ -108,7 +110,7 @@ it("does not update an existing post after collection stops between the row read
 
 it.each([
   ["facts", /^\s*INSERT INTO x_post_facts/], ["references", /^\s*INSERT INTO x_post_references/],
-  ["reply connection", /^\s*UPDATE x_posts SET value=json_set/], ["hash acknowledgement", /^UPDATE x_posts SET content_hash=/],
+  ["reply connection", /^\s*UPDATE x_posts SET value=(?:CASE|json_set)/], ["hash acknowledgement", /^UPDATE x_posts SET content_hash=/],
 ] as const)("fences %s at the actual secondary mutation", async (_name, boundary) => {
   const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
   const fence = await seedRssFence(), original = db.prepare.bind(db);
@@ -133,7 +135,7 @@ it.each([
   expect(result.ok).toBe(false);
   expect(writesAfterStop).toBe(0);
   expect(await db.prepare("SELECT content_hash FROM x_posts WHERE id='123'").first("content_hash")).toBeNull();
-  expect(warning).toHaveBeenCalledWith("Failed to write stored X posts", expect.objectContaining({ message: "post_revision_conflict" }));
+  expect(warning).toHaveBeenCalledWith("Failed to write stored X posts", expect.any(Error));
 });
 
 it("checks SQL execution time when the item lease expires after INSERT preparation", async () => {
@@ -163,4 +165,83 @@ it("checks SQL execution time when the item lease expires after INSERT preparati
   expect(delayed).toBe(true);
   expect(await read()).toBeNull();
   expect(warning).toHaveBeenCalledWith("Failed to write stored X posts", expect.objectContaining({ message: "post_revision_conflict" }));
+});
+
+it.each([
+  ["facts", /^\s*INSERT INTO x_post_facts/, "x_post_facts"],
+  ["references", /^\s*INSERT INTO x_post_references/, "x_post_references"],
+  ["reply connection", /^\s*UPDATE x_posts SET value=(?:CASE|json_set)/, "x_post_references"],
+] as const)("keeps a transiently blocked %s write incomplete until successful replay", async (_name, boundary, table) => {
+  const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const fence = await seedRssFence(), original = db.prepare.bind(db);
+  let blocked = false, hashAttempted = false;
+  const prepare = vi.spyOn(db, "prepare").mockImplementation(sql => {
+    const statement = original(sql), bind = statement.bind.bind(statement);
+    statement.bind = (...values) => {
+      const bound = bind(...values), run = bound.run.bind(bound);
+      bound.run = (async (...args: Parameters<typeof run>) => {
+        if (sql.startsWith("UPDATE x_posts SET content_hash=")) hashAttempted = true;
+        if (blocked || !boundary.test(sql)) return run(...args);
+        blocked = true;
+        await original("UPDATE settings SET value='false' WHERE key='x_collection_enabled'").run();
+        try { return await run(...args); }
+        finally { await original("UPDATE settings SET value='true' WHERE key='x_collection_enabled'").run(); }
+      }) as typeof bound.run;
+      return bound;
+    };
+    return statement;
+  });
+  const incoming: XPostDto = { ...post, reply: { ...post.reply!, targetUsername: "target" } };
+  expect(await writeStoredPosts(db, "member", user, [incoming], 2, "otw", { origin: "fxembed", completeness: complete }, fence)).toMatchObject({ ok: false });
+  expect(blocked).toBe(true);
+  expect(hashAttempted).toBe(false);
+  expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_enabled'").first("value")).toBe("true");
+  expect(await db.prepare(`SELECT count(*) n FROM ${table}`).first("n")).toBe(0);
+  expect(await db.prepare("SELECT content_hash FROM x_posts WHERE id='123'").first("content_hash")).toBeNull();
+  expect(warning).toHaveBeenCalledWith("Failed to write stored X posts", expect.any(Error));
+  prepare.mockRestore();
+  expect(await writeStoredPosts(db, "member", user, [incoming], 3, "otw", { origin: "fxembed", completeness: complete }, fence)).toMatchObject({ ok: true });
+  expect(await db.prepare("SELECT count(*) n FROM x_post_facts").first("n")).toBe(1);
+  expect(await db.prepare("SELECT referenced_post_id FROM x_post_references WHERE source_post_id='123'").first("referenced_post_id")).toBe("122");
+  expect(await db.prepare("SELECT content_hash FROM x_posts WHERE id='123'").first("content_hash")).toMatch(/^[a-f0-9]{64}$/);
+});
+
+it("keeps analytics-disabled RSS writes complete without requiring facts", async () => {
+  const fence = await seedRssFence();
+  await db.prepare("UPDATE settings SET value='false' WHERE key='x_history_analytics_enabled'").run();
+  expect(await writeStoredPosts(db, "member", user, [post], 2, "otw", { origin: "fxembed", completeness: complete }, fence)).toMatchObject({ ok: true });
+  expect(await db.prepare("SELECT count(*) n FROM x_post_facts").first("n")).toBe(0);
+  expect(await db.prepare("SELECT referenced_post_id FROM x_post_references WHERE source_post_id='123'").first("referenced_post_id")).toBe("122");
+  expect(await db.prepare("SELECT content_hash FROM x_posts WHERE id='123'").first("content_hash")).toMatch(/^[a-f0-9]{64}$/);
+});
+
+it.each([
+  ["facts", /^\s*INSERT INTO x_post_facts/], ["references", /^\s*INSERT INTO x_post_references/],
+  ["reply connection", /^\s*UPDATE x_posts SET value=(?:CASE|json_set)/],
+] as const)("preserves legitimate zero-row %s writes for a concurrently hidden post", async (_name, boundary) => {
+  const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const fence = await seedRssFence(), original = db.prepare.bind(db);
+  let hidden = false;
+  vi.spyOn(db, "prepare").mockImplementation(sql => {
+    const statement = original(sql), bind = statement.bind.bind(statement);
+    statement.bind = (...values) => {
+      const bound = bind(...values), run = bound.run.bind(bound);
+      bound.run = (async (...args: Parameters<typeof run>) => {
+        if (!hidden && boundary.test(sql)) {
+          hidden = true;
+          await original("UPDATE x_posts SET hidden_at=3 WHERE id='123'").run();
+          await original("UPDATE settings SET value='false' WHERE key='x_collection_enabled'").run();
+        }
+        return run(...args);
+      }) as typeof bound.run;
+      return bound;
+    };
+    return statement;
+  });
+  const incoming: XPostDto = { ...post, reply: { ...post.reply!, targetUsername: "target" } };
+  expect(await writeStoredPosts(db, "member", user, [incoming], 2, "otw", { origin: "fxembed", completeness: complete }, fence)).toMatchObject({ ok: true });
+  expect(hidden).toBe(true);
+  expect((await read())!.hidden_at).toBe(3);
+  expect(await db.prepare("SELECT count(*) n FROM x_post_references").first("n")).toBe(0);
+  expect(warning).not.toHaveBeenCalled();
 });

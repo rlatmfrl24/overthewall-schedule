@@ -1450,12 +1450,11 @@ const recordXPostReferences = async (
            source_post_id, relation_type, referenced_post_id,
            resolution_state, attempt_count, next_attempt_at, hydrated_at,
            created_at, updated_at
-         ) SELECT iif(EXISTS(SELECT 1 FROM x_posts p WHERE p.id=incoming.column1 AND ${publicationHiddenSql("x_posts", "p", siteId)}),json('site_member_cutover'),incoming.column1), incoming.column2, incoming.column3, incoming.column4, incoming.column5, incoming.column6, incoming.column7, incoming.column8, incoming.column9
+         ) SELECT CASE WHEN (${fence.sql}) THEN iif(EXISTS(SELECT 1 FROM x_posts p WHERE p.id=incoming.column1 AND ${publicationHiddenSql("x_posts", "p", siteId)}),json('site_member_cutover'),incoming.column1) ELSE json_extract('[]','rss_write_fence_lost') END, incoming.column2, incoming.column3, incoming.column4, incoming.column5, incoming.column6, incoming.column7, incoming.column8, incoming.column9
          FROM (VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)) incoming
          WHERE EXISTS(SELECT 1 FROM x_posts current WHERE current.id=incoming.column1
            AND current.hidden_at IS NULL AND current.content_removed_at IS NULL AND current.content_access='normal'
            AND json_extract(current.value,'$.' || incoming.column2 || '.postId')=incoming.column3)
-         AND (${fence.sql})
          ON CONFLICT(source_post_id, relation_type) DO UPDATE SET
            referenced_post_id = excluded.referenced_post_id,
             resolution_state = CASE
@@ -1484,6 +1483,7 @@ const recordXPostReferences = async (
              THEN NULL ELSE x_post_references.last_error_code END,
            updated_at = excluded.updated_at`,
       ).bind(
+        ...fence.bindings,
         post.id,
         reference.type,
         reference.id,
@@ -1492,7 +1492,6 @@ const recordXPostReferences = async (
         reference.hydrated ? recordedAt : null,
         recordedAt,
         recordedAt,
-        ...fence.bindings,
       ).run();
     }
   }

@@ -365,3 +365,36 @@ it("does not claim an RSS source when collection stops after member snapshot sel
   expect(await db.prepare("SELECT rss_pending_item_id,rss_last_attempt_at FROM x_fx_sources").first()).toEqual({ rss_pending_item_id: null, rss_last_attempt_at: null });
   expect(fetch).not.toHaveBeenCalled();
 });
+
+it("keeps the RSS candidate when a facts write is blocked even if eligibility is immediately restored", async () => {
+  vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  await db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_history_analytics_enabled','true')").run();
+  const entry = await createItem(), original = db.prepare.bind(db);
+  let blocked = false;
+  const prepare = vi.spyOn(db, "prepare").mockImplementation(sql => {
+    const statement = original(sql), bind = statement.bind.bind(statement);
+    statement.bind = (...values) => {
+      const bound = bind(...values), run = bound.run.bind(bound);
+      bound.run = (async (...args: Parameters<typeof run>) => {
+        if (blocked || !/^\s*INSERT INTO x_post_facts/.test(sql)) return run(...args);
+        blocked = true;
+        await original("UPDATE settings SET value='false' WHERE key='x_collection_enabled'").run();
+        try { return await run(...args); }
+        finally { await original("UPDATE settings SET value='true' WHERE key='x_collection_enabled'").run(); }
+      }) as typeof bound.run;
+      return bound;
+    };
+    return statement;
+  });
+  const interrupted = await runItem(entry, state());
+  expect(interrupted.status).toBe("blocked");
+  expect(interrupted.state.candidates.map(candidate => candidate.id)).toContain("1");
+  expect(await db.prepare("SELECT content_hash FROM x_posts WHERE id='1'").first("content_hash")).toBeNull();
+  expect(await db.prepare("SELECT rss_last_check_completed_at,rss_pending_item_id FROM x_fx_sources").first()).toEqual({ rss_last_check_completed_at: null, rss_pending_item_id: entry.item.id });
+  prepare.mockRestore();
+  await entry.repo.releaseItemForRetry(entry.item, "interrupted", "interrupted");
+  entry.item = (await entry.repo.claimItem(entry.item.id))!;
+  expect((await runItem(entry, JSON.parse(entry.item.continuation_json!))).status).toBe("pending");
+  expect(await db.prepare("SELECT post_id FROM x_post_facts WHERE post_id='1'").first("post_id")).toBe("1");
+  expect(await db.prepare("SELECT content_hash FROM x_posts WHERE id='1'").first("content_hash")).toMatch(/^[a-f0-9]{64}$/);
+});
