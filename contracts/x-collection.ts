@@ -11,12 +11,13 @@ export const X_FALLBACK_INTERVAL_MS = 2 * 60 * 60_000;
 
 export type FxRssCandidate = { id: string; firstSeenAt: number; createdAtHint: number; attempts: number; nextAttemptAt: number; error: string | null; stage: "free" | "official" };
 export type XNewlyStoredPost = { id: string; createdAt: string; storedAt: number };
+export type FxRssExcludedCandidate = { id: string; reason: "wrong_author" | "repost" | "before_start" };
 export type FxRssPaidBatch = { day: string; ids: string[]; requestId: string };
 export type FxRssContinuation = {
   provider: "fxembed"; mode: "rss_candidates"; scope: "regular" | "pending"; handles: [string];
   phase: "fetch" | "hydrate"; candidates: FxRssCandidate[]; nextAttemptAt: number | null; resumeFromItemId?: string | null; paidBatch?: FxRssPaidBatch | null;
 };
-export type FxRssStats = { rawCount: number; candidatesFound: number; resolved: number; postsReturned: number; postsStored: number; pending: number; freeApiCalls: number; paidApiCalls: number; estimatedCostMicros: number; newlyStoredPosts?: XNewlyStoredPost[]; windowReduced?: boolean };
+export type FxRssStats = { rawCount: number; candidatesFound: number; resolved: number; postsReturned: number; postsStored: number; pending: number; freeApiCalls: number; paidApiCalls: number; estimatedCostMicros: number; newlyStoredPosts?: XNewlyStoredPost[]; excludedCandidates?: FxRssExcludedCandidate[]; windowReduced?: boolean };
 export type FxRssStepResult = { state: FxRssContinuation; stats: FxRssStats; status: "complete" | "pending" | "blocked"; error: string | null; nextAttemptAt: number | null };
 
 export interface XCollectionAccountStatus {

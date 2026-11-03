@@ -11,6 +11,7 @@ import { meterD1 } from "../../../test-support/d1-meter";
 import { XActivityCoordinatorRpc } from "../../../app/x-rpc";
 import { withXGateway } from "../../../app/x-gateway";
 import { siteEnv } from "../../../test-support/site-env";
+import { ScheduledJobExecutor } from "../../scheduled-operations/infrastructure/scheduled-job-executor";
 
 const bindings = env as Env & { X_REFERENCE_MIGRATIONS: D1Migration[]; SCHEDULED_OPERATIONS_MIGRATIONS: D1Migration[] };
 const db = bindings.otw_db;
@@ -89,6 +90,40 @@ it("free_replay_preserves_official_fields and only actual inserts count as disco
   const replay = await writeStoredPosts(db, "member", { id: "101", username: "member" }, [{ ...post, text: "free replay" }], now, "otw", { origin: "fxembed", completeness: { text: true, media: true, relations: true } });
   expect(replay).toMatchObject({ insertedIds: [] });
   expect(JSON.parse((await stored()).results[0]!.value).text).toBe("official 201");
+});
+
+it.each(["new", "repair", "durable"])("free RSS %s preserves actual INSERT evidence through executor and D1 result", async mode => {
+  const ids = ["301", "302", "303", "304", "305"];
+  vi.mocked(fetch).mockImplementation(async input => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("feed.xml")) return new Response(`<rss version="2.0"><channel>${ids.map(id => `<item><guid>https://x.com/member/status/${id}</guid><pubDate>${new Date(now).toUTCString()}</pubDate></item>`).join("")}</channel></rss>`);
+    if (url.hostname === "api.fxtwitter.com") return Response.json({ code: 200, status: { type: "status", id: url.pathname.split("/").pop(), text: "free discovery", created_at: new Date(now).toUTCString(), author: { id: "101", screen_name: "member", protected: false }, media: {} } });
+    throw new Error(`unexpected upstream ${url}`);
+  });
+  if (mode !== "new") {
+    await writeStoredPosts(db, "member", { id: "101", username: "member" }, ids.map(id => ({ id, username: "member", text: "free discovery", createdAt: new Date(Math.floor(now / 1000) * 1000).toISOString(), url: `https://x.com/member/status/${id}`, media: [], metrics: { likeCount: 0, replyCount: 0, repostCount: 0, quoteCount: 0 } })), now, "otw", { origin: "fxembed", completeness: { text: true, media: true, relations: true } });
+    if (mode === "repair") await db.prepare("UPDATE x_posts SET content_hash=NULL").run();
+  }
+  const scan = await create({ ...state([]), phase: "fetch" });
+  const meter = meterD1(db), measuredRuntime = { ...runtime, otw_db: meter.db };
+  const repository = new D1ScheduledJobRepository(meter.db, () => now);
+  const outcome = await new ScheduledJobExecutor(measuredRuntime, repository).execute(scan.item);
+  await repository.completeItem(scan.item, outcome);
+  const evidence = JSON.parse((await repository.readItem(scan.item.id))!.result_json!);
+  expect(evidence).toMatchObject({ freeApiCalls: mode === "durable" ? 0 : 5, paidApiCalls: 0 });
+  expect(evidence.newlyStoredPosts).toEqual(mode === "new" ? ids.map(id => ({ id, createdAt: new Date(Math.floor(now / 1000) * 1000).toISOString(), storedAt: now })) : []);
+  if (mode === "durable") expect(meter.entries.filter(entry => /^\s*(INSERT|UPDATE|DELETE)/i.test(entry.sql) && /(?:INTO|UPDATE|FROM)\s+x_post(?:s|_facts|_references)\b/i.test(entry.sql))).toEqual([]);
+  console.log(`RSS_PROFILE_${mode}`, JSON.stringify(meter.summary()));
+  const selectors = meter.entries.filter(entry => /SELECT id FROM x_posts WHERE id IN/.test(entry.sql));
+  expect(selectors.length).toBeGreaterThan(0);
+  const before = [];
+  for (const entry of selectors) before.push((await db.prepare(entry.sql).bind(...entry.args).all()).meta.rows_read);
+  await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<2000) INSERT INTO x_posts(id,handle,username,value,created_at,fetched_at) SELECT 'history-'||x,'unrelated','unrelated','{}',0,0 FROM n").run();
+  for (const [index, entry] of selectors.entries()) {
+    expect((await db.prepare(entry.sql).bind(...entry.args).all()).meta.rows_read).toBe(before[index]);
+    const plan = await db.prepare(`EXPLAIN QUERY PLAN ${entry.sql}`).bind(...entry.args).all<{ detail: string }>();
+    expect(plan.results.map(row => row.detail).join(" ")).toMatch(/SEARCH x_posts USING INDEX sqlite_autoindex_x_posts_1/);
+  }
 });
 
 it.each(["site", "shared", "backoff"])("utc_budget_block_keeps_pending: %s", async boundary => {
@@ -199,15 +234,28 @@ it("never reports authority upgrades or concurrent existing rows as new INSERTs"
   expect(acknowledgements.flatMap(result => result.insertedIds)).toEqual(["402"]);
 });
 
-it.each(["foreign", "private", "before-start", "invalid-date", "retweet"])("validates paid candidate %s before persistence", async boundary => {
+it.each(["foreign", "private", "before-start", "invalid-date", "retweet", "unknown-author", "malformed-author", "unrelated-id"])("validates paid candidate %s before persistence", async boundary => {
   const entry = await create(state(candidates(["201"])));
   await db.prepare("UPDATE x_fx_sources SET collection_started_at=?").bind(now - 100_000).run();
-  vi.mocked(fetch).mockImplementation(async () => Response.json({ data: [{ id: "201", author_id: boundary === "foreign" ? "999" : "101", text: "must not be stored", created_at: boundary === "invalid-date" ? "garbage" : new Date(now - (boundary === "before-start" ? 200_000 : 90_000)).toISOString(), ...(boundary === "retweet" ? { referenced_tweets: [{ type: "retweeted", id: "99" }] } : {}) }], includes: { users: [{ id: "101", username: "member", protected: boundary === "private" }] } }));
+  vi.mocked(fetch).mockImplementation(async () => Response.json({ data: [{ id: boundary === "unrelated-id" ? "999" : "201", author_id: boundary === "foreign" || boundary === "unrelated-id" ? "999" : boundary === "unknown-author" ? undefined : boundary === "malformed-author" ? "not-an-id" : "101", text: "must not be stored", created_at: boundary === "invalid-date" ? "garbage" : new Date(now - (boundary === "before-start" ? 200_000 : 90_000)).toISOString(), ...(boundary === "retweet" ? { referenced_tweets: [{ type: "retweeted", id: "99" }] } : {}) }], includes: { users: [{ id: "101", username: "member", protected: boundary === "private" }] } }));
   const result = await runFxRssCollectionItem(runtime, entry.item, entry.input, entry.repo);
   expect((await stored()).results).toEqual([]);
   expect(result.stats.paidApiCalls).toBe(1);
   expect(result.stats.postsStored).toBe(0);
-  if (["foreign", "private", "invalid-date"].includes(boundary)) expect(result.state.paidBatch?.ids).toEqual(["201"]);
+  if (["private", "invalid-date", "unknown-author", "malformed-author", "unrelated-id"].includes(boundary)) {
+    expect(result.state.candidates.map(candidate => candidate.id)).toEqual(["201"]);
+    expect(result.stats.excludedCandidates ?? []).toEqual([]);
+    if (boundary !== "unrelated-id") expect(result.state.paidBatch?.ids).toEqual(["201"]);
+  }
+  else {
+    expect(result).toMatchObject({ status: "complete", state: { candidates: [], paidBatch: null }, stats: { excludedCandidates: [{ id: "201", reason: boundary === "foreign" ? "wrong_author" : boundary === "retweet" ? "repost" : "before_start" }] } });
+    await entry.repo.completeItem(entry.item, { status: "succeeded", result: result.stats });
+    now += 86_400_000;
+    await new D1SharedXBudget(db).ensureDay();
+    const next = await readDueFxRssCollectionTargets(runtime, now);
+    expect(next.every(item => item.phase === "fetch" && !item.paidBatch && !item.candidates.length)).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  }
 });
 
 it("never dispatches before the paid batch checkpoint succeeds", async () => {
@@ -216,6 +264,33 @@ it("never dispatches before the paid batch checkpoint succeeds", async () => {
   expect((await runFxRssCollectionItem(runtime, entry.item, entry.input, entry.repo)).status).toBe("blocked");
   expect(fetch).not.toHaveBeenCalled();
   expect(await db.prepare("SELECT count(*) n FROM x_shared_requests").first("n")).toBe(0);
+});
+
+it("retires a cached foreign-author batch after a lost completion checkpoint and never repurchases next day", async () => {
+  const entry = await create(state(candidates(["201"])));
+  vi.mocked(fetch).mockResolvedValue(Response.json({ data: [{ id: "201", author_id: "999", text: "other author", created_at: new Date(now).toISOString() }] }));
+  const checkpoint = entry.repo.checkpointItemContinuation.bind(entry.repo);
+  const interrupted = vi.spyOn(entry.repo, "checkpointItemContinuation").mockImplementation((item, continuation, stats) => Array.isArray(continuation.candidates) && continuation.candidates.length === 0 ? Promise.resolve(false) : checkpoint(item, continuation, stats));
+  const first = await runFxRssCollectionItem(runtime, entry.item, entry.input, entry.repo);
+  expect(first.status).toBe("blocked");
+  expect(first.state.paidBatch?.ids).toEqual(["201"]);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  interrupted.mockRestore();
+  await entry.repo.releaseItemForRetry(entry.item, "checkpoint_lost", "checkpoint_lost");
+  now += 60_000;
+  const replay = (await entry.repo.claimItem(entry.item.id))!;
+  const outcome = await new ScheduledJobExecutor(runtime, entry.repo).execute(replay);
+  await entry.repo.completeItem(replay, outcome);
+  expect(outcome.status).toBe("succeeded");
+  const evidence = JSON.parse((await entry.repo.readItem(replay.id))!.result_json!);
+  expect(evidence).toMatchObject({ paidApiCalls: 0, pending: 0, excludedCandidates: [{ id: "201", reason: "wrong_author" }] });
+  expect(await db.prepare("SELECT rss_pending_item_id FROM x_fx_sources WHERE handle='member'").first("rss_pending_item_id")).toBeNull();
+  now += 86_400_000;
+  await new D1SharedXBudget(db).ensureDay();
+  const next = await readDueFxRssCollectionTargets(runtime, now);
+  expect(next).toHaveLength(1);
+  expect(next[0]).toMatchObject({ phase: "fetch", candidates: [] });
+  expect(fetch).toHaveBeenCalledTimes(1);
 });
 
 it("retains an already incurred cost when rollback denies paid persistence", async () => {

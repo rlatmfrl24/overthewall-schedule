@@ -1,21 +1,17 @@
-import type { FxRssCandidate, FxRssPaidBatch } from "@contracts/x-collection";
+import type { FxRssCandidate, FxRssExcludedCandidate, FxRssPaidBatch } from "@contracts/x-collection";
 import { parseSiteId } from "@contracts/site-definition";
 import type { Env } from "../../../platform/types";
 import type { OfficialRssHydrationResult } from "../ports/fx-rss-collection";
 import { parseFxRssContinuation } from "../application/fx-rss-collection";
 import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
+import { readStoredRssCandidateIds } from "./rss-stored-candidates";
 import { estimateXApiRequestCostMicros, estimateXSharedApiReservationMicros, normalizeXTimelineResponse, readDailyBudgetMicros, readSiteXBudget, requestXApi, writeStoredPosts, xTimelineWriteContext, XApiError, type XApiUsageTracker, type XTweetLookupResponse } from "./x-api";
 
 const pathFor = (ids: string[]) => `/tweets?${new URLSearchParams({ ids: ids.join(","), "tweet.fields": "author_id,created_at,public_metrics,attachments,entities,referenced_tweets,conversation_id,in_reply_to_user_id,note_tweet", expansions: "author_id,attachments.media_keys", "user.fields": "protected", "media.fields": "url,preview_image_url,type,width,height,alt_text" })}`;
 const sourceFor = (env: Env, handle: string) => env.otw_db.prepare(`SELECT s.user_id,COALESCE(f.collection_started_at,s.collection_started_at) collection_started_at,s.last_completed_at,s.sync_pagination_token,s.sync_origin_scope,s.sync_timeline_completed_at,s.deactivated_at
   FROM x_post_sources s LEFT JOIN x_fx_sources f ON f.handle=s.handle WHERE s.handle=?`)
   .bind(handle).first<{ user_id: string | null; collection_started_at: number | null; last_completed_at: number | null; sync_pagination_token: string | null; sync_origin_scope: string | null; sync_timeline_completed_at: number | null; deactivated_at: number | null }>();
-const storedIds = async (env: Env, ids: string[]) => {
-  const rows = await env.otw_db.prepare(`SELECT id FROM x_posts WHERE id IN (SELECT value FROM json_each(?))
-    AND (hidden_at IS NOT NULL OR content_removed_at IS NOT NULL OR content_access<>'normal' OR source_authority IS NULL OR content_hash IS NOT NULL)`)
-    .bind(JSON.stringify(ids)).all<{ id: string }>();
-  return new Set(rows.results.map(row => row.id));
-};
+const storedIds = async (env: Env, ids: string[]) => new Set(await readStoredRssCandidateIds(env.otw_db, ids));
 
 export async function prepareOfficialRssBatch(env: Env, handle: string, candidates: FxRssCandidate[], previous: FxRssPaidBatch | null, fence?: FxRssWriteFence): Promise<{ batch: FxRssPaidBatch | null; error: string | null }> {
   const source = await sourceFor(env, handle);
@@ -74,7 +70,15 @@ export async function hydrateOfficialRssCandidates(env: Env, handle: string, can
     const requested = new Set(batch.ids), needed = new Set(unresolved.map(candidate => candidate.id));
     const publicAuthor = response.includes?.users?.find(user => user.id === identity?.user_id && user.protected === false);
     const valid = (response.data ?? []).filter(post => requested.has(post.id) && needed.has(post.id) && post.author_id === identity?.user_id && publicAuthor && Number.isFinite(Date.parse(post.created_at ?? "")));
-    const excluded = valid.filter(post => Date.parse(post.created_at!) < Number(identity?.collection_started_at ?? Date.now()) || post.referenced_tweets?.some(reference => reference.type === "retweeted")).map(post => post.id);
+    result.excludedCandidates = (response.data ?? []).flatMap<FxRssExcludedCandidate>(post => {
+      if (!requested.has(post.id) || !needed.has(post.id)) return [];
+      if (identity?.user_id && typeof post.author_id === "string" && /^\d{1,25}$/.test(post.author_id) && post.author_id !== identity.user_id) return [{ id: post.id, reason: "wrong_author" as const }];
+      if (!valid.includes(post)) return [];
+      if (Date.parse(post.created_at!) < Number(identity?.collection_started_at ?? Date.now())) return [{ id: post.id, reason: "before_start" as const }];
+      if (post.referenced_tweets?.some(reference => reference.type === "retweeted")) return [{ id: post.id, reason: "repost" as const }];
+      return [];
+    });
+    const excluded = result.excludedCandidates.map(post => post.id);
     const eligible = { ...response, data: valid.filter(post => !excluded.includes(post.id)) };
     const posts = normalizeXTimelineResponse(eligible, handle);
     result.postsReturned = posts.length;

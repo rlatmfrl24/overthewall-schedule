@@ -147,7 +147,13 @@ it.each(["0.5", String(Number.MAX_VALUE)])("admits RSS writes for finite positiv
   expect(await db.prepare("SELECT count(*) n FROM x_posts").first("n")).toBe(5);
 });
 
-it("preserves hidden rows and removes their candidates without lookup", async () => {
+it.each([
+  { kind: "hidden", hidden: 99, removed: null, access: "normal", authority: "fxembed", hash: null },
+  { kind: "removed", hidden: null, removed: 99, access: "normal", authority: "fxembed", hash: null },
+  { kind: "archived", hidden: null, removed: null, access: "admin_archive", authority: "fxembed", hash: null },
+  { kind: "legacy complete", hidden: null, removed: null, access: "normal", authority: null, hash: null },
+  { kind: "hashed complete", hidden: null, removed: null, access: "normal", authority: "fxembed", hash: "complete" },
+])("preserves $kind rows and removes their candidates without lookup", async protection => {
   const entry = await createItem();
   const checkpoint = entry.repo.checkpointItemContinuation.bind(entry.repo);
   let discovered = false;
@@ -155,14 +161,15 @@ it("preserves hidden rows and removes their candidates without lookup", async ()
     const saved = await checkpoint(item, continuation, stats);
     if (saved && !discovered && continuation.phase === "hydrate") {
       discovered = true;
-      await db.prepare("INSERT INTO x_posts(id,handle,user_id,username,value,created_at,first_seen_at,fetched_at,hidden_at) VALUES('1','member','101','member','{}','2026-11-03',1,1,99)").run();
+      await db.prepare("INSERT INTO x_posts(id,handle,user_id,username,value,created_at,first_seen_at,fetched_at,hidden_at,content_removed_at,content_access,source_authority,content_hash) VALUES('1','member','101','member','{}','2026-11-03',1,1,?,?,?,?,?)")
+        .bind(protection.hidden, protection.removed, protection.access, protection.authority, protection.hash).run();
     }
     return saved;
   });
   const result = await runItem(entry, state());
   expect(result.stats).toMatchObject({ freeApiCalls: 5, postsStored: 5, resolved: 6 });
   expect(result.status).toBe("complete");
-  expect(await db.prepare("SELECT hidden_at,value,revision FROM x_posts WHERE id='1'").first()).toMatchObject({ hidden_at: 99, value: "{}" });
+  expect(await db.prepare("SELECT hidden_at,content_removed_at,content_access,value,revision FROM x_posts WHERE id='1'").first()).toMatchObject({ hidden_at: protection.hidden, content_removed_at: protection.removed, content_access: protection.access, value: "{}", revision: 0 });
   expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/status/1"))).toBe(false);
 });
 

@@ -13,6 +13,7 @@ import { fetchFxStatus } from "./fx-api";
 import { extractXHandleFromUrl, writeStoredPosts } from "./x-api";
 import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
 import { hydrateOfficialRssCandidates, prepareOfficialRssBatch } from "./x-rss-official-hydration";
+import { readStoredRssCandidateIds } from "./rss-stored-candidates";
 
 const readPolicy = async (env: Env) => {
   const rows = await env.otw_db.prepare("SELECT key,value FROM settings WHERE key IN ('x_collection_enabled','x_collection_primary_source','x_collection_hybrid_policy','x_collection_hybrid_activated_at')").all<{ key: string; value: string }>();
@@ -40,9 +41,8 @@ export async function readDueFxRssCollectionTargets(env: Env, timestamp: number)
         // An empty snapshot can still owe the source's final acknowledgement.
         if (Number(state.nextAttemptAt ?? 0) > timestamp) continue;
         if (state.candidates.length && state.candidates.every(candidate => candidate.stage === "official")) {
-          const stored = await env.otw_db.prepare(`SELECT COUNT(*) n FROM x_posts WHERE id IN (SELECT json_extract(value,'$.id') FROM json_each(?))
-            AND (hidden_at IS NOT NULL OR content_removed_at IS NOT NULL OR content_access<>'normal' OR source_authority IS NULL OR content_hash IS NOT NULL)`).bind(JSON.stringify(state.candidates)).first<number>("n");
-          if (stored !== state.candidates.length && !(await prepareOfficialRssBatch(env, row.handle, state.candidates, state.paidBatch ?? null)).batch) continue;
+          const stored = await readStoredRssCandidateIds(env.otw_db, state.candidates.map(candidate => candidate.id));
+          if (stored.length !== state.candidates.length && !(await prepareOfficialRssBatch(env, row.handle, state.candidates, state.paidBatch ?? null)).batch) continue;
         }
         targets.push({ ...state, scope: "pending" as const, resumeFromItemId: row.rss_pending_item_id });
       } catch { /* Invalid snapshots remain pending for inspection. */ }
@@ -130,20 +130,17 @@ export class D1FxRssCollectionAdapter implements FxRssCollectionPorts {
   }
   fetchStatus = fetchFxStatus;
   async readStoredIds(ids: string[]) {
-    if (!ids.length) return [];
-    // Rows with unfinished reference writes need replay; hidden/deleted rows never do.
-    const rows = await this.env.otw_db.prepare(`SELECT id FROM x_posts WHERE id IN (SELECT value FROM json_each(?))
-      AND (hidden_at IS NOT NULL OR content_removed_at IS NOT NULL OR content_access<>'normal' OR source_authority IS NULL OR content_hash IS NOT NULL)`)
-      .bind(JSON.stringify(ids)).all<{ id: string }>();
-    return rows.results.map(row => row.id);
+    return readStoredRssCandidateIds(this.env.otw_db, ids);
   }
   async store(post: XPostDto, origin: "fxembed" | "x_api") {
     if (!await this.fenced()) return { ok: false, postsStored: 0 };
     const context = await this.readContext(this.handle);
     if (!context.trustedUserId) return { ok: false, postsStored: 0 };
-    const stored = await writeStoredPosts(this.env.otw_db, this.handle, { id: context.trustedUserId, username: this.handle }, [post], this.now(), parseSiteId(this.env.SITE_ID),
+    const storedAt = this.now();
+    const stored = await writeStoredPosts(this.env.otw_db, this.handle, { id: context.trustedUserId, username: this.handle }, [post], storedAt, parseSiteId(this.env.SITE_ID),
       { origin, completeness: { text: true, media: true, relations: true } }, this.writeFence);
-    return { ok: stored.ok && await this.fenced(), postsStored: stored.count };
+    return { ok: stored.ok && await this.fenced(), postsStored: stored.count,
+      newlyStoredPosts: stored.insertedIds.includes(post.id) ? [{ id: post.id, createdAt: post.createdAt, storedAt }] : [] };
   }
   async prepareOfficialBatch(candidates: FxRssCandidate[], batch: FxRssPaidBatch | null) {
     if (!await this.fenced()) return { batch: null, error: "rss_write_fence_lost" };

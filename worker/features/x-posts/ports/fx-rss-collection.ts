@@ -3,7 +3,7 @@ import type { XPostDto } from "@contracts/x-posts";
 
 export type FxRssEntry = { id: string; handle: string; createdAtHint: number };
 export type FxRssPage = { entries: FxRssEntry[]; rawCount: number; windowReduced?: boolean };
-export type OfficialRssHydrationResult = { resolvedIds: string[]; remaining: FxRssCandidate[]; postsReturned: number; postsStored: number; paidApiCalls: number; estimatedCostMicros: number; error: string | null; newlyStoredPosts?: XNewlyStoredPost[]; batchProcessed?: boolean };
+export type OfficialRssHydrationResult = { resolvedIds: string[]; remaining: FxRssCandidate[]; postsReturned: number; postsStored: number; paidApiCalls: number; estimatedCostMicros: number; error: string | null; newlyStoredPosts?: XNewlyStoredPost[]; excludedCandidates?: FxRssStats["excludedCandidates"]; batchProcessed?: boolean };
 
 export interface FxRssCollectionPorts {
   now(): number;
@@ -11,7 +11,7 @@ export interface FxRssCollectionPorts {
   fetchFeed(handle: string): Promise<FxRssPage>;
   fetchStatus(postId: string, handle: string, trustedUserId: string): Promise<XPostDto>;
   readStoredIds(ids: string[]): Promise<string[]>;
-  store(post: XPostDto, origin: "fxembed" | "x_api"): Promise<{ ok: boolean; postsStored: number }>;
+  store(post: XPostDto, origin: "fxembed" | "x_api"): Promise<{ ok: boolean; postsStored: number; newlyStoredPosts?: XNewlyStoredPost[] }>;
   prepareOfficialBatch(candidates: FxRssCandidate[], batch: FxRssPaidBatch | null): Promise<{ batch: FxRssPaidBatch | null; error: string | null }>;
   hydrateOfficial(candidates: FxRssCandidate[]): Promise<OfficialRssHydrationResult>;
   checkpoint(state: FxRssContinuation, stats: FxRssStats): Promise<boolean>;

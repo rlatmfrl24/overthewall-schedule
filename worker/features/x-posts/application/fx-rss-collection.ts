@@ -27,7 +27,7 @@ export const createFxRssCollection = (ports: FxRssCollectionPorts) => ({
   async run(input: FxRssContinuation): Promise<FxRssStepResult> {
     let state = structuredClone(parseFxRssContinuation(input));
     let durable = structuredClone(state);
-    const stats: FxRssStats = { rawCount: 0, candidatesFound: 0, resolved: 0, postsReturned: 0, postsStored: 0, pending: state.candidates.length, freeApiCalls: 0, paidApiCalls: 0, estimatedCostMicros: 0 };
+    const stats: FxRssStats = { rawCount: 0, candidatesFound: 0, resolved: 0, postsReturned: 0, postsStored: 0, pending: state.candidates.length, freeApiCalls: 0, paidApiCalls: 0, estimatedCostMicros: 0, newlyStoredPosts: [] };
     const result = (status: FxRssStepResult["status"], error: string | null): FxRssStepResult => ({ state, stats: { ...stats, pending: state.candidates.length }, status, error, nextAttemptAt: state.nextAttemptAt });
     const checkpoint = async () => {
       stats.pending = state.candidates.length;
@@ -70,7 +70,8 @@ export const createFxRssCollection = (ports: FxRssCollectionPorts) => ({
         const post = await ports.fetchStatus(candidate.id, handle, context.trustedUserId);
         if (Date.parse(post.createdAt) >= context.collectionStartedAt) {
           stats.postsReturned++;
-          const storedPost = await ports.store(post, "fxembed").catch(() => ({ ok: false, postsStored: 0 }));
+          const storedPost = await ports.store(post, "fxembed").catch(() => ({ ok: false, postsStored: 0, newlyStoredPosts: [] }));
+          if (storedPost.newlyStoredPosts?.length) stats.newlyStoredPosts = [...(stats.newlyStoredPosts ?? []), ...storedPost.newlyStoredPosts];
           if (!storedPost.ok) return result("blocked", "rss_storage_failed");
           stats.postsStored += storedPost.postsStored;
         }
@@ -103,6 +104,7 @@ export const createFxRssCollection = (ports: FxRssCollectionPorts) => ({
         stats.paidApiCalls += hydrated.paidApiCalls;
         stats.estimatedCostMicros += hydrated.estimatedCostMicros;
         if (hydrated.newlyStoredPosts?.length) stats.newlyStoredPosts = [...(stats.newlyStoredPosts ?? []), ...hydrated.newlyStoredPosts];
+        if (hydrated.excludedCandidates?.length) stats.excludedCandidates = [...(stats.excludedCandidates ?? []), ...hydrated.excludedCandidates];
         // Keep the fixed batch until every write succeeds, including crash replay.
         if (hydrated.error !== "rss_storage_failed" && hydrated.error !== "rss_write_fence_lost") {
           const resolved = new Set(hydrated.resolvedIds);
