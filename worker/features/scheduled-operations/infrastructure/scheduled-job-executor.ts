@@ -21,7 +21,8 @@ import {
   scanAndPersistRecentChzzkObservations,
   type AutoUpdateResult,
 } from "../../schedules";
-import { runXCollectionForHandles, runFxCollectionForHandles, isHybridRegularCollectionComplete, recordXCollectionCompletion } from "../../x-posts";
+import { runXCollectionForHandles, runFxCollectionForHandles, isHybridRegularCollectionComplete, recordXCollectionCompletion, parseFxRssContinuation } from "../../x-posts";
+import { runFxRssCollectionItem } from "../../../app/x-rss-collection";
 import { runScheduledYouTubeFeedCollection } from "../../youtube";
 import { getDb } from "../../../platform/db";
 import type { Env } from "../../../platform/types";
@@ -311,7 +312,18 @@ export class ScheduledJobExecutor {
     switch (run.job_type) {
       case "x_collection": {
         if (continuation.provider !== undefined && continuation.provider !== "fxembed" && continuation.provider !== "x_api") throw new Error("invalid_x_collection_provider");
+        if (continuation.mode !== undefined && continuation.mode !== "timeline" && continuation.mode !== "rss_candidates") throw new Error("invalid_x_collection_mode");
         if (continuation.scope !== undefined && !["regular", "pending", "fallback"].includes(String(continuation.scope))) throw new Error("invalid_x_collection_scope");
+        if (continuation.mode === "rss_candidates") {
+          const state = parseFxRssContinuation(continuation);
+          const result = await runFxRssCollectionItem(this.env, item, state, this.repository);
+          return { status: result.status === "complete" ? "succeeded" : result.status === "pending" ? "partial" : "skipped",
+            result: { ...result.stats, provider: "fxembed", mode: "rss_candidates", scope: state.scope,
+              status: result.status === "blocked" ? "skipped" : result.state.phase === "fetch" ? "failed" : "success",
+              checkedHandles: 1, refreshedHandles: result.status === "complete" ? 1 : 0,
+              pendingSources: result.stats.pending > 0 || result.state.phase === "fetch" && result.status === "pending" ? 1 : 0,
+              error: result.error, nextAttemptAt: result.nextAttemptAt }, errorCode: result.error, error: result.error };
+        }
         const handles = getStringArray(continuation.handles);
         if (handles.length === 0 || handles.length > 4) {
           throw new Error("invalid_x_collection_shard");

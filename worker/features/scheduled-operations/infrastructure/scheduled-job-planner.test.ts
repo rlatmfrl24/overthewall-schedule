@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   getScheduledXCollectionDecision: vi.fn(),
   readActiveXHandles: vi.fn(),
   readDueXRecoveryHandles: vi.fn(),
+  readHybridXCollectionTargets: vi.fn(),
+  readDueFxRssCollectionTargets: vi.fn(),
   readOtwPlayAutomationPaused: vi.fn(),
   readDueDataRetentionPolicyIds: vi.fn(),
   hasScheduledYouTubeFeedWork: vi.fn(),
@@ -30,6 +32,8 @@ vi.mock("../../x-posts", () => ({
   getScheduledXCollectionDecision: mocks.getScheduledXCollectionDecision,
   readActiveXHandles: mocks.readActiveXHandles,
   readDueXRecoveryHandles: mocks.readDueXRecoveryHandles,
+  readHybridXCollectionTargets: mocks.readHybridXCollectionTargets,
+  readDueFxRssCollectionTargets: mocks.readDueFxRssCollectionTargets,
 }));
 vi.mock("../../../platform/db", () => ({ getDb: vi.fn(() => ({})) }));
 
@@ -87,11 +91,24 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     });
     mocks.readActiveXHandles.mockResolvedValue(["member_a"]);
     mocks.readDueXRecoveryHandles.mockResolvedValue([]);
+    mocks.readHybridXCollectionTargets.mockResolvedValue([]);
+    mocks.readDueFxRssCollectionTargets.mockResolvedValue([]);
     mocks.readOtwPlayAutomationPaused.mockResolvedValue(false);
     mocks.readDueDataRetentionPolicyIds.mockResolvedValue([]);
     mocks.hasScheduledYouTubeFeedWork.mockResolvedValue(false);
   });
   afterEach(() => vi.restoreAllMocks());
+
+  it("plans RSS pending snapshots beside JSON with distinct mode target keys", async () => {
+    const { env } = makeEnv({ x_collection_enabled: "true", x_collection_primary_source: "fxembed" });
+    mocks.readHybridXCollectionTargets.mockResolvedValue([{ provider: "fxembed", scope: "regular", handles: ["member"], hybrid: true }]);
+    const state = { provider: "fxembed", mode: "rss_candidates", scope: "pending", handles: ["member"], phase: "hydrate", candidates: [], nextAttemptAt: 1, resumeFromItemId: "predecessor" };
+    mocks.readDueFxRssCollectionTargets.mockResolvedValue([state]);
+    const planned = await new ScheduledJobPlanner(env, {} as never).planScheduled("x_collection", 100);
+    expect(planned).toHaveLength(2);
+    expect(planned[1]).toMatchObject({ targetKey: "fxembed:rss_candidates:pending:member", continuation: state });
+    expect(new Set(planned.map(item => item.targetKey)).size).toBe(2);
+  });
 
   it("plans no empty recovery, WebSub, YouTube, or retention work", async () => {
     const { env } = makeEnv({});

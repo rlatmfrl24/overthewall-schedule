@@ -16,6 +16,13 @@ export default {
     }
     if(url.origin === "https://api.cloudflare.com" && request.method === "POST" && url.pathname === "/client/v4/graphql") return Response.json({data:{viewer:{accounts:[{usage:[{sum:{rowsRead:1000}}]}]}}});
     calls.push(`${request.method} ${url.href}`);
+    if (request.method === "GET" && url.origin === "https://fxtwitter.com" && url.pathname === "/native_collect/feed.xml") {
+      return new Response(`<rss version="2.0"><channel>${[501, 502, 503, 504, 505, 506].map(id => `<item><guid>https://x.com/native_collect/status/${id}</guid><pubDate>${new Date().toUTCString()}</pubDate></item>`).join("")}</channel></rss>`);
+    }
+    if (request.method === "GET" && url.origin === "https://api.fxtwitter.com" && /^\/2\/status\/50[1-6]$/.test(url.pathname)) {
+      const id = url.pathname.split("/").pop();
+      return Response.json({ code: 200, status: { type: "status", id, text: `Native RSS ${id}`, created_at: new Date().toUTCString(), author: { id: "1000000000001", screen_name: "native_collect", protected: false }, media: {} } });
+    }
     if (request.method === "GET" && url.origin === "https://api.fxtwitter.com" && url.pathname === "/2/profile/native_collect/statuses") {
       const page = Number((url.searchParams.get("cursor") ?? "fx_0").split("_")[1]);
       return Response.json({ code: 200, results: [{ type: "status", id: "150", text: "Native Fx collection", created_at: new Date().toUTCString(), author: { id: "1000000000001", screen_name: "native_collect", protected: false }, media: {} }], cursor: { bottom: `fx_${page + 1}` } });

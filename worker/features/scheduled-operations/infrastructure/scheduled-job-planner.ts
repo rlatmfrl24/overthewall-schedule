@@ -20,6 +20,7 @@ import {
   readActiveXHandles,
   readDueXRecoveryHandles,
   readHybridXCollectionTargets,
+  readDueFxRssCollectionTargets,
 } from "../../x-posts";
 import { hasScheduledYouTubeFeedWork } from "../../youtube";
 import { editableCollectorSql, publicationHiddenSql } from "../../content-access";
@@ -55,11 +56,11 @@ const planXCollection = async (
   if (rows?.value === "false") return [];
   const primary = await env.otw_db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first<{value:string}>();
   if (source === "scheduled" && primary?.value === "fxembed") {
-    const targets = await readHybridXCollectionTargets(env, timestamp);
-    return targets.flatMap(target => chunk(target.handles,4).map((handles,index) => ({
+    const [targets, rssTargets] = await Promise.all([readHybridXCollectionTargets(env, timestamp), readDueFxRssCollectionTargets(env, timestamp)]);
+    return [...targets.flatMap(target => chunk(target.handles,4).map((handles,index) => ({
       targetKey: `${target.provider}:${target.scope}:handles:${index}:${handles.join(",")}`, phase:"collect", lane:"x" as const,
       continuation:{...target,handles},
-    })));
+    }))), ...rssTargets.map(state => ({ targetKey: `fxembed:rss_candidates:${state.scope}:${state.handles[0]}`, phase: "collect", lane: "x" as const, continuation: state }))];
   }
   let handles = await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID));
   if (source === "manual" && provider === "fxembed") {

@@ -773,6 +773,19 @@ export class D1ScheduledJobRepository {
     ).bind(itemId).first<ScheduledJobItemRecord>();
   }
 
+  async checkpointItemContinuation(item: ScheduledJobItemRecord, continuation: Record<string, unknown>, result: unknown): Promise<boolean> {
+    if (!item.lease_token) return false;
+    const now = this.clock(), snapshot = JSON.stringify(continuation), evidence = JSON.stringify(result);
+    const saved = await this.db.prepare(`UPDATE scheduled_job_items SET continuation_json=?,result_json=?,updated_at=?
+      WHERE id=? AND status='running' AND lease_token=? AND lease_until>? AND continuation_json IS ? AND result_json IS ?`)
+      .bind(snapshot, evidence, now, item.id, item.lease_token, now, item.continuation_json, item.result_json).run();
+    if (!saved.meta.changes) return false;
+    item.continuation_json = snapshot;
+    item.result_json = evidence;
+    item.updated_at = now;
+    return true;
+  }
+
   async completeItem(
     item: ScheduledJobItemRecord,
     outcome: {

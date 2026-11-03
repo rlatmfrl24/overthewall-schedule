@@ -6,6 +6,7 @@ import type { ScheduledJobItemRecord } from "../../../platform/scheduled-jobs";
 import { AiReviewService, AiBatchService, D1AiBatchRepository, D1WorkQueueRepository, WorkQueueService, D1IngestionRepository, CloudflareIngestionReadBudget, IngestionService } from "../../otw-play";
 import { ScheduledJobPlanner } from "./scheduled-job-planner";
 import * as schedules from "../../schedules";
+import * as rss from "../../../app/x-rss-collection";
 import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
 import {
   ScheduledJobExecutor,
@@ -39,6 +40,20 @@ describe("scheduled job executor outcomes", () => {
     vi.spyOn(D1WorkQueueRepository.prototype,"hasExpired").mockResolvedValue(false);
   });
   afterEach(() => vi.restoreAllMocks());
+
+  it("dispatches rss_candidates through its composition and preserves partial state", async () => {
+    const state = { provider: "fxembed", mode: "rss_candidates", scope: "pending", handles: ["member"], phase: "hydrate", candidates: [], nextAttemptAt: 100 };
+    vi.spyOn(rss, "runFxRssCollectionItem").mockResolvedValue({ state: state as never, status: "pending", error: "rss_candidates_pending", nextAttemptAt: 100, stats: { rawCount: 0, candidatesFound: 0, resolved: 5, postsReturned: 5, postsStored: 5, pending: 1, freeApiCalls: 5, paidApiCalls: 0, estimatedCostMicros: 0 } });
+    const repository = { readRun: async () => ({ job_type: "x_collection", source: "scheduled" }) };
+    const item = { run_id: "run", continuation_json: JSON.stringify(state) } as ScheduledJobItemRecord;
+    expect(await new ScheduledJobExecutor({} as Env, repository as never).execute(item)).toMatchObject({ status: "partial", result: { provider: "fxembed", mode: "rss_candidates", pendingSources: 1, postsStored: 5 } });
+    expect(rss.runFxRssCollectionItem).toHaveBeenCalled();
+  });
+
+  it.each([{ mode: "unknown" }, { provider: "x_api", mode: "rss_candidates" }, { provider: "fxembed", mode: "rss_candidates", handles: ["a", "b"] }])("rejects illegal persisted RSS mode/shard %j", async invalid => {
+    const repository = { readRun: async () => ({ job_type: "x_collection", source: "scheduled" }) };
+    await expect(new ScheduledJobExecutor({} as Env, repository as never).execute({ continuation_json: JSON.stringify({ handles: ["member"], ...invalid }) } as ScheduledJobItemRecord)).rejects.toThrow(/invalid_x_/);
+  });
 
   const executeScheduleScan = async (statuses: ("complete" | "failed" | "incomplete")[], attempts = 3) => {
     const channelResults = statuses.map((status, index) => ({ channelId: String(index), status }));

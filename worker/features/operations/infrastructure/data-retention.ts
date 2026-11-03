@@ -98,7 +98,7 @@ export const DATA_RETENTION_POLICIES = [
     timestampKind: "epoch_ms",
     retentionDays: 30,
     extraWhere:
-      "status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled') AND finished_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM scheduled_outbox o WHERE o.item_id = scheduled_job_items.id AND o.event_type = 'reconcile' AND o.reconciled_at IS NULL)",
+      "status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled') AND finished_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM scheduled_outbox o WHERE o.item_id = scheduled_job_items.id AND o.event_type = 'reconcile' AND o.reconciled_at IS NULL) AND NOT EXISTS(SELECT 1 FROM x_fx_sources f WHERE f.rss_pending_item_id=scheduled_job_items.id)",
   },
   {
     id: "scheduled-job-runs",
@@ -109,7 +109,7 @@ export const DATA_RETENTION_POLICIES = [
     timestampKind: "epoch_ms",
     retentionDays: 90,
     extraWhere:
-      "status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled') AND finished_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM scheduled_outbox o WHERE o.run_id = scheduled_job_runs.id AND o.event_type = 'reconcile' AND o.reconciled_at IS NULL)",
+      "status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled') AND finished_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM scheduled_outbox o WHERE o.run_id = scheduled_job_runs.id AND o.event_type = 'reconcile' AND o.reconciled_at IS NULL) AND NOT EXISTS(SELECT 1 FROM scheduled_job_items i JOIN x_fx_sources f ON f.rss_pending_item_id=i.id WHERE i.run_id=scheduled_job_runs.id)",
   },
   {
     id: "youtube-feed-videos",

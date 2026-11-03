@@ -121,6 +121,67 @@ it("recovers a pending X page through the native Workflow before full cadence is
   } finally {vi.unstubAllGlobals();await inspector.dispose();}
 },60_000);
 
+it("resumes a durable RSS partial in a separate ordinary Cron Workflow and Queue run", async () => {
+  const started = Date.now();
+  const currentSlot = Math.floor((started - 23 * 60_000) / (30 * 60_000)) * 30 * 60_000 + 23 * 60_000;
+  const firstSlot = currentSlot - 30 * 60_000;
+  const inspector = await introspectWorkflow(bindings.NATIVE_SCHEDULED_WORKFLOW);
+  await db.batch([
+    db.prepare("DELETE FROM scheduled_job_runs WHERE job_type='x_collection'"),
+    db.prepare("UPDATE settings SET value='false' WHERE key LIKE 'scheduled_v2_%_enabled'"),
+    db.prepare("UPDATE members SET url_twitter=NULL"),
+    db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(900050,'native_collect','Native collector','https://x.com/native_collect') ON CONFLICT(uid) DO UPDATE SET url_twitter=excluded.url_twitter"),
+    ...["x_posts", "x_post_facts", "x_post_references", "x_post_sources", "x_fx_sources", "scheduled_usage_daily"].map(table => db.prepare(`DELETE FROM ${table}`)),
+    ...[["scheduled_v2_x_collection_enabled", "true"], ["x_collection_enabled", "true"], ["x_collection_primary_source", "fxembed"],
+      ["x_collection_hybrid_policy", "rss_v1"], ["x_collection_hybrid_activated_at", "1"], ["x_collection_last_run", String(started)], ["otw_play_automation_paused", "true"]]
+      .map(([key, value]) => db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)").bind(key, value)),
+    db.prepare("INSERT INTO x_post_sources(handle,user_id,last_seen_post_id,last_checked_at,updated_at,collection_started_at,regular_completed_at,last_completed_at) VALUES('native_collect','1000000000001','100',0,0,1,?,?)").bind(started, started),
+  ]);
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => bindings.NATIVE_WORKFLOW_PROVIDER.fetch(input, init));
+  const runtime = { ...bindings, ...siteEnv(), CLOUDFLARE_ACCOUNT_ID: "native-test", CLOUDFLARE_D1_TOKEN: "native-test", SCHEDULED_OPERATIONS_WORKFLOW: bindings.NATIVE_SCHEDULED_WORKFLOW } as unknown as Env;
+  try {
+    await handleScheduledWorkflowCron({ cron: SCHEDULED_WORKFLOW_CRON, scheduledTime: firstSlot } as ScheduledController, runtime);
+    await Promise.all((await inspector.get()).map(instance => instance.waitForStatus("complete")));
+    await expect.poll(() => db.prepare("SELECT count(*) n FROM x_posts WHERE CAST(id AS INTEGER) BETWEEN 501 AND 506").first("n"), { timeout: 20_000, interval: 100 }).toBe(5);
+    const pendingId = await db.prepare("SELECT rss_pending_item_id FROM x_fx_sources WHERE handle='native_collect'").first<string>("rss_pending_item_id");
+    await expect.poll(() => db.prepare("SELECT status FROM scheduled_job_items WHERE id=?").bind(pendingId).first("status"), { timeout: 10_000 }).toBe("partial");
+    const pending = JSON.parse((await db.prepare("SELECT continuation_json FROM scheduled_job_items WHERE id=?").bind(pendingId).first<string>("continuation_json"))!);
+    expect(pending.candidates).toHaveLength(1);
+    // Represent the elapsed half hour without making the local test wait 30 minutes.
+    pending.nextAttemptAt = currentSlot;
+    for (const candidate of pending.candidates) candidate.nextAttemptAt = currentSlot;
+    await db.prepare("UPDATE scheduled_job_items SET continuation_json=? WHERE id=?").bind(JSON.stringify(pending), pendingId).run();
+    const sourceBeforeGuard = await db.prepare("SELECT * FROM x_fx_sources WHERE handle='native_collect'").first();
+    const officialBeforeGuard = await db.prepare("SELECT * FROM x_post_sources WHERE handle='native_collect'").first();
+    const beforeGuardCalls = await (await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/calls")).json();
+    const day = new Date(currentSlot).toISOString().slice(0, 10);
+    await db.prepare("INSERT OR REPLACE INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES(?,'all','d1_rows_written',1,0,1,0)").bind(day).run();
+    await handleScheduledWorkflowCron({ cron: SCHEDULED_WORKFLOW_CRON, scheduledTime: currentSlot } as ScheduledController, runtime);
+    expect(await inspector.get()).toHaveLength(1);
+    await db.prepare("DELETE FROM scheduled_usage_daily WHERE resource='d1_rows_written'").run();
+    await db.prepare("INSERT OR REPLACE INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES(?,'x','queue_operations',1,0,1,0)").bind(day).run();
+    await handleScheduledWorkflowCron({ cron: SCHEDULED_WORKFLOW_CRON, scheduledTime: currentSlot } as ScheduledController, runtime);
+    await Promise.all((await inspector.get()).map(instance => instance.waitForStatus("complete")));
+    expect(await db.prepare("SELECT status FROM scheduled_job_runs WHERE job_type='x_collection' AND scheduled_for=?").bind(currentSlot).first("status")).toBe("throttled");
+    expect(await db.prepare("SELECT * FROM x_fx_sources WHERE handle='native_collect'").first()).toEqual(sourceBeforeGuard);
+    expect(await db.prepare("SELECT * FROM x_post_sources WHERE handle='native_collect'").first()).toEqual(officialBeforeGuard);
+    expect(await (await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/calls")).json()).toEqual(beforeGuardCalls);
+    await db.prepare("DELETE FROM scheduled_usage_daily WHERE resource='queue_operations'").run();
+    await handleScheduledWorkflowCron({ cron: SCHEDULED_WORKFLOW_CRON, scheduledTime: currentSlot + 30 * 60_000 } as ScheduledController, runtime);
+    await Promise.all((await inspector.get()).map(instance => instance.waitForStatus("complete")));
+    await expect.poll(() => db.prepare("SELECT rss_pending_item_id FROM x_fx_sources WHERE handle='native_collect'").first("rss_pending_item_id"), { timeout: 20_000, interval: 100 }).toBeNull();
+    expect(await db.prepare("SELECT count(*) n FROM x_posts WHERE CAST(id AS INTEGER) BETWEEN 501 AND 506").first("n")).toBe(6);
+    const items = (await db.prepare("SELECT run_id,status,continuation_json,result_json FROM scheduled_job_items WHERE json_extract(continuation_json,'$.mode')='rss_candidates'").all<{ run_id: string; status: string; continuation_json: string; result_json: string }>()).results;
+    expect(new Set(items.map(item => item.run_id)).size).toBe(2);
+    expect(items.map(item => item.status).sort()).toEqual(["partial", "succeeded"]);
+    const calls = await (await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/calls")).json<string[]>();
+    expect(calls.filter(call => call.includes("/feed.xml"))).toHaveLength(1);
+    expect(calls.filter(call => call.includes("/2/status/"))).toHaveLength(6);
+    expect(calls.some(call => call.includes("api.x.com"))).toBe(false);
+    expect(await db.prepare("SELECT last_seen_post_id,regular_completed_at,last_completed_at FROM x_post_sources WHERE handle='native_collect'").first()).toEqual({ last_seen_post_id: "100", regular_completed_at: started, last_completed_at: started });
+  } finally { vi.unstubAllGlobals(); await inspector.dispose(); }
+}, 60_000);
+
 it("completes the ordinary Cron, native Workflow and native Queue without creating transfer responsibility", async () => {
   const inspector = await introspectWorkflow(bindings.NATIVE_SCHEDULED_WORKFLOW);
   const started = Date.now();
