@@ -4,6 +4,7 @@ import type { FxRssContinuation } from "@contracts/x-collection";
 import { D1ScheduledJobRepository } from "../../../platform/scheduled-jobs/d1-scheduled-job-repository";
 import { runDataRetentionPolicyPrune } from "../../operations/infrastructure/data-retention";
 import { writeStoredPosts } from "./x-api";
+import { ScheduledJobExecutor } from "../../scheduled-operations/infrastructure/scheduled-job-executor";
 
 const runtime = { ...env, SITE_ID: "otw" } as Env & { X_REFERENCE_MIGRATIONS: D1Migration[]; SCHEDULED_OPERATIONS_MIGRATIONS: D1Migration[] };
 const db = runtime.otw_db;
@@ -389,7 +390,7 @@ it("does not claim an RSS source when collection stops after member snapshot sel
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it("keeps the RSS candidate when a facts write is blocked even if eligibility is immediately restored", async () => {
+it.each(["application retry", "admin readback"])("keeps the RSS candidate when a facts write is blocked even if eligibility is immediately restored: %s", async surface => {
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
   await db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_history_analytics_enabled','true')").run();
   const entry = await createItem(), original = db.prepare.bind(db);
@@ -409,6 +410,20 @@ it("keeps the RSS candidate when a facts write is blocked even if eligibility is
     };
     return statement;
   });
+  if (surface === "admin readback") {
+    const outcome = await new ScheduledJobExecutor(runtime, entry.repo).execute(entry.item);
+    expect(outcome).toMatchObject({ status: "skipped", errorCode: "rss_storage_failed" });
+    expect(await entry.repo.completeItem(entry.item, outcome)).toBe(true);
+    const raw = JSON.parse((await entry.repo.readItem(entry.item.id))!.result_json!);
+    const newlyStoredPosts = [{ id: "1", createdAt: new Date(Math.floor(now / 1000) * 1000).toISOString(), storedAt: now }];
+    expect(raw).toMatchObject({ status: "skipped", postsStored: 0, newlyStoredPosts, error: "rss_storage_failed" });
+    expect(await db.prepare("SELECT id,content_hash FROM x_posts WHERE id='1'").first()).toEqual({ id: "1", content_hash: null });
+    expect(await db.prepare("SELECT post_id FROM x_post_facts WHERE post_id='1'").first()).toBeNull();
+    expect(JSON.parse((await entry.repo.readItem(entry.item.id))!.continuation_json!).candidates.map((candidate: { id: string }) => candidate.id)).toContain("1");
+    const item = (await entry.repo.readRunDto(entry.item.run_id))?.xCollection?.items[0];
+    expect(item).toMatchObject({ status: "skipped", errorCode: "rss_storage_failed", collection: { status: "skipped", postsStored: 0, newlyStoredPosts: raw.newlyStoredPosts, error: "rss_storage_failed" } });
+    return;
+  }
   const interrupted = await runItem(entry, state());
   expect(interrupted.status).toBe("blocked");
   expect(interrupted.state.candidates.map(candidate => candidate.id)).toContain("1");

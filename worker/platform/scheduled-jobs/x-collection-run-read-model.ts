@@ -25,7 +25,7 @@ const optionalText = (value: unknown) => typeof value === "string" ? value : nul
 function parseNewlyStoredPosts(data: Record<string, unknown>): XNewlyStoredPost[] | undefined {
   const value = data.newlyStoredPosts;
   if (!Array.isArray(value) || value.length > (data.mode === "rss_candidates" ? 100 : 1000) ||
-    !count(data.postsStored) || value.length > data.postsStored || new Set(value.map(post => record(post)?.id)).size !== value.length) return undefined;
+    !count(data.postsStored) || new Set(value.map(post => record(post)?.id)).size !== value.length) return undefined;
   const posts: XNewlyStoredPost[] = [];
   for (const entry of value) {
     const post = record(entry);
