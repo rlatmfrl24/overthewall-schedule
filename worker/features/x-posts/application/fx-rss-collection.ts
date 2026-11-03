@@ -106,7 +106,7 @@ export const createFxRssCollection = (ports: FxRssCollectionPorts) => ({
           const resolved = new Set(hydrated.resolvedIds);
           state.candidates = state.candidates.filter(candidate => !resolved.has(candidate.id));
           stats.resolved += resolved.size;
-          if (!state.candidates.some(candidate => state.paidBatch?.ids.includes(candidate.id))) state.paidBatch = null;
+          if (hydrated.batchProcessed) state.paidBatch = null;
         }
         state.nextAttemptAt = state.candidates.length ? nextTick(ports.now()) : null;
         if (!await checkpoint()) return result("blocked", "rss_checkpoint_lost");

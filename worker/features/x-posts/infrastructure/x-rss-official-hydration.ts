@@ -63,7 +63,7 @@ export async function hydrateOfficialRssCandidates(env: Env, handle: string, can
   const stored = await storedIds(env, candidates.map(candidate => candidate.id));
   result.resolvedIds = candidates.filter(candidate => stored.has(candidate.id)).map(candidate => candidate.id);
   const unresolved = candidates.filter(candidate => !stored.has(candidate.id));
-  if (!unresolved.length) return { ...result, remaining: [] };
+  if (!unresolved.length) return { ...result, remaining: [], batchProcessed: true };
   const prepared = await prepareOfficialRssBatch(env, handle, candidates, batch, fence);
   if (!prepared.batch || prepared.batch.requestId !== batch.requestId) return { ...result, error: prepared.error ?? "rss_paid_batch_expired" };
   const identity = await sourceFor(env, handle);
@@ -88,6 +88,8 @@ export async function hydrateOfficialRssCandidates(env: Env, handle: string, can
     result.resolvedIds.push(...posts.map(post => post.id), ...excluded);
     const resolved = new Set(result.resolvedIds);
     result.remaining = candidates.filter(candidate => !resolved.has(candidate.id));
+    const returnedIds = new Set((response.data ?? []).map(post => post.id));
+    result.batchProcessed = result.remaining.every(candidate => !requested.has(candidate.id) || !returnedIds.has(candidate.id));
     result.error = result.remaining.length ? "rss_official_candidates_pending" : null;
     return result;
   } catch (error) {

@@ -144,15 +144,20 @@ it("budget_blocked_candidate_plan_creates_no_item while mixed free work remains 
   expect(await readDueFxRssCollectionTargets(runtime, now)).toHaveLength(1);
 });
 
-it("does not redispatch a successful UTC partial response after resolved IDs leave the snapshot", async () => {
+it("retries only absent IDs at the next tick after a processed HTTP partial response, before 24h", async () => {
+  const firstSeen = (Math.floor(now / 86_400_000) + 1) * 86_400_000 + 60_000;
+  now = firstSeen + 3_600_000;
+  await new D1SharedXBudget(db).ensureDay();
+  await db.prepare("UPDATE x_post_sources SET last_completed_at=?,regular_completed_at=?").bind(now,now).run();
   const provider = vi.mocked(fetch).getMockImplementation()!;
+  let missingAvailable = false;
   vi.mocked(fetch).mockImplementation(async (input, init) => {
     const response = await provider(input, init);
     if (new URL(String(input)).pathname !== "/2/tweets") return response;
-    const body = await response.json() as { data: Array<{ id: string }>; includes: unknown };
-    return Response.json({ ...body, data: body.data.filter(post => post.id === "201"), errors: [{ resource_id: "202", type: "https://api.x.com/2/problems/resource-not-found" }] });
+    const body = await response.json() as { data: Array<{ id: string; created_at: string }>; includes: unknown };
+    return Response.json({ ...body, data: body.data.filter(post => missingAvailable || post.id === "201").map(post => ({ ...post, created_at: new Date(firstSeen).toISOString() })), ...(!missingAvailable ? { errors: [{ resource_id: "202", type: "https://api.x.com/2/problems/resource-not-found" }] } : {}) });
   });
-  const entry = await create();
+  const entry = await create(state(candidates().map(candidate => ({ ...candidate, firstSeenAt: firstSeen }))));
   const first = await runFxRssCollectionItem(runtime, entry.item, entry.input, entry.repo);
   expect(first.state.candidates.map(candidate => candidate.id)).toEqual(["202"]);
   expect(first.stats.paidApiCalls).toBe(1);
@@ -161,10 +166,14 @@ it("does not redispatch a successful UTC partial response after resolved IDs lea
   const [resume] = await readDueFxRssCollectionTargets(runtime, now);
   const next = await create(resume);
   const calls = vi.mocked(fetch).mock.calls.length;
+  missingAvailable = true;
   const second = await runFxRssCollectionItem(runtime, next.item, next.input, next.repo);
-  expect(second.stats.paidApiCalls).toBe(0);
-  expect(vi.mocked(fetch).mock.calls.length).toBe(calls);
-  expect(second.state.candidates.map(candidate => candidate.id)).toEqual(["202"]);
+  expect(second).toMatchObject({ status: "complete", stats: { paidApiCalls: 1, newlyStoredPosts: [{ id: "202", createdAt: new Date(firstSeen).toISOString() }] } });
+  expect(vi.mocked(fetch).mock.calls.length).toBe(calls + 1);
+  expect(vi.mocked(fetch).mock.calls.map(([input]) => new URL(String(input)).searchParams.get("ids"))).toEqual(["201,202", "202"]);
+  expect(now - firstSeen).toBe(82 * 60_000);
+  expect(now - Date.parse(second.stats.newlyStoredPosts![0]!.createdAt)).toBeLessThan(24 * 3_600_000);
+  expect((await stored()).results.map(row => row.id)).toEqual(["201", "202"]);
 });
 
 it("stale paidBatch-only predecessor copies cannot replace a newer batch checkpoint", async () => {
@@ -198,6 +207,7 @@ it.each(["foreign", "private", "before-start", "invalid-date", "retweet"])("vali
   expect((await stored()).results).toEqual([]);
   expect(result.stats.paidApiCalls).toBe(1);
   expect(result.stats.postsStored).toBe(0);
+  if (["foreign", "private", "invalid-date"].includes(boundary)) expect(result.state.paidBatch?.ids).toEqual(["201"]);
 });
 
 it("never dispatches before the paid batch checkpoint succeeds", async () => {
@@ -264,7 +274,8 @@ it.each(["site", "shared"])("preserves pending and earlier cost when %s blocks a
   const item = (await next.repo.claimItem(next.item.id))!;
   const restored = await runFxRssCollectionItem(runtime, item, JSON.parse(item.continuation_json!), next.repo);
   expect(restored.stats.paidApiCalls).toBe(1);
-  expect(restored.state.paidBatch!.day).toBe(day);
+  expect(restored.state.paidBatch).toBeNull();
+  expect(await db.prepare("SELECT day FROM x_shared_requests ORDER BY updated_at DESC LIMIT 1").first("day")).toBe(day);
   const lastPath = new URL(String(vi.mocked(fetch).mock.calls.at(-1)![0]));
   expect(lastPath.searchParams.get("ids")).toBe("202");
 });
@@ -290,7 +301,7 @@ it("cache replay requires the full original reservation after a partial write", 
   expect(await db.prepare("SELECT count(*) n FROM x_shared_requests WHERE status='complete'").first("n")).toBe(1);
 });
 
-it("finishes a cached batch when JSON fulfills its last candidate after terminal exclusions", async () => {
+it("finishes the last absent candidate when JSON fulfills it after terminal exclusions", async () => {
   const entry = await create();
   vi.mocked(fetch).mockImplementation(async () => Response.json({ data: [{ id: "201", author_id: "101", text: "before activation", created_at: "1970-01-01T00:00:00Z" }], includes: { users: [{ id: "101", username: "member", protected: false }] }, errors: [{ resource_id: "202", type: "https://api.x.com/2/problems/resource-not-found" }] }));
   const first = await runFxRssCollectionItem(runtime, entry.item, entry.input, entry.repo);
@@ -518,4 +529,29 @@ it.each(["missing-db", "missing-operation", "missing-fence", "zero-reservation",
   expect(fetch).not.toHaveBeenCalled();
   expect(await db.prepare("SELECT count(*) n FROM x_shared_requests").first("n")).toBe(0);
   expect(await db.prepare("SELECT count(*) n FROM scheduled_usage_daily WHERE resource='x_api_cost_micros'").first("n")).toBe(0);
+});
+
+it("replays a processed partial response after lost candidate checkpoint without paid redispatch", async () => {
+  const entry = await create(), checkpoint = entry.repo.checkpointItemContinuation.bind(entry.repo), provider = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (input, init) => {
+    const response = await provider(input, init);
+    if (new URL(String(input)).pathname !== "/2/tweets") return response;
+    const body = await response.json() as { data: Array<{ id: string }>; includes: unknown };
+    return Response.json({ ...body, data: body.data.filter(post => post.id === "201"), errors: [{ resource_id: "202", type: "https://api.x.com/2/problems/resource-not-found" }] });
+  });
+  vi.spyOn(entry.repo,"checkpointItemContinuation").mockImplementation(async (item, continuation, stats) => (continuation.candidates as FxRssCandidate[]).length === 1 ? false : checkpoint(item,continuation,stats));
+  const interrupted = await runFxRssCollectionItem(runtime, entry.item, entry.input, entry.repo);
+  expect(interrupted.status).toBe("blocked");
+  expect(interrupted.state.candidates.map(candidate => candidate.id)).toEqual(["201", "202"]);
+  expect(interrupted.state.paidBatch!.ids).toEqual(["201", "202"]);
+  expect((await stored()).results.map(row => row.id)).toEqual(["201"]);
+  vi.mocked(entry.repo.checkpointItemContinuation).mockImplementation(checkpoint);
+  await entry.repo.releaseItemForRetry(entry.item,"checkpoint","checkpoint");
+  const item = (await entry.repo.claimItem(entry.item.id))!, calls = vi.mocked(fetch).mock.calls.length;
+  const replay = await runFxRssCollectionItem(runtime,item,JSON.parse(item.continuation_json!),entry.repo);
+  expect(replay.stats.paidApiCalls).toBe(0);
+  expect(vi.mocked(fetch).mock.calls.length).toBe(calls);
+  expect(replay.state.candidates.map(candidate => candidate.id)).toEqual(["202"]);
+  expect(replay.state.paidBatch).toBeNull();
+  expect(await db.prepare("SELECT count(*) n FROM x_shared_requests WHERE status='complete'").first("n")).toBe(1);
 });

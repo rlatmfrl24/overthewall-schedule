@@ -3,7 +3,7 @@ import type { XPostDto } from "@contracts/x-posts";
 
 export type FxRssEntry = { id: string; handle: string; createdAtHint: number };
 export type FxRssPage = { entries: FxRssEntry[]; rawCount: number };
-export type OfficialRssHydrationResult = { resolvedIds: string[]; remaining: FxRssCandidate[]; postsReturned: number; postsStored: number; paidApiCalls: number; estimatedCostMicros: number; error: string | null; newlyStoredPosts?: XNewlyStoredPost[] };
+export type OfficialRssHydrationResult = { resolvedIds: string[]; remaining: FxRssCandidate[]; postsReturned: number; postsStored: number; paidApiCalls: number; estimatedCostMicros: number; error: string | null; newlyStoredPosts?: XNewlyStoredPost[]; batchProcessed?: boolean };
 
 export interface FxRssCollectionPorts {
   now(): number;
