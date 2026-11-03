@@ -10,6 +10,7 @@ import { siteEnv } from "../../../test-support/site-env";
 const mocks = vi.hoisted(() => ({
   getScheduledXCollectionDecision: vi.fn(),
   readActiveXHandles: vi.fn(),
+  readDueXRecoveryHandles: vi.fn(),
   readOtwPlayAutomationPaused: vi.fn(),
   readDueDataRetentionPolicyIds: vi.fn(),
   hasScheduledYouTubeFeedWork: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock("../../youtube", () => ({
 vi.mock("../../x-posts", () => ({
   getScheduledXCollectionDecision: mocks.getScheduledXCollectionDecision,
   readActiveXHandles: mocks.readActiveXHandles,
+  readDueXRecoveryHandles: mocks.readDueXRecoveryHandles,
 }));
 vi.mock("../../../platform/db", () => ({ getDb: vi.fn(() => ({})) }));
 
@@ -84,6 +86,7 @@ describe("ScheduledJobPlanner interval eligibility", () => {
       shouldRun: true,
     });
     mocks.readActiveXHandles.mockResolvedValue(["member_a"]);
+    mocks.readDueXRecoveryHandles.mockResolvedValue([]);
     mocks.readOtwPlayAutomationPaused.mockResolvedValue(false);
     mocks.readDueDataRetentionPolicyIds.mockResolvedValue([]);
     mocks.hasScheduledYouTubeFeedWork.mockResolvedValue(false);
@@ -173,7 +176,7 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     ]);
   });
 
-  it("scheduled X run은 저장된 주기가 아직 지나지 않으면 item을 만들지 않는다", async () => {
+  it("creates no scheduled X items before the full cadence when no due recovery remains", async () => {
     const timestamp = Date.UTC(2026, 7, 31, 0);
     const { env } = makeEnv({ x_collection_enabled: "true" });
     const repository = { addItems: vi.fn(async () => []) };
@@ -189,7 +192,7 @@ describe("ScheduledJobPlanner interval eligibility", () => {
       expect.anything(),
       timestamp,
     );
-    expect(mocks.readActiveXHandles).not.toHaveBeenCalled();
+    expect(mocks.readActiveXHandles).toHaveBeenCalledOnce();
     expect(repository.addItems).toHaveBeenCalledWith(
       "run:x_collection:scheduled",
       [],
@@ -215,6 +218,21 @@ describe("ScheduledJobPlanner interval eligibility", () => {
       "run:x_collection:manual",
       [expect.objectContaining({ lane: "x", phase: "collect" })],
     );
+  });
+
+  it.each(["plan", "preplanned"])("persists recovery scope and the full cadence anchor through %s", async entry => {
+    const timestamp = Date.UTC(2026, 10, 1, 3), anchorAt = timestamp - 2 * 60 * 60_000;
+    const { env } = makeEnv({ x_collection_enabled: "true" });
+    mocks.getScheduledXCollectionDecision.mockResolvedValue({ shouldRun: false, lastRun: anchorAt, elapsedMs: timestamp - anchorAt });
+    mocks.readDueXRecoveryHandles.mockResolvedValue(["member_a"]);
+    const repository = { addItems: vi.fn(async (_id: string, items: NewScheduledItem[]) => items), updateRunSummary: vi.fn() };
+    const planner = new ScheduledJobPlanner(env, repository as never), run = makeRun("x_collection", "scheduled", timestamp);
+    if (entry === "plan") await planner.plan(run);
+    else await planner.addPlannedItems(run, await planner.planScheduled("x_collection", timestamp));
+    expect(repository.updateRunSummary).toHaveBeenCalledExactlyOnceWith(run.id, { xCollectionScope: "pending" });
+    expect(repository.addItems).toHaveBeenCalledWith(run.id, [expect.objectContaining({
+      continuation: { handles: ["member_a"], recoveryOnly: true, recoveryAnchorAt: anchorAt },
+    })]);
   });
 
   it("plans a pending-only manual run for active handles with continuation cursors only", async () => {

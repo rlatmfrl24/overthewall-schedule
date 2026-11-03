@@ -315,7 +315,8 @@ export class ScheduledJobExecutor {
         }
         return toXCollectionOutcome(
           await runXCollectionForHandles(this.env, handles, run.source, run.scheduled_for,
-            run.source === "manual" && typeof run.summary_json === "string" && JSON.parse(run.summary_json)?.xCollectionScope === "pending"),
+            run.source === "manual" && typeof run.summary_json === "string" && JSON.parse(run.summary_json)?.xCollectionScope === "pending",
+            typeof continuation.recoveryAnchorAt === "number" ? continuation.recoveryAnchorAt : undefined),
         );
       }
       case "naver_cafe_collection": {

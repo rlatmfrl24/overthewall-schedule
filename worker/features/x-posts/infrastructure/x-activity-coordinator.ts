@@ -156,7 +156,7 @@ export class D1XActivityCoordinator {
       if(!canProcess||budget.remaining<30_000){
         await this.db.prepare("UPDATE x_activity_sites SET pause_reason='budget',resume_at=?,updated_at=? WHERE enabled=1 AND (pause_reason IS NULL OR pause_reason='budget')").bind(nextDay(),now).run();
       }else{
-        await this.db.prepare("UPDATE x_activity_sites SET pause_reason=NULL,resume_at=NULL,updated_at=? WHERE enabled=1 AND pause_reason='budget' AND resume_at<=?").bind(now,now).run();
+        await this.db.prepare("UPDATE x_activity_sites SET pause_reason=NULL,resume_at=NULL,updated_at=? WHERE enabled=1 AND pause_reason='budget'").bind(now).run();
         await this.syncSite("otw");await this.syncSite("luvdia");
       }
       const controls=await this.db.prepare("SELECT * FROM x_activity_sites").all<Control>();

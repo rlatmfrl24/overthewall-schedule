@@ -67,6 +67,38 @@ beforeEach(async()=>{
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();vi.useRealTimers();});
 
 describe("XAA multi-site collection and common money boundary",()=>{
+  it("settles each background timeline before reserving the next account",async()=>{
+    await db.prepare("UPDATE x_shared_budgets SET used=250000").run();
+    await db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(2,'second','Second','https://x.com/second')").run();
+    await db.prepare("INSERT INTO x_post_sources(handle,user_id,last_checked_at,updated_at,collection_started_at,initialization_completed_at) VALUES('second',?,0,0,1,1)").bind(peerUserId).run();
+    for(const [handle,id] of [["member",userId],["second",peerUserId]])await db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES(?,'user',?,?,?)")
+      .bind(`x:user:v1:${handle}`,JSON.stringify({user:{id,username:handle}}),Date.now(),Date.now()+86400000).run();
+    let active=0,peak=0;
+    const calls=vi.fn(async()=>{active++;peak=Math.max(peak,active);await new Promise(resolve=>setTimeout(resolve,10));active--;return json({data:[]});});
+    vi.stubGlobal("fetch",calls);
+    const result=await runXCollectionForHandles({...env,SITE_ID:"otw",X_BEARER_TOKEN:"test",X_API_GATEWAY:gateway("otw")} as never,["member","second"],"manual");
+    expect(result).toMatchObject({success:true,refreshedHandles:2});
+    expect(calls).toHaveBeenCalledTimes(2);expect(peak).toBe(1);
+    expect(await new D1SharedXBudget(db).read()).toMatchObject({used:250000,reserved:0});
+  });
+
+  it.each(["shared","site"])("fits an existing cursor to the available %s budget without changing its range",async limit=>{
+    await db.prepare("UPDATE x_shared_budgets SET used=?").bind(limit==="shared"?850000:0).run();
+    if(limit==="site")await db.prepare("UPDATE settings SET value='10' WHERE key='x_collection_daily_budget_cents'").run();
+    await db.prepare("UPDATE x_post_sources SET sync_pagination_token='existing-page',sync_base_post_id=?,sync_newest_post_id=? WHERE handle='member'").bind(baseId,postId).run();
+    await db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES('x:user:v1:member','user',?,?,?)")
+      .bind(JSON.stringify({user:{id:userId,username:"member"}}),Date.now(),Date.now()+86400000).run();
+    const calls=vi.fn(async(input:RequestInfo|URL)=>{
+      const url=new URL(String(input));expect(url.searchParams.get("max_results")).toBe(limit==="shared"?"6":"10");
+      expect(url.searchParams.get("pagination_token")).toBe("existing-page");expect(url.searchParams.get("since_id")).toBe(baseId);
+      return json({data:[]});
+    });vi.stubGlobal("fetch",calls);
+    const result=await runXCollectionForHandles({...env,SITE_ID:"otw",X_BEARER_TOKEN:"test",X_API_GATEWAY:gateway("otw")} as never,["member"],"manual");
+    expect(result).toMatchObject({success:true,pendingSources:0});expect(calls).toHaveBeenCalledTimes(1);
+    expect(await db.prepare("SELECT last_seen_post_id,sync_pagination_token FROM x_post_sources WHERE handle='member'").first()).toMatchObject({last_seen_post_id:postId,sync_pagination_token:null});
+    expect(await new D1SharedXBudget(db).read()).toMatchObject({used:limit==="shared"?850000:0,reserved:0});
+  });
+
   it("returns only the current site's member subscriptions while keeping common totals",async()=>{
     await coordinator().start("otw");await coordinator().start("luvdia");
     for(const [site,handle] of [["otw","member"],["luvdia","peer"]] as const){
@@ -118,8 +150,8 @@ describe("XAA multi-site collection and common money boundary",()=>{
     const before=await db.prepare("SELECT * FROM x_shared_budgets").all();
     const siteBefore=await db.prepare("SELECT * FROM scheduled_usage_daily").all();
     const result=await coordinator().status("otw");
-    expect(result.recovery).toMatchObject({budget:{day:new Date().toISOString().slice(0,10),targetCount:1,pageSize:optimized?5:25,
-      perPageMicros:optimized?125000:625000,firstPagesMicros:optimized?135000:635000,siteFirstPagesMicros:optimized?60000:260000,identityMicros:10000,
+    expect(result.recovery).toMatchObject({budget:{day:new Date().toISOString().slice(0,10),targetCount:1,pageSize:optimized?5:24,
+      perPageMicros:optimized?125000:600000,firstPagesMicros:optimized?135000:610000,siteFirstPagesMicros:optimized?60000:250000,identityMicros:10000,
       siteLimitMicros:1000000,sharedRemainingMicros:620000,siteRemainingMicros:350000,availableMicros:350000}});
     expect((await db.prepare("SELECT * FROM x_shared_budgets").all()).results).toEqual(before.results);
     expect((await db.prepare("SELECT * FROM scheduled_usage_daily").all()).results).toEqual(siteBefore.results);
@@ -130,7 +162,7 @@ describe("XAA multi-site collection and common money boundary",()=>{
     await db.prepare("UPDATE x_post_sources SET user_id=NULL").run();
     await db.prepare("UPDATE settings SET value='10' WHERE key='x_collection_daily_budget_cents'").run();
     await db.prepare("INSERT INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES(?,'all','x_api_cost_micros',80000,10000,100000,0)").bind(new Date().toISOString().slice(0,10)).run();
-    expect((await coordinator().status("otw")).recovery).toMatchObject({budget:{identityMicros:10000,firstPagesMicros:635000,siteFirstPagesMicros:260000,siteLimitMicros:100000,availableMicros:10000}});
+    expect((await coordinator().status("otw")).recovery).toMatchObject({budget:{identityMicros:10000,firstPagesMicros:135000,siteFirstPagesMicros:60000,siteLimitMicros:100000,availableMicros:10000}});
     expect(fetch).not.toHaveBeenCalled();
   });
   it("leaves REST preview unavailable when the common ledger is not prepared",async()=>{
@@ -211,6 +243,59 @@ describe("XAA multi-site collection and common money boundary",()=>{
     expect(await peer.prepare("SELECT id FROM x_posts WHERE id=?").bind(postId).first()).not.toBeNull();
   });
 
+  it("reuses a confirmed media response for the same post delivered as distinct events on one UTC day",async()=>{
+    await coordinator().start("otw");
+    const first=body(await tag());
+    const second={data:{...first.data,event_uuid:"second-delivery"}};
+    const calls=vi.fn(provider);vi.stubGlobal("fetch",calls);
+    for(const event of [first,second]){
+      const id=parseXActivityEvent(event)!.eventId;
+      await coordinator().accept(event);await coordinator().deliver(id);await local("otw").process(id);
+    }
+    expect(calls.mock.calls.filter(([input])=>new URL(String(input)).pathname==="/2/tweets")).toHaveLength(1);
+    expect((await db.prepare("SELECT status FROM x_activity_inbox").all()).results).toEqual([{status:"complete"},{status:"complete"}]);
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM x_shared_requests WHERE operation='tweet_lookup'").first("n")).toBe(1);
+    expect(JSON.parse((await db.prepare("SELECT value FROM x_posts WHERE id=?").bind(postId).first<string>("value"))!).media).toHaveLength(1);
+  });
+
+  it.each(["budget","provider"])("does not share a failed %s media claim with a later delivery of the same post",async reason=>{
+    await coordinator().start("otw");
+    const first=body(await tag()),second={data:{...first.data,event_uuid:"retry-delivery"}};
+    let fail=reason==="provider";
+    const calls=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      if(fail&&new URL(String(input)).pathname==="/2/tweets")return new Response(null,{status:503});
+      return provider(input,init);
+    });vi.stubGlobal("fetch",calls);
+    const firstId=parseXActivityEvent(first)!.eventId,secondId=parseXActivityEvent(second)!.eventId;
+    await coordinator().accept(first);await coordinator().deliver(firstId);
+    if(reason==="budget")await db.prepare("UPDATE x_shared_budgets SET reserved=990000").run();
+    await local("otw").process(firstId);
+    expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(firstId).first("status")).toBe("pending");
+    fail=false;await db.prepare("UPDATE x_shared_budgets SET reserved=0").run();
+    await coordinator().accept(second);await coordinator().deliver(secondId);await local("otw").process(secondId);
+    expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(secondId).first("status")).toBe("complete");
+    expect(calls.mock.calls.filter(([input])=>new URL(String(input)).pathname==="/2/tweets")).toHaveLength(reason==="budget"?1:2);
+  });
+
+  it.each(["empty", "missing_media", "wrong_author", "wrong_post", "partial_error"])("does not reuse a 200 response with %s media data for a later event",async reason=>{
+    await coordinator().start("otw");
+    const first=body(await tag()),second={data:{...first.data,event_uuid:"later-media-delivery"}};
+    let incomplete=true;
+    const calls=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      if(incomplete&&new URL(String(input)).pathname==="/2/tweets")return json(reason==="empty"?{data:[]}:
+        {data:[{id:reason==="wrong_post"?baseId:postId,author_id:reason==="wrong_author"?peerUserId:userId,attachments:{media_keys:["video"]}}],
+          ...(reason==="partial_error"?{includes:{media:[{media_key:"video",type:"video",preview_image_url:"https://pbs.twimg.com/video_thumb/1.jpg"}]},errors:[{resource_id:"video"}]}:{})});
+      return provider(input,init);
+    });vi.stubGlobal("fetch",calls);
+    const firstId=parseXActivityEvent(first)!.eventId,secondId=parseXActivityEvent(second)!.eventId;
+    await coordinator().accept(first);await coordinator().deliver(firstId);await local("otw").process(firstId);
+    expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(firstId).first("status")).toBe(reason==="partial_error"?"complete":"unavailable");
+    incomplete=false;
+    await coordinator().accept(second);await coordinator().deliver(secondId);await local("otw").process(secondId);
+    expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(secondId).first("status")).toBe("complete");
+    expect(calls.mock.calls.filter(([input])=>new URL(String(input)).pathname==="/2/tweets")).toHaveLength(2);
+  });
+
   it("uses one paid hydration for duplicate site requests and revokes an in-flight result on redaction",async()=>{
     await coordinator().start("otw");
     const event=body(await tag()),id=parseXActivityEvent(event)!.eventId;
@@ -269,6 +354,17 @@ describe("XAA multi-site collection and common money boundary",()=>{
     expect(repeated).toMatchObject({ok:true,cached:true,costMicros:0,dispatched:false});
     expect(calls).toHaveBeenCalledTimes(1);
     expect(await new D1SharedXBudget(db).read()).toMatchObject({used:920000,reserved:10000});
+  });
+
+  it("resumes budget-paused webhooks when temporary REST reservations settle, preserving user stops",async()=>{
+    await coordinator().start("otw");await coordinator().start("luvdia");await coordinator().stop("luvdia");
+    await db.prepare("UPDATE x_shared_budgets SET used=50000,reserved=925000").run();
+    await coordinator().reconcile(true);
+    expect((await coordinator().status("otw")).mode).toBe("budget_paused");expect(remote).toHaveLength(0);
+    await db.prepare("UPDATE x_shared_budgets SET reserved=0").run();
+    await coordinator().reconcile(true);
+    expect((await coordinator().status("otw")).mode).toBe("normal");expect(remote).toHaveLength(1);
+    expect((await coordinator().status("luvdia")).mode).toBe("user_paused");
   });
 
   it("records an already charged event past the goal, then resumes only budget-paused sites after UTC rollover",async()=>{

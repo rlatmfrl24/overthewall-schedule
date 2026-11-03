@@ -6,6 +6,7 @@ import { siteEnv } from "../../../test-support/site-env";
 import type { Env } from "../../../platform/types";
 import { ScheduledJobPlanner } from "./scheduled-job-planner";
 import { ScheduledJobExecutor } from "./scheduled-job-executor";
+import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
 import { handleScheduledJobQueue } from "../../../app/scheduled-queue";
 import { D1ScheduledJobRepository } from "../../../platform/scheduled-jobs";
 import { collectNaverCafePostsForSources, readEnabledNaverCafeSources } from "../../naver-cafe";
@@ -67,50 +68,65 @@ it("recovers only a pending X cursor within the shared budget without moving the
   expect((await new D1SharedXBudget(db).read()).used).toBeLessThanOrEqual(1000000);
 });
 
-it("recovers affordable X accounts and retries blocked ranges at the next 24-hour scheduled run", async () => {
+it.each([true,false].flatMap(optimized=>["used","reserved"].map(blocker=>({optimized,blocker}))))("recovers X ranges blocked by $blocker budget without moving full cadence (optimizer=$optimized)", async ({blocker,optimized}) => {
   let actual = Date.parse("2026-10-27T04:53:00Z");
   const users=["1607408138545950791","1607408138545950792"];
   vi.spyOn(Date,"now").mockImplementation(()=>actual);
   clearXServiceCachesForTests();
   await db.batch([
-    ...["x_post_references","x_post_facts","x_posts","x_post_sources","x_api_cache","x_api_usage_events","x_api_usage_daily","x_api_resource_daily","scheduled_usage_daily","x_shared_requests","x_shared_budgets"].map(table=>db.prepare("DELETE FROM "+table)),
+    ...["x_post_references","x_post_facts","x_posts","x_post_sources","x_api_cache","x_api_usage_events","x_api_usage_daily","x_api_resource_daily","scheduled_usage_daily","x_shared_requests","x_shared_budgets","scheduled_outbox","scheduled_job_items","scheduled_job_runs"].map(table=>db.prepare("DELETE FROM "+table)),
     db.prepare("UPDATE members SET url_twitter=NULL"),
     db.prepare("DELETE FROM settings WHERE key IN ('x_collection_last_run','x_collection_last_success','x_collection_cadence_state')"),
-    ...[["x_collection_enabled","true"],["x_cost_optimizer_enabled","true"],["x_collection_interval_hours","24"],["x_reference_preview_mode","link_only"],["x_collection_daily_budget_cents","100"]].map(([key,value])=>db.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key,value)),
+    ...[["x_collection_enabled","true"],["x_cost_optimizer_enabled",String(optimized)],["x_collection_interval_hours","24"],["x_reference_preview_mode","link_only"],["x_collection_daily_budget_cents","100"]].map(([key,value])=>db.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key,value)),
     ...["recovery_a","recovery_b"].flatMap((handle,i)=>[
-      db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(?,?,?,?)").bind(901790+i,handle,handle,"https://x.com/"+handle),
+      db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(?,?,?,?) ON CONFLICT(uid) DO UPDATE SET url_twitter=excluded.url_twitter").bind(901790+i,handle,handle,"https://x.com/"+handle),
       db.prepare("INSERT INTO x_post_sources(handle,user_id,last_seen_post_id,last_checked_at,next_check_at,collection_started_at,initialization_completed_at,updated_at) VALUES(?,?,?,0,0,1,1,0)").bind(handle,users[i],"2114000000000000000"),
       db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES(?,'user',?,?,?)").bind("x:user:v1:"+handle,JSON.stringify({user:{id:users[i],username:handle}}),actual,actual+30*24*hour),
     ]),
   ]);
-  await new D1SharedXBudget(db).initialize([{day:"2026-10-27",used:0,reserved:0},{day:"2026-10-27",used:875000,reserved:0}]);
+  await new D1SharedXBudget(db).initialize([{day:"2026-10-27",used:0,reserved:0},{day:"2026-10-27",used:blocker==="used"?875000:0,reserved:blocker==="reserved"?875000:0}]);
   const calls=vi.spyOn(globalThis,"fetch").mockImplementation(async input=>{
     const url=new URL(String(input));
+    if(url.hostname==="api.cloudflare.com")return Response.json({data:{viewer:{accounts:[{usage:[{sum:{rowsRead:0}}]}]}}});
     const user=url.pathname.split("/")[3],id=user==="1607408138545950791"?"2115000000000000001":"2115000000000000002";
     if(!url.pathname.endsWith("/tweets"))throw new Error("Unexpected paid lookup: "+url.pathname);
     return Response.json({data:url.searchParams.get("since_id")===id?[]:[{id,author_id:user,text:"scheduled recovery",created_at:new Date(actual-60000).toISOString()}]});
   });
-  const application={...runtime(),SITE_ID:"otw",X_BEARER_TOKEN:"local-test",X_API_GATEWAY:new D1SharedXApiGateway({db,site:"otw",token:"local-test",admitD1:async()=>true})} as Env;
-  const repository=new D1ScheduledJobRepository(db),planner=new ScheduledJobPlanner(application,repository),executor=new ScheduledJobExecutor(application,repository);
+  const messages:unknown[]=[];
+  await db.prepare("INSERT INTO settings(key,value) VALUES('scheduled_v2_x_collection_enabled','true') ON CONFLICT(key) DO UPDATE SET value=excluded.value").run();
+  const application={...runtime(),SITE_ID:"otw",CLOUDFLARE_ACCOUNT_ID:"recovery-test",CLOUDFLARE_D1_TOKEN:"local-test",X_BEARER_TOKEN:"local-test",
+    OTW_OPS_BACKGROUND_QUEUE:{send:async(body:unknown)=>{messages.push(body);}},
+    X_API_GATEWAY:new D1SharedXApiGateway({db,site:"otw",token:"local-test",admitD1:async()=>true})} as unknown as Env;
+  const repository=new D1ScheduledJobRepository(db),planner=new ScheduledJobPlanner(application,repository),coordinator=new ScheduledJobCoordinator(application);
   const execute=async()=>{
-    const run=await repository.createRun({jobType:"x_collection",source:"scheduled",idempotencyKey:"budget-recovery:"+actual,scheduledFor:actual});
-    const items=await planner.plan(run);expect(items).toHaveLength(1);
-    const item=await repository.claimItem(items[0]);expect(item).not.toBeNull();
-    const outcome=await executor.execute(item!);await repository.completeItem(item!,outcome);await executor.finalizeLegacyState(run.id);return outcome;
+    const run=await coordinator.runScheduled("x_collection",actual);expect(run).not.toBeNull();expect(messages).toHaveLength(1);
+    const message={body:messages.shift(),ack:vi.fn(),retry:vi.fn()};
+    await handleScheduledJobQueue({queue:"otw-ops-background",messages:[message]} as unknown as MessageBatch<unknown>,application);
+    expect(message.ack).toHaveBeenCalledOnce();expect(message.retry).not.toHaveBeenCalled();
+    const item=await db.prepare("SELECT result_json FROM scheduled_job_items WHERE run_id=?").bind(run!.id).first<string>("result_json");
+    return {result:JSON.parse(item!),run:await repository.readRun(run!.id)};
   };
   const first=await execute();
   expect(first.result).toMatchObject({refreshedHandles:1,error:"budget_exceeded"});
-  expect(calls).toHaveBeenCalledTimes(1);
+  expect(calls.mock.calls.filter(([input])=>new URL(String(input)).hostname==="api.x.com")).toHaveLength(1);
   const blocked=await db.prepare("SELECT handle,last_seen_post_id FROM x_post_sources WHERE last_error_code='budget_exceeded'").first<{handle:string;last_seen_post_id:string}>();
   expect(blocked?.last_seen_post_id).toBe("2114000000000000000");
   expect(await db.prepare("SELECT COUNT(*) AS n FROM x_posts").first("n")).toBe(1);
-  actual=Date.parse("2026-10-28T00:01:00Z");
+  const cadence=await db.prepare("SELECT value FROM settings WHERE key='x_collection_cadence_state'").first("value");
+  actual+=30*60_000;
   expect(await planner.planScheduled("x_collection",actual)).toEqual([]);
-  actual=Date.parse("2026-10-28T04:53:00Z")+1;
-  await execute();
+  if(blocker==="used"){
+    actual=Date.parse("2026-10-28T00:01:00Z");
+    await new D1SharedXBudget(db).ensureDay();
+  }else await db.prepare("UPDATE x_shared_budgets SET reserved=0").run();
+  expect(await planner.planScheduled("x_collection",actual)).toMatchObject([{continuation:{handles:[blocked!.handle],recoveryOnly:true}}]);
+  const recovered=await execute();
+  expect(recovered.run?.status).toBe("succeeded");
+  expect(JSON.parse(recovered.run!.summary_json!)).toMatchObject({xCollectionScope:"pending"});
   expect(await db.prepare("SELECT COUNT(*) AS n FROM x_posts").first("n")).toBe(2);
   expect(await db.prepare("SELECT last_error_code FROM x_post_sources WHERE handle=?").bind(blocked!.handle).first("last_error_code")).toBeNull();
-  expect(await new D1SharedXBudget(db).read()).toMatchObject({day:"2026-10-28",reserved:0,used:5000});
+  expect(await new D1SharedXBudget(db).read()).toMatchObject({day:blocker==="used"?"2026-10-28":"2026-10-27",reserved:0,used:blocker==="used"?5000:10000});
+  expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_cadence_state'").first("value")).toBe(cadence);
 });
 
 it.each(["otw", "luvdia"] as const)("keeps the newer X slot due after an older retry finishes last on %s", async site => {
@@ -506,4 +522,39 @@ it("seeks YouTube policy membership without changing fenced metadata candidates"
   } finally {
     await db.prepare(index!.sql.replace("CREATE INDEX", "CREATE INDEX IF NOT EXISTS")).run();
   }
+});
+
+it.each([true,false])("includes a recovered source in the next full daily collection (optimizer=%s)",async optimized=>{
+ const full=Date.parse("2026-11-01T01:00:00Z"), recoveredAt=full+2*hour;
+ let actual=recoveredAt;vi.spyOn(Date,"now").mockImplementation(()=>actual);
+ clearXServiceCachesForTests();clearActiveXHandlesCacheForTests();
+ const day=new Date(actual).toISOString().slice(0,10), user="1607408138545950791";
+ await db.batch([
+  ...["scheduled_outbox","scheduled_job_items","scheduled_job_runs","x_shared_requests","x_shared_budgets","scheduled_usage_daily","x_post_references","x_post_facts","x_posts","x_post_sources","x_api_cache","x_api_usage_events","x_api_usage_daily","x_api_resource_daily"].map(table=>db.prepare("DELETE FROM "+table)),
+  db.prepare("UPDATE members SET url_twitter=NULL"),
+  db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(990003,'review_member','Review member','https://x.com/review_member') ON CONFLICT(uid) DO UPDATE SET url_twitter=excluded.url_twitter"),
+  ...[["x_collection_enabled","true"],["x_cost_optimizer_enabled",String(optimized)],["x_collection_interval_hours","24"],["x_reference_preview_mode","link_only"],["x_collection_daily_budget_cents","100"],["scheduled_v2_x_collection_enabled","true"],["x_collection_last_run",String(full)],["x_collection_cadence_state",JSON.stringify({completedAt:full,anchorAt:full})]].map(([key,value])=>db.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key,value)),
+  db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,last_attempt_at,last_success_at,next_check_at,updated_at,collection_started_at,initialization_completed_at,last_error,last_error_code,consecutive_failures) VALUES('review_member',?,'review_member','2114000000000000000',?,?,?,?,?,1,1,'budget_exceeded','budget_exceeded',1)").bind(user,full,full,full-24*hour,full+15*60_000,full),
+  db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES('x:user:v1:review_member','user',?,?,?)").bind(JSON.stringify({user:{id:user,username:"review_member"}}),actual,actual+72*hour),
+ ]);
+ await new D1SharedXBudget(db).initialize([{day,used:0,reserved:0},{day,used:0,reserved:0}]);
+ const messages:unknown[]=[];let timelineCalls=0;
+ vi.spyOn(globalThis,"fetch").mockImplementation(async input=>{
+  const url=new URL(String(input));
+  if(url.hostname==="api.cloudflare.com")return Response.json({data:{viewer:{accounts:[{usage:[{sum:{rowsRead:0}}]}]}}});
+  if(url.pathname==="/2/users/"+user+"/tweets"){timelineCalls++;return Response.json({data:[]});}
+  throw new Error("Unexpected external boundary "+url);
+ });
+ const application={...runtime(),CLOUDFLARE_ACCOUNT_ID:"review-local",CLOUDFLARE_D1_TOKEN:"test",X_BEARER_TOKEN:"test",OTW_OPS_BACKGROUND_QUEUE:{send:async(body:unknown)=>{messages.push(body);}},X_API_GATEWAY:new D1SharedXApiGateway({db,site:"otw",token:"test",admitD1:async()=>true})} as unknown as Env;
+ const coordinator=new ScheduledJobCoordinator(application), planner=new ScheduledJobPlanner(application,new D1ScheduledJobRepository(db));
+ const execute=async()=>{const run=await coordinator.runScheduled("x_collection",actual);expect(run).not.toBeNull();expect(messages).toHaveLength(1);const message={body:messages.shift(),ack:vi.fn(),retry:vi.fn()};await handleScheduledJobQueue({queue:"otw-ops-background",messages:[message]} as unknown as MessageBatch<unknown>,application);expect(message.ack).toHaveBeenCalledOnce();expect(message.retry).not.toHaveBeenCalled();};
+ await execute();expect(timelineCalls).toBe(1);
+ const afterRecovery=await db.prepare("SELECT last_error_code,sync_pagination_token,next_check_at,cadence_anchor_at FROM x_post_sources WHERE handle='review_member'").first();
+ actual=full+24*hour;await new D1SharedXBudget(db).ensureDay();await execute();
+ const nextFullCalls=timelineCalls;
+ actual=recoveredAt+24*hour;
+ const atSourceDue=await planner.planScheduled("x_collection",actual);
+ expect(afterRecovery).toMatchObject({next_check_at:full+24*hour});
+ expect(atSourceDue).toEqual([]);
+ expect(nextFullCalls,"next full daily collection must include the recovered source").toBe(2);
 });

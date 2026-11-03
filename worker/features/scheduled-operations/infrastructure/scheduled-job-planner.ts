@@ -17,6 +17,7 @@ import {
 import {
   getScheduledXCollectionDecision,
   readActiveXHandles,
+  readDueXRecoveryHandles,
 } from "../../x-posts";
 import { hasScheduledYouTubeFeedWork } from "../../youtube";
 import { editableCollectorSql, publicationHiddenSql } from "../../content-access";
@@ -49,14 +50,22 @@ const planXCollection = async (
     `SELECT value FROM settings WHERE key = 'x_collection_enabled'`,
   ).first<{ value: string | null }>();
   if (rows?.value === "false") return [];
-  if (source === "scheduled") {
+  let handles = await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID));
+  let recoveryOnly = false;
+  let recoveryAnchorAt: number | undefined;
+  if (source === "scheduled" || pendingOnly) {
     const decision = await getScheduledXCollectionDecision(
       getDb(env),
       timestamp,
     );
-    if (!decision.shouldRun) return [];
+    if (pendingOnly || !decision.shouldRun) {
+      recoveryAnchorAt = decision.lastRun > 0 ? timestamp - decision.elapsedMs : undefined;
+    }
+    if (source === "scheduled" && !decision.shouldRun) {
+      handles = await readDueXRecoveryHandles(env,handles,timestamp);
+      recoveryOnly = true;
+    }
   }
-  let handles = await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID));
   if (pendingOnly && handles.length) {
     const pending = await env.otw_db.prepare("SELECT handle FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_pagination_token IS NOT NULL")
       .bind(JSON.stringify(handles)).all<{handle:string}>();
@@ -67,7 +76,8 @@ const planXCollection = async (
     targetKey: `handles:${index}:${shard.join(",")}`,
     phase: "collect",
     lane: "x",
-    continuation: { handles: shard },
+    continuation: { handles: shard, ...(recoveryOnly ? { recoveryOnly: true } : {}),
+      ...(recoveryAnchorAt !== undefined ? { recoveryAnchorAt } : {}) },
   }));
 };
 
@@ -298,6 +308,13 @@ export class ScheduledJobPlanner {
       run.source,
       timestamp,
     );
+    return this.addPlannedItems(run, items);
+  }
+
+  async addPlannedItems(run: ScheduledJobRunRecord, items: NewScheduledItem[]) {
+    if (run.job_type === "x_collection" && items.some(item=>item.continuation?.recoveryOnly)) {
+      await this.repository.updateRunSummary(run.id, { xCollectionScope: "pending" });
+    }
     return this.repository.addItems(run.id, items);
   }
 }

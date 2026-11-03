@@ -88,7 +88,7 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
           <div><dt className="text-xs text-muted-foreground">최근 실행 저장</dt><dd className="mt-1 text-xl font-semibold">{known.length ? known.reduce((sum, item) => sum + item.collection!.postsStored, 0) : "—"}<span className="ml-1 text-xs font-normal">건</span></dd></div>
           <div><dt className="text-xs text-muted-foreground">실행 유형</dt><dd className="mt-1 font-medium">{latestRun ? runType(latestRun) : "기록 없음"}</dd></div>
           <div><dt className="text-xs text-muted-foreground">최근 실행</dt><dd className="mt-1 font-medium">{formatXTime(latestRun?.startedAt ?? latestRun?.acceptedAt)}</dd></div>
-          <div><dt className="text-xs text-muted-foreground">다음 수집 가능</dt><dd className="mt-1 break-keep font-medium">{!enabled ? "자동 수집 중지" : error || loading || !x ? "확인 불가" : formatXEligibility(x.nextEligibleAt)}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">다음 전체 점검 가능</dt><dd className="mt-1 break-keep font-medium">{!enabled ? "자동 수집 중지" : error || loading || !x ? "확인 불가" : formatXEligibility(x.nextEligibleAt)}</dd></div>
         </dl>
         {Array.from(new Set(known.flatMap((item) => item.collection?.error ? [item.collection.error] : []))).map((reason) => <p key={reason} className="text-[13px]">{xReasonLabel(reason)}</p>)}
         <section aria-label="REST 실행 전 예산" className="space-y-2 border-t pt-2 text-[13px]">
@@ -105,7 +105,7 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
           </>:<p>{activity.isPending?"REST 예산 산정 중":"REST 필요액·잔여액 확인 불가 · 웹훅 상태와 공통 장부를 새로고침해주세요."}</p>}
           <p className="text-xs text-muted-foreground">조회 시점의 첫 요청 예약 합계이며 한 번에 차감하는 금액이 아닙니다. 공통·사이트 기준을 각각 비교하고 별도 배정 없이 요청별 예약·정산합니다. 유효한 계정 캐시는 재조회하지 않으며 실제 비용은 응답량에 따라 다릅니다. 추가 페이지·인용 원문 보강 비용은 별도입니다.</p>
         </section>
-        <p className="mt-auto border-t pt-2 text-[13px]"><span className="mr-2 text-xs text-muted-foreground">REST 누락 복구</span>{error || loading || !x ? "설정 확인 불가" : (enabled ? "활성" : "중지") + " · " + x.intervalHours + "시간 주기"}</p>
+        <p className="mt-auto border-t pt-2 text-[13px]"><span className="mr-2 text-xs text-muted-foreground">REST 누락 복구</span>{error || loading || !x ? "설정 확인 불가" : (enabled ? "활성" : "중지") + " · 전체 점검 " + x.intervalHours + "시간 주기"}{enabled&&<span className="mt-1 block text-muted-foreground">미완료 계정은 예산과 재시도 시각에 따라 별도로 이어 수집합니다.</span>}</p>
         </CardContent>
       </Card>
       <XReferenceHealth />
