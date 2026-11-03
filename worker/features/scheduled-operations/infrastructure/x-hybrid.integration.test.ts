@@ -17,7 +17,7 @@ beforeEach(async () => {
   await db.batch([
     ...["scheduled_outbox", "scheduled_job_items", "scheduled_job_runs", "x_post_references", "x_post_facts", "x_posts", "x_fx_sources", "x_post_sources", "x_api_cache", "x_shared_requests", "x_shared_budgets", "members"].map(table => db.prepare(`DELETE FROM ${table}`)),
     ...[["x_collection_enabled", "true"], ["x_collection_primary_source", "fxembed"], ["x_collection_interval_hours", "24"], ["x_cost_optimizer_enabled", "true"], ["x_reference_preview_mode", "link_only"], ["x_collection_daily_budget_cents", "100"], ["x_collection_last_run", String(time - 2 * hour)]].map(([key, value]) => db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)").bind(key, value)),
-    db.prepare("DELETE FROM settings WHERE key IN ('x_api_backoff_until','x_collection_cadence_state')"),
+    db.prepare("DELETE FROM settings WHERE key IN ('x_api_backoff_until','x_collection_cadence_state','x_collection_hybrid_policy','x_collection_hybrid_activated_at')"),
     ...["member_a", "member_b"].flatMap((handle, i) => [
       db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(?,?,?,?)").bind(i + 1, handle, handle, `https://x.com/${handle}`),
       db.prepare("INSERT INTO x_post_sources(handle,user_id,last_checked_at,updated_at,collection_started_at,last_completed_at,next_check_at,last_seen_post_id) VALUES(?,?,0,0,1,?,?, '100')").bind(handle, String(101 + i), time - 3 * hour, time + 21 * hour),
@@ -29,6 +29,39 @@ beforeEach(async () => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const plans = () => new ScheduledJobPlanner(runtime(), new D1ScheduledJobRepository(db)).planScheduled("x_collection", time);
+it.each(["pending", "rss"])("carries %s recovery deadline into paid admission despite adverse item IDs", async urgency => {
+  await db.batch([
+    db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_collection_hybrid_policy','rss_v1'),('x_collection_hybrid_activated_at','1')"),
+    db.prepare("UPDATE x_fx_sources SET cadence_anchor_at=?,rss_cadence_anchor_at=?").bind(time,time),
+    db.prepare("UPDATE x_post_sources SET regular_completed_at=?,last_completed_at=?,next_check_at=0").bind(time-13*hour,time-13*hour),
+  ]);
+  const repository = new D1ScheduledJobRepository(db);
+  if (urgency === "pending") await db.prepare("UPDATE x_post_sources SET sync_origin_started_at=?,sync_origin_scope='regular',sync_pagination_token='pending' WHERE handle='member_b'").bind(time-23*hour).run();
+  else {
+    const old = await repository.createRun({jobType:"x_collection",source:"scheduled",idempotencyKey:"old-rss"});
+    const [id] = await repository.addItems(old.id,[{targetKey:"rss",phase:"collect",lane:"x",continuation:{provider:"fxembed",mode:"rss_candidates",scope:"pending",handles:["member_b"],phase:"hydrate",nextAttemptAt:null,candidates:[{id:"777",stage:"official",firstSeenAt:time-23*hour,createdAtHint:time-23*hour,attempts:2,nextAttemptAt:0,error:null}]}}]);
+    await repository.completeItem((await repository.claimItem(id))!,{status:"partial"});
+    await db.prepare("UPDATE x_fx_sources SET rss_pending_item_id=? WHERE handle='member_b'").bind(id).run();
+  }
+  const run = await repository.createRun({jobType:"x_collection",source:"scheduled",idempotencyKey:"ordered-paid",scheduledFor:time});
+  const items = await new ScheduledJobPlanner(runtime(),repository).plan(run);
+  const rows = await Promise.all(items.map(id => repository.readItem(id)));
+  const high = rows.find(row => JSON.parse(row!.continuation_json!).handles[0] === "member_b")!;
+  const low = rows.find(row => JSON.parse(row!.continuation_json!).handles[0] === "member_a")!;
+  await db.prepare("UPDATE scheduled_outbox SET id=CASE item_id WHEN ? THEN 'a-low' ELSE 'z-high' END WHERE run_id=?").bind(low.id,run.id).run();
+  expect((await repository.claimPendingOutbox(run.id)).map(row=>row.item_id)).toEqual([high.id]);
+  expect(await repository.claimItem(low.id)).toBeNull();
+  const admitted: string[] = [];
+  vi.stubGlobal("fetch",vi.fn(async (input:RequestInfo|URL) => {
+    const url=new URL(String(input));
+    if(url.pathname.includes("/tweets")){admitted.push(url.pathname);return Response.json({data:[]});}
+    throw new Error(`Unexpected upstream ${url}`);
+  }));
+  await db.prepare("UPDATE x_shared_budgets SET used=875000").run();
+  const claimed=(await repository.claimItem(high.id))!;
+  await repository.completeItem(claimed,await new ScheduledJobExecutor(runtime(),repository).execute(claimed));
+  expect(admitted[0]).toBe("/2/users/102/tweets");
+});
 it("keeps an empty official timeline cursor independent from stored Fx posts", async () => {
   await db.prepare("UPDATE settings SET value=? WHERE key='x_collection_last_run'").bind(String(time-25*hour)).run();
   await db.prepare("UPDATE x_fx_sources SET cadence_anchor_at=?").bind(time).run();

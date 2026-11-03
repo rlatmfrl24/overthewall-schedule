@@ -321,6 +321,7 @@ it("preserves regular origin across budget exhaustion while a due peer completes
     db.prepare("INSERT INTO x_shared_budgets(day,used,reserved,limit_value,seed_detail,updated_at) VALUES(?,0,875000,1000000,'{}',0)").bind(day),
   ]);
   const inspector = await introspectWorkflow(bindings.NATIVE_SCHEDULED_WORKFLOW);
+  await db.exec("CREATE TRIGGER adverse_priority_ids AFTER INSERT ON scheduled_outbox WHEN NEW.event_type='execute' BEGIN UPDATE scheduled_outbox SET id=CASE WHEN (SELECT json_extract(continuation_json,'$.handles[0]') FROM scheduled_job_items WHERE id=NEW.item_id)='native_peer' THEN 'a-' ELSE 'z-' END || NEW.id WHERE id=NEW.id; END;");
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => bindings.NATIVE_WORKFLOW_PROVIDER.fetch(input,init));
   const runtime = { ...bindings, ...siteEnv(), CLOUDFLARE_ACCOUNT_ID: "native-test", CLOUDFLARE_D1_TOKEN: "native-test", SCHEDULED_OPERATIONS_WORKFLOW: bindings.NATIVE_SCHEDULED_WORKFLOW } as unknown as Env;
   const tick = async (at: number) => {
@@ -330,6 +331,8 @@ it("preserves regular origin across budget exhaustion while a due peer completes
   };
   try {
     await tick(slot);
+    const firstCalls = await (await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/calls")).json<string[]>();
+    expect(firstCalls.find(call => call.includes("/tweets"))).toContain("/1000000000001/tweets");
     expect(await db.prepare("SELECT sync_pagination_token,sync_origin_scope,regular_completed_at FROM x_post_sources WHERE handle='native_collect'").first()).toEqual({ sync_pagination_token: "native-page-2", sync_origin_scope: "regular", regular_completed_at: slot - 13 * hour });
     expect(await db.prepare("SELECT count(*) n FROM scheduled_job_items WHERE json_extract(continuation_json,'$.provider')='x_api' AND json_extract(continuation_json,'$.scope')='regular'").first("n")).toBe(2);
     const incurred = await db.prepare("SELECT used,reserved FROM x_shared_budgets WHERE day=?").bind(day).first();
@@ -354,7 +357,7 @@ it("preserves regular origin across budget exhaustion while a due peer completes
     expect(calls.filter(call => call.includes("/1000000000002/tweets"))).toHaveLength(1);
     expect(calls.some(call => call.includes("pagination_token=native-page-2"))).toBe(true);
     expect(Number(await db.prepare("SELECT used FROM x_shared_budgets WHERE day=?").bind(day).first("used"))).toBeGreaterThan(Number(incurred!.used));
-  } finally { vi.unstubAllGlobals(); await inspector.dispose(); }
+  } finally { await db.exec("DROP TRIGGER IF EXISTS adverse_priority_ids;"); vi.unstubAllGlobals(); await inspector.dispose(); }
 }, 90_000);
 
 it("budget_blocked_candidate_plan_creates_no_item or run through ordinary native Cron", async () => {

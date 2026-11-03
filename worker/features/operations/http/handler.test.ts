@@ -40,6 +40,19 @@ const handleOperations = createOperationsHandler({
     ),
 });
 
+it.each([200, 401, 403])("forwards INSERT evidence only through authorized admin run readback (%s)", async status => {
+  const newlyStoredPosts = [{ id: "201", createdAt: "2026-11-03T00:00:00.000Z", storedAt: 1793664000000 }];
+  const getRun = vi.fn(async () => ({ runId: "rss-run", xCollection: { items: [{ collection: { newlyStoredPosts } }] } }));
+  const getApplication = vi.fn(() => ({ getRun }) as never);
+  requireAdminUserMock.mockResolvedValueOnce(status === 200 ? { ok: true, user: { id: "admin" } } : { ok: false, response: new Response("denied", { status }) });
+  const response = await createOperationsHandler({ getApplication })(new Request("https://example.com/api/operations/runs/rss-run"), {} as Env);
+  expect(response.status).toBe(status);
+  if (status === 200) {
+    expect(await response.json()).toMatchObject({ xCollection: { items: [{ collection: { newlyStoredPosts } }] } });
+    expect(getRun).toHaveBeenCalledWith("rss-run");
+  } else expect(getApplication).not.toHaveBeenCalled();
+});
+
 const makeStatement = <T,>(rows: T[]) => {
   const statement = {
     bind: vi.fn(() => statement),

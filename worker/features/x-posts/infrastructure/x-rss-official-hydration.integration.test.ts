@@ -110,10 +110,11 @@ it.each(["new", "repair", "durable"])("free RSS %s preserves actual INSERT evide
   const outcome = await new ScheduledJobExecutor(measuredRuntime, repository).execute(scan.item);
   await repository.completeItem(scan.item, outcome);
   const evidence = JSON.parse((await repository.readItem(scan.item.id))!.result_json!);
+  expect((await repository.readRunDto(scan.item.run_id))?.xCollection?.items[0]?.collection?.newlyStoredPosts).toEqual(evidence.newlyStoredPosts);
   expect(evidence).toMatchObject({ freeApiCalls: mode === "durable" ? 0 : 5, paidApiCalls: 0 });
   expect(evidence.newlyStoredPosts).toEqual(mode === "new" ? ids.map(id => ({ id, createdAt: new Date(Math.floor(now / 1000) * 1000).toISOString(), storedAt: now })) : []);
   if (mode === "durable") expect(meter.entries.filter(entry => /^\s*(INSERT|UPDATE|DELETE)/i.test(entry.sql) && /(?:INTO|UPDATE|FROM)\s+x_post(?:s|_facts|_references)\b/i.test(entry.sql))).toEqual([]);
-  console.log(`RSS_PROFILE_${mode}`, JSON.stringify(meter.summary()));
+  console.log(`RSS_PROFILE_${mode}`, JSON.stringify({ ...meter.summary(), bindingCalls: meter.bindingCalls }));
   const selectors = meter.entries.filter(entry => /SELECT id FROM x_posts WHERE id IN/.test(entry.sql));
   expect(selectors.length).toBeGreaterThan(0);
   const before = [];
@@ -177,6 +178,17 @@ it("budget_blocked_candidate_plan_creates_no_item while mixed free work remains 
   const mixed = state([...candidates(), { ...candidates(["203"])[0]!, stage: "free", attempts: 1 }]);
   await db.prepare("UPDATE scheduled_job_items SET continuation_json=? WHERE id=?").bind(JSON.stringify(mixed), entry.item.id).run();
   expect(await readDueFxRssCollectionTargets(runtime, now)).toHaveLength(1);
+});
+
+it("carries oldest RSS deadline through continuation copy and final checkpoint", async () => {
+  const original = await create(state(candidates().map((candidate, index) => ({ ...candidate, firstSeenAt: now - (index ? 23 : 2) * 3_600_000 }))));
+  await original.repo.completeItem(original.item, { status: "partial" });
+  const [continuation] = await readDueFxRssCollectionTargets(runtime, now);
+  expect(continuation.executionPriority).toEqual({ deadlineAt: now + 3_600_000, lastAttemptAt: 0, key: "member:1-rss" });
+  const resumed = await create(continuation);
+  await db.prepare("UPDATE x_fx_sources SET rss_pending_item_id=?").bind(original.item.id).run();
+  expect((await runFxRssCollectionItem(runtime, resumed.item, resumed.input, resumed.repo)).status).toBe("complete");
+  expect(JSON.parse((await resumed.repo.readItem(resumed.item.id))!.continuation_json!).executionPriority).toEqual(continuation.executionPriority);
 });
 
 it("retries only absent IDs at the next tick after a processed HTTP partial response, before 24h", async () => {

@@ -11,6 +11,7 @@ import {
   scheduledJobTypes,
 } from "@contracts/scheduled-operations";
 import { toXCollectionOperationItem, type XCollectionItemEvidence } from "./x-collection-run-read-model";
+import { executionPriorityReadySql, hasExecutionPrioritySql } from "./item-execution-priority";
 import {
   SCHEDULED_D1_READ_DAILY_TARGET,
   SCHEDULED_D1_WRITE_DAILY_TARGET,
@@ -276,6 +277,8 @@ const pendingOutboxSelection = (scopedToRun: boolean) => `
     AND o.available_at <= ?
     AND (
       (o.event_type = 'execute' AND i.status = 'queued' AND r.status IN ('queued','running')
+        AND (NOT COALESCE(${hasExecutionPrioritySql("i")},0) OR i.available_at<=?)
+        AND ${executionPriorityReadySql("i")}
         AND ${autoUpdatePhaseReadySql("i","r")})
       OR (o.event_type = 'reconcile' AND o.reconciled_at IS NULL
         AND i.status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled'))
@@ -521,6 +524,9 @@ export class D1ScheduledJobRepository {
           runId,
           now,
           now,
+          now,
+          now,
+          now,
           limit,
         ).all<{
           id: string;
@@ -533,6 +539,9 @@ export class D1ScheduledJobRepository {
       : await statement.bind(
           leaseToken,
           now + SCHEDULED_JOB_LEASE_MS,
+          now,
+          now,
+          now,
           now,
           now,
           now,
@@ -551,7 +560,7 @@ export class D1ScheduledJobRepository {
   async hasRecoveryWork(now = this.clock()) {
     const cutoff = now - SCHEDULED_QUEUE_DELIVERY_RECOVERY_MS;
     const results = await this.db.batch([
-      this.db.prepare(pendingOutboxSelection(false)).bind(now, now, 1),
+      this.db.prepare(pendingOutboxSelection(false)).bind(now, now, now, now, now, 1),
       this.db.prepare(expiredDeliverySelection).bind(now, cutoff, 1),
       this.db.prepare(
         `SELECT i.id ${missingDeliveryConditions} LIMIT 1`,
@@ -631,7 +640,7 @@ export class D1ScheduledJobRepository {
        SET status = 'dispatched', dispatched_at = ?, updated_at = ?,
            available_at=CASE WHEN event_type='reconcile' AND reconciled_at IS NULL THEN ? ELSE available_at END,
            lease_token = NULL, lease_until = NULL
-       WHERE id = ?`,
+       WHERE id = ? AND status='dispatching'`,
     ).bind(now, now, now+SCHEDULED_QUEUE_DELIVERY_RECOVERY_MS, outboxId).run();
   }
 
@@ -748,6 +757,9 @@ export class D1ScheduledJobRepository {
            updated_at = ?
        WHERE id = ?
          AND (status = 'queued' OR (status = 'running' AND lease_until < ?))
+         AND (NOT COALESCE(${hasExecutionPrioritySql("scheduled_job_items")},0) OR (available_at<=?
+           AND EXISTS(SELECT 1 FROM scheduled_job_runs current WHERE current.id=scheduled_job_items.run_id AND current.status IN ('queued','running'))))
+         AND ${executionPriorityReadySql("scheduled_job_items")}
          AND EXISTS(SELECT 1 FROM scheduled_job_runs r WHERE r.id=scheduled_job_items.run_id
            AND ${autoUpdatePhaseReadySql("scheduled_job_items","r")})
        RETURNING id, run_id, target_key, phase, lane, status, attempts,
@@ -761,7 +773,20 @@ export class D1ScheduledJobRepository {
       now,
       itemId,
       now,
+      now,
+      now,
+      now,
     ).first<ScheduledJobItemRecord>();
+  }
+
+  async rearmDeferredPriorityItem(itemId: string) {
+    const now = this.clock();
+    const result = await this.db.prepare(`UPDATE scheduled_outbox SET status='pending',available_at=MAX(?,(SELECT available_at FROM scheduled_job_items WHERE id=?)),
+      dispatched_at=NULL,lease_token=NULL,lease_until=NULL,updated_at=?
+      WHERE item_id=? AND event_type='execute' AND EXISTS(SELECT 1 FROM scheduled_job_items i JOIN scheduled_job_runs r ON r.id=i.run_id
+        WHERE i.id=? AND i.status='queued' AND r.status IN ('queued','running') AND ${hasExecutionPrioritySql("i")})`)
+      .bind(now,itemId,now,itemId,itemId).run();
+    return Number(result.meta.changes ?? 0) > 0;
   }
 
   async readItem(itemId: string) {

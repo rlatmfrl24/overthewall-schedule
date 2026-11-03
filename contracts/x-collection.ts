@@ -14,6 +14,7 @@ export type XNewlyStoredPost = { id: string; createdAt: string; storedAt: number
 export type FxRssExcludedCandidate = { id: string; reason: "wrong_author" | "repost" | "before_start" };
 export type FxRssPaidBatch = { day: string; ids: string[]; requestId: string };
 export type FxRssContinuation = {
+  executionPriority?: import("./scheduled-operations").ScheduledExecutionPriority;
   provider: "fxembed"; mode: "rss_candidates"; scope: "regular" | "pending"; handles: [string];
   phase: "fetch" | "hydrate"; candidates: FxRssCandidate[]; nextAttemptAt: number | null; resumeFromItemId?: string | null; paidBatch?: FxRssPaidBatch | null;
 };

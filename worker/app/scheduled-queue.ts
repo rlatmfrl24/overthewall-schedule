@@ -122,6 +122,9 @@ export const handleScheduledJobQueue = async (
     if (!item) {
       const existing = await repository.readItem(message.body.itemId);
       if (!existing || !isTerminalItemStatus(existing.status)) {
+        if (existing?.status === "queued" && await repository.rearmDeferredPriorityItem(existing.id)) {
+          await coordinator.dispatchRun(existing.run_id);
+        }
         message.ack();
         continue;
       }

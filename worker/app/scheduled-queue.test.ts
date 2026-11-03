@@ -5,6 +5,7 @@ import type { Env } from "../platform/types";
 const mocks = vi.hoisted(() => ({
   claimItem: vi.fn(),
   readItem: vi.fn(),
+  rearmDeferredPriorityItem: vi.fn(),
   completeItem: vi.fn(),
   releaseItemForRetry: vi.fn(),
   reserveQueueOperations: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock("../platform/scheduled-jobs", () => ({
   D1ScheduledJobRepository: class {
     claimItem = mocks.claimItem;
     readItem = mocks.readItem;
+    rearmDeferredPriorityItem = mocks.rearmDeferredPriorityItem;
     completeItem = mocks.completeItem;
     releaseItemForRetry = mocks.releaseItemForRetry;
     reserveQueueOperations = mocks.reserveQueueOperations;
@@ -47,6 +49,19 @@ vi.mock("../features/scheduled-operations", () => ({
 import { handleScheduledJobQueue } from "./scheduled-queue";
 
 describe("scheduled job queue", () => {
+  it("rearms a priority-deferred delivery before acknowledging and redispatches the run", async () => {
+    mocks.claimItem.mockResolvedValue(null);
+    mocks.readItem.mockResolvedValue({ id: "low", run_id: "ranked", status: "queued" });
+    mocks.rearmDeferredPriorityItem.mockResolvedValue(true);
+    const message = { body: { schemaVersion: 1, messageType: "scheduled_job_item", runId: "ranked", itemId: "low", phase: "collect" }, ack: vi.fn(), retry: vi.fn() };
+    await handleScheduledJobQueue({ queue: "background", messages: [message] } as unknown as MessageBatch<unknown>, { ...siteEnv() } as Env);
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.rearmDeferredPriorityItem).toHaveBeenCalledWith("low");
+    expect(mocks.dispatchRun).toHaveBeenCalledWith("ranked");
+    expect(mocks.rearmDeferredPriorityItem.mock.invocationCallOrder[0]).toBeLessThan(message.ack.mock.invocationCallOrder[0]);
+    expect(message.ack).toHaveBeenCalledOnce();
+    expect(message.retry).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.resetAllMocks();
     const item = {

@@ -44,7 +44,11 @@ export async function readDueFxRssCollectionTargets(env: Env, timestamp: number)
           const stored = await readStoredRssCandidateIds(env.otw_db, state.candidates.map(candidate => candidate.id));
           if (stored.length !== state.candidates.length && !(await prepareOfficialRssBatch(env, row.handle, state.candidates, state.paidBatch ?? null)).batch) continue;
         }
-        targets.push({ ...state, scope: "pending" as const, resumeFromItemId: row.rss_pending_item_id });
+        targets.push({ ...state, scope: "pending" as const, resumeFromItemId: row.rss_pending_item_id,
+          ...(state.candidates.some(candidate => candidate.stage === "official" || candidate.attempts >= 1) ? { executionPriority: {
+            deadlineAt: Math.min(...state.candidates.map(candidate => candidate.firstSeenAt + 24 * 3_600_000)),
+            lastAttemptAt: row.rss_last_attempt_at ?? 0, key: `${row.handle}:1-rss`,
+          } } : {}) });
       } catch { /* Invalid snapshots remain pending for inspection. */ }
       continue;
     }

@@ -37,6 +37,60 @@ beforeEach(async () => {
 });
 
 describe("D1 scheduled job state machine", () => {
+  it("admits only the highest-priority eligible paid item despite adverse IDs and reordered delivery", async () => {
+    const repo = createRepository(), run = await repo.createRun({ jobType: "x_collection", source: "scheduled", idempotencyKey: "ranked" });
+    const [low, high, free] = await repo.addItems(run.id, [
+      { targetKey: "a-low", lane: "x", phase: "collect", continuation: { executionPriority: { deadlineAt: timestamp + 1000, lastAttemptAt: 0, key: "low" } } },
+      { targetKey: "z-high", lane: "x", phase: "collect", continuation: { executionPriority: { deadlineAt: timestamp, lastAttemptAt: 0, key: "high" } } },
+      { targetKey: "free", lane: "x", phase: "collect" },
+    ]);
+    await db.prepare("UPDATE scheduled_outbox SET id=CASE item_id WHEN ? THEN 'a-low' WHEN ? THEN 'z-high' ELSE 'free' END").bind(low, high).run();
+    const exposed = await repo.claimPendingOutbox(run.id);
+    expect(new Set(exposed.map(row => row.item_id))).toEqual(new Set([high, free]));
+    expect(await repo.claimItem(low)).toBeNull();
+    await db.prepare("UPDATE scheduled_outbox SET status='dispatched',dispatched_at=? WHERE item_id=?").bind(timestamp,low).run();
+    expect(await repo.rearmDeferredPriorityItem(low)).toBe(true);
+    await repo.markOutboxDispatched("a-low");
+    expect(await db.prepare("SELECT status FROM scheduled_outbox WHERE item_id=?").bind(low).first("status")).toBe("pending");
+    const claimed = (await repo.claimItem(high))!;
+    expect(claimed).not.toBeNull();
+    expect(await repo.claimItem(low)).toBeNull();
+    await repo.checkpointItemContinuation(claimed, { ...JSON.parse(claimed.continuation_json!), phase: "hydrate" }, {});
+    expect(JSON.parse((await repo.readItem(high))!.continuation_json!).executionPriority.deadlineAt).toBe(timestamp);
+    await repo.completeItem(claimed, { status: "succeeded" });
+    expect((await repo.claimPendingOutbox(run.id)).map(row => row.item_id)).toContain(low);
+    expect(await repo.claimItem(low)).not.toBeNull();
+  });
+
+  it("does not let future retry priority block eligible work or other cohorts", async () => {
+    const repo = createRepository(), run = await repo.createRun({ jobType: "x_collection", source: "scheduled", idempotencyKey: "retry-rank" });
+    const [high, low] = await repo.addItems(run.id, [0, 1].map(rank => ({ targetKey: String(rank), lane: "x" as const, phase: "collect", continuation: { executionPriority: { deadlineAt: rank, lastAttemptAt: 0, key: String(rank) } } })));
+    const claimed = (await repo.claimItem(high))!;
+    await repo.releaseItemForRetry(claimed, "retry", "retry");
+    expect(await repo.claimItem(high)).toBeNull();
+    expect(await repo.claimItem(low)).not.toBeNull();
+    const otherRun = await repo.createRun({ jobType: "x_collection", source: "scheduled", idempotencyKey: "other-rank" });
+    const [other] = await repo.addItems(otherRun.id, [{ targetKey: "other", lane: "x", phase: "collect", continuation: { executionPriority: { deadlineAt: 2, lastAttemptAt: 0, key: "other" } } }]);
+    expect(await repo.claimItem(other)).not.toBeNull();
+  });
+
+  it("bounds priority admission reads to active items as retained history grows", async () => {
+    const repo=createRepository(),run=await repo.createRun({jobType:"x_collection",source:"scheduled",idempotencyKey:"priority-cost"});
+    const [,low]=await repo.addItems(run.id,[0,1].map(rank=>({targetKey:String(rank),lane:"x" as const,phase:"collect",continuation:{executionPriority:{deadlineAt:rank,lastAttemptAt:0,key:String(rank)}}})));
+    const measure=async()=>{
+      const meter=meterD1(db);
+      expect(await new D1ScheduledJobRepository(meter.db,()=>timestamp).claimItem(low)).toBeNull();
+      return meter;
+    };
+    const before=await measure();
+    await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<2000) INSERT INTO scheduled_job_items(id,run_id,target_key,phase,lane,status,available_at,created_at,updated_at) SELECT 'old-'||x,?,'old-'||x,'collect','x','succeeded',0,0,0 FROM n").bind(run.id).run();
+    const after=await measure();
+    expect(after.summary()).toEqual(before.summary());
+    const entry=after.entries[0];
+    const plan=await db.prepare(`EXPLAIN QUERY PLAN ${entry.sql}`).bind(...entry.args).all<{detail:string}>();
+    expect(plan.results.map(row=>row.detail).join(" ")).toContain("idx_scheduled_job_items_run_status_updated");
+    console.log("PRIORITY_ADMISSION_PROFILE",JSON.stringify({...after.summary(),bindingCalls:after.bindingCalls}));
+  });
   it("bounds latest-success reads by job type while preserving completion order and missing jobs", async () => {
     await db.prepare(`WITH RECURSIVE history(n) AS (
       VALUES (1) UNION ALL SELECT n+1 FROM history WHERE n<4000
