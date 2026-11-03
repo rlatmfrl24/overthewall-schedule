@@ -283,7 +283,7 @@ describe("XAA multi-site collection and common money boundary",()=>{
     expect(await peer.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(id).first("status")).toBe("complete");
     expect(await db.prepare("SELECT count(*) n FROM x_shared_requests WHERE operation='tweet_lookup'").first("n")).toBe(1);
   });
-  it("a failed stop RPC still carries its durable disable barrier into re-enable and an in-flight delivery",async()=>{
+  it.each(["before","after"] as const)("a failed stop RPC retires an in-flight delivery released %s re-enable",async(order)=>{
     let entered!:()=>void,release!:()=>void;
     const started=new Promise<void>(r=>{entered=r;}),paused=new Promise<void>(r=>{release=r;});
     const control=coordinator({
@@ -297,11 +297,45 @@ describe("XAA multi-site collection and common money boundary",()=>{
     });
     await control.start("otw");
     const event=body(await tag(),{attachments:{media_keys:["missing"]}}),id=parseXActivityEvent(event)!.eventId;
-    await control.accept(event);const delivering=control.deliver(id);await started;
-    await expect(control.stop("otw")).rejects.toThrow("lost_stop_rpc");await control.start("otw");
-    release();await delivering;await local("otw").process(id);
+    await control.accept(event);const used=(await new D1SharedXBudget(db).read()).used;
+    const delivering=control.deliver(id);await started;
+    await expect(control.stop("otw")).rejects.toThrow("lost_stop_rpc");
+    if(order==="before"){
+      release();await delivering;
+      expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(id).first("status")).toBe("pending");
+      await db.prepare("UPDATE x_activity_inbox SET lease_until=? WHERE event_id=?").bind(Date.now()+60_000,id).run();
+    }
+    await control.start("otw");
+    if(order==="after"){release();await delivering;}
+    expect(await db.prepare("SELECT status,lease_until FROM x_activity_inbox WHERE event_id=?").bind(id).first()).toEqual({status:"skipped",lease_until:0});
+    await local("otw").process(id);
     expect(await db.prepare("SELECT status,last_error,payload FROM x_activity_inbox WHERE event_id=?").bind(id).first()).toEqual({status:"skipped",last_error:"webhook_delivery_disabled",payload:null});
     expect(await db.prepare("SELECT otw_status,charged FROM x_activity_dispatch WHERE event_id=?").bind(id).first()).toEqual({otw_status:"skipped_disabled",charged:1});
+    expect(await db.prepare("SELECT count(*) n FROM x_shared_requests WHERE operation='tweet_lookup'").first("n")).toBe(0);
+    expect((await new D1SharedXBudget(db).read()).used).toBe(used);
+  });
+  it("an unchanged disable barrier preserves fresh pending work during repeated start and Fx apply",async()=>{
+    const control=coordinator();await control.setPrimarySource("otw","fxembed");await control.start("otw");
+    const watermark=await db.prepare("SELECT value FROM settings WHERE key='x_activity_disabled_revision'").first("value");
+    const event=body(await tag(),{attachments:{media_keys:["missing"]}}),id=parseXActivityEvent(event)!.eventId;
+    await control.accept(event);await control.deliver(id);
+    await control.start("otw");await control.setPrimarySource("otw","fxembed");
+    expect(await db.prepare("SELECT value FROM settings WHERE key='x_activity_disabled_revision'").first("value")).toBe(watermark);
+    expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(id).first("status")).toBe("pending");
+    await local("otw").process(id);
+    expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(id).first("status")).toBe("complete");
+    expect(await db.prepare("SELECT count(*) n FROM x_shared_requests WHERE operation='tweet_lookup'").first("n")).toBe(1);
+  });
+  it("legacy Disabled bootstrap retires an already pending inbox before enabling",async()=>{
+    const control=coordinator();await control.start("otw");
+    const event=body(await tag(),{attachments:{media_keys:["missing"]}}),id=parseXActivityEvent(event)!.eventId;
+    await local("otw").accept(event);
+    expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(id).first("status")).toBe("pending");
+    await db.prepare("UPDATE settings SET value='true' WHERE key='x_webhook_disabled'").run();
+    await control.start("otw");
+    expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(id).first("status")).toBe("skipped");
+    await local("otw").process(id);
+    expect(await db.prepare("SELECT status,last_error,payload FROM x_activity_inbox WHERE event_id=?").bind(id).first()).toEqual({status:"skipped",last_error:"webhook_delivery_disabled",payload:null});
     expect(await db.prepare("SELECT count(*) n FROM x_shared_requests WHERE operation='tweet_lookup'").first("n")).toBe(0);
   });
   it.each([false,true])("preserves never-disabled legacy raw deliveries but blocks legacy Disabled before enable (%s)",async(disabled)=>{

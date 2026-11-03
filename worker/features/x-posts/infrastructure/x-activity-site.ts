@@ -47,6 +47,12 @@ export class D1XActivitySite {
       this.db.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM settings WHERE key='x_activity_control_fence' AND json_extract(value,'$.revision')=?
         AND json_extract(value,'$.token')=? AND json_extract(value,'$.expiresAt')=? AND ?>${now}) THEN 1 ELSE json('x_activity_control_fence_lost') END`)
         .bind(fence.revision,fence.token,fence.expiresAt,fence.expiresAt),
+      // An advanced barrier arrives while coordinator admission is disabled (or the legacy site is Disabled).
+      // Existing pending work therefore predates enable; unchanged barriers must preserve fresh deliveries.
+      this.db.prepare(`UPDATE x_activity_inbox SET payload=NULL,hydrated_payload=NULL,status='skipped',last_error='webhook_delivery_disabled',lease_until=0
+        WHERE status='pending' AND MAX(COALESCE(?, -1),CASE WHEN ${WEBHOOK_DISABLED_SQL} THEN ? ELSE -1 END)
+          > COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key='x_activity_disabled_revision'),-1)`)
+        .bind(disabledRevision,fence.revision-1),
       this.db.prepare(`INSERT INTO settings(key,value,updated_at)
         SELECT 'x_activity_disabled_revision',CAST(MAX(COALESCE(?, -1),CASE WHEN EXISTS(SELECT 1 FROM settings WHERE key='x_webhook_disabled' AND value='true') THEN ? ELSE -1 END) AS TEXT),?
         WHERE ? IS NOT NULL OR EXISTS(SELECT 1 FROM settings WHERE key='x_webhook_disabled' AND value='true')
