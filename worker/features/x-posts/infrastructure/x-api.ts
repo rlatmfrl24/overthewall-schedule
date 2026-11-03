@@ -19,6 +19,7 @@ import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
 import { filterArchivedXReferences, readStoredXPreview } from "./x-reference-store";
 import { connectStoredReplyReferences } from "./x-reply-reference";
 import { prepareXReferenceRedaction } from "./x-reference-redaction";
+import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
 import { reserveXReferenceBudget, XReferenceBudgetError } from "./x-reference-budget";
 import {
   recordXPostFacts,
@@ -1421,6 +1422,7 @@ const recordXPostReferences = async (
   posts: XPostItem[],
   recordedAt: number,
   siteId: SiteId,
+  rssFence?: FxRssWriteFence,
 ) => {
   for (const post of posts) {
     const references = [
@@ -1442,6 +1444,7 @@ const recordXPostReferences = async (
         : reference.hydrated
           ? "hydrated"
           : "pending";
+      const fence = fxRssWriteFenceSql(rssFence, siteId);
       await cacheDb.prepare(
         `INSERT INTO x_post_references (
            source_post_id, relation_type, referenced_post_id,
@@ -1452,6 +1455,7 @@ const recordXPostReferences = async (
          WHERE EXISTS(SELECT 1 FROM x_posts current WHERE current.id=incoming.column1
            AND current.hidden_at IS NULL AND current.content_removed_at IS NULL AND current.content_access='normal'
            AND json_extract(current.value,'$.' || incoming.column2 || '.postId')=incoming.column3)
+         AND (${fence.sql})
          ON CONFLICT(source_post_id, relation_type) DO UPDATE SET
            referenced_post_id = excluded.referenced_post_id,
             resolution_state = CASE
@@ -1488,6 +1492,7 @@ const recordXPostReferences = async (
         reference.hydrated ? recordedAt : null,
         recordedAt,
         recordedAt,
+        ...fence.bindings,
       ).run();
     }
   }
@@ -1501,6 +1506,7 @@ export const writeStoredPosts = async (
   fetchedAt: number,
   siteId: SiteId,
   context: XPostWriteContext | ((post: XPostItem) => XPostWriteContext) = officialXPostContext,
+  rssFence?: FxRssWriteFence,
 ): Promise<StoredXPostsWriteResult> => {
   if (!cacheDb || posts.length === 0) return { ok: true, count: 0, error: null };
   const normalizedHandle = normalizeHandle(handle);
@@ -1525,27 +1531,29 @@ export const writeStoredPosts = async (
           saved = true; break;
         }
         const value = JSON.stringify(merged.post);
+        const fence = fxRssWriteFenceSql(rssFence, siteId);
         const result = row
           ? await cacheDb.prepare(`UPDATE x_posts SET value=?,source_authority=?,content_hash=NULL,revision=revision+1,fetched_at=?
               WHERE id=? AND revision=? AND value=? AND hidden_at IS NULL AND content_removed_at IS NULL AND content_access='normal'
-              AND NOT (${publicationHiddenSql("x_posts", "x_posts", siteId)})`)
-              .bind(value, JSON.stringify(merged.authority), fetchedAt, incoming.id, row.revision, row.value).run()
+              AND NOT (${publicationHiddenSql("x_posts", "x_posts", siteId)}) AND (${fence.sql})`)
+              .bind(value, JSON.stringify(merged.authority), fetchedAt, incoming.id, row.revision, row.value, ...fence.bindings).run()
           : await cacheDb.prepare(`INSERT INTO x_posts(id,handle,user_id,username,value,created_at,first_seen_at,fetched_at,source_authority,content_hash,revision)
               SELECT iif(${publicationHiddenSql("x_post_sources","incoming",siteId)},json('site_member_cutover'),?),?,?,?,?,?,?,?,?,NULL,1
-              FROM (SELECT ? AS handle) incoming WHERE 1 ON CONFLICT(id) DO NOTHING`)
-              .bind(incoming.id, normalizedHandle, user.id, incoming.username, value, incoming.createdAt, fetchedAt, fetchedAt, JSON.stringify(merged.authority), normalizedHandle).run();
+              FROM (SELECT ? AS handle) incoming WHERE (${fence.sql}) ON CONFLICT(id) DO NOTHING`)
+              .bind(incoming.id, normalizedHandle, user.id, incoming.username, value, incoming.createdAt, fetchedAt, fetchedAt, JSON.stringify(merged.authority), normalizedHandle, ...fence.bindings).run();
         if (result.meta.changes) { changedPosts.push(merged.post); revisions.set(incoming.id, (row?.revision ?? 0) + 1); saved = true; break; }
       }
       if (!saved) throw new Error("post_revision_conflict");
     }
     if (changedPosts.length) {
-      const connectedPosts = await connectStoredReplyReferences(cacheDb, changedPosts);
-      await recordXPostFacts(cacheDb, normalizedHandle, connectedPosts, fetchedAt, siteId);
-      await recordXPostReferences(cacheDb, connectedPosts, fetchedAt, siteId);
+      const connectedPosts = await connectStoredReplyReferences(cacheDb, changedPosts, rssFence, siteId);
+      await recordXPostFacts(cacheDb, normalizedHandle, connectedPosts, fetchedAt, siteId, rssFence);
+      await recordXPostReferences(cacheDb, connectedPosts, fetchedAt, siteId, rssFence);
       for (const post of connectedPosts) {
         const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(xPostContentKey(post))))].map(byte => byte.toString(16).padStart(2,"0")).join("");
-        const ack = await cacheDb.prepare("UPDATE x_posts SET content_hash=? WHERE id=? AND revision=? AND content_hash IS NULL AND hidden_at IS NULL AND content_removed_at IS NULL AND content_access='normal'")
-          .bind(hash, post.id, revisions.get(post.id)!).run();
+        const fence = fxRssWriteFenceSql(rssFence, siteId);
+        const ack = await cacheDb.prepare(`UPDATE x_posts SET content_hash=? WHERE id=? AND revision=? AND content_hash IS NULL AND hidden_at IS NULL AND content_removed_at IS NULL AND content_access='normal' AND (${fence.sql})`)
+          .bind(hash, post.id, revisions.get(post.id)!, ...fence.bindings).run();
         if (!ack.meta.changes) {
           const pending = await cacheDb.prepare("SELECT 1 FROM x_posts WHERE id=? AND content_hash IS NULL AND hidden_at IS NULL AND content_removed_at IS NULL AND content_access='normal'").bind(post.id).first();
           if (pending) throw new Error("post_revision_conflict");

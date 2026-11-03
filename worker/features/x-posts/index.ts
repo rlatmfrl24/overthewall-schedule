@@ -26,6 +26,7 @@ export { D1XActivitySite } from "./infrastructure/x-activity-site";
 export { runFxCollectionForHandles } from "./infrastructure/fx-collection";
 export { createFxRssCollection, parseFxRssContinuation } from "./application/fx-rss-collection";
 export { D1FxRssCollectionAdapter, readDueFxRssCollectionTargets } from "./infrastructure/d1-fx-rss-collection";
+export type { FxRssWriteFence } from "./infrastructure/fx-rss-write-fence";
 export { readHybridXCollectionTargets, isHybridRegularCollectionComplete } from "./infrastructure/x-hybrid-policy";
 export { getOfficialAccountDecision } from "./domain/x-collection-policy";
 export { XActivityError, type XActivityService } from "./application/x-activity-service";

@@ -1,5 +1,7 @@
 import type { XPostDto } from "@contracts/x-posts";
 import { linkedUserKey, readStoredXPreview, type StoredXPreview } from "./x-reference-store";
+import type { SiteId } from "@contracts/site-definition";
+import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
 
 type DB = Pick<D1Database, "prepare">;
 const knownUsername = (value: string | null | undefined) =>
@@ -7,7 +9,7 @@ const knownUsername = (value: string | null | undefined) =>
 
 /** One local lookup per distinct target, only while storing newly collected posts.
  * A miss is a completed relation, never a reason to purchase or retry a resource. */
-export async function connectStoredReplyReferences(db: DB, posts: XPostDto[]) {
+export async function connectStoredReplyReferences(db: DB, posts: XPostDto[], rssFence?: FxRssWriteFence, siteId: SiteId = "luvdia") {
   const replies = posts.filter((post) => post.reply && !post.reply.post);
   const targets = new Map<string, StoredXPreview | null>();
   for (const post of replies) {
@@ -42,6 +44,7 @@ export async function connectStoredReplyReferences(db: DB, posts: XPostDto[]) {
       ?? knownUsername(post.reply.targetUsername);
     const reply = { ...post.reply, targetUsername, post: stored?.post ?? null };
     if (stored || targetUsername) {
+      const fence = fxRssWriteFenceSql(rssFence, siteId);
       // Never overwrite a preserved preview on replay or resurrect a redacted target.
       const updated = await db.prepare(`UPDATE x_posts SET value=json_set(value,
         '$.reply.targetUsername',?, '$.reply.post',
@@ -50,8 +53,8 @@ export async function connectStoredReplyReferences(db: DB, posts: XPostDto[]) {
         AND json_valid(value) AND json_extract(value,'$.reply.postId')=?
         AND NOT EXISTS(SELECT 1 FROM x_posts target WHERE target.id=?
           AND (target.hidden_at IS NOT NULL OR target.content_removed_at IS NOT NULL))
-        AND NOT EXISTS(SELECT 1 FROM x_post_references WHERE referenced_post_id=? AND resolution_state='terminal')`)
-        .bind(targetUsername, JSON.stringify(reply.post), post.id, reply.postId, reply.postId, reply.postId).run();
+        AND NOT EXISTS(SELECT 1 FROM x_post_references WHERE referenced_post_id=? AND resolution_state='terminal') AND (${fence.sql})`)
+        .bind(targetUsername, JSON.stringify(reply.post), post.id, reply.postId, reply.postId, reply.postId, ...fence.bindings).run();
       result.push(updated.meta.changes ? { ...post, reply } : post);
     } else result.push({ ...post, reply });
   }

@@ -281,3 +281,87 @@ it("retains raw shrink evidence and waits six hours before a fresh scan", async 
   expect(await db.prepare("SELECT rss_last_raw_count,rss_previous_raw_count,rss_last_candidate_count,rss_pending_item_id FROM x_fx_sources").first()).toEqual({ rss_last_raw_count: 0, rss_previous_raw_count: 6, rss_last_candidate_count: 0, rss_pending_item_id: null });
   expect(await db.prepare("SELECT consecutive_failures,fallback_active FROM x_fx_sources").first()).toEqual({ consecutive_failures: 2, fallback_active: 1 });
 });
+
+const writeInterleavings = [
+  ["disabled", "UPDATE settings SET value='false' WHERE key='x_collection_enabled'"],
+  ["rollback", "UPDATE settings SET value='x_api' WHERE key='x_collection_primary_source'"],
+  ["policy", "UPDATE settings SET value='legacy' WHERE key='x_collection_hybrid_policy'"],
+  ["member removed", "UPDATE members SET url_twitter=NULL WHERE uid=1"],
+  ["member archived", "UPDATE members SET content_access='admin_archive' WHERE uid=1"],
+  ["item turnover", "UPDATE scheduled_job_items SET lease_token='next-item-owner' WHERE status='running'"],
+  ["item expired", "UPDATE scheduled_job_items SET lease_until=0 WHERE status='running'"],
+  ["account turnover", "UPDATE x_post_sources SET lease_token='next-account-owner'"],
+  ["account expired", "UPDATE x_post_sources SET lease_until=0"],
+  ["pointer turnover", "UPDATE x_fx_sources SET rss_pending_item_id='newer-item'"],
+] as const;
+
+it.each(writeInterleavings)("rejects RSS post mutation when %s occurs after the writer row read", async (_reason, mutation) => {
+  const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const entry = await createItem();
+  let interleaved = false;
+  const original = db.prepare.bind(db);
+  const prepare = vi.spyOn(db, "prepare").mockImplementation(sql => {
+    const statement = original(sql);
+    if (sql.startsWith("SELECT value,source_authority,content_hash,revision")) {
+      const bind = statement.bind.bind(statement);
+      statement.bind = (...values) => {
+        const bound = bind(...values), first = bound.first.bind(bound);
+        bound.first = (async (...args: Parameters<typeof first>) => {
+          const row = await first(...args);
+          if (!interleaved) { interleaved = true; await original(mutation).run(); }
+          return row;
+        }) as typeof bound.first;
+        return bound;
+      };
+    }
+    return statement;
+  });
+  const result = await runItem(entry, state());
+  prepare.mockRestore();
+  expect(interleaved).toBe(true);
+  expect(result.status).toBe("blocked");
+  expect(await db.prepare("SELECT count(*) n FROM x_posts").first("n")).toBe(0);
+  expect(await db.prepare("SELECT count(*) n FROM x_post_facts").first("n")).toBe(0);
+  expect(await db.prepare("SELECT count(*) n FROM x_post_references").first("n")).toBe(0);
+  expect(warning).toHaveBeenCalledWith("Failed to write stored X posts", expect.objectContaining({ message: "post_revision_conflict" }));
+});
+
+it.each(writeInterleavings)("rejects source acknowledgement when %s occurs after the item checkpoint", async (_reason, mutation) => {
+  const input: FxRssContinuation = { ...state(), phase: "hydrate", candidates: [] };
+  const entry = await createItem(input);
+  await db.prepare("UPDATE x_fx_sources SET rss_pending_item_id=?").bind(entry.item.id).run();
+  const checkpoint = entry.repo.checkpointItemContinuation.bind(entry.repo);
+  vi.spyOn(entry.repo, "checkpointItemContinuation").mockImplementation(async (...args) => {
+    const saved = await checkpoint(...args);
+    if (saved) await db.prepare(mutation).run();
+    return saved;
+  });
+  expect((await runItem(entry, input)).status).toBe("blocked");
+  expect(await db.prepare("SELECT rss_last_check_completed_at,rss_pending_item_id FROM x_fx_sources").first()).toEqual({ rss_last_check_completed_at: null, rss_pending_item_id: mutation.includes("newer-item") ? "newer-item" : entry.item.id });
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("does not claim an RSS source when collection stops after member snapshot selection", async () => {
+  const entry = await createItem(), original = db.prepare.bind(db);
+  let stopped = false;
+  vi.spyOn(db, "prepare").mockImplementation(sql => {
+    const statement = original(sql);
+    if (/^UPDATE x_fx_sources SET\s+rss_cadence_anchor_at=/.test(sql)) {
+      const bind = statement.bind.bind(statement);
+      statement.bind = (...values) => {
+        const bound = bind(...values), first = bound.first.bind(bound);
+        bound.first = (async (...args: Parameters<typeof first>) => {
+          stopped = true;
+          await original("UPDATE settings SET value='false' WHERE key='x_collection_enabled'").run();
+          return first(...args);
+        }) as typeof bound.first;
+        return bound;
+      };
+    }
+    return statement;
+  });
+  expect((await runItem(entry, state())).status).toBe("blocked");
+  expect(stopped).toBe(true);
+  expect(await db.prepare("SELECT rss_pending_item_id,rss_last_attempt_at FROM x_fx_sources").first()).toEqual({ rss_pending_item_id: null, rss_last_attempt_at: null });
+  expect(fetch).not.toHaveBeenCalled();
+});

@@ -10,6 +10,7 @@ import type {
 import type { XPostItem } from "../../../platform/types";
 import { readXReferenceBudget } from "./x-reference-budget";
 import { readXReferenceHealthCounts } from "./x-reference-health-read-model";
+import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
 
 type D1 = Pick<D1Database, "prepare">;
 
@@ -131,6 +132,7 @@ export const recordXPostFacts = async (
   posts: readonly XPostItem[],
   timestamp = Date.now(),
   siteId: SiteId = "luvdia",
+  rssFence?: FxRssWriteFence,
 ) => {
   if (posts.length === 0 || !(await settingIsEnabled(db, "x_history_analytics_enabled"))) {
     return { recorded: 0, skipped: posts.length };
@@ -141,6 +143,7 @@ export const recordXPostFacts = async (
   for (const post of posts) {
     const createdAt = Date.parse(post.createdAt);
     if (!Number.isFinite(createdAt)) continue;
+    const fence = fxRssWriteFenceSql(rssFence, siteId);
     await db.prepare(
       `INSERT INTO x_post_facts (
          post_id, member_uid, member_name_snapshot, post_type, created_at,
@@ -154,6 +157,7 @@ export const recordXPostFacts = async (
          AND COALESCE(json_array_length(current.value,'$.links'),0)=incoming.column8
          AND CASE WHEN json_extract(current.value,'$.reply') IS NOT NULL THEN 'reply'
            WHEN json_extract(current.value,'$.quote') IS NOT NULL THEN 'quote' ELSE 'post' END=incoming.column4)
+       AND (${fence.sql})
        ON CONFLICT(post_id) DO UPDATE SET
          member_uid = excluded.member_uid,
          member_name_snapshot = excluded.member_name_snapshot,
@@ -172,6 +176,7 @@ export const recordXPostFacts = async (
       post.links?.length ?? 0,
       post.id,
       timestamp,
+      ...fence.bindings,
     ).run();
     recorded += 1;
   }
