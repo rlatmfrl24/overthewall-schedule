@@ -1,7 +1,7 @@
 import { mergeStoredXPost, officialXPostContext, xPostContentKey, type XPostAuthority, type XPostWriteContext } from "../domain/merge-x-post";
 import type { SiteId } from "@contracts/site-definition";
 import type { XApiGateway, XApiGatewayRequest } from "@contracts/x-activity";
-import type { XCollectionScope } from "@contracts/x-collection";
+import type { XCollectionScope, XNewlyStoredPost } from "@contracts/x-collection";
 import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import { publicationHiddenSql } from "../../content-access";
 import { pMap } from "../../../platform/http-helpers";
@@ -149,11 +149,13 @@ type StoredXPostsEntry = CachedXPostsEntry & {
 type StoredXPostsWriteResult = {
   ok: boolean;
   count: number;
+  insertedIds: string[];
   error: string | null;
 };
 
 type CachedXPostsWriteEntry = CachedXPostsEntry & {
   postsStored: number;
+  newlyStoredPosts?: XNewlyStoredPost[];
   storageError: string | null;
 };
 
@@ -213,6 +215,7 @@ type XHandlePostsResult = {
   errorDetail?: string | null;
   stale: boolean;
   postsStored?: number;
+  newlyStoredPosts?: XNewlyStoredPost[];
   storageError?: string | null;
 };
 
@@ -1507,9 +1510,10 @@ export const writeStoredPosts = async (
   context: XPostWriteContext | ((post: XPostItem) => XPostWriteContext) = officialXPostContext,
   rssFence?: FxRssWriteFence,
 ): Promise<StoredXPostsWriteResult> => {
-  if (!cacheDb || posts.length === 0) return { ok: true, count: 0, error: null };
+  if (!cacheDb || posts.length === 0) return { ok: true, count: 0, insertedIds: [], error: null };
   const normalizedHandle = normalizeHandle(handle);
   const changedPosts: XPostItem[] = [];
+  const insertedIds: string[] = [];
   const revisions = new Map<string, number>();
   try {
     for (const incoming of posts) {
@@ -1540,7 +1544,7 @@ export const writeStoredPosts = async (
               SELECT iif(${publicationHiddenSql("x_post_sources","incoming",siteId)},json('site_member_cutover'),?),?,?,?,?,?,?,?,?,NULL,1
               FROM (SELECT ? AS handle) incoming WHERE (${fence.sql}) ON CONFLICT(id) DO NOTHING`)
               .bind(incoming.id, normalizedHandle, user.id, incoming.username, value, incoming.createdAt, fetchedAt, fetchedAt, JSON.stringify(merged.authority), normalizedHandle, ...fence.bindings).run();
-        if (result.meta.changes) { changedPosts.push(merged.post); revisions.set(incoming.id, (row?.revision ?? 0) + 1); saved = true; break; }
+        if (result.meta.changes) { if (!row) insertedIds.push(incoming.id); changedPosts.push(merged.post); revisions.set(incoming.id, (row?.revision ?? 0) + 1); saved = true; break; }
       }
       if (!saved) throw new Error("post_revision_conflict");
     }
@@ -1560,10 +1564,10 @@ export const writeStoredPosts = async (
       }
       invalidateXPostMemoryCache();
     }
-    return { ok: true, count: changedPosts.length, error: null };
+    return { ok: true, count: changedPosts.length, insertedIds, error: null };
   } catch (error) {
     console.warn("Failed to write stored X posts", error);
-    return { ok: false, count: 0, error: error instanceof Error ? error.message : "stored_post_write_failed" };
+    return { ok: false, count: 0, insertedIds, error: error instanceof Error ? error.message : "stored_post_write_failed" };
   }
 };
 
@@ -1897,6 +1901,7 @@ const setCachedPosts = async (
   return {
     ...entry,
     postsStored: storedPostsWrite.count,
+    newlyStoredPosts: postsToStore.filter(post => storedPostsWrite.insertedIds.includes(post.id)).map(post => ({ id: post.id, createdAt: post.createdAt, storedAt: fetchedAt })),
     storageError: storedPostsWrite.ok ? null : "x_post_storage_failed",
   };
 };
@@ -2606,6 +2611,7 @@ const fetchXPostsForUser = async (
   errorDetail?: string | null;
   stale: boolean;
   postsStored: number;
+  newlyStoredPosts?: XNewlyStoredPost[];
   storageError: string | null;
 }> => {
   const hasRelationMarker = newPostsOnly || await hasCurrentRelationCollectionMarker(
@@ -2682,6 +2688,7 @@ const fetchXPostsForUser = async (
         error: null,
         stale: false,
         postsStored: entry.postsStored,
+        newlyStoredPosts: [],
         storageError: entry.storageError,
       };
     } catch (error) {
@@ -2814,6 +2821,7 @@ const fetchXPostsForUser = async (
       error: null,
       stale: false,
       postsStored: entry.postsStored,
+      newlyStoredPosts: entry.newlyStoredPosts,
       storageError: entry.storageError,
     };
   } catch (error) {
@@ -3149,6 +3157,7 @@ export const fetchXPostsForHandles = async (
             errorDetail,
             stale,
             postsStored,
+            newlyStoredPosts,
             storageError,
           } =
             await fetchXPostsForUser(
@@ -3178,6 +3187,7 @@ export const fetchXPostsForHandles = async (
             errorDetail,
             stale,
             postsStored,
+            newlyStoredPosts,
             storageError,
           };
         } catch (error) {
@@ -3559,6 +3569,7 @@ export const collectXPostsForHandles = async (
       refreshedHandles,
       postsReturned: content.posts.length,
       postsStored,
+      newlyStoredPosts: content.byHandle.flatMap(item => item.newlyStoredPosts ?? []),
       apiCalls: tracker.apiCalls,
       estimatedCostMicros: tracker.estimatedCostMicros,
       uniqueResources: tracker.uniqueResources,

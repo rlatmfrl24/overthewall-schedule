@@ -1,5 +1,5 @@
 import type { SiteId } from "@contracts/site-definition";
-import type { XApiGateway, XApiGatewayRequest, XApiGatewayResult } from "@contracts/x-activity";
+import type { XApiGateway, XApiGatewayReceipt, XApiGatewayReceiptRequest, XApiGatewayRequest, XApiGatewayResult } from "@contracts/x-activity";
 import { xActivityMediaReady } from "../domain/x-activity";
 import { estimateXSharedApiReservationMicros, requestXApi, XApiError, type XApiUsageTracker, type XTweetLookupResponse } from "./x-api";
 
@@ -58,6 +58,14 @@ export class D1SharedXApiGateway implements XApiGateway {
     this.bootstrapBudget = options.bootstrapBudget;
   }
   readBudget(){return new D1SharedXBudget(this.db).read();}
+
+  async readReceipt(input: XApiGatewayReceiptRequest): Promise<XApiGatewayReceipt> {
+    if (!input || typeof input.id !== "string" || !/^[A-Za-z0-9_:-]{1,256}$/.test(input.id) || typeof input.path !== "string" || input.path.length > 16_000 || !["user_lookup", "timeline", "tweet_lookup"].includes(input.operation)) throw new Error("invalid_x_gateway_receipt");
+    const row = await this.db.prepare(`SELECT day,status,CASE WHEN json_valid(result) THEN json_extract(result,'$.ok') END ok
+      FROM x_shared_requests WHERE id=? AND site=? AND operation=? AND path=?`)
+      .bind(input.id, this.site, input.operation, input.path).first<{ day: string; status: string; ok: number | null }>();
+    return row ? { found: true, day: row.day, status: row.status, ok: row.ok === 1 ? true : row.ok === 0 ? false : null } : { found: false };
+  }
 
   async redactPost(postId:string){
     if(!/^[1-9]\d{4,24}$/.test(postId))throw new Error("invalid_x_post_id");

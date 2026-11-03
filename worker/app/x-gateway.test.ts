@@ -23,3 +23,14 @@ describe("LuvDia shared X gateway", () => {
     expect(gatewayForLuvdia).toHaveBeenCalledWith(request);
   });
 });
+
+it("a peer without the distinct read-only receipt RPC fails closed without invoking execute", async () => {
+  const execute = vi.fn(), fetchSpy = vi.spyOn(globalThis, "fetch");
+  try {
+    const gateway = withXGateway({ ...siteEnv("luvdia"), X_ACTIVITY_COORDINATOR: { gatewayForLuvdia: execute } } as unknown as Env).X_API_GATEWAY!;
+    expect(gateway.readReceipt).toBeTypeOf("function");
+    await expect(gateway.readReceipt!({ id: "old", operation: "tweet_lookup", path: "/tweets?ids=12345" })).rejects.toThrow("shared_receipt_unavailable");
+    expect(execute).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  } finally { fetchSpy.mockRestore(); }
+});

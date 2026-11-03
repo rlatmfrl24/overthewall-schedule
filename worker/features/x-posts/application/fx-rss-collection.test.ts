@@ -15,6 +15,8 @@ const setup = () => {
     fetchStatus: vi.fn(async id => ({ id, createdAt: new Date(now).toISOString() }) as XPostDto),
     readStoredIds: async ids => ids.filter(id => stored.has(id)),
     store: vi.fn(async post => { stored.add(post.id); return { ok: true, postsStored: 1 }; }),
+    prepareOfficialBatch: vi.fn(async () => ({ batch: null, error: "rss_official_timeline_pending" })),
+    hydrateOfficial: vi.fn(async candidates => ({ resolvedIds: [], remaining: candidates, postsReturned: 0, postsStored: 0, paidApiCalls: 0, estimatedCostMicros: 0, error: null })),
     checkpoint: vi.fn(async () => true),
   };
   return { ports, stored };
@@ -102,4 +104,16 @@ it.each([
   await expect(run(ports, { ...state(["1"]), ...invalid } as FxRssContinuation)).rejects.toThrow("invalid_x_rss_continuation");
   expect(ports.fetchStatus).not.toHaveBeenCalled();
   expect(ports.checkpoint).not.toHaveBeenCalled();
+});
+
+it.each([
+  { day: "2026-02-30" }, { ids: [] }, { ids: ["1", "1"] }, { ids: ["bad"] }, { ids: Array.from({ length: 100 }, (_, i) => String(i)) },
+  { requestId: "other-account-or-day" }, { ids: ["999"] },
+])("rejects malformed paid batch metadata before any lookup %#", async invalid => {
+  const { ports } = setup(), input = state(["1"]);
+  input.candidates[0] = { ...input.candidates[0], stage: "official", attempts: 2 };
+  input.paidBatch = { day: "2026-11-03", ids: ["1"], requestId: "otw:rss:member:2026-11-03:00000000-0000-0000-0000-000000000000", ...invalid };
+  await expect(run(ports, input)).rejects.toThrow("invalid_x_rss_paid_batch");
+  expect(ports.fetchStatus).not.toHaveBeenCalled();
+  expect(ports.hydrateOfficial).not.toHaveBeenCalled();
 });

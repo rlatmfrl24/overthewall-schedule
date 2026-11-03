@@ -1,5 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { unavailableXApiGateway, type XApiGatewayRequest, type XActivityControlResult } from "@contracts/x-activity";
+import { unavailableXApiGateway, type XApiGatewayReceiptRequest, type XApiGatewayRequest, type XActivityControlResult } from "@contracts/x-activity";
 import type { Env } from "../platform/types";
 import { buildXGateway } from "./x-gateway";
 import { buildXActivityCoordinator, buildXActivitySite } from "./x-activity";
@@ -16,6 +16,10 @@ export class XActivityCoordinatorRpc extends WorkerEntrypoint<Env> {
   async budgetForLuvdia(){
     if(this.env.SITE_ID!=="otw")return unavailableXApiGateway.readBudget();
     return buildXGateway(this.env,"luvdia").readBudget();
+  }
+  async receiptForLuvdia(input: XApiGatewayReceiptRequest) {
+    if (this.env.SITE_ID !== "otw") throw new Error("x_activity_wrong_coordinator");
+    return buildXGateway(this.env, "luvdia").readReceipt!(input);
   }
   async redactForLuvdia(postId:string){
     if(this.env.SITE_ID!=="otw")throw new Error("x_activity_wrong_coordinator");

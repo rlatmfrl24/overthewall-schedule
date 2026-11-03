@@ -1,4 +1,4 @@
-import { FX_RSS_INTERVAL_MS, type FxRssContinuation, type FxRssStats } from "@contracts/x-collection";
+import { FX_RSS_INTERVAL_MS, type FxRssCandidate, type FxRssContinuation, type FxRssPaidBatch, type FxRssStats } from "@contracts/x-collection";
 import { parseSiteId } from "@contracts/site-definition";
 import { publicationHiddenSql } from "../../content-access";
 import { parseFxRssContinuation } from "../application/fx-rss-collection";
@@ -12,6 +12,7 @@ import { fetchFxRssFeed } from "./fx-rss-api";
 import { fetchFxStatus } from "./fx-api";
 import { extractXHandleFromUrl, writeStoredPosts } from "./x-api";
 import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
+import { hydrateOfficialRssCandidates, prepareOfficialRssBatch } from "./x-rss-official-hydration";
 
 const readPolicy = async (env: Env) => {
   const rows = await env.otw_db.prepare("SELECT key,value FROM settings WHERE key IN ('x_collection_enabled','x_collection_primary_source','x_collection_hybrid_policy','x_collection_hybrid_activated_at')").all<{ key: string; value: string }>();
@@ -29,20 +30,28 @@ export async function readDueFxRssCollectionTargets(env: Env, timestamp: number)
     LEFT JOIN x_post_sources s ON s.handle=requested.value LEFT JOIN x_fx_sources f ON f.handle=requested.value
     LEFT JOIN scheduled_job_items i ON i.id=f.rss_pending_item_id`)
     .bind(JSON.stringify(handles)).all<{ handle: string; deactivated_at: number | null; rss_pending_item_id: string | null; rss_cadence_anchor_at: number | null; rss_last_attempt_at: number | null; status: string | null; continuation_json: string | null }>();
-  return rows.results.flatMap<FxRssContinuation>(row => {
-    if (row.deactivated_at !== null) return [];
+  const targets: FxRssContinuation[] = [];
+  for (const row of rows.results) {
+    if (row.deactivated_at !== null) continue;
     if (row.rss_pending_item_id) {
-      if (!["partial", "failed", "throttled", "skipped"].includes(row.status ?? "") || !row.continuation_json) return [];
+      if (!["partial", "failed", "throttled", "skipped"].includes(row.status ?? "") || !row.continuation_json) continue;
       try {
         const state = parseFxRssContinuation(JSON.parse(row.continuation_json));
         // An empty snapshot can still owe the source's final acknowledgement.
-        if (Number(state.nextAttemptAt ?? 0) > timestamp) return [];
-        return [{ ...state, scope: "pending" as const, resumeFromItemId: row.rss_pending_item_id }];
-      } catch { return []; }
+        if (Number(state.nextAttemptAt ?? 0) > timestamp) continue;
+        if (state.candidates.length && state.candidates.every(candidate => candidate.stage === "official")) {
+          const stored = await env.otw_db.prepare(`SELECT COUNT(*) n FROM x_posts WHERE id IN (SELECT json_extract(value,'$.id') FROM json_each(?))
+            AND (hidden_at IS NOT NULL OR content_removed_at IS NOT NULL OR content_access<>'normal' OR source_authority IS NULL OR content_hash IS NOT NULL)`).bind(JSON.stringify(state.candidates)).first<number>("n");
+          if (stored !== state.candidates.length && !(await prepareOfficialRssBatch(env, row.handle, state.candidates, state.paidBatch ?? null)).batch) continue;
+        }
+        targets.push({ ...state, scope: "pending" as const, resumeFromItemId: row.rss_pending_item_id });
+      } catch { /* Invalid snapshots remain pending for inspection. */ }
+      continue;
     }
     const anchor = row.rss_cadence_anchor_at ?? row.rss_last_attempt_at;
-    return anchor !== null && timestamp - anchor < FX_RSS_INTERVAL_MS ? [] : [{ provider: "fxembed" as const, mode: "rss_candidates" as const, scope: "regular" as const, handles: [row.handle] as [string], phase: "fetch" as const, candidates: [], nextAttemptAt: null }];
-  });
+    if (anchor === null || timestamp - anchor >= FX_RSS_INTERVAL_MS) targets.push({ provider: "fxembed", mode: "rss_candidates", scope: "regular", handles: [row.handle], phase: "fetch", candidates: [], nextAttemptAt: null });
+  }
+  return targets;
 }
 
 export class D1FxRssCollectionAdapter implements FxRssCollectionPorts {
@@ -102,11 +111,12 @@ export class D1FxRssCollectionAdapter implements FxRssCollectionPorts {
         SELECT 1 FROM scheduled_job_items predecessor WHERE predecessor.id=x_fx_sources.rss_pending_item_id
           AND json_extract(predecessor.continuation_json,'$.phase')=?
           AND json_extract(predecessor.continuation_json,'$.candidates')=json(?)
+          AND json_extract(predecessor.continuation_json,'$.paidBatch') IS json_extract(?,'$')
           AND json_extract(predecessor.continuation_json,'$.nextAttemptAt') IS ?)) OR
         (? IS NULL AND rss_pending_item_id IS NULL AND ?='fetch' AND COALESCE(rss_cadence_anchor_at,rss_last_attempt_at,0)<=?))
       AND (${fence.sql})
       RETURNING handle`).bind(now, this.item.run_id, now, this.item.id, now, this.handle, this.item.id, state.resumeFromItemId ?? null, state.resumeFromItemId ?? null,
-        state.phase, JSON.stringify(state.candidates), state.nextAttemptAt,
+        state.phase, JSON.stringify(state.candidates), JSON.stringify(state.paidBatch ?? null), state.nextAttemptAt,
         state.resumeFromItemId ?? null, state.phase, now - FX_RSS_INTERVAL_MS, ...fence.bindings).first();
     return Boolean(ack);
   }
@@ -128,6 +138,15 @@ export class D1FxRssCollectionAdapter implements FxRssCollectionPorts {
     const stored = await writeStoredPosts(this.env.otw_db, this.handle, { id: context.trustedUserId, username: this.handle }, [post], this.now(), parseSiteId(this.env.SITE_ID),
       { origin, completeness: { text: true, media: true, relations: true } }, this.writeFence);
     return { ok: stored.ok && await this.fenced(), postsStored: stored.count };
+  }
+  async prepareOfficialBatch(candidates: FxRssCandidate[], batch: FxRssPaidBatch | null) {
+    if (!await this.fenced()) return { batch: null, error: "rss_write_fence_lost" };
+    return prepareOfficialRssBatch(this.env, this.handle, candidates, batch, this.writeFence);
+  }
+  async hydrateOfficial(candidates: FxRssCandidate[]) {
+    if (!this.writeFence) throw new Error("rss_write_fence_missing");
+    const source = await this.env.otw_db.prepare("SELECT source FROM scheduled_job_runs WHERE id=?").bind(this.item.run_id).first<string>("source");
+    return hydrateOfficialRssCandidates(this.env, this.handle, candidates, source === "manual" ? "manual" : "scheduled", this.writeFence);
   }
   async checkpoint(state: FxRssContinuation, stats: FxRssStats) {
     if (!await this.fenced() || !await this.save(state, stats)) return false;

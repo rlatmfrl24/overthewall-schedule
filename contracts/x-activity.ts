@@ -17,16 +17,20 @@ export interface XApiGatewayResult {
   dispatched: boolean;
 }
 export interface XSharedBudgetState {day:string;used:number;reserved:number;limit:number;remaining:number;seeded:boolean}
+export type XApiGatewayReceiptRequest = Pick<XApiGatewayRequest, "id" | "operation" | "path">;
+export type XApiGatewayReceipt = { found: false } | { found: true; day: string; status: string; ok: boolean | null };
 export interface XApiGateway {
   execute(request: XApiGatewayRequest): Promise<XApiGatewayResult>;
   readBudget(): Promise<XSharedBudgetState>;
   redactPost(postId:string): Promise<void>;
+  readReceipt?(request: XApiGatewayReceiptRequest): Promise<XApiGatewayReceipt>;
 }
 
 export const unavailableXApiGateway: XApiGateway = {
   execute: async () => ({ ok: false, status: 503, error: "shared_budget_unavailable", costMicros: 0, cached: false, dispatched: false }),
   readBudget: async()=>({day:new Date().toISOString().slice(0,10),used:0,reserved:0,limit:1_000_000,remaining:0,seeded:false}),
   redactPost:async()=>{throw new Error("shared_cache_unavailable");},
+  readReceipt:async()=>{throw new Error("shared_receipt_unavailable");},
 };
 export const isXActivityQueueMessage = (value: unknown): value is XActivityQueueMessage => {
   if (!value || typeof value !== "object") return false;

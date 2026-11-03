@@ -123,6 +123,18 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     expect(repository.addItems).not.toHaveBeenCalled();
   });
 
+  it("lets an independent official timeline own paid work for an account while keeping mixed free work", async () => {
+    const { env } = makeEnv({ x_collection_enabled: "true", x_collection_primary_source: "fxembed" });
+    mocks.readHybridXCollectionTargets.mockResolvedValue([{ provider: "x_api", scope: "regular", handles: ["member"], hybrid: true }]);
+    const candidate = { id: "201", firstSeenAt: 1, createdAtHint: 1, nextAttemptAt: 0, attempts: 2, stage: "official", error: null };
+    const state = { provider: "fxembed", mode: "rss_candidates", scope: "pending", handles: ["member"], phase: "hydrate", candidates: [candidate], nextAttemptAt: null };
+    mocks.readDueFxRssCollectionTargets.mockResolvedValue([state]);
+    const planner = new ScheduledJobPlanner(env, {} as never);
+    expect((await planner.planScheduled("x_collection", 100)).map(item => item.continuation)).toEqual([{ provider: "x_api", scope: "regular", handles: ["member"], hybrid: true }]);
+    mocks.readDueFxRssCollectionTargets.mockResolvedValue([{ ...state, candidates: [candidate, { ...candidate, id: "202", stage: "free", attempts: 1 }] }]);
+    expect((await planner.planScheduled("x_collection", 100)).map(item => item.targetKey)).toEqual(["x_api:regular:handles:0:member", "fxembed:rss_candidates:pending:member"]);
+  });
+
   it("holds only ingestion requeue while the read budget is exhausted and resumes after reset", async () => {
     const { env } = makeEnv({});
     const repository = { addItems: vi.fn(), hasRecoveryWork: vi.fn(async () => false) };

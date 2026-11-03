@@ -290,3 +290,38 @@ it.each([false,true])("collects Fx and official regular items through native Cro
     expect(await db.prepare("SELECT enabled FROM x_activity_sites WHERE site='otw'").first("enabled")).toBe(0);
   } finally { vi.unstubAllGlobals(); await inspector.dispose(); }
 }, 90000);
+
+it("budget_blocked_candidate_plan_creates_no_item or run through ordinary native Cron", async () => {
+  const started = Date.now();
+  const slot = Math.floor((started - 23 * 60_000) / (30 * 60_000)) * 30 * 60_000 + 23 * 60_000;
+  const inspector = await introspectWorkflow(bindings.NATIVE_SCHEDULED_WORKFLOW);
+  const pending = { provider: "fxembed", mode: "rss_candidates", scope: "pending", handles: ["native_collect"], phase: "hydrate", nextAttemptAt: null,
+    candidates: [{ id: "511", firstSeenAt: started - 1000, createdAtHint: started - 1000, attempts: 2, nextAttemptAt: 0, stage: "official", error: "fx_http_404" }] };
+  await db.batch([
+    db.prepare("DELETE FROM scheduled_job_runs WHERE job_type='x_collection'"),
+    db.prepare("UPDATE settings SET value='false' WHERE key LIKE 'scheduled_v2_%_enabled'"),
+    db.prepare("UPDATE members SET url_twitter=NULL"),
+    db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(900050,'native_collect','Native collector','https://x.com/native_collect') ON CONFLICT(uid) DO UPDATE SET url_twitter=excluded.url_twitter"),
+    ...["x_post_sources", "x_fx_sources", "scheduled_usage_daily"].map(table => db.prepare(`DELETE FROM ${table}`)),
+    ...[["scheduled_v2_x_collection_enabled", "true"], ["x_collection_enabled", "true"], ["x_collection_primary_source", "fxembed"],
+      ["x_collection_hybrid_policy", "rss_v1"], ["x_collection_hybrid_activated_at", "1"], ["otw_play_automation_paused", "true"]]
+      .map(([key,value]) => db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)").bind(key,value)),
+    db.prepare("INSERT INTO x_post_sources(handle,user_id,last_checked_at,updated_at,collection_started_at,last_completed_at,regular_completed_at) VALUES('native_collect','1000000000001',0,0,1,?,?)").bind(started,started),
+    db.prepare("INSERT INTO x_fx_sources(handle,user_id,collection_started_at,cadence_anchor_at,rss_cadence_anchor_at,rss_pending_item_id,updated_at) VALUES('native_collect','1000000000001',1,?,?,'blocked-candidate-item',0)").bind(started,started),
+    db.prepare("INSERT INTO scheduled_job_runs(id,job_type,source,idempotency_key,status,accepted_at,created_at,updated_at) VALUES('blocked-candidate-run','x_collection','scheduled','blocked-candidate-run','partial',0,0,0)"),
+    db.prepare("INSERT INTO scheduled_job_items(id,run_id,target_key,phase,lane,status,continuation_json,available_at,created_at,updated_at) VALUES('blocked-candidate-item','blocked-candidate-run','rss','collect','x','partial',?,0,0,0)").bind(JSON.stringify(pending)),
+    db.prepare("UPDATE x_shared_budgets SET used=limit_value"),
+  ]);
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => bindings.NATIVE_WORKFLOW_PROVIDER.fetch(input,init));
+  const runtime = { ...bindings, ...siteEnv(), CLOUDFLARE_ACCOUNT_ID: "native-test", CLOUDFLARE_D1_TOKEN: "native-test", SCHEDULED_OPERATIONS_WORKFLOW: bindings.NATIVE_SCHEDULED_WORKFLOW } as unknown as Env;
+  try {
+    const before = await db.prepare("SELECT * FROM x_fx_sources WHERE handle='native_collect'").first();
+    await handleScheduledWorkflowCron({ cron: SCHEDULED_WORKFLOW_CRON, scheduledTime: slot } as ScheduledController, runtime);
+    expect(await inspector.get()).toHaveLength(0);
+    expect(await db.prepare("SELECT count(*) n FROM scheduled_job_runs WHERE job_type='x_collection'").first("n")).toBe(1);
+    expect(await db.prepare("SELECT count(*) n FROM scheduled_job_items WHERE lane='x'").first("n")).toBe(1);
+    expect(await db.prepare("SELECT * FROM x_fx_sources WHERE handle='native_collect'").first()).toEqual(before);
+    const calls = await (await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/calls")).json<string[]>();
+    expect(calls.some(call => call.includes("api.x.com") || call.includes("api.fxtwitter.com"))).toBe(false);
+  } finally { vi.unstubAllGlobals(); await inspector.dispose(); }
+}, 60_000);
