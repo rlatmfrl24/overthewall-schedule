@@ -168,6 +168,7 @@ Node24.20/pnpm11.7에서 최종 `a945b5cc`의 `pnpm build`와 `pnpm build:luvdia
 - 오류 복구 최대50회로 여유가 없으므로 해당 경로에 D1 호출을 추가할 때 whole Queue cap 회귀를 함께 갱신해야 한다. 임의 네트워크/인프라 장애에서도 항상 완료됨을 보장하지 않는다. 실패·pending은 남긴다.
 - 이번 후속 작업은 외부 HTTP 없이 fixture 응답과 실제 Worker/D1/native orchestration으로 검증한다. 이전 실제 무료 공급자→공개 카드의 관측은 이전 소스 증거다. 이 수정 뒤 live 공급자를 다시 실행하거나 유료 공식 독립 발견·실제24시간 복구·7일 안정성·청구 절감을 확인했다고 주장하지 않는다.
 - 의존성·schema·migration·Queue config·topology는 이번 수정에서 바꾸지 않았다. 동일164개 migration 입력의 기존 chain/doctor 근거를 재사용하며 merge 준비용 preflight는 수행하지 않는다.
+- 마감 시 이 계획 전용 임시 검증 폴더의 삭제 요청이 자동 승인 검토에서 `blocked by policy`로 거절됐다. 삭제를 다른 방법으로 재시도하지 않았고 `.superpowers/sdd/2026-11-04-x-rss-d1-free-budget`의 ignored 근거 파일을 보존한다. 거절 사유는 해당 정책 문구 외에 제공되지 않았다.
 
 ## 이번 판단 원장
 
@@ -182,3 +183,4 @@ Node24.20/pnpm11.7에서 최종 `a945b5cc`의 `pnpm build`와 `pnpm build:luvdia
 7. **RSS-only DLQ10과 중복/terminal 복구도 전체 invocation에 포함.** run당 outbox8을 줄이지 않으며 mixed non-RSS 전면 재설계는 제외한다. 누락하면 같은 장애가 DLQ로 이동하고 확대하면 승인 범위를 벗어난다.
 8. **고정 df9b6d22에서 두 축 리뷰와 검증만 병렬 수행.** Task3는 product source를 바꾸지 않아 동일 artifact의 Task2 gate와 최종 후속 리뷰를 겸한다. 지적 수정 시 관련 검사를 다시 해야 하며 stale 검사나 dirty 문서를 코드로 혼동하면 잘못 닫을 수 있다.
 9. **확인된 복구 예산 거절 P1과 세 곳 예산 파싱 중복 P3를 원래 구현자의 한 수정 묶음으로 처리.** P1은50회 계약을 어기고 P3는 사용자가 요청한 중복 검토 범위에 직접 해당한다. 잘못된 조건부 실패 batch는 retry/terminal/비용 정산을 바꾸고 과도한 helper는 기존 기본값/정규화를 바꿀 수 있어 경로별 회귀와 재검토가 필요하다.
+10. **자동 승인 검토가 임시 폴더 삭제를 거절한 뒤 그 근거 폴더를 보존.** 정책 거절을 우회하지 않고 코드·검증·외부 보류를 유지한다. 비용은 ignored 임시 디스크 사용량이 남는 것이며 제품/운영 상태는 바꾸지 않는다.
