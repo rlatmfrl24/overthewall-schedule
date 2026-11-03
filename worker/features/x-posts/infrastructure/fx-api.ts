@@ -1,4 +1,6 @@
 import type { XLinkedPostPreviewDto, XPostDto, XPostMediaDto } from "@contracts/x-posts";
+import { FxCandidateExcludedError } from "../ports/fx-rss-collection";
+export { FxCandidateExcludedError } from "../ports/fx-rss-collection";
 
 export class FxApiError extends Error {
   readonly code: string;
@@ -8,6 +10,7 @@ const invalid = (): never => { throw new FxApiError("fx_invalid_payload"); };
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : invalid();
 const id = (value: unknown) => typeof value === "string" && /^\d{1,25}$/.test(value) ? value : invalid();
 const handle = (value: unknown) => typeof value === "string" && /^[a-zA-Z0-9_]{1,15}$/.test(value) ? value.toLowerCase() : invalid();
+export { id as parseFxId, handle as parseFxHandle };
 const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
 const webUrl = (value: unknown, media = false): string => {
   if (typeof value !== "string") return invalid();
@@ -80,6 +83,17 @@ export function parseFxTimelinePage(payload: unknown, targetHandle: string, trus
   return { posts: [...posts.values()], nextCursor: typeof bottom === "string" && bottom ? bottom : null, rawCount: body.results.length };
 }
 
+export function parseFxStatus(payload: unknown, targetHandle: string, trustedUserId: string, expectedPostId: string): XPostDto {
+  const body = object(payload), target = handle(targetHandle), userId = id(trustedUserId), expectedId = id(expectedPostId);
+  if (body.code !== 200) throw new FxApiError(`fx_payload_${typeof body.code === "number" ? body.code : "invalid"}`);
+  const raw = object(body.status), author = object(raw.author);
+  if (id(raw.id) !== expectedId) throw new FxApiError("fx_identity_mismatch");
+  if (raw.type !== "status") return invalid();
+  if (handle(author.screen_name) !== target || raw.reposted_by) throw new FxCandidateExcludedError();
+  if (id(author.id) !== userId) throw new FxApiError("fx_identity_mismatch");
+  return parseStatus(raw);
+}
+
 const request = async (path: string) => {
   try {
     // Workers supports manual redirects; reject 3xx before following another host.
@@ -104,4 +118,8 @@ export async function fetchFxTimelinePage(targetHandle: string, cursor: string |
   const target = handle(targetHandle), query = new URLSearchParams({ count: "20", with_replies: "true" });
   if (cursor) query.set("cursor", cursor);
   return parseFxTimelinePage(await request(`/2/profile/${target}/statuses?${query}`), target, id(trustedUserId));
+}
+export async function fetchFxStatus(postId: string, targetHandle: string, trustedUserId: string): Promise<XPostDto> {
+  const expectedId = id(postId), target = handle(targetHandle), userId = id(trustedUserId);
+  return parseFxStatus(await request(`/2/status/${expectedId}`), target, userId, expectedId);
 }

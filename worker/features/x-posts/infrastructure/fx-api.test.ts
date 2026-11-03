@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { fetchFxTimelinePage, parseFxTimelinePage } from "./fx-api";
+import { fetchFxStatus, fetchFxTimelinePage, parseFxStatus, parseFxTimelinePage } from "./fx-api";
 
 const raw = (id: string, handle = "member") => ({ type: "status", id, text: id, author: { id: handle === "member" ? "101" : "999", screen_name: handle, protected: false }, created_at: "Tue Nov 03 00:00:00 +0000 2026", media: {} });
 afterEach(() => vi.unstubAllGlobals());
@@ -40,4 +40,31 @@ it("rejects a redirect without following another host", async () => {
 it("accepts observed public http links while requiring HTTPS media", () => {
   const post = { ...raw("123"), raw_text: { facets: [{ type: "url", original: "https://t.co/a", replacement: "http://chzzk.me/member" }] } };
   expect(parseFxTimelinePage({ code: 200, results: [post] }, "member", "101").posts[0].links?.[0].expandedUrl).toBe("http://chzzk.me/member");
+});
+it("validates_status_identity_and_gif with the existing relations parser", () => {
+  const status = { ...raw("123"), media: { all: [{ id: "321", type: "gif", url: "https://video.twimg.com/a.mp4" }] }, quote: raw("124", "other"), replying_to: { status: "125", screen_name: "other" } };
+  const post = parseFxStatus({ code: 200, status }, "member", "101", "123");
+  expect(post.media[0].type).toBe("animated_gif");
+  expect(post.quote?.post?.id).toBe("124");
+  expect(post.reply?.postId).toBe("125");
+  expect(() => parseFxStatus({ code: 200, status: raw("123", "other") }, "member", "101", "123")).toThrowError(expect.objectContaining({ code: "fx_candidate_excluded" }));
+  expect(() => parseFxStatus({ code: 200, status: { ...raw("123"), reposted_by: {} } }, "member", "101", "123")).toThrowError(expect.objectContaining({ code: "fx_candidate_excluded" }));
+});
+it.each([
+  [{ code: 200, status: raw("124") }, "fx_identity_mismatch"],
+  [{ code: 200, status: { ...raw("123"), author: { id: "999", screen_name: "member", protected: false } } }, "fx_identity_mismatch"],
+  [{ code: 200, status: { ...raw("123"), author: { id: "101", screen_name: "member", protected: true } } }, "fx_private_author"],
+  [{ code: 404 }, "fx_payload_404"],
+  [{ code: 200, status: { ...raw("123"), created_at: "bad" } }, "fx_invalid_payload"],
+  [{ code: 200, status: { ...raw("123"), media: { all: [{ id: "321", type: "photo", url: "https://evil.example/a.jpg" }] } } }, "fx_invalid_payload"],
+])("rejects invalid free status responses", (payload, code) => {
+  expect(() => parseFxStatus(payload, "member", "101", "123")).toThrowError(expect.objectContaining({ code }));
+});
+it("fetches an individual status only from the fixed free endpoint", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: 200, status: raw("123") })));
+  vi.stubGlobal("fetch", fetchMock);
+  expect((await fetchFxStatus("123", "member", "101")).id).toBe("123");
+  expect(fetchMock.mock.calls[0][0]).toBe("https://api.fxtwitter.com/2/status/123");
+  await expect(fetchFxStatus("123/456", "member", "101")).rejects.toMatchObject({ code: "fx_invalid_payload" });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });
