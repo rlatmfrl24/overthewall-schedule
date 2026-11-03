@@ -2,9 +2,11 @@
 
 이 문서가 작업의 단일 진입점이다. 날짜별 보고서는 당시 증거이며 새 실행 지시가 아니다.
 
-## 무료 우선 X 수집 로컬 결과·최종 전체 검증 대기 — 2026-11-04
+## 무료 우선 X 수집 로컬 검증·리뷰 — Free 호출 한도 미해결 — 2026-11-04
 
-11/03 승인한7개 작업의 구현과 범위별 검증을 진행했다. [실제 결과·판단 원장·한계](reports/2026-11-04-x-free-first-collection-implementation.md)에 정상 관리자 적용→JSON, 실제 :53 tick의 기존 scheduled handler→native Workflow→Queue→실제 RSS/Fx→D1→공개 카드 증거를 기록했다. 최종 전체 `pnpm test`/양 빌드/독립 브랜치 리뷰는 **아직 대기**이며 완료로 해석하지 않는다.
+11/03 승인한7개 작업의 구현과 범위별 검증을 진행했다. [실제 결과·39개 판단 원장·한계](reports/2026-11-04-x-free-first-collection-implementation.md)에 정상 관리자 적용→JSON, 실제 :53 tick의 기존 scheduled handler→native Workflow→Queue→실제 RSS/Fx→D1→공개 카드 증거를 기록했다. 최종 소스 `9f10bcbafee850734e555cdf70855738de6f696e`에서 Node24 전체419파일3,761건+보조10건, 양 사이트 빌드·타입·구조·변경 lint가 통과했다. 사용자가 확인한 시작점 `a6b94631`부터 [Matt 두 축 리뷰](reports/2026-11-04-x-free-first-code-review.md)를 수행했고 관리자 갱신·중복 후보 판정·실제 admission 우선순위·terminal 제외·실패 경로까지의 실제 INSERT 증거를 보완했다. 원래 기능 지적은 모두 addressed이며 최종 narrow 재검토도 확인했다.
+
+**Free 환경 적합은 미해결이다.** 실제 Queue 전체 로컬 계측에서 신규5개 D1 binding 호출은144→82회, 답글·인용 포함은179→117회로 줄었지만 Free50 한도를 넘는다. 쓰기는105/160행으로 그대로다. Standards hard P1 1건과 Spec 조건부 환경1건이 같은 제약으로 남는다. 실제 계정 요금제·원격 quota는 미확인이고 로컬 runtime은 이 한도를 강제하지 않는다. 따라서 전체 테스트 통과를 Free 배포 적합이나 최종 제품 완료로 해석하지 않는다. 처리량5·안전장치를 낮추거나 유료 플랜·새 invocation 구조를 도입하지 않았다.
 
 양 site 로컬 migration0162–0164를 additive로 적용하고 기존 데이터를 보존했다. 첫 정상 JSON은 OTW+91/LuvDia+60, 실제 RSS8개 item은 raw800에서 OTW+4/LuvDia+1을 저장했다. 관계 보존 수정 후 같은 LuvDia 관리자 JSON 재생은+106이다. 최종433/577개이며 `postsStored`의 기존 행 갱신은 신규 카드에 합산하지 않았다. 공개 표본과 RSS5개 모두 정상 멤버 필터/페이지로 확인했다. RSS8개 item은 성공했으나 공식 작업의 `shared_budget_unavailable` 때문에 scheduled run은 partial이다. 실제 paid0이며 강제 bootstrap은 하지 않았다. LuvDia RSS1개는10/27 누락이므로24시간 내 신규 복구 증거가 아니다.
 
@@ -12,7 +14,7 @@
 
 로컬 정상 관리자 rollback은 양 site `x_api`/RSS 비활성/웹훅 Disabled로 확인했고 기존 legacy2시간 값은 보존했다. 임시 Cron rollout flag 두 행은 원래 부재로 CAS 복구했고 양 site 최종 doctor가 통과했다. 현재 로컬 rollback 상태를 운영 정책 변경으로 해석하지 않는다. Play/AI 중지와 공개·보관·삭제 정책을 유지한다.
 
-**보류3a/4b/5a 유지:** 실제 유료 공식 독립 발견·운영 전환/배포·초기7일 관측·실청구 절감·실제24시간 복구는 미검증이다. push/PR/merge/원격 migration·설정·구독 변경, 새 자동화·강제 유료 실험·자동 예산 증액은 하지 않았다. 현재 다음 행동은 로컬 최종 전체 검증과 독립 리뷰이며, 외부 효과는 별도 명시적 승인 후 진행한다. 과거 보고서와 아래 과거 승인·보류 기록이 이를 자동 재개하지 않는다.
+**보류3a/4b/5a 유지:** 실제 유료 공식 독립 발견·운영 전환/배포·초기7일 관측·실청구 절감·실제24시간 복구는 미검증이다. push/PR/merge/원격 migration·설정·구독 변경, 새 자동화·강제 유료 실험·자동 예산 증액은 하지 않았다. 다음 검토 대상은 안전한 D1 실행 설계와 실제 적용 환경 확인이다. 로컬 브랜치·worktree·검증 근거를 보존하며 merge 준비용 preflight는 실행하지 않았다. 외부 효과는 별도 명시적 승인 후 진행한다. 과거 보고서와 아래 과거 승인·보류 기록이 이를 자동 재개하지 않는다.
 
 ## 무료 우선 X 수집 구현·로컬 검증 승인 — 2026-11-03
 
