@@ -88,42 +88,27 @@ export async function readStoredXPreview(
   if (row) {
     const post = parseXPreview(row.value);
     if (post?.id === id && (await filterArchivedXReferences(db, [post], siteId)).length)
-      return {
-        local: true,
-        authorId: row.user_id,
-        post: {
-          id,
-          text: post.text,
-          username: post.username,
-          createdAt: post.createdAt,
-          url: post.url,
-          metrics: post.metrics,
-          media: post.media,
-          name: null,
-          profileImageUrl: null,
-        },
-      };
+      return storedXPreview(post, row.user_id);
   }
   const cache = await db
     .prepare(`SELECT value FROM x_api_cache WHERE key=? AND expires_at>?`)
     .bind(linkedPostKey(id), timestamp)
     .first<{ value: string }>();
   if (!cache) return null;
+  const members = await db.prepare(`SELECT url_twitter FROM members WHERE content_access='admin_archive' OR ${publicationHiddenSql("members", "members", siteId)}`).bind().all<{url_twitter:string|null}>();
+  return parseCachedXPreview(cache.value, id, new Set(members.results.map(row => extractXHandle(row.url_twitter)?.toLowerCase() ?? null)));
+}
+
+export function parseCachedXPreview(value: string, id: string, hiddenHandles: ReadonlySet<string | null>): StoredXPreview | null {
   try {
-    const parsed = JSON.parse(cache.value) as {
-      post: XLinkedPostPreviewDto | null;
-      authorId?: string | null;
-    };
-    if (
-      parsed.post?.id !== id ||
-      typeof parsed.post.text !== "string" ||
-      !Array.isArray(parsed.post.media)
-    )
-      return null;
-    const members = await db.prepare(`SELECT url_twitter FROM members WHERE content_access='admin_archive' OR ${publicationHiddenSql("members", "members", siteId)}`).bind().all<{url_twitter:string|null}>();
-    if (members.results.some(row => extractXHandle(row.url_twitter)?.toLowerCase() === parsed.post!.username?.toLowerCase())) return null;
+    const parsed = JSON.parse(value) as { post: XLinkedPostPreviewDto | null; authorId?: string | null };
+    if (parsed.post?.id !== id || typeof parsed.post.text !== "string" || !Array.isArray(parsed.post.media)
+      || hiddenHandles.has(parsed.post.username?.toLowerCase() ?? null)) return null;
     return { post: parsed.post, authorId: parsed.authorId, local: false };
-  } catch {
-    return null;
-  }
+  } catch { return null; }
+}
+
+export function storedXPreview(post: XPostDto, authorId?: string | null): StoredXPreview {
+  return { local: true, authorId, post: { id: post.id, text: post.text, username: post.username, createdAt: post.createdAt,
+    url: post.url, metrics: post.metrics, media: post.media, name: null, profileImageUrl: null } };
 }

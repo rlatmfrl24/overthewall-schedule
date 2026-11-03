@@ -21,7 +21,7 @@ import {
   type XApiUsageTracker,
 } from "./x-api";
 import { linkedPostKey, linkedUserKey } from "./x-reference-store";
-import { connectStoredReplyReferences } from "./x-reply-reference";
+import { writeStoredPosts } from "./x-api";
 import type { XPostDto } from "@contracts/x-posts";
 import { claimXSourceLeases, releaseXSourceLeases, runXCollectionForHandles } from "./x-collection";
 import { meterD1 } from "../../../test-support/d1-meter";
@@ -250,13 +250,13 @@ describe("X replies use stored context or a completed relation", () => {
       .bind(JSON.stringify(original), original.createdAt).run();
     const posts = [await seedReply("201", "10"), await seedReply("202", "10")];
     let targetReads = 0;
-    const observed = { prepare(sql: string) { if (sql.includes("SELECT value, user_id")) targetReads++; return db.prepare(sql); } };
-    await connectStoredReplyReferences(observed, posts);
-    expect(targetReads).toBe(1);
+    const observed = { batch: db.batch.bind(db), prepare(sql: string) { if (sql.includes("SELECT p.*")) targetReads++; return db.prepare(sql); } };
+    await writeStoredPosts(observed, "member", { id: "1", username: "member" }, posts.map(p => ({ ...p, text: "collected" })), Date.now(), "otw");
+    expect(targetReads).toBe(2);
     expect((await getPost("201")).reply?.post?.text).toBe(original.text);
     expect((await getPost("202")).reply?.post?.text).toBe(original.text);
     await redactStoredXPosts(db, ["10"]);
-    await connectStoredReplyReferences(db, posts);
+    await writeStoredPosts(db, "member", { id: "1", username: "member" }, posts.map(p => ({ ...p, text: "collected" })), Date.now(), "otw");
     expect((await getPost("201")).reply?.post).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
   });

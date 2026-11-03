@@ -162,14 +162,14 @@ it.each(["site", "shared", "backoff"])("utc_budget_block_keeps_pending: %s", asy
   expect(await clocks()).toEqual(before);
 });
 
-it("reuses_success_after_checkpoint_crash with a partially stored paid batch", async () => {
+it("reuses_success_after_checkpoint_crash with an atomically rolled back paid batch", async () => {
   const entry = await create(), checkpoint = entry.repo.checkpointItemContinuation.bind(entry.repo);
-  // The response and first INSERT commit, but the second post cannot be stored.
+  // The response commits, but the second root failure rolls back the whole writer batch.
   await db.exec("CREATE TRIGGER fail_paid_post BEFORE INSERT ON x_posts WHEN NEW.id='202' BEGIN SELECT RAISE(ABORT,'storage interrupted'); END;");
   const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
   const first = await runFxRssCollectionItem(runtime, entry.item, entry.input, entry.repo);
   expect(first.stats.paidApiCalls).toBe(1);
-  expect((await stored()).results.map(row => row.id)).toEqual(["201"]);
+  expect((await stored()).results.map(row => row.id)).toEqual([]);
   await db.exec("DROP TRIGGER fail_paid_post;");
   vi.spyOn(entry.repo, "checkpointItemContinuation").mockImplementation(checkpoint);
   await entry.repo.releaseItemForRetry(entry.item, "interrupted", "interrupted");
@@ -401,11 +401,11 @@ it("cache replay requires the full original reservation after a partial write", 
   await db.prepare("UPDATE x_shared_budgets SET used=970000").run();
   expect(await readDueFxRssCollectionTargets(runtime, now)).toEqual([]);
   expect(vi.mocked(fetch).mock.calls).toHaveLength(1);
-  expect((await stored()).results.map(row => row.id)).toEqual(["201"]);
+  expect((await stored()).results.map(row => row.id)).toEqual([]);
   await db.prepare("UPDATE x_shared_budgets SET used=900000").run();
   const [resume] = await readDueFxRssCollectionTargets(runtime, now), next = await create(resume);
   const replay = await runFxRssCollectionItem(runtime, next.item, next.input, next.repo);
-  expect(replay).toMatchObject({ status: "complete", stats: { paidApiCalls: 0, newlyStoredPosts: [{ id: "202" }] } });
+  expect(replay).toMatchObject({ status: "complete", stats: { paidApiCalls: 0, newlyStoredPosts: [{ id: "201" }, { id: "202" }] } });
   expect(vi.mocked(fetch).mock.calls).toHaveLength(1);
   expect(await db.prepare("SELECT count(*) n FROM x_shared_requests WHERE status='complete'").first("n")).toBe(1);
 });

@@ -137,10 +137,33 @@ const makeCacheDb = (
     limit: number;
   } | null = null;
   const db = {
+    async batch(statements: Array<{ sql: string; all: () => Promise<{ results: unknown[] }>; run: () => Promise<{ meta: { changes: number } }> }>) {
+      const before = new Map([...posts].map(([key, value]) => [key, { ...value }]));
+      const results = [];
+      let changes = 0;
+      try {
+        for (const statement of statements) {
+          if (statement.sql.startsWith("SELECT")) {
+            if (statement.sql.includes("changes()=1") && changes !== 1) throw new Error("post_revision_conflict");
+            results.push({ ...await statement.all(), meta: { changes: 0 } });
+          } else {
+            const result = await statement.run();
+            changes = result.meta.changes;
+            results.push({ results: [], ...result });
+          }
+        }
+        return results;
+      } catch (error) {
+        posts.clear();
+        for (const [key, value] of before) posts.set(key, value);
+        throw error;
+      }
+    },
     prepare(sql: string) {
       return {
         bind(...args: unknown[]) {
           return {
+            sql,
             async first<T>() {
               if (sql.includes("INSERT INTO scheduled_usage_daily")) {
                 const [day, requested, observedUsed, limit] = args;
@@ -203,6 +226,19 @@ const makeCacheDb = (
               return null as T | null;
             },
             async all<T>() {
+              if (sql.startsWith("SELECT json_group_array")) {
+                const incoming = sql.includes("WITH incoming") ? JSON.parse(String(args[0])) as XPostItem[] : [];
+                const versions = [...incoming, ...incoming.flatMap(post => posts.has(post.id) ? [JSON.parse(posts.get(post.id)!.value) as XPostItem] : [])];
+                const ids = new Set(versions.flatMap(post => [post.id, post.reply?.postId, post.quote?.postId, ...(post.links ?? []).map(link => link.linkedPost?.id)]));
+                const userIds = new Set(versions.map(post => (post.reply as { inReplyToUserId?: string } | null | undefined)?.inReplyToUserId));
+                let rows: unknown[] = [];
+                if (sql.includes("SELECT p.*")) rows = [...posts.values()].filter(post => ids.has(post.id)).map(post => ({ source_authority: null, content_hash: null, revision: 0, content_removed_at: null, content_access: "normal", publication_hidden: 0, ...post }));
+                else if (sql.includes("SELECT handle,user_id,username")) rows = [...sources.values()].filter(source => source.handle === args[1] || userIds.has(source.user_id ?? ""));
+                else if (sql.includes("SELECT key,value,expires_at")) rows = [...store].filter(([key, value]) => Number(value.expires_at) > Date.now() && ([...ids].some(id => key === `x:linked-post:v1:${id}`) || [...userIds].some(id => key === `x:linked-user:v1:${id}`))).map(([key, value]) => ({ key, ...value }));
+                else if (sql.includes("SELECT key,value FROM settings")) rows = [...store].filter(([key]) => ["x_history_analytics_enabled", "x_history_retention_days"].includes(key)).map(([key, value]) => ({ key, value: value.value }));
+                return { results: [{ data: JSON.stringify(rows) }] as T[] };
+              }
+              if (sql.startsWith("SELECT CASE")) return { results: [{ valid: 1 }] as T[] };
               if (sql.includes("NULL AS handle FROM x_posts")) return { results: [] as T[] };
               if (sql.includes("FROM x_post_sources")) {
                 return { results: args.flatMap((handle) => {

@@ -14,7 +14,7 @@ import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
 
 type D1 = Pick<D1Database, "prepare">;
 
-type MemberRow = { uid: number | string; name: string; url_twitter: string | null };
+export type MemberRow = { uid: number | string; name: string; url_twitter: string | null };
 type FactRow = {
   content_access: "normal" | "admin_archive";
   post_id: string;
@@ -51,7 +51,7 @@ const settingIsEnabled = async (db: D1, key: string) => {
 
 const normalizeHandle = (value: string) => value.trim().replace(/^@/, "").toLowerCase();
 
-const handleFromUrl = (url: string | null) => {
+export const handleFromUrl = (url: string | null) => {
   if (!url) return null;
   try {
     const parsed = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`);
@@ -126,6 +126,48 @@ const findMemberByHandle = async (db: D1, handle: string) => {
   return rows.results.find((row) => handleFromUrl(row.url_twitter) === normalized) ?? null;
 };
 
+export const prepareXPostFact = (
+  db: D1, member: MemberRow, post: XPostItem, timestamp: number,
+  siteId: SiteId, rssFence?: FxRssWriteFence,
+) => {
+  const createdAt = Date.parse(post.createdAt);
+  const fence = fxRssWriteFenceSql(rssFence, siteId);
+  return db.prepare(
+    `INSERT INTO x_post_facts (
+       post_id, member_uid, member_name_snapshot, post_type, created_at,
+       first_seen_at, media_count, link_count, edit_root_post_id,
+       superseded_by_post_id, hidden_at, hidden_reason, updated_at
+     ) SELECT CASE WHEN (${fence.sql}) THEN iif(EXISTS(SELECT 1 FROM members m WHERE m.uid=${asNumber(member.uid)} AND ${publicationHiddenSql("members", "m", siteId)}),json('site_member_cutover'),incoming.column1) ELSE json_extract('[]','rss_write_fence_lost') END, incoming.column2,incoming.column3,incoming.column4,incoming.column5,incoming.column6,incoming.column7,incoming.column8,incoming.column9,NULL,NULL,NULL,incoming.column10
+     FROM (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)) incoming
+     WHERE EXISTS(SELECT 1 FROM x_posts current WHERE current.id=incoming.column1
+       AND current.hidden_at IS NULL AND current.content_removed_at IS NULL AND current.content_access='normal'
+       AND json_array_length(current.value,'$.media')=incoming.column7
+       AND COALESCE(json_array_length(current.value,'$.links'),0)=incoming.column8
+       AND CASE WHEN json_extract(current.value,'$.reply') IS NOT NULL THEN 'reply'
+         WHEN json_extract(current.value,'$.quote') IS NOT NULL THEN 'quote' ELSE 'post' END=incoming.column4)
+     ON CONFLICT(post_id) DO UPDATE SET
+       member_uid = excluded.member_uid,
+       member_name_snapshot = excluded.member_name_snapshot,
+       post_type = excluded.post_type,
+       media_count = excluded.media_count,
+       link_count = excluded.link_count,
+       updated_at = excluded.updated_at`,
+  ).bind(
+    ...fence.bindings,
+    post.id,
+    asNumber(member.uid),
+    member.name,
+    toPostType(post),
+    createdAt,
+    timestamp,
+    post.media.length,
+    post.links?.length ?? 0,
+    post.id,
+    timestamp,
+  );
+
+};
+
 export const recordXPostFacts = async (
   db: D1,
   handle: string,
@@ -143,40 +185,7 @@ export const recordXPostFacts = async (
   for (const post of posts) {
     const createdAt = Date.parse(post.createdAt);
     if (!Number.isFinite(createdAt)) continue;
-    const fence = fxRssWriteFenceSql(rssFence, siteId);
-    await db.prepare(
-      `INSERT INTO x_post_facts (
-         post_id, member_uid, member_name_snapshot, post_type, created_at,
-         first_seen_at, media_count, link_count, edit_root_post_id,
-         superseded_by_post_id, hidden_at, hidden_reason, updated_at
-       ) SELECT CASE WHEN (${fence.sql}) THEN iif(EXISTS(SELECT 1 FROM members m WHERE m.uid=${asNumber(member.uid)} AND ${publicationHiddenSql("members", "m", siteId)}),json('site_member_cutover'),incoming.column1) ELSE json_extract('[]','rss_write_fence_lost') END, incoming.column2,incoming.column3,incoming.column4,incoming.column5,incoming.column6,incoming.column7,incoming.column8,incoming.column9,NULL,NULL,NULL,incoming.column10
-       FROM (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)) incoming
-       WHERE EXISTS(SELECT 1 FROM x_posts current WHERE current.id=incoming.column1
-         AND current.hidden_at IS NULL AND current.content_removed_at IS NULL AND current.content_access='normal'
-         AND json_array_length(current.value,'$.media')=incoming.column7
-         AND COALESCE(json_array_length(current.value,'$.links'),0)=incoming.column8
-         AND CASE WHEN json_extract(current.value,'$.reply') IS NOT NULL THEN 'reply'
-           WHEN json_extract(current.value,'$.quote') IS NOT NULL THEN 'quote' ELSE 'post' END=incoming.column4)
-       ON CONFLICT(post_id) DO UPDATE SET
-         member_uid = excluded.member_uid,
-         member_name_snapshot = excluded.member_name_snapshot,
-         post_type = excluded.post_type,
-         media_count = excluded.media_count,
-         link_count = excluded.link_count,
-         updated_at = excluded.updated_at`,
-    ).bind(
-      ...fence.bindings,
-      post.id,
-      asNumber(member.uid),
-      member.name,
-      toPostType(post),
-      createdAt,
-      timestamp,
-      post.media.length,
-      post.links?.length ?? 0,
-      post.id,
-      timestamp,
-    ).run();
+    await prepareXPostFact(db, member, post, timestamp, siteId, rssFence).run();
     recorded += 1;
   }
   return { recorded, skipped: posts.length - recorded };

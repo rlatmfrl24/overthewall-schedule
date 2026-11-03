@@ -1,4 +1,4 @@
-import { mergeStoredXPost, officialXPostContext, xPostContentKey, type XPostAuthority, type XPostWriteContext } from "../domain/merge-x-post";
+import { officialXPostContext, type XPostWriteContext } from "../domain/merge-x-post";
 import type { SiteId } from "@contracts/site-definition";
 import type { XApiGateway, XApiGatewayRequest } from "@contracts/x-activity";
 import type { XCollectionScope, XNewlyStoredPost } from "@contracts/x-collection";
@@ -17,13 +17,10 @@ import {
 } from "./link-preview";
 import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
 import { filterArchivedXReferences, readStoredXPreview } from "./x-reference-store";
-import { connectStoredReplyReferences } from "./x-reply-reference";
+import { commitStoredPosts } from "./x-post-writer";
 import { prepareXReferenceRedaction } from "./x-reference-redaction";
 import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
 import { reserveXReferenceBudget, XReferenceBudgetError } from "./x-reference-budget";
-import {
-  recordXPostFacts,
-} from "./x-history";
 
 export type XApiUser = {
   id: string;
@@ -1435,86 +1432,6 @@ const readStoredPostsForHandles = async (
   return entries;
 };
 
-const recordXPostReferences = async (
-  cacheDb: XCacheDb,
-  posts: XPostItem[],
-  recordedAt: number,
-  siteId: SiteId,
-  rssFence?: FxRssWriteFence,
-) => {
-  for (const post of posts) {
-    const references = [
-      post.quote
-        ? { type: "quote", id: post.quote.postId, hydrated: Boolean(post.quote.post) }
-        : null,
-      post.reply
-        ? { type: "reply", id: post.reply.postId, hydrated: Boolean(post.reply.post) }
-        : null,
-    ].filter((reference): reference is { type: "quote" | "reply"; id: string; hydrated: boolean } =>
-      Boolean(reference?.id)
-    );
-    for (const reference of references) {
-      const local = reference.type === "quote" ? await cacheDb.prepare(
-        "SELECT 1 AS found FROM x_posts WHERE id = ? LIMIT 1",
-      ).bind(reference.id).first<{ found: number }>() : null;
-      const state = reference.type === "reply" && !reference.hydrated ? "link_only" : local
-        ? "local"
-        : reference.hydrated
-          ? "hydrated"
-          : "pending";
-      const fence = fxRssWriteFenceSql(rssFence, siteId);
-      await cacheDb.prepare(
-        `INSERT INTO x_post_references (
-           source_post_id, relation_type, referenced_post_id,
-           resolution_state, attempt_count, next_attempt_at, hydrated_at,
-           created_at, updated_at
-         ) SELECT CASE WHEN (${fence.sql}) THEN iif(EXISTS(SELECT 1 FROM x_posts p WHERE p.id=incoming.column1 AND ${publicationHiddenSql("x_posts", "p", siteId)}),json('site_member_cutover'),incoming.column1) ELSE json_extract('[]','rss_write_fence_lost') END, incoming.column2, incoming.column3, incoming.column4, incoming.column5, incoming.column6, incoming.column7, incoming.column8, incoming.column9
-         FROM (VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)) incoming
-         WHERE EXISTS(SELECT 1 FROM x_posts current WHERE current.id=incoming.column1
-           AND current.hidden_at IS NULL AND current.content_removed_at IS NULL AND current.content_access='normal'
-           AND json_extract(current.value,'$.' || incoming.column2 || '.postId')=incoming.column3)
-         ON CONFLICT(source_post_id, relation_type) DO UPDATE SET
-           referenced_post_id = excluded.referenced_post_id,
-            resolution_state = CASE
-              WHEN x_post_references.resolution_state = 'terminal'
-                AND x_post_references.referenced_post_id = excluded.referenced_post_id
-                THEN x_post_references.resolution_state
-              WHEN x_post_references.referenced_post_id = excluded.referenced_post_id
-                AND x_post_references.hydrated_at IS NOT NULL
-                THEN x_post_references.resolution_state
-              ELSE excluded.resolution_state
-            END,
-            next_attempt_at = CASE
-              WHEN excluded.relation_type = 'reply' THEN NULL
-              WHEN x_post_references.referenced_post_id = excluded.referenced_post_id
-                AND (x_post_references.hydrated_at IS NOT NULL OR x_post_references.resolution_state = 'terminal')
-              THEN x_post_references.next_attempt_at ELSE excluded.next_attempt_at END,
-           hydrated_at = CASE WHEN x_post_references.referenced_post_id=excluded.referenced_post_id
-             THEN COALESCE(excluded.hydrated_at, x_post_references.hydrated_at) ELSE excluded.hydrated_at END,
-           author_state = CASE WHEN x_post_references.referenced_post_id<>excluded.referenced_post_id THEN 'not_required'
-             WHEN excluded.relation_type='reply' AND x_post_references.resolution_state<>'terminal'
-             THEN 'not_required' ELSE x_post_references.author_state END,
-           author_next_attempt_at = CASE WHEN excluded.relation_type='reply' THEN NULL ELSE x_post_references.author_next_attempt_at END,
-           author_last_error_code = CASE WHEN excluded.relation_type='reply' THEN NULL ELSE x_post_references.author_last_error_code END,
-           last_error_code = CASE WHEN x_post_references.referenced_post_id<>excluded.referenced_post_id THEN NULL
-             WHEN excluded.relation_type='reply' AND x_post_references.resolution_state<>'terminal'
-             THEN NULL ELSE x_post_references.last_error_code END,
-           updated_at = excluded.updated_at`,
-      ).bind(
-        ...fence.bindings,
-        post.id,
-        reference.type,
-        reference.id,
-        state,
-        reference.type === "quote" && !reference.hydrated ? recordedAt : null,
-        reference.hydrated ? recordedAt : null,
-        recordedAt,
-        recordedAt,
-      ).run();
-    }
-  }
-};
-
 export const writeStoredPosts = async (
   cacheDb: XCacheDb | undefined,
   handle: string,
@@ -1526,63 +1443,14 @@ export const writeStoredPosts = async (
   rssFence?: FxRssWriteFence,
 ): Promise<StoredXPostsWriteResult> => {
   if (!cacheDb || posts.length === 0) return { ok: true, count: 0, insertedIds: [], error: null };
-  const normalizedHandle = normalizeHandle(handle);
-  const changedPosts: XPostItem[] = [];
-  const insertedIds: string[] = [];
-  const revisions = new Map<string, number>();
   try {
-    for (const incoming of posts) {
-      let saved = false;
-      for (let attempt = 0; attempt < 4; attempt++) {
-        const row = await cacheDb.prepare(
-          "SELECT value,source_authority,content_hash,revision,hidden_at,content_removed_at,content_access,user_id,handle FROM x_posts WHERE id=?",
-        ).bind(incoming.id).first<{ value: string; source_authority: string | null; content_hash: string | null; revision: number; hidden_at: number | null; content_removed_at: number | null; content_access: string; user_id: string | null; handle: string }>();
-        if (row && (row.hidden_at !== null || row.content_removed_at !== null || row.content_access !== "normal")) { saved = true; break; }
-        if (row && (row.handle !== normalizedHandle || (row.user_id && row.user_id !== user.id))) throw new Error("post_author_mismatch");
-        const merged = mergeStoredXPost(row ? { post: JSON.parse(row.value) as XPostItem, authority: row.source_authority ? JSON.parse(row.source_authority) as XPostAuthority : null } : null, incoming, typeof context === "function" ? context(incoming) : context);
-        if (!merged.changed) {
-          // A sourced row is complete only after its facts and references are durable.
-          if (row?.source_authority && row.content_hash === null) {
-            changedPosts.push(merged.post);
-            revisions.set(incoming.id, row.revision);
-          }
-          saved = true; break;
-        }
-        const value = JSON.stringify(merged.post);
-        const fence = fxRssWriteFenceSql(rssFence, siteId);
-        const result = row
-          ? await cacheDb.prepare(`UPDATE x_posts SET value=?,source_authority=?,content_hash=NULL,revision=revision+1,fetched_at=?
-              WHERE id=? AND revision=? AND value=? AND hidden_at IS NULL AND content_removed_at IS NULL AND content_access='normal'
-              AND NOT (${publicationHiddenSql("x_posts", "x_posts", siteId)}) AND (${fence.sql})`)
-              .bind(value, JSON.stringify(merged.authority), fetchedAt, incoming.id, row.revision, row.value, ...fence.bindings).run()
-          : await cacheDb.prepare(`INSERT INTO x_posts(id,handle,user_id,username,value,created_at,first_seen_at,fetched_at,source_authority,content_hash,revision)
-              SELECT iif(${publicationHiddenSql("x_post_sources","incoming",siteId)},json('site_member_cutover'),?),?,?,?,?,?,?,?,?,NULL,1
-              FROM (SELECT ? AS handle) incoming WHERE (${fence.sql}) ON CONFLICT(id) DO NOTHING`)
-              .bind(incoming.id, normalizedHandle, user.id, incoming.username, value, incoming.createdAt, fetchedAt, fetchedAt, JSON.stringify(merged.authority), normalizedHandle, ...fence.bindings).run();
-        if (result.meta.changes) { if (!row) insertedIds.push(incoming.id); changedPosts.push(merged.post); revisions.set(incoming.id, (row?.revision ?? 0) + 1); saved = true; break; }
-      }
-      if (!saved) throw new Error("post_revision_conflict");
-    }
-    if (changedPosts.length) {
-      const connectedPosts = await connectStoredReplyReferences(cacheDb, changedPosts, rssFence, siteId);
-      await recordXPostFacts(cacheDb, normalizedHandle, connectedPosts, fetchedAt, siteId, rssFence);
-      await recordXPostReferences(cacheDb, connectedPosts, fetchedAt, siteId, rssFence);
-      for (const post of connectedPosts) {
-        const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(xPostContentKey(post))))].map(byte => byte.toString(16).padStart(2,"0")).join("");
-        const fence = fxRssWriteFenceSql(rssFence, siteId);
-        const ack = await cacheDb.prepare(`UPDATE x_posts SET content_hash=? WHERE id=? AND revision=? AND content_hash IS NULL AND hidden_at IS NULL AND content_removed_at IS NULL AND content_access='normal' AND (${fence.sql})`)
-          .bind(hash, post.id, revisions.get(post.id)!, ...fence.bindings).run();
-        if (!ack.meta.changes) {
-          const pending = await cacheDb.prepare("SELECT 1 FROM x_posts WHERE id=? AND content_hash IS NULL AND hidden_at IS NULL AND content_removed_at IS NULL AND content_access='normal'").bind(post.id).first();
-          if (pending) throw new Error("post_revision_conflict");
-        }
-      }
-      invalidateXPostMemoryCache();
-    }
-    return { ok: true, count: changedPosts.length, insertedIds, error: null };
+    if (!("batch" in cacheDb) || typeof cacheDb.batch !== "function") throw new Error("stored_post_batch_required");
+    const result = await commitStoredPosts(cacheDb as Pick<D1Database, "prepare" | "batch">, normalizeHandle(handle), user, posts, fetchedAt, siteId, context, rssFence);
+    if (result.count) invalidateXPostMemoryCache();
+    return { ...result, ok: true, error: null };
   } catch (error) {
     console.warn("Failed to write stored X posts", error);
-    return { ok: false, count: 0, insertedIds, error: error instanceof Error ? error.message : "stored_post_write_failed" };
+    return { ok: false, count: 0, insertedIds: [], error: error instanceof Error ? error.message : "stored_post_write_failed" };
   }
 };
 
