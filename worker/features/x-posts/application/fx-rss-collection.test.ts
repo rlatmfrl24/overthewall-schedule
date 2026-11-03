@@ -117,3 +117,20 @@ it.each([
   expect(ports.fetchStatus).not.toHaveBeenCalled();
   expect(ports.hydrateOfficial).not.toHaveBeenCalled();
 });
+
+it.each([true, false])("keeps every replay checkpoint valid when aborted hydration proves the batch resolved=%s", async resolved => {
+  const { ports, stored } = setup(), input = state(["201", "202"]);
+  input.candidates = input.candidates.map(candidate => ({ ...candidate, stage: "official", attempts: 2 }));
+  input.paidBatch = { day: "2026-11-03", ids: ["201"], requestId: "otw:rss:member:2026-11-03:00000000-0000-0000-0000-000000000000" };
+  stored.add("201");
+  ports.prepareOfficialBatch = async () => ({ batch: input.paidBatch!, error: null });
+  ports.hydrateOfficial = async () => ({ resolvedIds: resolved ? ["201"] : [], remaining: resolved ? [input.candidates[1]!] : input.candidates, postsReturned: 0, postsStored: 0, paidApiCalls: 0, estimatedCostMicros: 0, error: "rate_limited" });
+  const { parseFxRssContinuation } = await import("./fx-rss-collection");
+  const snapshots: FxRssContinuation[] = [];
+  ports.checkpoint = async snapshot => { snapshots.push(structuredClone(parseFxRssContinuation(snapshot))); return true; };
+  const result = await run(ports, input);
+  expect(result.error).toBe("rate_limited");
+  expect(result.state.candidates.map(candidate => candidate.id)).toEqual(resolved ? ["202"] : ["201", "202"]);
+  expect(result.state.paidBatch).toEqual(resolved ? null : input.paidBatch);
+  expect(snapshots.at(-1)).toEqual(result.state);
+});

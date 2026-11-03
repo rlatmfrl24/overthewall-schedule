@@ -555,3 +555,43 @@ it("replays a processed partial response after lost candidate checkpoint without
   expect(replay.state.paidBatch).toBeNull();
   expect(await db.prepare("SELECT count(*) n FROM x_shared_requests WHERE status='complete'").first("n")).toBe(1);
 });
+
+it("resumes an aborted bounded-batch replay through valid checkpoints and the due planner", async () => {
+  const entry = await create(), checkpoint = entry.repo.checkpointItemContinuation.bind(entry.repo);
+  const { parseFxRssContinuation } = await import("../application/fx-rss-collection");
+  await db.prepare("UPDATE settings SET value='2' WHERE key='x_collection_daily_budget_cents'").run();
+  vi.spyOn(entry.repo,"checkpointItemContinuation").mockImplementation(async (item, continuation, stats) => (continuation.candidates as FxRssCandidate[]).length === 1 ? false : checkpoint(item,continuation,stats));
+  const interrupted = await runFxRssCollectionItem(runtime,entry.item,entry.input,entry.repo);
+  expect(interrupted.status).toBe("blocked");
+  expect(interrupted.state.paidBatch!.ids).toEqual(["201"]);
+  expect((await stored()).results.map(post => post.id)).toEqual(["201"]);
+  vi.mocked(entry.repo.checkpointItemContinuation).mockImplementation(checkpoint);
+  await db.prepare("UPDATE settings SET value='100' WHERE key='x_collection_daily_budget_cents'").run();
+  await entry.repo.releaseItemForRetry(entry.item,"checkpoint","checkpoint");
+  const item = (await entry.repo.claimItem(entry.item.id))!, receipt = gateway.readReceipt.bind(gateway);
+  const temporaryBackoff = vi.spyOn(gateway,"readReceipt").mockImplementation(async input => {
+    const result = await receipt(input);
+    await db.prepare("UPDATE settings SET value=? WHERE key='x_api_backoff_until'").bind(String(now + 60_000)).run();
+    return result;
+  });
+  const replay = await runFxRssCollectionItem(runtime,item,JSON.parse(item.continuation_json!),entry.repo);
+  temporaryBackoff.mockRestore();
+  expect(replay.error).toBe("rate_limited");
+  expect(replay.stats.paidApiCalls).toBe(0);
+  expect(vi.mocked(fetch).mock.calls.map(([input]) => new URL(String(input)).searchParams.get("ids"))).toEqual(["201"]);
+  await entry.repo.completeItem(item,{ status: "partial" });
+  await db.prepare("UPDATE settings SET value='0' WHERE key='x_api_backoff_until'").run();
+  now = replay.nextAttemptAt!;
+  const planned = await readDueFxRssCollectionTargets(runtime,now);
+  expect(planned).toHaveLength(1);
+  const persisted = JSON.parse((await entry.repo.readItem(item.id))!.continuation_json!);
+  expect(() => parseFxRssContinuation(persisted)).not.toThrow();
+  expect(persisted.candidates.map((candidate: FxRssCandidate) => candidate.id)).toEqual(["202"]);
+  expect(persisted.paidBatch).toBeNull();
+  const next = await create(planned[0]), recovered = await runFxRssCollectionItem(runtime,next.item,next.input,next.repo);
+  expect(recovered).toMatchObject({ status: "complete", stats: { paidApiCalls: 1, postsStored: 1 } });
+  const completed = JSON.parse((await next.repo.readItem(next.item.id))!.continuation_json!);
+  expect(() => parseFxRssContinuation(completed)).not.toThrow();
+  expect((await stored()).results.map(post => post.id)).toEqual(["201", "202"]);
+  expect(vi.mocked(fetch).mock.calls.map(([input]) => new URL(String(input)).searchParams.get("ids"))).toEqual(["201", "202"]);
+});
