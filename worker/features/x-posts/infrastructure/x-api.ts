@@ -498,13 +498,17 @@ const readDailyUsageMicros = async (
   }
 };
 
-export const readDailyBudgetMicros = async (cacheDb: XCacheDb | undefined) => {
-  const value = cacheDb ? (await cacheDb.prepare("SELECT value FROM settings WHERE key = ?")
-    .bind("x_collection_daily_budget_cents").first<{ value: string | null }>())?.value : null;
+export const normalizeDailyBudgetMicros = (value: string | null | undefined) => {
   const cents = Number.parseInt(value ?? "", 10);
   const safeCents =
     Number.isFinite(cents) && cents > 0 ? cents : X_DAILY_BUDGET_CENTS_DEFAULT;
   return Math.min(100, safeCents) * 10_000;
+};
+
+export const readDailyBudgetMicros = async (cacheDb: XCacheDb | undefined) => {
+  const value = cacheDb ? (await cacheDb.prepare("SELECT value FROM settings WHERE key = ?")
+    .bind("x_collection_daily_budget_cents").first<{ value: string | null }>())?.value : null;
+  return normalizeDailyBudgetMicros(value);
 };
 
 export async function readSiteXBudget(db: XCacheDb) {
@@ -663,8 +667,7 @@ const reserveXApiBudget = async (
     const values = new Map((settings.results as {key:string;value:string}[]).map(row=>[row.key,row.value]));
     const backoff = Number.parseInt(values.get("x_api_backoff_until") ?? "0",10);
     if (backoff > now()) throw new XApiError("X API is temporarily paused after rate limiting",429,{code:"rate_limited",sourceStatus:429,detail:`X API calls are paused until ${new Date(backoff).toISOString()}.`});
-    const cents = Number.parseInt(values.get("x_collection_daily_budget_cents") ?? "",10);
-    budgetMicros = Math.min(100,Number.isFinite(cents)&&cents>0?cents:X_DAILY_BUDGET_CENTS_DEFAULT)*10_000;
+    budgetMicros = normalizeDailyBudgetMicros(values.get("x_collection_daily_budget_cents"));
     usedMicros = Number((usage.results[0] as {total:number} | undefined)?.total ?? 0);
   } else {
     usedMicros = await readDailyUsageMicros(cacheDb);

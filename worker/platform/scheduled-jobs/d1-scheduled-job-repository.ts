@@ -657,7 +657,22 @@ export class D1ScheduledJobRepository {
     void lane;
     const now = this.clock();
     const day = new Date(now).toISOString().slice(0, 10);
-    const result = await this.db.prepare(
+    return await this.prepareQueueOperations(day, amount, now).first() !== null;
+  }
+
+  async reserveReconciliationRetry(runId: string, error: string) {
+    const now = this.clock(), day = new Date(now).toISOString().slice(0, 10);
+    // Test denial before reservation, under the same transaction. Successful admission
+    // leaves the run/items/outbox untouched; denial retains the existing recoverable failure.
+    const results = await this.db.batch([
+      ...this.prepareRunFailed(runId, error, true, now, day),
+      this.prepareQueueOperations(day, 3, now),
+    ]);
+    return results[results.length - 1].results.length > 0;
+  }
+
+  private prepareQueueOperations(day: string, amount: number, now: number) {
+    return this.db.prepare(
       `INSERT INTO scheduled_usage_daily (
          day, lane, resource, reserved, used, limit_value, updated_at
        ) VALUES (?, ?, 'queue_operations', 0, ?, ?, ?)
@@ -667,9 +682,7 @@ export class D1ScheduledJobRepository {
        WHERE scheduled_usage_daily.used + scheduled_usage_daily.reserved + excluded.used
          <= scheduled_usage_daily.limit_value
        RETURNING used`,
-    ).bind(day, "all", amount, SCHEDULED_QUEUE_DAILY_TARGET, now)
-      .first<{ used: number }>();
-    return result !== null;
+    ).bind(day, "all", amount, SCHEDULED_QUEUE_DAILY_TARGET, now);
   }
 
   async reserveDispatchBudget(lane: ScheduledLane, estimate: { rowsRead: number; rowsWritten: number }) {
@@ -1039,26 +1052,34 @@ export class D1ScheduledJobRepository {
     error: string,
     allowTerminalStatus = false,
   ) {
-    const now = this.clock();
-    await this.db.batch([
+    await this.db.batch(this.prepareRunFailed(runId, error, allowTerminalStatus, this.clock()));
+  }
+
+  private prepareRunFailed(runId: string, error: string, allowTerminalStatus: boolean, now: number, deniedQueueDay?: string) {
+    const condition = deniedQueueDay === undefined ? "1" : `EXISTS (
+      SELECT 1 FROM scheduled_usage_daily WHERE day=? AND lane='all' AND resource='queue_operations'
+        AND used + reserved + 3 > limit_value
+    )`;
+    const conditionBindings = deniedQueueDay === undefined ? [] : [deniedQueueDay];
+    return [
       this.db.prepare(
         `UPDATE scheduled_job_items SET status = 'failed',
            last_error_code = 'run_failed', last_error = ?,
            finished_at = ?, updated_at = ?
-         WHERE run_id = ? AND status = 'queued'`,
-      ).bind(error, now, now, runId),
+         WHERE run_id = ? AND status = 'queued' AND (${condition})`,
+      ).bind(error, now, now, runId, ...conditionBindings),
       this.db.prepare(
         `UPDATE scheduled_outbox SET status = 'dispatched', last_error = ?,
            lease_token = NULL, lease_until = NULL, updated_at = ?
-         WHERE run_id = ? AND status IN ('pending', 'failed', 'dispatching')`,
-      ).bind(error, now, runId),
+         WHERE run_id = ? AND status IN ('pending', 'failed', 'dispatching') AND (${condition})`,
+      ).bind(error, now, runId, ...conditionBindings),
       this.db.prepare(
         `UPDATE scheduled_job_runs
          SET status = 'failed', last_error = ?, finished_at = ?, updated_at = ?
          WHERE id = ?
-           AND (status IN ('queued', 'running') OR ? = 1)`,
-      ).bind(error, now, now, runId, allowTerminalStatus ? 1 : 0),
-    ]);
+           AND (status IN ('queued', 'running') OR ? = 1) AND (${condition})`,
+      ).bind(error, now, now, runId, allowTerminalStatus ? 1 : 0, ...conditionBindings),
+    ];
   }
 
   async readPhaseProgress(runId: string, phase: string) {

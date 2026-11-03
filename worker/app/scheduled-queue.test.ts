@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   completeItem: vi.fn(),
   releaseItemForRetry: vi.fn(),
   reserveQueueOperations: vi.fn(),
+  reserveReconciliationRetry: vi.fn(),
   markRunFailed: vi.fn(),
   markItemDeadLetter: vi.fn(),
   refreshRun: vi.fn(),
@@ -17,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   finalizeLegacyState: vi.fn(),
   advanceRun: vi.fn(),
   dispatchRun: vi.fn(),
+  planManualRun: vi.fn(),
+  markRunThrottled: vi.fn(),
 }));
 
 vi.mock("../platform/scheduled-jobs", () => ({
@@ -28,6 +31,7 @@ vi.mock("../platform/scheduled-jobs", () => ({
     completeItemWithReadback = async (...args: unknown[]) => await mocks.completeItem(...args) ? mocks.readItem((args[0] as {id:string}).id) : false;
     releaseItemForRetry = mocks.releaseItemForRetry;
     reserveQueueOperations = mocks.reserveQueueOperations;
+    reserveReconciliationRetry = mocks.reserveReconciliationRetry;
     markRunFailed = mocks.markRunFailed;
     markItemDeadLetter = mocks.markItemDeadLetter;
     refreshRun = mocks.refreshRun;
@@ -37,7 +41,8 @@ vi.mock("../platform/scheduled-jobs", () => ({
 
 vi.mock("../features/scheduled-operations", () => ({
   ScheduledJobCoordinator: class {
-    repository = {};
+    repository = {reserveQueueOperations:mocks.reserveQueueOperations,markRunThrottled:mocks.markRunThrottled};
+    planManualRun = mocks.planManualRun;
     advanceRun = mocks.advanceRun;
     dispatchRun = mocks.dispatchRun;
   },
@@ -47,7 +52,7 @@ vi.mock("../features/scheduled-operations", () => ({
   },
 }));
 
-import { handleScheduledJobQueue } from "./scheduled-queue";
+import { handleScheduledControlQueue, handleScheduledJobQueue } from "./scheduled-queue";
 
 describe("scheduled job queue", () => {
   it("rearms a priority-deferred delivery before acknowledging and redispatches the run", async () => {
@@ -85,10 +90,35 @@ describe("scheduled job queue", () => {
     });
     mocks.releaseItemForRetry.mockResolvedValue(true);
     mocks.reserveQueueOperations.mockResolvedValue(true);
+    mocks.reserveReconciliationRetry.mockResolvedValue(true);
     mocks.advanceRun.mockResolvedValue(false);
     mocks.dispatchRun.mockResolvedValue({ dispatched: 1 });
     mocks.finalizeLegacyState.mockResolvedValue(undefined);
     mocks.refreshRun.mockResolvedValue(undefined);
+  });
+
+  it.each([true,false])("preserves control planning failure admission: %s",async reserved=>{
+    mocks.planManualRun.mockRejectedValue(new Error('planning failed'));
+    mocks.reserveQueueOperations.mockResolvedValue(reserved);
+    const message={body:{schemaVersion:1,messageType:'scheduled_job_control',runId:'control-run'},ack:vi.fn(),retry:vi.fn()};
+    await handleScheduledControlQueue({queue:'otw-ops-control',messages:[message]} as unknown as MessageBatch<unknown>,siteEnv() as Env);
+    expect(mocks.reserveQueueOperations).toHaveBeenCalledWith('control');
+    expect(mocks.reserveReconciliationRetry).not.toHaveBeenCalled();
+    if(reserved){expect(message.retry).toHaveBeenCalledWith({delaySeconds:60});expect(message.ack).not.toHaveBeenCalled();expect(mocks.markRunThrottled).not.toHaveBeenCalled();}
+    else {expect(mocks.markRunThrottled).toHaveBeenCalledWith('control-run','daily_queue_budget_exhausted_during_retry');expect(message.ack).toHaveBeenCalledOnce();expect(message.retry).not.toHaveBeenCalled();}
+  });
+
+  it.each([true,false])("preserves nonterminal non-RSS execution failure admission: %s",async reserved=>{
+    mocks.claimItem.mockResolvedValue({id:'item-1',run_id:'run-1',phase:'collect',lane:'naver',status:'running',attempts:1});
+    mocks.readItem.mockResolvedValue({id:'item-1',run_id:'run-1',phase:'collect',lane:'naver',status:'running',attempts:1});
+    mocks.execute.mockRejectedValue(new Error('collector failed'));
+    mocks.reserveQueueOperations.mockResolvedValue(reserved);
+    const message={body:{schemaVersion:1,messageType:'scheduled_job_item',runId:'run-1',itemId:'item-1',phase:'collect'},ack:vi.fn(),retry:vi.fn()};
+    await handleScheduledJobQueue({queue:'otw-ops-background',messages:[message]} as unknown as MessageBatch<unknown>,siteEnv() as Env);
+    expect(mocks.reserveQueueOperations).toHaveBeenCalledWith('naver');
+    expect(mocks.reserveReconciliationRetry).not.toHaveBeenCalled();
+    if(reserved){expect(mocks.releaseItemForRetry).toHaveBeenCalledOnce();expect(message.retry).toHaveBeenCalledWith({delaySeconds:60});expect(message.ack).not.toHaveBeenCalled();}
+    else {expect(mocks.completeItem).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({status:'throttled',errorCode:'queue_budget_exhausted'}));expect(message.ack).toHaveBeenCalledOnce();expect(message.retry).not.toHaveBeenCalled();}
   });
 
   it("marks LuvDia scheduled item/control dead letters before acknowledging", async () => {
@@ -287,6 +317,7 @@ describe("scheduled job queue", () => {
     expect(retry).toHaveBeenCalledWith({ delaySeconds: 60 });
     expect(ack).not.toHaveBeenCalled();
     expect(mocks.releaseItemForRetry).not.toHaveBeenCalled();
+    expect(mocks.reserveReconciliationRetry).toHaveBeenCalledWith("run-1", "post_completion_reconciliation_failed:temporary d1 failure");
   });
 
   it("후속 조정 retry 예산이 소진되면 terminal run을 복구 가능한 실패로 표시한다", async () => {
@@ -294,7 +325,7 @@ describe("scheduled job queue", () => {
     const retry = vi.fn();
     mocks.claimItem.mockResolvedValue(null);
     mocks.advanceRun.mockRejectedValueOnce(new Error("temporary d1 failure"));
-    mocks.reserveQueueOperations.mockResolvedValue(false);
+    mocks.reserveReconciliationRetry.mockResolvedValue(false);
 
     await handleScheduledJobQueue({
       queue: "otw-ops-background",
@@ -311,11 +342,11 @@ describe("scheduled job queue", () => {
       }],
     } as unknown as MessageBatch<unknown>, siteEnv() as Env);
 
-    expect(mocks.markRunFailed).toHaveBeenCalledWith(
+    expect(mocks.reserveReconciliationRetry).toHaveBeenCalledWith(
       "run-1",
       "post_completion_reconciliation_failed:temporary d1 failure",
-      true,
     );
+    expect(mocks.markRunFailed).not.toHaveBeenCalled();
     expect(retry).not.toHaveBeenCalled();
     expect(ack).toHaveBeenCalledOnce();
   });

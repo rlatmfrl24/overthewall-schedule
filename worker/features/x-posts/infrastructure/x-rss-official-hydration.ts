@@ -5,7 +5,7 @@ import type { OfficialRssHydrationResult } from "../ports/fx-rss-collection";
 import { parseFxRssContinuation } from "../application/fx-rss-collection";
 import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
 import { prepareStoredRssCandidateIds } from "./rss-stored-candidates";
-import { estimateXApiRequestCostMicros, estimateXSharedApiReservationMicros, normalizeXTimelineResponse, requestXApi, writeStoredPosts, xTimelineWriteContext, XApiError, type XApiUsageTracker, type XTweetLookupResponse } from "./x-api";
+import { estimateXApiRequestCostMicros, estimateXSharedApiReservationMicros, normalizeDailyBudgetMicros, normalizeXTimelineResponse, requestXApi, writeStoredPosts, xTimelineWriteContext, XApiError, type XApiUsageTracker, type XTweetLookupResponse } from "./x-api";
 
 const pathFor = (ids: string[]) => `/tweets?${new URLSearchParams({ ids: ids.join(","), "tweet.fields": "author_id,created_at,public_metrics,attachments,entities,referenced_tweets,conversation_id,in_reply_to_user_id,note_tweet", expansions: "author_id,attachments.media_keys", "user.fields": "protected", "media.fields": "url,preview_image_url,type,width,height,alt_text" })}`;
 type OfficialSource = { user_id: string | null; collection_started_at: number | null; last_completed_at: number | null; sync_pagination_token: string | null; sync_origin_scope: string | null; sync_timeline_completed_at: number | null; deactivated_at: number | null };
@@ -26,10 +26,9 @@ const readOfficialContext = async (env: Env, handle: string, candidates: FxRssCa
     env.otw_db.prepare(`SELECT i.continuation_json,r.source FROM scheduled_job_items i JOIN scheduled_job_runs r ON r.id=i.run_id WHERE i.id=? AND (${guard.sql})`).bind(fence?.itemId ?? null,...guard.bindings),
   ]);
   const settings = new Map((settingsRows.results as {key:string;value:string}[]).map(row=>[row.key,row.value]));
-  const cents = Number.parseInt(settings.get('x_collection_daily_budget_cents') ?? '',10);
   return { source: sources.results[0] as OfficialSource | undefined, stored: new Set(storedRows.results.map(row=>String((row as {id:string}).id))),
     timelinePending: timelineRows.results.length>0, backoff: Number(settings.get('x_api_backoff_until') ?? 0),
-    limit: Math.min(100,Number.isFinite(cents)&&cents>0?cents:100)*10_000,
+    limit: normalizeDailyBudgetMicros(settings.get('x_collection_daily_budget_cents')),
     site: budgetRows.results[0] as {used:number;reserved:number},
     item: itemRows.results[0] as {continuation_json:string|null;source:string} | undefined };
 };

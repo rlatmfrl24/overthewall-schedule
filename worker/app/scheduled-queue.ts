@@ -75,17 +75,15 @@ export const handleScheduledJobQueue = async (
     item: NonNullable<Awaited<ReturnType<typeof repository.readItem>>>,
     error: unknown,
   ) => {
-    const reserved = await repository.reserveQueueOperations(item.lane);
+    const reserved = await repository.reserveReconciliationRetry(
+      item.run_id,
+      `post_completion_reconciliation_failed:${getErrorText(error)}`,
+    );
     if (reserved) {
       message.retry({ delaySeconds: 60 });
       return;
     }
 
-    await repository.markRunFailed(
-      item.run_id,
-      `post_completion_reconciliation_failed:${getErrorText(error)}`,
-      true,
-    );
     message.ack();
   };
   // RSS DLQ cohorts retain every delivery while batching their shared reconciliation reads.
