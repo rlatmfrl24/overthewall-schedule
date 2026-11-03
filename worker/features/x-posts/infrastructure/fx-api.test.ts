@@ -27,7 +27,7 @@ it("uses only the fixed unauthenticated provider host and rejects payload failur
   const [url, options] = fetchMock.mock.calls[0];
   expect(new URL(url).origin).toBe("https://api.fxtwitter.com");
   expect(new URL(url).searchParams.get("cursor")).toBe("a+b");
-  expect(options.headers).toEqual({ Accept: "application/json" });
+  expect(options.headers).toEqual({ Accept: "application/json", "User-Agent": "OTWSchedule/1.0 (+https://otw-schedule.info)" });
   expect(options.redirect).toBe("manual");
   await expect(fetchFxTimelinePage("member", null, "101")).rejects.toMatchObject({ code: "fx_payload_404" });
 });

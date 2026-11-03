@@ -57,6 +57,9 @@ type FakeStoredPostRecord = {
   first_seen_at?: number;
   fetched_at: number;
   hidden_at: number | null;
+  source_authority?: string | null;
+  content_hash?: string | null;
+  revision?: number;
 };
 
 type FakePostSourceRecord = {
@@ -178,7 +181,8 @@ const makeCacheDb = (
               }
               if (sql.includes("FROM x_posts")) {
                 const post = posts.get(String(args[0]));
-                return (post && post.hidden_at === null ? post : null) as T | null;
+                if (sql.includes("SELECT 1 FROM x_posts") && sql.includes("content_hash IS NULL")) return (post && !post.content_hash && post.hidden_at === null ? { found: 1 } : null) as T | null;
+                return (post && post.hidden_at === null ? { source_authority: null, content_hash: null, revision: 0, content_removed_at: null, content_access: "normal", ...post } : null) as T | null;
               }
               if (sql.includes("SUM(estimated_cost_micros)")) {
                 const since = Number(args[0]);
@@ -231,12 +235,13 @@ const makeCacheDb = (
                     return dateDiff || b.id.localeCompare(a.id);
                   })
                   .slice(0, limit);
-                }) as T[];
+                }).map(post => ({ source_authority: null, ...post })) as T[];
                 return { results };
               }
               return { results: [] as T[] };
             },
             async run() {
+              let changes = 1;
               if (
                 sql.includes("UPDATE scheduled_usage_daily") &&
                 sql.includes("x_api_cost_micros") &&
@@ -266,7 +271,6 @@ const makeCacheDb = (
                 if (options.failStoredPostWrites) {
                   throw new Error("stored post write failed");
                 }
-                for (let index = 0; index < args.length; index += 8) {
                   const [
                     id,
                     handle,
@@ -276,7 +280,9 @@ const makeCacheDb = (
                     createdAt,
                     firstSeenAt,
                     fetchedAt,
-                  ] = args.slice(index, index + 8);
+                    authority,
+                  ] = args;
+                  if (posts.has(String(id))) return { meta: { changes: 0 } };
                   posts.set(String(id), {
                     id: String(id),
                     handle: String(handle),
@@ -287,8 +293,22 @@ const makeCacheDb = (
                     first_seen_at: Number(firstSeenAt),
                     fetched_at: Number(fetchedAt),
                     hidden_at: null,
+                    source_authority: String(authority),
+                    content_hash: null,
+                    revision: 1,
                   });
-                }
+              }
+              if (sql.startsWith("UPDATE x_posts SET value=?")) {
+                const [value, authority, fetchedAt, id, revision, previous] = args;
+                const current = posts.get(String(id));
+                if (current && (current.revision ?? 0) === revision && current.value === previous && current.hidden_at === null) posts.set(String(id), { ...current, value: String(value), source_authority: String(authority), content_hash: null, fetched_at: Number(fetchedAt), revision: Number(revision) + 1 });
+                else changes = 0;
+              }
+              if (sql.startsWith("UPDATE x_posts SET content_hash=")) {
+                const [hash,id,revision] = args;
+                const current = posts.get(String(id));
+                if (current && current.revision === revision && current.content_hash === null) current.content_hash = String(hash);
+                else changes = 0;
               }
               if (sql.includes("INSERT INTO x_post_sources")) {
                 const hasCadence = sql.includes("cadence_anchor_at");
@@ -321,9 +341,9 @@ const makeCacheDb = (
                   last_error: lastError === null ? null : String(lastError),
                   ...(sql.includes("sync_pagination_token") ? {
                     last_seen_post_id: lastSeenPostId === null ? null : String(lastSeenPostId),
-                    sync_pagination_token: sourceArgs[12] === null ? null : String(sourceArgs[12]),
-                    sync_base_post_id: sourceArgs[13] === null ? null : String(sourceArgs[13]),
-                    sync_newest_post_id: sourceArgs[14] === null ? null : String(sourceArgs[14]),
+                    sync_pagination_token: sourceArgs[13] === null ? null : String(sourceArgs[13]),
+                    sync_base_post_id: sourceArgs[14] === null ? null : String(sourceArgs[14]),
+                    sync_newest_post_id: sourceArgs[15] === null ? null : String(sourceArgs[15]),
                     ...(hasCadence ? { cadence_anchor_at: Number(args[5]), last_success_at: Number(sourceArgs[10]) } : {}),
                   } : {}),
                 });
@@ -389,7 +409,7 @@ const makeCacheDb = (
                   error: error === null ? null : String(error),
                 });
               }
-              return {};
+              return { meta: { changes } };
             },
           };
         },

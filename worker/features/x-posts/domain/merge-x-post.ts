@@ -43,6 +43,16 @@ export function mergeStoredXPost(
       }
     }
   }
+  if (existing && context.origin === "x_api" && !context.completeness.relations) {
+    // A recovered preview fills only an already-known relation, without confirming other fields.
+    for (const relation of ["quote", "reply"] as const) {
+      const current = post[relation], next = incoming[relation];
+      if (current && !current.post && current.postId === next?.postId && next.post?.id === current.postId) {
+        if (relation === "quote" && post.quote) post.quote = { ...post.quote, post: next.post };
+        if (relation === "reply" && post.reply) post.reply = { ...post.reply, post: next.post };
+      }
+    }
+  }
   const contentChanged = !existing || xPostContentKey(post) !== xPostContentKey(existing.post);
   if (context.origin !== "fxembed" || !existing) post.metrics = incoming.metrics;
   const changed = !existing || contentChanged || JSON.stringify(authority) !== JSON.stringify(existing.authority ?? { text: "x_api", media: "x_api", relations: "x_api" }) || JSON.stringify(post.metrics) !== JSON.stringify(existing.post.metrics);

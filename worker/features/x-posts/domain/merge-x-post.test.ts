@@ -5,6 +5,15 @@ import { mergeStoredXPost } from "./merge-x-post";
 const post: XPostDto = { id: "123", username: "member", text: "official", createdAt: "2026-11-03T00:00:00Z", url: "https://x.com/member/status/123", media: [], metrics: { likeCount: 0, replyCount: 0, repostCount: 0, quoteCount: 0 }, reply: { postId: "122", conversationId: "100", post: null } };
 const complete = { text: true, media: true, relations: true };
 describe("source authority", () => {
+  it("fills a missing same-ID preview without promoting an incomplete timeline response", () => {
+    const preview = { id: "122", text: "recovered parent", createdAt: null, url: "https://x.com/a/status/122", username: "a", name: null, profileImageUrl: null, metrics: post.metrics, media: [] };
+    const incoming = { ...post, text: "unconfirmed", reply: { ...post.reply!, post: preview } };
+    const merged = mergeStoredXPost({ post, authority: null }, incoming, { origin: "x_api", completeness: { text: false, media: false, relations: false } });
+    expect(merged.post.reply?.post).toEqual(preview);
+    expect(merged.post.text).toBe(post.text);
+    expect(merged.authority).toEqual({ text: "x_api", media: "x_api", relations: "x_api" });
+    expect(mergeStoredXPost({ post, authority: null }, { ...incoming, reply: { ...incoming.reply, postId: "121" } }, { origin: "x_api", completeness: { text: false, media: false, relations: false } }).post.reply?.post).toBeNull();
+  });
   it("treats legacy content as official and preserves it on Fx replay", () => {
     const merged = mergeStoredXPost({ post, authority: null }, { ...post, text: "Fx", reply: null }, { origin: "fxembed", completeness: complete });
     expect(merged.post).toEqual(post);

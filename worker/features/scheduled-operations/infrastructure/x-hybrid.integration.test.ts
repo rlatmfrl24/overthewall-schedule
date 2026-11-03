@@ -4,6 +4,7 @@ import { D1ScheduledJobRepository } from "../../../platform/scheduled-jobs";
 import { D1SharedXApiGateway, D1SharedXBudget, runFxCollectionForHandles } from "../../x-posts";
 import { ScheduledJobPlanner } from "./scheduled-job-planner";
 import { ScheduledJobExecutor } from "./scheduled-job-executor";
+import { writeStoredPosts } from "../../x-posts/infrastructure/x-api";
 
 const bindings = { ...env, SITE_ID: "otw" } as Env & { X_REFERENCE_MIGRATIONS: D1Migration[]; SCHEDULED_OPERATIONS_MIGRATIONS: D1Migration[] };
 const db = bindings.otw_db, hour = 3600000;
@@ -28,6 +29,35 @@ beforeEach(async () => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const plans = () => new ScheduledJobPlanner(runtime(), new D1ScheduledJobRepository(db)).planScheduled("x_collection", time);
+it("keeps an empty official timeline cursor independent from stored Fx posts", async () => {
+  await db.prepare("UPDATE settings SET value=? WHERE key='x_collection_last_run'").bind(String(time-25*hour)).run();
+  await db.prepare("UPDATE x_fx_sources SET cadence_anchor_at=?").bind(time).run();
+  await db.prepare("UPDATE x_post_sources SET last_seen_post_id=NULL").run();
+  await writeStoredPosts(db,"member_a",{id:"101",username:"member_a"},[{id:"200",username:"member_a",text:"Fx only",url:"https://x.com/member_a/status/200",createdAt:new Date(time-1000).toISOString(),media:[],metrics:{likeCount:0,replyCount:0,repostCount:0,quoteCount:0}}],time,"otw",{origin:"fxembed",completeness:{text:true,media:true,relations:true}});
+  vi.stubGlobal("fetch",vi.fn().mockImplementation(async()=>Response.json({data:[]})));
+  const repository=new D1ScheduledJobRepository(db),executor=new ScheduledJobExecutor(runtime(),repository);
+  const run=await repository.createRun({jobType:"x_collection",source:"scheduled",idempotencyKey:"empty-official",scheduledFor:time});
+  const items=await new ScheduledJobPlanner(runtime(),repository).plan(run);
+  for(const id of items){const item=(await repository.claimItem(id))!;await repository.completeItem(item,await executor.execute(item));}
+  expect(await db.prepare("SELECT last_seen_post_id,collection_started_at FROM x_post_sources WHERE handle='member_a'").first()).toEqual({last_seen_post_id:null,collection_started_at:1});
+});
+it("retains the completed account when another account in the same regular shard fails", async () => {
+  await db.prepare("UPDATE settings SET value=? WHERE key='x_collection_last_run'").bind(String(time-25*hour)).run();
+  await db.prepare("UPDATE x_fx_sources SET cadence_anchor_at=?").bind(time).run();
+  vi.stubGlobal("fetch",vi.fn().mockImplementation(async(input:RequestInfo|URL)=>String(input).includes('/101/')?Response.json({data:[]}):new Response('provider down',{status:503})));
+  const repository=new D1ScheduledJobRepository(db),executor=new ScheduledJobExecutor(runtime(),repository);
+  const run=await repository.createRun({jobType:"x_collection",source:"scheduled",idempotencyKey:"partial-shard",scheduledFor:time});
+  const [id]=await new ScheduledJobPlanner(runtime(),repository).plan(run);
+  const item=(await repository.claimItem(id))!;
+  expect(JSON.parse(item.continuation_json!).handles).toEqual(["member_a","member_b"]);
+  const outcome=await executor.execute(item);
+  await repository.completeItem(item,outcome);
+  expect(await db.prepare("SELECT regular_completed_at FROM x_post_sources WHERE handle='member_a'").first("regular_completed_at")).toBe(time);
+  time=Number(await db.prepare("SELECT next_check_at FROM x_post_sources WHERE handle='member_b'").first("next_check_at"))+1;
+  const next=(await plans()).filter(item=>item.continuation?.provider==='x_api');
+  expect(next.flatMap(item=>item.continuation?.handles??[])).toEqual(['member_b']);
+  expect(await db.prepare("SELECT regular_completed_at FROM x_post_sources WHERE handle='member_b'").first("regular_completed_at")).toBeNull();
+});
 it.each([{ provider: "unknown" }, { provider: "x_api", scope: "unknown" }])("rejects malformed provider metadata before any external call", async metadata => {
   vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => Response.json({ data: [] })));
   const repository = new D1ScheduledJobRepository(db);

@@ -83,7 +83,7 @@ export function parseFxTimelinePage(payload: unknown, targetHandle: string, trus
 const request = async (path: string) => {
   try {
     // Workers supports manual redirects; reject 3xx before following another host.
-    const response = await fetch(`https://api.fxtwitter.com${path}`, { headers: { Accept: "application/json" }, redirect: "manual", signal: AbortSignal.timeout(15_000) });
+    const response = await fetch(`https://api.fxtwitter.com${path}`, { headers: { Accept: "application/json", "User-Agent": "OTWSchedule/1.0 (+https://otw-schedule.info)" }, redirect: "manual", signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new FxApiError(`fx_http_${response.status}`);
     const text = await response.text();
     if (text.length > 2_000_000) return invalid();

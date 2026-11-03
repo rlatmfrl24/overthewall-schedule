@@ -2691,10 +2691,7 @@ const fetchXPostsForUser = async (
   const syncToken = stored?.syncPaginationToken ?? null;
   const sinceId = syncToken
     ? stored?.syncBasePostId ?? null
-    : stored?.collectionStartedAt != null
-      ? stored.lastSeenPostId
-      : stored?.lastSeenPostId ??
-        sortXPostsDesc(activeFallback?.posts ?? [])[0]?.id ?? null;
+    : stored?.lastSeenPostId ?? null;
   if (syncToken) params.set("pagination_token", syncToken);
   if ((hasRelationMarker || syncToken) && sinceId) {
     params.set("since_id", sinceId);
@@ -2755,7 +2752,6 @@ const fetchXPostsForUser = async (
       stored?.syncNewestPostId ??
       sortXPostsDesc(posts)[0]?.id ??
       sinceId ??
-      mergedPostsForResponse[0]?.id ??
       null;
     const entry = await setCachedPosts(
       handle,

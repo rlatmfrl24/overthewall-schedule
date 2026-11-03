@@ -330,8 +330,11 @@ export const runXCollectionForHandles = async (
       afterTimeline: (tracker) => hydrateXReferences({ db: env.otw_db,siteId:parseSiteId(env.SITE_ID), handles: claimed,
         bearerToken: env.X_BEARER_TOKEN ?? "shared-gateway", mode: policy.referencePreviewMode, tracker }),
     });
-    if (hybrid && scope === "regular" && result.status === "success" && !result.referenceHydration?.failed && claimed.length) await env.otw_db.prepare("UPDATE x_post_sources SET regular_completed_at=last_completed_at WHERE handle IN (SELECT value FROM json_each(?)) AND last_completed_at>=? AND sync_pagination_token IS NULL AND last_error IS NULL")
-      .bind(JSON.stringify(claimed), startedAt).run();
+    if (hybrid && scope === "regular" && claimed.length) await env.otw_db.prepare(`UPDATE x_post_sources SET regular_completed_at=last_completed_at
+      WHERE handle IN (SELECT value FROM json_each(?)) AND last_completed_at>=? AND sync_pagination_token IS NULL AND last_error IS NULL
+      AND (?=0 OR NOT EXISTS(SELECT 1 FROM x_posts p JOIN x_post_references r ON r.source_post_id=p.id
+        WHERE p.handle=x_post_sources.handle AND r.updated_at>=? AND (r.last_error_code IS NOT NULL OR r.author_last_error_code IS NOT NULL)))`)
+      .bind(JSON.stringify(claimed), startedAt, "referenceHydration" in result ? result.referenceHydration?.failed ?? 0 : 0, startedAt).run();
     const pendingSources=claimed.length ? await env.otw_db.prepare("SELECT COUNT(*) AS count FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_pagination_token IS NOT NULL")
       .bind(JSON.stringify(claimed)).first<number>("count") : 0;
     return normalizeCollectionResult({

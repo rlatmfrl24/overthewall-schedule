@@ -178,7 +178,7 @@ function ItemResult({ item }: { item: XCollectionOperationItemDto }) {
 export function XCollectionRuns({ runs, loading, error, updatedAt }: { runs: OperationRunDto[]; loading: boolean; error: boolean; updatedAt: number }) {
   const [expanded, setExpanded] = useState<string[]>([]);
   return <section aria-label="X 실행 이력" className="space-y-3 border-t pt-3">
-    <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-sm font-semibold">REST 누락 복구 실행 이력</h3><p className="text-xs text-muted-foreground">최근 10개 실행 · 과거 실패 기록 포함</p></div>
+    <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-sm font-semibold">게시물 수집 실행 이력</h3><p className="text-xs text-muted-foreground">최근 10개 실행 · 과거 실패 기록 포함</p></div>
     {error && <p role="alert" className="text-sm text-destructive">작업 이력을 갱신하지 못했습니다.{runs.length > 0 ? " 이전 조회: " + formatXTime(updatedAt) : ""}</p>}
     {!error && runs.length > 0 && Date.now() - updatedAt > 120_000 && <p role="status" className="text-sm text-muted-foreground">이전 조회 결과 · {formatXTime(updatedAt)}</p>}
     {loading && <p role="status" className="text-sm text-muted-foreground">작업 이력 확인 중</p>}
