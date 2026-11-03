@@ -21,6 +21,8 @@ export const xReasonLabel = (code: string | null | undefined) => {
     upstream_unavailable: "공급자 응답 오류",
     budget_unavailable: "예산 정보 확인 오류",
     shared_budget_unavailable: "공통 예산 확인 불가로 REST 실행 차단",
+    backoff: "공급자 재시도 대기",
+    collection_disabled: "게시물 수집 중지",
     all_handles_cooldown: "계정 수집 주기 대기",
     x_collection_continuation_pending: "다음 페이지를 이어서 수집할 예정입니다.",
     missing_bearer_token: "X 인증 설정 확인 필요",
@@ -29,6 +31,7 @@ export const xReasonLabel = (code: string | null | undefined) => {
 };
 
 export function xCollectionItemLabel(result: NonNullable<XCollectionOperationItemDto["collection"]>) {
+  if (result.mode === "rss_candidates" && result.pendingSources) return "RSS 후보 확인 대기";
   if (result.status === "success" && result.pendingSources) return "다음 페이지 대기";
   if (result.status === "success") return "성공";
   const progressed = result.postsStored > 0 || result.refreshedHandles > 0;
@@ -43,7 +46,7 @@ export function xCollectionStatusText(run: OperationRunDto | null | undefined) {
   const incomplete = items.some((item) => item.status === "queued" || item.status === "running") || results.length !== items.length;
   if (incomplete) return "진행 중 또는 일부 결과 미확인";
   if (results.some((result) => result.status === "failed")) return "실패 포함";
-  if (results.some(result => result.pendingSources)) return "일부 수집 · 다음 페이지 대기";
+  if (results.some(result => result.pendingSources)) return results.some(result => result.mode === "rss_candidates" && result.pendingSources) ? "일부 수집 · RSS 후보 확인 대기" : "일부 수집 · 다음 페이지 대기";
   if (results.every((result) => result.status === "skipped")) {
     return results.some((result) => result.postsStored > 0 || result.refreshedHandles > 0) ? "일부 수집 후 대기" : "건너뜀";
   }
@@ -56,10 +59,14 @@ export function xCollectionResultText(run: OperationRunDto | null | undefined) {
   return results.length ? `${label} · 저장 ${results.reduce((sum, result) => sum + result.postsStored, 0)}건` : label;
 }
 
+export function xPaidLookupText(collection: XCollectionOperationItemDto["collection"]) {
+  return collection?.paidApiCalls === undefined ? "유료 호출 기록 미확인" : collection.paidApiCalls > 0 ? `유료 조회 ${collection.paidApiCalls}회` : "유료 조회 0회";
+}
+
 export function xHydrationResultText(run: OperationRunDto) {
   const allItems = run.xCollection?.items ?? [];
   const items = allItems.filter(item => item.collection?.provider !== "fxembed");
-  if (!items.length && allItems.length) return "FxEmbed 실행 · 유료 원문 조회 없음";
+  if (!items.length && allItems.length) return allItems.some(item => item.collection?.paidApiCalls === undefined) ? "FxEmbed 실행 · 유료 호출 기록 미확인" : `FxEmbed 실행 · 유료 조회 ${allItems.reduce((sum,item) => sum + (item.collection?.paidApiCalls ?? 0),0)}회`;
   const results = items.flatMap((item) => item.referenceHydration ? [item.referenceHydration] : []);
   if (!results.length) return "보강 결과 기록 없음";
   const label = results.some((result) => result.status === "failed" || result.failed > 0) ? "오류·재시도 대기"

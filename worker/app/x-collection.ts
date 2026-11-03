@@ -21,7 +21,7 @@ export function buildXCollectionApplication(input: Env, actor: ReturnType<typeof
     },
     audit: async (previous, next) => {
       await insertAdminAuditLog(getDb(env), { eventType: "x.collection.update", resourceType: "settings", action: "update", status: "success", ...actor,
-        targetCount: 1, successCount: 1, failureCount: 0, detail: { site, previousSource: previous, primarySource: next, sharedDailyTargetMicros: 1000000 } });
+        targetCount: 1, successCount: 1, failureCount: 0, detail: { site, previousSource: previous, primarySource: next, ...(next === "fxembed" ? { hybridPolicy: "rss_v1" } : {}), sharedDailyTargetMicros: 1000000 } });
     },
   });
 }

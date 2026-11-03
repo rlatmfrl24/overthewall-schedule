@@ -77,10 +77,13 @@ it("controls hybrid collection through authenticated site routes and reports off
   }));
   expect((await request("/api/x/collection")).status).toBe(401);
   expect((await request("/api/x/collection", "ordinary-member")).status).toBe(403);
+  expect((await request("/api/x/collection", "ordinary-member", {}, peerRuntime)).status).toBe(403);
   expect((await request("/api/x/collection", "activity-admin")).status).toBe(200);
   const patch = (source: string, target = runtime) => request("/api/x/collection", "activity-admin", { method: "PATCH", body: JSON.stringify({ primarySource: source }) }, target);
   expect((await patch("unknown")).status).toBe(400);
-  expect((await patch("fxembed")).status).toBe(200);
+  const applied = await patch("fxembed");
+  expect(applied.status).toBe(200);
+  expect(await applied.json()).toMatchObject({hybridPolicy:"rss_v1",rss:{enabled:true},xApi:{intervalHours:12}});
   expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value")).toBe("fxembed");
   expect(await bindings.transition_target_db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value")).not.toBe("fxembed");
   expect((await patch("fxembed", peerRuntime)).status).toBe(200);
@@ -88,12 +91,33 @@ it("controls hybrid collection through authenticated site routes and reports off
   await db.prepare("UPDATE x_post_sources SET last_error='budget_exceeded',sync_pagination_token='pending' WHERE handle='member'").run();
   await db.prepare("INSERT INTO x_fx_sources(handle,collection_started_at,last_success_at,updated_at) VALUES('member',1,?,?)").bind(Date.now(), Date.now()).run();
   const meter = meterD1(db);
+  vi.mocked(fetch).mockClear();
   const status = await request("/api/x/collection", "activity-admin", {}, { ...runtime, otw_db: meter.db });
-  expect(await status.json()).toMatchObject({ primarySource: "fxembed", fxembed: { failedSources: 0 }, xApi: { failedSources: 1, pendingSources: 1 }, webhook: { state: "disabled", siteActiveCount: 0 } });
+  expect(await status.json()).toMatchObject({ primarySource: "fxembed", hybridPolicy:"rss_v1", rss:{enabled:true}, fxembed: { failedSources: 0 }, xApi: { intervalHours:12,failedSources: 1, pendingSources: 1 }, webhook: { state: "disabled", siteActiveCount: 0 } });
   expect(meter.summary().rowsWritten).toBe(0);
+  expect(fetch).not.toHaveBeenCalled();
   expect((await patch("x_api")).status).toBe(200);
   expect(await db.prepare("SELECT enabled FROM x_activity_sites WHERE site='otw'").first("enabled")).toBe(0);
   expect(await db.prepare("SELECT COUNT(*) AS n FROM admin_audit_logs WHERE event_type='x.collection.update'").first("n")).toBe(2);
+});
+
+it("reports partial policy deployment as503 and does not write a successful audit", async () => {
+  vi.stubGlobal("fetch",vi.fn(async(input: RequestInfo | URL) => {
+    if (String(input) === `${issuer}/.well-known/jwks.json`) return Response.json({keys:[{...jwk,kid:"activity-key",alg:"RS256",use:"sig"}]});
+    throw new Error("GET must not call external providers");
+  }));
+  const legacyPeer = {...peerRuntime,X_ACTIVITY_COORDINATOR:{...peerRuntime.X_ACTIVITY_COORDINATOR!,setCollectionForLuvdia:async() => {
+    await bindings.transition_target_db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_collection_primary_source','fxembed')").run();
+    return {ok:true as const,value:await peerRuntime.X_ACTIVITY_COORDINATOR!.statusForLuvdia()};
+  }}} as Env;
+  const log = vi.spyOn(console,"error").mockImplementation(() => {});
+  const response = await request("/api/x/collection","activity-admin",{method:"PATCH",body:JSON.stringify({primarySource:"fxembed"})},legacyPeer);
+  expect(response.status).toBe(503);
+  expect(await response.json()).toMatchObject({error:{code:"x_collection_policy_readback_failed"}});
+  expect(await bindings.transition_target_db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value")).toBe("fxembed");
+  expect(await bindings.transition_target_db.prepare("SELECT COUNT(*) AS n FROM admin_audit_logs WHERE event_type='x.collection.update'").first("n")).toBe(0);
+  expect(log).toHaveBeenCalledWith("x_collection_control_failed","x_collection_policy_readback_failed");
+  log.mockRestore();
 });
 
 it("uses real admin JWT authorization, callback CRC/HMAC, queue routing and public stored-feed readback", async () => {

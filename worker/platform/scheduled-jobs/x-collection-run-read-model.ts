@@ -46,6 +46,9 @@ export function toXCollectionOperationItem(row: XCollectionItemEvidence): XColle
   try { data = record(JSON.parse(row.result_json ?? "null")); } catch { /* Old or incomplete evidence stays unknown. */ }
   const validCollection = data && ["success", "failed", "skipped"].includes(String(data.status)) &&
     ["checkedHandles", "refreshedHandles", "postsReturned", "postsStored"].every((key) => count(data[key]));
+  const rss = record(data?.rss) ?? (data?.mode === "rss_candidates" ? data : null);
+  const pendingCandidates = rss?.pendingCandidates ?? rss?.pending;
+  const validRss = rss && count(rss.rawCount) && count(rss.candidatesFound) && count(pendingCandidates) && typeof rss.windowReduced === "boolean" && (rss.nextAttemptAt === null || count(rss.nextAttemptAt));
   return {
     itemId: row.id,
     targetKey: row.target_key,
@@ -57,7 +60,10 @@ export function toXCollectionOperationItem(row: XCollectionItemEvidence): XColle
     retryPending: Number(row.retry_pending) > 0,
     nextRetryAt: row.next_retry_at,
     collection: validCollection && data ? {
-      provider: data.provider === "fxembed" ? "fxembed" : "x_api",
+      ...(data.provider === "fxembed" || data.provider === "x_api" ? { provider: data.provider } : {}),
+      ...(data.mode === "timeline" || data.mode === "rss_candidates" ? { mode: data.mode } : {}),
+      ...(count(data.paidApiCalls) ? { paidApiCalls: data.paidApiCalls } : {}),
+      ...(validRss && rss ? { rss: { rawCount: rss.rawCount as number, candidatesFound: rss.candidatesFound as number, pendingCandidates: pendingCandidates as number, nextAttemptAt: rss.nextAttemptAt as number | null, windowReduced: rss.windowReduced as boolean } } : {}),
       ...(["regular", "pending", "fallback"].includes(String(data.scope)) ? { scope: data.scope as "regular" | "pending" | "fallback" } : {}),
       ...(count(data.pendingSources) ? { pendingSources: data.pendingSources } : {}),
       status: data.status as "success" | "skipped" | "failed",

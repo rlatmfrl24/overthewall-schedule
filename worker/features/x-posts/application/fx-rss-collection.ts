@@ -36,6 +36,7 @@ export const createFxRssCollection = (ports: FxRssCollectionPorts) => ({
       return true;
     };
     const handle = state.handles[0], context = await ports.readContext(handle);
+    if (context.windowReduced !== undefined) stats.windowReduced = context.windowReduced;
     if (!context.allowed || context.policy !== "rss_v1") return result("blocked", "rss_policy_inactive");
     if (!context.trustedUserId) return result("blocked", "rss_identity_pending");
     if (state.nextAttemptAt !== null && state.nextAttemptAt > ports.now()) return result("pending", "rss_retry_pending");
@@ -43,6 +44,7 @@ export const createFxRssCollection = (ports: FxRssCollectionPorts) => ({
       try {
         const feed = await ports.fetchFeed(handle);
         stats.rawCount = feed.rawCount;
+        if (feed.windowReduced !== undefined) stats.windowReduced = feed.windowReduced;
         const entries = [...new Map(feed.entries.filter(entry => entry.handle === handle && entry.createdAtHint >= context.collectionStartedAt).map(entry => [entry.id, entry])).values()];
         const stored = new Set(await ports.readStoredIds(entries.map(entry => entry.id)));
         state.candidates = entries.filter(entry => !stored.has(entry.id)).map(entry => ({ id: entry.id, createdAtHint: entry.createdAtHint, firstSeenAt: ports.now(), attempts: 0, nextAttemptAt: ports.now(), error: null, stage: "free" }));

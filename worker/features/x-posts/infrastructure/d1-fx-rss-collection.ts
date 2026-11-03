@@ -74,12 +74,13 @@ export class D1FxRssCollectionAdapter implements FxRssCollectionPorts {
   async readContext(handle: string) {
     const [policy, allowed, source] = await Promise.all([
       readPolicy(this.env), readActiveXHandles(getDb(this.env), parseSiteId(this.env.SITE_ID)),
-      this.env.otw_db.prepare(`SELECT s.deactivated_at,COALESCE(s.user_id,f.user_id) user_id,COALESCE(f.collection_started_at,s.collection_started_at,?) collection_started_at,f.rss_pending_item_id
+      this.env.otw_db.prepare(`SELECT s.deactivated_at,COALESCE(s.user_id,f.user_id) user_id,COALESCE(f.collection_started_at,s.collection_started_at,?) collection_started_at,f.rss_pending_item_id,f.rss_last_raw_count,f.rss_previous_raw_count
         FROM x_post_sources s LEFT JOIN x_fx_sources f ON f.handle=s.handle WHERE s.handle=?`).bind(this.now(), handle)
-        .first<{ deactivated_at: number | null; user_id: string | null; collection_started_at: number; rss_pending_item_id: string | null }>(),
+        .first<{ deactivated_at: number | null; user_id: string | null; collection_started_at: number; rss_pending_item_id: string | null; rss_last_raw_count: number | null; rss_previous_raw_count: number | null }>(),
     ]);
     return { allowed: allowed.includes(handle) && source?.deactivated_at == null, policy: policy ? "rss_v1" as const : "legacy" as const,
-      collectionStartedAt: source?.collection_started_at ?? this.now(), trustedUserId: source?.user_id ?? null, pendingItemId: source?.rss_pending_item_id ?? null };
+      collectionStartedAt: source?.collection_started_at ?? this.now(), trustedUserId: source?.user_id ?? null, pendingItemId: source?.rss_pending_item_id ?? null,
+      windowReduced: source?.rss_last_raw_count != null && source.rss_previous_raw_count != null && source.rss_last_raw_count < source.rss_previous_raw_count };
   }
   private async fenced() {
     const context = await this.readContext(this.handle);
@@ -121,7 +122,12 @@ export class D1FxRssCollectionAdapter implements FxRssCollectionPorts {
     return Boolean(ack);
   }
   async release() { if (this.token) await releaseXSourceLeases(this.env, this.token); }
-  async fetchFeed(handle: string) { const page = await fetchFxRssFeed(handle); this.feedFetched = true; return page; }
+  async fetchFeed(handle: string) {
+    const previous = await this.env.otw_db.prepare("SELECT rss_last_raw_count FROM x_fx_sources WHERE handle=?").bind(handle).first<number>("rss_last_raw_count");
+    const page = await fetchFxRssFeed(handle);
+    this.feedFetched = true;
+    return { ...page, windowReduced: previous !== null && page.rawCount < previous };
+  }
   fetchStatus = fetchFxStatus;
   async readStoredIds(ids: string[]) {
     if (!ids.length) return [];

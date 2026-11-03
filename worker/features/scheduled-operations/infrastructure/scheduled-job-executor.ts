@@ -337,7 +337,7 @@ export class ScheduledJobExecutor {
             typeof continuation.recoveryAnchorAt === "number" ? continuation.recoveryAnchorAt : undefined,
             continuation.hybrid === true ? scope : undefined);
         if (result.coalescedHandles && item.attempts < 3) throw new Error("x_source_lease_busy");
-        return toXCollectionOutcome({...result,provider,scope});
+        return toXCollectionOutcome({...result,provider,scope,mode:"timeline",paidApiCalls:provider === "fxembed" ? 0 : result.apiCalls});
       }
       case "naver_cafe_collection": {
         const sourceIds = new Set(getNumberArray(continuation.sourceIds));

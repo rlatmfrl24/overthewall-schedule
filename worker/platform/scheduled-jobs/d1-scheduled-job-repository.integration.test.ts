@@ -351,6 +351,7 @@ describe("D1 scheduled job state machine", () => {
       const result = status === "failed" ? "invalid-json" : JSON.stringify({
         status: status === "skipped" ? "skipped" : "success", checkedHandles: 4, refreshedHandles: status === "skipped" ? 0 : 4,
         postsReturned: 3, postsStored: 3,
+        ...(status === "partial" ? {provider:"fxembed",mode:"rss_candidates",paidApiCalls:1,pendingSources:1,rawCount:7,candidatesFound:3,pending:2,nextAttemptAt:timestamp+1000,windowReduced:true} : {}),
         ...(status === "succeeded" ? {} : { referenceHydration: status === "partial" ? { ...hydration, scope: "quotes", status: "failed", failed: 1, errorCode: "x_api_503" } : hydration }),
       });
       await db.prepare("UPDATE scheduled_job_items SET status=?,result_json=? WHERE run_id=? AND target_key=?").bind(status, result, run.id, status).run();
@@ -365,6 +366,8 @@ describe("D1 scheduled job state machine", () => {
     expect(result?.status).toBe("partial");
     expect(result?.xCollection?.items).toHaveLength(4);
     expect(result?.xCollection?.items.find((item) => item.status === "partial")).toMatchObject({ collection: { status: "success", postsStored: 3 }, referenceHydration: { scope: "quotes", status: "failed", failed: 1 } });
+    expect(result?.xCollection?.items.find((item) => item.status === "partial")?.collection).toMatchObject({provider:"fxembed",mode:"rss_candidates",paidApiCalls:1,rss:{rawCount:7,candidatesFound:3,pendingCandidates:2,nextAttemptAt:timestamp+1000,windowReduced:true}});
+    expect(result?.xCollection?.items.find((item) => item.status === "succeeded")?.collection?.provider).toBeUndefined();
     expect(result?.xCollection?.items.find((item) => item.status === "skipped")?.referenceHydration?.scope).toBeUndefined();
     expect(result?.xCollection?.items.find((item) => item.status === "skipped")).toMatchObject({ collection: { status: "skipped" }, referenceHydration: { status: "deferred" } });
     expect(result?.xCollection?.items.find((item) => item.status === "succeeded")?.referenceHydration).toBeNull();

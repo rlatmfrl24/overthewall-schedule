@@ -3,12 +3,14 @@ import { createElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
+import { QueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/shared/query/query-keys";
 import type { XCollectionStatusDto } from "@contracts/x-collection";
 import { fetchXCollectionStatus, changeXCollectionSource } from "../../api/x-collection-api";
 import { XCollectionManager } from "./x-collection-manager";
 vi.mock("../../api/x-collection-api", () => ({ xCollectionQueryKey: ["member-posts", "x-collection"], fetchXCollectionStatus: vi.fn(), changeXCollectionSource: vi.fn() }));
-const status: XCollectionStatusDto = { primarySource: "fxembed", observedAt: 1, accounts: [], fxembed: { intervalMinutes: 30, lastSuccessAt: 1, lastCompletedAt: null, pendingSources: 1, failedSources: 0 }, xApi: { intervalHours: 24, lastRegularCompletedAt: 1, nextRegularEligibleAt: 2, pendingSources: 1, failedSources: 1, budgetReady: true }, webhook: { state: "disabled", siteActiveCount: 0, reason: "hybrid", error: null } };
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+const status: XCollectionStatusDto = { primarySource: "fxembed", hybridPolicy: null, rss: { enabled: false, intervalHours: 6, lastHttpSuccessAt: null, lastCheckCompletedAt: null, pendingSources: 0, pendingCandidates: 0, windowReduced: false, error: null }, observedAt: 1, accounts: [], fxembed: { intervalMinutes: 30, lastSuccessAt: 1, lastCompletedAt: null, pendingSources: 1, failedSources: 0 }, xApi: { intervalHours: 24, lastRegularCompletedAt: 1, nextRegularEligibleAt: 2, pendingSources: 1, failedSources: 1, budgetReady: true }, webhook: { state: "disabled", siteActiveCount: 0, reason: "hybrid", error: null } };
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.restoreAllMocks(); });
 it("keeps official failure and incomplete work visible when Fx is healthy and webhook is Disabled", async () => {
   vi.mocked(fetchXCollectionStatus).mockResolvedValue(status);
   render(createElement(XCollectionManager, { enabled: true }), { wrapper: createQueryWrapper() });
@@ -35,4 +37,35 @@ it("retains the actual source after a failed switch and does not retry the mutat
   expect(await screen.findByText(/수집원 전환을 완료하지 못했습니다/)).toBeTruthy();
   await waitFor(() => expect(fetchXCollectionStatus).toHaveBeenCalledTimes(2));
   expect(changeXCollectionSource).toHaveBeenCalledTimes(1);
+});
+it("unconfigured_legacy_does_not_show_rss_enabled and applies policy through the same PATCH control", async () => {
+  const invalidation = vi.spyOn(QueryClient.prototype,"invalidateQueries");
+  vi.mocked(fetchXCollectionStatus).mockResolvedValue(status);
+  vi.mocked(changeXCollectionSource).mockResolvedValue({ ...status, hybridPolicy: "rss_v1", rss: { ...status.rss, enabled: true } });
+  render(createElement(XCollectionManager, { enabled: true }), { wrapper: createQueryWrapper() });
+  fireEvent.click(await screen.findByRole("button", { name: "혼합 구성 적용" }));
+  await waitFor(() => expect(changeXCollectionSource).toHaveBeenCalledExactlyOnceWith("fxembed"));
+  expect(await screen.findByRole("heading", { name: "FxEmbed RSS 보완 활성" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "혼합 구성 적용" })).toBeNull();
+  expect(invalidation).toHaveBeenCalledWith({queryKey:queryKeys.settings.detail()});
+  expect(invalidation).toHaveBeenCalledWith({queryKey:queryKeys.operations.all});
+});
+it("rss_success_cannot_hide_official_overdue", async () => {
+  vi.mocked(fetchXCollectionStatus).mockResolvedValue({ ...status, hybridPolicy: "rss_v1", rss: { ...status.rss, enabled: true, lastHttpSuccessAt: Date.now() }, accounts: [{
+    handle: "member", fxLastSuccessAt: Date.now(), fxLastCompletedAt: null, fxPending: false, fxError: null, consecutiveFailures: 0, consecutiveSuccesses: 2, fallbackActive: false,
+    officialLastCompletedAt: 1, officialRegularCompletedAt: 1, officialPending: true, officialError: "upstream_unavailable", officialNextEligibleAt: 2, officialNominalDueAt: 1, officialBlockedReason: "shared_budget_unavailable", officialRegularAgeMs: 25*3600000, officialHealth: "overdue",
+    rssLastHttpSuccessAt: Date.now(), rssLastCheckCompletedAt: null, rssPendingCandidates: 2, rssWindowReduced: true, rssError: null,
+  }] });
+  render(createElement(XCollectionManager, { enabled: true }), { wrapper: createQueryWrapper() });
+  expect(await screen.findByText(/공식 정기 완료 24시간 지연/)).toBeTruthy();
+  expect(screen.getByText(/공통 예산 확인 불가로 REST 실행 차단/)).toBeTruthy();
+});
+it("marks stale collection status after GET failure and disables mutation", async () => {
+  vi.mocked(fetchXCollectionStatus).mockResolvedValue(status);
+  render(createElement(XCollectionManager, { enabled: true }), { wrapper: createQueryWrapper() });
+  await screen.findByText(/현재 기본 수집원/);
+  vi.mocked(fetchXCollectionStatus).mockRejectedValue(new Error("offline"));
+  fireEvent.click(screen.getByRole("button", { name: "수집원 상태 새로고침" }));
+  expect(await screen.findByText(/아래는 이전 조회 정보/)).toBeTruthy();
+  expect((screen.getByRole("button", { name: "혼합 구성 적용" }) as HTMLButtonElement).disabled).toBe(true);
 });

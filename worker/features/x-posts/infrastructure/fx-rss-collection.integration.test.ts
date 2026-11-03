@@ -277,7 +277,7 @@ it("retains raw shrink evidence and waits six hours before a fresh scan", async 
   expect(fresh).toMatchObject({ phase: "fetch", scope: "regular", candidates: [] });
   vi.mocked(fetch).mockResolvedValue(new Response('<rss version="2.0"><channel/></rss>'));
   const next = await createItem(fresh);
-  expect((await runItem(next, fresh)).status).toBe("complete");
+  expect(await runItem(next, fresh)).toMatchObject({status:"complete",stats:{rawCount:0,windowReduced:true}});
   expect(await db.prepare("SELECT rss_last_raw_count,rss_previous_raw_count,rss_last_candidate_count,rss_pending_item_id FROM x_fx_sources").first()).toEqual({ rss_last_raw_count: 0, rss_previous_raw_count: 6, rss_last_candidate_count: 0, rss_pending_item_id: null });
   expect(await db.prepare("SELECT consecutive_failures,fallback_active FROM x_fx_sources").first()).toEqual({ consecutive_failures: 2, fallback_active: 1 });
 });

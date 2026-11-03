@@ -57,6 +57,8 @@ export type XCollectionRunResult = Omit<
 > & Partial<XCollectionObservability> & {
   referenceHydration?: XReferenceHydrationResultDto;
   provider?: import("@contracts/x-collection").XCollectionProvider;
+  mode?: import("@contracts/x-collection").XCollectionMode;
+  paidApiCalls?: number;
   scope?: XCollectionScope;
   success: boolean;
   pendingSources?: number;

@@ -7,6 +7,7 @@ import { AiReviewService, AiBatchService, D1AiBatchRepository, D1WorkQueueReposi
 import { ScheduledJobPlanner } from "./scheduled-job-planner";
 import * as schedules from "../../schedules";
 import * as rss from "../../../app/x-rss-collection";
+import * as xPosts from "../../x-posts";
 import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
 import {
   ScheduledJobExecutor,
@@ -48,6 +49,12 @@ describe("scheduled job executor outcomes", () => {
     const item = { run_id: "run", continuation_json: JSON.stringify(state) } as ScheduledJobItemRecord;
     expect(await new ScheduledJobExecutor({} as Env, repository as never).execute(item)).toMatchObject({ status: "partial", result: { provider: "fxembed", mode: "rss_candidates", pendingSources: 1, postsStored: 5 } });
     expect(rss.runFxRssCollectionItem).toHaveBeenCalled();
+  });
+  it.each(["fxembed","x_api"] as const)("records real timeline paid calls for %s without counting free JSON calls",async provider=>{
+    vi.spyOn(xPosts,provider === "fxembed" ? "runFxCollectionForHandles" : "runXCollectionForHandles").mockResolvedValue({...result("success"),apiCalls:3});
+    const repository = {readRun:async()=>({job_type:"x_collection",source:"scheduled"})};
+    const output = await new ScheduledJobExecutor({} as Env,repository as never).execute({run_id:"run",continuation_json:JSON.stringify({provider,handles:["member"]})} as ScheduledJobItemRecord);
+    expect(output.result).toMatchObject({provider,mode:"timeline",paidApiCalls:provider === "fxembed" ? 0 : 3});
   });
 
   it.each([{ mode: "unknown" }, { provider: "x_api", mode: "rss_candidates" }, { provider: "fxembed", mode: "rss_candidates", handles: ["a", "b"] }])("rejects illegal persisted RSS mode/shard %j", async invalid => {

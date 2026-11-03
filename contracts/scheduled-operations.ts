@@ -76,6 +76,8 @@ export type XCollectionOperationItemDto = {
     mode?: import("./x-collection").XCollectionMode;
     scope?: import("./x-collection").XCollectionScope;
     pendingSources?: number;
+    paidApiCalls?: number;
+    rss?: { rawCount: number; candidatesFound: number; pendingCandidates: number; nextAttemptAt: number | null; windowReduced: boolean };
     status: "success" | "skipped" | "failed";
     checkedHandles: number;
     refreshedHandles: number;

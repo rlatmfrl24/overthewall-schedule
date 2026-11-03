@@ -832,11 +832,11 @@ export function MemberPostSettingsManager({
                     수집 주기
                   </Label>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    {hybridCollection ? "FxEmbed는 30분, 공식 X는 24시간마다 확인하며 장애 계정만 공식 2시간 수집으로 전환합니다." : "Cron 점검에서 설정한 주기가 지난 경우 공식 X API를 호출합니다."}
+                    {hybridCollection ? `FxEmbed JSON은 30분${collectionSourceQuery.data?.rss?.enabled ? ", RSS는 6시간" : ""}, 공식 X는 ${collectionSourceQuery.data?.xApi.intervalHours ?? 24}시간마다 확인하며 장애 계정만 공식 2시간 수집으로 전환합니다.` : "Cron 점검에서 설정한 주기가 지난 경우 공식 X API를 호출합니다."}
                   </p>
                 </div>
                 <Select
-                  value={hybridCollection ? "24" : xCollectionInterval}
+                  value={hybridCollection ? String(collectionSourceQuery.data?.xApi.intervalHours ?? 24) : xCollectionInterval}
                   onValueChange={(value) =>
                     void handleXCollectionIntervalChange(value)
                   }

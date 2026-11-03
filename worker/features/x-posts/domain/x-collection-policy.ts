@@ -1,4 +1,4 @@
-import { X_FALLBACK_INTERVAL_MS, X_HYBRID_REGULAR_INTERVAL_MS, type XCollectionScope } from "@contracts/x-collection";
+import { X_FALLBACK_INTERVAL_MS, X_HYBRID_REGULAR_INTERVAL_MS, type XCollectionScope, type XOfficialHealth } from "@contracts/x-collection";
 
 export function getOfficialAccountDecision(input: {
   now: number;
@@ -9,7 +9,7 @@ export function getOfficialAccountDecision(input: {
   originScope: XCollectionScope | null;
   fallbackActive: boolean;
   backoffUntil: number | null;
-}): { scope: XCollectionScope | null; originScope: XCollectionScope; nominalDueAt: number; eligibleAt: number; ageMs: number; health: "due" | "attention" | "overdue" | "waiting" } {
+}): { scope: XCollectionScope | null; originScope: XCollectionScope; nominalDueAt: number; eligibleAt: number; ageMs: number; health: XOfficialHealth } {
   const ageMs = Math.max(0, input.now - (input.regularCompletedAt ?? input.activatedAt));
   const regularDueAt = input.regularCompletedAt === null ? input.activatedAt : input.regularCompletedAt + X_HYBRID_REGULAR_INTERVAL_MS;
   const scope = input.pending ? "pending" : input.now >= regularDueAt ? "regular" : input.fallbackActive ? "fallback" : null;

@@ -54,7 +54,18 @@ describe("XCollectionRuns", () => {
     expect(screen.getByRole("button", { name: /전체 결과/ }).textContent).toContain("다음 페이지 대기");
     fireEvent.click(screen.getByRole("button", { name: /전체 결과/ }));
     expect(screen.getByText("FxEmbed · 정기")).toBeTruthy();
-    expect(screen.getAllByText("FxEmbed 실행 · 유료 원문 조회 없음")).toHaveLength(2);
+    expect(screen.getAllByText("FxEmbed 실행 · 유료 호출 기록 미확인")).toHaveLength(2);
+  });
+  it("fx_rss_paid_lookup_is_not_labelled_free", () => {
+    const value = item();
+    value.collection = { ...value.collection!, provider: "fxembed", mode: "rss_candidates", paidApiCalls: 1, pendingSources: 1, rss: { rawCount: 10, candidatesFound: 3, pendingCandidates: 2, nextAttemptAt: 100, windowReduced: true } };
+    value.referenceHydration = null;
+    show(run([value]));
+    fireEvent.click(screen.getByRole("button",{name:/전체 결과/}));
+    expect(screen.getByText(/RSS 후보 확인 · 유료 조회 1회/)).toBeTruthy();
+    expect(screen.getByText(/남은 후보 2건/)).toBeTruthy();
+    expect(screen.getByText(/다음 점검 재개 자격/)).toBeTruthy();
+    expect(screen.queryByText(/유료 원문 조회 없음/)).toBeNull();
   });
   it("identifies a pending-only manual run in the history", () => {
     show({...run(),source:"manual",summary:{xCollectionScope:"pending"}});

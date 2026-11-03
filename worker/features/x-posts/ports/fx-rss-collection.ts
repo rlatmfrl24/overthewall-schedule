@@ -2,12 +2,12 @@ import type { FxRssCandidate, FxRssContinuation, FxRssPaidBatch, FxRssStats, XHy
 import type { XPostDto } from "@contracts/x-posts";
 
 export type FxRssEntry = { id: string; handle: string; createdAtHint: number };
-export type FxRssPage = { entries: FxRssEntry[]; rawCount: number };
+export type FxRssPage = { entries: FxRssEntry[]; rawCount: number; windowReduced?: boolean };
 export type OfficialRssHydrationResult = { resolvedIds: string[]; remaining: FxRssCandidate[]; postsReturned: number; postsStored: number; paidApiCalls: number; estimatedCostMicros: number; error: string | null; newlyStoredPosts?: XNewlyStoredPost[]; batchProcessed?: boolean };
 
 export interface FxRssCollectionPorts {
   now(): number;
-  readContext(handle: string): Promise<{ allowed: boolean; policy: XHybridPolicy; collectionStartedAt: number; trustedUserId: string | null; pendingItemId: string | null }>;
+  readContext(handle: string): Promise<{ allowed: boolean; policy: XHybridPolicy; collectionStartedAt: number; trustedUserId: string | null; pendingItemId: string | null; windowReduced?: boolean }>;
   fetchFeed(handle: string): Promise<FxRssPage>;
   fetchStatus(postId: string, handle: string, trustedUserId: string): Promise<XPostDto>;
   readStoredIds(ids: string[]): Promise<string[]>;
