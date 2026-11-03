@@ -2,7 +2,7 @@ import type { SiteId } from "@contracts/site-definition";
 import type { XApiGateway, XActivitySiteSnapshot, XActivityStatusDto } from "@contracts/x-activity";
 import { parseXActivityEvent, xActivityMediaReady, type XActivityEvent } from "../domain/x-activity";
 import { readActiveXHandles } from "./d1-active-handles";
-import { normalizeXTimelineResponse, requestXApi, writeStoredPosts, invalidateXPostMemoryCache, XApiError, estimateXApiRequestCostMicros, estimateXSharedApiReservationMicros, getXTimelinePageSize, readDailyBudgetMicros, type XApiUser, type XTweetLookupResponse } from "./x-api";
+import { normalizeXTimelineResponse, xTimelineWriteContext, requestXApi, writeStoredPosts, invalidateXPostMemoryCache, XApiError, estimateXApiRequestCostMicros, estimateXSharedApiReservationMicros, getXTimelinePageSize, readDailyBudgetMicros, type XApiUser, type XTweetLookupResponse } from "./x-api";
 import { X_COLLECTION_MAX_RESULTS, X_OPTIMIZED_FIRST_PAGE_RESULTS } from "./x-collection";
 import { readXReferenceBudget } from "./x-reference-budget";
 import { readSiteXBudget } from "./x-shared-budget";
@@ -147,7 +147,7 @@ export class D1XActivitySite {
       const user: XApiUser = { id: row.user_id, username: row.handle };
       const write = async (lookup?: XTweetLookupResponse) => {
         const posts = this.normalize(event, lookup).map(post => ({ ...post, username: row.handle, url: `https://x.com/${row.handle}/status/${post.id}` }));
-        const result = await writeStoredPosts(this.db, row.handle, user, posts, row.received_at, this.options.siteId);
+        const result = await writeStoredPosts(this.db, row.handle, user, posts, row.received_at, this.options.siteId, post => xTimelineWriteContext((lookup?.data?.some(item => item.id === post.id) ? lookup : { data: [event.post], includes: event.includes }) as Parameters<typeof normalizeXTimelineResponse>[0], post.id, lookup?.data?.some(item => item.id === post.id) ? "x_api" : "webhook"));
         if (!result.ok) throw new Error(result.error ?? "x_activity_store_failed");
         invalidateXPostMemoryCache();
         return posts[0]!;

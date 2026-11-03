@@ -779,6 +779,9 @@ export const xPosts = sqliteTable(
     hidden_at: integer("hidden_at"),
     hidden_reason: text("hidden_reason"),
     content_removed_at: integer("content_removed_at"),
+    source_authority: text("source_authority"),
+    content_hash: text("content_hash"),
+    revision: integer("revision").notNull().default(0),
   },
   (table) => [
     check("x_posts_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
@@ -813,6 +816,7 @@ export const xPostSources = sqliteTable("x_post_sources", {
   last_attempt_at: integer("last_attempt_at"),
   cadence_anchor_at: integer("cadence_anchor_at"),
   last_success_at: integer("last_success_at"),
+  last_completed_at: integer("last_completed_at"),
   next_check_at: integer("next_check_at"),
   consecutive_failures: integer("consecutive_failures").notNull().default(0),
   last_error_code: text("last_error_code"),
@@ -826,6 +830,20 @@ export const xPostSources = sqliteTable("x_post_sources", {
 
 export type XPostSource = typeof xPostSources.$inferSelect;
 export type NewXPostSource = typeof xPostSources.$inferInsert;
+
+export const xFxSources = sqliteTable("x_fx_sources", {
+  handle: text().primaryKey(),
+  cursor: text(),
+  collection_started_at: integer("collection_started_at").notNull(),
+  last_attempt_at: integer("last_attempt_at"),
+  last_success_at: integer("last_success_at"),
+  last_completed_at: integer("last_completed_at"),
+  consecutive_failures: integer("consecutive_failures").notNull().default(0),
+  consecutive_successes: integer("consecutive_successes").notNull().default(0),
+  fallback_active: integer("fallback_active", { mode: "boolean" }).notNull().default(false),
+  last_error: text("last_error"),
+  updated_at: integer("updated_at").notNull(),
+});
 
 // One-member XAA rollout; independent from the REST completeness watermark.
 export const xActivityState = sqliteTable("x_activity_state", {

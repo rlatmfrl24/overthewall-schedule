@@ -1,3 +1,4 @@
+import { mergeStoredXPost, officialXPostContext, xPostContentKey, type XPostAuthority, type XPostWriteContext } from "../domain/merge-x-post";
 import type { SiteId } from "@contracts/site-definition";
 import type { XApiGateway, XApiGatewayRequest } from "@contracts/x-activity";
 import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
@@ -1439,7 +1440,10 @@ const recordXPostReferences = async (
            resolution_state, attempt_count, next_attempt_at, hydrated_at,
            created_at, updated_at
          ) SELECT iif(EXISTS(SELECT 1 FROM x_posts p WHERE p.id=incoming.column1 AND ${publicationHiddenSql("x_posts", "p", siteId)}),json('site_member_cutover'),incoming.column1), incoming.column2, incoming.column3, incoming.column4, incoming.column5, incoming.column6, incoming.column7, incoming.column8, incoming.column9
-         FROM (VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)) incoming WHERE 1
+         FROM (VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)) incoming
+         WHERE EXISTS(SELECT 1 FROM x_posts current WHERE current.id=incoming.column1
+           AND current.hidden_at IS NULL AND current.content_removed_at IS NULL AND current.content_access='normal'
+           AND json_extract(current.value,'$.' || incoming.column2 || '.postId')=incoming.column3)
          ON CONFLICT(source_post_id, relation_type) DO UPDATE SET
            referenced_post_id = excluded.referenced_post_id,
             resolution_state = CASE
@@ -1481,16 +1485,6 @@ const recordXPostReferences = async (
   }
 };
 
-// A replay carries unhydrated timeline JSON. Preserve a previously attached
-// preview only for the same relation ID; never transfer it to a changed target.
-const replaySafePostValueSql = ["quote", "reply"].reduce((value, relation) =>
-  `CASE WHEN json_valid(x_posts.value)
-    AND json_extract(excluded.value,'$.${relation}.post') IS NULL
-    AND json_extract(excluded.value,'$.${relation}.postId')=json_extract(x_posts.value,'$.${relation}.postId')
-    AND json_extract(x_posts.value,'$.${relation}.post.id')=json_extract(excluded.value,'$.${relation}.postId')
-    THEN json_set(${value},'$.${relation}.post',json_extract(x_posts.value,'$.${relation}.post'))
-    ELSE ${value} END`, "excluded.value");
-
 export const writeStoredPosts = async (
   cacheDb: XCacheDb | undefined,
   handle: string,
@@ -1498,64 +1492,47 @@ export const writeStoredPosts = async (
   posts: XPostItem[],
   fetchedAt: number,
   siteId: SiteId,
+  context: XPostWriteContext | ((post: XPostItem) => XPostWriteContext) = officialXPostContext,
 ): Promise<StoredXPostsWriteResult> => {
-  if (!cacheDb || posts.length === 0) {
-    return { ok: true, count: 0, error: null };
-  }
-
+  if (!cacheDb || posts.length === 0) return { ok: true, count: 0, error: null };
   const normalizedHandle = normalizeHandle(handle);
+  const changedPosts: XPostItem[] = [];
   try {
-    for (let index = 0; index < posts.length; index += 12) {
-      const chunk = posts.slice(index, index + 12);
-      const placeholders = chunk.map(() =>
-        "(?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)"
-      ).join(", ");
-      const bindings = chunk.flatMap((post) => [
-        post.id,
-        normalizedHandle,
-        user.id,
-        post.username,
-        JSON.stringify(post),
-        post.createdAt,
-        fetchedAt,
-        fetchedAt,
-      ]);
-      await cacheDb
-        .prepare(
-          `INSERT INTO x_posts (
-             id, handle, user_id, username, value, created_at, first_seen_at,
-             fetched_at, hidden_at, hidden_reason, content_removed_at
-           ) SELECT iif(EXISTS(SELECT 1 FROM (SELECT incoming.column2 AS handle) selected_source WHERE ${publicationHiddenSql("x_post_sources","selected_source",siteId)}),json('site_member_cutover'),incoming.column1), incoming.column2, incoming.column3, incoming.column4, incoming.column5, incoming.column6, incoming.column7, incoming.column8, incoming.column9, incoming.column10, incoming.column11 FROM (VALUES ${placeholders}) incoming WHERE 1
-           ON CONFLICT(id) DO UPDATE SET
-             handle = excluded.handle,
-             user_id = excluded.user_id,
-             username = excluded.username,
-              value = ${replaySafePostValueSql},
-             created_at = excluded.created_at,
-             fetched_at = excluded.fetched_at,
-             hidden_at = NULL,
-             hidden_reason = NULL,
-             content_removed_at = NULL
-           WHERE x_posts.hidden_at IS NULL
-             AND x_posts.content_removed_at IS NULL`,
-        )
-        .bind(...bindings)
-        .run();
+    for (const incoming of posts) {
+      let saved = false;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const row = await cacheDb.prepare(
+          "SELECT value,source_authority,revision,hidden_at,content_removed_at,content_access,user_id,handle FROM x_posts WHERE id=?",
+        ).bind(incoming.id).first<{ value: string; source_authority: string | null; revision: number; hidden_at: number | null; content_removed_at: number | null; content_access: string; user_id: string | null; handle: string }>();
+        if (row && (row.hidden_at !== null || row.content_removed_at !== null || row.content_access !== "normal")) { saved = true; break; }
+        if (row && (row.handle !== normalizedHandle || (row.user_id && row.user_id !== user.id))) throw new Error("post_author_mismatch");
+        const merged = mergeStoredXPost(row ? { post: JSON.parse(row.value) as XPostItem, authority: row.source_authority ? JSON.parse(row.source_authority) as XPostAuthority : null } : null, incoming, typeof context === "function" ? context(incoming) : context);
+        if (!merged.changed) { saved = true; break; }
+        const value = JSON.stringify(merged.post);
+        const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(xPostContentKey(merged.post))))].map(byte => byte.toString(16).padStart(2,"0")).join("");
+        const result = row
+          ? await cacheDb.prepare(`UPDATE x_posts SET value=?,source_authority=?,content_hash=?,revision=revision+1,fetched_at=?
+              WHERE id=? AND revision=? AND value=? AND hidden_at IS NULL AND content_removed_at IS NULL AND content_access='normal'
+              AND NOT (${publicationHiddenSql("x_posts", "x_posts", siteId)})`)
+              .bind(value, JSON.stringify(merged.authority), hash, fetchedAt, incoming.id, row.revision, row.value).run()
+          : await cacheDb.prepare(`INSERT INTO x_posts(id,handle,user_id,username,value,created_at,first_seen_at,fetched_at,source_authority,content_hash,revision)
+              SELECT iif(${publicationHiddenSql("x_post_sources","incoming",siteId)},json('site_member_cutover'),?),?,?,?,?,?,?,?,?,?,1
+              FROM (SELECT ? AS handle) incoming WHERE 1 ON CONFLICT(id) DO NOTHING`)
+              .bind(incoming.id, normalizedHandle, user.id, incoming.username, value, incoming.createdAt, fetchedAt, fetchedAt, JSON.stringify(merged.authority), hash, normalizedHandle).run();
+        if (result.meta.changes) { changedPosts.push(merged.post); saved = true; break; }
+      }
+      if (!saved) throw new Error("post_revision_conflict");
     }
-    // Facts deliberately contain no raw content. They are gated separately so
-    // the existing feed can stay enabled until the approved analytics use-case
-    // is confirmed in the X Developer Console.
-    const connectedPosts = await connectStoredReplyReferences(cacheDb, posts);
-    await recordXPostFacts(cacheDb, normalizedHandle, connectedPosts, fetchedAt, siteId);
-    await recordXPostReferences(cacheDb, connectedPosts, fetchedAt, siteId);
-    return { ok: true, count: posts.length, error: null };
+    if (changedPosts.length) {
+      const connectedPosts = await connectStoredReplyReferences(cacheDb, changedPosts);
+      await recordXPostFacts(cacheDb, normalizedHandle, connectedPosts, fetchedAt, siteId);
+      await recordXPostReferences(cacheDb, connectedPosts, fetchedAt, siteId);
+      invalidateXPostMemoryCache();
+    }
+    return { ok: true, count: changedPosts.length, error: null };
   } catch (error) {
     console.warn("Failed to write stored X posts", error);
-    return {
-      ok: false,
-      count: 0,
-      error: error instanceof Error ? error.message : "stored_post_write_failed",
-    };
+    return { ok: false, count: 0, error: error instanceof Error ? error.message : "stored_post_write_failed" };
   }
 };
 
@@ -1631,20 +1608,20 @@ const writeXSyncContinuation = async (
       .prepare(
         `WITH incoming(handle,user_id,username,last_seen_post_id,last_checked_at,cadence_anchor_at,
            updated_at,last_error,collection_started_at,initialization_completed_at,
-           last_attempt_at,last_success_at,next_check_at,consecutive_failures,last_error_code,
+           last_attempt_at,last_success_at,next_check_at,consecutive_failures,last_error_code,last_completed_at,
            sync_pagination_token,sync_base_post_id,sync_newest_post_id) AS
-         (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?))
+         (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?))
          INSERT INTO x_post_sources (
            handle, user_id, username, last_seen_post_id, last_checked_at, cadence_anchor_at,
            updated_at, last_error, collection_started_at,
            initialization_completed_at, last_attempt_at, last_success_at,
-           next_check_at, consecutive_failures, last_error_code,
+           next_check_at, consecutive_failures, last_error_code, last_completed_at,
            sync_pagination_token, sync_base_post_id, sync_newest_post_id
          )
          SELECT iif(${publicationHiddenSql("x_post_sources", "incoming", siteId)},json('site_member_cutover'),handle),
            user_id,username,last_seen_post_id,last_checked_at,cadence_anchor_at,updated_at,last_error,
            collection_started_at,initialization_completed_at,last_attempt_at,last_success_at,
-           next_check_at,consecutive_failures,last_error_code,sync_pagination_token,sync_base_post_id,sync_newest_post_id
+           next_check_at,consecutive_failures,last_error_code,last_completed_at,sync_pagination_token,sync_base_post_id,sync_newest_post_id
          FROM incoming WHERE 1
          ON CONFLICT(handle) DO UPDATE SET
            user_id = iif(${publicationHiddenSql("x_post_sources","x_post_sources",siteId)},json('site_member_cutover'),excluded.user_id),
@@ -1659,6 +1636,7 @@ const writeXSyncContinuation = async (
            initialization_completed_at = COALESCE(x_post_sources.initialization_completed_at, excluded.initialization_completed_at),
            last_attempt_at = excluded.last_attempt_at,
            last_success_at = excluded.last_success_at,
+           last_completed_at = CASE WHEN excluded.sync_pagination_token IS NULL THEN excluded.last_success_at ELSE x_post_sources.last_completed_at END,
            next_check_at = excluded.next_check_at,
            consecutive_failures = 0,
            last_error_code = NULL,
@@ -1679,6 +1657,7 @@ const writeXSyncContinuation = async (
         checkedAt,
         checkedAt,
         state.nextToken ? checkedAt + X_COLLECTION_CONTINUATION_CHECK_INTERVAL_MS : cadenceAnchorAt + effectiveIntervalMs,
+        state.nextToken ? null : checkedAt,
         state.nextToken,
         state.nextToken ? state.basePostId : null,
         state.nextToken ? state.newestPostId : null,
@@ -1850,6 +1829,7 @@ const setCachedPosts = async (
   cacheDb?: XCacheDb,
   postsToStore: XPostItem[] = posts,
   siteId: SiteId = "otw",
+  context: (post: XPostItem) => XPostWriteContext = () => officialXPostContext,
 ): Promise<CachedXPostsWriteEntry> => {
   const fetchedAt = now();
   const entry = {
@@ -1871,6 +1851,7 @@ const setCachedPosts = async (
     postsToStore,
     fetchedAt,
     siteId,
+    context,
   );
   if (storedPostsWrite.ok && await writeD1Cache<XPostsCacheValue>(
     cacheDb, cacheKey, "posts", { userId: user.id, posts }, fetchedAt,
@@ -2001,6 +1982,16 @@ const normalizeXMediaItems = (
       };
     })
     .filter((item): item is XPostMediaItem => item !== null);
+
+export const xTimelineWriteContext = (response: XUserTimelineResponse, postId: string, origin: XPostWriteContext["origin"] = "x_api"): XPostWriteContext => {
+  const raw = response.data?.find(post => post.id === postId);
+  const keys = raw?.attachments?.media_keys ?? [];
+  return { origin, completeness: {
+    text: typeof (raw?.note_tweet?.text ?? raw?.text) === "string",
+    media: Boolean(raw) && keys.every(key => response.includes?.media?.some(media => media.media_key === key && Boolean(media.url ?? media.preview_image_url))),
+    relations: Boolean(raw),
+  } };
+};
 
 export const normalizeXTimelineResponse = (
   response: XUserTimelineResponse,
@@ -2756,6 +2747,7 @@ const fetchXPostsForUser = async (
       cacheDb,
       newPostsOnly ? enrichedNewPosts : mergedPostsForResponse,
       siteId,
+      post => xTimelineWriteContext(response, post.id),
     );
     // The timeline watermark is an acknowledgement that every post in this
     // page was durably stored. Advancing it after a D1 write failure would

@@ -146,7 +146,14 @@ export const recordXPostFacts = async (
          post_id, member_uid, member_name_snapshot, post_type, created_at,
          first_seen_at, media_count, link_count, edit_root_post_id,
          superseded_by_post_id, hidden_at, hidden_reason, updated_at
-       ) VALUES (iif(EXISTS(SELECT 1 FROM members m WHERE m.uid=${asNumber(member.uid)} AND ${publicationHiddenSql("members", "m", siteId)}),json('site_member_cutover'),?), ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
+       ) SELECT iif(EXISTS(SELECT 1 FROM members m WHERE m.uid=${asNumber(member.uid)} AND ${publicationHiddenSql("members", "m", siteId)}),json('site_member_cutover'),incoming.column1), incoming.column2,incoming.column3,incoming.column4,incoming.column5,incoming.column6,incoming.column7,incoming.column8,incoming.column9,NULL,NULL,NULL,incoming.column10
+       FROM (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)) incoming
+       WHERE EXISTS(SELECT 1 FROM x_posts current WHERE current.id=incoming.column1
+         AND current.hidden_at IS NULL AND current.content_removed_at IS NULL AND current.content_access='normal'
+         AND json_array_length(current.value,'$.media')=incoming.column7
+         AND COALESCE(json_array_length(current.value,'$.links'),0)=incoming.column8
+         AND CASE WHEN json_extract(current.value,'$.reply') IS NOT NULL THEN 'reply'
+           WHEN json_extract(current.value,'$.quote') IS NOT NULL THEN 'quote' ELSE 'post' END=incoming.column4)
        ON CONFLICT(post_id) DO UPDATE SET
          member_uid = excluded.member_uid,
          member_name_snapshot = excluded.member_name_snapshot,
