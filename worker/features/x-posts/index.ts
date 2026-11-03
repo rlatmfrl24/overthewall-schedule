@@ -25,6 +25,7 @@ export { D1XActivityCoordinator } from "./infrastructure/x-activity-coordinator"
 export { D1XActivitySite } from "./infrastructure/x-activity-site";
 export { runFxCollectionForHandles } from "./infrastructure/fx-collection";
 export { readHybridXCollectionTargets, isHybridRegularCollectionComplete } from "./infrastructure/x-hybrid-policy";
+export { getOfficialAccountDecision } from "./domain/x-collection-policy";
 export { XActivityError, type XActivityService } from "./application/x-activity-service";
 export { createXActivityHandler } from "./http/x-activity";
 export { createXCollectionHandler } from "./http/x-collection";

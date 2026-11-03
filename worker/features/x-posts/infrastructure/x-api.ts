@@ -1,6 +1,7 @@
 import { mergeStoredXPost, officialXPostContext, xPostContentKey, type XPostAuthority, type XPostWriteContext } from "../domain/merge-x-post";
 import type { SiteId } from "@contracts/site-definition";
 import type { XApiGateway, XApiGatewayRequest } from "@contracts/x-activity";
+import type { XCollectionScope } from "@contracts/x-collection";
 import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import { publicationHiddenSql } from "../../content-access";
 import { pMap } from "../../../platform/http-helpers";
@@ -238,6 +239,8 @@ type FetchXPostsForHandlesOptions = {
 type XApiUsageOperation = "user_lookup" | "timeline" | "tweet_lookup";
 
 export type XApiUsageTracker = {
+  officialSyncOriginScope?: XCollectionScope;
+  officialSyncLeaseToken?: string;
   gateway?: XApiGateway;
   recoveryAnchorAt?: number;
   apiCalls: number;
@@ -253,6 +256,8 @@ export type XApiUsageTracker = {
 };
 
 type CollectXPostsOptions = {
+  officialSyncOriginScope?: XCollectionScope;
+  officialSyncLeaseToken?: string;
   scheduledEligibilityConfirmed?: boolean;
   gateway?: XApiGateway;
   recoveryAnchorAt?: number;
@@ -1617,13 +1622,15 @@ const writeXSyncContinuation = async (
   effectiveIntervalMs = X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS,
   siteId: SiteId = "otw",
   scheduledFor?: number | null,
+  officialSync?: Pick<XApiUsageTracker, "officialSyncOriginScope" | "officialSyncLeaseToken">,
 ) => {
   if (!cacheDb) return;
+  const official = officialSync?.officialSyncOriginScope !== undefined;
   const checkedAt = now();
   const cadenceAnchorAt = state.nextToken ? checkedAt : collectionCadenceAnchor(scheduledFor, checkedAt);
   // Cursor, continuation and success timestamps form one durable acknowledgement.
   // A failed statement leaves the previous range intact for infrastructure retry.
-    await cacheDb
+    const acknowledgement = await cacheDb
       .prepare(
         `WITH incoming(handle,user_id,username,last_seen_post_id,last_checked_at,cadence_anchor_at,
            updated_at,last_error,collection_started_at,initialization_completed_at,
@@ -1642,6 +1649,7 @@ const writeXSyncContinuation = async (
            collection_started_at,initialization_completed_at,last_attempt_at,last_success_at,
            next_check_at,consecutive_failures,last_error_code,last_completed_at,sync_pagination_token,sync_base_post_id,sync_newest_post_id
          FROM incoming WHERE 1
+         ${official ? "AND EXISTS(SELECT 1 FROM x_post_sources locked WHERE locked.handle=incoming.handle AND locked.lease_token=? AND locked.lease_until>?)" : ""}
          ON CONFLICT(handle) DO UPDATE SET
            user_id = iif(${publicationHiddenSql("x_post_sources","x_post_sources",siteId)},json('site_member_cutover'),excluded.user_id),
            username = excluded.username,
@@ -1655,7 +1663,8 @@ const writeXSyncContinuation = async (
            initialization_completed_at = COALESCE(x_post_sources.initialization_completed_at, excluded.initialization_completed_at),
            last_attempt_at = excluded.last_attempt_at,
            last_success_at = excluded.last_success_at,
-           last_completed_at = CASE WHEN excluded.sync_pagination_token IS NULL THEN excluded.last_success_at ELSE x_post_sources.last_completed_at END,
+           last_completed_at = ${official ? "x_post_sources.last_completed_at" : "CASE WHEN excluded.sync_pagination_token IS NULL THEN excluded.last_success_at ELSE x_post_sources.last_completed_at END"},
+           ${official ? "sync_timeline_completed_at = CASE WHEN excluded.sync_pagination_token IS NULL THEN excluded.last_success_at ELSE NULL END," : ""}
            next_check_at = excluded.next_check_at,
            consecutive_failures = 0,
            last_error_code = NULL,
@@ -1675,13 +1684,15 @@ const writeXSyncContinuation = async (
         checkedAt,
         checkedAt,
         checkedAt,
-        state.nextToken ? checkedAt + X_COLLECTION_CONTINUATION_CHECK_INTERVAL_MS : cadenceAnchorAt + effectiveIntervalMs,
-        state.nextToken ? null : checkedAt,
+        state.nextToken || official ? checkedAt + X_COLLECTION_CONTINUATION_CHECK_INTERVAL_MS : cadenceAnchorAt + effectiveIntervalMs,
+        state.nextToken || official ? null : checkedAt,
         state.nextToken,
         state.nextToken ? state.basePostId : null,
         state.nextToken ? state.newestPostId : null,
+        ...(official ? [officialSync?.officialSyncLeaseToken ?? "", checkedAt] : []),
       )
       .run();
+    if (official && !acknowledgement.meta.changes) throw new Error("x_source_lease_lost");
 };
 
 const writeStoredPostSourceError = async (
@@ -2775,7 +2786,7 @@ const fetchXPostsForUser = async (
           newestPostId: lastSeenPostId,
           completedPostId: lastSeenPostId,
         }, effectiveIntervalMs, siteId,
-        usageTracker?.recoveryAnchorAt ?? (stored?.syncPaginationToken || stored?.lastError || (stored?.lastCheckedAt ?? 0) >= (scheduledFor ?? Infinity) ? undefined : scheduledFor));
+        usageTracker?.recoveryAnchorAt ?? (stored?.syncPaginationToken || stored?.lastError || (stored?.lastCheckedAt ?? 0) >= (scheduledFor ?? Infinity) ? undefined : scheduledFor), usageTracker);
       } catch (error) {
         console.warn("Failed to acknowledge stored X timeline page", error);
         entry.storageError = "x_post_storage_failed";
@@ -3376,6 +3387,8 @@ export const collectXPostsForHandles = async (
     new Set(handles.map(normalizeHandle).filter(Boolean)),
   );
   const tracker: XApiUsageTracker = {
+    officialSyncOriginScope: options.officialSyncOriginScope,
+    officialSyncLeaseToken: options.officialSyncLeaseToken,
     gateway: options.gateway,
     recoveryAnchorAt: options.recoveryAnchorAt,
     apiCalls: 0,
@@ -3452,7 +3465,7 @@ export const collectXPostsForHandles = async (
     // A manual run is an explicit operator recovery action. It must still obey
     // the global rate-limit backoff and daily budget in requestXApi, but it
     // must not be turned into a no-op by the adaptive scheduled cooldown.
-    const handlesToRefresh = source === "manual" || options.scheduledEligibilityConfirmed
+    let handlesToRefresh = source === "manual" || options.scheduledEligibilityConfirmed
       ? normalizedHandles
       : optimizerEnabled
         ? await getOptimizedXCollectionHandlesToRefresh(normalizedHandles, cacheDb, scheduledFor)
@@ -3463,6 +3476,15 @@ export const collectXPostsForHandles = async (
         cacheDb,
         scheduledFor,
       );
+
+    let timelineAlreadyCompleted = false;
+    if (options.officialSyncOriginScope !== undefined && cacheDb && handlesToRefresh.length) {
+      const completed = await cacheDb.prepare("SELECT handle FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_timeline_completed_at IS NOT NULL AND sync_pagination_token IS NULL")
+        .bind(JSON.stringify(handlesToRefresh)).all<{ handle: string }>();
+      const done = new Set(completed.results.map(row => row.handle));
+      timelineAlreadyCompleted = done.size > 0;
+      handlesToRefresh = handlesToRefresh.filter(handle => !done.has(handle));
+    }
 
     if (handlesToRefresh.length === 0) {
       const referenceHydration = await hydrate();
@@ -3476,8 +3498,8 @@ export const collectXPostsForHandles = async (
         uniqueResources: tracker.uniqueResources,
         previewDeferred: tracker.previewDeferred,
         coalescedHandles,
-        status: "skipped" as const,
-        error: "all_handles_cooldown",
+        status: timelineAlreadyCompleted ? "success" as const : "skipped" as const,
+        ...(timelineAlreadyCompleted ? {} : { error: "all_handles_cooldown" }),
         referenceHydration,
       };
       await writeXCollectionRun(cacheDb, {

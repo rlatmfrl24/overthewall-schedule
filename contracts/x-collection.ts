@@ -1,6 +1,10 @@
 export type XCollectionProvider = "fxembed" | "x_api";
 export type XCollectionScope = "regular" | "pending" | "fallback";
+export type XCollectionMode = "timeline" | "rss_candidates";
+export type XHybridPolicy = "legacy" | "rss_v1";
 export const FX_COLLECTION_INTERVAL_MS = 30 * 60_000;
+export const FX_RSS_INTERVAL_MS = 6 * 3_600_000;
+export const X_HYBRID_REGULAR_INTERVAL_MS = 12 * 3_600_000;
 export const X_REGULAR_INTERVAL_MS = 24 * 60 * 60_000;
 export const X_FALLBACK_INTERVAL_MS = 2 * 60 * 60_000;
 

@@ -1,4 +1,4 @@
-import type { XCollectionScope } from "@contracts/x-collection";
+import { X_HYBRID_REGULAR_INTERVAL_MS, type XCollectionScope } from "@contracts/x-collection";
 import { getHiddenMemberCodes } from "@contracts/site-publication";
 import { unavailableXApiGateway } from "@contracts/x-activity";
 import { publicationHiddenSql } from "../../content-access";
@@ -8,7 +8,7 @@ import {
   parseXCollectionIntervalHours,
 } from "@contracts/configuration";
 import type { XReferenceHydrationResultDto } from "@contracts/x-posts";
-import { members, settings } from "@db/schema";
+import { members, settings, type XPostSource } from "@db/schema";
 import { inArray, sql } from "drizzle-orm";
 import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import { getDb, type DbInstance } from "../../../platform/db";
@@ -27,6 +27,7 @@ import {
   backfillXPostReferencesFromStoredPosts,
 } from "./x-history";
 import { hydrateXReferences } from "./x-reference-hydration";
+import { getOfficialAccountDecision } from "../domain/x-collection-policy";
 
 const X_COLLECTION_INTERVAL_SETTING_KEY = "x_collection_interval_hours";
 const X_COLLECTION_LAST_RUN_SETTING_KEY = "x_collection_last_run";
@@ -283,25 +284,47 @@ export const runXCollectionForHandles = async (
   const policy = await resolveXEffectiveCollectionPolicy(env);
   const hybrid = scope !== undefined && (await getSetting(getDb(env), "x_collection_primary_source")) === "fxembed";
   const startedAt = Date.now();
-  if (hybrid) policy.effectiveIntervalMinutes = scope === "fallback" ? 120 : 1440;
+  const activatedAt = Number(hybrid ? await getSetting(getDb(env), "x_collection_hybrid_activated_at") : null);
+  const independent = hybrid && Number.isFinite(activatedAt) && activatedAt > 0 && await getSetting(getDb(env), "x_collection_hybrid_policy") === "rss_v1";
+  if (hybrid) policy.effectiveIntervalMinutes = scope === "fallback" ? 120 : independent ? X_HYBRID_REGULAR_INTERVAL_MS / 60_000 : 1440;
   const lease = await claimXSourceLeases(env, handles, Date.now());
   try {
     let claimed = lease.claimed;
-    if (hybrid && scope === "regular" && source === "scheduled" && claimed.length) {
+    if (independent && claimed.length) {
+      const rows = await env.otw_db.prepare(`SELECT source.*,COALESCE(fx.fallback_active,0) AS fallback_active FROM x_post_sources source
+        LEFT JOIN x_fx_sources fx ON fx.handle=source.handle WHERE source.handle IN (SELECT value FROM json_each(?))`)
+        .bind(JSON.stringify(claimed)).all<XPostSource & { fallback_active: number }>();
+      const eligible: string[] = [];
+      const enabled = await getSetting(getDb(env), "x_collection_enabled") !== "false";
+      for (const row of rows.results) {
+        const pending = Boolean(row.sync_pagination_token || row.sync_origin_scope || row.sync_timeline_completed_at != null);
+        const decision = getOfficialAccountDecision({ now: Date.now(), activatedAt, regularCompletedAt: row.regular_completed_at,
+          completedAt: row.last_completed_at, pending, originScope: row.sync_origin_scope as XCollectionScope | null,
+          fallbackActive: Boolean(row.fallback_active), backoffUntil: pending || row.last_error_code ? row.next_check_at : null });
+        if (!enabled || row.deactivated_at != null || !decision.scope || (scope !== decision.scope && decision.scope !== "pending")) continue;
+        const origin = await env.otw_db.prepare(`UPDATE x_post_sources SET sync_origin_scope=COALESCE(sync_origin_scope,?),
+          sync_origin_started_at=COALESCE(sync_origin_started_at,?),sync_timeline_completed_at=CASE WHEN sync_origin_scope IS NULL THEN NULL ELSE sync_timeline_completed_at END
+          WHERE handle=? AND lease_token=? AND lease_until>? AND NOT (${publicationHiddenSql("x_post_sources","x_post_sources",parseSiteId(env.SITE_ID))}) RETURNING handle`)
+          .bind(decision.originScope, Date.now(), row.handle, lease.token, Date.now()).first<{ handle: string }>();
+        if (origin) eligible.push(row.handle);
+      }
+      claimed = eligible;
+    }
+    if (hybrid && !independent && scope === "regular" && source === "scheduled" && claimed.length) {
       const baseline = Number(await env.otw_db.prepare("SELECT value FROM settings WHERE key='x_collection_last_run'").first("value") ?? 0);
       const finished = await env.otw_db.prepare("SELECT handle FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND regular_completed_at>?")
         .bind(JSON.stringify(claimed), baseline).all<{handle:string}>();
       const done = new Set(finished.results.map(row => row.handle));
       claimed = source === "scheduled" && scheduledFor != null && baseline >= scheduledFor ? [] : claimed.filter(handle => !done.has(handle));
     }
-    if (hybrid && scope === "fallback" && claimed.length) {
+    if (hybrid && !independent && scope === "fallback" && claimed.length) {
       const active = await env.otw_db.prepare("SELECT source.handle FROM x_post_sources source JOIN x_fx_sources fx ON fx.handle=source.handle WHERE source.handle IN (SELECT value FROM json_each(?)) AND fx.fallback_active=1 AND (source.last_completed_at IS NULL OR source.last_completed_at<=?)")
         .bind(JSON.stringify(claimed), Date.now()-2*3_600_000).all<{handle:string}>();
       const activeHandles = new Set(active.results.map(row => row.handle));
       claimed = claimed.filter(handle => activeHandles.has(handle));
     }
     if (pendingOnly && claimed.length) {
-      const pending = await env.otw_db.prepare("SELECT handle FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_pagination_token IS NOT NULL")
+      const pending = await env.otw_db.prepare(`SELECT handle FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND (sync_pagination_token IS NOT NULL ${independent ? "OR sync_origin_scope IS NOT NULL OR sync_timeline_completed_at IS NOT NULL" : ""})`)
         .bind(JSON.stringify(claimed)).all<{handle:string}>();
       const pendingHandles = new Set(pending.results.map(row => row.handle));
       claimed = claimed.filter(handle => pendingHandles.has(handle));
@@ -324,18 +347,34 @@ export const runXCollectionForHandles = async (
       recoveryAnchorAt,
       optimizerEnabled: policy.optimizerEnabled,
       scheduledEligibilityConfirmed: hybrid,
+      ...(independent ? { officialSyncOriginScope: scope, officialSyncLeaseToken: lease.token } : {}),
       effectiveIntervalMinutes: policy.effectiveIntervalMinutes,
       referencePreviewMode: policy.referencePreviewMode,
       coalescedHandles: lease.coalesced,
       afterTimeline: (tracker) => hydrateXReferences({ db: env.otw_db,siteId:parseSiteId(env.SITE_ID), handles: claimed,
         bearerToken: env.X_BEARER_TOKEN ?? "shared-gateway", mode: policy.referencePreviewMode, tracker }),
     });
-    if (hybrid && scope === "regular" && claimed.length) await env.otw_db.prepare(`UPDATE x_post_sources SET regular_completed_at=last_completed_at
+    if (independent && claimed.length) {
+      const completedAt = Date.now();
+      await env.otw_db.prepare(`UPDATE x_post_sources SET last_completed_at=?,
+        regular_completed_at=CASE WHEN sync_origin_scope='regular' THEN ? ELSE regular_completed_at END,
+        next_check_at=?+CASE WHEN sync_origin_scope='fallback' THEN 7200000 ELSE 43200000 END,
+        sync_origin_scope=NULL,sync_origin_started_at=NULL,sync_timeline_completed_at=NULL
+        WHERE handle IN (SELECT value FROM json_each(?)) AND lease_token=? AND lease_until>?
+        AND sync_timeline_completed_at IS NOT NULL AND sync_pagination_token IS NULL AND last_error IS NULL AND deactivated_at IS NULL
+        AND NOT (${publicationHiddenSql("x_post_sources","x_post_sources",parseSiteId(env.SITE_ID))})
+        AND NOT EXISTS(SELECT 1 FROM x_posts p JOIN x_post_references r ON r.source_post_id=p.id
+          WHERE p.handle=x_post_sources.handle AND r.updated_at>=x_post_sources.sync_origin_started_at
+          AND ((r.last_error_code IS NOT NULL AND r.last_error_code NOT IN ('preview_disabled','preview_budget_exceeded','budget_exceeded'))
+            OR (r.author_last_error_code IS NOT NULL AND r.author_last_error_code NOT IN ('preview_disabled','preview_budget_exceeded','budget_exceeded'))))`)
+        .bind(completedAt, completedAt, completedAt, JSON.stringify(claimed), lease.token, Date.now()).run();
+    }
+    if (hybrid && !independent && scope === "regular" && claimed.length) await env.otw_db.prepare(`UPDATE x_post_sources SET regular_completed_at=last_completed_at
       WHERE handle IN (SELECT value FROM json_each(?)) AND last_completed_at>=? AND sync_pagination_token IS NULL AND last_error IS NULL
       AND (?=0 OR NOT EXISTS(SELECT 1 FROM x_posts p JOIN x_post_references r ON r.source_post_id=p.id
         WHERE p.handle=x_post_sources.handle AND r.updated_at>=? AND (r.last_error_code IS NOT NULL OR r.author_last_error_code IS NOT NULL)))`)
       .bind(JSON.stringify(claimed), startedAt, "referenceHydration" in result ? result.referenceHydration?.failed ?? 0 : 0, startedAt).run();
-    const pendingSources=claimed.length ? await env.otw_db.prepare("SELECT COUNT(*) AS count FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_pagination_token IS NOT NULL")
+    const pendingSources=claimed.length ? await env.otw_db.prepare(`SELECT COUNT(*) AS count FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND (sync_pagination_token IS NOT NULL ${independent ? "OR sync_origin_scope IS NOT NULL OR sync_timeline_completed_at IS NOT NULL" : ""})`)
       .bind(JSON.stringify(claimed)).first<number>("count") : 0;
     return normalizeCollectionResult({
       ...result,
