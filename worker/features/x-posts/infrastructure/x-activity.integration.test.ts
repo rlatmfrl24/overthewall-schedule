@@ -18,7 +18,7 @@ const json=(value:unknown)=>Response.json(value);
 const gateway=(site:"otw"|"luvdia")=>new D1SharedXApiGateway({db,site,token:"test",admitD1:async()=>true});
 const local=(site:"otw"|"luvdia")=>new D1XActivitySite({db:site==="otw"?db:peer,siteId:site,gateway:gateway(site),publicationOpen:()=>true,dispatch:async id=>{queued.push({site,id});}});
 const coordinator=(overrides:Partial<ConstructorParameters<typeof D1XActivityCoordinator>[0]>={})=>new D1XActivityCoordinator({db,origin:"https://otw.example",bearerToken:"test",clientSecret:"secret",gateway:gateway("otw"),
-  controlSite:(site,fence)=>local(site).withControlFence(fence),sites:{otw:local("otw"),luvdia:local("luvdia")},peerReady:async()=>true,admitD1:async()=>true,dispatch:async id=>{queued.push({site:"dispatch",id});},...overrides});
+  controlSite:(site,fence,disabledRevision)=>local(site).withControlFence(fence,disabledRevision),acceptDelivery:(site,request)=>local(site).withDeliveryRevision(request.admittedRevision).accept(request.body),sites:{otw:local("otw"),luvdia:local("luvdia")},peerReady:async()=>true,admitD1:async()=>true,dispatch:async id=>{queued.push({site:"dispatch",id});},...overrides});
 const body=(tag:string,extra:Record<string,unknown>={},id=postId)=>({data:{event_uuid:id,event_type:"post.create",filter:{user_id:userId},tag,
   payload:{id,author_id:userId,text:"short",created_at:new Date(Date.now()).toISOString(),...extra},includes:{media:[{media_key:"photo",type:"photo",url:"https://pbs.twimg.com/media/photo.jpg"}]}}});
 const photo=(tag:string)=>body(tag,{attachments:{media_keys:["photo"]},note_tweet:{text:"complete long note",entities:{urls:[]}}});
@@ -53,7 +53,7 @@ beforeEach(async()=>{
   for(const database of [db,peer]){
     await applyD1Migrations(database,bindings.X_REFERENCE_MIGRATIONS);
     await database.batch(["x_activity_inbox","x_activity_dispatch","x_activity_targets","x_activity_subscriptions","x_shared_requests","x_shared_budgets","x_activity_cache_redactions","x_post_references","x_post_facts","x_posts","x_post_sources","x_api_usage_events","x_api_usage_daily","x_api_resource_daily","x_api_cache","scheduled_usage_daily","members"].map(table=>database.prepare("DELETE FROM "+table)));
-    await database.prepare("DELETE FROM settings WHERE key IN ('x_collection_primary_source','x_webhook_disabled','x_collection_hybrid_policy','x_collection_hybrid_activated_at','x_activity_control_fence')").run();
+    await database.prepare("DELETE FROM settings WHERE key IN ('x_collection_primary_source','x_webhook_disabled','x_collection_hybrid_policy','x_collection_hybrid_activated_at','x_activity_control_fence','x_activity_disabled_revision','x_activity_disabled_revision:otw','x_activity_disabled_revision:luvdia')").run();
     await database.prepare("INSERT INTO settings(key,value,updated_at) VALUES('x_collection_enabled','true',0),('x_collection_daily_budget_cents','100',0),('x_cost_optimizer_enabled','false',0) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run();
     await database.prepare("UPDATE x_activity_sites SET enabled=0,pause_reason='user',resume_at=NULL,last_error=NULL").run();
     await database.prepare("UPDATE x_activity_coordinator SET ready=0,lease_until=0,webhook_id=NULL,webhook_url=NULL,bootstrap_extra_micros=0,last_error=NULL").run();
@@ -135,7 +135,7 @@ describe("XAA multi-site collection and common money boundary",()=>{
   });
   it("old_peer_cannot_report_policy_applied",async()=>{
     const old=local("luvdia");vi.spyOn(old,"setPrimarySource").mockResolvedValue();
-    const control=new D1XActivityCoordinator({db,origin:"https://otw.example",bearerToken:"test",clientSecret:"secret",gateway:gateway("otw"),controlSite:(site,fence)=>({...local(site).withControlFence(fence),setPrimarySource:()=>old.setPrimarySource("fxembed"),setWebhookDisabled:disabled=>local(site).withControlFence(fence).setWebhookDisabled(disabled),setRecoveryInterval:()=>local(site).withControlFence(fence).setRecoveryInterval()}),sites:{otw:local("otw"),luvdia:old},peerReady:async()=>true,admitD1:async()=>true,dispatch:async()=>{}});
+    const control=new D1XActivityCoordinator({db,origin:"https://otw.example",bearerToken:"test",clientSecret:"secret",gateway:gateway("otw"),controlSite:(site,fence)=>({...local(site).withControlFence(fence),setPrimarySource:()=>old.setPrimarySource("fxembed"),setWebhookDisabled:disabled=>local(site).withControlFence(fence).setWebhookDisabled(disabled),setRecoveryInterval:()=>local(site).withControlFence(fence).setRecoveryInterval()}),acceptDelivery:(site,request)=>local(site).withDeliveryRevision(request.admittedRevision).accept(request.body),sites:{otw:local("otw"),luvdia:old},peerReady:async()=>true,admitD1:async()=>true,dispatch:async()=>{}});
     await expect(control.setPrimarySource("luvdia","fxembed")).rejects.toThrow("x_activity_policy_readback_failed");
     expect(await db.prepare("SELECT pause_reason FROM x_activity_sites WHERE site='luvdia'").first("pause_reason")).toBe("hybrid_transition");
   });
@@ -223,7 +223,7 @@ describe("XAA multi-site collection and common money boundary",()=>{
       const value=Reflect.get(target,key,target);return typeof value==="function"?value.bind(target):value;
     }});
     const receiver=boundary==="site"?new D1XActivitySite({db:delayed,siteId:"otw",gateway:gateway("otw"),publicationOpen:()=>true,dispatch:async()=>{}}):
-      new D1XActivityCoordinator({db:delayed,origin:"https://otw.example",bearerToken:"test",clientSecret:"secret",gateway:gateway("otw"),controlSite:(site,fence)=>local(site).withControlFence(fence),sites:{otw:local("otw"),luvdia:local("luvdia")},peerReady:async()=>true,admitD1:async()=>true,dispatch:async()=>{}});
+      new D1XActivityCoordinator({db:delayed,origin:"https://otw.example",bearerToken:"test",clientSecret:"secret",gateway:gateway("otw"),controlSite:(site,fence,disabledRevision)=>local(site).withControlFence(fence,disabledRevision),acceptDelivery:(site,request)=>local(site).withDeliveryRevision(request.admittedRevision).accept(request.body),sites:{otw:local("otw"),luvdia:local("luvdia")},peerReady:async()=>true,admitD1:async()=>true,dispatch:async()=>{}});
     const event=photo(await tag()),id=parseXActivityEvent(event)!.eventId;
     const pending=receiver.accept(event);await started;await control.stop("otw");release();await pending;
     await control.start("otw");await control.deliver(id);await local("otw").process(id);
@@ -265,6 +265,54 @@ describe("XAA multi-site collection and common money boundary",()=>{
     const status=await control.status("otw");
     expect(status.sites?.find(site=>site.site==="otw")).toMatchObject({enabled:false,targetCount:0,activeCount:1,failedCount:1});
     expect(status.providerActiveCount).toBe(1);expect(remote).toHaveLength(1);
+  });
+  it.each(["stop","fxembed"] as const)("%s skips coordinator backlog permanently without losing the other site or shared charge",async(action)=>{
+    await peer.prepare("UPDATE members SET url_twitter='https://x.com/member'").run();
+    await peer.prepare("UPDATE x_post_sources SET handle='member',username='member',user_id=?").bind(userId).run();
+    const control=coordinator();await control.start("otw");await control.start("luvdia");
+    const event=body(await tag(),{attachments:{media_keys:["missing"]}}),id=parseXActivityEvent(event)!.eventId;
+    await control.accept(event);const used=(await new D1SharedXBudget(db).read()).used;
+    if(action==="stop")await control.stop("otw");else await control.setPrimarySource("otw","fxembed");
+    await control.start("otw");await control.deliver(id);await local("otw").process(id);
+    expect(await db.prepare("SELECT otw_status,luvdia_status,charged FROM x_activity_dispatch WHERE event_id=?").bind(id).first()).toEqual({otw_status:"skipped_disabled",luvdia_status:"complete",charged:1});
+    expect(await db.prepare("SELECT event_id FROM x_activity_inbox WHERE event_id=?").bind(id).first()).toBeNull();
+    expect(await peer.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(id).first("status")).toBe("pending");
+    expect(await db.prepare("SELECT count(*) n FROM x_shared_requests WHERE operation='tweet_lookup'").first("n")).toBe(0);
+    expect((await new D1SharedXBudget(db).read()).used).toBe(used);
+    await local("luvdia").process(id);
+    expect(await peer.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(id).first("status")).toBe("complete");
+    expect(await db.prepare("SELECT count(*) n FROM x_shared_requests WHERE operation='tweet_lookup'").first("n")).toBe(1);
+  });
+  it("a failed stop RPC still carries its durable disable barrier into re-enable and an in-flight delivery",async()=>{
+    let entered!:()=>void,release!:()=>void;
+    const started=new Promise<void>(r=>{entered=r;}),paused=new Promise<void>(r=>{release=r;});
+    const control=coordinator({
+      controlSite:(site,fence,disabledRevision)=>{
+        const bound=local(site).withControlFence(fence,disabledRevision);
+        return {setPrimarySource:source=>bound.setPrimarySource(source),setRecoveryInterval:()=>bound.setRecoveryInterval(),setWebhookDisabled:async disabled=>{
+          if(disabled)throw new Error("lost_stop_rpc");return bound.setWebhookDisabled(disabled);
+        }};
+      },
+      acceptDelivery:async(site,request)=>{entered();await paused;return local(site).withDeliveryRevision(request.admittedRevision).accept(request.body);},
+    });
+    await control.start("otw");
+    const event=body(await tag(),{attachments:{media_keys:["missing"]}}),id=parseXActivityEvent(event)!.eventId;
+    await control.accept(event);const delivering=control.deliver(id);await started;
+    await expect(control.stop("otw")).rejects.toThrow("lost_stop_rpc");await control.start("otw");
+    release();await delivering;await local("otw").process(id);
+    expect(await db.prepare("SELECT status,last_error,payload FROM x_activity_inbox WHERE event_id=?").bind(id).first()).toEqual({status:"skipped",last_error:"webhook_delivery_disabled",payload:null});
+    expect(await db.prepare("SELECT otw_status,charged FROM x_activity_dispatch WHERE event_id=?").bind(id).first()).toEqual({otw_status:"skipped_disabled",charged:1});
+    expect(await db.prepare("SELECT count(*) n FROM x_shared_requests WHERE operation='tweet_lookup'").first("n")).toBe(0);
+  });
+  it.each([false,true])("preserves never-disabled legacy raw deliveries but blocks legacy Disabled before enable (%s)",async(disabled)=>{
+    const control=coordinator();await control.start("otw");
+    const event=photo(await tag()),id=parseXActivityEvent(event)!.eventId;await control.accept(event);
+    await db.prepare("UPDATE x_activity_dispatch SET payload=? WHERE event_id=?").bind(JSON.stringify(event),id).run();
+    if(disabled)await db.prepare("UPDATE settings SET value='true' WHERE key='x_webhook_disabled'").run();
+    await control.start("otw");await control.deliver(id);await local("otw").process(id);
+    expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(id).first("status")).toBe(disabled?"skipped":"complete");
+    if(disabled)expect(await db.prepare("SELECT last_error FROM x_activity_inbox WHERE event_id=?").bind(id).first("last_error")).toBe("webhook_delivery_disabled");
+    else expect(await db.prepare("SELECT value FROM settings WHERE key='x_activity_disabled_revision'").first()).toBeNull();
   });
   it("initializes REST budget independently of starting a webhook",async()=>{
     await db.prepare("DELETE FROM x_shared_budgets").run();await db.prepare("UPDATE x_activity_coordinator SET ready=0").run();

@@ -1,6 +1,6 @@
 import type { XCollectionProvider } from "@contracts/x-collection";
 import type { SiteId } from "@contracts/site-definition";
-import type { XActivitySitePort, XActivitySiteSnapshot, XActivityStatusDto, XApiGateway, XActivityControlFence, XActivitySiteControlPort } from "@contracts/x-activity";
+import type { XActivitySitePort, XActivitySiteSnapshot, XActivityStatusDto, XApiGateway, XActivityControlFence, XActivitySiteControlPort, XActivityDeliveryRequest } from "@contracts/x-activity";
 import { XActivityError } from "../application/x-activity-service";
 import { parseXActivityEvent } from "../domain/x-activity";
 import { D1SharedXBudget } from "./x-shared-budget";
@@ -12,7 +12,8 @@ interface Target { site: SiteId; handle: string; user_id: string | null; status:
 interface Options {
   db: D1Database; origin: string; bearerToken?: string; clientSecret?: string;
   gateway: XApiGateway; sites: Record<SiteId,XActivitySitePort>;
-  controlSite(site:SiteId,fence:XActivityControlFence):XActivitySiteControlPort;
+  controlSite(site:SiteId,fence:XActivityControlFence,disabledRevision:number|null):XActivitySiteControlPort;
+  acceptDelivery(site:SiteId,request:XActivityDeliveryRequest):Promise<boolean>;
   peerReady(): Promise<boolean>; admitD1(): Promise<boolean>; dispatch(eventId: string): Promise<void>;
 }
 const DAY=86_400_000;
@@ -106,11 +107,26 @@ export class D1XActivityCoordinator {
     try{return await action(token,{token,revision:claimed.control_revision,expiresAt:lease});}finally{await this.db.prepare("UPDATE x_activity_coordinator SET lease_until=0,lease_token=NULL WHERE id=1 AND lease_token=?").bind(token).run();}
   }
 
+  private async siteControl(site:SiteId,fence:XActivityControlFence){
+    const value=await this.db.prepare("SELECT value FROM settings WHERE key=?").bind(`x_activity_disabled_revision:${site}`).first<string>("value");
+    const revision=value===null?null:Number(value);
+    if(revision!==null&&(!Number.isSafeInteger(revision)||revision<0))throw new XActivityError("x_activity_disable_barrier_invalid",503);
+    return this.options.controlSite(site,fence,revision);
+  }
+  private disableDispatch(site:SiteId,revision:number){
+    const other=site==="otw"?"luvdia":"otw";
+    return [
+      this.db.prepare("INSERT INTO settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+        .bind(`x_activity_disabled_revision:${site}`,String(revision),Date.now()),
+      this.db.prepare(`UPDATE x_activity_dispatch SET ${site}_status='skipped_disabled',payload=CASE WHEN ${other}_status='pending' THEN payload ELSE NULL END WHERE ${site}_status='pending'`),
+    ];
+  }
+
   async setPrimarySource(site:SiteId,source:XCollectionProvider){
     if(!["fxembed","x_api"].includes(source))throw new XActivityError("invalid_x_collection_provider",400);
     if(source==="x_api"){
       await this.control(async(token,fence)=>{
-        const siteControl=this.options.controlSite(site,fence);
+        const siteControl=await this.siteControl(site,fence);
         await siteControl.setPrimarySource(source);
         await this.write(token,this.db.prepare("UPDATE x_activity_sites SET pause_reason='hybrid_rollback',last_error=NULL,updated_at=? WHERE site=? AND enabled=0 AND pause_reason IN ('hybrid','hybrid_transition')").bind(Date.now(),site));
       });
@@ -119,7 +135,7 @@ export class D1XActivityCoordinator {
     await this.initializeBudget();
     if(!(await this.options.sites[site].snapshot()).collectionEnabled)throw new XActivityError("x_collection_disabled");
     await this.control(async(token,fence)=>{
-      const siteControl=this.options.controlSite(site,fence);
+      const siteControl=await this.siteControl(site,fence);
       if((await this.options.sites[site].snapshot()).primarySource==="fxembed"){
         await this.assertOwner(token);
         await siteControl.setPrimarySource(source);
@@ -129,7 +145,7 @@ export class D1XActivityCoordinator {
         await this.write(token,this.db.prepare("UPDATE x_activity_sites SET pause_reason=CASE WHEN enabled=0 AND pause_reason='hybrid_transition' THEN 'hybrid' ELSE pause_reason END,last_error=NULL,updated_at=? WHERE site=?").bind(Date.now(),site));
         return;
       }
-      await this.write(token,this.db.prepare("UPDATE x_activity_sites SET enabled=0,pause_reason='hybrid_transition',resume_at=NULL,last_error=NULL,updated_at=? WHERE site=?").bind(Date.now(),site));
+      await this.write(token,this.db.prepare("UPDATE x_activity_sites SET enabled=0,pause_reason='hybrid_transition',resume_at=NULL,last_error=NULL,updated_at=? WHERE site=?").bind(Date.now(),site),...this.disableDispatch(site,fence.revision));
       try{
       await siteControl.setWebhookDisabled(true);
       await this.syncSite(site,token);
@@ -155,7 +171,7 @@ export class D1XActivityCoordinator {
 
   async start(site:SiteId){
     await this.control(async(token,fence)=>{
-      const siteControl=this.options.controlSite(site,fence);
+      const siteControl=await this.siteControl(site,fence);
       const snapshot=await this.options.sites[site].snapshot();
       const pause=await this.db.prepare("SELECT pause_reason FROM x_activity_sites WHERE site=?").bind(site).first<string>("pause_reason");
       if(pause==="hybrid_transition")throw new XActivityError("x_activity_hybrid_disabled",409);
@@ -172,8 +188,8 @@ export class D1XActivityCoordinator {
 
   async stop(site:SiteId){
     await this.control(async(token,fence)=>{
-      const siteControl=this.options.controlSite(site,fence);
-      await this.write(token,this.db.prepare("UPDATE x_activity_sites SET enabled=0,pause_reason=CASE WHEN pause_reason IN ('hybrid','hybrid_transition','hybrid_rollback') THEN pause_reason ELSE 'user' END,resume_at=NULL,last_error=NULL,updated_at=? WHERE site=?").bind(Date.now(),site));
+      const siteControl=await this.siteControl(site,fence);
+      await this.write(token,this.db.prepare("UPDATE x_activity_sites SET enabled=0,pause_reason=CASE WHEN pause_reason IN ('hybrid','hybrid_transition','hybrid_rollback') THEN pause_reason ELSE 'user' END,resume_at=NULL,last_error=NULL,updated_at=? WHERE site=?").bind(Date.now(),site),...this.disableDispatch(site,fence.revision));
       try{await siteControl.setWebhookDisabled(true);}
       catch(error){
         await this.write(token,this.db.prepare("UPDATE x_activity_sites SET last_error=?,updated_at=? WHERE site=?").bind(message(error),Date.now(),site));
@@ -329,7 +345,7 @@ export class D1XActivityCoordinator {
     const fresh="EXISTS(SELECT 1 FROM x_activity_dispatch WHERE event_id=? AND charged=0)";
     await this.db.batch([
       this.db.prepare(`INSERT OR IGNORE INTO x_activity_dispatch(event_id,post_id,user_id,payload,received_at,otw_status,luvdia_status)
-        SELECT ?,?,?,CASE WHEN ${needed("otw")} OR ${needed("luvdia")} THEN ? ELSE NULL END,?,
+        SELECT ?,?,?,CASE WHEN ${needed("otw")} OR ${needed("luvdia")} THEN json_object('event',json(?),'admittedRevision',(SELECT control_revision FROM x_activity_coordinator WHERE id=1)) ELSE NULL END,?,
           CASE WHEN ${needed("otw")} THEN 'pending' ELSE 'not_target' END,CASE WHEN ${needed("luvdia")} THEN 'pending' ELSE 'not_target' END`)
         .bind(event.eventId,event.post.id,event.userId,event.userId,event.userId,JSON.stringify(body),Date.now(),event.userId,event.userId),
       this.db.prepare(`UPDATE x_shared_budgets SET used=used+5000,updated_at=? WHERE day=? AND ${fresh}`).bind(Date.now(),budget.day,event.eventId),
@@ -350,7 +366,9 @@ export class D1XActivityCoordinator {
       for(const site of ["otw","luvdia"] as const){
         if(row[`${site}_status`]!=="pending")continue;
         try{
-          const accepted=row.payload?await this.options.sites[site].accept(JSON.parse(row.payload)):false;
+          const payload:unknown=row.payload?JSON.parse(row.payload):null;
+          const envelope=payload&&typeof payload==="object"&&!("data" in payload)&&"event" in payload&&"admittedRevision" in payload?payload as {event:unknown;admittedRevision:number|null}:null;
+          const accepted=payload?await this.options.acceptDelivery(site,{body:envelope?envelope.event:payload,admittedRevision:envelope?envelope.admittedRevision:null}):false;
           await this.db.prepare(`UPDATE x_activity_dispatch SET ${site}_status=? WHERE event_id=? AND lease_until=? AND ${site}_status='pending'`).bind(accepted?"complete":"skipped",eventId,lease).run();
         }catch(error){await this.db.prepare("UPDATE x_activity_dispatch SET last_error=?,next_attempt_at=? WHERE event_id=? AND lease_until=?").bind(message(error),Date.now()+60_000,eventId,lease).run();}
       }

@@ -217,3 +217,23 @@ it("rollback retires hybrid proof without dropping a real unfinished pagination 
   expect(calls).toHaveLength(2);expect(calls[1].searchParams.get("pagination_token")).toBe("page2");
   expect(await source()).toMatchObject({sync_origin_scope:null,sync_pagination_token:null,last_seen_post_id:"200"});
 });
+
+it.each([[500,false],[429,false],[500,true],[429,true]] as const)("late old %s source errors cannot replace legacy acknowledgement (stored fallback=%s)",async(status,stored)=>{
+  if(stored)await db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at) VALUES('150','member','member',?, ?,0,0)")
+    .bind(JSON.stringify({id:"150",text:"previous",username:"member",createdAt:new Date(timestamp-HOUR).toISOString(),url:"https://x.com/member/status/150",media:[],metrics:{likeCount:0,replyCount:0,repostCount:0,quoteCount:0}}),new Date(timestamp-HOUR).toISOString()).run();
+  let entered!:()=>void,release!:()=>void;
+  const started=new Promise<void>(r=>{entered=r;}),paused=new Promise<void>(r=>{release=r;});
+  let first=true;
+  provider(async()=>{if(first){first=false;entered();await paused;return Response.json({errors:[{message:"late old error"}]},{status});}return page();});
+  const pending=collect("regular");await started;
+  clock.mockReturnValue(timestamp+11*60_000);clearXServiceCachesForTests();
+  await db.prepare("UPDATE settings SET value='x_api' WHERE key='x_collection_primary_source'").run();
+  expect((await runXCollectionForHandles(runtime,["member"],"manual")).status).toBe("success");
+  const completed=await source();
+  clock.mockReturnValue(timestamp+12*60_000);release();const result=await pending;
+  expect(result.status).toBe("failed");expect(result.postsReturned>0).toBe(stored);
+  expect(await source()).toEqual(completed);
+  expect(await db.prepare("SELECT COUNT(*) n FROM x_shared_requests WHERE operation='timeline' AND status='complete' AND json_extract(result,'$.ok')=0").first("n")).toBe(1);
+  expect(await db.prepare("SELECT reserved FROM x_shared_budgets").first("reserved")).toBe(0);
+  if(status===429)expect(Number(await db.prepare("SELECT value FROM settings WHERE key='x_api_backoff_until'").first("value"))).toBeGreaterThan(timestamp+12*60_000);
+});

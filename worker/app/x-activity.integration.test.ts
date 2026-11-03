@@ -29,7 +29,7 @@ const runtime = { ...bindings, ...siteEnv(), SITE_PUBLIC_ORIGIN: origin,
 } as unknown as Env;
 const peerRuntime={...runtime,...siteEnv("luvdia"),SITE_PUBLIC_ORIGIN:"https://luvdia-schedule.info",CLERK_AUTHORIZED_PARTIES:"https://luvdia-schedule.info",otw_db:bindings.transition_target_db,
   OTW_OPS_BACKGROUND_QUEUE:{send:async(body:unknown)=>{queued.push({site:"luvdia",body});}}} as unknown as Env;
-runtime.X_ACTIVITY_LUVDIA={controlFenced:request=>new XActivitySiteRpc(createExecutionContext(),peerRuntime).controlFenced(request),protocol:async()=>({version:1,site:"luvdia"}),snapshot:()=>buildXActivitySite(peerRuntime).snapshot(),
+runtime.X_ACTIVITY_LUVDIA={acceptDelivery:request=>new XActivitySiteRpc(createExecutionContext(),peerRuntime).acceptDelivery(request),controlFenced:request=>new XActivitySiteRpc(createExecutionContext(),peerRuntime).controlFenced(request),protocol:()=>new XActivitySiteRpc(createExecutionContext(),peerRuntime).protocol(),snapshot:()=>buildXActivitySite(peerRuntime).snapshot(),
   rememberUser:(handle,user)=>buildXActivitySite(peerRuntime).rememberUser(handle,user),accept:body=>buildXActivitySite(peerRuntime).accept(body),
   events:()=>buildXActivitySite(peerRuntime).events(),setRecoveryInterval:()=>buildXActivitySite(peerRuntime).setRecoveryInterval(),setPrimarySource:source=>buildXActivitySite(peerRuntime).setPrimarySource(source),setWebhookDisabled:disabled=>buildXActivitySite(peerRuntime).setWebhookDisabled(disabled)};
 peerRuntime.X_ACTIVITY_COORDINATOR={protocol:async()=>({version:1,site:"otw"}),gatewayForLuvdia:input=>buildXGateway(runtime,"luvdia").execute(input),
@@ -54,7 +54,7 @@ beforeEach(async () => {
   clearAuthCachesForTests(); queued.length = 0;
   for(const database of [db,bindings.transition_target_db]){
     await database.batch(["x_activity_inbox","x_activity_dispatch","x_activity_targets","x_activity_subscriptions","x_shared_requests","x_shared_budgets","x_activity_cache_redactions","x_post_references","x_post_facts","x_posts","x_fx_sources","x_post_sources","x_api_usage_events","x_api_usage_daily","x_api_resource_daily","x_api_cache","scheduled_usage_daily","admin_audit_logs","members"].map(table=>database.prepare("DELETE FROM "+table)));
-    await database.prepare("DELETE FROM settings WHERE key IN ('x_collection_primary_source','x_webhook_disabled','x_collection_hybrid_policy','x_collection_hybrid_activated_at','x_activity_control_fence')").run();
+    await database.prepare("DELETE FROM settings WHERE key IN ('x_collection_primary_source','x_webhook_disabled','x_collection_hybrid_policy','x_collection_hybrid_activated_at','x_activity_control_fence','x_activity_disabled_revision','x_activity_disabled_revision:otw','x_activity_disabled_revision:luvdia')").run();
     await database.prepare("UPDATE x_activity_sites SET enabled=0,pause_reason='user',last_error=NULL").run();
     await database.prepare("UPDATE x_activity_coordinator SET ready=0,lease_until=0,webhook_id=NULL,webhook_url=NULL,bootstrap_extra_micros=0,last_error=NULL").run();
   }
@@ -149,9 +149,9 @@ it("uses real admin JWT authorization, callback CRC/HMAC, queue routing and publ
   expect(await bindings.transition_target_db.prepare("SELECT status FROM x_activity_inbox").first("status")).toBe("complete");
 });
 
-it.each(["missing_fence","wrong_site","wrong_version"])("fails closed through normal admin RPC for %s peer",async(reason)=>{
+it.each(["missing_fence","missing_delivery","old_protocol","wrong_site","wrong_version"])("fails closed through normal admin RPC for %s peer",async(reason)=>{
   const original=runtime.X_ACTIVITY_LUVDIA!;
-  runtime.X_ACTIVITY_LUVDIA={...original,...(reason==="missing_fence"?{controlFenced:undefined}:{protocol:async()=>({version:reason==="wrong_version"?0:1,site:reason==="wrong_site"?"otw":"luvdia"})})};
+  runtime.X_ACTIVITY_LUVDIA={...original,...(reason==="missing_fence"?{controlFenced:undefined}:reason==="missing_delivery"?{acceptDelivery:undefined}:{protocol:async()=>({version:reason==="wrong_version"?0:1,site:reason==="wrong_site"?"otw":"luvdia"})})};
   vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL)=>{
     const url=String(input);
     if(url===`${issuer}/.well-known/jwks.json`)return Response.json({keys:[{...jwk,kid:"activity-key",alg:"RS256",use:"sig"}]});
@@ -189,5 +189,40 @@ it("a delayed normal RPC start cannot overwrite a newer administrator stop",asyn
     release();expect((await pending).status).toBe(503);
     expect(await bindings.transition_target_db.prepare("SELECT value FROM settings WHERE key='x_webhook_disabled'").first("value")).toBe("true");
     expect(await db.prepare("SELECT enabled FROM x_activity_sites WHERE site='luvdia'").first("enabled")).toBe(0);
+  }finally{release();runtime.X_ACTIVITY_LUVDIA=original;}
+});
+
+it("an event already crossing site RPC stays skipped after administrator stop and restart",async()=>{
+  const original=runtime.X_ACTIVITY_LUVDIA!;
+  let entered!:()=>void,release!:()=>void;
+  const started=new Promise<void>(r=>{entered=r;}),paused=new Promise<void>(r=>{release=r;});
+  runtime.X_ACTIVITY_LUVDIA={...original,acceptDelivery:async input=>{entered();await paused;return original.acceptDelivery!(input);}};
+  let subscriptions:Record<string,unknown>[]=[],hooks:Record<string,unknown>[]=[];
+  const calls=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+    const url=String(input),path=new URL(url).pathname,value=init?.body?JSON.parse(String(init.body)):null;
+    if(url===`${issuer}/.well-known/jwks.json`)return Response.json({keys:[{...jwk,kid:"activity-key",alg:"RS256",use:"sig"}]});
+    if(url==="https://api.cloudflare.com/client/v4/graphql")return Response.json({data:{viewer:{accounts:[{usage:[{sum:{rowsRead:100}}]}]}}});
+    if(path==="/2/webhooks"&&init?.method==="POST"){hooks=[{id:"hook",url:value.url,valid:true}];return Response.json({data:hooks[0]});}
+    if(path==="/2/webhooks"&&init?.method==="GET")return Response.json({data:hooks});
+    if(path==="/2/webhooks/hook"&&init?.method==="DELETE"){hooks=[];return Response.json({data:{deleted:true}});}
+    if(path==="/2/activity/subscriptions"&&init?.method==="POST"){subscriptions=[{...value,subscription_id:"sub"}];return Response.json({data:{subscription:subscriptions[0]}});}
+    if(path==="/2/activity/subscriptions"&&init?.method==="GET")return Response.json({data:subscriptions});
+    if(path==="/2/activity/subscriptions/sub"&&init?.method==="DELETE"){subscriptions=[];return Response.json({data:{deleted:true}});}
+    throw new Error("unexpected external request "+url);
+  });vi.stubGlobal("fetch",calls);
+  try{
+    const start=()=>request("/api/x/activity","activity-admin",{method:"POST",body:JSON.stringify({action:"start",acknowledgeUncappedDelivery:true})},peerRuntime);
+    expect((await start()).status).toBe(200);
+    const raw=JSON.stringify({data:{event_uuid:"late-rpc",event_type:"post.create",tag:subscriptions[0].tag,filter:{user_id:userId},payload:{id:"2114516278392348991",author_id:userId,text:"pending media",created_at:new Date().toISOString(),attachments:{media_keys:["missing"]}}}});
+    expect((await request("/api/x/activity/webhook",undefined,{method:"POST",body:raw,headers:{"X-Twitter-Webhooks-Signature-OAuth2":await signXActivity("test-secret",raw)}})).status).toBe(200);
+    const id=await db.prepare("SELECT event_id FROM x_activity_dispatch").first<string>("event_id");
+    const delivering=buildXActivityCoordinator(runtime).deliver(id!);await started;
+    expect((await request("/api/x/activity","activity-admin",{method:"DELETE"},peerRuntime)).status).toBe(200);
+    expect((await start()).status).toBe(200);release();await delivering;
+    await buildXActivitySite(peerRuntime).process(id!);
+    expect(await bindings.transition_target_db.prepare("SELECT status,last_error,payload FROM x_activity_inbox WHERE event_id=?").bind(id).first()).toEqual({status:"skipped",last_error:"webhook_delivery_disabled",payload:null});
+    expect(await db.prepare("SELECT luvdia_status,charged FROM x_activity_dispatch WHERE event_id=?").bind(id).first()).toEqual({luvdia_status:"skipped_disabled",charged:1});
+    expect(calls.mock.calls.some(([input])=>new URL(String(input)).pathname==="/2/tweets")).toBe(false);
+    expect(await db.prepare("SELECT used FROM x_shared_budgets").first("used")).toBe(5000);
   }finally{release();runtime.X_ACTIVITY_LUVDIA=original;}
 });

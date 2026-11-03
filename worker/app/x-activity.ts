@@ -27,13 +27,20 @@ export function buildXActivityCoordinator(input:Env){
   if(site.id!=="otw"||!site.publicOrigin)throw new Error("x_activity_wrong_coordinator");
   return new D1XActivityCoordinator({db:env.otw_db,origin:site.publicOrigin,bearerToken:env.X_BEARER_TOKEN,clientSecret:env.X_CLIENT_SECRET,
     gateway:buildXGateway(env,"otw"),sites:{otw:buildXActivitySite(env),luvdia:env.X_ACTIVITY_LUVDIA??unavailableSite},
-    controlSite:(target,fence)=>{
-      if(target==="otw")return buildXActivitySite(env).withControlFence(fence);
-      const control=(request:XActivitySiteControlRequest)=>{
-        if(!env.X_ACTIVITY_LUVDIA?.controlFenced)throw new XActivityError("x_activity_control_protocol_unavailable",503);
+    controlSite:(target,fence,disabledRevision)=>{
+      if(target==="otw")return buildXActivitySite(env).withControlFence(fence,disabledRevision);
+      const control=async(request:XActivitySiteControlRequest)=>{
+        const protocol=await env.X_ACTIVITY_LUVDIA?.protocol();
+        if(protocol?.version!==1||protocol.site!=="luvdia"||protocol.admittedDelivery!==1||!env.X_ACTIVITY_LUVDIA?.controlFenced||!env.X_ACTIVITY_LUVDIA.acceptDelivery)throw new XActivityError("x_activity_control_protocol_unavailable",503);
         return env.X_ACTIVITY_LUVDIA.controlFenced(request);
       };
-      return {setPrimarySource:source=>control({fence,action:"primary",source}),setWebhookDisabled:disabled=>control({fence,action:"webhook",disabled}),setRecoveryInterval:()=>control({fence,action:"recovery"})};
+      return {setPrimarySource:source=>control({fence,disabledRevision,action:"primary",source}),setWebhookDisabled:disabled=>control({fence,disabledRevision,action:"webhook",disabled}),setRecoveryInterval:()=>control({fence,disabledRevision,action:"recovery"})};
+    },
+    acceptDelivery:async(target,request)=>{
+      if(target==="otw")return buildXActivitySite(env).withDeliveryRevision(request.admittedRevision).accept(request.body);
+      const protocol=await env.X_ACTIVITY_LUVDIA?.protocol();
+      if(protocol?.version!==1||protocol.site!=="luvdia"||protocol.admittedDelivery!==1||!env.X_ACTIVITY_LUVDIA?.acceptDelivery)throw new XActivityError("x_activity_delivery_protocol_unavailable",503);
+      return env.X_ACTIVITY_LUVDIA.acceptDelivery(request);
     },
     peerReady:async()=>{if(!env.X_ACTIVITY_LUVDIA)return false;const result=await env.X_ACTIVITY_LUVDIA.protocol();return result.version===1&&result.site==="luvdia";},
     admitD1:async()=>(await new CloudflareD1ReadBudget(env.CLOUDFLARE_ACCOUNT_ID,env.CLOUDFLARE_D1_TOKEN,env.OTW_PLAY_D1_READ_DAILY_TARGET).read()).status==="available",

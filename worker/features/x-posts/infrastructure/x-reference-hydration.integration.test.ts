@@ -23,7 +23,7 @@ import {
 import { linkedPostKey, linkedUserKey } from "./x-reference-store";
 import { connectStoredReplyReferences } from "./x-reply-reference";
 import type { XPostDto } from "@contracts/x-posts";
-import { runXCollectionForHandles } from "./x-collection";
+import { claimXSourceLeases, releaseXSourceLeases, runXCollectionForHandles } from "./x-collection";
 import { meterD1 } from "../../../test-support/d1-meter";
 import { D1SharedXApiGateway } from "./x-shared-budget";
 import type { Env as WorkerEnv } from "../../../platform/types";
@@ -317,9 +317,13 @@ describe("X durable reference hydration", () => {
     const ack = acknowledgements[1];
     const legacySql = ack.sql.replace("cadence_anchor_at = excluded.cadence_anchor_at,", "")
       .replaceAll("cadence_anchor_at,", "").replace("(VALUES (?,", "(VALUES (");
-    const legacy = await db.prepare(legacySql).bind(...ack.args.slice(0, 5), ...ack.args.slice(6)).run();
-    expect(ack.rowsWritten).toBe(legacy.meta.rows_written);
-    console.info("X_HANDLE_CADENCE_D1_COST", JSON.stringify({ intervalHours, before: legacy.meta.rows_written, after: ack.rowsWritten }));
+    const comparisonLease = await claimXSourceLeases(runtime, ["member"], Date.now());
+    try {
+      expect(comparisonLease.claimed).toEqual(["member"]);
+      const legacy = await db.prepare(legacySql).bind(...ack.args.slice(0, 5), ...ack.args.slice(6, -2), comparisonLease.token, Date.now()).run();
+      expect(ack.rowsWritten).toBe(legacy.meta.rows_written);
+      console.info("X_HANDLE_CADENCE_D1_COST", JSON.stringify({ intervalHours, before: legacy.meta.rows_written, after: ack.rowsWritten }));
+    } finally { await releaseXSourceLeases(runtime, comparisonLease.token); }
   });
 
   it.each([[true, "complete"], [false, "complete"], [true, "retry"], [true, "retry-before"], [true, "continuation"]] as const)("revalidates an old scheduled X item (optimizer %s, %s)", async (optimizer, state) => {

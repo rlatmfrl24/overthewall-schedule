@@ -105,7 +105,9 @@ export type XActivityControlResult = {ok:true;value:XActivityStatusDto}|{ok:fals
 
 export interface XActivityControlFence { revision: number; token: string; expiresAt: number }
 export type XActivitySiteControlPort = Pick<XActivitySitePort,"setPrimarySource"|"setWebhookDisabled"|"setRecoveryInterval">;
-export type XActivitySiteControlRequest = { fence: XActivityControlFence } & (
+export type XActivitySiteControlRequest = { fence: XActivityControlFence; disabledRevision: number | null } & (
   { action: "primary"; source: import("./x-collection").XCollectionProvider } |
   { action: "webhook"; disabled: boolean } | { action: "recovery" }
 );
+
+export interface XActivityDeliveryRequest { body: unknown; admittedRevision: number | null }

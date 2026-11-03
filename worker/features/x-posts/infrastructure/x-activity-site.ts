@@ -11,6 +11,8 @@ import { readSiteXBudget } from "./x-shared-budget";
 interface Options {
   db: D1Database; siteId: SiteId; gateway: XApiGateway;
   controlFence?: XActivityControlFence;
+  disabledRevision?: number|null;
+  deliveryRevision?: number|null;
   publicationOpen(): boolean; dispatch(eventId: string): Promise<void>;
 }
 interface Inbox {
@@ -26,10 +28,16 @@ export class D1XActivitySite {
   private readonly options: Options;
   constructor(options: Options) { this.options = options; }
   private get db() { return this.options.db; }
-  withControlFence(fence:XActivityControlFence){return new D1XActivitySite({...this.options,controlFence:{...fence}});}
+  withControlFence(fence:XActivityControlFence,disabledRevision:number|null=null){return new D1XActivitySite({...this.options,controlFence:{...fence},disabledRevision});}
+  withDeliveryRevision(revision:number|null){
+    if(revision!==null&&(!Number.isSafeInteger(revision)||revision<0))throw new Error("x_activity_delivery_revision_invalid");
+    return new D1XActivitySite({...this.options,deliveryRevision:revision});
+  }
   private async controlWrite(...statements:D1PreparedStatement[]){
     const fence=this.options.controlFence;
     if(!fence||!Number.isSafeInteger(fence.revision)||fence.revision<1||typeof fence.token!=="string"||!fence.token||!Number.isSafeInteger(fence.expiresAt))throw new Error("x_activity_control_fence_invalid");
+    const disabledRevision=this.options.disabledRevision??null;
+    if(disabledRevision!==null&&(!Number.isSafeInteger(disabledRevision)||disabledRevision<0||disabledRevision>fence.revision))throw new Error("x_activity_disable_barrier_invalid");
     const now=`max(${Date.now()},CAST((julianday('now')-2440587.5)*86400000 AS INTEGER))`;
     await this.db.batch([
       this.db.prepare(`INSERT INTO settings(key,value,updated_at) SELECT 'x_activity_control_fence',?,? WHERE ?>${now}
@@ -39,6 +47,11 @@ export class D1XActivitySite {
       this.db.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM settings WHERE key='x_activity_control_fence' AND json_extract(value,'$.revision')=?
         AND json_extract(value,'$.token')=? AND json_extract(value,'$.expiresAt')=? AND ?>${now}) THEN 1 ELSE json('x_activity_control_fence_lost') END`)
         .bind(fence.revision,fence.token,fence.expiresAt,fence.expiresAt),
+      this.db.prepare(`INSERT INTO settings(key,value,updated_at)
+        SELECT 'x_activity_disabled_revision',CAST(MAX(COALESCE(?, -1),CASE WHEN EXISTS(SELECT 1 FROM settings WHERE key='x_webhook_disabled' AND value='true') THEN ? ELSE -1 END) AS TEXT),?
+        WHERE ? IS NOT NULL OR EXISTS(SELECT 1 FROM settings WHERE key='x_webhook_disabled' AND value='true')
+        ON CONFLICT(key) DO UPDATE SET value=CAST(MAX(CAST(settings.value AS INTEGER),CAST(excluded.value AS INTEGER)) AS TEXT),updated_at=excluded.updated_at`)
+        .bind(disabledRevision,fence.revision-1,Date.now(),disabledRevision),
       ...statements,
     ]);
   }
@@ -67,7 +80,9 @@ export class D1XActivitySite {
     if(typeof disabled!=="boolean")throw new Error("invalid_webhook_control");
     await this.controlWrite(
       this.db.prepare("INSERT INTO settings(key,value,updated_at) VALUES('x_webhook_disabled',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE settings.value<>excluded.value").bind(String(disabled),Date.now()),
-      ...(disabled?[this.db.prepare("UPDATE x_activity_inbox SET payload=NULL,hydrated_payload=NULL,status='skipped',last_error='webhook_hybrid_disabled',lease_until=0 WHERE status='pending'")]:[]),
+      ...(disabled?[
+        this.db.prepare("INSERT INTO settings(key,value,updated_at) VALUES('x_activity_disabled_revision',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(String(this.options.controlFence?.revision),Date.now()),
+        this.db.prepare("UPDATE x_activity_inbox SET payload=NULL,hydrated_payload=NULL,status='skipped',last_error='webhook_hybrid_disabled',lease_until=0 WHERE status='pending'")]:[]),
     );
   }
   async snapshot(): Promise<XActivitySiteSnapshot> {
@@ -131,6 +146,9 @@ export class D1XActivitySite {
     );
   }
   async accept(body: unknown) {
+    const revision=this.options.deliveryRevision??null;
+    const staleDelivery=`EXISTS(SELECT 1 FROM settings WHERE key='x_activity_disabled_revision' AND (${revision===null?"1":`${revision}<=CAST(value AS INTEGER)`}))`;
+    const disabled=`(${WEBHOOK_DISABLED_SQL}) OR (${staleDelivery})`;
     const event = parseXActivityEvent(body);
     if (!event || !await this.collectionEnabled()) return false;
     const handles = [...await readActiveXHandles(this.db,this.options.siteId)];
@@ -142,9 +160,9 @@ export class D1XActivitySite {
     const fresh="EXISTS(SELECT 1 FROM x_activity_inbox WHERE event_id=? AND charged=0)";
     await this.db.batch([
       this.db.prepare(`INSERT OR IGNORE INTO x_activity_inbox(event_id,post_id,handle,user_id,payload,received_at,status,last_error)
-        SELECT ?,?,?,?,CASE WHEN ? OR (${WEBHOOK_DISABLED_SQL}) THEN NULL ELSE ? END,?,
-          CASE WHEN ? OR (${WEBHOOK_DISABLED_SQL}) THEN 'skipped' ELSE 'pending' END,
-          CASE WHEN ${WEBHOOK_DISABLED_SQL} THEN 'webhook_hybrid_disabled' ELSE NULL END`)
+        SELECT ?,?,?,?,CASE WHEN ? OR (${disabled}) THEN NULL ELSE ? END,?,
+          CASE WHEN ? OR (${disabled}) THEN 'skipped' ELSE 'pending' END,
+          CASE WHEN ${WEBHOOK_DISABLED_SQL} THEN 'webhook_hybrid_disabled' WHEN ${staleDelivery} THEN 'webhook_delivery_disabled' ELSE NULL END`)
         .bind(event.eventId,event.post.id,source.handle,event.userId,removed?1:0,JSON.stringify(body),timestamp,removed?1:0),
       this.db.prepare(`INSERT INTO x_api_usage_events(operation,endpoint,resource_type,resource_count,estimated_cost_micros,status,created_at,detail)
         SELECT 'activity_event','/2/activity/post.create','shared_event',1,0,200,?,? WHERE ${fresh}`)

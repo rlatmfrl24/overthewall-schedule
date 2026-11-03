@@ -1652,6 +1652,7 @@ const writeXSyncContinuation = async (
 ) => {
   if (!cacheDb) return;
   const official = officialSync?.officialSyncOriginScope !== undefined;
+  const fenced = official || officialSync?.officialSyncLeaseToken !== undefined;
   const checkedAt = now();
   const cadenceAnchorAt = state.nextToken ? checkedAt : collectionCadenceAnchor(scheduledFor, checkedAt);
   // Cursor, continuation and success timestamps form one durable acknowledgement.
@@ -1675,7 +1676,7 @@ const writeXSyncContinuation = async (
            collection_started_at,initialization_completed_at,last_attempt_at,last_success_at,
            next_check_at,consecutive_failures,last_error_code,last_completed_at,sync_pagination_token,sync_base_post_id,sync_newest_post_id
          FROM incoming WHERE 1
-         ${official ? "AND EXISTS(SELECT 1 FROM x_post_sources locked WHERE locked.handle=incoming.handle AND locked.lease_token=? AND locked.lease_until>?)" : ""}
+         ${fenced ? "AND EXISTS(SELECT 1 FROM x_post_sources locked WHERE locked.handle=incoming.handle AND locked.lease_token=? AND locked.lease_until>?)" : ""}
          ON CONFLICT(handle) DO UPDATE SET
            user_id = iif(${publicationHiddenSql("x_post_sources","x_post_sources",siteId)},json('site_member_cutover'),excluded.user_id),
            username = excluded.username,
@@ -1715,16 +1716,17 @@ const writeXSyncContinuation = async (
         state.nextToken,
         state.nextToken ? state.basePostId : null,
         state.nextToken ? state.newestPostId : null,
-        ...(official ? [officialSync?.officialSyncLeaseToken ?? "", checkedAt] : []),
+        ...(fenced ? [officialSync?.officialSyncLeaseToken ?? "", checkedAt] : []),
       )
       .run();
-    if (official && !acknowledgement.meta.changes) throw new Error("x_source_lease_lost");
+    if (fenced && !acknowledgement.meta.changes) throw new Error("x_source_lease_lost");
 };
 
 const writeStoredPostSourceError = async (
   cacheDb: XCacheDb | undefined,
   handle: string,
   lastError: string | null,
+  leaseToken?: string,
 ) => {
   if (!cacheDb || !lastError) return;
 
@@ -1740,7 +1742,8 @@ const writeStoredPostSourceError = async (
            updated_at, last_error, last_attempt_at, next_check_at,
            consecutive_failures, last_error_code
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ? WHERE 1
+         ${leaseToken !== undefined ? "AND EXISTS(SELECT 1 FROM x_post_sources locked WHERE locked.handle=? AND locked.lease_token=? AND locked.lease_until>?)" : ""}
          ON CONFLICT(handle) DO UPDATE SET
            last_checked_at = excluded.last_checked_at,
            last_attempt_at = excluded.last_attempt_at,
@@ -1761,6 +1764,7 @@ const writeStoredPostSourceError = async (
         checkedAt,
         retryAt,
         lastError,
+        ...(leaseToken !== undefined ? [normalizeHandle(handle), leaseToken, checkedAt] : []),
       )
       .run();
   } catch (error) {
@@ -3388,11 +3392,12 @@ const getOptimizedXCollectionHandlesToRefresh = async (
 const writeXCollectionSourceErrors = async (
   cacheDb: XCacheDb | undefined,
   byHandle: XHandlePostsResult[],
+  leaseToken?: string,
 ) => {
   await Promise.all(
     byHandle
       .filter((item) => item.error)
-      .map((item) => writeStoredPostSourceError(cacheDb, item.handle, item.error)),
+      .map((item) => writeStoredPostSourceError(cacheDb, item.handle, item.error, leaseToken)),
   );
 };
 
@@ -3564,7 +3569,7 @@ export const collectXPostsForHandles = async (
     if (afterTimeline && content.byHandle.some(item => item.storageError || item.error === "budget_unavailable")) {
       throw new XApiError("X collection persistence unavailable", 503, { code: "budget_unavailable" });
     }
-    await writeXCollectionSourceErrors(cacheDb, content.byHandle);
+    await writeXCollectionSourceErrors(cacheDb, content.byHandle, options.officialSyncLeaseToken);
     const referenceHydration = await hydrate();
     const refreshedHandles = content.byHandle.filter(
       (item) => !item.error && !item.stale && !item.storageError,
@@ -3610,7 +3615,7 @@ export const collectXPostsForHandles = async (
       await Promise.all(
         error.diagnostics.flatMap((item) =>
           item.handle && item.error
-            ? [writeStoredPostSourceError(cacheDb, item.handle, item.error)]
+            ? [writeStoredPostSourceError(cacheDb, item.handle, item.error, options.officialSyncLeaseToken)]
             : [],
         ),
       );
