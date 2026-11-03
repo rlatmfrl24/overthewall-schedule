@@ -1,0 +1,69 @@
+import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { runFxCollectionForHandles } from "./fx-collection";
+
+const runtime = { ...env, SITE_ID: "otw" } as Env & { X_REFERENCE_MIGRATIONS: D1Migration[] };
+const db = runtime.otw_db;
+const raw = (id: string) => ({ type: "status", id, text: id, author: { id: "101", screen_name: "member", protected: false }, created_at: new Date().toUTCString(), media: {} });
+const page = (id: string, cursor: string | null) => new Response(JSON.stringify({ code: 200, results: [raw(id)], cursor: { bottom: cursor } }));
+beforeEach(async () => {
+  await applyD1Migrations(db, runtime.X_REFERENCE_MIGRATIONS);
+  await db.batch([db.prepare("DELETE FROM x_posts"), db.prepare("DELETE FROM x_post_sources"), db.prepare("DELETE FROM x_fx_sources"), db.prepare("DELETE FROM members"), db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_collection_enabled','true')")]);
+  await db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(1,'member','Member','https://x.com/member')").run();
+  await db.prepare("INSERT INTO x_post_sources(handle,user_id,last_checked_at,updated_at,collection_started_at,last_seen_post_id,sync_pagination_token) VALUES('member','101',0,0,1,'100','official-next')").run();
+});
+afterEach(() => vi.unstubAllGlobals());
+it("stores four pages through the normal writer without moving the official cursor", async () => {
+  const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+    const cursor = new URL(url).searchParams.get("cursor");
+    return cursor === null ? page("124", "p2") : cursor === "p2" ? page("123", "p3") : cursor === "p3" ? page("122", "p4") : page("121", "p5");
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const before = await db.prepare("SELECT last_seen_post_id,sync_pagination_token,last_success_at,last_completed_at FROM x_post_sources").first();
+  const result = await runFxCollectionForHandles(runtime, ["member"], "scheduled");
+  expect(result).toMatchObject({ provider: "fxembed", postsStored: 4, pendingSources: 1 });
+  expect(fetchMock).toHaveBeenCalledTimes(4);
+  expect(await db.prepare("SELECT last_seen_post_id,sync_pagination_token,last_success_at,last_completed_at FROM x_post_sources").first()).toEqual(before);
+  expect(await db.prepare("SELECT cursor FROM x_fx_sources").first("cursor")).toBe("p5");
+});
+it("checks the head and resumes the durable continuation, retaining it on storage failure", async () => {
+  await db.prepare("INSERT INTO x_fx_sources(handle,collection_started_at,cursor,updated_at) VALUES('member',1,'old',0)").run();
+  const fetchMock = vi.fn().mockResolvedValueOnce(page("125", "head-next")).mockResolvedValueOnce(page("123", "after-old"));
+  vi.stubGlobal("fetch", fetchMock);
+  await db.exec("CREATE TRIGGER fail_fx_store BEFORE INSERT ON x_posts WHEN NEW.id='123' BEGIN SELECT RAISE(ABORT,'storage failure'); END;");
+  try {
+    const result = await runFxCollectionForHandles(runtime, ["member"], "scheduled");
+    expect(result.status).toBe("failed");
+    expect(new URL(fetchMock.mock.calls[1][0]).searchParams.get("cursor")).toBe("old");
+    expect(await db.prepare("SELECT cursor FROM x_fx_sources").first("cursor")).toBe("old");
+    expect(await db.prepare("SELECT consecutive_failures FROM x_fx_sources").first("consecutive_failures")).toBe(0);
+  } finally { await db.exec("DROP TRIGGER fail_fx_store;"); }
+});
+it("preserves stored posts and pending cursor on provider failure or a repeated cursor", async () => {
+  await db.prepare("INSERT INTO x_fx_sources(handle,collection_started_at,cursor,updated_at) VALUES('member',1,'old',0)").run();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(page("124", "head-next")).mockResolvedValueOnce(page("123", "old")));
+  const result = await runFxCollectionForHandles(runtime, ["member"], "scheduled");
+  expect(result.status).toBe("failed");
+  expect(await db.prepare("SELECT cursor FROM x_fx_sources").first("cursor")).toBe("old");
+  expect(await db.prepare("SELECT consecutive_failures FROM x_fx_sources").first("consecutive_failures")).toBe(1);
+});
+it("pins a new member via public Fx profile without advancing official initialization", async () => {
+  await db.prepare("DELETE FROM x_post_sources").run();
+  const fresh = { ...raw("125"), created_at: new Date(Date.now() + 1000).toUTCString() };
+  const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({ code: 200, user: fresh.author })).mockResolvedValueOnce(Response.json({ code: 200, results: [fresh], cursor: {} }));
+  vi.stubGlobal("fetch", fetchMock);
+  const result = await runFxCollectionForHandles(runtime, ["member"], "manual");
+  expect(result).toMatchObject({ postsStored: 1, pendingSources: 0 });
+  expect(fetchMock.mock.calls.every(([url]) => new URL(url).hostname === "api.fxtwitter.com")).toBe(true);
+  expect(await db.prepare("SELECT user_id,last_seen_post_id,last_success_at,last_completed_at FROM x_post_sources").first()).toEqual({ user_id: null, last_seen_post_id: null, last_success_at: null, last_completed_at: null });
+  expect(await db.prepare("SELECT user_id FROM x_fx_sources").first("user_id")).toBe("101");
+});
+it("does not count a lease collision or user stop as provider failure", async () => {
+  vi.stubGlobal("fetch", vi.fn());
+  await db.prepare("UPDATE x_post_sources SET lease_token='other',lease_until=?").bind(Date.now() + 600000).run();
+  expect((await runFxCollectionForHandles(runtime, ["member"], "scheduled")).status).toBe("skipped");
+  await db.prepare("UPDATE settings SET value='false' WHERE key='x_collection_enabled'").run();
+  expect((await runFxCollectionForHandles(runtime, ["member"], "scheduled")).error).toBe("collection_disabled");
+  expect(fetch).not.toHaveBeenCalled();
+  expect(await db.prepare("SELECT COUNT(*) AS n FROM x_fx_sources").first("n")).toBe(0);
+});

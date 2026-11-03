@@ -13,7 +13,7 @@ const priority: Record<XPostOrigin, number> = { fxembed: 1, webhook: 2, x_api: 3
 export const xPostContentKey = (post: XPostDto) => JSON.stringify([
   post.id, post.username, post.createdAt, post.url, post.text, post.media,
   post.links ?? [], post.quote ?? null, post.reply ?? null,
-]);
+], (key, value) => key === "metrics" ? undefined : value);
 
 export function mergeStoredXPost(
   existing: { post: XPostDto; authority: XPostAuthority | null } | null,
@@ -36,7 +36,7 @@ export function mergeStoredXPost(
       for (const relation of ["quote", "reply"] as const) {
         const next = post[relation];
         const previous = existing?.post[relation];
-        if (next && !next.post && previous?.postId === next.postId && previous.post?.id === next.postId) {
+        if (next && (!next.post || context.origin === "fxembed") && previous?.postId === next.postId && previous.post?.id === next.postId) {
           if (relation === "quote" && post.quote) post.quote = { ...post.quote, post: previous.post };
           if (relation === "reply" && post.reply) post.reply = { ...post.reply, post: previous.post };
         }

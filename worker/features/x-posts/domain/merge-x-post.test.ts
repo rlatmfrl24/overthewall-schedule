@@ -23,4 +23,11 @@ describe("source authority", () => {
     expect(mergeStoredXPost(existing, post, { origin: "x_api", completeness: complete }).post.reply?.post).toEqual(preview);
     expect(mergeStoredXPost(existing, { ...post, reply: { ...post.reply!, postId: "121" } }, { origin: "x_api", completeness: complete }).post.reply?.post).toBeNull();
   });
+  it("keeps an attached preview on Fx replay even when Fx also supplies a preview", () => {
+    const preview = { id: "122", text: "official parent", createdAt: null, url: "https://x.com/a/status/122", username: "a", name: null, profileImageUrl: null, metrics: post.metrics, media: [] };
+    const authority = { text: "fxembed", media: "fxembed", relations: "fxembed" } as const;
+    const existing = { post: { ...post, reply: { ...post.reply!, post: preview } }, authority };
+    const incoming = { ...post, reply: { ...post.reply!, post: { ...preview, text: "Fx parent", metrics: { ...post.metrics, likeCount: 10 } } } };
+    expect(mergeStoredXPost(existing, incoming, { origin: "fxembed", completeness: complete }).changed).toBe(false);
+  });
 });

@@ -35,10 +35,10 @@
 
 **Rules:** 공식>웹훅>Fx. 동일 Fx 재수신·지표만 변경은 posts/facts/references 쓰기 없음. 숨김·삭제·공개 제한 우선. revision CAS, 해결 못한 충돌은 실패·커서 보존.
 
-- [ ] RED: 공식 text/media/reply 보존, 동일 재수신 postWrites=0, hiddenAt 보존, 경합 회귀.
-- [ ] 구현: additive schema·실제 두 호출부 origin 연결.
-- [ ] GREEN: 관련 단위·D1 통합, `pnpm typecheck:test`, migration 전체 체인.
-- [ ] 커밋: `feat(x): preserve source authority when merging posts`.
+- [x] RED: 공식 text/media/reply 보존, 동일 재수신 postWrites=0, hiddenAt 보존, 경합 회귀.
+- [x] 구현: additive schema·실제 두 호출부 origin 연결.
+- [x] GREEN: 관련 단위·D1 통합, `pnpm typecheck:test`, migration 전체 체인.
+- [x] 커밋: `feat(x): preserve source authority when merging posts`.
 
 ## Task 2: FxEmbed 수집기와 정상 저장 연결
 

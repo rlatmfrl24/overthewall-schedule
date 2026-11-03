@@ -833,8 +833,10 @@ export type NewXPostSource = typeof xPostSources.$inferInsert;
 
 export const xFxSources = sqliteTable("x_fx_sources", {
   handle: text().primaryKey(),
+  user_id: text("user_id"),
   cursor: text(),
   collection_started_at: integer("collection_started_at").notNull(),
+  cadence_anchor_at: integer("cadence_anchor_at"),
   last_attempt_at: integer("last_attempt_at"),
   last_success_at: integer("last_success_at"),
   last_completed_at: integer("last_completed_at"),

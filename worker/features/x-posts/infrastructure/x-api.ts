@@ -156,6 +156,7 @@ type CachedXPostsWriteEntry = CachedXPostsEntry & {
 };
 
 type XStoredPostRow = {
+  source_authority?: string | null;
   id: string;
   handle: string;
   user_id: string | null;
@@ -1300,7 +1301,7 @@ const storedPostsEntry = (
     lastSeenPostId:
       source?.collection_started_at != null
         ? source.last_seen_post_id ?? null
-        : source?.last_seen_post_id ?? sortXPostsDesc(posts)[0]?.id ?? null,
+        : source?.last_seen_post_id ?? sortXPostsDesc(rows.filter(row => !row.source_authority).map(parseStoredXPost).filter((post): post is XPostItem => post !== null))[0]?.id ?? null,
     lastError: source?.last_error ?? null,
     collectionStartedAt: source?.collection_started_at == null
       ? null : Number(source.collection_started_at),
@@ -1326,7 +1327,7 @@ const readStoredPosts = async (
       readStoredPostSource(cacheDb, normalizedHandle),
       cacheDb
         .prepare(
-          `SELECT id, handle, user_id, username, value, created_at, fetched_at, hidden_at
+          `SELECT id, handle, user_id, username, value, created_at, fetched_at, hidden_at, source_authority
            FROM x_posts
            WHERE handle = ? AND hidden_at IS NULL
            ORDER BY created_at DESC, id DESC
@@ -1371,7 +1372,7 @@ const readStoredPostsForHandles = async (
         cacheDb.prepare(
           `WITH requested(handle) AS (SELECT value FROM json_each(?))
            SELECT post.id, post.handle, post.user_id, post.username, post.value,
-             post.created_at, post.fetched_at, post.hidden_at
+             post.created_at, post.fetched_at, post.hidden_at, post.source_authority
            FROM requested CROSS JOIN x_posts AS post
            WHERE post.id IN (
              SELECT candidate.id FROM x_posts AS candidate

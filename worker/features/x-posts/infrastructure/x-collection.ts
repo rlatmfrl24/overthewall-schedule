@@ -167,7 +167,7 @@ export const resolveXEffectiveCollectionPolicy = async (
   };
 };
 
-const claimXSourceLeases = async (env: Env, handles: string[], currentTime: number) => {
+export const claimXSourceLeases = async (env: Env, handles: string[], currentTime: number) => {
   const claimed: string[] = [];
   const token = crypto.randomUUID();
   const normalizedHandles = normalizeXCollectionHandles(handles);
@@ -206,7 +206,7 @@ const claimXSourceLeases = async (env: Env, handles: string[], currentTime: numb
   };
 };
 
-const releaseXSourceLeases = async (env: Env, token: string) => {
+export const releaseXSourceLeases = async (env: Env, token: string) => {
   await env.otw_db.prepare(
     `UPDATE x_post_sources SET lease_token = NULL, lease_until = NULL
      WHERE lease_token = ?`,
