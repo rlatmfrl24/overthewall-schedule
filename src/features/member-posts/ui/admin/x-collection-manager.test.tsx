@@ -8,9 +8,34 @@ import { queryKeys } from "@/shared/query/query-keys";
 import type { XCollectionStatusDto } from "@contracts/x-collection";
 import { fetchXCollectionStatus, changeXCollectionSource } from "../../api/x-collection-api";
 import { XCollectionManager } from "./x-collection-manager";
+import { XActivityManager } from "./x-activity-manager";
+import { fetchXActivity, startXActivity, stopXActivity } from "../../api/x-activity-api";
+import type { XActivityStatusDto } from "@contracts/x-activity";
+vi.mock("../../api/x-activity-api", () => ({ xActivityQueryKey: ["member-posts", "x-activity"], fetchXActivity: vi.fn(), startXActivity: vi.fn(), stopXActivity: vi.fn() }));
 vi.mock("../../api/x-collection-api", () => ({ xCollectionQueryKey: ["member-posts", "x-collection"], fetchXCollectionStatus: vi.fn(), changeXCollectionSource: vi.fn() }));
 const status: XCollectionStatusDto = { primarySource: "fxembed", hybridPolicy: null, rss: { enabled: false, intervalHours: 6, lastHttpSuccessAt: null, lastCheckCompletedAt: null, pendingSources: 0, pendingCandidates: 0, windowReduced: false, error: null }, observedAt: 1, accounts: [], fxembed: { intervalMinutes: 30, lastSuccessAt: 1, lastCompletedAt: null, pendingSources: 1, failedSources: 0 }, xApi: { intervalHours: 24, lastRegularCompletedAt: 1, nextRegularEligibleAt: 2, pendingSources: 1, failedSources: 1, budgetReady: true }, webhook: { state: "disabled", siteActiveCount: 0, reason: "hybrid", error: null } };
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.restoreAllMocks(); });
+it.each(["start", "stop", "failed-stop"])("refreshes both mounted collection consumers after webhook %s", async action => {
+  let current = { ...status, webhook: { ...status.webhook, state: action === "start" ? "disabled" : "enabled" } } as XCollectionStatusDto;
+  const activity: XActivityStatusDto = { configured: true, callbackUrl: null, subscription: null, site: "otw", mode: "normal", budget: { limitMicros: 1000000, usedMicros: 0, reservedMicros: 0, strictDailyCap: false }, events: [], sites: [{ site: "otw", enabled: action !== "start", activeCount: action === "start" ? 0 : 1, targetCount: 1, failedCount: 0, pauseReason: null, lastError: null, resumeAt: null }] };
+  vi.mocked(fetchXCollectionStatus).mockImplementation(async () => current);
+  vi.mocked(fetchXActivity).mockResolvedValue(activity);
+  const mutate = async () => {
+    current = { ...current, webhook: { ...current.webhook, state: action === "start" ? "enabled" : "disabled" } };
+    if (action === "failed-stop") throw new Error("x_activity_provider_503");
+    return activity;
+  };
+  vi.mocked(startXActivity).mockImplementation(mutate);
+  vi.mocked(stopXActivity).mockImplementation(mutate);
+  render(createElement("div", null, createElement(XCollectionManager, { enabled: true }), createElement(XCollectionManager, { enabled: true }), createElement(XActivityManager)), { wrapper: createQueryWrapper() });
+  const title = action === "start" ? "웹훅 Disabled" : "웹훅 활성";
+  expect(await screen.findAllByRole("heading", { name: title })).toHaveLength(2);
+  const details = screen.getByText("X 신규 피드 구독").closest("details")!;
+  details.open = true; fireEvent(details, new Event("toggle"));
+  fireEvent.click(await screen.findByRole("button", { name: action === "start" ? "전체 대상 적용" : "이 사이트 웹훅 중지" }));
+  await waitFor(() => expect(screen.getAllByRole("heading", { name: action === "start" ? "웹훅 활성" : "웹훅 Disabled" })).toHaveLength(2));
+  expect(fetchXCollectionStatus).toHaveBeenCalledTimes(2);
+});
 it("keeps official failure and incomplete work visible when Fx is healthy and webhook is Disabled", async () => {
   vi.mocked(fetchXCollectionStatus).mockResolvedValue(status);
   render(createElement(XCollectionManager, { enabled: true }), { wrapper: createQueryWrapper() });

@@ -55,6 +55,7 @@ import {
 import { XPostHistoryManager } from "./x-post-history-manager";
 import { XActivityManager } from "./x-activity-manager";
 import { xActivityQueryKey } from "../../api/x-activity-api";
+import { xCollectionQueryKey } from "../../api/x-collection-api";
 import { openXSettings } from "./x-settings-navigation";
 
 const VISIBILITY_OPTIONS: Array<{
@@ -185,6 +186,7 @@ export function MemberPostSettingsManager({
         queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }),
         queryClient.invalidateQueries({ queryKey: xReferenceHealthQueryKey }),
         queryClient.invalidateQueries({ queryKey: xActivityQueryKey }),
+        queryClient.invalidateQueries({ queryKey: xCollectionQueryKey }),
       ]);
     },
     [queryClient],
@@ -197,6 +199,7 @@ export function MemberPostSettingsManager({
         queryClient.refetchQueries({ queryKey: queryKeys.operations.runs(), type: "active" }),
         queryClient.refetchQueries({ queryKey: xReferenceHealthQueryKey, type: "active" }),
         queryClient.refetchQueries({ queryKey: xActivityQueryKey, type: "active" }),
+        queryClient.refetchQueries({ queryKey: xCollectionQueryKey, type: "active" }),
       ]);
 
     } catch (error) {
@@ -226,6 +229,7 @@ export function MemberPostSettingsManager({
       queryClient.invalidateQueries({ queryKey: queryKeys.memberPosts.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.all }),
       queryClient.invalidateQueries({ queryKey: xActivityQueryKey }),
+      queryClient.invalidateQueries({ queryKey: xCollectionQueryKey }),
     ]);
   }, [collectionRunQuery.data, queryClient]);
 
@@ -295,6 +299,11 @@ export function MemberPostSettingsManager({
       });
     } catch (error) {
       console.error("Failed to update X collection setting:", error);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.settings.detail() }),
+        queryClient.invalidateQueries({ queryKey: xActivityQueryKey }),
+        queryClient.invalidateQueries({ queryKey: xCollectionQueryKey }),
+      ]);
       toast({
         variant: "error",
         description: "X 게시글 수집 설정 변경에 실패했습니다.",

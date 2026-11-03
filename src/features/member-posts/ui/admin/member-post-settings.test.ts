@@ -12,6 +12,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
 import { MemberPostSettingsManager } from "./member-post-settings";
+import { useXCollectionStatus } from "../../queries/use-x-collection-status";
 
 const fetchOperationRunsMock = vi.hoisted(() => vi.fn());
 const fetchXHistoryHealthMock = vi.hoisted(() => vi.fn());
@@ -325,6 +326,29 @@ describe("MemberPostSettingsManager", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it.each([false, true])("reads persisted RSS state in both consumers after collection change, partial failure=%s", async fail => {
+    let enabled = true;
+    const previous = await fetchXCollectionStatusMock();
+    fetchSettingsMock.mockImplementation(async () => ({ ...makeSettings(), x_collection_enabled: String(enabled) }));
+    fetchXCollectionStatusMock.mockImplementation(async () => ({ ...previous, primarySource: "fxembed", hybridPolicy: "rss_v1", rss: { enabled, intervalHours: 6, lastHttpSuccessAt: null, lastCheckCompletedAt: null, pendingSources: 0, pendingCandidates: 0, windowReduced: false, error: null } }));
+    updateSettingsMock.mockImplementation(async (patch: { x_collection_enabled?: string }) => {
+      enabled = patch.x_collection_enabled !== "false";
+      if (fail) throw new Error("remote stop failed after local setting persisted");
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const Observer = () => createElement("output", { "aria-label": "shared RSS state" }, String(useXCollectionStatus().data?.rss?.enabled));
+    render(createElement("div", null, createElement(MemberPostSettingsManager), createElement(Observer)), { wrapper: createQueryWrapper() });
+    expect(await screen.findByRole("heading", { name: "FxEmbed RSS 보완 활성" })).toBeTruthy();
+    expect(screen.getByLabelText("shared RSS state").textContent).toBe("true");
+    const section = document.getElementById("x-collection-settings") as HTMLDetailsElement;
+    section.open = true;
+    fireEvent.click(screen.getByRole("switch", { name: "Cron 수집 사용" }));
+    await waitFor(() => expect(screen.getByLabelText("shared RSS state").textContent).toBe("false"));
+    expect(screen.queryByRole("heading", { name: "FxEmbed RSS 보완 활성" })).toBeNull();
+    expect((screen.getByRole("switch", { name: "Cron 수집 사용" })).getAttribute("aria-checked")).toBe("false");
+    error.mockRestore();
   });
 
   it("opens and focuses the linked settings after the X tab mounts", async () => {

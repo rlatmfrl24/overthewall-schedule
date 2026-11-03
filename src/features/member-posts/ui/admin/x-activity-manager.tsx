@@ -7,6 +7,7 @@ import { useXActivityStatus } from "../../queries/use-x-activity-status";
 import { XActivityStatusCard } from "./x-activity-status-card";
 import { queryKeys } from "@/shared/query/query-keys";
 import { xReferenceHealthQueryKey } from "../../queries/use-x-reference-health";
+import { xCollectionQueryKey } from "../../api/x-collection-api";
 
 const labels:Record<string,string>={
   active:"구독 중",starting:"등록 확인 중",pending:"대기",stopped:"중지됨",error:"확인 필요",
@@ -20,7 +21,8 @@ export function XActivityManager(){
   const query=useXActivityStatus();
   const mutation=useMutation({mutationFn:(action:"start"|"resume"|"stop")=>action==="stop"?stopXActivity():startXActivity(action),
     onSuccess:data=>{client.setQueryData(xActivityQueryKey,data);void client.invalidateQueries({queryKey:queryKeys.settings.detail()});void client.invalidateQueries({queryKey:queryKeys.operations.all});void client.invalidateQueries({queryKey:xReferenceHealthQueryKey});},
-    onError:()=>{void client.invalidateQueries({queryKey:xActivityQueryKey});}});
+    onError:()=>{void client.invalidateQueries({queryKey:xActivityQueryKey});},
+    onSettled:()=>{void client.invalidateQueries({queryKey:xCollectionQueryKey});}});
   const data=query.data;
   const current=data?.sites?.find(site=>site.site===data.site);
   const transition=data?.pauseReason==="hybrid_transition"||current?.pauseReason==="hybrid_transition";
