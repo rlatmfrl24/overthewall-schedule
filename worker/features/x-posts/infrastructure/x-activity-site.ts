@@ -53,6 +53,7 @@ export class D1XActivitySite {
     const recovery = await this.db.prepare("SELECT MIN(last_success_at) AS lastSuccessAt,COUNT(CASE WHEN sync_pagination_token IS NOT NULL THEN 1 END) AS pendingSources FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?))")
       .bind(JSON.stringify(handles)).first<{lastSuccessAt:number|null;pendingSources:number}>();
     const interval = await this.db.prepare("SELECT value FROM settings WHERE key='x_collection_interval_hours'").first<string>("value");
+    const primarySource = await this.db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value")==="fxembed"?"fxembed":"x_api";
     const cachePurgePending=await this.db.prepare("SELECT COUNT(*) AS count FROM x_activity_cache_redactions WHERE completed_at IS NULL").first<number>("count");
     const optimized=await this.db.prepare("SELECT value FROM settings WHERE key='x_cost_optimizer_enabled'").first<string>("value")==="true";
     const shared=await this.options.gateway.readBudget();
@@ -68,9 +69,9 @@ export class D1XActivitySite {
     const siteContinuationMicros=estimateXApiRequestCostMicros("timeline",pagePath(continuationPageSize));
     // A source ID does not guarantee a fresh user cache, so include refresh headroom for every target.
     const identityMicros=estimateXApiRequestCostMicros("user_lookup","/users/by?"+new URLSearchParams({usernames:handles.join(",")}));
-    return { site: this.options.siteId, primarySource: await this.db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value")==="fxembed"?"fxembed":"x_api", collectionEnabled: enabled, targets: handles.map(handle=>({handle,userId:users.get(handle)??null})),
+    return { site: this.options.siteId, primarySource, collectionEnabled: enabled, targets: handles.map(handle=>({handle,userId:users.get(handle)??null})),
       budget, cachePurgePending:Number(cachePurgePending??0), recovery: {
-        intervalHours: Number(interval ?? 24), lastSuccessAt: recovery?.lastSuccessAt ?? null, pendingSources,
+        intervalHours: primarySource === "fxembed" ? 24 : Number(interval ?? 24), lastSuccessAt: recovery?.lastSuccessAt ?? null, pendingSources,
         estimate:{targetCount:handles.length,pageSize,continuationPageSize,perPageMicros,
           firstPagesMicros:(handles.length-pendingSources)*perPageMicros+pendingSources*continuationMicros+identityMicros,
           siteFirstPagesMicros:(handles.length-pendingSources)*sitePerPageMicros+pendingSources*siteContinuationMicros+identityMicros,

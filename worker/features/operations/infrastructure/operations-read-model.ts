@@ -113,6 +113,7 @@ export const readOperationsStatusRows = async (
            'x_collection_enabled',
            'x_collection_daily_budget_cents',
            'x_collection_interval_hours',
+           'x_collection_primary_source',
            'x_collection_last_run',
            'x_posts_visibility',
            'naver_cafe_posts_enabled',

@@ -22,6 +22,7 @@ export const xReasonLabel = (code: string | null | undefined) => {
     budget_unavailable: "예산 정보 확인 오류",
     shared_budget_unavailable: "공통 예산 확인 불가로 REST 실행 차단",
     all_handles_cooldown: "계정 수집 주기 대기",
+    x_collection_continuation_pending: "다음 페이지를 이어서 수집할 예정입니다.",
     missing_bearer_token: "X 인증 설정 확인 필요",
   };
   return labels[code] ?? `조회 오류 (${code})`;

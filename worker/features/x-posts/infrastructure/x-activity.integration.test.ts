@@ -77,7 +77,9 @@ describe("XAA multi-site collection and common money boundary",()=>{
     const before=await db.prepare("SELECT COUNT(*) AS n FROM x_activity_inbox").first("n");
     const savedHooks=structuredClone(hooks);
     vi.mocked(fetch).mockClear();
+    await db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_collection_interval_hours','2')").run();
     await control.setPrimarySource("otw","fxembed");
+    expect((await local("otw").snapshot()).recovery.intervalHours).toBe(24);
     await control.reconcile(true);
     await local("otw").process(eventId);
     expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value")).toBe("fxembed");

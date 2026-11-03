@@ -96,6 +96,7 @@ const makeStatusD1 = (
         { key: "auto_update_last_run", value: String(now - 60 * 60_000) },
         { key: "auto_update_range_days", value: "3" },
         { key: "x_collection_enabled", value: "true" },
+        { key: "x_collection_primary_source", value: "x_api" },
         { key: "x_collection_interval_hours", value: "2" },
         { key: "x_collection_last_run", value: String(now - 30 * 60_000) },
         { key: "x_collection_daily_budget_cents", value: "100" },
@@ -351,6 +352,13 @@ describe("operations worker route", () => {
     expect(response.headers.get("Vary")).toBe("Authorization");
     expect(await response.json()).toEqual({ summaries: [] });
     expect(getJobSummaries).toHaveBeenCalledOnce();
+  });
+
+  it("reports official hybrid cadence independently from the retained legacy interval", async () => {
+    const db=makeStatusD1({x_collection_primary_source:"fxembed",x_collection_interval_hours:"2"});
+    const response=await handleOperations(new Request("https://example.com/api/operations/status?windowHours=24"),makeEnv(db));
+    const body=await response.json() as {xCollection:{intervalHours:number}};
+    expect(body.xCollection.intervalHours).toBe(24);
   });
 
   it("status는 저장된 운영 이력만 집계하고 no-store로 반환한다", async () => {
