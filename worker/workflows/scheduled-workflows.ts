@@ -10,6 +10,7 @@ import {
 import { ScheduledJobCoordinator } from "../features/scheduled-operations";
 import type { Env } from "../platform/types";
 import { getWorkerSiteResources } from "../platform/site";
+import { withXGateway } from "../app/x-gateway";
 
 export class ScheduledOperationsWorkflow extends WorkflowEntrypoint<
   Env,
@@ -35,7 +36,7 @@ export class ScheduledOperationsWorkflow extends WorkflowEntrypoint<
         timeout: "1 minute",
       },
       async () => {
-        return new ScheduledJobCoordinator(this.env).runScheduled(jobType,scheduledFor);
+        return new ScheduledJobCoordinator(withXGateway(this.env)).runScheduled(jobType,scheduledFor);
       },
     );
   }
