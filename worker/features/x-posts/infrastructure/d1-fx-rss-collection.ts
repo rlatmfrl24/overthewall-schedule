@@ -15,12 +15,13 @@ import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
 import { hydrateOfficialRssCandidates, prepareOfficialRssBatch } from "./x-rss-official-hydration";
 import { readStoredRssCandidateIds } from "./rss-stored-candidates";
 
-const readPolicy = async (env: Env) => {
-  const rows = await env.otw_db.prepare("SELECT key,value FROM settings WHERE key IN ('x_collection_enabled','x_collection_primary_source','x_collection_hybrid_policy','x_collection_hybrid_activated_at')").all<{ key: string; value: string }>();
-  const values = new Map(rows.results.map(row => [row.key, row.value]));
+const policySql = "SELECT key,value FROM settings WHERE key IN ('x_collection_enabled','x_collection_primary_source','x_collection_hybrid_policy','x_collection_hybrid_activated_at')";
+const isRssPolicy = (rows: Array<{ key: string; value: string }>) => {
+  const values = new Map(rows.map(row => [row.key, row.value]));
   const activatedAt = Number(values.get("x_collection_hybrid_activated_at"));
   return values.get("x_collection_enabled") === "true" && values.get("x_collection_primary_source") === "fxembed" && values.get("x_collection_hybrid_policy") === "rss_v1" && Number.isFinite(activatedAt) && activatedAt > 0;
 };
+const readPolicy = async (env: Env) => isRssPolicy((await env.otw_db.prepare(policySql).all<{ key: string; value: string }>()).results);
 
 export async function readDueFxRssCollectionTargets(env: Env, timestamp: number): Promise<FxRssContinuation[]> {
   if (!await readPolicy(env)) return [];
@@ -76,23 +77,22 @@ export class D1FxRssCollectionAdapter implements FxRssCollectionPorts {
     this.handle = parseFxRssContinuation(JSON.parse(item.continuation_json ?? "{}")).handles[0];
   }
   async readContext(handle: string) {
-    const [policy, allowed, source] = await Promise.all([
-      readPolicy(this.env), readActiveXHandles(getDb(this.env), parseSiteId(this.env.SITE_ID)),
+    const [settings, members, sources] = await this.env.otw_db.batch([
+      this.env.otw_db.prepare(policySql),
+      this.env.otw_db.prepare(`SELECT url_twitter FROM members WHERE coalesce(is_deprecated,0)=0 AND NOT (${publicationHiddenSql("members", "members", parseSiteId(this.env.SITE_ID))})`),
       this.env.otw_db.prepare(`SELECT s.deactivated_at,COALESCE(s.user_id,f.user_id) user_id,COALESCE(f.collection_started_at,s.collection_started_at,?) collection_started_at,f.rss_pending_item_id,f.rss_last_raw_count,f.rss_previous_raw_count
-        FROM x_post_sources s LEFT JOIN x_fx_sources f ON f.handle=s.handle WHERE s.handle=?`).bind(this.now(), handle)
-        .first<{ deactivated_at: number | null; user_id: string | null; collection_started_at: number; rss_pending_item_id: string | null; rss_last_raw_count: number | null; rss_previous_raw_count: number | null }>(),
+        FROM x_post_sources s LEFT JOIN x_fx_sources f ON f.handle=s.handle WHERE s.handle=?`).bind(this.now(), handle),
     ]);
-    return { allowed: allowed.includes(handle) && source?.deactivated_at == null, policy: policy ? "rss_v1" as const : "legacy" as const,
+    const source = sources.results[0] as { deactivated_at: number | null; user_id: string | null; collection_started_at: number; rss_pending_item_id: string | null; rss_last_raw_count: number | null; rss_previous_raw_count: number | null } | undefined;
+    const allowed = (members.results as Array<{ url_twitter: string | null }>).some(member => typeof member.url_twitter === "string" && extractXHandleFromUrl(member.url_twitter)?.toLowerCase() === handle);
+    return { allowed: allowed && source?.deactivated_at == null, policy: isRssPolicy(settings.results as Array<{ key: string; value: string }>) ? "rss_v1" as const : "legacy" as const,
       collectionStartedAt: source?.collection_started_at ?? this.now(), trustedUserId: source?.user_id ?? null, pendingItemId: source?.rss_pending_item_id ?? null,
       windowReduced: source?.rss_last_raw_count != null && source.rss_previous_raw_count != null && source.rss_last_raw_count < source.rss_previous_raw_count };
   }
   private async fenced() {
-    const context = await this.readContext(this.handle);
-    if (!context.allowed || context.policy !== "rss_v1" || !this.token) return false;
-    return Boolean(await this.env.otw_db.prepare(`SELECT 1 FROM x_post_sources s JOIN scheduled_job_items i ON i.id=?
-      JOIN x_fx_sources f ON f.handle=s.handle WHERE s.handle=? AND s.lease_token=? AND s.lease_until>?
-      AND f.rss_pending_item_id=? AND i.status='running' AND i.lease_token=? AND i.lease_until>?`)
-      .bind(this.item.id, this.handle, this.token, this.now(), this.item.id, this.item.lease_token, this.now()).first());
+    if (!this.writeFence) return false;
+    const fence = fxRssWriteFenceSql(this.writeFence, parseSiteId(this.env.SITE_ID));
+    return Boolean(await this.env.otw_db.prepare(`SELECT 1 WHERE (${fence.sql})`).bind(...fence.bindings).first());
   }
   async start(state: FxRssContinuation) {
     const context = await this.readContext(this.handle);

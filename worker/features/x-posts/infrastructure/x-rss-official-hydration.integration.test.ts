@@ -12,6 +12,7 @@ import { XActivityCoordinatorRpc } from "../../../app/x-rpc";
 import { withXGateway } from "../../../app/x-gateway";
 import { siteEnv } from "../../../test-support/site-env";
 import { ScheduledJobExecutor } from "../../scheduled-operations/infrastructure/scheduled-job-executor";
+import { handleScheduledJobQueue } from "../../../app/scheduled-queue";
 
 const bindings = env as Env & { X_REFERENCE_MIGRATIONS: D1Migration[]; SCHEDULED_OPERATIONS_MIGRATIONS: D1Migration[] };
 const db = bindings.otw_db;
@@ -31,6 +32,12 @@ const create = async (input = state()) => {
 };
 const clocks = () => db.prepare("SELECT last_seen_post_id,last_completed_at,regular_completed_at,sync_pagination_token,sync_origin_scope FROM x_post_sources WHERE handle='member'").first();
 const stored = () => db.prepare("SELECT id,value,source_authority,first_seen_at FROM x_posts ORDER BY id").all<{ id: string; value: string; source_authority: string; first_seen_at: number }>();
+const freeProvider = (ids: string[], relations = false) => vi.mocked(fetch).mockImplementation(async input => {
+  const url = new URL(String(input));
+  if (url.pathname.endsWith("feed.xml")) return new Response(`<rss version="2.0"><channel>${ids.map(id => `<item><guid>https://x.com/member/status/${id}</guid><pubDate>${new Date(now).toUTCString()}</pubDate></item>`).join("")}</channel></rss>`);
+  if (url.hostname === "api.fxtwitter.com") return Response.json({ code: 200, status: { type: "status", id: url.pathname.split("/").pop(), text: "free discovery", created_at: new Date(now).toUTCString(), author: { id: "101", screen_name: "member", protected: false }, media: {}, ...(relations ? { replying_to: { status: "900", screen_name: "parent" }, quote: { type: "status", id: "902", text: "quoted", created_at: new Date(now).toUTCString(), author: { id: "903", screen_name: "quoted", protected: false }, media: {} } } : {}) } });
+  throw new Error(`unexpected upstream ${url}`);
+});
 
 beforeEach(async () => {
   now = Date.now(); sequence = 0;
@@ -94,12 +101,7 @@ it("free_replay_preserves_official_fields and only actual inserts count as disco
 
 it.each(["new", "repair", "durable"])("free RSS %s preserves actual INSERT evidence through executor and D1 result", async mode => {
   const ids = ["301", "302", "303", "304", "305"];
-  vi.mocked(fetch).mockImplementation(async input => {
-    const url = new URL(String(input));
-    if (url.pathname.endsWith("feed.xml")) return new Response(`<rss version="2.0"><channel>${ids.map(id => `<item><guid>https://x.com/member/status/${id}</guid><pubDate>${new Date(now).toUTCString()}</pubDate></item>`).join("")}</channel></rss>`);
-    if (url.hostname === "api.fxtwitter.com") return Response.json({ code: 200, status: { type: "status", id: url.pathname.split("/").pop(), text: "free discovery", created_at: new Date(now).toUTCString(), author: { id: "101", screen_name: "member", protected: false }, media: {} } });
-    throw new Error(`unexpected upstream ${url}`);
-  });
+  freeProvider(ids);
   if (mode !== "new") {
     await writeStoredPosts(db, "member", { id: "101", username: "member" }, ids.map(id => ({ id, username: "member", text: "free discovery", createdAt: new Date(Math.floor(now / 1000) * 1000).toISOString(), url: `https://x.com/member/status/${id}`, media: [], metrics: { likeCount: 0, replyCount: 0, repostCount: 0, quoteCount: 0 } })), now, "otw", { origin: "fxembed", completeness: { text: true, media: true, relations: true } });
     if (mode === "repair") await db.prepare("UPDATE x_posts SET content_hash=NULL").run();
@@ -125,6 +127,26 @@ it.each(["new", "repair", "durable"])("free RSS %s preserves actual INSERT evide
     const plan = await db.prepare(`EXPLAIN QUERY PLAN ${entry.sql}`).bind(...entry.args).all<{ detail: string }>();
     expect(plan.results.map(row => row.detail).join(" ")).toMatch(/SEARCH x_posts USING INDEX sqlite_autoindex_x_posts_1/);
   }
+});
+
+it.each([false,true])("profiles one ordinary Queue invocation storing five free candidates, relations=%s", async relations => {
+  const ids=["301","302","303","304","305"];
+  freeProvider(ids,relations);
+  const scan=await create({...state([]),phase:"fetch"});
+  await db.batch([
+    db.prepare("UPDATE scheduled_job_items SET status='queued',attempts=0,lease_token=NULL,lease_until=NULL WHERE id=?").bind(scan.item.id),
+    db.prepare("UPDATE x_fx_sources SET rss_pending_item_id=NULL"),
+  ]);
+  const meter=meterD1(db),send=vi.fn(),ack=vi.fn(),retry=vi.fn();
+  await handleScheduledJobQueue({queue:"otw-ops-background",messages:[{body:{schemaVersion:1,messageType:"scheduled_job_item",runId:scan.item.run_id,itemId:scan.item.id,phase:"collect"},ack,retry}]} as unknown as MessageBatch<unknown>,
+    {...runtime,...siteEnv(),otw_db:meter.db,OTW_OPS_BACKGROUND_QUEUE:{send} as unknown as Queue<unknown>});
+  expect(ack).toHaveBeenCalledOnce();
+  expect(retry).not.toHaveBeenCalled();
+  const item=await scan.repo.readItem(scan.item.id);
+  expect(item?.status).toBe("succeeded");
+  expect(JSON.parse(item!.result_json!).newlyStoredPosts.map((post:{id:string})=>post.id)).toEqual(ids);
+  if(relations)expect(await db.prepare("SELECT count(*) n FROM x_post_references WHERE source_post_id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(ids)).first("n")).toBe(10);
+  console.log(`RSS_QUEUE_PROFILE_${relations?"relations":"plain"}`,JSON.stringify({...meter.summary(),bindingCalls:meter.bindingCalls}));
 });
 
 it.each(["site", "shared", "backoff"])("utc_budget_block_keeps_pending: %s", async boundary => {
