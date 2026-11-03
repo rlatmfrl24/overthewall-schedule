@@ -49,6 +49,13 @@ beforeEach(async () => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 it("rss_success_does_not_repair_json_or_official_clock and resumes a terminal partial without scanning", async () => {
+  let active = 0, peak = 0;
+  const provider = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (...args) => {
+    active++; peak = Math.max(peak, active);
+    try { await new Promise(resolve => setTimeout(resolve, 5)); return await provider(...args); }
+    finally { active--; }
+  });
   const first = await createItem();
   const clocks = async () => ({ official: await db.prepare("SELECT last_seen_post_id,sync_pagination_token,last_completed_at,regular_completed_at FROM x_post_sources").first(), json: await db.prepare("SELECT cursor,consecutive_failures,consecutive_successes,fallback_active,last_completed_at FROM x_fx_sources").first() });
   const before = await clocks();
@@ -66,6 +73,7 @@ it("rss_success_does_not_repair_json_or_official_clock and resumes a terminal pa
   expect(await db.prepare("SELECT count(*) n FROM x_posts").first("n")).toBe(6);
   expect(await db.prepare("SELECT rss_pending_item_id FROM x_fx_sources").first("rss_pending_item_id")).toBeNull();
   expect(await clocks()).toEqual(before);
+  expect(peak).toBe(1);
 });
 
 it("rejects stale queued snapshots and a stale fresh scan after a completed scan", async () => {

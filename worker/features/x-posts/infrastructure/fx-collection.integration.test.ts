@@ -14,7 +14,11 @@ beforeEach(async () => {
 });
 afterEach(() => vi.unstubAllGlobals());
 it("stores four pages through the normal writer without moving the official cursor", async () => {
+  let active = 0, peak = 0;
   const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+    active++; peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    active--;
     const cursor = new URL(url).searchParams.get("cursor");
     return cursor === null ? page("124", "p2") : cursor === "p2" ? page("123", "p3") : cursor === "p3" ? page("122", "p4") : page("121", "p5");
   });
@@ -23,8 +27,22 @@ it("stores four pages through the normal writer without moving the official curs
   const result = await runFxCollectionForHandles(runtime, ["member"], "scheduled");
   expect(result).toMatchObject({ provider: "fxembed", postsStored: 4, pendingSources: 1 });
   expect(fetchMock).toHaveBeenCalledTimes(4);
+  expect(peak).toBe(1);
   expect(await db.prepare("SELECT last_seen_post_id,sync_pagination_token,last_success_at,last_completed_at FROM x_post_sources").first()).toEqual(before);
   expect(await db.prepare("SELECT cursor FROM x_fx_sources").first("cursor")).toBe("p5");
+});
+it("preserves an acquired reply when the normal JSON collector replays an omitted relation", async () => {
+  let reply = true;
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ code: 200, results: [{ ...raw("123"), ...(reply ? { replying_to: { status: "122", screen_name: "member" } } : {}) }], cursor: {} })));
+  expect((await runFxCollectionForHandles(runtime, ["member"], "manual")).status).toBe("success");
+  const before = await db.prepare("SELECT value,revision,content_hash FROM x_posts WHERE id='123'").first();
+  expect(JSON.parse(before!.value as string).reply.postId).toBe("122");
+  const official = await db.prepare("SELECT * FROM x_post_sources").first();
+  reply = false;
+  expect((await runFxCollectionForHandles(runtime, ["member"], "manual")).status).toBe("success");
+  expect(await db.prepare("SELECT value,revision,content_hash FROM x_posts WHERE id='123'").first()).toEqual(before);
+  const after = await db.prepare("SELECT * FROM x_post_sources").first();
+  expect(after).toMatchObject({ last_seen_post_id: official!.last_seen_post_id, sync_pagination_token: official!.sync_pagination_token, collection_started_at: official!.collection_started_at });
 });
 it("checks the head and resumes the durable continuation, retaining it on storage failure", async () => {
   await db.prepare("INSERT INTO x_fx_sources(handle,collection_started_at,cursor,updated_at) VALUES('member',1,'old',0)").run();

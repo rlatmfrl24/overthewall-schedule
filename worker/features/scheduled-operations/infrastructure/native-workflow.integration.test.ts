@@ -179,6 +179,15 @@ it("resumes a durable RSS partial in a separate ordinary Cron Workflow and Queue
     expect(calls.filter(call => call.includes("/2/status/"))).toHaveLength(6);
     expect(calls.some(call => call.includes("api.x.com"))).toBe(false);
     expect(await db.prepare("SELECT last_seen_post_id,regular_completed_at,last_completed_at FROM x_post_sources WHERE handle='native_collect'").first()).toEqual({ last_seen_post_id: "100", regular_completed_at: started, last_completed_at: started });
+    // Advance only persisted feed eligibility; this is not a six-hour wall-clock observation.
+    await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/reset?scenario=rss-shrink");
+    await db.prepare("UPDATE x_fx_sources SET rss_cadence_anchor_at=0,cadence_anchor_at=0 WHERE handle='native_collect'").run();
+    await handleScheduledWorkflowCron({ cron: SCHEDULED_WORKFLOW_CRON, scheduledTime: currentSlot + 60 * 60_000 } as ScheduledController, runtime);
+    await Promise.all((await inspector.get()).map(instance => instance.waitForStatus("complete")));
+    await expect.poll(() => db.prepare("SELECT rss_last_raw_count FROM x_fx_sources WHERE handle='native_collect'").first("rss_last_raw_count"), { timeout: 20_000 }).toBe(0);
+    await expect.poll(() => db.prepare("SELECT count(*) n FROM x_posts WHERE id='151'").first("n"), { timeout: 20_000 }).toBe(1);
+    expect(await db.prepare("SELECT rss_previous_raw_count,rss_last_candidate_count,rss_pending_item_id FROM x_fx_sources WHERE handle='native_collect'").first()).toEqual({ rss_previous_raw_count: 6, rss_last_candidate_count: 0, rss_pending_item_id: null });
+    expect(await db.prepare("SELECT last_seen_post_id,regular_completed_at,last_completed_at FROM x_post_sources WHERE handle='native_collect'").first()).toEqual({ last_seen_post_id: "100", regular_completed_at: started, last_completed_at: started });
   } finally { vi.unstubAllGlobals(); await inspector.dispose(); }
 }, 60_000);
 
@@ -290,6 +299,63 @@ it.each([false,true])("collects Fx and official regular items through native Cro
     expect(await db.prepare("SELECT enabled FROM x_activity_sites WHERE site='otw'").first("enabled")).toBe(0);
   } finally { vi.unstubAllGlobals(); await inspector.dispose(); }
 }, 90000);
+
+it("preserves regular origin across budget exhaustion while a due peer completes through native Cron and Queue", async () => {
+  const started = Date.now(), hour = 3_600_000;
+  const day = new Date(started).toISOString().slice(0,10);
+  const slot = Math.floor((started - 23 * 60_000) / (30 * 60_000)) * 30 * 60_000 + 23 * 60_000;
+  await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/reset?scenario=account-budget");
+  await db.batch([
+    db.prepare("DELETE FROM scheduled_job_runs WHERE job_type='x_collection'"),
+    db.prepare("UPDATE settings SET value='false' WHERE key LIKE 'scheduled_v2_%_enabled'"),
+    db.prepare("UPDATE members SET url_twitter=NULL"),
+    ...["x_post_references", "x_post_facts", "x_posts", "x_fx_sources", "x_post_sources", "x_api_cache", "x_shared_requests", "x_api_usage_events", "x_api_usage_daily", "x_api_resource_daily", "scheduled_usage_daily"].map(table => db.prepare(`DELETE FROM ${table}`)),
+    ...[[900050, "native_collect", "1000000000001", 13], [900051, "native_peer", "1000000000002", 12]].flatMap(([uid, handle, userId, age]) => [
+      db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(?,?,?,?) ON CONFLICT(uid) DO UPDATE SET url_twitter=excluded.url_twitter").bind(uid, handle, handle, `https://x.com/${handle}`),
+      db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at,initialization_completed_at,regular_completed_at,last_completed_at) VALUES(?,?,?,'100',0,0,1,1,?,?)").bind(handle, userId, handle, slot - Number(age) * hour, slot - Number(age) * hour),
+      db.prepare("INSERT INTO x_fx_sources(handle,user_id,collection_started_at,cadence_anchor_at,rss_cadence_anchor_at,updated_at) VALUES(?,?,1,?,?,0)").bind(handle, userId, started + 24 * hour, started + 24 * hour),
+      db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES(?,'user',?,?,?)").bind(`x:user:v1:${handle}`, JSON.stringify({ user: { id: userId, username: handle } }), started, started + 24 * hour),
+    ]),
+    ...[["scheduled_v2_x_collection_enabled", "true"], ["x_collection_enabled", "true"], ["x_collection_primary_source", "fxembed"], ["x_collection_hybrid_policy", "rss_v1"], ["x_collection_hybrid_activated_at", "1"], ["x_collection_daily_budget_cents", "100"], ["x_cost_optimizer_enabled", "true"], ["x_reference_preview_mode", "link_only"], ["x_api_backoff_until", "0"]].map(([key,value]) => db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)").bind(key,value)),
+    db.prepare("DELETE FROM x_shared_budgets"),
+    db.prepare("INSERT INTO x_shared_budgets(day,used,reserved,limit_value,seed_detail,updated_at) VALUES(?,0,875000,1000000,'{}',0)").bind(day),
+  ]);
+  const inspector = await introspectWorkflow(bindings.NATIVE_SCHEDULED_WORKFLOW);
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => bindings.NATIVE_WORKFLOW_PROVIDER.fetch(input,init));
+  const runtime = { ...bindings, ...siteEnv(), CLOUDFLARE_ACCOUNT_ID: "native-test", CLOUDFLARE_D1_TOKEN: "native-test", SCHEDULED_OPERATIONS_WORKFLOW: bindings.NATIVE_SCHEDULED_WORKFLOW } as unknown as Env;
+  const tick = async (at: number) => {
+    await handleScheduledWorkflowCron({ cron: SCHEDULED_WORKFLOW_CRON, scheduledTime: at } as ScheduledController, runtime);
+    await Promise.all((await inspector.get()).map(instance => instance.waitForStatus("complete")));
+    await expect.poll(() => db.prepare("SELECT count(*) n FROM scheduled_job_runs WHERE job_type='x_collection' AND status IN ('queued','running')").first("n"), { timeout: 70_000 }).toBe(0);
+  };
+  try {
+    await tick(slot);
+    expect(await db.prepare("SELECT sync_pagination_token,sync_origin_scope,regular_completed_at FROM x_post_sources WHERE handle='native_collect'").first()).toEqual({ sync_pagination_token: "native-page-2", sync_origin_scope: "regular", regular_completed_at: slot - 13 * hour });
+    expect(await db.prepare("SELECT count(*) n FROM scheduled_job_items WHERE json_extract(continuation_json,'$.provider')='x_api' AND json_extract(continuation_json,'$.scope')='regular'").first("n")).toBe(2);
+    const incurred = await db.prepare("SELECT used,reserved FROM x_shared_budgets WHERE day=?").bind(day).first();
+    expect(Number(incurred?.used)).toBeGreaterThan(0);
+    const checkpoint = await db.prepare("SELECT sync_pagination_token,sync_base_post_id,sync_newest_post_id,sync_origin_scope,collection_started_at FROM x_post_sources WHERE handle='native_collect'").first();
+    await tick(slot + 30 * 60_000);
+    expect(await db.prepare("SELECT sync_pagination_token,sync_base_post_id,sync_newest_post_id,sync_origin_scope,collection_started_at FROM x_post_sources WHERE handle='native_collect'").first()).toEqual(checkpoint);
+    expect(await db.prepare("SELECT used,reserved FROM x_shared_budgets WHERE day=?").bind(day).first()).toEqual(incurred);
+    // Release only the fixture's pre-existing reservation; incurred request cost remains.
+    expect((await db.prepare("UPDATE x_shared_budgets SET reserved=reserved-875000 WHERE day=? AND reserved=875000").bind(day).run()).meta.changes).toBe(1);
+    expect(await db.prepare("SELECT used,reserved FROM x_shared_budgets WHERE day=?").bind(day).first()).toEqual({ used: incurred!.used, reserved: 0 });
+    await db.prepare("UPDATE x_post_sources SET next_check_at=CASE WHEN handle='native_collect' THEN ? ELSE 0 END").bind(started + 3 * hour).run();
+    await tick(slot + hour);
+    expect(await db.prepare("SELECT regular_completed_at FROM x_post_sources WHERE handle='native_peer'").first<number>("regular_completed_at")).toBeGreaterThan(slot - 12 * hour);
+    expect(await db.prepare("SELECT sync_pagination_token,sync_base_post_id,sync_newest_post_id,sync_origin_scope,collection_started_at FROM x_post_sources WHERE handle='native_collect'").first()).toEqual(checkpoint);
+    await db.prepare("UPDATE x_post_sources SET next_check_at=0 WHERE handle='native_collect'").run();
+    await tick(slot + 90 * 60_000);
+    expect(await db.prepare("SELECT sync_pagination_token,sync_origin_scope,last_seen_post_id FROM x_post_sources WHERE handle='native_collect'").first()).toEqual({ sync_pagination_token: null, sync_origin_scope: null, last_seen_post_id: "200" });
+    expect(await db.prepare("SELECT regular_completed_at FROM x_post_sources WHERE handle='native_collect'").first<number>("regular_completed_at")).toBeGreaterThan(slot - 13 * hour);
+    const calls = await (await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/calls")).json<string[]>();
+    expect(calls.filter(call => call.includes("/1000000000001/tweets"))).toHaveLength(2);
+    expect(calls.filter(call => call.includes("/1000000000002/tweets"))).toHaveLength(1);
+    expect(calls.some(call => call.includes("pagination_token=native-page-2"))).toBe(true);
+    expect(Number(await db.prepare("SELECT used FROM x_shared_budgets WHERE day=?").bind(day).first("used"))).toBeGreaterThan(Number(incurred!.used));
+  } finally { vi.unstubAllGlobals(); await inspector.dispose(); }
+}, 90_000);
 
 it("budget_blocked_candidate_plan_creates_no_item or run through ordinary native Cron", async () => {
   const started = Date.now();

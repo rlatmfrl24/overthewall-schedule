@@ -14,6 +14,16 @@ beforeEach(async () => {
 });
 afterEach(() => vi.restoreAllMocks());
 const read = () => db.prepare("SELECT * FROM x_posts WHERE id='123'").first<{ value: string; revision: number; hidden_at: number | null }>();
+it.each(["quote", "reply"] as const)("keeps a known Fx %s and preview on omitted replay without rewriting the row", async relation => {
+  const preview = { id: "122", text: "known parent", createdAt: null, url: "https://x.com/member/status/122", username: "member", name: null, profileImageUrl: null, metrics: post.metrics, media: [] };
+  const known = { ...post, [relation]: { postId: "122", post: preview } };
+  await writeStoredPosts(db, "member", user, [known], 1, "otw", { origin: "fxembed", completeness: complete });
+  const before = await read();
+  expect(await writeStoredPosts(db, "member", user, [{ ...known, [relation]: null }], 2, "otw", { origin: "fxembed", completeness: complete })).toMatchObject({ ok: true, count: 0 });
+  expect(await read()).toEqual(before);
+  await writeStoredPosts(db, "member", user, [{ ...known, [relation]: null }], 3, "otw", { origin: "x_api", completeness: complete });
+  expect(JSON.parse((await read())!.value)[relation]).toBeNull();
+});
 it("protects official fields, no-op writes and redaction on Fx replay", async () => {
   expect((await writeStoredPosts(db, "member", user, [post], 1, "otw", { origin: "x_api", completeness: complete })).ok).toBe(true);
   const before = await read();

@@ -30,8 +30,9 @@ export function mergeStoredXPost(
     if (field === "text") { post.text = incoming.text; post.links = incoming.links; }
     if (field === "media") post.media = incoming.media;
     if (field === "relations") {
-      post.quote = incoming.quote;
-      post.reply = incoming.reply;
+      // Fx omissions are incomplete evidence even when the coarse relation flag is complete.
+      post.quote = context.origin === "fxembed" && existing ? incoming.quote ?? existing.post.quote : incoming.quote;
+      post.reply = context.origin === "fxembed" && existing ? incoming.reply ?? existing.post.reply : incoming.reply;
       if (post.reply && existing?.post.reply?.postId === post.reply.postId) post.reply = { ...existing.post.reply, ...Object.fromEntries(Object.entries(post.reply).filter(([, value]) => value !== null && value !== undefined)), postId: post.reply.postId, post: post.reply.post };
       for (const relation of ["quote", "reply"] as const) {
         const next = post[relation];

@@ -5,6 +5,22 @@ import { mergeStoredXPost } from "./merge-x-post";
 const post: XPostDto = { id: "123", username: "member", text: "official", createdAt: "2026-11-03T00:00:00Z", url: "https://x.com/member/status/123", media: [], metrics: { likeCount: 0, replyCount: 0, repostCount: 0, quoteCount: 0 }, reply: { postId: "122", conversationId: "100", post: null } };
 const complete = { text: true, media: true, relations: true };
 describe("source authority", () => {
+  it("retains canonical null relations when inserting a new Fx post", () => {
+    const incoming = { ...post, quote: null, reply: null };
+    expect(mergeStoredXPost(null, incoming, { origin: "fxembed", completeness: complete }).post).toEqual(incoming);
+  });
+  it.each(["quote", "reply"] as const)("preserves a known %s independently when a complete Fx replay omits it", relation => {
+    const known = { ...post, quote: { postId: "121", post: null } };
+    const existing = mergeStoredXPost(null, known, { origin: "fxembed", completeness: complete });
+    const other = relation === "quote" ? "reply" : "quote";
+    const incoming = { ...known, [relation]: null, [other]: { postId: "120", post: null } };
+    const merged = mergeStoredXPost(existing, incoming, { origin: "fxembed", completeness: complete });
+    expect(merged.post[relation]).toEqual(known[relation]);
+    expect(merged.post[other]?.postId).toBe("120");
+    for (const origin of ["x_api", "webhook"] as const) {
+      expect(mergeStoredXPost(existing, incoming, { origin, completeness: complete }).post[relation]).toBeNull();
+    }
+  });
   it("fills a missing same-ID preview without promoting an incomplete timeline response", () => {
     const preview = { id: "122", text: "recovered parent", createdAt: null, url: "https://x.com/a/status/122", username: "a", name: null, profileImageUrl: null, metrics: post.metrics, media: [] };
     const incoming = { ...post, text: "unconfirmed", reply: { ...post.reply!, post: preview } };

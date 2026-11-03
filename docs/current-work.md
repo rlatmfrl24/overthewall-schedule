@@ -1,6 +1,18 @@
-# 현재 작업 — 2026-10-22
+# 현재 작업 — 2026-11-04
 
 이 문서가 작업의 단일 진입점이다. 날짜별 보고서는 당시 증거이며 새 실행 지시가 아니다.
+
+## 무료 우선 X 수집 로컬 결과·최종 전체 검증 대기 — 2026-11-04
+
+11/03 승인한7개 작업의 구현과 범위별 검증을 진행했다. [실제 결과·판단 원장·한계](reports/2026-11-04-x-free-first-collection-implementation.md)에 정상 관리자 적용→JSON, 실제 :53 tick의 기존 scheduled handler→native Workflow→Queue→실제 RSS/Fx→D1→공개 카드 증거를 기록했다. 최종 전체 `pnpm test`/양 빌드/독립 브랜치 리뷰는 **아직 대기**이며 완료로 해석하지 않는다.
+
+양 site 로컬 migration0162–0164를 additive로 적용하고 기존 데이터를 보존했다. 첫 정상 JSON은 OTW+91/LuvDia+60, 실제 RSS8개 item은 raw800에서 OTW+4/LuvDia+1을 저장했다. 관계 보존 수정 후 같은 LuvDia 관리자 JSON 재생은+106이다. 최종433/577개이며 `postsStored`의 기존 행 갱신은 신규 카드에 합산하지 않았다. 공개 표본과 RSS5개 모두 정상 멤버 필터/페이지로 확인했다. RSS8개 item은 성공했으나 공식 작업의 `shared_budget_unavailable` 때문에 scheduled run은 partial이다. 실제 paid0이며 강제 bootstrap은 하지 않았다. LuvDia RSS1개는10/27 누락이므로24시간 내 신규 복구 증거가 아니다.
+
+실제 재생에서 기존 Fx 답글1개가 사라진 문제를 공통 병합에서 RED→GREEN으로 수정했다. exact backup/CAS로 그 한 행을 복구하고 정상 관리자 재생으로 hash acknowledgement·답글 보존을 확인했다. 이 복원은 신규 발견과 구분한다. 최종 readback은 baseline748개 value/hidden/removal/access, 공식 cursor/시계 각8개, 과거 usage6241/내부 추정19,340,000micros씩을 보존한다. 문서화한 복원 revision3 외의 보호 데이터 손실은 없다.
+
+로컬 정상 관리자 rollback은 양 site `x_api`/RSS 비활성/웹훅 Disabled로 확인했고 기존 legacy2시간 값은 보존했다. 임시 Cron rollout flag 두 행은 원래 부재로 CAS 복구했고 양 site 최종 doctor가 통과했다. 현재 로컬 rollback 상태를 운영 정책 변경으로 해석하지 않는다. Play/AI 중지와 공개·보관·삭제 정책을 유지한다.
+
+**보류3a/4b/5a 유지:** 실제 유료 공식 독립 발견·운영 전환/배포·초기7일 관측·실청구 절감·실제24시간 복구는 미검증이다. push/PR/merge/원격 migration·설정·구독 변경, 새 자동화·강제 유료 실험·자동 예산 증액은 하지 않았다. 현재 다음 행동은 로컬 최종 전체 검증과 독립 리뷰이며, 외부 효과는 별도 명시적 승인 후 진행한다. 과거 보고서와 아래 과거 승인·보류 기록이 이를 자동 재개하지 않는다.
 
 ## 무료 우선 X 수집 구현·로컬 검증 승인 — 2026-11-03
 
