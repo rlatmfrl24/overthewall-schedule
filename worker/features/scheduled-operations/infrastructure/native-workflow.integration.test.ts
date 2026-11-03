@@ -76,6 +76,49 @@ it.each(["x_collection", "naver_cafe_collection", "youtube_feed_collection"] as 
   } finally { vi.unstubAllGlobals(); await inspector.dispose(); }
 }, 60_000);
 
+it("recovers a pending X page through the native Workflow before full cadence is due", async () => {
+  const started=Date.now();
+  let slot=Math.floor(started/3_600_000)*3_600_000+23*60_000;
+  if(slot>started)slot-=3_600_000;
+  const full=slot-2*3_600_000, cadence=JSON.stringify({completedAt:full,anchorAt:full});
+  const inspector=await introspectWorkflow(bindings.NATIVE_SCHEDULED_WORKFLOW);
+  await db.batch([
+    db.prepare("DELETE FROM scheduled_job_runs WHERE job_type='x_collection'"),
+    db.prepare("UPDATE settings SET value='false' WHERE key LIKE 'scheduled_v2_%_enabled'"),
+    db.prepare("UPDATE members SET url_twitter=NULL"),
+    db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(900050,'native_collect','Native collector','https://x.com/native_collect') ON CONFLICT(uid) DO UPDATE SET url_twitter=excluded.url_twitter"),
+    ...["x_posts","x_post_facts","x_post_references","x_post_sources"].map(table=>db.prepare("DELETE FROM "+table)),
+    ...[["scheduled_v2_x_collection_enabled","true"],["x_collection_enabled","true"],["x_collection_interval_hours","24"],
+      ["x_collection_daily_budget_cents","100"],["x_cost_optimizer_enabled","true"],["x_reference_preview_mode","link_only"],
+      ["x_collection_last_run",String(full)],["x_collection_cadence_state",cadence]]
+      .map(([key,value])=>db.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key,value)),
+    db.prepare(`INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,
+      collection_started_at,initialization_completed_at,next_check_at,sync_pagination_token,sync_base_post_id,
+      sync_newest_post_id,last_error,last_error_code,consecutive_failures)
+      VALUES('native_collect','1000000000001','native_collect','100',?,?,1,1,?,'pending-page','100','200','budget_exceeded','budget_exceeded',1)`)
+      .bind(full,full,slot-1),
+  ]);
+  vi.stubGlobal("fetch",(input:RequestInfo|URL,init?:RequestInit)=>bindings.NATIVE_WORKFLOW_PROVIDER.fetch(input,init));
+  const runtime={...bindings,...siteEnv(),CLOUDFLARE_ACCOUNT_ID:"native-test",CLOUDFLARE_D1_TOKEN:"native-test",
+    SCHEDULED_OPERATIONS_WORKFLOW:bindings.NATIVE_SCHEDULED_WORKFLOW} as unknown as Env;
+  try {
+    await handleScheduledWorkflowCron({cron:SCHEDULED_WORKFLOW_CRON,scheduledTime:slot} as ScheduledController,runtime);
+    const instances=await inspector.get();
+    expect(instances).toHaveLength(1);
+    await instances[0].waitForStatus("complete");
+    const output=await instances[0].getOutput() as {id:string}|null;
+    expect(output,"a completed recovery Workflow must create the planned collection run").not.toBeNull();
+    await expect.poll(()=>db.prepare("SELECT status FROM scheduled_job_runs WHERE id=?").bind(output!.id).first("status"),
+      {timeout:20_000,interval:100}).toBe("succeeded");
+    expect(JSON.parse((await db.prepare("SELECT summary_json FROM scheduled_job_runs WHERE id=?").bind(output!.id).first<string>("summary_json"))!)).toMatchObject({xCollectionScope:"pending"});
+    expect(await db.prepare("SELECT last_seen_post_id,sync_pagination_token,last_error_code,next_check_at FROM x_post_sources WHERE handle='native_collect'").first())
+      .toEqual({last_seen_post_id:"200",sync_pagination_token:null,last_error_code:null,next_check_at:full+24*3_600_000});
+    expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_cadence_state'").first("value")).toBe(cadence);
+    expect(await db.prepare("SELECT count(*) n FROM x_posts WHERE handle='native_collect' AND id='200'").first("n")).toBe(1);
+    expect(await db.prepare("SELECT value FROM settings WHERE key='x_collection_daily_budget_cents'").first("value")).toBe("100");
+  } finally {vi.unstubAllGlobals();await inspector.dispose();}
+},60_000);
+
 it("completes the ordinary Cron, native Workflow and native Queue without creating transfer responsibility", async () => {
   const inspector = await introspectWorkflow(bindings.NATIVE_SCHEDULED_WORKFLOW);
   const started = Date.now();
