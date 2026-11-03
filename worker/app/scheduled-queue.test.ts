@@ -25,6 +25,7 @@ vi.mock("../platform/scheduled-jobs", () => ({
     readItem = mocks.readItem;
     rearmDeferredPriorityItem = mocks.rearmDeferredPriorityItem;
     completeItem = mocks.completeItem;
+    completeItemWithReadback = async (...args: unknown[]) => await mocks.completeItem(...args) ? mocks.readItem((args[0] as {id:string}).id) : false;
     releaseItemForRetry = mocks.releaseItemForRetry;
     reserveQueueOperations = mocks.reserveQueueOperations;
     markRunFailed = mocks.markRunFailed;
@@ -145,7 +146,7 @@ describe("scheduled job queue", () => {
 
     expect(mocks.completeItem).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ status: "partial" }),
+      expect.objectContaining({ status: "partial" }), false,
     );
     expect(mocks.advanceRun).toHaveBeenCalledWith(
       expect.objectContaining({ status: "partial" }),
@@ -187,7 +188,7 @@ describe("scheduled job queue", () => {
       expect.objectContaining({
         status: "skipped",
         errorCode: "budget_exceeded",
-      }),
+      }), false,
     );
     expect(mocks.advanceRun).not.toHaveBeenCalled();
     expect(retry).not.toHaveBeenCalled();
@@ -227,7 +228,7 @@ describe("scheduled job queue", () => {
       expect.objectContaining({
         status: "failed",
         errorCode: "rate_limited",
-      }),
+      }), false,
     );
     expect(retry).not.toHaveBeenCalled();
     expect(ack).toHaveBeenCalledOnce();

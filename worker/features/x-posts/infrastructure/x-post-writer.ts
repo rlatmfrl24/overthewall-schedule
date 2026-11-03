@@ -1,4 +1,5 @@
 import { connectReplyFromSnapshot } from "./x-reply-reference";
+import { noteRssD1Conflict, rssD1RetryHasRoom } from "./rss-d1-budget";
 import type { SiteId } from "@contracts/site-definition";
 import type { XPostItem } from "../../../platform/types";
 import { publicationHiddenSql } from "../../content-access";
@@ -213,6 +214,11 @@ export async function commitStoredPosts(
       return { count: plans.reduce((sum, plan) => sum + plan.count, 0), insertedIds: inserts.filter(insert => results[insert.index].meta.changes > 0).map(insert => insert.id) };
     } catch (error) {
       if (!(error instanceof Error) || !error.message.includes("post_revision_conflict")) throw error;
+      if (rssFence) {
+        noteRssD1Conflict(db);
+        // Two retry calls plus twelve for checkpoint, release, outbox and a failed final ACK retry.
+        if (!rssD1RetryHasRoom(db,14)) throw new Error("rss_d1_retry_budget");
+      }
       if (attempt === 3) throw new Error("post_revision_conflict");
     }
   }

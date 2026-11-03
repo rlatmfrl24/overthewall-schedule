@@ -539,15 +539,20 @@ export class ScheduledJobExecutor {
     throw new Error("unsupported_scheduled_job_type");
   }
 
-  async finalizeLegacyState(runId: string) {
-    const run = await this.repository.readRunDto(runId);
+  async finalizeLegacyState(runId: string) { await this.finalizeLegacyStates([runId]); }
+
+  async finalizeLegacyStates(runIds: string[]) {
+    for(const snapshot of await this.repository.readRunFinalizations(runIds)) await this.finalizeRunState(snapshot);
+  }
+
+  private async finalizeRunState({run,items}: Awaited<ReturnType<D1ScheduledJobRepository['readRunFinalizations']>>[number]) {
+    const runId=run.id;
     if (!run || !["succeeded", "partial", "failed", "skipped", "throttled"].includes(run.status)) {
       return;
     }
-    const completedAt = String(run.finishedAt ?? Date.now());
-    if (run.jobType === "x_collection" && run.summary?.xCollectionScope !== "pending") {
-      const items = await this.env.otw_db.prepare("SELECT continuation_json,status FROM scheduled_job_items WHERE run_id=?").bind(runId).all<{continuation_json:string|null;status:string}>();
-      const regular = items.results.filter(item => {
+    const completedAt = String(run.finished_at ?? Date.now());
+    if (run.job_type === "x_collection" && parseContinuation({continuation_json:run.summary_json}).xCollectionScope !== "pending") {
+      const regular = items.filter(item => {
         const state = parseContinuation(item);
         return state.provider !== "fxembed" && !state.recoveryOnly && (state.scope ?? "regular") === "regular";
       });
@@ -555,8 +560,8 @@ export class ScheduledJobExecutor {
       const hybrid = regular.some(item => parseContinuation(item).hybrid === true);
       if (hybrid && (!regular.every(item => ["succeeded","skipped"].includes(item.status)) || !await isHybridRegularCollectionComplete(this.env))) return;
       await recordXCollectionCompletion(this.env, { completedAt: Number(completedAt), source: run.source,
-        scheduledFor: run.scheduledFor, successful: hybrid || run.status === "succeeded" });
-    } else if (run.jobType === "naver_cafe_collection") {
+        scheduledFor: run.scheduled_for, successful: hybrid || run.status === "succeeded" });
+    } else if (run.job_type === "naver_cafe_collection") {
       await writeSetting(
         this.env,
         "naver_cafe_collection_last_run",
@@ -569,7 +574,7 @@ export class ScheduledJobExecutor {
           completedAt,
         );
       }
-    } else if (run.jobType === "retention_prune" && run.status === "succeeded") {
+    } else if (run.job_type === "retention_prune" && run.status === "succeeded") {
       await this.repository.updateRunSummary(runId, {
         retentionPrune: await summarizeDataRetentionRun(this.env, runId),
       });

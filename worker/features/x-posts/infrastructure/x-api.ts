@@ -103,7 +103,7 @@ export type XTweetLookupResponse = {
   errors?: Array<{ resource_id?: string; value?: string; type?: string; resource_type?: string }>;
 };
 
-type XCacheDb = Pick<D1Database, "prepare">;
+type XCacheDb = Pick<D1Database, "prepare"> & { batch?: (statements: D1PreparedStatement[]) => Promise<D1Result<unknown>[]> };
 
 type XCacheRow = {
   value: string;
@@ -654,10 +654,23 @@ const reserveXApiBudget = async (
     if (!cacheDb) return noopXApiBudgetSettlement;
   }
 
-  const usedMicros = await readDailyUsageMicros(cacheDb);
+  let usedMicros: number | null, budgetMicros: number;
+  if (admissionFence) {
+    const [usage, settings] = await cacheDb.batch!([
+      cacheDb.prepare("SELECT COALESCE(SUM(estimated_cost_micros),0) total FROM x_api_usage_events WHERE created_at>=?").bind(startOfUtcDay()),
+      cacheDb.prepare("SELECT key,value FROM settings WHERE key IN ('x_collection_daily_budget_cents','x_api_backoff_until')"),
+    ]);
+    const values = new Map((settings.results as {key:string;value:string}[]).map(row=>[row.key,row.value]));
+    const backoff = Number.parseInt(values.get("x_api_backoff_until") ?? "0",10);
+    if (backoff > now()) throw new XApiError("X API is temporarily paused after rate limiting",429,{code:"rate_limited",sourceStatus:429,detail:`X API calls are paused until ${new Date(backoff).toISOString()}.`});
+    const cents = Number.parseInt(values.get("x_collection_daily_budget_cents") ?? "",10);
+    budgetMicros = Math.min(100,Number.isFinite(cents)&&cents>0?cents:X_DAILY_BUDGET_CENTS_DEFAULT)*10_000;
+    usedMicros = Number((usage.results[0] as {total:number} | undefined)?.total ?? 0);
+  } else {
+    usedMicros = await readDailyUsageMicros(cacheDb);
+    budgetMicros = await readDailyBudgetMicros(cacheDb);
+  }
   if (usedMicros === null) throw new XApiError("X budget storage unavailable", 503, { code: "budget_unavailable" });
-
-  const budgetMicros = await readDailyBudgetMicros(cacheDb);
   const reservedMicros = usageTracker?.reservedCostMicros ?? 0;
   if (usedMicros + reservedMicros + estimatedCostMicros > budgetMicros) {
     throw new XApiError("X API daily budget exhausted", 429, {
@@ -815,19 +828,21 @@ const recordDailyXApiResources = async (
   let uniqueCount = 0;
   let listedCostMicros = 0;
   let conservativeCostMicros = 0;
-  for (const resource of resources) {
-    const inserted = await cacheDb.prepare(
+  const statements = resources.map(resource => cacheDb.prepare(
       `INSERT OR IGNORE INTO x_api_resource_daily (
          utc_day, resource_type, resource_id, first_operation,
          first_seen_at, unit_cost_micros
        ) VALUES (?, ?, ?, ?, ?, ?)`,
-    ).bind(day, resource.type, resource.id, operation, timestamp, resource.conservative).run();
+    ).bind(day, resource.type, resource.id, operation, timestamp, resource.conservative));
+  const insertedResources = statements.length ? await cacheDb.batch!(statements) : [];
+  for (const [index, resource] of resources.entries()) {
+    const inserted = insertedResources[index];
     if (Number(inserted.meta?.changes ?? 0) <= 0) continue;
     uniqueCount += 1;
     listedCostMicros += resource.listed;
     conservativeCostMicros += resource.conservative;
   }
-  await cacheDb.prepare(
+  const aggregate = cacheDb.prepare(
     `INSERT INTO x_api_usage_daily (
        utc_day, operation, resource_type, request_count, resource_count,
        unique_resource_count, listed_cost_micros,
@@ -840,8 +855,8 @@ const recordDailyXApiResources = async (
        listed_cost_micros = x_api_usage_daily.listed_cost_micros + excluded.listed_cost_micros,
        conservative_cost_micros = x_api_usage_daily.conservative_cost_micros + excluded.conservative_cost_micros,
        updated_at = excluded.updated_at`,
-  ).bind(day, operation, resources.length, uniqueCount, listedCostMicros, conservativeCostMicros, timestamp).run();
-  return { conservativeCostMicros, uniqueCount };
+  ).bind(day, operation, resources.length, uniqueCount, listedCostMicros, conservativeCostMicros, timestamp);
+  return { conservativeCostMicros, uniqueCount, aggregate };
 };
 
 const writeXApiUsageEvent = async (
@@ -872,11 +887,13 @@ const writeXApiUsageEvent = async (
   if (!cacheDb) return estimate.estimatedCostMicros;
 
   try {
+    const statements: D1PreparedStatement[] = [];
     if (response) {
       const recorded = await recordDailyXApiResources(cacheDb, operation, response, now());
       if (usageTracker) usageTracker.uniqueResources += recorded.uniqueCount;
+      statements.push(recorded.aggregate);
     }
-    await cacheDb
+    statements.push(cacheDb
       .prepare(
         `INSERT INTO x_api_usage_events (
            operation, endpoint, resource_type, resource_count,
@@ -905,8 +922,8 @@ const writeXApiUsageEvent = async (
               ? "conservative_request_estimate"
               : "no_measurable_resources",
         }),
-      )
-      .run();
+      ));
+    await cacheDb.batch!(statements);
   } catch (error) {
     console.warn("Failed to write X API usage event", error);
     throw new XApiError("X usage recording failed", 503, { code: "budget_unavailable" });
@@ -994,7 +1011,7 @@ export const requestXApi = async <T>(
     throw new XApiError("RSS site admission unavailable", 503, { code: "budget_unavailable" });
   }
   if (options.operation) {
-    await assertXApiNotBackedOff(options.backoffDb ?? options.cacheDb);
+    if (!options.admissionFence) await assertXApiNotBackedOff(options.backoffDb ?? options.cacheDb);
     reservedCostMicros = options.estimatedCostMicros ?? estimateXApiRequestCostMicros(
       options.operation,
       path,

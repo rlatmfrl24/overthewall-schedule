@@ -11,6 +11,10 @@ const utcDay = () => new Date(Date.now()).toISOString().slice(0,10);
 
 export { readSiteXBudget } from "./x-api";
 
+const prepareSharedDay = (db: D1Database, day: string) => db.prepare(`INSERT INTO x_shared_budgets(day,used,reserved,limit_value,seed_detail,updated_at)
+  SELECT ?,0,0,1000000,'{"rollover":true}',? WHERE EXISTS(SELECT 1 FROM x_activity_coordinator WHERE id=1 AND ready=1)
+  AND EXISTS(SELECT 1 FROM x_shared_budgets WHERE day<?) ON CONFLICT(day) DO NOTHING`).bind(day,Date.now(),day);
+
 export class D1SharedXBudget {
   private readonly db: D1Database;
   constructor(db: D1Database) { this.db = db; }
@@ -33,10 +37,13 @@ export class D1SharedXBudget {
 
   async ensureDay(): Promise<XSharedBudget> {
     const day = utcDay();
-    await this.db.prepare(`INSERT INTO x_shared_budgets(day,used,reserved,limit_value,seed_detail,updated_at)
-      SELECT ?,0,0,1000000,'{"rollover":true}',? WHERE EXISTS(SELECT 1 FROM x_activity_coordinator WHERE id=1 AND ready=1)
-      AND EXISTS(SELECT 1 FROM x_shared_budgets WHERE day<?) ON CONFLICT(day) DO NOTHING`).bind(day,Date.now(),day).run();
-    return this.read();
+    const [, rows] = await this.db.batch([
+      prepareSharedDay(this.db,day),
+      this.db.prepare("SELECT used,reserved,limit_value FROM x_shared_budgets WHERE day=?").bind(day),
+    ]);
+    const row = rows.results[0] as { used: number; reserved: number; limit_value: number } | undefined;
+    return { day, used: row?.used ?? 0, reserved: row?.reserved ?? 0, limit: row?.limit_value ?? 1_000_000,
+      remaining: row ? Math.max(0,row.limit_value-row.used-row.reserved) : 0, seeded: !!row };
   }
 
   async read(): Promise<XSharedBudget> {
@@ -115,15 +122,16 @@ export class D1SharedXApiGateway implements XApiGateway {
       }
       const token = crypto.randomUUID();
       const timestamp = Date.now();
-      await this.db.batch([
+      const claimResults = await this.db.batch([
         this.db.prepare(`INSERT OR IGNORE INTO x_shared_requests(id,site,operation,path,status,claim_token,estimate,cost,day,created_at,updated_at)
           VALUES(?,?,?,?,'new',?,?,0,?,?,?)`).bind(input.id,this.site,input.operation,input.path,token,estimate,day,timestamp,timestamp),
         this.db.prepare(`UPDATE x_shared_budgets SET reserved=reserved+?,updated_at=? WHERE day=? AND used+reserved+MAX(?,30000)<=limit_value
           AND EXISTS(SELECT 1 FROM x_shared_requests WHERE id=? AND claim_token=? AND status='new')`).bind(estimate,timestamp,day,estimate,input.id,token),
         this.db.prepare(`UPDATE x_shared_requests SET status=CASE WHEN changes()=1 THEN 'running' ELSE 'blocked' END
           WHERE id=? AND claim_token=? AND status='new'`).bind(input.id,token),
+        this.db.prepare("SELECT claim_token,status,path,operation,result FROM x_shared_requests WHERE id=?").bind(input.id),
       ]);
-      const claim = await this.db.prepare("SELECT claim_token,status,path,operation,result FROM x_shared_requests WHERE id=?").bind(input.id).first<{ claim_token: string; status: string; path: string; operation: string; result: string | null }>();
+      const claim = claimResults[3].results[0] as { claim_token: string; status: string; path: string; operation: string; result: string | null } | undefined;
       if (!claim || claim.path !== input.path || claim.operation !== input.operation) return failure("x_gateway_identity_conflict",409);
       if (claim.claim_token !== token) {
         if (claim.result) return { ...JSON.parse(claim.result) as XApiGatewayResult, cached: true, costMicros: 0, dispatched: false };
@@ -145,19 +153,18 @@ export class D1SharedXApiGateway implements XApiGateway {
       }
       const postIds = input.operation !== "user_lookup" && result.ok
         ? ((result.body as { data?: Array<{ id?: string }> }).data ?? []).flatMap(post => typeof post.id === "string" ? [post.id] : []) : [];
-      const redacted=postIds.length?await this.db.prepare("SELECT post_id FROM x_activity_cache_redactions WHERE post_id IN (SELECT value FROM json_each(?)) LIMIT 1").bind(JSON.stringify(postIds)).first():null;
       const settlementDay=utcDay();
-      if(settlementDay!==day)await new D1SharedXBudget(this.db).ensureDay();
       await this.db.batch([
+        ...(settlementDay===day?[]:[prepareSharedDay(this.db,settlementDay)]),
         this.db.prepare(`UPDATE x_shared_budgets SET reserved=MAX(0,reserved-?),used=used+?,updated_at=? WHERE day=?
           AND EXISTS(SELECT 1 FROM x_shared_requests WHERE id=? AND claim_token=? AND status IN ('running','redacting'))`)
           .bind(estimate,settlementDay===day?result.costMicros:0,Date.now(),day,input.id,token),
         ...(settlementDay===day?[]:[this.db.prepare(`UPDATE x_shared_budgets SET used=used+?,updated_at=? WHERE day=?
           AND EXISTS(SELECT 1 FROM x_shared_requests WHERE id=? AND claim_token=? AND status IN ('running','redacting'))`)
           .bind(result.costMicros,Date.now(),settlementDay,input.id,token)]),
-        this.db.prepare(`UPDATE x_shared_requests SET status=CASE WHEN status='redacting' OR ?=1 THEN 'redacted' ELSE 'complete' END,
-          cost=?,result=CASE WHEN status='redacting' OR ?=1 THEN NULL ELSE ? END,post_ids=?,day=?,updated_at=? WHERE id=? AND claim_token=? AND status IN ('running','redacting')`)
-          .bind(redacted?1:0,result.costMicros,redacted?1:0,JSON.stringify(result),JSON.stringify(postIds),settlementDay,Date.now(),input.id,token),
+        this.db.prepare(`UPDATE x_shared_requests SET status=CASE WHEN status='redacting' OR EXISTS(SELECT 1 FROM x_activity_cache_redactions WHERE post_id IN (SELECT value FROM json_each(?))) THEN 'redacted' ELSE 'complete' END,
+          cost=?,result=CASE WHEN status='redacting' OR EXISTS(SELECT 1 FROM x_activity_cache_redactions WHERE post_id IN (SELECT value FROM json_each(?))) THEN NULL ELSE ? END,post_ids=?,day=?,updated_at=? WHERE id=? AND claim_token=? AND status IN ('running','redacting')`)
+          .bind(JSON.stringify(postIds),result.costMicros,JSON.stringify(postIds),JSON.stringify(result),JSON.stringify(postIds),settlementDay,Date.now(),input.id,token),
       ]);
       return result;
     } catch { return failure("shared_budget_unavailable"); }

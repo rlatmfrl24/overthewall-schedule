@@ -4,7 +4,7 @@ import type { D1ScheduledJobRepository, ScheduledJobItemRecord } from "../platfo
 import type { Env } from "../platform/types";
 
 export async function runFxRssCollectionItem(env: Env, item: ScheduledJobItemRecord, state: FxRssContinuation, repository: D1ScheduledJobRepository): Promise<FxRssStepResult> {
-  const adapter = new D1FxRssCollectionAdapter(env, item, (snapshot, stats) => repository.checkpointItemContinuation(item, snapshot, stats));
+  const adapter = new D1FxRssCollectionAdapter(env, item, (snapshot, stats, commit) => repository.checkpointItemContinuation(item, snapshot, stats, commit));
   try {
     if (!await adapter.start(state)) return { state, status: "blocked", error: "rss_obsolete_or_ineligible", nextAttemptAt: state.nextAttemptAt,
       stats: { rawCount: 0, candidatesFound: 0, resolved: 0, postsReturned: 0, postsStored: 0, pending: state.candidates.length, freeApiCalls: 0, paidApiCalls: 0, estimatedCostMicros: 0 } };

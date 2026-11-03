@@ -173,6 +173,11 @@ export const resolveXEffectiveCollectionPolicy = async (
   };
 };
 
+export const prepareXSourceLeaseClaim = (env: Env, handle: string, token: string, timestamp: number) =>
+  env.otw_db.prepare(`UPDATE x_post_sources SET lease_token=?,lease_until=?,generation=generation+1,updated_at=?
+    WHERE handle=? AND NOT (${publicationHiddenSql("x_post_sources","x_post_sources",parseSiteId(env.SITE_ID))}) AND (lease_until IS NULL OR lease_until<=?)
+    RETURNING handle`).bind(token,timestamp+X_SOURCE_LEASE_MS,timestamp,handle,timestamp);
+
 export const claimXSourceLeases = async (env: Env, handles: string[], currentTime: number) => {
   const claimed: string[] = [];
   const token = crypto.randomUUID();
@@ -180,31 +185,13 @@ export const claimXSourceLeases = async (env: Env, handles: string[], currentTim
   if (normalizedHandles.length === 0) {
     return { claimed, token, coalesced: 0 };
   }
-  const existing = await env.otw_db.prepare(
-    `SELECT handle FROM x_post_sources
-     WHERE handle IN (${normalizedHandles.map(() => "?").join(", ")})`,
-  ).bind(...normalizedHandles).all<{ handle: string }>();
-  const existingHandles = new Set(existing.results.map((row) => row.handle));
-  for (const handle of normalizedHandles) {
-    if (!existingHandles.has(handle)) {
-      await env.otw_db.prepare(
-        `INSERT INTO x_post_sources (
-           handle, last_checked_at, updated_at, collection_started_at,
-           generation
-         ) VALUES (?, 0, ?, ?, 0)
-         ON CONFLICT(handle) DO NOTHING`,
-      ).bind(handle, currentTime, currentTime).run();
-    }
-    const row = await env.otw_db.prepare(
-      `UPDATE x_post_sources
-       SET lease_token = ?, lease_until = ?, generation = generation + 1,
-           updated_at = ?
-       WHERE handle = ? AND NOT (${publicationHiddenSql("x_post_sources","x_post_sources",parseSiteId(env.SITE_ID))}) AND (lease_until IS NULL OR lease_until <= ?)
-       RETURNING handle`,
-    ).bind(token, currentTime + X_SOURCE_LEASE_MS, currentTime, handle, currentTime)
-      .first<{ handle: string }>();
-    if (row?.handle) claimed.push(row.handle);
-  }
+  const results = await env.otw_db.batch(normalizedHandles.flatMap(handle=>[
+    env.otw_db.prepare(`INSERT INTO x_post_sources(handle,last_checked_at,updated_at,collection_started_at,generation)
+      SELECT ?,0,?,?,0 WHERE NOT EXISTS(SELECT 1 FROM x_post_sources WHERE handle=?) ON CONFLICT(handle) DO NOTHING`)
+      .bind(handle,currentTime,currentTime,handle),
+    prepareXSourceLeaseClaim(env,handle,token,currentTime),
+  ]));
+  results.forEach((result,index)=>{ if(index%2===1 && result.results.length) claimed.push(String((result.results[0] as {handle:string}).handle)); });
   return {
     claimed,
     token,

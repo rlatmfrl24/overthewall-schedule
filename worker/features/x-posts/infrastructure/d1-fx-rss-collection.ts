@@ -7,13 +7,14 @@ import type { XPostDto } from "@contracts/x-posts";
 import { getDb } from "../../../platform/db";
 import type { Env } from "../../../platform/types";
 import type { ScheduledJobItemRecord } from "../../../platform/scheduled-jobs";
-import { readActiveXHandles, claimXSourceLeases, releaseXSourceLeases } from "./x-collection";
+import { readActiveXHandles, prepareXSourceLeaseClaim, releaseXSourceLeases } from "./x-collection";
 import { fetchFxRssFeed } from "./fx-rss-api";
 import { fetchFxStatus } from "./fx-api";
 import { extractXHandleFromUrl, writeStoredPosts } from "./x-api";
 import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
 import { hydrateOfficialRssCandidates, prepareOfficialRssBatch } from "./x-rss-official-hydration";
 import { readStoredRssCandidateIds } from "./rss-stored-candidates";
+import { rssD1RetryHasRoom } from "./rss-d1-budget";
 
 const policySql = "SELECT key,value FROM settings WHERE key IN ('x_collection_enabled','x_collection_primary_source','x_collection_hybrid_policy','x_collection_hybrid_activated_at')";
 const isRssPolicy = (rows: Array<{ key: string; value: string }>) => {
@@ -63,52 +64,48 @@ export class D1FxRssCollectionAdapter implements FxRssCollectionPorts {
   private token: string | null = null;
   private feedFetched = false;
   private writeFence: FxRssWriteFence | undefined;
+  private trustedUserId: string | null = null;
   private readonly handle: string;
   private readonly env: Env;
   private readonly item: ScheduledJobItemRecord;
-  private readonly save: (state: FxRssContinuation, stats: FxRssStats) => Promise<boolean>;
+  private readonly save: (state: FxRssContinuation, stats: FxRssStats, commit: (statement: D1PreparedStatement) => Promise<boolean>) => Promise<boolean>;
   readonly now: () => number;
   constructor(env: Env, item: ScheduledJobItemRecord,
-    save: (state: FxRssContinuation, stats: FxRssStats) => Promise<boolean>, now = Date.now) {
+    save: D1FxRssCollectionAdapter["save"], now = Date.now) {
     this.env = env;
     this.item = item;
     this.save = save;
     this.now = now;
     this.handle = parseFxRssContinuation(JSON.parse(item.continuation_json ?? "{}")).handles[0];
   }
-  async readContext(handle: string) {
-    const [settings, members, sources] = await this.env.otw_db.batch([
+  async readContext(handle: string, claim?: {token:string;timestamp:number}) {
+    const [settings, members, sources, leased] = await this.env.otw_db.batch([
       this.env.otw_db.prepare(policySql),
-      this.env.otw_db.prepare(`SELECT url_twitter FROM members WHERE coalesce(is_deprecated,0)=0 AND NOT (${publicationHiddenSql("members", "members", parseSiteId(this.env.SITE_ID))})`),
+      this.env.otw_db.prepare(`SELECT uid,url_twitter FROM members WHERE coalesce(is_deprecated,0)=0 AND content_access='normal' AND NOT (${publicationHiddenSql("members", "members", parseSiteId(this.env.SITE_ID))})`),
       this.env.otw_db.prepare(`SELECT s.deactivated_at,COALESCE(s.user_id,f.user_id) user_id,COALESCE(f.collection_started_at,s.collection_started_at,?) collection_started_at,f.rss_pending_item_id,f.rss_last_raw_count,f.rss_previous_raw_count
         FROM x_post_sources s LEFT JOIN x_fx_sources f ON f.handle=s.handle WHERE s.handle=?`).bind(this.now(), handle),
+      ...(claim ? [prepareXSourceLeaseClaim(this.env,handle,claim.token,claim.timestamp)] : []),
     ]);
     const source = sources.results[0] as { deactivated_at: number | null; user_id: string | null; collection_started_at: number; rss_pending_item_id: string | null; rss_last_raw_count: number | null; rss_previous_raw_count: number | null } | undefined;
     const allowed = (members.results as Array<{ url_twitter: string | null }>).some(member => typeof member.url_twitter === "string" && extractXHandleFromUrl(member.url_twitter)?.toLowerCase() === handle);
-    return { allowed: allowed && source?.deactivated_at == null, policy: isRssPolicy(settings.results as Array<{ key: string; value: string }>) ? "rss_v1" as const : "legacy" as const,
+    this.trustedUserId = source?.user_id ?? null;
+    return { claimed: Boolean(leased?.results.length), members: members.results as Array<{uid:number;url_twitter:string|null}>, allowed: allowed && source?.deactivated_at == null, policy: isRssPolicy(settings.results as Array<{ key: string; value: string }>) ? "rss_v1" as const : "legacy" as const,
       collectionStartedAt: source?.collection_started_at ?? this.now(), trustedUserId: source?.user_id ?? null, pendingItemId: source?.rss_pending_item_id ?? null,
       windowReduced: source?.rss_last_raw_count != null && source.rss_previous_raw_count != null && source.rss_last_raw_count < source.rss_previous_raw_count };
   }
-  private async fenced() {
-    if (!this.writeFence) return false;
-    const fence = fxRssWriteFenceSql(this.writeFence, parseSiteId(this.env.SITE_ID));
-    return Boolean(await this.env.otw_db.prepare(`SELECT 1 WHERE (${fence.sql})`).bind(...fence.bindings).first());
-  }
   async start(state: FxRssContinuation) {
-    const context = await this.readContext(this.handle);
+    this.token=crypto.randomUUID();
+    const context = await this.readContext(this.handle,{token:this.token,timestamp:this.now()});
     if (!context.allowed || context.policy !== "rss_v1" || !context.trustedUserId) return false;
-    const lease = await claimXSourceLeases(this.env, [this.handle], this.now());
-    this.token = lease.token;
-    if (!lease.claimed.length) throw new Error("x_source_lease_busy");
+    if (!context.claimed) throw new Error("x_source_lease_busy");
     const now = this.now();
-    const members = await this.env.otw_db.prepare(`SELECT uid,url_twitter FROM members WHERE coalesce(is_deprecated,0)=0 AND content_access='normal'
-      AND NOT (${publicationHiddenSql("members", "members", parseSiteId(this.env.SITE_ID))})`).all<{ uid: number; url_twitter: string | null }>();
     this.writeFence = { handle: this.handle, itemId: this.item.id, itemLeaseToken: this.item.lease_token ?? "", sourceLeaseToken: this.token,
-      members: members.results.flatMap(member => member.url_twitter && extractXHandleFromUrl(member.url_twitter)?.toLowerCase() === this.handle ? [{ uid: member.uid, urlTwitter: member.url_twitter }] : []) };
+      members: context.members.flatMap(member => member.url_twitter && extractXHandleFromUrl(member.url_twitter)?.toLowerCase() === this.handle ? [{ uid: member.uid, urlTwitter: member.url_twitter }] : []) };
     const fence = fxRssWriteFenceSql(this.writeFence, parseSiteId(this.env.SITE_ID), false);
-    await this.env.otw_db.prepare(`INSERT INTO x_fx_sources(handle,collection_started_at,updated_at) SELECT ?,?,? WHERE (${fence.sql}) ON CONFLICT(handle) DO NOTHING`)
-      .bind(this.handle, context.collectionStartedAt, now, ...fence.bindings).run();
-    const ack = await this.env.otw_db.prepare(`UPDATE x_fx_sources SET
+    const [, ack] = await this.env.otw_db.batch([
+      this.env.otw_db.prepare(`INSERT INTO x_fx_sources(handle,collection_started_at,updated_at) SELECT ?,?,? WHERE (${fence.sql}) ON CONFLICT(handle) DO NOTHING`)
+      .bind(this.handle, context.collectionStartedAt, now, ...fence.bindings),
+      this.env.otw_db.prepare(`UPDATE x_fx_sources SET
       rss_cadence_anchor_at=CASE WHEN rss_pending_item_id IS NULL THEN (SELECT COALESCE(scheduled_for,?) FROM scheduled_job_runs WHERE id=?) ELSE rss_cadence_anchor_at END,
       rss_last_attempt_at=CASE WHEN rss_pending_item_id IS NULL THEN ? ELSE rss_last_attempt_at END,
       rss_pending_item_id=?,updated_at=?
@@ -122,8 +119,9 @@ export class D1FxRssCollectionAdapter implements FxRssCollectionPorts {
       AND (${fence.sql})
       RETURNING handle`).bind(now, this.item.run_id, now, this.item.id, now, this.handle, this.item.id, state.resumeFromItemId ?? null, state.resumeFromItemId ?? null,
         state.phase, JSON.stringify(state.candidates), JSON.stringify(state.paidBatch ?? null), state.nextAttemptAt,
-        state.resumeFromItemId ?? null, state.phase, now - FX_RSS_INTERVAL_MS, ...fence.bindings).first();
-    return Boolean(ack);
+        state.resumeFromItemId ?? null, state.phase, now - FX_RSS_INTERVAL_MS, ...fence.bindings),
+    ]);
+    return ack.results.length > 0;
   }
   async release() { if (this.token) await releaseXSourceLeases(this.env, this.token); }
   async fetchFeed(handle: string) {
@@ -137,29 +135,28 @@ export class D1FxRssCollectionAdapter implements FxRssCollectionPorts {
     return readStoredRssCandidateIds(this.env.otw_db, ids);
   }
   async store(post: XPostDto, origin: "fxembed" | "x_api") {
-    if (!await this.fenced()) return { ok: false, postsStored: 0 };
-    const context = await this.readContext(this.handle);
-    if (!context.trustedUserId) return { ok: false, postsStored: 0 };
+    if (!this.writeFence || !this.trustedUserId) return { ok: false, postsStored: 0 };
     const storedAt = this.now();
-    const stored = await writeStoredPosts(this.env.otw_db, this.handle, { id: context.trustedUserId, username: this.handle }, [post], storedAt, parseSiteId(this.env.SITE_ID),
+    // The writer snapshots and atomically revalidates the current effective identity and fence.
+    const stored = await writeStoredPosts(this.env.otw_db, this.handle, { id: this.trustedUserId, username: this.handle }, [post], storedAt, parseSiteId(this.env.SITE_ID),
       { origin, completeness: { text: true, media: true, relations: true } }, this.writeFence);
-    return { ok: stored.ok && await this.fenced(), postsStored: stored.count,
+    return { ok: stored.ok, postsStored: stored.count,
       newlyStoredPosts: stored.insertedIds.includes(post.id) ? [{ id: post.id, createdAt: post.createdAt, storedAt }] : [] };
   }
   async prepareOfficialBatch(candidates: FxRssCandidate[], batch: FxRssPaidBatch | null) {
-    if (!await this.fenced()) return { batch: null, error: "rss_write_fence_lost" };
+    // Only a previously observed CAS conflict may defer paid admission to preserve its settlement and unwind.
+    if (!rssD1RetryHasRoom(this.env.otw_db,30)) return { batch: null, error: "rss_d1_retry_budget" };
     return prepareOfficialRssBatch(this.env, this.handle, candidates, batch, this.writeFence);
   }
   async hydrateOfficial(candidates: FxRssCandidate[]) {
     if (!this.writeFence) throw new Error("rss_write_fence_missing");
-    const source = await this.env.otw_db.prepare("SELECT source FROM scheduled_job_runs WHERE id=?").bind(this.item.run_id).first<string>("source");
-    return hydrateOfficialRssCandidates(this.env, this.handle, candidates, source === "manual" ? "manual" : "scheduled", this.writeFence);
+    return hydrateOfficialRssCandidates(this.env, this.handle, candidates, this.writeFence);
   }
   async checkpoint(state: FxRssContinuation, stats: FxRssStats) {
-    if (!await this.fenced() || !await this.save(state, stats)) return false;
+    if (!this.writeFence) return false;
     const now = this.now(), completed = state.phase === "hydrate" && state.candidates.length === 0, fetched = this.feedFetched ? 1 : 0;
     const fence = fxRssWriteFenceSql(this.writeFence, parseSiteId(this.env.SITE_ID));
-    const saved = await this.env.otw_db.prepare(`UPDATE x_fx_sources SET
+    const source = this.env.otw_db.prepare(`UPDATE x_fx_sources SET
       rss_last_http_success_at=CASE WHEN ? THEN ? ELSE rss_last_http_success_at END,
       rss_previous_raw_count=CASE WHEN ? THEN rss_last_raw_count ELSE rss_previous_raw_count END,
       rss_last_raw_count=CASE WHEN ? THEN ? ELSE rss_last_raw_count END,
@@ -168,7 +165,18 @@ export class D1FxRssCollectionAdapter implements FxRssCollectionPorts {
       rss_last_error=?,rss_pending_item_id=CASE WHEN ? THEN NULL ELSE rss_pending_item_id END,updated_at=?
       WHERE handle=? AND rss_pending_item_id=? AND (${fence.sql})
       RETURNING handle`).bind(fetched, now, fetched, fetched, stats.rawCount, fetched, stats.candidatesFound,
-        completed ? 1 : 0, now, state.candidates.find(candidate => candidate.error)?.error ?? (state.phase === "fetch" ? "rss_feed_pending" : null), completed ? 1 : 0, now, this.handle, this.item.id, ...fence.bindings).first();
+        completed ? 1 : 0, now, state.candidates.find(candidate => candidate.error)?.error ?? (state.phase === "fetch" ? "rss_feed_pending" : null), completed ? 1 : 0, now, this.handle, this.item.id, ...fence.bindings);
+    const saved = await this.save(state, stats, async item => {
+      const assert = (predicate: string, bindings: (string | number)[] = []) => this.env.otw_db.prepare(
+        `SELECT CASE WHEN (${predicate}) THEN 1 ELSE json_extract('[]','rss_checkpoint_lost') END`).bind(...bindings);
+      try {
+        await this.env.otw_db.batch([assert(fence.sql, fence.bindings), item, assert("changes()=1"), source, assert("changes()=1")]);
+        return true;
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("rss_checkpoint_lost")) return false;
+        throw error;
+      }
+    });
     if (saved) this.feedFetched = false;
     return Boolean(saved);
   }

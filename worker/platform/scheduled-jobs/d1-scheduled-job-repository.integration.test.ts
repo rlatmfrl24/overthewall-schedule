@@ -37,6 +37,18 @@ beforeEach(async () => {
 });
 
 describe("D1 scheduled job state machine", () => {
+  it("fences delayed cohort send results to their own outbox claim",async()=>{
+    const repo=createRepository(),run=await repo.createRun({jobType:'x_collection',source:'scheduled',idempotencyKey:'late-marker'});
+    await repo.addItems(run.id,[{targetKey:'one',phase:'collect',lane:'x'}]);
+    const [claim]=await repo.claimPendingOutbox(run.id);
+    await db.prepare("UPDATE scheduled_outbox SET lease_token='new-owner' WHERE id=?").bind(claim.id).run();
+    await repo.markOutboxResults([{id:claim.id,error:null,leaseToken:claim.lease_token}]);
+    await repo.markOutboxResults([{id:claim.id,error:'late failure',leaseToken:claim.lease_token}]);
+    expect(await db.prepare('SELECT status,lease_token,last_error,dispatched_at FROM scheduled_outbox WHERE id=?').bind(claim.id).first()).toEqual({status:'dispatching',lease_token:'new-owner',last_error:null,dispatched_at:null});
+    await repo.markOutboxResults([{id:claim.id,error:null,leaseToken:'new-owner'}]);
+    expect(await db.prepare('SELECT status FROM scheduled_outbox WHERE id=?').bind(claim.id).first('status')).toBe('dispatched');
+  });
+
   it("admits only the highest-priority eligible paid item despite adverse IDs and reordered delivery", async () => {
     const repo = createRepository(), run = await repo.createRun({ jobType: "x_collection", source: "scheduled", idempotencyKey: "ranked" });
     const [low, high, free] = await repo.addItems(run.id, [

@@ -180,8 +180,8 @@ it.each([
   const entry = await createItem();
   const checkpoint = entry.repo.checkpointItemContinuation.bind(entry.repo);
   let discovered = false;
-  vi.spyOn(entry.repo, "checkpointItemContinuation").mockImplementation(async (item, continuation, stats) => {
-    const saved = await checkpoint(item, continuation, stats);
+  vi.spyOn(entry.repo, "checkpointItemContinuation").mockImplementation(async (item, continuation, stats, commit) => {
+    const saved = await checkpoint(item, continuation, stats, commit);
     if (saved && !discovered && continuation.phase === "hydrate") {
       discovered = true;
       await db.prepare("INSERT INTO x_posts(id,handle,user_id,username,value,created_at,first_seen_at,fetched_at,hidden_at,content_removed_at,content_access,source_authority,content_hash) VALUES('1','member','101','member','{}','2026-11-03',1,1,?,?,?,?,?)")
@@ -199,8 +199,8 @@ it.each([
 it("removes a candidate fulfilled by the normal JSON post writer after discovery", async () => {
   const entry = await createItem(), checkpoint = entry.repo.checkpointItemContinuation.bind(entry.repo);
   let discovered = false;
-  vi.spyOn(entry.repo, "checkpointItemContinuation").mockImplementation(async (item, continuation, stats) => {
-    const saved = await checkpoint(item, continuation, stats);
+  vi.spyOn(entry.repo, "checkpointItemContinuation").mockImplementation(async (item, continuation, stats, commit) => {
+    const saved = await checkpoint(item, continuation, stats, commit);
     if (saved && !discovered && continuation.phase === "hydrate") {
       discovered = true;
       expect(await writeStoredPosts(db, "member", { id: "101", username: "member" }, [{ id: "1", text: "JSON stored concurrently", username: "member", createdAt: new Date(now).toISOString(), url: "https://x.com/member/status/1", media: [], metrics: { likeCount: 0, replyCount: 0, repostCount: 0, quoteCount: 0 } }], now, "otw", { origin: "fxembed", completeness: { text: true, media: true, relations: true } })).toMatchObject({ ok: true, count: 1 });
@@ -218,8 +218,8 @@ it("removes a candidate fulfilled by the normal JSON post writer after discovery
 it("replays an actual post commit after lost checkpoint without duplicate write", async () => {
   const entry = await createItem();
   const checkpoint = entry.repo.checkpointItemContinuation.bind(entry.repo);
-  vi.spyOn(entry.repo, "checkpointItemContinuation").mockImplementation(async (item, continuation, stats) =>
-    continuation.phase === "hydrate" && (continuation.candidates as unknown[]).length === 5 ? false : checkpoint(item, continuation, stats));
+  vi.spyOn(entry.repo, "checkpointItemContinuation").mockImplementation(async (item, continuation, stats, commit) =>
+    continuation.phase === "hydrate" && (continuation.candidates as unknown[]).length === 5 ? false : checkpoint(item, continuation, stats, commit));
   const interrupted = await runItem(entry, state());
   expect(interrupted.status).toBe("blocked");
   expect(interrupted.state.candidates).toHaveLength(6);
@@ -364,44 +364,62 @@ it.each(writeInterleavings)("rejects RSS post mutation when %s occurs after the 
   expect(warning).toHaveBeenCalledWith("Failed to write stored X posts", expect.any(Error));
 });
 
-it.each(writeInterleavings)("rejects source acknowledgement when %s occurs after the item checkpoint", async (_reason, mutation) => {
+it.each(writeInterleavings)("atomically rejects item and source acknowledgement when %s occurs before commit", async (_reason, mutation) => {
   const input: FxRssContinuation = { ...state(), phase: "hydrate", candidates: [] };
   const entry = await createItem(input);
   await db.prepare("UPDATE x_fx_sources SET rss_pending_item_id=?").bind(entry.item.id).run();
-  const checkpoint = entry.repo.checkpointItemContinuation.bind(entry.repo);
+  const before = {...entry.item}, checkpoint = entry.repo.checkpointItemContinuation.bind(entry.repo);
   vi.spyOn(entry.repo, "checkpointItemContinuation").mockImplementation(async (...args) => {
-    const saved = await checkpoint(...args);
-    if (saved) await db.prepare(mutation).run();
-    return saved;
+    await db.prepare(mutation).run();
+    return checkpoint(...args);
   });
   expect((await runItem(entry, input)).status).toBe("blocked");
+  expect(entry.item.continuation_json).toBe(before.continuation_json);
+  expect(entry.item.result_json).toBe(before.result_json);
   expect(await db.prepare("SELECT rss_last_check_completed_at,rss_pending_item_id FROM x_fx_sources").first()).toEqual({ rss_last_check_completed_at: null, rss_pending_item_id: mutation.includes("newer-item") ? "newer-item" : entry.item.id });
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it("rolls back the actual item CAS when its source acknowledgement fails in the same transaction", async () => {
+  const input: FxRssContinuation = {...state(),phase:"hydrate",candidates:[]}, entry=await createItem(input);
+  await db.prepare("UPDATE x_fx_sources SET rss_pending_item_id=?").bind(entry.item.id).run();
+  const before={...entry.item};
+  await db.exec("CREATE TRIGGER reject_rss_ack BEFORE UPDATE OF rss_last_check_completed_at ON x_fx_sources BEGIN SELECT RAISE(IGNORE); END;");
+  try {
+    expect((await runItem(entry,input)).status).toBe("blocked");
+    expect(entry.item.result_json).toBe(before.result_json);
+    expect((await entry.repo.readItem(entry.item.id))?.result_json).toBe(before.result_json);
+    expect(await db.prepare("SELECT rss_pending_item_id FROM x_fx_sources").first("rss_pending_item_id")).toBe(entry.item.id);
+  } finally { await db.exec("DROP TRIGGER reject_rss_ack;"); }
+});
+
 it("does not claim an RSS source when collection stops after member snapshot selection", async () => {
-  const entry = await createItem(), original = db.prepare.bind(db);
-  let stopped = false;
-  vi.spyOn(db, "prepare").mockImplementation(sql => {
-    const statement = original(sql);
-    if (/^UPDATE x_fx_sources SET\s+rss_cadence_anchor_at=/.test(sql)) {
-      const bind = statement.bind.bind(statement);
-      statement.bind = (...values) => {
-        const bound = bind(...values), first = bound.first.bind(bound);
-        bound.first = (async (...args: Parameters<typeof first>) => {
-          stopped = true;
-          await original("UPDATE settings SET value='false' WHERE key='x_collection_enabled'").run();
-          return first(...args);
-        }) as typeof bound.first;
-        return bound;
-      };
+  const entry=await createItem(), original=db.batch.bind(db);
+  let stopped=false;
+  vi.spyOn(db,"batch").mockImplementation(async statements=>{
+    const result=await original(statements);
+    if(!stopped && result.some(rows=>rows.results.some(row=>(row as {url_twitter?:string}).url_twitter))) {
+      stopped=true;
+      await db.prepare("UPDATE settings SET value='false' WHERE key='x_collection_enabled'").run();
     }
-    return statement;
+    return result;
   });
-  expect((await runItem(entry, state())).status).toBe("blocked");
+  expect((await runItem(entry,state())).status).toBe("blocked");
   expect(stopped).toBe(true);
-  expect(await db.prepare("SELECT rss_pending_item_id,rss_last_attempt_at FROM x_fx_sources").first()).toEqual({ rss_pending_item_id: null, rss_last_attempt_at: null });
+  expect(await db.prepare("SELECT rss_pending_item_id,rss_last_attempt_at FROM x_fx_sources").first()).toEqual({rss_pending_item_id:null,rss_last_attempt_at:null});
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it("pins the lookup identity when the Fx-only identity turns over before the writer snapshot", async () => {
+  await db.prepare("UPDATE x_post_sources SET user_id=NULL").run();
+  const entry=await createItem(), provider=vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (input,init)=>{
+    const response=await provider(input,init);
+    if(String(input).includes('/status/')) await db.prepare("UPDATE x_fx_sources SET user_id='909'").run();
+    return response;
+  });
+  expect((await runItem(entry,state())).status).toBe("blocked");
+  expect(await db.prepare("SELECT count(*) n FROM x_posts").first("n")).toBe(0);
 });
 
 it.each(["application retry", "admin readback"])("keeps the RSS candidate when a facts write is blocked even if eligibility is immediately restored: %s", async surface => {

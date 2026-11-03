@@ -303,8 +303,8 @@ const finalizeX = async (source: "manual" | "scheduled", status: string, complet
   const [id] = await repository.addItems(run.id,[{targetKey:"legacy-cadence",phase:"collect",lane:"x",continuation:{handles:["legacy"]}}]);
   const item = (await repository.claimItem(id))!;
   await repository.completeItem(item,{status:status as "succeeded"|"failed"|"partial"});
-  await new ScheduledJobExecutor(runtime(database), { readRunDto: async () => ({ jobType: "x_collection", source, status, finishedAt: completedAt, scheduledFor: slot }) } as never)
-    .finalizeLegacyState(run.id);
+  await db.prepare("UPDATE scheduled_job_runs SET finished_at=? WHERE id=?").bind(completedAt,run.id).run();
+  await new ScheduledJobExecutor(runtime(database), new D1ScheduledJobRepository(database)).finalizeLegacyState(run.id);
 };
 
 it("atomically records X cadence while preserving real completion and rejecting stale finalizers", async () => {

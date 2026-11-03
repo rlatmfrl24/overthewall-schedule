@@ -88,6 +88,30 @@ export const handleScheduledJobQueue = async (
     );
     message.ack();
   };
+  // RSS DLQ cohorts retain every delivery while batching their shared reconciliation reads.
+  if (isDeadLetter && batch.messages.length>1 && batch.messages.every(message=>isScheduledJobQueueMessage(message.body))) {
+    const items=await repository.readItems(batch.messages.map(message=>(message.body as {itemId:string}).itemId));
+    if(items.every(item=>{
+      try { const state=JSON.parse(item.continuation_json ?? '{}');return item.job_type==='x_collection' && state.provider==='fxembed' && state.mode==='rss_candidates'; }
+      catch { return false; }
+    })) {
+      const terminal=items.filter(item=>isTerminalItemStatus(item.status));
+      for(const item of items.filter(item=>!isTerminalItemStatus(item.status)))await repository.markItemDeadLetter(item.id,undefined,item);
+      const runs=[...new Set(terminal.map(item=>item.run_id))];
+      if(runs.length) {
+        try {
+          for(const run of runs)await coordinator.dispatchRun(run);
+          await repository.refreshRuns(runs);
+          await executor.finalizeLegacyStates(runs);
+          await repository.acknowledgeReconciliations(terminal);
+        } catch(error) {
+          for(const run of runs)await repository.markRunFailed(run,`post_completion_reconciliation_dead_letter:${getErrorText(error)}`,true);
+        }
+      }
+      for(const message of batch.messages)message.ack();
+      return;
+    }
+  }
   for (const message of batch.messages) {
     if (!isScheduledJobQueueMessage(message.body)) {
       if (isDeadLetter && isScheduledControlQueueMessage(message.body)) {
@@ -138,18 +162,17 @@ export const handleScheduledJobQueue = async (
     }
     try {
       const outcome = await executor.execute(item);
-      const completed = await repository.completeItem(item, {
+      const completed = await repository.completeItemWithReadback(item, {
         status: outcome.status,
         result: outcome.result,
         errorCode: outcome.errorCode,
         error: outcome.error,
-      });
+      }, false);
       if (!completed) {
         message.ack();
         continue;
       }
-      const terminal=await repository.readItem(item.id);
-      if(terminal)await reconcileTerminalItem(terminal);
+      await reconcileTerminalItem(completed);
       message.ack();
     } catch (error) {
       if (error instanceof ScheduledAutoUpdateBlocked) {

@@ -10,9 +10,10 @@ import { runXCollectionForHandles } from "./x-collection";
 import { meterD1 } from "../../../test-support/d1-meter";
 import { XActivityCoordinatorRpc } from "../../../app/x-rpc";
 import { withXGateway } from "../../../app/x-gateway";
+import type { Env as WorkerEnv } from "../../../platform/types";
 import { siteEnv } from "../../../test-support/site-env";
 import { ScheduledJobExecutor } from "../../scheduled-operations/infrastructure/scheduled-job-executor";
-import { handleScheduledJobQueue } from "../../../app/scheduled-queue";
+import { handleWorkerQueue } from "../../../app/worker-queue";
 
 const bindings = env as Env & { X_REFERENCE_MIGRATIONS: D1Migration[]; SCHEDULED_OPERATIONS_MIGRATIONS: D1Migration[] };
 const db = bindings.otw_db;
@@ -31,11 +32,29 @@ const create = async (input = state()) => {
   return { repo, item, input };
 };
 const clocks = () => db.prepare("SELECT last_seen_post_id,last_completed_at,regular_completed_at,sync_pagination_token,sync_origin_scope FROM x_post_sources WHERE handle='member'").first();
+async function runMeasuredQueuedEntry(entry: Awaited<ReturnType<typeof create>>, label: string) {
+  await db.prepare("UPDATE scheduled_job_items SET status='queued',attempts=0,lease_token=NULL,lease_until=NULL WHERE id=?").bind(entry.item.id).run();
+  const provider = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation((input, init) => new URL(String(input)).hostname === 'api.cloudflare.com'
+    ? Promise.resolve(Response.json({data:{viewer:{accounts:[{usage:[{sum:{rowsRead:0}}]}]}}}))
+    : provider(input, init));
+  const meter = meterD1(db, 50), ack = vi.fn(), retry = vi.fn();
+  await handleWorkerQueue({queue:'otw-ops-background',messages:[{body:{schemaVersion:1,messageType:'scheduled_job_item',runId:entry.item.run_id,itemId:entry.item.id,phase:'collect'},ack,retry}]} as unknown as MessageBatch<unknown>,
+    {...runtime,...siteEnv(),X_API_GATEWAY:undefined,otw_db:meter.db,CLOUDFLARE_ACCOUNT_ID:'fixture',CLOUDFLARE_D1_TOKEN:'fixture',OTW_OPS_BACKGROUND_QUEUE:{send:vi.fn()} as unknown as Queue<unknown>});
+  expect(ack).toHaveBeenCalledOnce(); expect(retry).not.toHaveBeenCalled();
+  expect(meter.quotaDenials).toBe(0);
+  expect(await db.prepare('SELECT lease_token FROM x_post_sources').first('lease_token')).toBeNull();
+  const saved = (await entry.repo.readItem(entry.item.id))!;
+  const result = JSON.parse(saved.result_json!);
+  const continuation = JSON.parse(saved.continuation_json!) as FxRssContinuation;
+  console.log(`RSS_QUEUE_PROFILE_${label}`, JSON.stringify({...meter.summary(),bindingCalls:meter.bindingCalls,quotaDenials:meter.quotaDenials,processed:result.postsStored,pending:continuation.candidates.length}));
+  return { result, state: continuation };
+}
 const stored = () => db.prepare("SELECT id,value,source_authority,first_seen_at FROM x_posts ORDER BY id").all<{ id: string; value: string; source_authority: string; first_seen_at: number }>();
 const freeProvider = (ids: string[], relations = false) => vi.mocked(fetch).mockImplementation(async input => {
   const url = new URL(String(input));
   if (url.pathname.endsWith("feed.xml")) return new Response(`<rss version="2.0"><channel>${ids.map(id => `<item><guid>https://x.com/member/status/${id}</guid><pubDate>${new Date(now).toUTCString()}</pubDate></item>`).join("")}</channel></rss>`);
-  if (url.hostname === "api.fxtwitter.com") return Response.json({ code: 200, status: { type: "status", id: url.pathname.split("/").pop(), text: "free discovery", created_at: new Date(now).toUTCString(), author: { id: "101", screen_name: "member", protected: false }, media: {}, ...(relations ? { replying_to: { status: "900", screen_name: "parent" }, quote: { type: "status", id: "902", text: "quoted", created_at: new Date(now).toUTCString(), author: { id: "903", screen_name: "quoted", protected: false }, media: {} } } : {}) } });
+  if (url.hostname === "api.fxtwitter.com") return Response.json({ code: 200, status: { type: "status", id: url.pathname.split("/").pop(), text: "free discovery", created_at: new Date(now).toUTCString(), author: { id: "101", screen_name: "member", protected: false }, media: {}, ...(relations ? { replying_to: { status: `9${url.pathname.split("/").pop()}`, screen_name: "parent" }, quote: { type: "status", id: `8${url.pathname.split("/").pop()}`, text: "quoted", created_at: new Date(now).toUTCString(), author: { id: "903", screen_name: "quoted", protected: false }, media: {} } } : {}) } });
   throw new Error(`unexpected upstream ${url}`);
 });
 
@@ -129,24 +148,174 @@ it.each(["new", "repair", "durable"])("free RSS %s preserves actual INSERT evide
   }
 });
 
-it.each([false,true])("profiles one ordinary Queue invocation storing five free candidates, relations=%s", async relations => {
-  const ids=["301","302","303","304","305"];
+it.each(['plain','relations','facts','100-candidates','repair','durable','five-failures','five-exclusions'])("profiles one ordinary Queue invocation: %s", async mode => {
+  const ids=Array.from({length:mode==='100-candidates'?100:5},(_,i)=>String(301+i)),relations=mode==='relations';
   freeProvider(ids,relations);
-  const scan=await create({...state([]),phase:"fetch"});
-  await db.batch([
-    db.prepare("UPDATE scheduled_job_items SET status='queued',attempts=0,lease_token=NULL,lease_until=NULL WHERE id=?").bind(scan.item.id),
-    db.prepare("UPDATE x_fx_sources SET rss_pending_item_id=NULL"),
-  ]);
-  const meter=meterD1(db),send=vi.fn(),ack=vi.fn(),retry=vi.fn();
-  await handleScheduledJobQueue({queue:"otw-ops-background",messages:[{body:{schemaVersion:1,messageType:"scheduled_job_item",runId:scan.item.run_id,itemId:scan.item.id,phase:"collect"},ack,retry}]} as unknown as MessageBatch<unknown>,
-    {...runtime,...siteEnv(),otw_db:meter.db,OTW_OPS_BACKGROUND_QUEUE:{send} as unknown as Queue<unknown>});
-  expect(ack).toHaveBeenCalledOnce();
-  expect(retry).not.toHaveBeenCalled();
-  const item=await scan.repo.readItem(scan.item.id);
-  expect(item?.status).toBe("succeeded");
-  expect(JSON.parse(item!.result_json!).newlyStoredPosts.map((post:{id:string})=>post.id)).toEqual(ids);
-  if(relations)expect(await db.prepare("SELECT count(*) n FROM x_post_references WHERE source_post_id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(ids)).first("n")).toBe(10);
-  console.log(`RSS_QUEUE_PROFILE_${relations?"relations":"plain"}`,JSON.stringify({...meter.summary(),bindingCalls:meter.bindingCalls}));
+  await db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_history_analytics_enabled',?)").bind(mode==='facts'?'true':'false').run();
+  if(mode==='repair'||mode==='durable') {
+    await writeStoredPosts(db,'member',{id:'101',username:'member'},ids.map(id=>({id,username:'member',text:'free discovery',createdAt:new Date(Math.floor(now/1000)*1000).toISOString(),url:`https://x.com/member/status/${id}`,media:[],metrics:{likeCount:0,replyCount:0,repostCount:0,quoteCount:0}})),now,'otw',{origin:'fxembed',completeness:{text:true,media:true,relations:true}});
+    if(mode==='repair')await db.prepare('UPDATE x_posts SET content_hash=NULL').run();
+  }
+  if(mode.startsWith('five-')) {
+    const provider=vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async(input,init)=>{
+      const response=await provider(input,init);
+      if(String(input).includes('/status/')) {
+        if(mode==='five-failures')return new Response('',{status:404});
+        const body=await response.json() as {status:{author:{screen_name:string}}};body.status.author.screen_name='foreign';return Response.json(body);
+      }
+      return response;
+    });
+  }
+  const scan=await create({...state([]),phase:'fetch'});
+  await db.batch([db.prepare("UPDATE scheduled_job_items SET status='queued',attempts=0,lease_token=NULL,lease_until=NULL WHERE id=?").bind(scan.item.id),db.prepare('UPDATE x_fx_sources SET rss_pending_item_id=NULL')]);
+  const meter=meterD1(db,50),send=vi.fn(),ack=vi.fn(),retry=vi.fn();
+  await handleWorkerQueue({queue:'otw-ops-background',messages:[{body:{schemaVersion:1,messageType:'scheduled_job_item',runId:scan.item.run_id,itemId:scan.item.id,phase:'collect'},ack,retry}]} as unknown as MessageBatch<unknown>,
+    {...runtime,...siteEnv(),X_API_GATEWAY:undefined,otw_db:meter.db,OTW_OPS_BACKGROUND_QUEUE:{send} as unknown as Queue<unknown>});
+  const item=await scan.repo.readItem(scan.item.id),result=JSON.parse(item!.result_json!),pending=mode==='100-candidates'?95:mode==='five-failures'?5:0;
+  expect(ack).toHaveBeenCalledOnce();expect(retry).not.toHaveBeenCalled();
+  expect(item?.status).toBe(pending?'partial':'succeeded');
+  const saved=mode.startsWith('five-')||mode==='durable'?0:5;
+  expect(result).toMatchObject({freeApiCalls:mode==='durable'?0:5,paidApiCalls:0,postsStored:saved,pending});
+  expect(result.newlyStoredPosts.map((post:{id:string})=>post.id)).toEqual(['repair','durable','five-failures','five-exclusions'].includes(mode)?[]:ids.slice(0,5));
+  expect(await db.prepare('SELECT count(*) n FROM x_posts WHERE content_hash IS NOT NULL').first('n')).toBe(mode.startsWith('five-')?0:5);
+  expect(await db.prepare('SELECT count(*) n FROM x_post_facts').first('n')).toBe(mode==='facts'?5:0);
+  expect(meter.quotaDenials).toBe(0);expect(meter.bindingCalls).toBeLessThanOrEqual(50);
+  if(relations)expect(await db.prepare('SELECT count(DISTINCT referenced_post_id) n FROM x_post_references').first('n')).toBe(10);
+  console.log(`RSS_QUEUE_PROFILE_free_${mode}`,JSON.stringify({...meter.summary(),bindingCalls:meter.bindingCalls,quotaDenials:meter.quotaDenials,processed:saved,pending}));
+});
+
+it.each(["fresh","partial","rollover","outbox","outbox-failure","throttled","storage-failure","late-stop","rollover-partial-outbox","free-cas-once","free-cas-persistent","paid-cas-persistent","cache-outbox","luvdia","reconcile-failure","paid-cas-unwind-failure"])("profiles a whole mixed Queue with five free and the maximum admissible official batch: %s", async mode => {
+  if(mode.startsWith('rollover')) {
+    now=Date.parse(`${new Date(now).toISOString().slice(0,10)}T23:59:59.000Z`);
+    await db.prepare("UPDATE x_post_sources SET last_completed_at=?").bind(now).run();
+  }
+  if(mode==='cache-outbox') {
+    now=Date.parse(`${new Date(now+86_400_000).toISOString().slice(0,10)}T12:00:00.000Z`);
+    await new D1SharedXBudget(db).ensureDay();
+    await db.prepare("UPDATE x_post_sources SET last_completed_at=?").bind(now).run();
+  }
+  const officialCount=mode==='cache-outbox'?24:28;
+  const free=["301","302","303","304","305"], official=Array.from({length:officialCount},(_,i)=>String(401+i));
+  const before=await clocks(), initialDay=new Date(now).toISOString().slice(0,10);
+  await db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_history_analytics_enabled','true')").run();
+  const paidProvider=vi.mocked(fetch).getMockImplementation()!;
+  freeProvider(free,true);
+  const fxProvider=vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async(input,init)=>{
+    const url=new URL(String(input));
+    if(url.hostname==='api.cloudflare.com') return Response.json({data:{viewer:{accounts:[{usage:[{sum:{rowsRead:0}}]}]}}});
+    if(url.hostname!=='api.x.com') return fxProvider(input,init);
+    expect(url.searchParams.get('ids')!.split(',')).toHaveLength(officialCount);
+    if(mode.startsWith('rollover')) now+=2000;
+    if(mode==='late-stop') await db.prepare("UPDATE settings SET value='false' WHERE key='x_collection_enabled'").run();
+    const response=await paidProvider(input,init);
+    if(!mode.includes('partial')) return response;
+    const body=await response.json() as {data:unknown[]}; body.data.pop(); return Response.json(body);
+  });
+  const scan=await create(state([...candidates(free).map(candidate=>({...candidate,attempts:0,stage:'free' as const,error:null})),...candidates(official)]));
+  await db.prepare("UPDATE scheduled_job_items SET status='queued',attempts=0,lease_token=NULL,lease_until=NULL WHERE id=?").bind(scan.item.id).run();
+  const rpcMeters: ReturnType<typeof meterD1>[]=[];
+  const rpc=()=>{const remote=meterD1(db,50);rpcMeters.push(remote);return new XActivityCoordinatorRpc(createExecutionContext(),{...runtime,SITE_ID:'otw',X_API_GATEWAY:undefined,otw_db:remote.db,CLOUDFLARE_ACCOUNT_ID:'fixture',CLOUDFLARE_D1_TOKEN:'fixture'});};
+  if(mode==='cache-outbox') {
+    await db.prepare("UPDATE scheduled_job_items SET continuation_json=? WHERE id=?").bind(JSON.stringify(state(candidates(official))),scan.item.id).run();
+    await db.exec("CREATE TRIGGER cache_first_write_failure BEFORE INSERT ON x_posts BEGIN SELECT RAISE(ABORT,'cache first write failure'); END;");
+    const firstMeter=meterD1(db,50),ack=vi.fn(),retry=vi.fn();
+    try {
+      await handleWorkerQueue({queue:'otw-ops-background',messages:[{body:{schemaVersion:1,messageType:'scheduled_job_item',runId:scan.item.run_id,itemId:scan.item.id,phase:'collect'},ack,retry}]} as unknown as MessageBatch<unknown>,{...runtime,...siteEnv(),X_API_GATEWAY:undefined,otw_db:firstMeter.db,CLOUDFLARE_ACCOUNT_ID:'fixture',CLOUDFLARE_D1_TOKEN:'fixture',OTW_OPS_BACKGROUND_QUEUE:{send:vi.fn()} as unknown as Queue<unknown>});
+    } finally {await db.exec('DROP TRIGGER cache_first_write_failure;');}
+    expect(ack).toHaveBeenCalledOnce();expect(retry).not.toHaveBeenCalled();expect(firstMeter.quotaDenials).toBe(0);
+    const first=(await scan.repo.readItem(scan.item.id))!,snapshot=JSON.parse(first.continuation_json!) as FxRssContinuation;
+    expect(JSON.parse(first.result_json!)).toMatchObject({paidApiCalls:1,postsStored:0});
+    now=snapshot.nextAttemptAt!;
+    snapshot.candidates.unshift(...candidates(free).map(candidate=>({...candidate,stage:'free' as const,attempts:0,error:null})));
+    await db.batch([db.prepare("UPDATE scheduled_job_items SET status='queued',attempts=0,continuation_json=?,lease_token=NULL,lease_until=NULL WHERE id=?").bind(JSON.stringify(snapshot),scan.item.id),db.prepare("UPDATE scheduled_job_runs SET status='queued' WHERE id=?").bind(scan.item.run_id)]);
+    console.log('RSS_QUEUE_PROFILE_cache_first',JSON.stringify({...firstMeter.summary(),bindingCalls:firstMeter.bindingCalls,quotaDenials:firstMeter.quotaDenials,processed:0,pending:24}));
+  }
+  const hasOutbox=mode.includes('outbox')||mode==='throttled'||mode.startsWith('paid-cas')||mode==='reconcile-failure';
+  if(hasOutbox) await scan.repo.addItems(scan.item.run_id,Array.from({length:8},(_,i)=>({targetKey:`rss:other-${i}`,lane:'x' as const,phase:'collect',continuation:state([])})));
+  if(mode==='throttled') await db.prepare("INSERT INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES(?,'all','queue_operations',4997,0,5000,0)").bind(initialDay).run();
+  if(mode==='storage-failure') await db.exec("CREATE TRIGGER queue_paid_failure BEFORE INSERT ON x_posts WHEN NEW.id='401' BEGIN SELECT RAISE(ABORT,'paid storage failed'); END;");
+  if(mode.includes('cas')) {
+    await db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_history_retention_days','100')").run();
+    let snapshots=0,mutations=0;
+    const original=db.batch.bind(db);
+    vi.spyOn(db,'batch').mockImplementation(async statements=>{
+      const results=await original(statements);
+      if(typeof (results[0]?.results[0] as {data?:unknown}|undefined)?.data==='string') {
+        snapshots++;
+        if(mode==='free-cas-once' && mutations===0 || mode==='free-cas-persistent' || mode.startsWith('paid-cas') && snapshots>=6) {
+          await db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_history_retention_days',?)").bind(String(++mutations)).run();
+        }
+      }
+      return results;
+    });
+  }
+  const failsReconciliation=mode==='reconcile-failure'||mode==='paid-cas-unwind-failure';
+  if(failsReconciliation)await db.exec("CREATE TRIGGER queue_reconciliation_failure BEFORE UPDATE OF reconciled_at ON scheduled_outbox WHEN NEW.reconciled_at IS NOT NULL BEGIN SELECT RAISE(ABORT,'reconciliation interrupted'); END;");
+  const meter=meterD1(db,50),ack=vi.fn(),retry=vi.fn(),send=vi.fn(async()=>{if(mode==='outbox-failure')throw new Error('fixture send failed');});
+  try {
+    await handleWorkerQueue({queue:mode==='luvdia'?'luvdia-ops-background':'otw-ops-background',messages:[{body:{schemaVersion:1,messageType:'scheduled_job_item',runId:scan.item.run_id,itemId:scan.item.id,phase:'collect'},ack,retry}]} as unknown as MessageBatch<unknown>,
+      {...runtime,...siteEnv(mode==='luvdia'?'luvdia':'otw'),X_API_GATEWAY:undefined,otw_db:meter.db,CLOUDFLARE_ACCOUNT_ID:'fixture',CLOUDFLARE_D1_TOKEN:'fixture',OTW_OPS_BACKGROUND_QUEUE:{send} as unknown as Queue<unknown>,...(mode==='luvdia'?{X_ACTIVITY_COORDINATOR:{budgetForLuvdia:()=>rpc().budgetForLuvdia(),receiptForLuvdia:(request:Parameters<XActivityCoordinatorRpc['receiptForLuvdia']>[0])=>rpc().receiptForLuvdia(request),gatewayForLuvdia:(request:Parameters<XActivityCoordinatorRpc['gatewayForLuvdia']>[0])=>rpc().gatewayForLuvdia(request)} as unknown as WorkerEnv['X_ACTIVITY_COORDINATOR']}:{})});
+  } finally {if(mode==='storage-failure')await db.exec('DROP TRIGGER queue_paid_failure;');if(failsReconciliation)await db.exec('DROP TRIGGER queue_reconciliation_failure;');}
+  const item=await scan.repo.readItem(scan.item.id), result=JSON.parse(item!.result_json!);
+  const saved=mode==='free-cas-persistent'?0:mode.includes('partial')?32:['storage-failure','late-stop','free-cas-once','paid-cas-persistent','paid-cas-unwind-failure'].includes(mode)?5:officialCount+5;
+  if(failsReconciliation){expect(retry).toHaveBeenCalledOnce();expect(ack).not.toHaveBeenCalled();}
+  else {expect(ack).toHaveBeenCalledOnce();expect(retry).not.toHaveBeenCalled();}
+  expect(item?.status).toBe(mode.includes('partial')||mode==='free-cas-once'?'partial':['storage-failure','late-stop','free-cas-persistent','paid-cas-persistent','paid-cas-unwind-failure'].includes(mode)?'skipped':'succeeded');
+  expect(result).toMatchObject({freeApiCalls:mode==='free-cas-persistent'?1:5,paidApiCalls:mode.startsWith('free-cas')||mode==='cache-outbox'?0:1,postsStored:saved});
+  if(mode==='free-cas-once')expect(result.error).toBe('rss_d1_retry_budget');
+  expect((await stored()).results).toHaveLength(saved);
+  expect(await db.prepare('SELECT count(*) n FROM x_post_facts').first('n')).toBe(saved);
+  expect(await db.prepare('SELECT count(*) n FROM x_posts WHERE content_hash IS NOT NULL').first('n')).toBe(saved);
+  expect(await clocks()).toEqual(before);
+  expect(meter.quotaDenials).toBe(0);expect(meter.bindingCalls).toBeLessThanOrEqual(50);
+  expect((await db.prepare('SELECT SUM(reserved) n FROM x_shared_budgets').first<number>('n')) ?? 0).toBe(0);
+  expect((await db.prepare("SELECT SUM(reserved) n FROM scheduled_usage_daily WHERE resource='x_api_cost_micros'").first<number>('n')) ?? 0).toBe(0);
+  expect(await db.prepare('SELECT lease_token FROM x_post_sources').first('lease_token')).toBeNull();
+  expect(await db.prepare("SELECT count(*) n FROM scheduled_outbox WHERE item_id=? AND event_type='reconcile' AND reconciled_at IS NOT NULL").bind(scan.item.id).first('n')).toBe(failsReconciliation?0:1);
+  if(hasOutbox)expect(send).toHaveBeenCalledTimes(mode==='throttled'?1:8);
+  if(mode.startsWith('rollover'))expect(await db.prepare('SELECT used,reserved FROM x_shared_budgets WHERE day=?').bind(initialDay).first()).toEqual({used:0,reserved:0});
+  if(failsReconciliation) {
+    const replay=meterD1(db,50),ack=vi.fn(),retry=vi.fn(),httpCalls=vi.mocked(fetch).mock.calls.length;
+    await handleWorkerQueue({queue:'otw-ops-background',messages:[{body:{schemaVersion:1,messageType:'scheduled_job_item',runId:scan.item.run_id,itemId:scan.item.id,phase:'collect'},ack,retry}]} as unknown as MessageBatch<unknown>,{...runtime,...siteEnv(),X_API_GATEWAY:undefined,otw_db:replay.db,OTW_OPS_BACKGROUND_QUEUE:{send} as unknown as Queue<unknown>});
+    expect(ack).toHaveBeenCalledOnce();expect(retry).not.toHaveBeenCalled();expect(replay.quotaDenials).toBe(0);expect(vi.mocked(fetch).mock.calls.length).toBe(httpCalls);
+    expect(await db.prepare("SELECT count(*) n FROM scheduled_outbox WHERE item_id=? AND event_type='reconcile' AND reconciled_at IS NOT NULL").bind(scan.item.id).first('n')).toBe(1);
+    console.log(`RSS_QUEUE_PROFILE_reconcile_replay_${mode}`,JSON.stringify({...replay.summary(),bindingCalls:replay.bindingCalls,quotaDenials:replay.quotaDenials}));
+  }
+  rpcMeters.forEach(remote=>{expect(remote.quotaDenials).toBe(0);expect(remote.bindingCalls).toBeLessThanOrEqual(50);});
+  if(mode==='luvdia')console.log('RSS_RPC_RECEIVER_PROFILES',JSON.stringify(rpcMeters.map(remote=>({...remote.summary(),bindingCalls:remote.bindingCalls,quotaDenials:remote.quotaDenials}))));
+  console.log(`RSS_QUEUE_PROFILE_mixed_${mode}`,JSON.stringify({...meter.summary(),bindingCalls:meter.bindingCalls,quotaDenials:meter.quotaDenials,processed:saved,pending:JSON.parse(item!.continuation_json!).candidates.length,failedCalls:meter.calls.flatMap((call,index)=>call.completed?[]:[index+1])}));
+});
+
+it.each(['pending','terminal','terminal-outbox','terminal-duplicates','mixed-outbox'])("profiles the RSS dead-letter batch of ten: %s", async mode=>{
+  const messages: Array<{body:{schemaVersion:number;messageType:string;runId:string;itemId:string;phase:string};ack:ReturnType<typeof vi.fn>;retry:ReturnType<typeof vi.fn>}>=[];
+  for(let i=0;i<10;i++) {
+    if(mode==='terminal-duplicates' && i>0){messages.push({...messages[0],ack:vi.fn(),retry:vi.fn()});continue;}
+    const entry=await create();
+    if(mode!=='pending' && !(mode==='mixed-outbox' && i%2===0))await entry.repo.completeItem(entry.item,{status:'partial',result:{pending:2}});
+    if(mode.includes('outbox')||mode==='terminal-duplicates')await entry.repo.addItems(entry.item.run_id,Array.from({length:8},(_,i)=>({targetKey:`rss:other-${i}`,lane:'x' as const,phase:'collect',continuation:state([])})));
+    messages.push({body:{schemaVersion:1,messageType:'scheduled_job_item',runId:entry.item.run_id,itemId:entry.item.id,phase:'collect'},ack:vi.fn(),retry:vi.fn()});
+  }
+  const meter=meterD1(db,50),send=vi.fn();
+  await handleWorkerQueue({queue:'otw-dead-letter',messages} as unknown as MessageBatch<unknown>,{...runtime,...siteEnv(),X_API_GATEWAY:undefined,otw_db:meter.db,OTW_OPS_BACKGROUND_QUEUE:{send} as unknown as Queue<unknown>});
+  messages.forEach(message=>{expect(message.ack).toHaveBeenCalledOnce();expect(message.retry).not.toHaveBeenCalled();});
+  console.log(`RSS_QUEUE_PROFILE_dlq_${mode}`,JSON.stringify({...meter.summary(),bindingCalls:meter.bindingCalls,quotaDenials:meter.quotaDenials,sends:send.mock.calls.length}));
+  expect(meter.bindingCalls).toBeLessThanOrEqual(50);expect(meter.quotaDenials).toBe(0);
+});
+
+it("keeps an unaffordable original 99-ID snapshot pending through the whole Queue without dispatch",async()=>{
+  const input=state(candidates(Array.from({length:99},(_,i)=>String(501+i))));
+  input.paidBatch={day:new Date(now).toISOString().slice(0,10),ids:input.candidates.map(candidate=>candidate.id),requestId:`otw:rss:member:${new Date(now).toISOString().slice(0,10)}:${crypto.randomUUID()}`};
+  const entry=await create(input);
+  await db.prepare("UPDATE scheduled_job_items SET status='queued',attempts=0,lease_token=NULL,lease_until=NULL WHERE id=?").bind(entry.item.id).run();
+  const meter=meterD1(db,50),ack=vi.fn(),retry=vi.fn();
+  await handleWorkerQueue({queue:'otw-ops-background',messages:[{body:{schemaVersion:1,messageType:'scheduled_job_item',runId:entry.item.run_id,itemId:entry.item.id,phase:'collect'},ack,retry}]} as unknown as MessageBatch<unknown>,{...runtime,...siteEnv(),X_API_GATEWAY:undefined,otw_db:meter.db,OTW_OPS_BACKGROUND_QUEUE:{send:vi.fn()} as unknown as Queue<unknown>});
+  const item=(await entry.repo.readItem(entry.item.id))!;
+  expect(item.status).toBe('partial');expect(JSON.parse(item.continuation_json!).paidBatch).toEqual(input.paidBatch);
+  expect(JSON.parse(item.result_json!)).toMatchObject({freeApiCalls:0,paidApiCalls:0,pending:99,error:'budget_exceeded'});
+  expect(fetch).not.toHaveBeenCalled();expect(ack).toHaveBeenCalledOnce();expect(retry).not.toHaveBeenCalled();expect(meter.quotaDenials).toBe(0);
+  console.log('RSS_QUEUE_PROFILE_99_pending',JSON.stringify({...meter.summary(),bindingCalls:meter.bindingCalls,quotaDenials:meter.quotaDenials,processed:0,pending:99}));
 });
 
 it.each(["site", "shared", "backoff"])("utc_budget_block_keeps_pending: %s", async boundary => {
@@ -154,9 +323,9 @@ it.each(["site", "shared", "backoff"])("utc_budget_block_keeps_pending: %s", asy
   if (boundary === "site") await db.prepare("INSERT OR REPLACE INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES(?,'all','x_api_cost_micros',1000000,0,1000000,0)").bind(new Date(now).toISOString().slice(0,10)).run();
   if (boundary === "shared") await db.prepare("UPDATE x_shared_budgets SET used=1000000").run();
   if (boundary === "backoff") await db.prepare("UPDATE settings SET value=? WHERE key='x_api_backoff_until'").bind(String(now + 60_000)).run();
-  const result = await runFxRssCollectionItem(runtime, entry.item, entry.input, entry.repo);
-  expect(result.state.candidates.map(item => item.id)).toEqual(["201", "202"]);
-  expect(result.stats).toMatchObject({ paidApiCalls: 0, postsStored: 0 });
+  const { result, state: remaining } = await runMeasuredQueuedEntry(entry, `blocked_${boundary}`);
+  expect(remaining.candidates.map(item => item.id)).toEqual(["201", "202"]);
+  expect(result).toMatchObject({ paidApiCalls: 0, postsStored: 0 });
   expect(result.error).toMatch(/budget|rate_limited/);
   expect(fetch).not.toHaveBeenCalled();
   expect(await clocks()).toEqual(before);
@@ -209,7 +378,8 @@ it("carries oldest RSS deadline through continuation copy and final checkpoint",
   expect(continuation.executionPriority).toEqual({ deadlineAt: now + 3_600_000, lastAttemptAt: 0, key: "member:1-rss" });
   const resumed = await create(continuation);
   await db.prepare("UPDATE x_fx_sources SET rss_pending_item_id=?").bind(original.item.id).run();
-  expect((await runFxRssCollectionItem(runtime, resumed.item, resumed.input, resumed.repo)).status).toBe("complete");
+  const { result } = await runMeasuredQueuedEntry(resumed, "deadline");
+  expect(result).toMatchObject({ paidApiCalls: 1, postsStored: 2, pending: 0 });
   expect(JSON.parse((await resumed.repo.readItem(resumed.item.id))!.continuation_json!).executionPriority).toEqual(continuation.executionPriority);
 });
 
@@ -294,7 +464,7 @@ it.each(["foreign", "private", "before-start", "invalid-date", "retweet", "unkno
 
 it("never dispatches before the paid batch checkpoint succeeds", async () => {
   const entry = await create(), checkpoint = entry.repo.checkpointItemContinuation.bind(entry.repo);
-  vi.spyOn(entry.repo, "checkpointItemContinuation").mockImplementation(async (item, continuation, stats) => continuation.paidBatch ? false : checkpoint(item, continuation, stats));
+  vi.spyOn(entry.repo, "checkpointItemContinuation").mockImplementation(async (item, continuation, stats, commit) => continuation.paidBatch ? false : checkpoint(item, continuation, stats, commit));
   expect((await runFxRssCollectionItem(runtime, entry.item, entry.input, entry.repo)).status).toBe("blocked");
   expect(fetch).not.toHaveBeenCalled();
   expect(await db.prepare("SELECT count(*) n FROM x_shared_requests").first("n")).toBe(0);
@@ -304,7 +474,7 @@ it("retires a cached foreign-author batch after a lost completion checkpoint and
   const entry = await create(state(candidates(["201"])));
   vi.mocked(fetch).mockResolvedValue(Response.json({ data: [{ id: "201", author_id: "999", text: "other author", created_at: new Date(now).toISOString() }] }));
   const checkpoint = entry.repo.checkpointItemContinuation.bind(entry.repo);
-  const interrupted = vi.spyOn(entry.repo, "checkpointItemContinuation").mockImplementation((item, continuation, stats) => Array.isArray(continuation.candidates) && continuation.candidates.length === 0 ? Promise.resolve(false) : checkpoint(item, continuation, stats));
+  const interrupted = vi.spyOn(entry.repo, "checkpointItemContinuation").mockImplementation((item, continuation, stats, commit) => Array.isArray(continuation.candidates) && continuation.candidates.length === 0 ? Promise.resolve(false) : checkpoint(item, continuation, stats, commit));
   const first = await runFxRssCollectionItem(runtime, entry.item, entry.input, entry.repo);
   expect(first.status).toBe("blocked");
   expect(first.state.paidBatch?.ids).toEqual(["201"]);
@@ -649,7 +819,7 @@ it("replays a processed partial response after lost candidate checkpoint without
     const body = await response.json() as { data: Array<{ id: string }>; includes: unknown };
     return Response.json({ ...body, data: body.data.filter(post => post.id === "201"), errors: [{ resource_id: "202", type: "https://api.x.com/2/problems/resource-not-found" }] });
   });
-  vi.spyOn(entry.repo,"checkpointItemContinuation").mockImplementation(async (item, continuation, stats) => (continuation.candidates as FxRssCandidate[]).length === 1 ? false : checkpoint(item,continuation,stats));
+  vi.spyOn(entry.repo,"checkpointItemContinuation").mockImplementation(async (item, continuation, stats, commit) => (continuation.candidates as FxRssCandidate[]).length === 1 ? false : checkpoint(item,continuation,stats,commit));
   const interrupted = await runFxRssCollectionItem(runtime, entry.item, entry.input, entry.repo);
   expect(interrupted.status).toBe("blocked");
   expect(interrupted.state.candidates.map(candidate => candidate.id)).toEqual(["201", "202"]);
@@ -670,7 +840,7 @@ it("resumes an aborted bounded-batch replay through valid checkpoints and the du
   const entry = await create(), checkpoint = entry.repo.checkpointItemContinuation.bind(entry.repo);
   const { parseFxRssContinuation } = await import("../application/fx-rss-collection");
   await db.prepare("UPDATE settings SET value='2' WHERE key='x_collection_daily_budget_cents'").run();
-  vi.spyOn(entry.repo,"checkpointItemContinuation").mockImplementation(async (item, continuation, stats) => (continuation.candidates as FxRssCandidate[]).length === 1 ? false : checkpoint(item,continuation,stats));
+  vi.spyOn(entry.repo,"checkpointItemContinuation").mockImplementation(async (item, continuation, stats, commit) => (continuation.candidates as FxRssCandidate[]).length === 1 ? false : checkpoint(item,continuation,stats,commit));
   const interrupted = await runFxRssCollectionItem(runtime,entry.item,entry.input,entry.repo);
   expect(interrupted.status).toBe("blocked");
   expect(interrupted.state.paidBatch!.ids).toEqual(["201"]);
