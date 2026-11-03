@@ -70,7 +70,7 @@ export async function hydrateOfficialRssCandidates(env: Env, handle: string, can
   const tracker: XApiUsageTracker = { apiCalls: 0, estimatedCostMicros: 0, reservedCostMicros: 0, uniqueResources: 0, previewDeferred: 0, authorCacheHits: 0, authorCacheMisses: 0, source, purpose: "collection", gateway: env.X_API_GATEWAY };
   try {
     if (!await live()) return Object.assign(result, { error: "rss_write_fence_lost" });
-    const response = await requestXApi<XTweetLookupResponse>(pathFor(batch.ids), env.X_BEARER_TOKEN ?? "", { cacheDb: env.otw_db, operation: "tweet_lookup", usageTracker: tracker, requestId: batch.requestId });
+    const response = await requestXApi<XTweetLookupResponse>(pathFor(batch.ids), env.X_BEARER_TOKEN ?? "", { cacheDb: env.otw_db, operation: "tweet_lookup", usageTracker: tracker, requestId: batch.requestId, admissionFence: { fence, siteId: parseSiteId(env.SITE_ID) } });
     const requested = new Set(batch.ids), needed = new Set(unresolved.map(candidate => candidate.id));
     const publicAuthor = response.includes?.users?.find(user => user.id === identity?.user_id && user.protected === false);
     const valid = (response.data ?? []).filter(post => requested.has(post.id) && needed.has(post.id) && post.author_id === identity?.user_id && publicAuthor && Number.isFinite(Date.parse(post.created_at ?? "")));

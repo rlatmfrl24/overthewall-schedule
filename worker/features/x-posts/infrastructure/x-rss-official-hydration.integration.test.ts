@@ -5,7 +5,7 @@ import { D1ScheduledJobRepository } from "../../../platform/scheduled-jobs/d1-sc
 import { runFxRssCollectionItem } from "../../../app/x-rss-collection";
 import { readDueFxRssCollectionTargets } from "./d1-fx-rss-collection";
 import { D1SharedXApiGateway, D1SharedXBudget, readSiteXBudget } from "./x-shared-budget";
-import { clearXServiceCachesForTests, writeStoredPosts } from "./x-api";
+import { clearXServiceCachesForTests, requestXApi, writeStoredPosts } from "./x-api";
 import { runXCollectionForHandles } from "./x-collection";
 import { meterD1 } from "../../../test-support/d1-meter";
 import { XActivityCoordinatorRpc } from "../../../app/x-rpc";
@@ -426,4 +426,96 @@ it("retries a definitively failed receipt using a new checkpointed identity", as
   const [resume] = await readDueFxRssCollectionTargets(runtime, now), next = await create(resume);
   expect((await runFxRssCollectionItem(runtime, next.item, next.input, next.repo))).toMatchObject({ status: "complete", stats: { paidApiCalls: 1, postsStored: 2 } });
   expect(await db.prepare("SELECT count(*) n FROM x_shared_requests WHERE status='complete'").first("n")).toBe(2);
+});
+
+const admissionCases = (["absent", "existing"] as const).flatMap(ledger =>
+  (["disabled", "rollback", "member", "item-lease", "source-lease"] as const).map(boundary => ({ ledger, boundary })));
+it.each(admissionCases)("atomically rejects RSS admission after $boundary before the $ledger site reservation", async ({ ledger, boundary }) => {
+    const day = new Date(now).toISOString().slice(0,10);
+    if (ledger === "existing") await db.prepare("INSERT INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES(?,'all','x_api_cost_micros',17,23,1000000,0)").bind(day).run();
+    const before = await db.prepare("SELECT used,reserved FROM scheduled_usage_daily WHERE day=? AND lane='all' AND resource='x_api_cost_micros'").bind(day).first();
+    const entry = await create(), beforeClocks = await clocks(), original = db.prepare.bind(db);
+    let interleaved = false;
+    const spy = vi.spyOn(db, "prepare").mockImplementation(sql => {
+      const statement = original(sql);
+      if (sql.includes("INSERT INTO scheduled_usage_daily") && sql.includes("x_api_cost_micros") && sql.includes("RETURNING reserved")) {
+        const bind = statement.bind.bind(statement);
+        statement.bind = (...values) => {
+          const bound = bind(...values), first = bound.first.bind(bound);
+          bound.first = (async (...args: Parameters<typeof first>) => {
+            interleaved = true;
+            if (boundary === "disabled") await original("UPDATE settings SET value='false' WHERE key='x_collection_enabled'").run();
+            if (boundary === "rollback") await original("UPDATE settings SET value='x_api' WHERE key='x_collection_primary_source'").run();
+            if (boundary === "member") await original("UPDATE members SET url_twitter=NULL WHERE uid=1").run();
+            if (boundary === "item-lease") await original("UPDATE scheduled_job_items SET lease_token='next-item-owner' WHERE id=?").bind(entry.item.id).run();
+            if (boundary === "source-lease") await original("UPDATE x_post_sources SET lease_token='next-source-owner' WHERE handle='member'").run();
+            return first(...args);
+          }) as typeof bound.first;
+          return bound;
+        };
+      }
+      return statement;
+    });
+    const result = await runFxRssCollectionItem(runtime, entry.item, entry.input, entry.repo);
+    spy.mockRestore();
+    expect(interleaved, boundary).toBe(true);
+    expect(result.stats.paidApiCalls, boundary).toBe(0);
+    expect(fetch, boundary).not.toHaveBeenCalled();
+    expect(await db.prepare("SELECT count(*) n FROM x_shared_requests").first("n"), boundary).toBe(0);
+    expect(await db.prepare("SELECT used,reserved FROM x_shared_budgets WHERE day=?").bind(day).first(), boundary).toEqual({ used: 0, reserved: 0 });
+    expect(await db.prepare("SELECT used,reserved FROM scheduled_usage_daily WHERE day=? AND lane='all' AND resource='x_api_cost_micros'").bind(day).first(), boundary).toEqual(before);
+    expect(result.state.candidates.map(candidate => candidate.id), boundary).toEqual(["201", "202"]);
+    expect(JSON.parse((await db.prepare("SELECT continuation_json FROM scheduled_job_items WHERE id=?").bind(entry.item.id).first<string>("continuation_json"))!).candidates.map((candidate: FxRssCandidate) => candidate.id), boundary).toEqual(["201", "202"]);
+    expect((await stored()).results, boundary).toEqual([]);
+    expect(await clocks(), boundary).toEqual(beforeClocks);
+    expect(await db.prepare("SELECT rss_last_check_completed_at FROM x_fx_sources WHERE handle='member'").first("rss_last_check_completed_at"), boundary).toBeNull();
+});
+
+it("preserves one admitted request and settlement when stop follows the atomic site claim", async () => {
+  const entry = await create(), beforeClocks = await clocks(), original = db.prepare.bind(db);
+  let admitted = false;
+  vi.spyOn(db, "prepare").mockImplementation(sql => {
+    const statement = original(sql);
+    if (sql.includes("INSERT INTO scheduled_usage_daily") && sql.includes("x_api_cost_micros") && sql.includes("RETURNING reserved")) {
+      const bind = statement.bind.bind(statement);
+      statement.bind = (...values) => {
+        const bound = bind(...values), first = bound.first.bind(bound);
+        bound.first = (async (...args: Parameters<typeof first>) => {
+          const claim = await first(...args);
+          expect(claim).not.toBeNull();
+          admitted = true;
+          await original("UPDATE settings SET value='false' WHERE key='x_collection_enabled'").run();
+          return claim;
+        }) as typeof bound.first;
+        return bound;
+      };
+    }
+    return statement;
+  });
+  const result = await runFxRssCollectionItem(runtime, entry.item, entry.input, entry.repo);
+  expect(admitted).toBe(true);
+  expect(result.stats.paidApiCalls).toBe(1);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(result.stats.estimatedCostMicros).toBeGreaterThan(0);
+  expect(await db.prepare("SELECT used,reserved FROM scheduled_usage_daily WHERE lane='all' AND resource='x_api_cost_micros'").first()).toEqual({ used: result.stats.estimatedCostMicros, reserved: 0 });
+  expect(await db.prepare("SELECT count(*) n FROM x_shared_requests WHERE status='complete'").first("n")).toBe(1);
+  expect((await stored()).results).toEqual([]);
+  expect(result.state.candidates.map(candidate => candidate.id)).toEqual(["201", "202"]);
+  expect(await clocks()).toEqual(beforeClocks);
+  expect(await db.prepare("SELECT rss_last_check_completed_at FROM x_fx_sources WHERE handle='member'").first("rss_last_check_completed_at")).toBeNull();
+});
+
+it.each(["missing-db", "missing-operation", "missing-fence", "zero-reservation", "reference-preview"] as const)("fails closed for a guarded %s request without atomic site admission", async boundary => {
+  const fence = { handle: "member", itemId: "unclaimed-item", itemLeaseToken: "unclaimed-item-lease", sourceLeaseToken: "unclaimed-source-lease", members: [{ uid: 1, urlTwitter: "https://x.com/member" }] };
+  await expect(requestXApi("/tweets?ids=201", "fixture", {
+    cacheDb: boundary === "missing-db" ? undefined : db,
+    operation: boundary === "missing-operation" ? undefined : "tweet_lookup",
+    estimatedCostMicros: boundary === "zero-reservation" ? 0 : undefined,
+    usageTracker: { apiCalls: 0, estimatedCostMicros: 0, reservedCostMicros: 0, uniqueResources: 0, previewDeferred: 0, authorCacheHits: 0, authorCacheMisses: 0, purpose: boundary === "reference-preview" ? "reference_preview" : "collection" },
+    gateway,
+    admissionFence: { fence: boundary === "missing-fence" ? undefined as unknown as typeof fence : fence, siteId: "otw" },
+  })).rejects.toMatchObject({ code: "budget_unavailable" });
+  expect(fetch).not.toHaveBeenCalled();
+  expect(await db.prepare("SELECT count(*) n FROM x_shared_requests").first("n")).toBe(0);
+  expect(await db.prepare("SELECT count(*) n FROM scheduled_usage_daily WHERE resource='x_api_cost_micros'").first("n")).toBe(0);
 });

@@ -644,13 +644,18 @@ export const getXTimelinePageSize = (requested: number, remainingMicros: number,
 
 type XApiBudgetSettlement = (actualUsedMicros?: number) => Promise<void>;
 const noopXApiBudgetSettlement: XApiBudgetSettlement = async () => {};
+type XApiAdmissionFence = { fence: FxRssWriteFence; siteId: SiteId };
 
 const reserveXApiBudget = async (
   cacheDb: XCacheDb | undefined,
   estimatedCostMicros: number,
   usageTracker?: XApiUsageTracker,
+  admissionFence?: XApiAdmissionFence,
 ) => {
-  if (!cacheDb) return noopXApiBudgetSettlement;
+  if (!cacheDb || estimatedCostMicros <= 0) {
+    if (admissionFence) throw new XApiError("RSS site admission unavailable", 503, { code: "budget_unavailable" });
+    if (!cacheDb) return noopXApiBudgetSettlement;
+  }
 
   const usedMicros = await readDailyUsageMicros(cacheDb);
   if (usedMicros === null) throw new XApiError("X budget storage unavailable", 503, { code: "budget_unavailable" });
@@ -668,19 +673,20 @@ const reserveXApiBudget = async (
 
   const timestamp = now();
   const day = new Date(timestamp).toISOString().slice(0, 10);
+  const fence = fxRssWriteFenceSql(admissionFence?.fence, admissionFence?.siteId ?? "otw");
   let ledgerReserved = false;
   try {
     const reservation = await cacheDb.prepare(
       `INSERT INTO scheduled_usage_daily (
          day, lane, resource, reserved, used, limit_value, updated_at
-       ) VALUES (?, 'all', 'x_api_cost_micros', ?, ?, ?, ?)
+       ) SELECT ?, 'all', 'x_api_cost_micros', ?, ?, ?, ? WHERE (${fence.sql})
        ON CONFLICT(day, lane, resource) DO UPDATE SET
          reserved = scheduled_usage_daily.reserved + excluded.reserved,
          limit_value = excluded.limit_value,
          updated_at = excluded.updated_at
        WHERE scheduled_usage_daily.used +
                scheduled_usage_daily.reserved + excluded.reserved
-             <= excluded.limit_value
+             <= excluded.limit_value AND (${fence.sql})
        RETURNING reserved`,
     ).bind(
       day,
@@ -688,8 +694,11 @@ const reserveXApiBudget = async (
       usedMicros,
       budgetMicros,
       timestamp,
+      ...fence.bindings,
+      ...fence.bindings,
     ).first<{ reserved: number | string }>();
     if (!reservation) {
+      if (admissionFence) throw new XApiError("RSS site admission denied", 503, { code: "rss_admission_denied" });
       const existing = await cacheDb.prepare(
         `SELECT limit_value AS limitValue FROM scheduled_usage_daily
          WHERE day = ? AND lane = 'all' AND resource = 'x_api_cost_micros'`,
@@ -973,6 +982,7 @@ export const requestXApi = async <T>(
     gateway?: XApiGateway;
     requestId?: string;
     backoffDb?: XCacheDb;
+    admissionFence?: XApiAdmissionFence;
   } = {},
 ): Promise<T> => {
   let settleBudgetReservation: XApiBudgetSettlement = noopXApiBudgetSettlement;
@@ -982,6 +992,10 @@ export const requestXApi = async <T>(
   let responseStatus = 0;
   let usageRecorded = false;
   try {
+  if (options.admissionFence && (!options.admissionFence.fence || !["otw", "luvdia"].includes(options.admissionFence.siteId) ||
+    !options.cacheDb || !options.operation || options.usageTracker?.purpose === "reference_preview")) {
+    throw new XApiError("RSS site admission unavailable", 503, { code: "budget_unavailable" });
+  }
   if (options.operation) {
     await assertXApiNotBackedOff(options.backoffDb ?? options.cacheDb);
     reservedCostMicros = options.estimatedCostMicros ?? estimateXApiRequestCostMicros(
@@ -994,6 +1008,7 @@ export const requestXApi = async <T>(
       options.cacheDb,
       reservedCostMicros,
       options.usageTracker,
+      options.admissionFence,
     );
   }
   } catch (error) {
