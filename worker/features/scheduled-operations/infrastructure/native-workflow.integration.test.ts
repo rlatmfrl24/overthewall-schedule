@@ -23,9 +23,11 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/reset");
+  await db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_collection_primary_source','x_api')").run();
   await db.prepare("UPDATE x_activity_coordinator SET ready=1").run();
   await db.prepare("INSERT INTO x_shared_budgets(day,used,reserved,limit_value,seed_detail,updated_at) VALUES(?,0,0,1000000,'{}',0) ON CONFLICT(day) DO UPDATE SET used=0,reserved=0").bind(new Date(Date.now()).toISOString().slice(0,10)).run();
 });
+
 
 it.each(["x_collection", "naver_cafe_collection", "youtube_feed_collection"] as const)("persists %s cadence through ordinary Cron, native Workflow and Queue", async jobType => {
   const started = Date.now(), minute = jobType === "naver_cafe_collection" ? 13 : 23;
@@ -189,3 +191,36 @@ it("finalizes and replays an ordinary scheduled receipt without consulting retir
   expect(await db.prepare("SELECT count(*) n FROM auto_update_runs").first("n")).toBe(before! + 1);
   expect(JSON.parse((await db.prepare("SELECT result_json FROM scheduled_job_items WHERE id='owning-finalizer-item'").first<string>("result_json"))!)).toEqual({...result,obsoletePending:1});
 });
+
+it("collects Fx and official regular items through native Cron Workflow and Queue with independent completion", async () => {
+  const started = Date.now();
+  let slot = Math.floor(started / 3_600_000) * 3_600_000 + 23 * 60_000;
+  if (slot > started) slot -= 3_600_000;
+  const inspector = await introspectWorkflow(bindings.NATIVE_SCHEDULED_WORKFLOW);
+  await db.batch([
+    db.prepare("DELETE FROM scheduled_job_runs WHERE job_type='x_collection'"),
+    db.prepare("UPDATE settings SET value='false' WHERE key LIKE 'scheduled_v2_%_enabled'"),
+    db.prepare("UPDATE members SET url_twitter=NULL"),
+    db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(900050,'native_collect','Native collector','https://x.com/native_collect') ON CONFLICT(uid) DO UPDATE SET url_twitter=excluded.url_twitter"),
+    ...["x_post_references", "x_post_facts", "x_posts", "x_fx_sources", "x_post_sources", "x_api_cache"].map(table => db.prepare(`DELETE FROM ${table}`)),
+    ...[["scheduled_v2_x_collection_enabled", "true"], ["x_collection_enabled", "true"], ["x_collection_primary_source", "fxembed"], ["x_collection_interval_hours", "24"], ["x_collection_daily_budget_cents", "100"], ["x_cost_optimizer_enabled", "true"], ["x_reference_preview_mode", "link_only"], ["x_collection_last_run", String(slot - 25 * 3_600_000)]].map(([key, value]) => db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)").bind(key, value)),
+    db.prepare("DELETE FROM settings WHERE key IN ('x_collection_cadence_state','x_api_backoff_until')"),
+    db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at,initialization_completed_at) VALUES('native_collect','1000000000001','native_collect','100',0,0,1,1)"),
+    db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES('x:user:v1:native_collect','user',?,?,?)").bind(JSON.stringify({ user: { id: "1000000000001", username: "native_collect" } }), started, started + 86400000),
+  ]);
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => bindings.NATIVE_WORKFLOW_PROVIDER.fetch(input, init));
+  try {
+    const runtime = { ...bindings, ...siteEnv(), CLOUDFLARE_ACCOUNT_ID: "native-test", CLOUDFLARE_D1_TOKEN: "native-test", SCHEDULED_OPERATIONS_WORKFLOW: bindings.NATIVE_SCHEDULED_WORKFLOW } as unknown as Env;
+    await handleScheduledWorkflowCron({ cron: SCHEDULED_WORKFLOW_CRON, scheduledTime: slot } as ScheduledController, runtime);
+    const instances = await inspector.get();
+    expect(instances).toHaveLength(1);
+    await instances[0].waitForStatus("complete");
+    const output = await instances[0].getOutput() as { id: string };
+    await expect.poll(() => db.prepare("SELECT status FROM scheduled_job_runs WHERE id=?").bind(output.id).first("status"), { timeout: 70000, interval: 100 }).toBe("partial");
+    await expect.poll(() => db.prepare("SELECT COUNT(*) AS n FROM x_posts WHERE id IN ('150','200')").first("n"), { timeout: 5000 }).toBe(2);
+    expect(await db.prepare("SELECT cursor,last_completed_at FROM x_fx_sources WHERE handle='native_collect'").first()).toEqual({ cursor: "fx_4", last_completed_at: null });
+    await expect.poll(async () => JSON.parse(await db.prepare("SELECT value FROM settings WHERE key='x_collection_cadence_state'").first<string>("value") ?? "null")?.anchorAt).toBe(slot);
+    expect(await db.prepare("SELECT last_seen_post_id,regular_completed_at FROM x_post_sources WHERE handle='native_collect'").first()).toMatchObject({ last_seen_post_id: "200", regular_completed_at: expect.any(Number) });
+    expect(await db.prepare("SELECT enabled FROM x_activity_sites WHERE site='otw'").first("enabled")).toBe(0);
+  } finally { vi.unstubAllGlobals(); await inspector.dispose(); }
+}, 90000);

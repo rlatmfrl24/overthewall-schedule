@@ -72,6 +72,9 @@ export type XCollectionOperationItemDto = {
   retryPending: boolean;
   nextRetryAt: number | null;
   collection: {
+    provider?: import("./x-collection").XCollectionProvider;
+    scope?: import("./x-collection").XCollectionScope;
+    pendingSources?: number;
     status: "success" | "skipped" | "failed";
     checkedHandles: number;
     refreshedHandles: number;

@@ -817,6 +817,7 @@ export const xPostSources = sqliteTable("x_post_sources", {
   cadence_anchor_at: integer("cadence_anchor_at"),
   last_success_at: integer("last_success_at"),
   last_completed_at: integer("last_completed_at"),
+  regular_completed_at: integer("regular_completed_at"),
   next_check_at: integer("next_check_at"),
   consecutive_failures: integer("consecutive_failures").notNull().default(0),
   last_error_code: text("last_error_code"),

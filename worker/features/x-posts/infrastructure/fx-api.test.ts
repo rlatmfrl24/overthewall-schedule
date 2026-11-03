@@ -28,8 +28,14 @@ it("uses only the fixed unauthenticated provider host and rejects payload failur
   expect(new URL(url).origin).toBe("https://api.fxtwitter.com");
   expect(new URL(url).searchParams.get("cursor")).toBe("a+b");
   expect(options.headers).toEqual({ Accept: "application/json" });
-  expect(options.redirect).toBe("error");
+  expect(options.redirect).toBe("manual");
   await expect(fetchFxTimelinePage("member", null, "101")).rejects.toMatchObject({ code: "fx_payload_404" });
+});
+it("rejects a redirect without following another host", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 302, headers: { Location: "https://other.example/" } }));
+  vi.stubGlobal("fetch", fetchMock);
+  await expect(fetchFxTimelinePage("member", null, "101")).rejects.toMatchObject({ code: "fx_http_302" });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 it("accepts observed public http links while requiring HTTPS media", () => {
   const post = { ...raw("123"), raw_text: { facets: [{ type: "url", original: "https://t.co/a", replacement: "http://chzzk.me/member" }] } };

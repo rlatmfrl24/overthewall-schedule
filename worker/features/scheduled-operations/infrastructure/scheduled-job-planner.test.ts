@@ -231,7 +231,7 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     else await planner.addPlannedItems(run, await planner.planScheduled("x_collection", timestamp));
     expect(repository.updateRunSummary).toHaveBeenCalledExactlyOnceWith(run.id, { xCollectionScope: "pending" });
     expect(repository.addItems).toHaveBeenCalledWith(run.id, [expect.objectContaining({
-      continuation: { handles: ["member_a"], recoveryOnly: true, recoveryAnchorAt: anchorAt },
+      continuation: { handles: ["member_a"], provider: "x_api", scope: "pending", recoveryOnly: true, recoveryAnchorAt: anchorAt },
     })]);
   });
 
@@ -245,7 +245,7 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     const repository={addItems:vi.fn(async (_id:string,items:NewScheduledItem[])=>items)};
     const run={...makeRun("x_collection","manual",1),summary_json:JSON.stringify({xCollectionScope:"pending"})};
     await new ScheduledJobPlanner(env,repository as never).plan(run);
-    expect(repository.addItems).toHaveBeenCalledWith(run.id,[expect.objectContaining({continuation:{handles:["member_b"]}})]);
+    expect(repository.addItems).toHaveBeenCalledWith(run.id,[expect.objectContaining({continuation:{handles:["member_b"],provider:"x_api",scope:"pending"}})]);
   });
 
   it("scheduled auto-update는 configured interval 이전에 channel scan을 만들지 않는다", async () => {

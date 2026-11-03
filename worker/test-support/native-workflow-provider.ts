@@ -16,6 +16,10 @@ export default {
     }
     if(url.origin === "https://api.cloudflare.com" && request.method === "POST" && url.pathname === "/client/v4/graphql") return Response.json({data:{viewer:{accounts:[{usage:[{sum:{rowsRead:1000}}]}]}}});
     calls.push(`${request.method} ${url.href}`);
+    if (request.method === "GET" && url.origin === "https://api.fxtwitter.com" && url.pathname === "/2/profile/native_collect/statuses") {
+      const page = Number((url.searchParams.get("cursor") ?? "fx_0").split("_")[1]);
+      return Response.json({ code: 200, results: [{ type: "status", id: "150", text: "Native Fx collection", created_at: new Date().toUTCString(), author: { id: "1000000000001", screen_name: "native_collect", protected: false }, media: {} }], cursor: { bottom: `fx_${page + 1}` } });
+    }
     if (request.method === "GET" && url.origin === "https://api.x.com") {
       if (url.pathname === "/2/users/by") return Response.json({ data: [{ id: "1000000000001", username: "native_collect" }] });
       if (url.pathname === "/2/users/1000000000001/tweets") return Response.json({

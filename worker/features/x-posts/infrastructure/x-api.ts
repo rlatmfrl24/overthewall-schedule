@@ -252,6 +252,7 @@ export type XApiUsageTracker = {
 };
 
 type CollectXPostsOptions = {
+  scheduledEligibilityConfirmed?: boolean;
   gateway?: XApiGateway;
   recoveryAnchorAt?: number;
   scheduledFor?: number | null;
@@ -3438,7 +3439,7 @@ export const collectXPostsForHandles = async (
     // A manual run is an explicit operator recovery action. It must still obey
     // the global rate-limit backoff and daily budget in requestXApi, but it
     // must not be turned into a no-op by the adaptive scheduled cooldown.
-    const handlesToRefresh = source === "manual"
+    const handlesToRefresh = source === "manual" || options.scheduledEligibilityConfirmed
       ? normalizedHandles
       : optimizerEnabled
         ? await getOptimizedXCollectionHandlesToRefresh(normalizedHandles, cacheDb, scheduledFor)

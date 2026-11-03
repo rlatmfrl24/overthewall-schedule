@@ -1,0 +1,1 @@
+ALTER TABLE `x_post_sources` ADD `regular_completed_at` integer;

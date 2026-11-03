@@ -48,10 +48,10 @@
 
 **Rules:** 고정 Fx 호스트, X 자격증명 미전달. 신뢰 계정 ID와 설정 handle 대조, 다른 작성자·리포스트 제외, gif→animated_gif. HTTP·payload code·구조·ID·날짜·미디어 검증. 404/빈 목록으로 삭제하지 않는다. 매 실행 head 확인 후 저장 cursor 재개, 계정당 최대 4페이지. 오래된 ID로 중단하지 않는다. 반복 cursor 실패·미완료 보존. 확인 성공과 전체 완료 별도. 기존 계정 lease·저장 경로 재사용. 활성화 이전 일반 백필 없음.
 
-- [ ] RED: 대상 작성자·중복 제거, 공식 cursor 불변, 저장 실패 시 durable cursor 유지.
-- [ ] 구현: 파싱·페이지·재시작·정규화·저장.
-- [ ] GREEN: 비정렬·중복·잘못된 응답·저장 실패·반복 cursor 단위/D1.
-- [ ] 커밋: `feat(x): collect FxEmbed posts through existing persistence`.
+- [x] RED: 대상 작성자·중복 제거, 공식 cursor 불변, 저장 실패 시 durable cursor 유지.
+- [x] 구현: 파싱·페이지·재시작·정규화·저장.
+- [x] GREEN: 비정렬·중복·잘못된 응답·저장 실패·반복 cursor 단위/D1.
+- [x] 커밋: `feat(x): collect FxEmbed posts through existing persistence`.
 
 ## Task 3: 30분 수집·24시간 보강·장애 시 2시간 전환
 
@@ -61,10 +61,10 @@
 
 **Rules:** 공급자 실패 2회(timeout/network/429/5xx/404/invalid payload)만 fallback. D1/예산/사용자 중지/lease는 제외. 공식 전체 완료 이후2h, pending 우선. Fx 조회+저장2회 성공 복귀, 공식 cursor 보존. 예산/backoff 준수, 웹훅 자동 시작 없음.
 
-- [ ] RED: 계정별 2실패/2성공, 공식 regular anchor 불변, 예산 차단 cursor 보존.
-- [ ] 구현: 공급자 계획·실행·최종화.
-- [ ] GREEN: Cron→native Workflow→Queue→D1 저장/최종화.
-- [ ] 커밋: `feat(x): schedule hybrid collection with bounded API fallback`.
+- [x] RED: 계정별 2실패/2성공, 공식 regular anchor 불변, 예산 차단 cursor 보존.
+- [x] 구현: 공급자 계획·실행·최종화.
+- [x] GREEN: Cron→native Workflow→Queue→D1 저장/최종화.
+- [x] 커밋: `feat(x): schedule hybrid collection with bounded API fallback`.
 
 ## Task 4: 웹훅 Disabled 보존과 관리자 제어
 

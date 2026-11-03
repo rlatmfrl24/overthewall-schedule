@@ -297,9 +297,15 @@ it.each(["scheduled", "manual"] as const)("persists cafe actual timestamps and %
   console.info("CAFE_CADENCE_WRITE_COST", JSON.stringify({ trigger, before: before.meta.rows_written, after: progress.rowsWritten }));
 });
 
-const finalizeX = (source: "manual" | "scheduled", status: string, completedAt: number, slot: number, database = db) =>
-  new ScheduledJobExecutor(runtime(database), { readRunDto: async () => ({ jobType: "x_collection", source, status, finishedAt: completedAt, scheduledFor: slot }) } as never)
-    .finalizeLegacyState("fixture-x");
+const finalizeX = async (source: "manual" | "scheduled", status: string, completedAt: number, slot: number, database = db) => {
+  const repository = new D1ScheduledJobRepository(db);
+  const run = await repository.createRun({jobType:"x_collection",source,idempotencyKey:crypto.randomUUID(),scheduledFor:slot});
+  const [id] = await repository.addItems(run.id,[{targetKey:"legacy-cadence",phase:"collect",lane:"x",continuation:{handles:["legacy"]}}]);
+  const item = (await repository.claimItem(id))!;
+  await repository.completeItem(item,{status:status as "succeeded"|"failed"|"partial"});
+  await new ScheduledJobExecutor(runtime(database), { readRunDto: async () => ({ jobType: "x_collection", source, status, finishedAt: completedAt, scheduledFor: slot }) } as never)
+    .finalizeLegacyState(run.id);
+};
 
 it("atomically records X cadence while preserving real completion and rejecting stale finalizers", async () => {
   await db.prepare("DELETE FROM settings WHERE key IN ('x_collection_last_run','x_collection_last_success','x_collection_cadence_state')").run();

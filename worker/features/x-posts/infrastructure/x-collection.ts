@@ -1,3 +1,4 @@
+import type { XCollectionScope } from "@contracts/x-collection";
 import { getHiddenMemberCodes } from "@contracts/site-publication";
 import { unavailableXApiGateway } from "@contracts/x-activity";
 import { publicationHiddenSql } from "../../content-access";
@@ -54,6 +55,8 @@ export type XCollectionRunResult = Omit<
   "error" | keyof XCollectionObservability
 > & Partial<XCollectionObservability> & {
   referenceHydration?: XReferenceHydrationResultDto;
+  provider?: import("@contracts/x-collection").XCollectionProvider;
+  scope?: XCollectionScope;
   success: boolean;
   pendingSources?: number;
   error: string | null;
@@ -271,15 +274,32 @@ export const runXCollectionForHandles = async (
   scheduledFor?: number | null,
   pendingOnly = false,
   recoveryAnchorAt?: number,
+  scope?: XCollectionScope,
 ): Promise<XCollectionRunResult> => {
   if (getHiddenMemberCodes(parseSiteId(env.SITE_ID), Date.now()).length) {
     const allowed = new Set(await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID)));
     handles = handles.filter(handle => allowed.has(handle.toLowerCase()));
   }
   const policy = await resolveXEffectiveCollectionPolicy(env);
+  const hybrid = scope !== undefined && (await getSetting(getDb(env), "x_collection_primary_source")) === "fxembed";
+  const startedAt = Date.now();
+  if (hybrid) policy.effectiveIntervalMinutes = scope === "fallback" ? 120 : 1440;
   const lease = await claimXSourceLeases(env, handles, Date.now());
   try {
     let claimed = lease.claimed;
+    if (hybrid && scope === "regular" && source === "scheduled" && claimed.length) {
+      const baseline = Number(await env.otw_db.prepare("SELECT value FROM settings WHERE key='x_collection_last_run'").first("value") ?? 0);
+      const finished = await env.otw_db.prepare("SELECT handle FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND regular_completed_at>?")
+        .bind(JSON.stringify(claimed), baseline).all<{handle:string}>();
+      const done = new Set(finished.results.map(row => row.handle));
+      claimed = source === "scheduled" && scheduledFor != null && baseline >= scheduledFor ? [] : claimed.filter(handle => !done.has(handle));
+    }
+    if (hybrid && scope === "fallback" && claimed.length) {
+      const active = await env.otw_db.prepare("SELECT source.handle FROM x_post_sources source JOIN x_fx_sources fx ON fx.handle=source.handle WHERE source.handle IN (SELECT value FROM json_each(?)) AND fx.fallback_active=1 AND (source.last_completed_at IS NULL OR source.last_completed_at<=?)")
+        .bind(JSON.stringify(claimed), Date.now()-2*3_600_000).all<{handle:string}>();
+      const activeHandles = new Set(active.results.map(row => row.handle));
+      claimed = claimed.filter(handle => activeHandles.has(handle));
+    }
     if (pendingOnly && claimed.length) {
       const pending = await env.otw_db.prepare("SELECT handle FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_pagination_token IS NOT NULL")
         .bind(JSON.stringify(claimed)).all<{handle:string}>();
@@ -303,12 +323,15 @@ export const runXCollectionForHandles = async (
       scheduledFor: source === "scheduled" ? scheduledFor : undefined,
       recoveryAnchorAt,
       optimizerEnabled: policy.optimizerEnabled,
+      scheduledEligibilityConfirmed: hybrid,
       effectiveIntervalMinutes: policy.effectiveIntervalMinutes,
       referencePreviewMode: policy.referencePreviewMode,
       coalescedHandles: lease.coalesced,
       afterTimeline: (tracker) => hydrateXReferences({ db: env.otw_db,siteId:parseSiteId(env.SITE_ID), handles: claimed,
         bearerToken: env.X_BEARER_TOKEN ?? "shared-gateway", mode: policy.referencePreviewMode, tracker }),
     });
+    if (hybrid && scope === "regular" && result.status === "success" && !result.referenceHydration?.failed && claimed.length) await env.otw_db.prepare("UPDATE x_post_sources SET regular_completed_at=last_completed_at WHERE handle IN (SELECT value FROM json_each(?)) AND last_completed_at>=? AND sync_pagination_token IS NULL AND last_error IS NULL")
+      .bind(JSON.stringify(claimed), startedAt).run();
     const pendingSources=claimed.length ? await env.otw_db.prepare("SELECT COUNT(*) AS count FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_pagination_token IS NOT NULL")
       .bind(JSON.stringify(claimed)).first<number>("count") : 0;
     return normalizeCollectionResult({
@@ -347,13 +370,17 @@ export const runXCollection = async (
   return { ...result, updatedAt: new Date(updatedAtMs).toISOString() };
 };
 
-export const readDueXRecoveryHandles = async (env: Env, handles: string[], timestamp: number) => {
-  if (!handles.length) return [];
+export const readXCollectionBudgetAvailable = async (env: Env) => {
   const budget = await env.X_API_GATEWAY?.readBudget();
   const minimum = estimateXSharedApiReservationMicros("timeline", `/users/1/tweets?max_results=${X_OPTIMIZED_FIRST_PAGE_RESULTS}&expansions=attachments.media_keys`);
-  if (!budget?.seeded || budget.remaining < minimum) return [];
+  if (!budget?.seeded || budget.remaining < minimum) return false;
   const site = await readSiteXBudget(env.otw_db);
-  if ((await readDailyBudgetMicros(env.otw_db))-site.used-site.reserved < estimateXApiRequestCostMicros("timeline", `/users/1/tweets?max_results=${X_OPTIMIZED_FIRST_PAGE_RESULTS}&expansions=attachments.media_keys`)) return [];
+  if ((await readDailyBudgetMicros(env.otw_db))-site.used-site.reserved < estimateXApiRequestCostMicros("timeline", `/users/1/tweets?max_results=${X_OPTIMIZED_FIRST_PAGE_RESULTS}&expansions=attachments.media_keys`)) return false;
+  return true;
+};
+
+export const readDueXRecoveryHandles = async (env: Env, handles: string[], timestamp: number) => {
+  if (!handles.length || !await readXCollectionBudgetAvailable(env)) return [];
   const rows = await env.otw_db.prepare(`SELECT handle FROM x_post_sources
     WHERE handle IN (SELECT value FROM json_each(?)) AND deactivated_at IS NULL AND next_check_at<=?
       AND (sync_pagination_token IS NOT NULL OR last_error_code='budget_exceeded')

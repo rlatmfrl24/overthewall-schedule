@@ -57,6 +57,9 @@ export function toXCollectionOperationItem(row: XCollectionItemEvidence): XColle
     retryPending: Number(row.retry_pending) > 0,
     nextRetryAt: row.next_retry_at,
     collection: validCollection && data ? {
+      provider: data.provider === "fxembed" ? "fxembed" : "x_api",
+      ...(["regular", "pending", "fallback"].includes(String(data.scope)) ? { scope: data.scope as "regular" | "pending" | "fallback" } : {}),
+      ...(count(data.pendingSources) ? { pendingSources: data.pendingSources } : {}),
       status: data.status as "success" | "skipped" | "failed",
       checkedHandles: data.checkedHandles as number,
       refreshedHandles: data.refreshedHandles as number,
