@@ -440,7 +440,7 @@ it("retries a definitively failed receipt using a new checkpointed identity", as
 });
 
 const admissionCases = (["absent", "existing"] as const).flatMap(ledger =>
-  (["disabled", "rollback", "member", "item-lease", "source-lease"] as const).map(boundary => ({ ledger, boundary })));
+  (["disabled", "rollback", "activation overflow", "member", "item-lease", "source-lease"] as const).map(boundary => ({ ledger, boundary })));
 it.each(admissionCases)("atomically rejects RSS admission after $boundary before the $ledger site reservation", async ({ ledger, boundary }) => {
     const day = new Date(now).toISOString().slice(0,10);
     if (ledger === "existing") await db.prepare("INSERT INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES(?,'all','x_api_cost_micros',17,23,1000000,0)").bind(day).run();
@@ -457,6 +457,7 @@ it.each(admissionCases)("atomically rejects RSS admission after $boundary before
             interleaved = true;
             if (boundary === "disabled") await original("UPDATE settings SET value='false' WHERE key='x_collection_enabled'").run();
             if (boundary === "rollback") await original("UPDATE settings SET value='x_api' WHERE key='x_collection_primary_source'").run();
+            if (boundary === "activation overflow") await original("UPDATE settings SET value='1e999' WHERE key='x_collection_hybrid_activated_at'").run();
             if (boundary === "member") await original("UPDATE members SET url_twitter=NULL WHERE uid=1").run();
             if (boundary === "item-lease") await original("UPDATE scheduled_job_items SET lease_token='next-item-owner' WHERE id=?").bind(entry.item.id).run();
             if (boundary === "source-lease") await original("UPDATE x_post_sources SET lease_token='next-source-owner' WHERE handle='member'").run();

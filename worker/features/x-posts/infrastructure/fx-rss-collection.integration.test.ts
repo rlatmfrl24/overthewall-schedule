@@ -133,11 +133,18 @@ it("rejects a stale result revision even when the continuation snapshot is ident
   expect(JSON.parse((await repo.readItem(item.id))!.result_json!)).toEqual({ pending: 1 });
 });
 
-it.each(["Infinity", "0", "not-a-date"])("does not activate RSS for invalid marker %s", async marker => {
+it.each(["Infinity", "1e999", "0", "not-a-date"])("does not activate RSS for invalid marker %s", async marker => {
   await db.prepare("UPDATE settings SET value=? WHERE key='x_collection_hybrid_activated_at'").bind(marker).run();
   expect(await due()).toEqual([]);
   expect((await runItem(await createItem(), state())).status).toBe("blocked");
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it.each(["0.5", String(Number.MAX_VALUE)])("admits RSS writes for finite positive activation %s", async marker => {
+  await db.prepare("UPDATE settings SET value=? WHERE key='x_collection_hybrid_activated_at'").bind(marker).run();
+  expect(await due()).toHaveLength(1);
+  expect((await runItem(await createItem(), state())).stats.postsStored).toBe(5);
+  expect(await db.prepare("SELECT count(*) n FROM x_posts").first("n")).toBe(5);
 });
 
 it("preserves hidden rows and removes their candidates without lookup", async () => {
@@ -294,6 +301,7 @@ const writeInterleavings = [
   ["disabled", "UPDATE settings SET value='false' WHERE key='x_collection_enabled'"],
   ["rollback", "UPDATE settings SET value='x_api' WHERE key='x_collection_primary_source'"],
   ["policy", "UPDATE settings SET value='legacy' WHERE key='x_collection_hybrid_policy'"],
+  ["activation overflow", "UPDATE settings SET value='1e999' WHERE key='x_collection_hybrid_activated_at'"],
   ["member removed", "UPDATE members SET url_twitter=NULL WHERE uid=1"],
   ["member archived", "UPDATE members SET content_access='admin_archive' WHERE uid=1"],
   ["item turnover", "UPDATE scheduled_job_items SET lease_token='next-item-owner' WHERE status='running'"],

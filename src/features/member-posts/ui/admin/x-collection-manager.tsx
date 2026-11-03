@@ -71,7 +71,7 @@ export function XCollectionManager({ enabled }: { enabled: boolean }) {
         {data.primarySource === "fxembed" && data.hybridPolicy !== "rss_v1" && <Button type="button" size="sm" disabled={blocked || !enabled} onClick={() => mutation.mutate("fxembed")}>혼합 구성 적용</Button>}
       </div>
       {!enabled && <p className="text-muted-foreground">FxEmbed 전환은 게시물 수집을 켠 뒤 사용할 수 있습니다.</p>}
-      <p className="text-xs text-muted-foreground">공식 X로 복귀해도 웹훅은 Disabled를 유지합니다. 필요할 때 구독 관리에서 직접 재활성화하세요.</p>
+      <p className="text-xs text-muted-foreground">공식 X로 복귀해도 현재 웹훅 상태는 유지됩니다. 웹훅을 중지하려면 구독 관리에서 별도로 중지하세요.</p>
       {data.accounts.length > 0 && <details>
         <summary className="cursor-pointer font-medium">계정별 수집·임시 전환 상태</summary>
         <div className="overflow-x-auto pt-2"><table className="w-full text-left text-xs">

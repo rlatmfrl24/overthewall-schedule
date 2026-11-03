@@ -19,10 +19,10 @@ export function fxRssWriteFenceSql(fence: FxRssWriteFence | undefined, siteId: S
       AND EXISTS(SELECT 1 FROM settings WHERE key='x_collection_primary_source' AND value='fxembed')
       AND EXISTS(SELECT 1 FROM settings WHERE key='x_collection_hybrid_policy' AND value='rss_v1')
       AND EXISTS(SELECT 1 FROM settings WHERE key='x_collection_hybrid_activated_at'
-        AND CASE WHEN json_valid(value) THEN json_type(value) IN ('integer','real') AND CAST(value AS REAL)>0 ELSE 0 END)
+        AND CASE WHEN json_valid(value) THEN json_type(value) IN ('integer','real') AND CAST(value AS REAL)>0 AND CAST(value AS REAL)<=? ELSE 0 END)
       AND EXISTS(SELECT 1 FROM members rss_member JOIN json_each(?) rss_allowed
         ON rss_member.uid=json_extract(rss_allowed.value,'$.uid') AND rss_member.url_twitter=json_extract(rss_allowed.value,'$.urlTwitter')
         WHERE coalesce(rss_member.is_deprecated,0)=0 AND rss_member.content_access='normal'
           AND NOT (${publicationHiddenSql("members", "rss_member", siteId)})))`,
-    bindings: [fence.itemId, fence.handle, fence.sourceLeaseToken, fence.itemLeaseToken, JSON.stringify(fence.members)] };
+    bindings: [fence.itemId, fence.handle, fence.sourceLeaseToken, fence.itemLeaseToken, Number.MAX_VALUE, JSON.stringify(fence.members)] };
 }

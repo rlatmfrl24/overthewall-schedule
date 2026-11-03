@@ -246,20 +246,6 @@ export class D1XActivityCoordinator {
     await this.write(token,this.db.prepare("UPDATE x_activity_subscriptions SET status='stopped',subscription_id=NULL,expires_at=NULL,last_error=NULL,updated_at=? WHERE user_id=?").bind(Date.now(),row.user_id));
   }
 
-  private async removeUnusedHook(token:string){
-    for(const site of ["otw","luvdia"] as const)if((await this.options.sites[site].snapshot()).primarySource==="fxembed")return;
-    if(await this.db.prepare("SELECT 1 FROM x_activity_sites WHERE pause_reason IN ('hybrid','hybrid_transition','hybrid_rollback') LIMIT 1").first())return;
-    const state=await this.db.prepare("SELECT webhook_id,webhook_url FROM x_activity_coordinator WHERE id=1").first<{webhook_id:string|null;webhook_url:string|null}>();
-    if(!state?.webhook_id&&state?.webhook_url!==this.callback)return;
-    const hook=(await this.hooks()).find(item=>(item.id===state.webhook_id||!state.webhook_id)&&item.url===this.callback);
-    if(hook&&!(await this.subscriptions()).some(item=>item.webhook_id===hook.id)){
-      await this.assertOwner(token);
-      await this.provider(`/webhooks/${encodeURIComponent(hook.id)}`,"DELETE");
-      if((await this.hooks()).some(item=>item.id===hook.id))throw new Error("x_activity_webhook_delete_readback_failed");
-    }else if(hook)return;
-    await this.write(token,this.db.prepare("UPDATE x_activity_coordinator SET webhook_id=NULL,webhook_url=NULL WHERE id=1"));
-  }
-
   async reconcile(canProcess=true){
     const now=Date.now(),lease=now+10*60_000,token=crypto.randomUUID();
     const claimed=await this.db.prepare("UPDATE x_activity_coordinator SET lease_until=?,lease_token=? WHERE id=1 AND lease_until<=? RETURNING ready").bind(lease,token,now).first<{ready:number}>();
@@ -326,9 +312,7 @@ export class D1XActivityCoordinator {
         for(const row of (await this.db.prepare("SELECT * FROM x_activity_subscriptions").all<Owned>()).results){
           try{await this.removeOwned(row,latest,token);}catch(error){await this.write(token,this.db.prepare("UPDATE x_activity_subscriptions SET status='error',last_error=? WHERE user_id=?").bind(message(error),row.user_id));}
         }
-        users=[];
       }
-      if(!users.length)await this.removeUnusedHook(token);
       if(canProcess)await this.recoverDispatch(token);
       await this.write(token,this.db.prepare("UPDATE x_activity_coordinator SET last_error=NULL,updated_at=? WHERE id=1 AND lease_until=?").bind(Date.now(),lease));
     }catch(error){if(await this.owned(token))await this.write(token,this.db.prepare("UPDATE x_activity_coordinator SET last_error=?,updated_at=? WHERE id=1").bind(message(error),Date.now()));}

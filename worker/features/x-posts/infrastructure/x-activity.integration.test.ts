@@ -125,6 +125,31 @@ describe("XAA multi-site collection and common money boundary",()=>{
     expect(await db.prepare("SELECT status FROM x_activity_inbox WHERE event_id=?").bind(id).first("status")).toBe("complete");
     const saved=structuredClone(hooks);await control.stop("otw");expect(hooks).toEqual(saved);
   });
+  it.each(["rollback then stop","stop then rollback","legacy"])("preserves the configured endpoint after %s while removing owned subscriptions",async(order)=>{
+    const control=coordinator();
+    if(order!=="legacy")await control.setPrimarySource("otw","fxembed");
+    await control.start("otw");
+    expect(remote).toHaveLength(1);
+    const endpoint=await db.prepare("SELECT webhook_id,webhook_url FROM x_activity_coordinator WHERE id=1").first();
+    const saved=structuredClone(hooks);
+    vi.mocked(fetch).mockClear();
+    if(order==="rollback then stop"){
+      await control.setPrimarySource("otw","x_api");
+      expect((await control.status("otw")).sites?.find(site=>site.site==="otw")?.enabled).toBe(true);
+    }
+    await control.stop("otw");
+    if(order==="stop then rollback")await control.setPrimarySource("otw","x_api");
+    await control.reconcile(true);
+    const status=await control.status("otw");
+    expect(status.primarySource).toBe("x_api");
+    expect(status.sites?.every(site=>!site.enabled&&site.activeCount===0)).toBe(true);
+    expect(await db.prepare("SELECT value FROM settings WHERE key='x_webhook_disabled'").first("value")).toBe("true");
+    expect(remote).toHaveLength(0);
+    expect(await db.prepare("SELECT status,subscription_id FROM x_activity_subscriptions WHERE user_id=?").bind(userId).first()).toEqual({status:"stopped",subscription_id:null});
+    expect(await db.prepare("SELECT webhook_id,webhook_url FROM x_activity_coordinator WHERE id=1").first()).toEqual(endpoint);
+    expect(hooks).toEqual(saved);
+    expect(vi.mocked(fetch).mock.calls.filter(([input,init])=>String(input).includes("/webhooks/")&&init?.method==="DELETE")).toHaveLength(0);
+  });
   it("disabled_never_resubscribes_after_utc_reset",async()=>{
     const control=coordinator();await control.setPrimarySource("otw","fxembed");
     const saved=structuredClone(hooks);vi.mocked(fetch).mockClear();
@@ -532,7 +557,7 @@ describe("XAA multi-site collection and common money boundary",()=>{
     expect(remote).toHaveLength(0);expect(hooks).toHaveLength(0);
   });
 
-  it("recovers an uncertain webhook creation for cleanup and leaves foreign subscriptions untouched",async()=>{
+  it("preserves an uncertain webhook creation for reuse and leaves foreign subscriptions untouched",async()=>{
     let lost=true;
     vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
       const response=await provider(input,init);
@@ -540,7 +565,8 @@ describe("XAA multi-site collection and common money boundary",()=>{
       return response;
     }));
     await coordinator().start("otw");expect(hooks).toHaveLength(1);
-    await coordinator().stop("otw");expect(hooks).toHaveLength(0);
+    // Stop removes paid subscriptions, not the reusable endpoint, even after a lost create response.
+    await coordinator().stop("otw");expect(hooks).toHaveLength(1);
     const foreign={subscription_id:"foreign",event_type:"post.create",filter:{user_id:userId},tag:"foreign",webhook_id:"elsewhere"};
     remote=[foreign];await coordinator().start("otw");
     expect((await coordinator().status("otw")).mode).toBe("partial");
