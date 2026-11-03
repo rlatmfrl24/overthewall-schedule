@@ -17,6 +17,24 @@ it("preserves raw counts when a valid 200 feed shrinks from 100 to 35", async ()
   expect((await fetchFxRssFeed("member")).rawCount).toBe(35);
 });
 it.each([
+  ["Tue, 03 Nov 2026 00:00:00 GMT", "2026-11-03T00:00:00Z"],
+  ["Thu, 29 Feb 2024 23:59:59 GMT", "2024-02-29T23:59:59Z"],
+])("accepts canonical FxRSS calendar dates: %s", (date, expected) => {
+  const xml = feed(item("123").replace("Tue, 03 Nov 2026 00:00:00 GMT", date));
+  expect(parseFxRssFeed(xml, "member").entries[0].createdAtHint).toBe(Date.parse(expected));
+});
+it.each([
+  "Tue, 31 Feb 2026 00:00:00 GMT",
+  "Sun, 29 Feb 2026 00:00:00 GMT",
+  "1",
+  "2026-11-03T00:00:00Z",
+  "Mon, 03 Nov 2026 00:00:00 GMT",
+  "Tue, 03 Nov 2026 24:00:00 GMT",
+])("rejects impossible or coerced RSS date scalars: %s", date => {
+  const xml = feed(item("123").replace("Tue, 03 Nov 2026 00:00:00 GMT", date));
+  expect(() => parseFxRssFeed(xml, "member")).toThrowError(expect.objectContaining({ code: "fx_invalid_payload" }));
+});
+it.each([
   '<!DOCTYPE rss [<!ENTITY remote SYSTEM "https://private.example/">]><rss><channel>&remote;</channel></rss>',
   '<!DOCTYPE rss><rss version="2.0"><channel/></rss>',
   "<rss><channel></rss>",

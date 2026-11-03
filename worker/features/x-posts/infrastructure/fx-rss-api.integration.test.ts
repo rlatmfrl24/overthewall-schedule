@@ -18,3 +18,7 @@ it("rejects invalid UTF8 bytes through the actual Workerd decoder", async () => 
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(new Uint8Array([0xc3, 0x28]))));
   await expect(fetchFxRssFeed("member")).rejects.toThrowError(expect.objectContaining({ code: "fx_invalid_payload" }));
 });
+it.each(["Tue, 31 Feb 2026 00:00:00 GMT", "1"])("rejects invalid RSS calendar dates in Workerd: %s", date => {
+  const xml = `<rss version="2.0"><channel><item><guid>https://x.com/member/status/123</guid><pubDate>${date}</pubDate></item></channel></rss>`;
+  expect(() => parseFxRssFeed(xml, "member")).toThrowError(expect.objectContaining({ code: "fx_invalid_payload" }));
+});

@@ -26,8 +26,9 @@ export function parseFxRssFeed(xml: string, targetHandle: string): FxRssPage {
       const path = /^\/([a-zA-Z0-9_]{1,15})\/status\/(\d{1,25})$/.exec(url.pathname);
       if (url.origin !== "https://x.com" || url.username || url.password || !path) return invalid();
       const handle = parseFxHandle(path[1]), id = parseFxId(path[2]);
-      const createdAtHint = Date.parse(date.text.trim());
-      if (!Number.isFinite(createdAtHint)) return invalid();
+      const dateText = date.text.trim(), createdAtHint = Date.parse(dateText);
+      // FxRSS emits canonical UTC dates; round-trip rejects date coercion and rollover.
+      if (!Number.isFinite(createdAtHint) || new Date(createdAtHint).toUTCString() !== dateText) return invalid();
       if (handle === target && !entries.has(id)) entries.set(id, { id, handle, createdAtHint });
     }
     return { entries: [...entries.values()], rawCount: items.length };
