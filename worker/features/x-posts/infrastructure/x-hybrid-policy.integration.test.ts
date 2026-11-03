@@ -139,3 +139,38 @@ it("keeps budget interruption unfinished without a paid provider call", async ()
   expect(calls).toHaveLength(0);
   expect(await source()).toMatchObject({ last_completed_at: null, regular_completed_at: null, sync_timeline_completed_at: null, sync_origin_scope: "regular" });
 });
+it("finishes a terminal hidden quote without losing the next regular timeline", async () => {
+  await db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at,hidden_at,content_removed_at) VALUES('150','parent','parent','{}',?,0,0,1,1)")
+    .bind(new Date(timestamp).toISOString()).run();
+  const calls = provider(() => page(null, true));
+  await collect("regular");
+  const terminal = { resolution_state: "terminal", author_state: "terminal", last_error_code: "not_found_or_unavailable", author_last_error_code: null };
+  const reference = () => db.prepare("SELECT resolution_state,author_state,last_error_code,author_last_error_code FROM x_post_references WHERE source_post_id='200'").first();
+  expect(await reference()).toEqual(terminal);
+  expect(await source()).toMatchObject({ last_completed_at: timestamp, regular_completed_at: timestamp,
+    sync_origin_scope: null, sync_origin_started_at: null, sync_timeline_completed_at: null });
+  clearXServiceCachesForTests();
+  clock.mockReturnValue(timestamp + 12 * HOUR);
+  expect((await readHybridXCollectionTargets(runtime, Date.now())).filter(item => item.provider === "x_api")).toMatchObject([{ scope: "regular", handles: ["member"] }]);
+  await collect("regular");
+  expect(calls).toHaveLength(2);
+  expect(await source()).toMatchObject({ last_completed_at: timestamp + 12 * HOUR, regular_completed_at: timestamp + 12 * HOUR,
+    sync_origin_scope: null, sync_timeline_completed_at: null });
+  expect(await reference()).toEqual(terminal);
+  expect(await db.prepare("SELECT value,hidden_at,content_removed_at FROM x_posts WHERE id='150'").first()).toEqual({ value: "{}", hidden_at: 1, content_removed_at: 1 });
+  expect(vi.mocked(fetch).mock.calls.every(([input]) => !new URL(String(input)).pathname.startsWith("/2/tweets"))).toBe(true);
+});
+it("keeps genuine retryable reference errors pending even when their retry is not due", async () => {
+  await db.prepare("UPDATE settings SET value='post_only' WHERE key='x_reference_preview_mode'").run();
+  provider(() => page(null, true));
+  await collect("regular");
+  const reference = await db.prepare("SELECT resolution_state,last_error_code,next_attempt_at FROM x_post_references WHERE source_post_id='200'").first<{ resolution_state: string; last_error_code: string | null; next_attempt_at: number }>();
+  expect(reference?.resolution_state).not.toBe("terminal");
+  expect(reference?.last_error_code).toBeTruthy();
+  expect(await source()).toMatchObject({ last_completed_at: null, regular_completed_at: null, sync_origin_scope: "regular", sync_timeline_completed_at: timestamp });
+  clearXServiceCachesForTests();
+  clock.mockReturnValue(timestamp + 15 * 60_000);
+  expect(reference!.next_attempt_at).toBeGreaterThan(Date.now());
+  await collect("pending");
+  expect(await source()).toMatchObject({ last_completed_at: null, regular_completed_at: null, sync_origin_scope: "regular", sync_timeline_completed_at: timestamp });
+});

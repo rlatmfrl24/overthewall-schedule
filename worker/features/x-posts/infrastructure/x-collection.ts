@@ -365,8 +365,8 @@ export const runXCollectionForHandles = async (
         AND NOT (${publicationHiddenSql("x_post_sources","x_post_sources",parseSiteId(env.SITE_ID))})
         AND NOT EXISTS(SELECT 1 FROM x_posts p JOIN x_post_references r ON r.source_post_id=p.id
           WHERE p.handle=x_post_sources.handle AND r.updated_at>=x_post_sources.sync_origin_started_at
-          AND ((r.last_error_code IS NOT NULL AND r.last_error_code NOT IN ('preview_disabled','preview_budget_exceeded','budget_exceeded'))
-            OR (r.author_last_error_code IS NOT NULL AND r.author_last_error_code NOT IN ('preview_disabled','preview_budget_exceeded','budget_exceeded'))))`)
+          AND ((r.resolution_state!='terminal' AND r.last_error_code IS NOT NULL AND r.last_error_code NOT IN ('preview_disabled','preview_budget_exceeded','budget_exceeded'))
+            OR (r.author_state!='terminal' AND r.author_last_error_code IS NOT NULL AND r.author_last_error_code NOT IN ('preview_disabled','preview_budget_exceeded','budget_exceeded'))))`)
         .bind(completedAt, completedAt, completedAt, JSON.stringify(claimed), lease.token, Date.now()).run();
     }
     if (hybrid && !independent && scope === "regular" && claimed.length) await env.otw_db.prepare(`UPDATE x_post_sources SET regular_completed_at=last_completed_at
