@@ -62,6 +62,7 @@ export type XCollectionRunResult = Omit<
   scope?: XCollectionScope;
   success: boolean;
   pendingSources?: number;
+  recentCheck?: import("@contracts/x-collection").FxRecentCheck;
   error: string | null;
   updatedAt: string;
 };

@@ -162,6 +162,7 @@ function ItemResult({ item }: { item: XCollectionOperationItemDto }) {
         {c?.provider && <p>{c.provider === "fxembed" ? "FxEmbed" : "공식 X"} · {c.scope === "pending" ? "미완료 재개" : c.scope === "fallback" ? "장애 임시 수집" : "정기"}</p>}
         <p>{c ? xCollectionItemLabel(c) + " · 계정 확인 " + c.checkedHandles + "개 · 갱신 " + c.refreshedHandles + "개" : "수집 결과 기록 없음"}</p>
         {c && <p className="text-muted-foreground">응답 {c.postsReturned}건 · 저장 {c.postsStored}건</p>}
+        {c?.recentCheck && <><p>최근 {c.recentCheck.lookbackHours}시간 · 최대 {c.recentCheck.maxPages}페이지 확인 · 상한 도달 {c.recentCheck.limitedSources}계정</p><p className="text-xs text-muted-foreground">무료 확인은 전량 발견을 보장하지 않으며 누락은 공식 대조로 보완합니다.</p></>}
         {c?.mode === "rss_candidates" && <p>RSS 후보 확인 · {xPaidLookupText(c)}</p>}
         {c?.rss && <><p>목록 {c.rss.rawCount}건 · 발견 후보 {c.rss.candidatesFound}건 · 남은 후보 {c.rss.pendingCandidates}건</p>{c.rss.windowReduced && <p>RSS 발견창 축소</p>}{c.rss.nextAttemptAt !== null && <p>다음 점검 재개 자격 {formatXEligibility(c.rss.nextAttemptAt)} · 실행 시각은 보장되지 않습니다.</p>}</>}
         {c?.error && <p className="break-words">{xReasonLabel(c.error)}</p>}

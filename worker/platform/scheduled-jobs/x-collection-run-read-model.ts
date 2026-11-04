@@ -1,6 +1,6 @@
 import type { XCollectionOperationItemDto, ScheduledJobStatus } from "@contracts/scheduled-operations";
 import type { XReferenceHydrationResultDto } from "@contracts/x-posts";
-import type { XNewlyStoredPost } from "@contracts/x-collection";
+import { FX_COLLECTION_LOOKBACK_HOURS, FX_COLLECTION_MAX_PAGES, type XNewlyStoredPost } from "@contracts/x-collection";
 
 export interface XCollectionItemEvidence {
   id: string;
@@ -64,6 +64,7 @@ export function toXCollectionOperationItem(row: XCollectionItemEvidence): XColle
   const pendingCandidates = rss?.pendingCandidates ?? rss?.pending;
   const validRss = rss && count(rss.rawCount) && count(rss.candidatesFound) && count(pendingCandidates) && typeof rss.windowReduced === "boolean" && (rss.nextAttemptAt === null || count(rss.nextAttemptAt));
   const newlyStoredPosts = data ? parseNewlyStoredPosts(data) : undefined;
+  const recentCheck = record(data?.recentCheck);
   return {
     itemId: row.id,
     targetKey: row.target_key,
@@ -79,6 +80,8 @@ export function toXCollectionOperationItem(row: XCollectionItemEvidence): XColle
       ...(data.mode === "timeline" || data.mode === "rss_candidates" ? { mode: data.mode } : {}),
       ...(count(data.paidApiCalls) ? { paidApiCalls: data.paidApiCalls } : {}),
       ...(newlyStoredPosts === undefined ? {} : { newlyStoredPosts }),
+      ...(data.provider === "fxembed" && recentCheck?.lookbackHours === FX_COLLECTION_LOOKBACK_HOURS && recentCheck.maxPages === FX_COLLECTION_MAX_PAGES && count(recentCheck.limitedSources) && recentCheck.limitedSources <= (data.checkedHandles as number)
+        ? { recentCheck: { lookbackHours: FX_COLLECTION_LOOKBACK_HOURS, maxPages: FX_COLLECTION_MAX_PAGES, limitedSources: recentCheck.limitedSources } } : {}),
       ...(validRss && rss ? { rss: { rawCount: rss.rawCount as number, candidatesFound: rss.candidatesFound as number, pendingCandidates: pendingCandidates as number, nextAttemptAt: rss.nextAttemptAt as number | null, windowReduced: rss.windowReduced as boolean } } : {}),
       ...(["regular", "pending", "fallback"].includes(String(data.scope)) ? { scope: data.scope as "regular" | "pending" | "fallback" } : {}),
       ...(count(data.pendingSources) ? { pendingSources: data.pendingSources } : {}),

@@ -32,10 +32,14 @@ export function XCollectionManager({ enabled }: { enabled: boolean }) {
       <div className="grid gap-3 md:grid-cols-2">
         <article className="space-y-1 rounded-md border p-3">
           <h3 className="font-medium">FxEmbed 기본 수집</h3>
-          <p className="text-xs text-muted-foreground">JSON 검증·저장 상태</p>
+          <p className="text-xs text-muted-foreground">{data.fxembed.lookbackHours ? `최근 ${data.fxembed.lookbackHours}시간 · 최대 ${data.fxembed.maxPages}페이지 확인` : "JSON 검증·저장 상태"}</p>
           <p>30분 간격 · 최근 성공 {formatXTime(data.fxembed.lastSuccessAt)}</p>
           <p>미완료 {data.fxembed.pendingSources}개 · 오류 {data.fxembed.failedSources}개</p>
-          <p className="text-xs text-muted-foreground">전체 탐색 완료 {formatXTime(data.fxembed.lastCompletedAt)}</p>
+          <p className="text-xs text-muted-foreground">{data.fxembed.lookbackHours ? "확인 완료" : "전체 탐색 완료"} {formatXTime(data.fxembed.lastCompletedAt)}</p>
+          {data.fxembed.lookbackHours && <>
+            <p className="text-xs text-muted-foreground">확인 범위 종료 {formatXTime(data.fxembed.lastWindowUntilAt ?? null)} · 상한 도달 {data.fxembed.limitedSources ?? 0}계정</p>
+            <p className="text-xs text-muted-foreground">이전 탐색 기록 보존 {data.fxembed.retiredSources ?? 0}계정 · 무료 확인은 전량 발견을 보장하지 않으며 누락은 공식 대조로 보완합니다.</p>
+          </>}
         </article>
         <article className="space-y-1 rounded-md border p-3">
           <h3 className="font-medium">FxEmbed RSS 보완 {data.rss?.enabled ? "활성" : "비활성"}</h3>
@@ -79,7 +83,7 @@ export function XCollectionManager({ enabled }: { enabled: boolean }) {
           <thead><tr><th className="p-2">계정</th><th className="p-2">FxEmbed JSON</th><th className="p-2">RSS</th><th className="p-2">공식 X</th></tr></thead>
           <tbody>{data.accounts.map(account => <tr className="border-t" key={account.handle}>
             <th scope="row" className="p-2">@{account.handle}</th>
-            <td className="p-2">{formatXTime(account.fxLastSuccessAt)} · {account.fxPending ? "탐색 미완료" : "남은 탐색 없음"}<br />연속 실패 {account.consecutiveFailures}회 / 성공 {account.consecutiveSuccesses}회{account.fxError && <p>{xReasonLabel(account.fxError)}</p>}</td>
+            <td className="p-2">{formatXTime(account.fxLastSuccessAt)} · {account.fxPending ? "확인 재시도 대기" : "진행 중인 확인 없음"}<br />연속 실패 {account.consecutiveFailures}회 / 성공 {account.consecutiveSuccesses}회{data.fxembed.lookbackHours && <p>확인 범위 종료 {formatXTime(account.fxLastWindowUntilAt ?? null)}{account.fxWindowLimited && " · 4페이지 상한"}</p>}{account.fxError && <p>{xReasonLabel(account.fxError)}</p>}</td>
             <td className="p-2">HTTP {formatXTime(account.rssLastHttpSuccessAt)}<br />후보 확인 {formatXTime(account.rssLastCheckCompletedAt)} · 대기 {account.rssPendingCandidates}건{account.rssWindowReduced && <p>발견창 축소</p>}{account.rssError && <p>{xReasonLabel(account.rssError)}</p>}</td>
             <td className="p-2">{account.fallbackActive ? "공식 2시간 임시 수집" : "정기 보강"} · {account.officialPending ? "공식 수집 미완료" : "진행 중인 수집 없음"}<br />정기 완료 {formatXTime(account.officialRegularCompletedAt)}<br />전체 페이지 완료 {formatXTime(account.officialLastCompletedAt)}<br />명목 자격 {formatXTime(account.officialNominalDueAt)}<br />재시도 반영 {formatXEligibility(account.officialNextEligibleAt)}{account.officialBlockedReason && <p>{xReasonLabel(account.officialBlockedReason)}</p>}{account.officialError && <p>{xReasonLabel(account.officialError)}</p>}</td>
           </tr>)}</tbody>

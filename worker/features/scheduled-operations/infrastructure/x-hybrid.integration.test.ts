@@ -29,6 +29,23 @@ beforeEach(async () => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const plans = () => new ScheduledJobPlanner(runtime(), new D1ScheduledJobRepository(db)).planScheduled("x_collection", time);
+it("plans and completes a free pending check for a first-page error without a cursor", async () => {
+  await db.prepare("UPDATE x_fx_sources SET last_error='fx_storage_failed' WHERE handle='member_a'").run();
+  const official = await db.prepare("SELECT handle,last_seen_post_id,sync_pagination_token,last_completed_at,regular_completed_at FROM x_post_sources ORDER BY handle").all();
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ code: 200, results: [], cursor: {} })));
+  const repository = new D1ScheduledJobRepository(db);
+  const run = await repository.createRun({ jobType: "x_collection", source: "manual", idempotencyKey: "first-page-retry", initialSummary: { xCollectionProvider: "fxembed", xCollectionScope: "pending" } });
+  const [id] = await new ScheduledJobPlanner(runtime(), repository).plan(run);
+  const item = (await repository.claimItem(id))!;
+  expect(JSON.parse(item.continuation_json!)).toMatchObject({ provider: "fxembed", scope: "pending", handles: ["member_a"] });
+  const outcome = await new ScheduledJobExecutor(runtime(), repository).execute(item);
+  await repository.completeItem(item, outcome);
+  expect(outcome).toMatchObject({ status: "succeeded", result: { pendingSources: 0, recentCheck: { lookbackHours: 48, maxPages: 4 } } });
+  expect(await db.prepare("SELECT last_error,cursor,pages_completed FROM x_fx_sources WHERE handle='member_a'").first()).toEqual({ last_error: null, cursor: null, pages_completed: 1 });
+  expect((await db.prepare("SELECT handle,last_seen_post_id,sync_pagination_token,last_completed_at,regular_completed_at FROM x_post_sources ORDER BY handle").all()).results).toEqual(official.results);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(new URL(String(vi.mocked(fetch).mock.calls[0][0])).hostname).toBe("api.fxtwitter.com");
+});
 it.each(["pending", "rss"])("carries %s recovery deadline into paid admission despite adverse item IDs", async urgency => {
   await db.batch([
     db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_collection_hybrid_policy','rss_v1'),('x_collection_hybrid_activated_at','1')"),

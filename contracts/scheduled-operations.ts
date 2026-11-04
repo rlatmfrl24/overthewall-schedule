@@ -80,6 +80,7 @@ export type XCollectionOperationItemDto = {
     pendingSources?: number;
     paidApiCalls?: number;
     newlyStoredPosts?: import("./x-collection").XNewlyStoredPost[];
+    recentCheck?: import("./x-collection").FxRecentCheck;
     rss?: { rawCount: number; candidatesFound: number; pendingCandidates: number; nextAttemptAt: number | null; windowReduced: boolean };
     status: "success" | "skipped" | "failed";
     checkedHandles: number;

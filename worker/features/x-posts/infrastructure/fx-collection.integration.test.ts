@@ -5,22 +5,23 @@ import { clearXServiceCachesForTests, fetchXPostsForHandles } from "./x-api";
 
 const runtime = { ...env, SITE_ID: "otw" } as Env & { X_REFERENCE_MIGRATIONS: D1Migration[] };
 const db = runtime.otw_db;
-const raw = (id: string) => ({ type: "status", id, text: id, author: { id: "101", screen_name: "member", protected: false }, created_at: new Date().toUTCString(), media: {} });
-const page = (id: string, cursor: string | null) => new Response(JSON.stringify({ code: 200, results: [raw(id)], cursor: { bottom: cursor } }));
+const raw = (id: string) => ({ type: "status", id, text: id, author: { id: "101", screen_name: "member", protected: false }, created_at: new Date(Date.now()).toUTCString(), media: {} });
+const page = (id: string, cursor: string | null, createdAt = Date.now()) => new Response(JSON.stringify({ code: 200, results: [{ ...raw(id), created_at: new Date(createdAt).toUTCString() }], cursor: { bottom: cursor } }));
 beforeEach(async () => {
+  vi.spyOn(Date, "now").mockReturnValue(1800000000000);
   await applyD1Migrations(db, runtime.X_REFERENCE_MIGRATIONS);
   await db.batch([db.prepare("DELETE FROM x_posts"), db.prepare("DELETE FROM x_post_sources"), db.prepare("DELETE FROM x_fx_sources"), db.prepare("DELETE FROM members"), db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_collection_enabled','true')")]);
   await db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(1,'member','Member','https://x.com/member')").run();
   await db.prepare("INSERT INTO x_post_sources(handle,user_id,last_checked_at,updated_at,collection_started_at,last_seen_post_id,sync_pagination_token) VALUES('member','101',0,0,1,'100','official-next')").run();
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 it("recovers an interrupted handle lookup through the pinned ID and durable cursor", async () => {
   await db.prepare("INSERT INTO x_fx_sources(handle,user_id,collection_started_at,cursor,consecutive_failures,last_error,updated_at) VALUES('member','101',1,'old',1,'fx_http_404',0)").run();
   const official = await db.prepare("SELECT user_id,last_seen_post_id,sync_pagination_token,last_success_at,last_completed_at FROM x_post_sources").first();
   const fetchMock = vi.fn(async (url: string) => {
     const target = new URL(url);
     if (target.pathname !== "/2/profile/id:101/statuses") return Response.json({ code: 404, results: [], cursor: {} }, { status: 404 });
-    return target.searchParams.get("cursor") === "old" ? page("123", null) : page("124", "head-next");
+    return target.searchParams.get("cursor") === "head-next" ? page("123", null) : page("124", "head-next");
   });
   vi.stubGlobal("fetch", fetchMock);
   expect(await runFxCollectionForHandles(runtime, ["member"], "manual")).toMatchObject({ status: "success", postsStored: 2, apiCalls: 2, pendingSources: 0 });
@@ -34,7 +35,7 @@ it("retains the acknowledged head and pending cursor when the pinned provider st
   await db.prepare("INSERT INTO x_fx_sources(handle,user_id,collection_started_at,cursor,updated_at) VALUES('member','101',1,'old',0)").run();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(page("125", "head-next")).mockResolvedValueOnce(Response.json({ code: 404, results: [], cursor: {} }, { status: 404 })));
   expect(await runFxCollectionForHandles(runtime, ["member"], "manual")).toMatchObject({ status: "failed", postsStored: 1, apiCalls: 2, pendingSources: 1, error: "fx_http_404" });
-  expect(await db.prepare("SELECT cursor,consecutive_failures,last_error,last_completed_at FROM x_fx_sources").first()).toEqual({ cursor: "old", consecutive_failures: 1, last_error: "fx_http_404", last_completed_at: null });
+  expect(await db.prepare("SELECT cursor,consecutive_failures,last_error,last_completed_at FROM x_fx_sources").first()).toEqual({ cursor: "head-next", consecutive_failures: 1, last_error: "fx_http_404", last_completed_at: null });
   expect(await db.prepare("SELECT id FROM x_posts").all()).toMatchObject({ results: [{ id: "125" }] });
 });
 it.each(["archive", "publication"])("stores a public Fx page and acknowledges its cursor despite a %s-protected quote", async mode => {
@@ -58,23 +59,80 @@ it.each(["archive", "publication"])("stores a public Fx page and acknowledges it
   expect(await runFxCollectionForHandles(runtime, ["member"], "manual")).toMatchObject({ status: "success", postsStored: 0, pendingSources: 0 });
   expect((await db.prepare("SELECT id,value,content_hash FROM x_posts ORDER BY id").all()).results).toEqual(stored.results);
 });
-it("stores four pages through the normal writer without moving the official cursor", async () => {
+it("retires a historic traversal and follows the current head continuation within 48 hours", async () => {
+  await db.prepare("INSERT INTO x_fx_sources(handle,user_id,collection_started_at,cursor,updated_at) VALUES('member','101',1,'historic-tail',0)").run();
+  const cursors: Array<string | null> = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    const cursor = new URL(url).searchParams.get("cursor"); cursors.push(cursor);
+    return cursor === null ? page("150", "recent-page-2") : cursor === "recent-page-2" ? page("130", null)
+      : Response.json({ code: 200, results: [{ ...raw("90"), created_at: new Date(Date.now() - 7 * 86400000).toUTCString() }], cursor: {} });
+  }));
+  expect(await runFxCollectionForHandles(runtime, ["member"], "manual")).toMatchObject({ status: "success", pendingSources: 0 });
+  expect(cursors).toEqual([null, "recent-page-2"]);
+  expect((await db.prepare("SELECT id FROM x_posts ORDER BY id").all()).results).toEqual([{ id: "130" }, { id: "150" }]);
+  const progress = await db.prepare("SELECT retired_progress,pages_completed,last_window_until_at,last_window_limited FROM x_fx_sources").first();
+  expect(JSON.parse(progress!.retired_progress as string)).toEqual({ cursor: "historic-tail", lastCompletedAt: null, retiredAt: Date.now(), reason: "recent_48h_check" });
+  expect(progress).toMatchObject({ pages_completed: 2, last_window_until_at: Date.now(), last_window_limited: 0 });
+});
+it("finishes a bounded four-page check through the normal writer without moving the official cursor", async () => {
+  const postedAt = Date.now();
   let active = 0, peak = 0;
   const fetchMock = vi.fn().mockImplementation(async (url: string) => {
     active++; peak = Math.max(peak, active);
     await new Promise(resolve => setTimeout(resolve, 5));
     active--;
     const cursor = new URL(url).searchParams.get("cursor");
-    return cursor === null ? page("124", "p2") : cursor === "p2" ? page("123", "p3") : cursor === "p3" ? page("122", "p4") : page("121", "p5");
+    return cursor === null ? page("124", "p2", postedAt) : cursor === "p2" ? page("123", "p3", postedAt) : cursor === "p3" ? page("122", "p4", postedAt) : page("121", "p5", postedAt);
   });
   vi.stubGlobal("fetch", fetchMock);
   const before = await db.prepare("SELECT last_seen_post_id,sync_pagination_token,last_success_at,last_completed_at FROM x_post_sources").first();
   const result = await runFxCollectionForHandles(runtime, ["member"], "scheduled");
-  expect(result).toMatchObject({ provider: "fxembed", postsStored: 4, pendingSources: 1 });
+  expect(result).toMatchObject({ provider: "fxembed", postsStored: 4, pendingSources: 0, success: true, recentCheck: { lookbackHours: 48, maxPages: 4, limitedSources: 1 } });
   expect(fetchMock).toHaveBeenCalledTimes(4);
   expect(peak).toBe(1);
   expect(await db.prepare("SELECT last_seen_post_id,sync_pagination_token,last_success_at,last_completed_at FROM x_post_sources").first()).toEqual(before);
-  expect(await db.prepare("SELECT cursor FROM x_fx_sources").first("cursor")).toBe("p5");
+  expect(await db.prepare("SELECT cursor FROM x_fx_sources").first("cursor")).toBeNull();
+  expect(await db.prepare("SELECT pages_completed,last_window_until_at,last_window_limited FROM x_fx_sources").first()).toEqual({ pages_completed: 4, last_window_until_at: Date.now(), last_window_limited: 1 });
+  const stored = await db.prepare("SELECT id,value,revision FROM x_posts ORDER BY id").all();
+  for (let check = 0; check < 2; check++) {
+    vi.mocked(Date.now).mockReturnValue(Date.now() + 30 * 60000);
+    expect(await runFxCollectionForHandles(runtime, ["member"], "manual")).toMatchObject({ success: true, postsStored: 0, apiCalls: 4, pendingSources: 0 });
+    expect(await db.prepare("SELECT last_window_until_at FROM x_fx_sources").first("last_window_until_at")).toBe(Date.now());
+  }
+  expect((await db.prepare("SELECT id,value,revision FROM x_posts ORDER BY id").all()).results).toEqual(stored.results);
+});
+it("continues past old pinned and empty pages while enforcing both time boundaries", async () => {
+  const now = Date.now();
+  const fetchMock = vi.fn().mockResolvedValueOnce(page("90", "empty", now - 49 * 3600000))
+    .mockResolvedValueOnce(Response.json({ code: 200, results: [], cursor: { bottom: "recent" } }))
+    .mockResolvedValueOnce(Response.json({ code: 200, results: [
+      { ...raw("100"), created_at: new Date(now - 48 * 3600000).toUTCString() },
+      { ...raw("101"), created_at: new Date(now + 1000).toUTCString() },
+      { ...raw("102"), created_at: new Date(now - 48 * 3600000 - 1000).toUTCString() },
+      raw("103"),
+    ], cursor: {} }));
+  vi.stubGlobal("fetch", fetchMock);
+  expect(await runFxCollectionForHandles(runtime, ["member"], "manual")).toMatchObject({ success: true, apiCalls: 3, postsStored: 2, pendingSources: 0 });
+  expect((await db.prepare("SELECT id FROM x_posts ORDER BY id").all()).results).toEqual([{ id: "100" }, { id: "103" }]);
+});
+it("resumes its frozen window separately from the fresh head within four requests", async () => {
+  const until = Date.now() - 86400000;
+  await db.prepare("INSERT INTO x_fx_sources(handle,collection_started_at,cursor,window_until_at,pages_completed,last_error,updated_at) VALUES('member',1,'old',?,1,'fx_http_404',0)").bind(until).run();
+  const cursors: Array<string | null> = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    const cursor = new URL(url).searchParams.get("cursor"); cursors.push(cursor);
+    return cursor === null ? page("150", "head-new") : cursor === "old" ? page("130", "p3", until) : cursor === "p3" ? page("140", "p4") : page("120", "p5", until - 1000);
+  }));
+  expect(await runFxCollectionForHandles(runtime, ["member"], "manual")).toMatchObject({ success: true, apiCalls: 4, postsStored: 3, pendingSources: 0, recentCheck: { limitedSources: 1 } });
+  expect(cursors).toEqual([null, "old", "p3", "p4"]);
+  expect((await db.prepare("SELECT id FROM x_posts ORDER BY id").all()).results).toEqual([{ id: "120" }, { id: "130" }, { id: "150" }]);
+  expect(await db.prepare("SELECT cursor,window_until_at,pages_completed,last_window_until_at,retired_progress,last_error FROM x_fx_sources").first()).toEqual({ cursor: null, window_until_at: until, pages_completed: 4, last_window_until_at: until, retired_progress: null, last_error: null });
+});
+it("keeps a failed first page pending without retiring the legacy cursor", async () => {
+  await db.prepare("INSERT INTO x_fx_sources(handle,collection_started_at,cursor,updated_at) VALUES('member',1,'historic',0)").run();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 503 })));
+  expect(await runFxCollectionForHandles(runtime, ["member"], "manual")).toMatchObject({ status: "failed", pendingSources: 1, apiCalls: 1 });
+  expect(await db.prepare("SELECT cursor,window_until_at,pages_completed,retired_progress FROM x_fx_sources").first()).toEqual({ cursor: "historic", window_until_at: null, pages_completed: 0, retired_progress: null });
 });
 it("preserves an acquired reply when the normal JSON collector replays an omitted relation", async () => {
   let reply = true;
@@ -90,8 +148,8 @@ it("preserves an acquired reply when the normal JSON collector replays an omitte
   expect(after).toMatchObject({ last_seen_post_id: official!.last_seen_post_id, sync_pagination_token: official!.sync_pagination_token, collection_started_at: official!.collection_started_at });
 });
 it("checks the head and resumes the durable continuation, retaining it on storage failure", async () => {
-  await db.prepare("INSERT INTO x_fx_sources(handle,collection_started_at,cursor,updated_at) VALUES('member',1,'old',0)").run();
-  const fetchMock = vi.fn().mockResolvedValueOnce(page("125", "head-next")).mockResolvedValueOnce(page("123", "after-old"));
+  await db.prepare("INSERT INTO x_fx_sources(handle,collection_started_at,cursor,window_until_at,pages_completed,updated_at) VALUES('member',1,'old',?,1,0)").bind(Date.now() - 1000).run();
+  const fetchMock = vi.fn().mockResolvedValueOnce(page("125", "head-next")).mockResolvedValueOnce(page("123", "after-old", Date.now() - 1000));
   vi.stubGlobal("fetch", fetchMock);
   await db.exec("CREATE TRIGGER fail_fx_store BEFORE INSERT ON x_posts WHEN NEW.id='123' BEGIN SELECT RAISE(ABORT,'storage failure'); END;");
   try {
@@ -103,7 +161,7 @@ it("checks the head and resumes the durable continuation, retaining it on storag
   } finally { await db.exec("DROP TRIGGER fail_fx_store;"); }
 });
 it("preserves stored posts and pending cursor on provider failure or a repeated cursor", async () => {
-  await db.prepare("INSERT INTO x_fx_sources(handle,collection_started_at,cursor,updated_at) VALUES('member',1,'old',0)").run();
+  await db.prepare("INSERT INTO x_fx_sources(handle,collection_started_at,cursor,window_until_at,pages_completed,updated_at) VALUES('member',1,'old',?,1,0)").bind(Date.now() - 1000).run();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(page("124", "head-next")).mockResolvedValueOnce(page("123", "old")));
   const result = await runFxCollectionForHandles(runtime, ["member"], "scheduled");
   expect(result.status).toBe("failed");
@@ -112,7 +170,7 @@ it("preserves stored posts and pending cursor on provider failure or a repeated 
 });
 it("pins a new member via public Fx profile without advancing official initialization", async () => {
   await db.prepare("DELETE FROM x_post_sources").run();
-  const fresh = { ...raw("125"), created_at: new Date(Date.now() + 1000).toUTCString() };
+  const fresh = raw("125");
   const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({ code: 200, user: fresh.author })).mockResolvedValueOnce(Response.json({ code: 200, results: [fresh], cursor: {} }));
   vi.stubGlobal("fetch", fetchMock);
   const result = await runFxCollectionForHandles(runtime, ["member"], "manual");
