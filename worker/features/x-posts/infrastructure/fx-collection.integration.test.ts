@@ -14,6 +14,29 @@ beforeEach(async () => {
   await db.prepare("INSERT INTO x_post_sources(handle,user_id,last_checked_at,updated_at,collection_started_at,last_seen_post_id,sync_pagination_token) VALUES('member','101',0,0,1,'100','official-next')").run();
 });
 afterEach(() => vi.unstubAllGlobals());
+it("recovers an interrupted handle lookup through the pinned ID and durable cursor", async () => {
+  await db.prepare("INSERT INTO x_fx_sources(handle,user_id,collection_started_at,cursor,consecutive_failures,last_error,updated_at) VALUES('member','101',1,'old',1,'fx_http_404',0)").run();
+  const official = await db.prepare("SELECT user_id,last_seen_post_id,sync_pagination_token,last_success_at,last_completed_at FROM x_post_sources").first();
+  const fetchMock = vi.fn(async (url: string) => {
+    const target = new URL(url);
+    if (target.pathname !== "/2/profile/id:101/statuses") return Response.json({ code: 404, results: [], cursor: {} }, { status: 404 });
+    return target.searchParams.get("cursor") === "old" ? page("123", null) : page("124", "head-next");
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  expect(await runFxCollectionForHandles(runtime, ["member"], "manual")).toMatchObject({ status: "success", postsStored: 2, apiCalls: 2, pendingSources: 0 });
+  expect(await db.prepare("SELECT cursor,consecutive_failures,last_error,last_success_at,last_completed_at FROM x_fx_sources").first()).toEqual({ cursor: null, consecutive_failures: 0, last_error: null, last_success_at: expect.any(Number), last_completed_at: expect.any(Number) });
+  expect(await db.prepare("SELECT user_id,last_seen_post_id,sync_pagination_token,last_success_at,last_completed_at FROM x_post_sources").first()).toEqual(official);
+  clearXServiceCachesForTests();
+  expect((await fetchXPostsForHandles(["member"], { cacheDb: db, refresh: false, siteId: "otw" })).posts.map(post => post.id).sort()).toEqual(["123", "124"]);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+it("retains the acknowledged head and pending cursor when the pinned provider still returns 404", async () => {
+  await db.prepare("INSERT INTO x_fx_sources(handle,user_id,collection_started_at,cursor,updated_at) VALUES('member','101',1,'old',0)").run();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(page("125", "head-next")).mockResolvedValueOnce(Response.json({ code: 404, results: [], cursor: {} }, { status: 404 })));
+  expect(await runFxCollectionForHandles(runtime, ["member"], "manual")).toMatchObject({ status: "failed", postsStored: 1, apiCalls: 2, pendingSources: 1, error: "fx_http_404" });
+  expect(await db.prepare("SELECT cursor,consecutive_failures,last_error,last_completed_at FROM x_fx_sources").first()).toEqual({ cursor: "old", consecutive_failures: 1, last_error: "fx_http_404", last_completed_at: null });
+  expect(await db.prepare("SELECT id FROM x_posts").all()).toMatchObject({ results: [{ id: "125" }] });
+});
 it.each(["archive", "publication"])("stores a public Fx page and acknowledges its cursor despite a %s-protected quote", async mode => {
   await db.prepare("INSERT INTO members(uid,code,name,url_twitter,content_access) VALUES(2,?,'Private','https://x.com/private_member',?)")
     .bind(mode === "publication" ? "bing_hayu" : "private", mode === "archive" ? "admin_archive" : "normal").run();
