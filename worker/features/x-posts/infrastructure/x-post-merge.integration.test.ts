@@ -28,6 +28,33 @@ const seedPrivateTarget = async (mode = "normal") => {
     .bind(JSON.stringify({ ...post, id: "122", username: "private_member", reply: null }), post.createdAt, mode === "archive" ? "admin_archive" : "normal", mode === "hidden" ? 3 : null, mode === "removed" ? 3 : null).run();
   if (mode === "terminal") await db.prepare("INSERT INTO x_post_references(source_post_id,relation_type,referenced_post_id,resolution_state,created_at,updated_at) VALUES('122','quote','122','terminal',1,1)").run();
 };
+it("treats raw protected Fx replays as one-call no-ops but commits authority upgrades and NULL hash repairs", async () => {
+  await seedPrivateTarget("archive");
+  const raw = referencing("quote"), fx = { origin: "fxembed" as const, completeness: complete };
+  expect(await writeStoredPosts(db, "member", user, [raw], 1, "otw", fx)).toMatchObject({ ok: true, count: 1 });
+  const before = await read(), noop = meterD1(db);
+  expect(await writeStoredPosts(noop.db, "member", user, [raw], 2, "otw", fx)).toMatchObject({ ok: true, count: 0, insertedIds: [] });
+  expect(noop.bindingCalls).toBe(1);
+  expect(await read()).toEqual(before);
+  const upgrade = meterD1(db);
+  expect(await writeStoredPosts(upgrade.db, "member", user, [raw], 3, "otw")).toMatchObject({ ok: true, count: 1, insertedIds: [] });
+  expect(upgrade.bindingCalls).toBe(2);
+  expect(JSON.parse((await db.prepare("SELECT source_authority FROM x_posts WHERE id='123'").first<string>("source_authority"))!)).toEqual({ text: "x_api", media: "x_api", relations: "x_api" });
+  await db.prepare("UPDATE x_posts SET content_hash=NULL WHERE id='123'").run();
+  const revision = (await read())!.revision, repair = meterD1(db);
+  expect(await writeStoredPosts(repair.db, "member", user, [raw], 4, "otw")).toMatchObject({ ok: true, count: 1, insertedIds: [] });
+  expect(repair.bindingCalls).toBe(2);
+  expect((await read())!.revision).toBe(revision);
+  expect(await db.prepare("SELECT content_hash FROM x_posts WHERE id='123'").first("content_hash")).toMatch(/^[a-f0-9]{64}$/);
+});
+it("does not reinterpret an explicit protected Fx relation change as omission preserving the old public target", async () => {
+  const fx = { origin: "fxembed" as const, completeness: complete };
+  const old = { ...referencing("quote"), quote: { postId: "121", post: { ...privatePreview, id: "121", username: "public_target", text: "old public target" } } };
+  expect(await writeStoredPosts(db, "member", user, [old], 1, "otw", fx)).toMatchObject({ ok: true });
+  await seedPrivateTarget("archive");
+  expect(await writeStoredPosts(db, "member", user, [referencing("quote")], 2, "otw", fx)).toMatchObject({ ok: true, count: 1 });
+  expect(JSON.parse((await read())!.value).quote).toBeUndefined();
+});
 it.each(["archive", "publication", "hidden", "removed", "terminal"].flatMap(mode => (["quote", "reply", "link"] as const).map(relation => ({ mode, relation }))))("stores the public root while sanitizing $mode $relation context in two calls", async ({ mode, relation }) => {
   await seedPrivateTarget(mode);
   const measured = meterD1(db);

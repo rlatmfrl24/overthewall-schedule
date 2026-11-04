@@ -4,7 +4,7 @@ import type { SiteId } from "@contracts/site-definition";
 import type { XPostItem } from "../../../platform/types";
 import { publicationHiddenSql } from "../../content-access";
 import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
-import { mergeStoredXPost, xPostContentKey, type XPostAuthority, type XPostWriteContext } from "../domain/merge-x-post";
+import { mergeStoredXPost, hasStoredXPostChanged, xPostContentKey, type XPostAuthority, type XPostWriteContext } from "../domain/merge-x-post";
 import { handleFromUrl, prepareXPostFact, type MemberRow } from "./x-history";
 import { parseXPreview, parseCachedXPreview, storedXPreview, sanitizeXReferences, linkedPostKey, type StoredXPreview } from "./x-reference-store";
 
@@ -168,7 +168,7 @@ export async function commitStoredPosts(
         const existing = previous?.merged ?? (row ? { post: JSON.parse(row.value) as XPostItem, authority: row.source_authority ? JSON.parse(row.source_authority) as XPostAuthority : null } : null);
         const merged = mergeStoredXPost(existing, incoming, typeof context === "function" ? context(incoming) : context);
         const sanitized = sanitizeXReferences(merged.post, archived, hiddenHandles, hidden);
-        merged.changed ||= xPostContentKey(sanitized) !== xPostContentKey(merged.post);
+        merged.changed = hasStoredXPostChanged(existing, sanitized, merged.authority);
         merged.post = sanitized;
         const repair = Boolean(previous || (row?.source_authority && row.content_hash === null));
         if (merged.changed || repair) byId.set(incoming.id, { row, merged: { ...merged, changed: merged.changed || Boolean(previous?.merged.changed) }, count: (previous?.count ?? 0) + 1 });

@@ -32,6 +32,8 @@ it.each(["archive", "publication"])("stores a public Fx page and acknowledges it
   expect(feed.posts.map(post => post.id).sort()).toEqual(["123", "124"]);
   expect(JSON.stringify(feed.posts)).not.toContain("private quote body");
   expect(fetch).toHaveBeenCalledTimes(1);
+  expect(await runFxCollectionForHandles(runtime, ["member"], "manual")).toMatchObject({ status: "success", postsStored: 0, pendingSources: 0 });
+  expect((await db.prepare("SELECT id,value,content_hash FROM x_posts ORDER BY id").all()).results).toEqual(stored.results);
 });
 it("stores four pages through the normal writer without moving the official cursor", async () => {
   let active = 0, peak = 0;

@@ -15,6 +15,14 @@ export const xPostContentKey = (post: XPostDto) => JSON.stringify([
   post.links ?? [], post.quote ?? null, post.reply ?? null,
 ], (key, value) => key === "metrics" ? undefined : value);
 
+export const hasStoredXPostChanged = (
+  existing: { post: XPostDto; authority: XPostAuthority | null } | null,
+  post: XPostDto,
+  authority: XPostAuthority,
+) => !existing || xPostContentKey(post) !== xPostContentKey(existing.post)
+  || JSON.stringify(authority) !== JSON.stringify(existing.authority ?? { text: "x_api", media: "x_api", relations: "x_api" })
+  || JSON.stringify(post.metrics) !== JSON.stringify(existing.post.metrics);
+
 export function mergeStoredXPost(
   existing: { post: XPostDto; authority: XPostAuthority | null } | null,
   incoming: XPostDto,
@@ -54,8 +62,6 @@ export function mergeStoredXPost(
       }
     }
   }
-  const contentChanged = !existing || xPostContentKey(post) !== xPostContentKey(existing.post);
   if (context.origin !== "fxembed" || !existing) post.metrics = incoming.metrics;
-  const changed = !existing || contentChanged || JSON.stringify(authority) !== JSON.stringify(existing.authority ?? { text: "x_api", media: "x_api", relations: "x_api" }) || JSON.stringify(post.metrics) !== JSON.stringify(existing.post.metrics);
-  return { post, authority, changed };
+  return { post, authority, changed: hasStoredXPostChanged(existing, post, authority) };
 }
