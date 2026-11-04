@@ -294,6 +294,8 @@ it.each([false,true])("collects Fx and official regular items through native Cro
     await expect.poll(() => db.prepare("SELECT status FROM scheduled_job_runs WHERE id=?").bind(output.id).first("status"), { timeout: 70000, interval: 100 }).toBe("partial");
     await expect.poll(() => db.prepare("SELECT COUNT(*) AS n FROM x_posts WHERE id IN ('150','200')").first("n"), { timeout: 5000 }).toBe(2);
     expect(await db.prepare("SELECT cursor,last_completed_at FROM x_fx_sources WHERE handle='native_collect'").first()).toEqual({ cursor: "fx_4", last_completed_at: null });
+    const calls = await (await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/calls")).json<string[]>();
+    expect(calls.filter(call => call.includes("/2/profile/id:1000000000001/statuses"))).toHaveLength(4);
     await expect.poll(async () => JSON.parse(await db.prepare("SELECT value FROM settings WHERE key='x_collection_cadence_state'").first<string>("value") ?? "null")?.anchorAt).toBe(slot);
     expect(await db.prepare("SELECT last_seen_post_id,regular_completed_at FROM x_post_sources WHERE handle='native_collect'").first()).toMatchObject({ last_seen_post_id: "200", regular_completed_at: expect.any(Number) });
     expect(await db.prepare("SELECT enabled FROM x_activity_sites WHERE site='otw'").first("enabled")).toBe(0);

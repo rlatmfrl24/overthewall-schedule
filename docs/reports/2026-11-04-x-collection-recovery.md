@@ -22,6 +22,12 @@ HTTP 전에 숫자 ID를 검증한다. 같은 ID의 변경된 handle 응답은 �
 
 독립 scoped 리뷰는 열린 유효 지적0건이며 `git diff --check`가 통과했다. 양 사이트 production build/manifest와 agent mirror 참조 검사도 통과했다. schema·migration·의존성·설정 변경은 없다.
 
+## 자동 빌드 실패와 검증 경계 보완
+
+PR210 병합 `d14c01f6`의 자동 빌드가 실패했고 기존 운영9415는 유지됐다. 최초 의존 검색에서 `worker/test-support/native-workflow-provider.ts`의 이전 이름 기반 URL 참조를 놓쳤다. 추가 로컬 native Workflow 검증에서3건의 실패를 재현했다. 제품 계약을 되돌리는 대신 fixture를 동일한 숫자 ID 경로에 맞추고, 기존 native Cron→Workflow→Queue 검증에 ID 경로4회와 페이지 상한의 확인을 추가한다. CI 상세 로그는 브라우저 주소 확인 제한으로 읽지 못했으므로 로컬 재현과 실제 CI 결과를 구분한다. 실패 기록은 소유 PR에 보존한다.
+
+fixture 수정 후 native Workflow·혼합 수집22건 및 타입·변경 lint가 통과했다. 이 경계의 추가 실패로 전체 `pnpm test` 검증을 확장하며 최종 판정과 운영 artifact/readback은 PR 원장에 기록한다. 브라우저 조작이 현재 주소 확인 제한으로 중단되어 새 관리자 수동 실행·화면 캡처는 미확인으로 남기고, 정상 정기 Cron→Workflow→Queue와 기존 읽기 전용 인터페이스로 운영 수집을 확인한다.
+
 게시·배포·운영 복구의 실제 결과는 소유 PR의 검증 원장에 추가한다. 이 문서의 로컬 mock 통과나 공급자 직접200만으로 운영 복구를 주장하지 않는다.
 
 ## 운영 제약

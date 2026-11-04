@@ -25,7 +25,7 @@ export default {
       const id = url.pathname.split("/").pop();
       return Response.json({ code: 200, status: { type: "status", id, text: `Native RSS ${id}`, created_at: new Date().toUTCString(), author: { id: "1000000000001", screen_name: "native_collect", protected: false }, media: {} } });
     }
-    if (request.method === "GET" && url.origin === "https://api.fxtwitter.com" && url.pathname === "/2/profile/native_collect/statuses") {
+    if (request.method === "GET" && url.origin === "https://api.fxtwitter.com" && url.pathname === "/2/profile/id:1000000000001/statuses") {
       const page = Number((url.searchParams.get("cursor") ?? "fx_0").split("_")[1]);
       return Response.json({ code: 200, results: [{ type: "status", id: scenario === "rss-shrink" ? "151" : "150", text: "Native Fx collection", created_at: new Date().toUTCString(), author: { id: "1000000000001", screen_name: "native_collect", protected: false }, media: {} }], cursor: { bottom: `fx_${page + 1}` } });
     }
