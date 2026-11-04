@@ -29,19 +29,19 @@
 
 Files: db/schema/index.ts, 생성 Drizzle SQL/meta, vitest.worker.config.ts, scripts/d1-doctor-core.mjs(+테스트 필요 범위), contracts/x-collection.ts, worker/features/x-posts/infrastructure/{fx-collection.ts,fx-collection.integration.test.ts,x-collection-status.ts,관련status회귀}, worker/features/scheduled-operations/infrastructure/{scheduled-job-planner.ts,관련planner/native회귀}, src/features/member-posts/ui/admin/{x-collection-manager.tsx,x-collection-manager.test.tsx}.
 
-- [ ] RED: 기존 장기 cursor가 새 head.page2를 버리는 사례와4페이지 뒤 영구partial을 실제 D1 회귀로 재현한다.
-- [ ] Additive schema: window_until_at, pages_completed, last_window_until_at, last_window_limited, retired_progress. Drizzle 생성만 사용한다. retired_progress에는 원래 cursor/완료 시각/전환 시각/사유를 보존한다.
-- [ ] Collector: 성공한 첫 페이지의 수신 시각으로 범위를 고정한다. 48시간/활성화 경계로 저장한다. 페이지 수·cursor·범위·은퇴 정보·완료는 lease/공개 fence ACK로 함께 저장한다. 실패 후 첫 미저장 페이지를 재개하며 최신 head 확인을 포함해4페이지를 지킨다. cursor없음/4페이지 저장으로 확인을 끝내고 상한을 별도 기록한다.
-- [ ] Planner/API: cursorNULL인 첫 페이지 실패도 실제 window pending으로 판정한다. 공식 cursor/12시간 자격에는 사용하지 않는다. 기존 provider/mode 계약과 공개 DTO를 보존한다.
-- [ ] Admin API/UI: 48시간/최대4페이지/확인 완료 범위/상한 도달/보존된 이전 탐색/실제 재시도를 표시한다. 오래된 서버 DTO는 기존 의미로 읽는 additive 필드로 유지한다. 공식 실패/예산·Disabled 표시는 별도 유지한다.
-- [ ] GREEN: Fx D1·status·planner/native·관리 UI 회귀, 타입·구조·변경lint. 새 migration 전체chain validate-only/로컬incremental/doctor로 기존 app데이터 보존 확인.
-- [ ] 명시적 파일만 stage/commit: feat(x): bound free collection to recent checks.
+- [x] RED: 기존 장기 cursor가 새 head.page2를 버리는 사례와4페이지 뒤 영구partial을 실제 D1 회귀로 재현한다.
+- [x] Additive schema: window_until_at, pages_completed, last_window_until_at, last_window_limited, retired_progress. Drizzle 생성만 사용한다. retired_progress에는 원래 cursor/완료 시각/전환 시각/사유를 보존한다.
+- [x] Collector: 성공한 첫 페이지의 수신 시각으로 범위를 고정한다. 48시간/활성화 경계로 저장한다. 페이지 수·cursor·범위·은퇴 정보·완료는 lease/공개 fence ACK로 함께 저장한다. 실패 후 첫 미저장 페이지를 재개하며 최신 head 확인을 포함해4페이지를 지킨다. cursor없음/4페이지 저장으로 확인을 끝내고 상한을 별도 기록한다.
+- [x] Planner/API: cursorNULL인 첫 페이지 실패도 실제 window pending으로 판정한다. 공식 cursor/12시간 자격에는 사용하지 않는다. 기존 provider/mode 계약과 공개 DTO를 보존한다.
+- [x] Admin API/UI: 48시간/최대4페이지/확인 완료 범위/상한 도달/보존된 이전 탐색/실제 재시도를 표시한다. 오래된 서버 DTO는 기존 의미로 읽는 additive 필드로 유지한다. 공식 실패/예산·Disabled 표시는 별도 유지한다.
+- [x] GREEN: Fx D1·status·planner/native·관리 UI 회귀, 타입·구조·변경lint. 새 migration 전체chain validate-only/로컬incremental/doctor로 기존 app데이터 보존 확인.
+- [x] 명시적 파일만 stage/commit: feat(x): bound free collection to recent checks (`37c7d869`).
 
 ## Task2 — 검증·릴리스·실제 두 확인
 
-- [ ] 마지막 전체 소스를 fresh scoped 리뷰하고 유효 지적을 RED→GREEN으로 해결한다.
+- [x] 마지막 전체 소스를 fresh scoped 리뷰하고 유효 지적을 RED→GREEN으로 해결한다. 유효 코드 지적0건. 후속 fixture 수정은 아래 Ruling을 따른다.
 - [ ] 최종 preflight 또는 유효한 기존 근거+실패/변경/미도달 단계의 composed 검증을 완료한다. 양 사이트 build/manifest, local migration chain/doctor, RSS전체Queue50 회귀를 포함한다.
-- [ ] 로컬 정상 관리자 무료 실행에서 실제 Fx→D1→공개 피드·정상 완료를 두 번 확인한다. 데이터/공식/예산/Disabled 기준을 먼저 읽고 비교한다.
+- [x] 로컬 정상 관리자 무료 실행에서 실제 Fx→D1→공개 피드·정상 완료를 두 번 확인한다. 데이터/공식/예산/Disabled 기준을 먼저 읽고 비교한다.
 - [ ] 정상 push/PR과 실제head/check/review 확인 후 기존 승인 범위로 merge한다. OTW 자동 배포 중 수동 중복 배포하지 않는다.
 - [ ] additive migration을 정상 릴리스 경로로 OTW→LuvDia 적용/readback하고 같은 소스를 배포한다. 최초 정상 무료 확인 이전에는 기존 cursor/설정이 그대로임을 확인한다.
 - [ ] OTW→LuvDia 정상 관리자 무료 실행과 이어지는 두 번째 확인으로 active pending이 정상 소진되고 은퇴 정보8개·공식상태·예산·Disabled·기존 글·공개 피드를 검증한다. 강제 공식실행은 하지 않는다.
@@ -51,3 +51,5 @@ Files: db/schema/index.ts, 생성 Drizzle SQL/meta, vitest.worker.config.ts, scr
 
 - 최근48시간 확인은4페이지로 제한한 스냅샷 작업이다. 완료는 전량 발견 증명이 아니며 상한/공식대조 상태를 함께 표시한다 — 사용자 명시적 승인.
 - 검색 endpoint 실제404로 기존 고정 ID profile JSON만 사용한다 — 확인된 정상 경로 유지.
+- Native 회귀는 RSS v1을 명시한다. 이전 테스트의 설정 잔류에 기대지 않고, JSON 완료0pending과 별도 RSS 후보1pending 때문에 전체partial인 상황을 함께 검증한다. 새 계약을 옛 무한 탐색에 맞추지 않는다.
+- 전체 preflight test 단계의3개 실패는 새 완료 의미/미래 시각 fixture를 수정하고 해당 두 파일63건·격리 native2건으로 검증했다. 통과한3,870건을 재실행하지 않고 이후 미도달 build/doctor/mirror를 결합한다. full-command 재통과로 보고하지 않는다.

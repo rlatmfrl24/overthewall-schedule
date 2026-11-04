@@ -51,10 +51,11 @@ beforeEach(async () => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 it("stores RSS after normal Fx-only bootstrap without initializing official identity or cursor", async () => {
+  now = Math.ceil(now / 1000) * 1000;
   await db.batch([db.prepare("DELETE FROM x_post_sources"), db.prepare("DELETE FROM x_fx_sources")]);
   now = Math.floor(now / 1000) * 1000;
   const author = { id: "101", screen_name: "member", protected: false };
-  const fresh = (id: string) => ({ type: "status", id, text: id, created_at: new Date(now + 1000).toUTCString(), author, media: {} });
+  const fresh = (id: string) => ({ type: "status", id, text: id, created_at: new Date(now).toUTCString(), author, media: {} });
   vi.mocked(fetch).mockResolvedValueOnce(Response.json({ code: 200, user: author }))
     .mockResolvedValueOnce(Response.json({ code: 200, results: [fresh("125")], cursor: {} }));
   expect(await runFxCollectionForHandles(runtime, ["member"], "manual")).toMatchObject({ status: "success", postsStored: 1 });

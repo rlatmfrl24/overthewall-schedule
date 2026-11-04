@@ -31,4 +31,6 @@ Node24.20.0/pnpm11.7.0에서 정상 관리자 수집원 전환→기본 수집�
 
 독립 whole-branch 정적 리뷰의 유효 지적은0건이다. 최종 preflight/양 사이트 build와 원격 migration/배포/관리자 readback의 정확한 소스·결과는 소유 PR 검증 원장에 기록한다. 관측은 기존 원장 SELECT만 사용하며 추가 관측용 쓰기를 만들지 않는다.
 
+최초 preflight는 architecture/전체 타입/전체 lint가 통과했고 test3873건 중3건에서 멈췄다. Native2건의 옛 무한 cursor 기대와 RSS bootstrap1건의 미래 시각 fixture를 새 계약에 맞춰 수정했다. 해당 두 파일63건과 RSS v1을 명시한 격리 native2건이 통과했다. Native 전체partial은 JSON이 아닌 실제 RSS 후보1건 때문에 남는 것을 확인한다. Node 보조10건·후속 전체 타입·변경 fixture lint·mirror도 통과했다. 최초3,870건과 후속 수정 검증을 합친 composed verification이며 전체 명령 재실행 PASS로 보고하지 않는다. RSS·혼합 Queue의29/46/48/50 binding 호출·quota 거절0 보호는 전체 suite에서 유지됐다.
+
 공통 UTC 하루$1·사이트 보호/자동충전·D1/Queue guard·웹훅 Disabled·Play/AI 중지는 유지한다. 강제 유료 실행·예산 증액·새 자동화는 없다.48시간 내4페이지를 넘는 글이나 공급자가 생략한 글은 무료 확인이 놓칠 수 있고, 예산 차단·공급자 장애 시 공식 대조의 복구 지연을 보장하지 않는다. 내부 추정 원장과 실제 청구 절감액을 구분한다.
