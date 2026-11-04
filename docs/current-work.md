@@ -2,6 +2,12 @@
 
 이 문서가 작업의 단일 진입점이다. 날짜별 보고서는 당시 증거이며 새 실행 지시가 아니다.
 
+## X 수집 Ponytail 최적화·로컬 검증 완료 — 2026-11-04
+
+최신 사용자 지시: ponytail-review로 불필요한 구현·미사용 참조·비효율 배치를 확인하고 최적화한다. 기준 `c9feb199`, 최종 기능 소스 `88353c34cbefa446fd30692f47691edfa3befdf8`에서5건을 수정했다. RSS 무료5개 전체 Queue30→29회, planner 메타조회3→1batch/전체5회(원장 부재 fallback포함6회)·쓰기0, 호출 없는 redaction/빈 cache reset·미사용 RSS 계약/export 정리로 제품 코드24줄을 줄였다. 검증 중 찾은 기존 UTC 지연 Cron guard는 실행일 원장으로 고치고 예약시각/scheduledFor·idempotency는 유지했다. [검토·수정·검증 결과](reports/2026-11-04-x-collection-lean-review.md)에5건의 용도/문제/수정/방치 영향과 정확한 근거를 기록했다.
+
+구간별13파일325건·타입/구조/변경 lint·최종 양 site build/manifest가 통과했고 독립 재리뷰 열린 지적0건이다. hydrate부터 시작하는 혼합 Queue는46/48/50회와0quota거절을 유지해 fetch 절감을 전체 혼합으로 일반화하지 않는다. 실제 app DB 읽기 전용 점검은 기존748글·공식cursor/시각·과거원장·복원행·총433/577·x_api/RSS비활성/Disabled·rollout부재 보존을 확인했다. 기존 출처 권위·후보별 내구성·lease/identity·공식 커서·예산/정산·RSS Queue50 한도는 유지한다. 전체 suite/preflight·migration chain/doctor를 새로 실행했다고 보고하지 않는다. 배포·운영 전환·실제 유료/API 호출·원격 mutation·push/PR/merge·Play/AI 재개는 계속 보류한다. 기존 app DB와 격리 worktree/원본 junction을 보존했고 의존성·schema·Queue 설정은 바꾸지 않았다.
+
 ## RSS 혼합 보완 D1 Free 최적화·로컬 재검증 완료 — 2026-11-04
 
 최신 사용자 지시: 남은 D1 호출 문제를 처리량·안전장치 유지하에 Queue 실행당50회 이하로 최적화하고 로컬 검증·재리뷰한다. 사용자는 범위를 **RSS·혼합 보완 Queue 전체(기존82/117회 지적)**로 확인했다. [후속 실행 계획](superpowers/plans/2026-11-04-x-rss-d1-free-budget.md)을 Subagent-driven/TDD로 구현했다. 최종 기능 소스 `a945b5cc6670bff7e93e6cce1653cf654c07741c`에서 공통 원자적 writer·후보별 원자 checkpoint·기존 공식 예약/정산·Queue tail을 최적화했다. 실제 전체 Queue hard50 회귀는 무료5개30회, 무료5+예산 허용 공식28개46회, 정상 outbox8 포함48회, 결합 오류 복구50회였다. 모든 profile quota 거절0, RSS DLQ10개/80전송34회다. 저장 전 다음 후보 조회나 정상 처리량 축소는 없다.
