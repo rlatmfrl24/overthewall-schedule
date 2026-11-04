@@ -6,6 +6,12 @@
 
 최신 사용자 지시: `pr-ready`로 공식 `pnpm preflight` 전체 검증을 실행하고 통과하면 현재 `codex/x-fxembed-hybrid` 변경을 정상 push한 뒤 PR을 생성한다. 기존 push/PR 보류는 이 작업 범위에서 해제한다. 기준은 최신 `origin/master`이며 기존 수집 구현·RSS 보완·D1 Free 최적화·Ponytail 정리를 함께 게시한다. GitHub 리뷰/검사와 실제 원격 head를 현재 실행에서 확인하고 검증 근거는 소유 PR에 기록한다. 병합·배포·운영 전환·원격 migration/설정/구독 변경·실제 유료 API 호출·Play/AI 재개는 계속 보류한다. 새 자동화·Codex Review 요청/대기·강제 유료 실험은 수행하지 않는다. 기존 실제 app DB와 원본 checkout/junction·다른 worktree를 보존한다. 아래 과거 push/PR 보류 문구를 이번 승인보다 우선 적용하지 않는다.
 
+검증 및 게시: 공식 `pnpm preflight`는 420파일 3,834건+Node10·전체 lint/타입/구조·OTW build·로컬 D1 doctor·mirror 모두 exit0이었다. 시작 소스는 `d71abdec`, 실행 중 writer EOF 빈 줄1개만 정리한 `5fa49e90`과 TypeScript statement text 동일성을 확인했다. 정상 push 후 [일반 PR209](https://github.com/rlatmfrl24/overthewall-schedule/pull/209)를 생성했다.
+
+PR 후속 리뷰에서 보호된 인용 미리보기 때문에 공개 Fx 페이지 전체가 실패하는 P2를 RED로 확인해 `162d9862`에서 공통 참조 정리 정책으로 수정했다. 독립 재리뷰가 같은 원본 응답 재수신의 불필요한 쓰기도 찾아 RED로 확인했고 `81f691a65dede79339b316a627dfeeccdfa07594`에서 기존 변경 판정을 공유해 해결했다. 최종 영향 12파일 504건·타입/구조/변경 lint·양 사이트 build/manifest가 통과했고 scoped 재리뷰의 열린 유효 지적은0건이다. 원본 재수신은1회 조회·쓰기0이며 권위 승격/NULL hash 복구·공식 커서·가시성/lease/CAS를 보존한다. RSS 전체 Queue29/46/48/50회와 quota 거절0을 유지한다. 이는 최초 전체 gate와 수정 후 영향 검사를 결합한 composed verification이며, 최종 소스에서 전체 명령을 다시 실행한 것으로 보고하지 않는다.
+
+실제 app DB의 읽기 전용 재확인에서 기존748글·총433/577·공식 cursor/clock 각8개·과거 원장·복원행과 양 사이트 `x_api`/RSS 비활성/웹훅 Disabled·rollout 부재를 보존했다. 수정 커밋·검증 결과·PASS/FAIL 이력과 최신 게시 head/외부 검사 상태는 소유 PR 원장에 기록한다. 기존 Cloudflare 자동 build가 push로 실행됐지만 기존 인증으로 상세 설정/운영 반영을 조회하지 못했다. 수동 배포·병합·운영 전환·원격 migration/설정/구독 변경·실제 유료 호출은 수행하지 않았다. 자동 build 성공을 운영 미변경의 증거로 해석하지 않는다.
+
 ## X 수집 Ponytail 최적화·로컬 검증 완료 — 2026-11-04
 
 최신 사용자 지시: ponytail-review로 불필요한 구현·미사용 참조·비효율 배치를 확인하고 최적화한다. 기준 `c9feb199`, 최종 기능 소스 `88353c34cbefa446fd30692f47691edfa3befdf8`에서5건을 수정했다. RSS 무료5개 전체 Queue30→29회, planner 메타조회3→1batch/전체5회(원장 부재 fallback포함6회)·쓰기0, 호출 없는 redaction/빈 cache reset·미사용 RSS 계약/export 정리로 제품 코드24줄을 줄였다. 검증 중 찾은 기존 UTC 지연 Cron guard는 실행일 원장으로 고치고 예약시각/scheduledFor·idempotency는 유지했다. [검토·수정·검증 결과](reports/2026-11-04-x-collection-lean-review.md)에5건의 용도/문제/수정/방치 영향과 정확한 근거를 기록했다.
