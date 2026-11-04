@@ -21,6 +21,13 @@ beforeEach(async () => {
   vi.stubGlobal("fetch",vi.fn(() => { throw new Error("status must not call upstream"); }));
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+it("exposes the bounded scope and an unacknowledged first-page failure as pending", async () => {
+  await db.prepare("UPDATE x_fx_sources SET last_error='fx_storage_failed',cursor=NULL,last_completed_at=?,retired_progress=?").bind(now-1,JSON.stringify({cursor:'historic',reason:'recent_48h_check'})).run();
+  const result=await readXCollectionStatus(runtime,null);
+  expect(result.fxembed).toMatchObject({lookbackHours:48,maxPages:4,pendingSources:1,failedSources:1,lastCompletedAt:null,retiredSources:1});
+  expect(result.accounts[0]).toMatchObject({fxPending:true,fxRetiredTraversal:true,fxLastWindowUntilAt:null});
+  expect(fetch).not.toHaveBeenCalled();
+});
 it("read_status_performs_no_writes_or_upstream_calls and RSS cannot hide official overdue", async () => {
   const statements: string[] = [];
   const measured = new Proxy(db, { get(target,key) {

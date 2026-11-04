@@ -280,6 +280,7 @@ it.each([false,true])("collects Fx and official regular items through native Cro
     ...["x_post_references", "x_post_facts", "x_posts", "x_fx_sources", "x_post_sources", "x_api_cache"].map(table => db.prepare(`DELETE FROM ${table}`)),
     ...[["scheduled_v2_x_collection_enabled", "true"], ["x_collection_enabled", "true"], ["x_collection_primary_source", "fxembed"], ["x_collection_interval_hours", "24"], ["x_collection_daily_budget_cents", "100"], ["x_cost_optimizer_enabled", "true"], ["x_reference_preview_mode", "link_only"], ["x_collection_last_run", String(slot - 25 * 3_600_000)]].map(([key, value]) => db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)").bind(key, value)),
     db.prepare("DELETE FROM settings WHERE key IN ('x_collection_cadence_state','x_api_backoff_until')"),
+    db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_collection_hybrid_policy','rss_v1'),('x_collection_hybrid_activated_at','1')"),
     db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at,initialization_completed_at) VALUES('native_collect','1000000000001','native_collect','100',0,0,1,1)"),
     db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES('x:user:v1:native_collect','user',?,?,?)").bind(JSON.stringify({ user: { id: "1000000000001", username: "native_collect" } }), started, started + 86400000),
   ]);
@@ -293,7 +294,15 @@ it.each([false,true])("collects Fx and official regular items through native Cro
     const output = await instances[0].getOutput() as { id: string };
     await expect.poll(() => db.prepare("SELECT status FROM scheduled_job_runs WHERE id=?").bind(output.id).first("status"), { timeout: 70000, interval: 100 }).toBe("partial");
     await expect.poll(() => db.prepare("SELECT COUNT(*) AS n FROM x_posts WHERE id IN ('150','200')").first("n"), { timeout: 5000 }).toBe(2);
-    expect(await db.prepare("SELECT cursor,last_completed_at FROM x_fx_sources WHERE handle='native_collect'").first()).toEqual({ cursor: "fx_4", last_completed_at: null });
+    expect(await db.prepare("SELECT cursor,last_completed_at,pages_completed,last_window_until_at,last_window_limited FROM x_fx_sources WHERE handle='native_collect'").first()).toEqual({ cursor: null, last_completed_at: expect.any(Number), pages_completed: 4, last_window_until_at: expect.any(Number), last_window_limited: 1 });
+    const evidence = await db.prepare("SELECT target_key,status,result_json,last_error FROM scheduled_job_items WHERE run_id=? ORDER BY target_key").bind(output.id).all();
+    console.log("NATIVE_RECENT_CHECK_READBACK", JSON.stringify(evidence.results.map(row => ({ target: row.target_key, status: row.status, pending: JSON.parse(row.result_json as string).pendingSources }))));
+    const fxItem = evidence.results.find(row => String(row.target_key).startsWith("fxembed:"));
+    expect(fxItem).toMatchObject({ status: "succeeded", last_error: null });
+    expect(JSON.parse(fxItem!.result_json as string)).toMatchObject({ pendingSources: 0, recentCheck: { lookbackHours: 48, maxPages: 4, limitedSources: 1 } });
+    const rssItem = evidence.results.find(row => String(row.target_key).includes(":rss_candidates:"));
+    expect(rssItem).toMatchObject({ status: "partial", last_error: "rss_candidates_pending" });
+    expect(JSON.parse(rssItem!.result_json as string)).toMatchObject({ pendingSources: 1 });
     const calls = await (await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/calls")).json<string[]>();
     expect(calls.filter(call => call.includes("/2/profile/id:1000000000001/statuses"))).toHaveLength(4);
     await expect.poll(async () => JSON.parse(await db.prepare("SELECT value FROM settings WHERE key='x_collection_cadence_state'").first<string>("value") ?? "null")?.anchorAt).toBe(slot);

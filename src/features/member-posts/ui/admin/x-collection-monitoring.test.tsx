@@ -46,6 +46,17 @@ const run = (items = [item()]): OperationRunDto => ({
 const show = (value: OperationRunDto) => render(createElement(XCollectionRuns, { runs: [value], loading: false, error: false, updatedAt: Date.now() }));
 
 describe("XCollectionRuns", () => {
+  it("shows a completed recent check with its discovery limit", () => {
+    const value = item();
+    value.status = "succeeded";
+    value.error = value.errorCode = null;
+    value.referenceHydration = null;
+    value.collection = { ...value.collection!, provider: "fxembed", pendingSources: 0, recentCheck: { lookbackHours: 48, maxPages: 4, limitedSources: 1 } };
+    show({ ...run([value]), status: "succeeded" });
+    fireEvent.click(screen.getByRole("button", { name: /전체 결과/ }));
+    expect(screen.getByText("최근 48시간 · 최대 4페이지 확인 · 상한 도달 1계정")).toBeTruthy();
+    expect(screen.getByText(/전량 발견을 보장하지 않으며/)).toBeTruthy();
+  });
   it("identifies Fx work and keeps a successful unfinished traversal pending", () => {
     const value = item();
     value.collection = { ...value.collection!, provider: "fxembed", scope: "regular", pendingSources: 1 };

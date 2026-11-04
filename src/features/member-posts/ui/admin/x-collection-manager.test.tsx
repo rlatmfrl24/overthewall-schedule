@@ -85,6 +85,16 @@ it("rss_success_cannot_hide_official_overdue", async () => {
   expect(await screen.findByText(/공식 정기 완료 24시간 지연/)).toBeTruthy();
   expect(screen.getByText(/공통 예산 확인 불가로 REST 실행 차단/)).toBeTruthy();
 });
+it("labels the bounded recent check and its limit without claiming full traversal", async () => {
+  vi.mocked(fetchXCollectionStatus).mockResolvedValue({ ...status, fxembed: { ...status.fxembed, lookbackHours: 48, maxPages: 4, lastCompletedAt: 100, lastWindowUntilAt: 90, pendingSources: 0, limitedSources: 1, retiredSources: 1 } });
+  render(createElement(XCollectionManager, { enabled: true }), { wrapper: createQueryWrapper() });
+  expect(await screen.findByText(/최근 48시간 · 최대 4페이지 확인/)).toBeTruthy();
+  expect(screen.getByText(/^확인 완료 /)).toBeTruthy();
+  expect(screen.getByText(/상한 도달 1계정/)).toBeTruthy();
+  expect(screen.getByText(/이전 탐색 기록 보존 1계정/)).toBeTruthy();
+  expect(screen.queryByText(/전체 탐색 완료/)).toBeNull();
+  expect(screen.getByText(/공식 X 미완료 1개 · 오류 1개/)).toBeTruthy();
+});
 it("marks stale collection status after GET failure and disables mutation", async () => {
   vi.mocked(fetchXCollectionStatus).mockResolvedValue(status);
   render(createElement(XCollectionManager, { enabled: true }), { wrapper: createQueryWrapper() });
