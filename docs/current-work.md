@@ -2,6 +2,10 @@
 
 이 문서가 작업의 단일 진입점이다. 날짜별 보고서는 당시 증거이며 새 실행 지시가 아니다.
 
+## X 수집 전체 preflight·푸시·PR 생성 승인 — 2026-11-04
+
+최신 사용자 지시: `pr-ready`로 공식 `pnpm preflight` 전체 검증을 실행하고 통과하면 현재 `codex/x-fxembed-hybrid` 변경을 정상 push한 뒤 PR을 생성한다. 기존 push/PR 보류는 이 작업 범위에서 해제한다. 기준은 최신 `origin/master`이며 기존 수집 구현·RSS 보완·D1 Free 최적화·Ponytail 정리를 함께 게시한다. GitHub 리뷰/검사와 실제 원격 head를 현재 실행에서 확인하고 검증 근거는 소유 PR에 기록한다. 병합·배포·운영 전환·원격 migration/설정/구독 변경·실제 유료 API 호출·Play/AI 재개는 계속 보류한다. 새 자동화·Codex Review 요청/대기·강제 유료 실험은 수행하지 않는다. 기존 실제 app DB와 원본 checkout/junction·다른 worktree를 보존한다. 아래 과거 push/PR 보류 문구를 이번 승인보다 우선 적용하지 않는다.
+
 ## X 수집 Ponytail 최적화·로컬 검증 완료 — 2026-11-04
 
 최신 사용자 지시: ponytail-review로 불필요한 구현·미사용 참조·비효율 배치를 확인하고 최적화한다. 기준 `c9feb199`, 최종 기능 소스 `88353c34cbefa446fd30692f47691edfa3befdf8`에서5건을 수정했다. RSS 무료5개 전체 Queue30→29회, planner 메타조회3→1batch/전체5회(원장 부재 fallback포함6회)·쓰기0, 호출 없는 redaction/빈 cache reset·미사용 RSS 계약/export 정리로 제품 코드24줄을 줄였다. 검증 중 찾은 기존 UTC 지연 Cron guard는 실행일 원장으로 고치고 예약시각/scheduledFor·idempotency는 유지했다. [검토·수정·검증 결과](reports/2026-11-04-x-collection-lean-review.md)에5건의 용도/문제/수정/방치 영향과 정확한 근거를 기록했다.
