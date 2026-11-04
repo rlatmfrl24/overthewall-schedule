@@ -1,3 +1,5 @@
+import { XCollectionManager } from "./x-collection-manager";
+import { useXCollectionStatus } from "../../queries/use-x-collection-status";
 import IconX from "@/assets/icon_x.svg";
 import {
   fetchSettings,
@@ -53,6 +55,7 @@ import {
 import { XPostHistoryManager } from "./x-post-history-manager";
 import { XActivityManager } from "./x-activity-manager";
 import { xActivityQueryKey } from "../../api/x-activity-api";
+import { xCollectionQueryKey } from "../../api/x-collection-api";
 import { openXSettings } from "./x-settings-navigation";
 
 const VISIBILITY_OPTIONS: Array<{
@@ -142,6 +145,8 @@ export function MemberPostSettingsManager({
     staleTime: 30_000,
   });
   const settings = settingsQuery.data ?? null;
+  const collectionSourceQuery = useXCollectionStatus(activeSource === "x");
+  const hybridCollection = collectionSourceQuery.data?.primarySource === "fxembed";
   useUnsavedChanges(Boolean(settings && (
     (budgetEdited && budgetDraft !== settings.x_collection_daily_budget_cents) ||
     (previewBudgetEdited && previewBudgetDraft !== settings.x_reference_preview_daily_budget_cents)
@@ -181,6 +186,7 @@ export function MemberPostSettingsManager({
         queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }),
         queryClient.invalidateQueries({ queryKey: xReferenceHealthQueryKey }),
         queryClient.invalidateQueries({ queryKey: xActivityQueryKey }),
+        queryClient.invalidateQueries({ queryKey: xCollectionQueryKey }),
       ]);
     },
     [queryClient],
@@ -193,6 +199,7 @@ export function MemberPostSettingsManager({
         queryClient.refetchQueries({ queryKey: queryKeys.operations.runs(), type: "active" }),
         queryClient.refetchQueries({ queryKey: xReferenceHealthQueryKey, type: "active" }),
         queryClient.refetchQueries({ queryKey: xActivityQueryKey, type: "active" }),
+        queryClient.refetchQueries({ queryKey: xCollectionQueryKey, type: "active" }),
       ]);
 
     } catch (error) {
@@ -222,6 +229,7 @@ export function MemberPostSettingsManager({
       queryClient.invalidateQueries({ queryKey: queryKeys.memberPosts.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.all }),
       queryClient.invalidateQueries({ queryKey: xActivityQueryKey }),
+      queryClient.invalidateQueries({ queryKey: xCollectionQueryKey }),
     ]);
   }, [collectionRunQuery.data, queryClient]);
 
@@ -291,6 +299,11 @@ export function MemberPostSettingsManager({
       });
     } catch (error) {
       console.error("Failed to update X collection setting:", error);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.settings.detail() }),
+        queryClient.invalidateQueries({ queryKey: xActivityQueryKey }),
+        queryClient.invalidateQueries({ queryKey: xCollectionQueryKey }),
+      ]);
       toast({
         variant: "error",
         description: "X 게시글 수집 설정 변경에 실패했습니다.",
@@ -416,7 +429,7 @@ export function MemberPostSettingsManager({
     if (!settings) return;
     setIsRunningCollection(true);
     try {
-      const accepted = await runXCollectionNow(scope);
+      const accepted = await runXCollectionNow(scope, scope === "pending" ? undefined : collectionSourceQuery.data?.primarySource);
       setCollectionRun(accepted);
       void queryClient.invalidateQueries({ queryKey: queryKeys.operations.runs() });
       toast({
@@ -649,9 +662,9 @@ export function MemberPostSettingsManager({
               operationsError={operationsQuery.isError || settingsQuery.isError}
               operationsUpdatedAt={operationsQuery.dataUpdatedAt}
               onReloadOperations={loadSettings}
-              onRunXCollection={settings ? () => void handleRunXCollectionNow() : undefined}
+              onRunXCollection={settings && collectionSourceQuery.data && !collectionSourceQuery.isError ? () => void handleRunXCollectionNow() : undefined}
               onRunXPending={settings ? () => void handleRunXCollectionNow("pending") : undefined}
-              xActivity={<XActivityManager />}
+              xActivity={<><XCollectionManager enabled={isXCollectionEnabled} /><XActivityManager /></>}
               isRunningXCollection={isRunningCollection || (
                 collectionRun?.jobType === "x_collection" &&
                 (!collectionRunQuery.data || ["queued", "running"].includes(collectionRunQuery.data.status))
@@ -769,7 +782,7 @@ export function MemberPostSettingsManager({
                     Cron 수집 사용
                   </Label>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    저장된 게시글을 표시하며, 신규 글은 구독으로 받고 정기 수집은 누락을 보완합니다.
+                    저장된 게시글을 표시하며, 선택한 기본 수집원과 공식 X 보강이 새 글을 확인합니다.
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
@@ -828,15 +841,15 @@ export function MemberPostSettingsManager({
                     수집 주기
                   </Label>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    Cron은 매시 실행되며, 설정한 주기가 지난 경우에만 X API를 호출합니다.
+                    {hybridCollection ? `FxEmbed JSON은 30분${collectionSourceQuery.data?.rss?.enabled ? ", RSS는 6시간" : ""}, 공식 X는 ${collectionSourceQuery.data?.xApi.intervalHours ?? 24}시간마다 확인하며 장애 계정만 공식 2시간 수집으로 전환합니다.` : "Cron 점검에서 설정한 주기가 지난 경우 공식 X API를 호출합니다."}
                   </p>
                 </div>
                 <Select
-                  value={xCollectionInterval}
+                  value={hybridCollection ? String(collectionSourceQuery.data?.xApi.intervalHours ?? 24) : xCollectionInterval}
                   onValueChange={(value) =>
                     void handleXCollectionIntervalChange(value)
                   }
-                  disabled={!settings || isSaving}
+                  disabled={!settings || isSaving || hybridCollection || collectionSourceQuery.isPending || collectionSourceQuery.isError}
                 >
                   <SelectTrigger
                     id="x-collection-interval"
@@ -860,7 +873,7 @@ export function MemberPostSettingsManager({
                     X API 비용 최적화
                   </Label>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    첫 페이지를 5건으로 제한하고 신규행만 저장합니다. 사용량 70% 또는 공급자 backoff에서는 설정 주기와 최소 1시간 중 긴 주기를 적용합니다.
+                    공식 X의 첫 조회량을 줄이고, 예산·호출 제한에 따라 조회를 늦춥니다.
                   </p>
                 </div>
                 <div className="flex items-center justify-end gap-3">

@@ -1,6 +1,89 @@
-# 현재 작업 — 2026-10-22
+# 현재 작업 — 2026-11-04
 
 이 문서가 작업의 단일 진입점이다. 날짜별 보고서는 당시 증거이며 새 실행 지시가 아니다.
+
+## X 수집 전체 preflight·푸시·PR 생성 승인 — 2026-11-04
+
+최신 사용자 지시: `pr-ready`로 공식 `pnpm preflight` 전체 검증을 실행하고 통과하면 현재 `codex/x-fxembed-hybrid` 변경을 정상 push한 뒤 PR을 생성한다. 기존 push/PR 보류는 이 작업 범위에서 해제한다. 기준은 최신 `origin/master`이며 기존 수집 구현·RSS 보완·D1 Free 최적화·Ponytail 정리를 함께 게시한다. GitHub 리뷰/검사와 실제 원격 head를 현재 실행에서 확인하고 검증 근거는 소유 PR에 기록한다. 병합·배포·운영 전환·원격 migration/설정/구독 변경·실제 유료 API 호출·Play/AI 재개는 계속 보류한다. 새 자동화·Codex Review 요청/대기·강제 유료 실험은 수행하지 않는다. 기존 실제 app DB와 원본 checkout/junction·다른 worktree를 보존한다. 아래 과거 push/PR 보류 문구를 이번 승인보다 우선 적용하지 않는다.
+
+검증 및 게시: 공식 `pnpm preflight`는 420파일 3,834건+Node10·전체 lint/타입/구조·OTW build·로컬 D1 doctor·mirror 모두 exit0이었다. 시작 소스는 `d71abdec`, 실행 중 writer EOF 빈 줄1개만 정리한 `5fa49e90`과 TypeScript statement text 동일성을 확인했다. 정상 push 후 [일반 PR209](https://github.com/rlatmfrl24/overthewall-schedule/pull/209)를 생성했다.
+
+PR 후속 리뷰에서 보호된 인용 미리보기 때문에 공개 Fx 페이지 전체가 실패하는 P2를 RED로 확인해 `162d9862`에서 공통 참조 정리 정책으로 수정했다. 독립 재리뷰가 같은 원본 응답 재수신의 불필요한 쓰기도 찾아 RED로 확인했고 `81f691a65dede79339b316a627dfeeccdfa07594`에서 기존 변경 판정을 공유해 해결했다. 최종 영향 12파일 504건·타입/구조/변경 lint·양 사이트 build/manifest가 통과했고 scoped 재리뷰의 열린 유효 지적은0건이다. 원본 재수신은1회 조회·쓰기0이며 권위 승격/NULL hash 복구·공식 커서·가시성/lease/CAS를 보존한다. RSS 전체 Queue29/46/48/50회와 quota 거절0을 유지한다. 이는 최초 전체 gate와 수정 후 영향 검사를 결합한 composed verification이며, 최종 소스에서 전체 명령을 다시 실행한 것으로 보고하지 않는다.
+
+실제 app DB의 읽기 전용 재확인에서 기존748글·총433/577·공식 cursor/clock 각8개·과거 원장·복원행과 양 사이트 `x_api`/RSS 비활성/웹훅 Disabled·rollout 부재를 보존했다. 수정 커밋·검증 결과·PASS/FAIL 이력과 최신 게시 head/외부 검사 상태는 소유 PR 원장에 기록한다. 기존 Cloudflare 자동 build가 push로 실행됐지만 기존 인증으로 상세 설정/운영 반영을 조회하지 못했다. 수동 배포·병합·운영 전환·원격 migration/설정/구독 변경·실제 유료 호출은 수행하지 않았다. 자동 build 성공을 운영 미변경의 증거로 해석하지 않는다.
+
+## X 수집 Ponytail 최적화·로컬 검증 완료 — 2026-11-04
+
+최신 사용자 지시: ponytail-review로 불필요한 구현·미사용 참조·비효율 배치를 확인하고 최적화한다. 기준 `c9feb199`, 최종 기능 소스 `88353c34cbefa446fd30692f47691edfa3befdf8`에서5건을 수정했다. RSS 무료5개 전체 Queue30→29회, planner 메타조회3→1batch/전체5회(원장 부재 fallback포함6회)·쓰기0, 호출 없는 redaction/빈 cache reset·미사용 RSS 계약/export 정리로 제품 코드24줄을 줄였다. 검증 중 찾은 기존 UTC 지연 Cron guard는 실행일 원장으로 고치고 예약시각/scheduledFor·idempotency는 유지했다. [검토·수정·검증 결과](reports/2026-11-04-x-collection-lean-review.md)에5건의 용도/문제/수정/방치 영향과 정확한 근거를 기록했다.
+
+구간별13파일325건·타입/구조/변경 lint·최종 양 site build/manifest가 통과했고 독립 재리뷰 열린 지적0건이다. hydrate부터 시작하는 혼합 Queue는46/48/50회와0quota거절을 유지해 fetch 절감을 전체 혼합으로 일반화하지 않는다. 실제 app DB 읽기 전용 점검은 기존748글·공식cursor/시각·과거원장·복원행·총433/577·x_api/RSS비활성/Disabled·rollout부재 보존을 확인했다. 기존 출처 권위·후보별 내구성·lease/identity·공식 커서·예산/정산·RSS Queue50 한도는 유지한다. 전체 suite/preflight·migration chain/doctor를 새로 실행했다고 보고하지 않는다. 배포·운영 전환·실제 유료/API 호출·원격 mutation·push/PR/merge·Play/AI 재개는 계속 보류한다. 기존 app DB와 격리 worktree/원본 junction을 보존했고 의존성·schema·Queue 설정은 바꾸지 않았다.
+
+## RSS 혼합 보완 D1 Free 최적화·로컬 재검증 완료 — 2026-11-04
+
+최신 사용자 지시: 남은 D1 호출 문제를 처리량·안전장치 유지하에 Queue 실행당50회 이하로 최적화하고 로컬 검증·재리뷰한다. 사용자는 범위를 **RSS·혼합 보완 Queue 전체(기존82/117회 지적)**로 확인했다. [후속 실행 계획](superpowers/plans/2026-11-04-x-rss-d1-free-budget.md)을 Subagent-driven/TDD로 구현했다. 최종 기능 소스 `a945b5cc6670bff7e93e6cce1653cf654c07741c`에서 공통 원자적 writer·후보별 원자 checkpoint·기존 공식 예약/정산·Queue tail을 최적화했다. 실제 전체 Queue hard50 회귀는 무료5개30회, 무료5+예산 허용 공식28개46회, 정상 outbox8 포함48회, 결합 오류 복구50회였다. 모든 profile quota 거절0, RSS DLQ10개/80전송34회다. 저장 전 다음 후보 조회나 정상 처리량 축소는 없다.
+
+독립 Standards/Spec 리뷰는 예산 파싱 중복P3와 ACK 실패+Queue 예산 거절의51번째 호출P1을 찾았고 한 수정 묶음과 fresh scoped 재검토로 둘 다 해소했다. 각 축 열린 지적0이다. 전체420파일3,806건+Node10은 고정df9 소스에서 통과했고, 수정 후 영향 integration234/schema-native57/unit91·강화 정산2사례·타입·구조·변경 lint 및 최종a945 양 사이트 build/manifest가 통과한 composed verification이다. 새 source에서 전체 명령 재실행으로 보고하지 않는다. [후속 결과·10개 판단·행 비용·한계](reports/2026-11-04-x-rss-d1-free-budget.md)에 증거를 기록했다. binding 감소와 함께 읽기 행은 늘었고 실제 청구 절감은 미측정이다. 임시 검증 폴더 삭제는 자동 승인 검토의 `blocked by policy`로 거절돼 ignored 자료를 보존한다.
+
+모든 검사 이후 실제 app DB를 읽기 전용으로 재확인했다. 기존748글·총433/577·공식source8개씩/커서/시각·과거usage/cost·복원행을 보존했고 두 site는 `x_api`/RSS 비활성/웹훅 Disabled·rollout행 부재다. 배포·운영 전환·실제 유료 API 호출·원격 mutation·push/PR/merge·Play/AI 재개는 계속 보류한다. 수동 JSON·별도 인용/작성자 보강 전부의50회 재설계는 이번 범위 밖이다. 원본 checkout/junction·기존 app DB와 다른 작업을 보존했고 branch/worktree는 유지한다. 동일migration0164 입력의 기존 근거를 재사용하며 merge 준비용 preflight는 수행하지 않았다. 아래 보고서는 당시 역사로 읽으며 보류된 외부 효과를 자동 재개하지 않는다.
+
+## 무료 우선 X 수집 로컬 검증·리뷰 — Free 호출 한도 미해결 — 2026-11-04
+
+11/03 승인한7개 작업의 구현과 범위별 검증을 진행했다. [실제 결과·39개 판단 원장·한계](reports/2026-11-04-x-free-first-collection-implementation.md)에 정상 관리자 적용→JSON, 실제 :53 tick의 기존 scheduled handler→native Workflow→Queue→실제 RSS/Fx→D1→공개 카드 증거를 기록했다. 최종 소스 `9f10bcbafee850734e555cdf70855738de6f696e`에서 Node24 전체419파일3,761건+보조10건, 양 사이트 빌드·타입·구조·변경 lint가 통과했다. 사용자가 확인한 시작점 `a6b94631`부터 [Matt 두 축 리뷰](reports/2026-11-04-x-free-first-code-review.md)를 수행했고 관리자 갱신·중복 후보 판정·실제 admission 우선순위·terminal 제외·실패 경로까지의 실제 INSERT 증거를 보완했다. 원래 기능 지적은 모두 addressed이며 최종 narrow 재검토도 확인했다.
+
+**Free 환경 적합은 미해결이다.** 실제 Queue 전체 로컬 계측에서 신규5개 D1 binding 호출은144→82회, 답글·인용 포함은179→117회로 줄었지만 Free50 한도를 넘는다. 쓰기는105/160행으로 그대로다. Standards hard P1 1건과 Spec 조건부 환경1건이 같은 제약으로 남는다. 실제 계정 요금제·원격 quota는 미확인이고 로컬 runtime은 이 한도를 강제하지 않는다. 따라서 전체 테스트 통과를 Free 배포 적합이나 최종 제품 완료로 해석하지 않는다. 처리량5·안전장치를 낮추거나 유료 플랜·새 invocation 구조를 도입하지 않았다.
+
+양 site 로컬 migration0162–0164를 additive로 적용하고 기존 데이터를 보존했다. 첫 정상 JSON은 OTW+91/LuvDia+60, 실제 RSS8개 item은 raw800에서 OTW+4/LuvDia+1을 저장했다. 관계 보존 수정 후 같은 LuvDia 관리자 JSON 재생은+106이다. 최종433/577개이며 `postsStored`의 기존 행 갱신은 신규 카드에 합산하지 않았다. 공개 표본과 RSS5개 모두 정상 멤버 필터/페이지로 확인했다. RSS8개 item은 성공했으나 공식 작업의 `shared_budget_unavailable` 때문에 scheduled run은 partial이다. 실제 paid0이며 강제 bootstrap은 하지 않았다. LuvDia RSS1개는10/27 누락이므로24시간 내 신규 복구 증거가 아니다.
+
+실제 재생에서 기존 Fx 답글1개가 사라진 문제를 공통 병합에서 RED→GREEN으로 수정했다. exact backup/CAS로 그 한 행을 복구하고 정상 관리자 재생으로 hash acknowledgement·답글 보존을 확인했다. 이 복원은 신규 발견과 구분한다. 최종 readback은 baseline748개 value/hidden/removal/access, 공식 cursor/시계 각8개, 과거 usage6241/내부 추정19,340,000micros씩을 보존한다. 문서화한 복원 revision3 외의 보호 데이터 손실은 없다.
+
+로컬 정상 관리자 rollback은 양 site `x_api`/RSS 비활성/웹훅 Disabled로 확인했고 기존 legacy2시간 값은 보존했다. 임시 Cron rollout flag 두 행은 원래 부재로 CAS 복구했고 양 site 최종 doctor가 통과했다. 현재 로컬 rollback 상태를 운영 정책 변경으로 해석하지 않는다. Play/AI 중지와 공개·보관·삭제 정책을 유지한다.
+
+**보류3a/4b/5a 유지:** 실제 유료 공식 독립 발견·운영 전환/배포·초기7일 관측·실청구 절감·실제24시간 복구는 미검증이다. push/PR/merge/원격 migration·설정·구독 변경, 새 자동화·강제 유료 실험·자동 예산 증액은 하지 않았다. 다음 검토 대상은 안전한 D1 실행 설계와 실제 적용 환경 확인이다. 로컬 브랜치·worktree·검증 근거를 보존하며 merge 준비용 preflight는 실행하지 않았다. 외부 효과는 별도 명시적 승인 후 진행한다. 과거 보고서와 아래 과거 승인·보류 기록이 이를 자동 재개하지 않는다.
+
+## 무료 우선 X 수집 구현·로컬 검증 승인 — 2026-11-03
+
+최신 사용자 지시: [구현 계획](superpowers/plans/2026-11-03-x-free-first-collection.md)을 승인하고 **Subagent-driven**으로 구현·로컬 검증한다. 계획의 JSON30분/RSS6시간/계정별 공식12시간과 XML 직접 의존성1개 예외를 구현한다. 필요한 로컬 설치·additive migration 생성/검증·범위별 로컬 커밋을 진행하며 기존 데이터와 다른 작업을 보존한다. **배포·운영 전환·실제 유료 API 호출은 계속 보류**한다. push/PR/merge·원격 migration/구독/설정 변경도 수행하지 않는다.
+
+기존 격리 브랜치 `codex/x-fxembed-hybrid`에서 진행한다. 원본 node_modules 대상은 변경하지 않고 기존 junction을 worktree의 ignored 임시 경로에 보존한 뒤 독립 node_modules를 설치한다. 계획별 `.superpowers/sdd/2026-11-03-x-free-first-collection/progress.md`에 작업·회귀·검토·판단을 기록한다. 유료 복구·웹훅 원격 제어의 실제 효과는 synthetic/local 증거와 구분하고 미검증으로 남긴다. 아래 과거 보류 기록이 이번 로컬 구현 승인을 취소하지 않는다.
+
+## 무료 우선 X 수집 설계 검토·구현 계획 — 2026-11-03
+
+최신 사용자 지시: 선택한 JSON 기본+RSS 저빈도 보완 설계서를 writing-plans로 검토하고 계획을 수립한다. [구현 계획](superpowers/plans/2026-11-03-x-free-first-collection.md)에7개 작업·정확한 파일/인터페이스·실패/통과 검증·향후 커밋 범위를 작성하고 자기 검토했다. 계정별 공식 완료/scope, RSS checkpoint·재개/보관, 관리자 적용 표식, Disabled/수동 웹훅 경합, 실제 유료 호출 표시를 구체화했다. [설계서](superpowers/specs/2026-11-03-x-free-first-collection-design.md)에 검토 결과를 연결했다.
+
+JSON30분/RSS6시간/공식12시간·파서 직접 의존성1개(`@rgrove/parse-xml@5.1.0`) 예외는 검토할 제안이다. 계획 검토와 향후 실행 방식은 대기이며 구현·통합·배포 보류를 유지한다. 제품 코드·의존성·migration 생성·DB/설정/구독·유료 호출·commit/push/PR/merge/deploy는 변경하지 않았다. 아래 계획의 명령을 자동 실행하거나 과거 구현 승인을 근거로 재개하지 않는다.
+
+## 8명 RSS·JSON 실측 및 무료 우선 설계 검토 — 2026-11-03
+
+최신 사용자 지시: 구현·통합·배포는 계속 보류하고, 멤버8명 RSS/현 JSON의 발견·미발견·요청 수를 실제 비교한다. 무료 수집을 우선하고 공식 API로 누락을 보완하며 복구 허용 지연은24시간 이내다. 웹훅은 기능을 보존한 기본 Disabled이며 필요시 관리자가 활성화한다. 조사 문서·임시 공개 조회 도구만 작성하고 유료 API·DB/설정/구독 변경·commit/push/PR/merge/deploy는 수행하지 않는다.
+
+[실측 보고서](reports/2026-11-03-rss-json-comparison.md)와 [공식 복구·과금 조사](research/2026-11-03-x-free-first-recovery-options.md)를 남겼다. 두 관측에서 RSS16회/JSON64회 모두200, 공개 기준160건 중 각각153건·동일7건 미발견이다. RSS446→408건, JSON498→498건이고 RSS 단독13건은 모두24시간 이전 글이다. 하루 RSS의200 응답에서 발견창 축소를 관측했다. 무료 개별 진단은 미발견7건 중6건200/1건404이며 정상 목록 발견으로 합산하지 않는다. 장기 안정성·공식 실청구 절감은 미검증이다.
+
+사용자는 **JSON 기본+RSS 저빈도 보완**을 선택했다. [상세 설계서](superpowers/specs/2026-11-03-x-free-first-collection-design.md)를 작성했으며 설계 승인 대기다. JSON30분/RSS6시간/계정별 공식12시간, 후보 검증·재개 상한과 초기 관측 기준은 작성자 제안이다. 기존 공식24시간의 사이트 전체 gate와 Fx모드 웹훅start409를 각각 계정별 자격/관리자 명시적 활성화로 수정할 설계다. 기존 무의존성 추가 조건에서 RSS XML 파서용 직접 의존성1개만 허용하는 예외도 미승인 제안이다. 문서 검토 외 제품 코드·DB/설정/구독·유료 호출·설치·git 게시 작업은 수행하지 않았다. 설계 선택·승인은 구현·운영 보류를 해제하지 않는다.
+
+## FxEmbed RSS·업데이트 추적 공식 검토 — 2026-11-03
+
+최신 사용자 지시: 기존 혼합 수집의 통합·배포·운영 전환은 보류한다. FxEmbed 공식 문서와 원본 소스로 RSS/Atom 및 멤버의 새 게시물 추적 기능을 검토한다. 이번 범위는 조사 문서와 보류 조건 기록이며 구현 변경·유료 수집·구독 변경·commit/push/PR/merge/deploy를 진행하지 않는다. 기존 구현 브랜치와 로컬 검증 데이터는 보존한다. 아래 구현 보고서는 당시 완료한 증거이며 자동 재개 지시가 아니다.
+
+[공식 기능 검토](research/2026-11-03-fxembed-rss-tracking-review.md)에 RSS/Atom의 실제 제공과 공개 응답200을 확인했다. 원본 기준으로 같은 타임라인 공급자의 최대100개 내부 병합이며 외부 cursor·새 글 push 계약은 확인되지 않았다. 중간 실패 뒤200·축약된 작성자/관계 정보 때문에 현재 JSON 수집과 독립 공식 대조를 대체할 근거는 부족하다. 이는 조사 결론이며 보류를 해제하지 않는다.
+
+## FxEmbed 혼합 수집 구현 — 2026-11-03
+
+최신 승인: [혼합 수집 계획](superpowers/plans/2026-11-03-x-fxembed-hybrid.md)을 구현한다. Fx30분·공식24시간, 계정별 공급자2회 실패 시 공식2시간·Fx2회 성공 복귀, 독립된 공식 완료 커서와 출처별 병합, 웹훅 Disabled 보존이 확정 조건이다.
+별도 `codex/x-fxembed-hybrid` 작업 공간에서 저장/CAS·Fx 파서/수집·혼합 Workflow를 구현했다. 실제 Fx 응답32개·현재 공개 조회, 관련 저장96건·수집25건·예약/native 경로143건을 검증했다. Worker 전용 redirect 오류는 native 경로에서 재현한 뒤 수정했다.
+관리자 제어·Disabled 보존·REST 예산 초기화 분리·공개 신선도 표시를 구현했다. 독립 리뷰의 공식 빈 응답 cursor 오염·동일 shard 완료 계정 재조회와, 실제 Worker에서 드러난 Fx User-Agent 401·저장 재시도/preview 회귀를 RED→GREEN으로 보완했다. 실제 로컬 관리자→Workflow→Queue→Fx→D1→공개 카드에서 OTW80건·LuvDia152건을 새로 저장했고 기존258건·공식 진행 상태가 각각 보존됐다. 웹훅 양쪽 Disabled·소유 활성0, 공통 원장 사용/예약0이다. 미완료 cursor8개·otw_ate의 실제404를 partial로 보존했다.
+[구현·검증 보고서](reports/2026-11-03-x-fxembed-hybrid-implementation.md)에 원본/fixture 구분, 독립 리뷰, 실제 경로, 합성 검증과 한계를 기록한다. 최종 전체 실행3454 PASS/주기 표시 회귀1 FAIL을 보완하고 영향 범위6파일96 PASS·타입·구조·lint·양 사이트 최종 빌드를 확인했다. 이는 합성 검증이며 전체 명령 재통과 주장은 하지 않는다. 현재 운영 설정·웹훅 구독·예산·자동충전·원격 migration·배포는 변경하지 않았다. 실제 공식 유료 정상 주기·청구 감소는 아직 검증하지 않았다. 다음은 사용자의 통합 방식 선택과 승인된 릴리스다. 운영 전환은 OTW→LuvDia 관리자 정상 경로로 수행한다. Play/AI 중지와 기존 공개·보관·삭제 정책을 유지한다.
+
+## FxEmbed 기본 수집·공식 X 정기 보강 검토 — 2026-11-03
+
+사용자가 FxEmbed를 기본 수집원으로 하고 공식 X API가 정기 보강하는 구성을 검토하도록 요청했다. [혼합 수집 검토](research/2026-11-03-x-fxembed-hybrid-review.md)에 FxEmbed 발견 경로와 독립된 공식 타임라인 복구, 완료 커서 분리, 공식 보강 필드 보존 및 비용·지연의 조건을 정리한다. 이는 도입 권고 검토이며 구현·웹훅 중지·주기/예산 변경 승인이 아니다. 유료 X 호출·추가 대체 수집·운영 데이터·배포는 변경하지 않는다.
+
+## X 대체 수집 실제 테스트 — 2026-11-03
+
+사용자가 FxEmbed 공개 API 확인과 로컬 twscrape 비교를 승인했다. [실제 조회 검증](reports/2026-11-03-x-alternative-live-test.md)에서8명×4페이지·공개 피드160건과 실제 외부 응답을 대조했다. 타임라인155/160 발견, 미발견5건 중4건은 개별 조회200·1건은404다. 보강 후보는 남지만 전체 교체는 아직 채택하지 않는다. 사용자는 개인 세션 대신 테스트 계정을 선택했으나 사용할 계정이 없어 twscrape 인증 비교는 미완료다. 개인 쿠키는 읽거나 연결하지 않았고 로그인 대기 작업을 종료했다. 운영 데이터·수집원·예산·자동충전·배포는 변경하지 않았다. 후속 계정 비교나 운영 적용을 자동으로 재개하지 않는다.
+
+## X 수집비 대안 조사 — 2026-11-03
+
+사용자가 월 약 $25–30의 X 수집비를 줄이기 위한 로컬 브라우저·헤드리스·비공식 라이브러리의 방향 검토를 요청했다. [대안 조사](research/2026-11-03-x-collection-alternatives.md)에 공식 문서·원본 소스와 기존 비용 기록을 대조해 남긴다. 이번 범위는 조사이며 운영 도입 결정이나 후속 실험 실행 지시가 아니다. 유료 X 호출·실제 대체 수집·쿠키 접근·운영 데이터·예산·자동충전·배포는 변경하지 않는다.
 
 ## X REST 예약 경합·반복 이월 수정 — 2026-11-03
 

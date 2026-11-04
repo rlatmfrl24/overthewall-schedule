@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../platform/types";
 import { handleScheduledWorkflowCron, SCHEDULED_WORKFLOW_CRON } from "./scheduled-workflow-cron";
 
-const testEnv = env as unknown as Env & { YOUTUBE_FEED_MIGRATIONS: D1Migration[] };
+const testEnv = env as unknown as Env & { YOUTUBE_FEED_MIGRATIONS: D1Migration[]; X_REFERENCE_MIGRATIONS: D1Migration[] };
 const database = testEnv.otw_db;
 const scheduledTime = Date.parse("2026-09-08T02:23:00Z");
 const event = { cron: SCHEDULED_WORKFLOW_CRON, scheduledTime } as ScheduledController;
@@ -13,6 +13,7 @@ const channelId = `UC${"A".repeat(22)}`;
 
 afterEach(() => vi.restoreAllMocks());
 beforeEach(async () => {
+  vi.spyOn(Date, "now").mockReturnValue(scheduledTime);
   vi.spyOn(CloudflareD1ReadBudget.prototype, "read").mockResolvedValue({ status: "available", rowsRead: 0, dailyTarget: 4_000_000, measuredAt: new Date(scheduledTime).toISOString(), resetAt: "2026-09-09T00:00:00Z", reason: null });
   await applyD1Migrations(database, testEnv.YOUTUBE_FEED_MIGRATIONS);
   await database.batch([
@@ -56,6 +57,28 @@ const observeAdmission = () => {
       SCHEDULED_OPERATIONS_WORKFLOW: { create } } as unknown as Env,
   };
 };
+
+it.each([true, false])("checks the execution UTC day for delayed Cron, current day blocked: %s", async blocked => {
+  await applyD1Migrations(database, testEnv.X_REFERENCE_MIGRATIONS);
+  const delayedSlot = Date.parse("2026-09-08T23:23:00Z");
+  vi.mocked(Date.now).mockReturnValue(Date.parse("2026-09-09T00:03:00Z"));
+  await database.batch([
+    database.prepare("UPDATE youtube_feed_sources SET next_check_at=0"),
+    ...[["2026-09-08", blocked ? 0 : 40_000], ["2026-09-09", blocked ? 40_000 : 0]].map(([day, used]) =>
+      database.prepare("INSERT INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES(?,'all','d1_rows_written',?,0,40000,0)").bind(day, used)),
+  ]);
+  const before = (await database.prepare("SELECT * FROM scheduled_usage_daily ORDER BY day,lane,resource").all()).results;
+  const { create, statements, env: runtime } = observeAdmission();
+  await handleScheduledWorkflowCron({ cron: SCHEDULED_WORKFLOW_CRON, scheduledTime: delayedSlot } as ScheduledController, runtime);
+  if (blocked) {
+    expect(create).not.toHaveBeenCalled();
+    expect(statements.filter(sql => /^\s*(INSERT|UPDATE|DELETE|REPLACE)\b/i.test(sql))).toEqual([]);
+  } else {
+    expect(create).toHaveBeenCalledWith({ params: { jobType: "youtube_feed_collection", scheduledFor: delayedSlot } });
+  }
+  expect((await database.prepare("SELECT * FROM scheduled_usage_daily ORDER BY day,lane,resource").all()).results).toEqual(before);
+  expect(await database.prepare("SELECT count(*) n FROM scheduled_job_runs").first("n")).toBe(0);
+});
 
 describe("YouTube cron admission with real D1 retry and lease state", () => {
   it.each([

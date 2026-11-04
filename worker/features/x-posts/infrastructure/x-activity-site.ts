@@ -1,14 +1,18 @@
+import type { XCollectionProvider } from "@contracts/x-collection";
 import type { SiteId } from "@contracts/site-definition";
-import type { XApiGateway, XActivitySiteSnapshot, XActivityStatusDto } from "@contracts/x-activity";
+import type { XApiGateway, XActivitySiteSnapshot, XActivityStatusDto, XActivityControlFence } from "@contracts/x-activity";
 import { parseXActivityEvent, xActivityMediaReady, type XActivityEvent } from "../domain/x-activity";
 import { readActiveXHandles } from "./d1-active-handles";
-import { normalizeXTimelineResponse, requestXApi, writeStoredPosts, invalidateXPostMemoryCache, XApiError, estimateXApiRequestCostMicros, estimateXSharedApiReservationMicros, getXTimelinePageSize, readDailyBudgetMicros, type XApiUser, type XTweetLookupResponse } from "./x-api";
+import { normalizeXTimelineResponse, xTimelineWriteContext, requestXApi, writeStoredPosts, invalidateXPostMemoryCache, XApiError, estimateXApiRequestCostMicros, estimateXSharedApiReservationMicros, getXTimelinePageSize, readDailyBudgetMicros, type XApiUser, type XTweetLookupResponse } from "./x-api";
 import { X_COLLECTION_MAX_RESULTS, X_OPTIMIZED_FIRST_PAGE_RESULTS } from "./x-collection";
 import { readXReferenceBudget } from "./x-reference-budget";
 import { readSiteXBudget } from "./x-shared-budget";
 
 interface Options {
   db: D1Database; siteId: SiteId; gateway: XApiGateway;
+  controlFence?: XActivityControlFence;
+  disabledRevision?: number|null;
+  deliveryRevision?: number|null;
   publicationOpen(): boolean; dispatch(eventId: string): Promise<void>;
 }
 interface Inbox {
@@ -16,6 +20,7 @@ interface Inbox {
   hydrated_payload: string | null; received_at: number; lookup_attempted_at: number | null; lookup_attempts: number;
 }
 const DAY = 86_400_000;
+const WEBHOOK_DISABLED_SQL = "EXISTS(SELECT 1 FROM settings WHERE key='x_webhook_disabled' AND value='true')";
 const nextDay = () => (Math.floor(Date.now()/DAY)+1)*DAY;
 const errorCode = (error: unknown) => error instanceof Error ? error.message.slice(0,250) : "x_activity_failed";
 
@@ -23,12 +28,68 @@ export class D1XActivitySite {
   private readonly options: Options;
   constructor(options: Options) { this.options = options; }
   private get db() { return this.options.db; }
+  withControlFence(fence:XActivityControlFence,disabledRevision:number|null=null){return new D1XActivitySite({...this.options,controlFence:{...fence},disabledRevision});}
+  withDeliveryRevision(revision:number|null){
+    if(revision!==null&&(!Number.isSafeInteger(revision)||revision<0))throw new Error("x_activity_delivery_revision_invalid");
+    return new D1XActivitySite({...this.options,deliveryRevision:revision});
+  }
+  private async controlWrite(...statements:D1PreparedStatement[]){
+    const fence=this.options.controlFence;
+    if(!fence||!Number.isSafeInteger(fence.revision)||fence.revision<1||typeof fence.token!=="string"||!fence.token||!Number.isSafeInteger(fence.expiresAt))throw new Error("x_activity_control_fence_invalid");
+    const disabledRevision=this.options.disabledRevision??null;
+    if(disabledRevision!==null&&(!Number.isSafeInteger(disabledRevision)||disabledRevision<0||disabledRevision>fence.revision))throw new Error("x_activity_disable_barrier_invalid");
+    const now=`max(${Date.now()},CAST((julianday('now')-2440587.5)*86400000 AS INTEGER))`;
+    await this.db.batch([
+      this.db.prepare(`INSERT INTO settings(key,value,updated_at) SELECT 'x_activity_control_fence',?,? WHERE ?>${now}
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at
+        WHERE json_extract(settings.value,'$.revision')<? OR (json_extract(settings.value,'$.revision')=? AND json_extract(settings.value,'$.token')=?)`)
+        .bind(JSON.stringify(fence),Date.now(),fence.expiresAt,fence.revision,fence.revision,fence.token),
+      this.db.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM settings WHERE key='x_activity_control_fence' AND json_extract(value,'$.revision')=?
+        AND json_extract(value,'$.token')=? AND json_extract(value,'$.expiresAt')=? AND ?>${now}) THEN 1 ELSE json('x_activity_control_fence_lost') END`)
+        .bind(fence.revision,fence.token,fence.expiresAt,fence.expiresAt),
+      // An advanced barrier arrives while coordinator admission is disabled (or the legacy site is Disabled).
+      // Existing pending work therefore predates enable; unchanged barriers must preserve fresh deliveries.
+      this.db.prepare(`UPDATE x_activity_inbox SET payload=NULL,hydrated_payload=NULL,status='skipped',last_error='webhook_delivery_disabled',lease_until=0
+        WHERE status='pending' AND MAX(COALESCE(?, -1),CASE WHEN ${WEBHOOK_DISABLED_SQL} THEN ? ELSE -1 END)
+          > COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key='x_activity_disabled_revision'),-1)`)
+        .bind(disabledRevision,fence.revision-1),
+      this.db.prepare(`INSERT INTO settings(key,value,updated_at)
+        SELECT 'x_activity_disabled_revision',CAST(MAX(COALESCE(?, -1),CASE WHEN EXISTS(SELECT 1 FROM settings WHERE key='x_webhook_disabled' AND value='true') THEN ? ELSE -1 END) AS TEXT),?
+        WHERE ? IS NOT NULL OR EXISTS(SELECT 1 FROM settings WHERE key='x_webhook_disabled' AND value='true')
+        ON CONFLICT(key) DO UPDATE SET value=CAST(MAX(CAST(settings.value AS INTEGER),CAST(excluded.value AS INTEGER)) AS TEXT),updated_at=excluded.updated_at`)
+        .bind(disabledRevision,fence.revision-1,Date.now(),disabledRevision),
+      ...statements,
+    ]);
+  }
   private async collectionEnabled() {
     return this.options.publicationOpen() && await this.db.prepare("SELECT value FROM settings WHERE key='x_collection_enabled'").first("value") === "true";
   }
   private async sourceAllowed(handle: string, userId: string) {
     return (await readActiveXHandles(this.db,this.options.siteId)).has(handle) &&
       !!await this.db.prepare("SELECT handle FROM x_post_sources WHERE handle=? AND user_id=? AND deactivated_at IS NULL").bind(handle,userId).first();
+  }
+  private async webhookDisabled(){return Boolean(await this.db.prepare(`SELECT 1 WHERE ${WEBHOOK_DISABLED_SQL}`).first());}
+  async setPrimarySource(source:XCollectionProvider){
+    if(!["fxembed","x_api"].includes(source))throw new Error("invalid_x_collection_provider");
+    const current=await this.db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value");
+    if(source==="fxembed"&&current!=="fxembed"&&!await this.webhookDisabled())throw new Error("webhook_disable_required");
+    const now=Date.now();
+    await this.controlWrite(
+      this.db.prepare("INSERT INTO settings(key,value,updated_at) VALUES('x_collection_primary_source',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE settings.value<>excluded.value").bind(source,now),
+      ...(source==="fxembed"?[
+        this.db.prepare("INSERT INTO settings(key,value,updated_at) VALUES('x_collection_hybrid_policy','rss_v1',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE settings.value<>excluded.value").bind(now),
+        this.db.prepare("INSERT INTO settings(key,value,updated_at) VALUES('x_collection_hybrid_activated_at',?,?) ON CONFLICT(key) DO NOTHING").bind(String(now),now),
+      ]:[]),
+    );
+  }
+  async setWebhookDisabled(disabled:boolean){
+    if(typeof disabled!=="boolean")throw new Error("invalid_webhook_control");
+    await this.controlWrite(
+      this.db.prepare("INSERT INTO settings(key,value,updated_at) VALUES('x_webhook_disabled',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE settings.value<>excluded.value").bind(String(disabled),Date.now()),
+      ...(disabled?[
+        this.db.prepare("INSERT INTO settings(key,value,updated_at) VALUES('x_activity_disabled_revision',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(String(this.options.controlFence?.revision),Date.now()),
+        this.db.prepare("UPDATE x_activity_inbox SET payload=NULL,hydrated_payload=NULL,status='skipped',last_error='webhook_hybrid_disabled',lease_until=0 WHERE status='pending'")]:[]),
+    );
   }
   async snapshot(): Promise<XActivitySiteSnapshot> {
     const enabled = await this.collectionEnabled();
@@ -39,6 +100,10 @@ export class D1XActivitySite {
     const recovery = await this.db.prepare("SELECT MIN(last_success_at) AS lastSuccessAt,COUNT(CASE WHEN sync_pagination_token IS NOT NULL THEN 1 END) AS pendingSources FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?))")
       .bind(JSON.stringify(handles)).first<{lastSuccessAt:number|null;pendingSources:number}>();
     const interval = await this.db.prepare("SELECT value FROM settings WHERE key='x_collection_interval_hours'").first<string>("value");
+    const primarySource = await this.db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first("value")==="fxembed"?"fxembed":"x_api";
+    const marker=await this.db.prepare("SELECT key,value FROM settings WHERE key IN ('x_collection_hybrid_policy','x_collection_hybrid_activated_at')").all<{key:string;value:string}>();
+    const values=new Map(marker.results.map(row=>[row.key,row.value])),activatedAt=Number(values.get("x_collection_hybrid_activated_at"));
+    const hybridPolicy=primarySource==="fxembed"&&values.get("x_collection_hybrid_policy")==="rss_v1"&&Number.isFinite(activatedAt)&&activatedAt>0?"rss_v1":"legacy";
     const cachePurgePending=await this.db.prepare("SELECT COUNT(*) AS count FROM x_activity_cache_redactions WHERE completed_at IS NULL").first<number>("count");
     const optimized=await this.db.prepare("SELECT value FROM settings WHERE key='x_cost_optimizer_enabled'").first<string>("value")==="true";
     const shared=await this.options.gateway.readBudget();
@@ -54,9 +119,9 @@ export class D1XActivitySite {
     const siteContinuationMicros=estimateXApiRequestCostMicros("timeline",pagePath(continuationPageSize));
     // A source ID does not guarantee a fresh user cache, so include refresh headroom for every target.
     const identityMicros=estimateXApiRequestCostMicros("user_lookup","/users/by?"+new URLSearchParams({usernames:handles.join(",")}));
-    return { site: this.options.siteId, collectionEnabled: enabled, targets: handles.map(handle=>({handle,userId:users.get(handle)??null})),
+    return { site: this.options.siteId, primarySource, hybridPolicy, collectionEnabled: enabled, targets: handles.map(handle=>({handle,userId:users.get(handle)??null})),
       budget, cachePurgePending:Number(cachePurgePending??0), recovery: {
-        intervalHours: Number(interval ?? 24), lastSuccessAt: recovery?.lastSuccessAt ?? null, pendingSources,
+        intervalHours: primarySource === "fxembed" ? hybridPolicy==="rss_v1"?12:24 : Number(interval ?? 24), lastSuccessAt: recovery?.lastSuccessAt ?? null, pendingSources,
         estimate:{targetCount:handles.length,pageSize,continuationPageSize,perPageMicros,
           firstPagesMicros:(handles.length-pendingSources)*perPageMicros+pendingSources*continuationMicros+identityMicros,
           siteFirstPagesMicros:(handles.length-pendingSources)*sitePerPageMicros+pendingSources*siteContinuationMicros+identityMicros,
@@ -80,13 +145,16 @@ export class D1XActivitySite {
   async setRecoveryInterval() {
     if (!await this.collectionEnabled()) throw new Error("x_collection_disabled");
     const handles=[...await readActiveXHandles(this.db,this.options.siteId)],now=Date.now();
-    await this.db.batch([
+    await this.controlWrite(
       this.db.prepare("INSERT INTO settings(key,value,updated_at) VALUES('x_collection_interval_hours','24',?) ON CONFLICT(key) DO UPDATE SET value='24',updated_at=excluded.updated_at").bind(now),
       this.db.prepare(`UPDATE x_post_sources SET collection_started_at=?,updated_at=? WHERE handle IN (SELECT value FROM json_each(?))
         AND collection_started_at IS NULL AND last_seen_post_id IS NULL AND initialization_completed_at IS NULL`).bind(now,now,JSON.stringify(handles)),
-    ]);
+    );
   }
   async accept(body: unknown) {
+    const revision=this.options.deliveryRevision??null;
+    const staleDelivery=`EXISTS(SELECT 1 FROM settings WHERE key='x_activity_disabled_revision' AND (${revision===null?"1":`${revision}<=CAST(value AS INTEGER)`}))`;
+    const disabled=`(${WEBHOOK_DISABLED_SQL}) OR (${staleDelivery})`;
     const event = parseXActivityEvent(body);
     if (!event || !await this.collectionEnabled()) return false;
     const handles = [...await readActiveXHandles(this.db,this.options.siteId)];
@@ -97,17 +165,20 @@ export class D1XActivitySite {
     const timestamp=Date.now();
     const fresh="EXISTS(SELECT 1 FROM x_activity_inbox WHERE event_id=? AND charged=0)";
     await this.db.batch([
-      this.db.prepare("INSERT OR IGNORE INTO x_activity_inbox(event_id,post_id,handle,user_id,payload,received_at,status) VALUES(?,?,?,?,?,?,?)")
-        .bind(event.eventId,event.post.id,source.handle,event.userId,removed?null:JSON.stringify(body),timestamp,removed?"skipped":"pending"),
+      this.db.prepare(`INSERT OR IGNORE INTO x_activity_inbox(event_id,post_id,handle,user_id,payload,received_at,status,last_error)
+        SELECT ?,?,?,?,CASE WHEN ? OR (${disabled}) THEN NULL ELSE ? END,?,
+          CASE WHEN ? OR (${disabled}) THEN 'skipped' ELSE 'pending' END,
+          CASE WHEN ${WEBHOOK_DISABLED_SQL} THEN 'webhook_hybrid_disabled' WHEN ${staleDelivery} THEN 'webhook_delivery_disabled' ELSE NULL END`)
+        .bind(event.eventId,event.post.id,source.handle,event.userId,removed?1:0,JSON.stringify(body),timestamp,removed?1:0),
       this.db.prepare(`INSERT INTO x_api_usage_events(operation,endpoint,resource_type,resource_count,estimated_cost_micros,status,created_at,detail)
         SELECT 'activity_event','/2/activity/post.create','shared_event',1,0,200,?,? WHERE ${fresh}`)
         .bind(timestamp,JSON.stringify({source:"xaa",purpose:"collection",sharedEventCostMicros:5000,postId:event.post.id}),event.eventId),
       this.db.prepare("UPDATE x_activity_inbox SET charged=1 WHERE event_id=? AND charged=0").bind(event.eventId),
     ]);
-    const pending=await this.db.prepare("SELECT event_id FROM x_activity_inbox WHERE event_id=? AND status='pending' AND lease_until<=? AND next_attempt_at<=?")
-      .bind(event.eventId,timestamp,timestamp).first();
-    if(pending) await this.options.dispatch(event.eventId);
-    return !removed;
+    const row=await this.db.prepare("SELECT status,lease_until,next_attempt_at FROM x_activity_inbox WHERE event_id=?")
+      .bind(event.eventId).first<{status:string;lease_until:number;next_attempt_at:number}>();
+    if(row?.status==="pending"&&row.lease_until<=timestamp&&row.next_attempt_at<=timestamp)await this.options.dispatch(event.eventId);
+    return !!row&&row.status!=="skipped";
   }
   async recover() {
     const redactions=await this.db.prepare("SELECT post_id FROM x_activity_cache_redactions WHERE completed_at IS NULL AND next_attempt_at<=? ORDER BY next_attempt_at LIMIT 20").bind(Date.now()).all<{post_id:string}>();
@@ -138,6 +209,7 @@ export class D1XActivitySite {
     const row = await this.db.prepare("UPDATE x_activity_inbox SET lease_until=? WHERE event_id=? AND status='pending' AND lease_until<=? AND next_attempt_at<=? RETURNING *").bind(lease, eventId, timestamp, timestamp).first<Inbox>();
     if (!row) return;
     try {
+      if(await this.webhookDisabled()){await this.finish(row,"skipped",lease,"webhook_hybrid_disabled");return;}
       const event = row.payload ? parseXActivityEvent(JSON.parse(row.payload)) : null;
       const removed = await this.db.prepare("SELECT id FROM x_posts WHERE id=? AND (hidden_at IS NOT NULL OR content_removed_at IS NOT NULL OR content_access!='normal')").bind(row.post_id).first();
       if (!event || removed || !await this.collectionEnabled() || !await this.sourceAllowed(row.handle, row.user_id) ||
@@ -147,7 +219,7 @@ export class D1XActivitySite {
       const user: XApiUser = { id: row.user_id, username: row.handle };
       const write = async (lookup?: XTweetLookupResponse) => {
         const posts = this.normalize(event, lookup).map(post => ({ ...post, username: row.handle, url: `https://x.com/${row.handle}/status/${post.id}` }));
-        const result = await writeStoredPosts(this.db, row.handle, user, posts, row.received_at, this.options.siteId);
+        const result = await writeStoredPosts(this.db, row.handle, user, posts, row.received_at, this.options.siteId, post => xTimelineWriteContext((lookup?.data?.some(item => item.id === post.id) ? lookup : { data: [event.post], includes: event.includes }) as Parameters<typeof normalizeXTimelineResponse>[0], post.id, lookup?.data?.some(item => item.id === post.id) ? "x_api" : "webhook"));
         if (!result.ok) throw new Error(result.error ?? "x_activity_store_failed");
         invalidateXPostMemoryCache();
         return posts[0]!;
@@ -166,8 +238,8 @@ export class D1XActivitySite {
         if (budget.globalUsed + budget.globalReserved + 25_000 > budget.globalLimit) {
           await this.defer(row, lease, "budget_exceeded"); return;
         }
-        const admitted = await this.db.prepare("UPDATE x_activity_inbox SET lookup_attempted_at=?,lookup_attempts=lookup_attempts+1 WHERE event_id=? AND lease_until=? AND status='pending' RETURNING event_id").bind(timestamp, eventId, lease).first();
-        if (!admitted) return;
+        const admitted = await this.db.prepare(`UPDATE x_activity_inbox SET lookup_attempted_at=?,lookup_attempts=lookup_attempts+1 WHERE event_id=? AND lease_until=? AND status='pending' AND NOT (${WEBHOOK_DISABLED_SQL}) RETURNING event_id`).bind(timestamp, eventId, lease).first();
+        if (!admitted) { if(await this.webhookDisabled())await this.finish(row,"skipped",lease,"webhook_hybrid_disabled");return; }
         const query = new URLSearchParams({ ids: row.post_id, "tweet.fields": "author_id,created_at,attachments,entities,referenced_tweets,conversation_id,in_reply_to_user_id,note_tweet,public_metrics",
           expansions: "attachments.media_keys", "media.fields": "media_key,type,url,preview_image_url,width,height,alt_text" });
         try {
@@ -200,7 +272,8 @@ export class D1XActivitySite {
   private finish(row: Inbox, status: string, lease: number, error: string | null = null) {
     return this.db.prepare("UPDATE x_activity_inbox SET status=?,payload=NULL,hydrated_payload=NULL,last_error=? WHERE event_id=? AND lease_until=? AND status='pending'").bind(status, error, row.event_id, lease).run();
   }
-  private defer(row: Inbox, lease: number, error: string) {
+  private async defer(row: Inbox, lease: number, error: string) {
+    if(await this.webhookDisabled())return this.finish(row,"skipped",lease,"webhook_hybrid_disabled");
     return this.db.prepare("UPDATE x_activity_inbox SET next_attempt_at=?,last_error=? WHERE event_id=? AND lease_until=? AND status='pending'").bind(nextDay(), error, row.event_id, lease).run();
   }
 

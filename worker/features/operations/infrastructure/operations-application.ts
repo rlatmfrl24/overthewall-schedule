@@ -1,4 +1,5 @@
 import type { SiteId } from "@contracts/site-definition";
+import { FX_COLLECTION_INTERVAL_MS } from "@contracts/x-collection";
 import { parseSiteId } from "@contracts/site-definition";
 import { readAdminReviewSummary } from "../../otw-play";
 import { asc, eq, and, sql } from "drizzle-orm";
@@ -675,7 +676,7 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
     10,
   );
   const xInterval = parseXCollectionIntervalHours(
-    normalizeXCollectionIntervalHours(settings.get("x_collection_interval_hours")),
+    settings.get("x_collection_primary_source") === "fxembed" ? "24" : normalizeXCollectionIntervalHours(settings.get("x_collection_interval_hours")),
   );
   const xScheduleLastRun = Number.parseInt(
     settings.get("x_collection_last_run") ?? "",
@@ -985,6 +986,7 @@ const getJobExpectedIntervalMs = (
   settings: Map<string, string | null>,
 ) => {
   if (jobType === "x_collection") {
+    if (settings.get("x_collection_primary_source") === "fxembed") return FX_COLLECTION_INTERVAL_MS;
     return parseXCollectionIntervalHours(normalizeXCollectionIntervalHours(
       settings.get("x_collection_interval_hours"),
     )) * 60 * 60_000;
@@ -1011,7 +1013,7 @@ const getOperationJobSummaries = async (env: Env, now = Date.now()) => {
   const client = new ScheduledRunClient(env);
   const settingKeys = [...scheduledJobTypes.map(
     (jobType) => `scheduled_v2_${jobType}_enabled`,
-  ), "x_collection_interval_hours", "auto_update_interval_hours", "otw_play_automation_paused"];
+  ), "x_collection_interval_hours", "x_collection_primary_source", "auto_update_interval_hours", "otw_play_automation_paused"];
   const placeholders = settingKeys.map(() => "?").join(", ");
   const [latestRuns, latestSuccessRows, settingRows] = await Promise.all([
     client.listLatestRunsByJobType(),

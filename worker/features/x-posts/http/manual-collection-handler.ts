@@ -3,6 +3,7 @@ import type { Env } from "../../../platform/types";
 import { getActorInfo } from "../../../platform/http-helpers";
 import type { XPostsApplication } from "../application/x-posts-service";
 import type { OperationRunAcceptedDto } from "@contracts/scheduled-operations";
+import type { XCollectionProvider } from "@contracts/x-collection";
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 
@@ -14,6 +15,7 @@ export type EnqueueManualXCollection = (
   actor: ReturnType<typeof getActorInfo>,
   idempotencyKey: string | null,
   scope?: "pending",
+  provider?: import("@contracts/x-collection").XCollectionProvider,
 ) => Promise<OperationRunAcceptedDto>;
 
 export const createManualXCollectionHandler =
@@ -40,14 +42,18 @@ export const createManualXCollectionHandler =
   if (!admin.ok) return admin.response;
   const scope = url.searchParams.get("scope");
   if (scope !== null && scope !== "pending") return new Response("Invalid collection scope", {status: 400});
+  const provider = url.searchParams.get("provider");
+  if (provider !== null && provider !== "fxembed" && provider !== "x_api") return new Response("Invalid collection provider", {status: 400});
   const actor = getActorInfo(request, admin.user);
+  const collectionOptions: [scope?: "pending", provider?: XCollectionProvider] = provider
+    ? [scope === "pending" ? "pending" : undefined, provider] : scope === "pending" ? ["pending"] : [];
   void buildApplication;
   try {
     const accepted = await enqueue(
       env,
       actor,
       request.headers.get("Idempotency-Key"),
-      ...(scope === "pending" ? ["pending" as const] : []),
+      ...collectionOptions,
     );
     return Response.json(accepted, {
       status: 202,

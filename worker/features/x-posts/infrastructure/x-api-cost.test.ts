@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { estimateXApiRequestCostMicros } from "./x-api";
+import { estimateXApiRequestCostMicros, normalizeDailyBudgetMicros } from "./x-api";
 
 describe("X API request cost admission", () => {
+  it.each([
+    [undefined, 1_000_000], [null, 1_000_000], ["", 1_000_000],
+    ["NaN", 1_000_000], ["Infinity", 1_000_000], ["9".repeat(400), 1_000_000], ["0", 1_000_000], ["-1", 1_000_000],
+    ["200", 1_000_000], ["100", 1_000_000], ["25", 250_000], ["1.9", 10_000], [" 7 cents", 70_000],
+  ])("normalizes the shared daily-budget setting %s", (value, expected) => {
+    expect(normalizeDailyBudgetMicros(value)).toBe(expected);
+  });
   it("charges batched Post lookups for Post resources only", () => {
     const ids = Array.from({ length: 100 }, (_, index) => String(index + 1));
     const path = `/tweets?${new URLSearchParams({

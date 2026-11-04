@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {siteEnv} from '../../../test-support/site-env';
 import type { Env } from "../../../platform/types";
-import { clearActiveXHandlesCacheForTests } from "../infrastructure/d1-active-handles";
 
 const fetchXPostsForHandlesMock = vi.hoisted(() => vi.fn());
 
@@ -48,7 +47,6 @@ const makeEnv = ({
 
 describe("X posts HTTP target policy", () => {
   beforeEach(() => {
-    clearActiveXHandlesCacheForTests();
     fetchXPostsForHandlesMock.mockReset();
     fetchXPostsForHandlesMock.mockResolvedValue({
       posts: [],

@@ -105,9 +105,11 @@ import {
   createManualXCollectionHandler,
   createXPostsHandler,
   createXActivityHandler,
+  createXCollectionHandler,
   xPostFeedService,
 } from "../features/x-posts";
 import { buildXActivityService } from "./x-activity";
+import { buildXCollectionApplication } from "./x-collection";
 import {
   buildYouTubeApplication, createYouTubeHistoryHandler, D1AdminYouTubeHistoryReader,
   createKirinukiHandler,
@@ -294,14 +296,15 @@ const handleOperations = createOperationsHandler({
 });
 const handleXPosts = createXPostsHandler(buildXPostsApplication);
 const handleXActivity = createXActivityHandler(buildXActivityService);
+const handleXCollection = createXCollectionHandler(buildXCollectionApplication);
 const handleManualXCollection = createManualXCollectionHandler(
   buildXPostsApplication,
-  (env, actor, idempotencyKey, scope) =>
+  (env, actor, idempotencyKey, scope, provider) =>
     new ScheduledRunClient(env).createManualRun(
       "x_collection",
       actor,
       idempotencyKey,
-      scope === "pending" ? {xCollectionScope: "pending"} : undefined,
+      scope === "pending" || provider ? { ...(scope === "pending" ? { xCollectionScope: "pending" } : {}), ...(provider ? { xCollectionProvider: provider } : {}) } : undefined,
     ),
 );
 const handleMemberPosts = createMemberPostsHandler({
@@ -1176,6 +1179,10 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
       }),
     ),
     handler: handleXPosts,
+  },
+  {
+    id: "x-posts.collection", owner: "x-posts", path: apiRoutes.xPosts.collection.pattern,
+    methods: methods(get(ADMIN_NO_STORE), patch(ADMIN_NO_STORE)), handler: handleXCollection,
   },
   {
     id: "x-posts.activity", owner: "x-posts", path: apiRoutes.xPosts.activity.pattern,

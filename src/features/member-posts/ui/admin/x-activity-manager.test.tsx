@@ -14,6 +14,31 @@ const status:XActivityStatusDto={configured:true,callbackUrl:"https://app/api/x/
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 const open=()=>{const details=screen.getByText("X 신규 피드 구독").closest("details")!;details.open=true;fireEvent(details,new Event("toggle"));};
 describe("X activity whole-site controls",()=>{
+  it("allows explicit manual start in Fx mode while retaining the existing history",async()=>{
+    vi.mocked(fetchXActivity).mockResolvedValue({...status,primarySource:"fxembed",pauseReason:"hybrid"});
+    vi.mocked(startXActivity).mockResolvedValue({...status,primarySource:"fxembed"});
+    render(createElement(XActivityManager),{wrapper:createQueryWrapper()});open();
+    expect(await screen.findByText("웹훅 Disabled")).toBeTruthy();
+    expect((screen.getByRole("button",{name:"전체 대상 적용"}) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button",{name:"전체 대상 적용"}));
+    await waitFor(()=>expect(startXActivity).toHaveBeenCalledWith("start"));
+  });
+  it("allows a failed remote stop to be retried while local delivery is already disabled",async()=>{
+    vi.mocked(fetchXActivity).mockResolvedValue({...status,mode:"partial",sites:[{...status.sites![0],activeCount:1,lastError:"x_activity_provider_500"}]});
+    vi.mocked(stopXActivity).mockResolvedValue(status);
+    render(createElement(XActivityManager),{wrapper:createQueryWrapper()});open();
+    const button=await screen.findByRole("button",{name:"이 사이트 웹훅 중지"});
+    await waitFor(()=>expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(()=>expect(stopXActivity).toHaveBeenCalledTimes(1));
+    expect(startXActivity).not.toHaveBeenCalled();
+  });
+  it("blocks manual start during transition",async()=>{
+    vi.mocked(fetchXActivity).mockResolvedValue({...status,primarySource:"fxembed",pauseReason:"hybrid_transition"});
+    render(createElement(XActivityManager),{wrapper:createQueryWrapper()});open();
+    await screen.findByText(/수집원 전환 중에는/);
+    expect((screen.getByRole("button",{name:"전체 대상 적용"}) as HTMLButtonElement).disabled).toBe(true);
+  });
   it("keeps excluded and unavailable receipts visible in the recent sample",async()=>{
     vi.mocked(fetchXActivity).mockResolvedValue({...status,mode:"normal",events:["complete","pending","failed","skipped","unavailable"].map((state,index)=>({
       postId:String(10000+index),receivedAt:Date.now(),status:state,mediaSource:"pending" as const,mediaCount:0,mediaTypes:"",error:null}))});

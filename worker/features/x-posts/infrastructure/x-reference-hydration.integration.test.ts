@@ -21,9 +21,9 @@ import {
   type XApiUsageTracker,
 } from "./x-api";
 import { linkedPostKey, linkedUserKey } from "./x-reference-store";
-import { connectStoredReplyReferences } from "./x-reply-reference";
+import { writeStoredPosts } from "./x-api";
 import type { XPostDto } from "@contracts/x-posts";
-import { runXCollectionForHandles } from "./x-collection";
+import { claimXSourceLeases, releaseXSourceLeases, runXCollectionForHandles } from "./x-collection";
 import { meterD1 } from "../../../test-support/d1-meter";
 import { D1SharedXApiGateway } from "./x-shared-budget";
 import type { Env as WorkerEnv } from "../../../platform/types";
@@ -250,13 +250,13 @@ describe("X replies use stored context or a completed relation", () => {
       .bind(JSON.stringify(original), original.createdAt).run();
     const posts = [await seedReply("201", "10"), await seedReply("202", "10")];
     let targetReads = 0;
-    const observed = { prepare(sql: string) { if (sql.includes("SELECT value, user_id")) targetReads++; return db.prepare(sql); } };
-    await connectStoredReplyReferences(observed, posts);
-    expect(targetReads).toBe(1);
+    const observed = { batch: db.batch.bind(db), prepare(sql: string) { if (sql.includes("SELECT p.*")) targetReads++; return db.prepare(sql); } };
+    await writeStoredPosts(observed, "member", { id: "1", username: "member" }, posts.map(p => ({ ...p, text: "collected" })), Date.now(), "otw");
+    expect(targetReads).toBe(2);
     expect((await getPost("201")).reply?.post?.text).toBe(original.text);
     expect((await getPost("202")).reply?.post?.text).toBe(original.text);
     await redactStoredXPosts(db, ["10"]);
-    await connectStoredReplyReferences(db, posts);
+    await writeStoredPosts(db, "member", { id: "1", username: "member" }, posts.map(p => ({ ...p, text: "collected" })), Date.now(), "otw");
     expect((await getPost("201")).reply?.post).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -317,9 +317,13 @@ describe("X durable reference hydration", () => {
     const ack = acknowledgements[1];
     const legacySql = ack.sql.replace("cadence_anchor_at = excluded.cadence_anchor_at,", "")
       .replaceAll("cadence_anchor_at,", "").replace("(VALUES (?,", "(VALUES (");
-    const legacy = await db.prepare(legacySql).bind(...ack.args.slice(0, 5), ...ack.args.slice(6)).run();
-    expect(ack.rowsWritten).toBe(legacy.meta.rows_written);
-    console.info("X_HANDLE_CADENCE_D1_COST", JSON.stringify({ intervalHours, before: legacy.meta.rows_written, after: ack.rowsWritten }));
+    const comparisonLease = await claimXSourceLeases(runtime, ["member"], Date.now());
+    try {
+      expect(comparisonLease.claimed).toEqual(["member"]);
+      const legacy = await db.prepare(legacySql).bind(...ack.args.slice(0, 5), ...ack.args.slice(6, -2), comparisonLease.token, Date.now()).run();
+      expect(ack.rowsWritten).toBe(legacy.meta.rows_written);
+      console.info("X_HANDLE_CADENCE_D1_COST", JSON.stringify({ intervalHours, before: legacy.meta.rows_written, after: ack.rowsWritten }));
+    } finally { await releaseXSourceLeases(runtime, comparisonLease.token); }
   });
 
   it.each([[true, "complete"], [false, "complete"], [true, "retry"], [true, "retry-before"], [true, "continuation"]] as const)("revalidates an old scheduled X item (optimizer %s, %s)", async (optimizer, state) => {

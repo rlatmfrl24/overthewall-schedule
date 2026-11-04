@@ -779,6 +779,9 @@ export const xPosts = sqliteTable(
     hidden_at: integer("hidden_at"),
     hidden_reason: text("hidden_reason"),
     content_removed_at: integer("content_removed_at"),
+    source_authority: text("source_authority"),
+    content_hash: text("content_hash"),
+    revision: integer("revision").notNull().default(0),
   },
   (table) => [
     check("x_posts_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
@@ -810,9 +813,14 @@ export const xPostSources = sqliteTable("x_post_sources", {
   sync_pagination_token: text("sync_pagination_token"),
   sync_base_post_id: text("sync_base_post_id"),
   sync_newest_post_id: text("sync_newest_post_id"),
+  sync_origin_scope: text("sync_origin_scope"),
+  sync_origin_started_at: integer("sync_origin_started_at"),
+  sync_timeline_completed_at: integer("sync_timeline_completed_at"),
   last_attempt_at: integer("last_attempt_at"),
   cadence_anchor_at: integer("cadence_anchor_at"),
   last_success_at: integer("last_success_at"),
+  last_completed_at: integer("last_completed_at"),
+  regular_completed_at: integer("regular_completed_at"),
   next_check_at: integer("next_check_at"),
   consecutive_failures: integer("consecutive_failures").notNull().default(0),
   last_error_code: text("last_error_code"),
@@ -826,6 +834,31 @@ export const xPostSources = sqliteTable("x_post_sources", {
 
 export type XPostSource = typeof xPostSources.$inferSelect;
 export type NewXPostSource = typeof xPostSources.$inferInsert;
+
+export const xFxSources = sqliteTable("x_fx_sources", {
+  handle: text().primaryKey(),
+  user_id: text("user_id"),
+  cursor: text(),
+  collection_started_at: integer("collection_started_at").notNull(),
+  cadence_anchor_at: integer("cadence_anchor_at"),
+  last_attempt_at: integer("last_attempt_at"),
+  last_success_at: integer("last_success_at"),
+  last_completed_at: integer("last_completed_at"),
+  rss_cadence_anchor_at: integer("rss_cadence_anchor_at"),
+  rss_last_attempt_at: integer("rss_last_attempt_at"),
+  rss_last_http_success_at: integer("rss_last_http_success_at"),
+  rss_last_check_completed_at: integer("rss_last_check_completed_at"),
+  rss_last_error: text("rss_last_error"),
+  rss_last_raw_count: integer("rss_last_raw_count"),
+  rss_previous_raw_count: integer("rss_previous_raw_count"),
+  rss_last_candidate_count: integer("rss_last_candidate_count"),
+  rss_pending_item_id: text("rss_pending_item_id"),
+  consecutive_failures: integer("consecutive_failures").notNull().default(0),
+  consecutive_successes: integer("consecutive_successes").notNull().default(0),
+  fallback_active: integer("fallback_active", { mode: "boolean" }).notNull().default(false),
+  last_error: text("last_error"),
+  updated_at: integer("updated_at").notNull(),
+});
 
 // One-member XAA rollout; independent from the REST completeness watermark.
 export const xActivityState = sqliteTable("x_activity_state", {
@@ -897,6 +930,8 @@ export const xActivityCoordinator = sqliteTable("x_activity_coordinator", {
   ready: integer({ mode: "boolean" }).notNull().default(false),
   webhook_id: text("webhook_id"),
   webhook_url: text("webhook_url"),
+  lease_token: text("lease_token"),
+  control_revision: integer("control_revision").notNull().default(0),
   lease_until: integer("lease_until").notNull().default(0),
   bootstrap_extra_day: text("bootstrap_extra_day"),
   bootstrap_extra_micros: integer("bootstrap_extra_micros").notNull().default(0),

@@ -29,6 +29,7 @@ export function XActivityStatusCard({ query, onRefresh, headingLevel = 2, href }
     {previous && <p className="text-sm text-muted-foreground">이전 확인: {xActivityStateLabel(data!)} · 아래 수치는 마지막 조회 결과입니다.</p>}
     {data && <div className="space-y-2">
       <p>이 사이트 구독 {current?.activeCount ?? 0} / 대상 {current?.targetCount ?? 0} · 공급자 고유 활성 구독 {data.providerActiveCount ?? 0}개</p>
+      {(data.coordinatorError || current?.lastError || data.subscriptions?.some(item => item.error) || data.mode === "unavailable") && <p role="alert">원격 구독 확인 불가 · 위 수치는 저장된 로컬 기록입니다.</p>}
       <p>최근 수신 {latest === null ? "아직 없음" : time(latest)}</p>
       <p>최근 수신 {events.length}건 기준 · 저장 완료 {events.filter(item => item.status === "complete").length} · 처리 대기 {events.filter(item => item.status === "pending").length} · 처리 실패 {events.filter(item => item.status === "failed").length}</p>
       {events.some(item=>item.status==="skipped"||item.status==="unavailable")&&<p>처리 제외 {events.filter(item=>item.status==="skipped").length} · 원문 미확보 {events.filter(item=>item.status==="unavailable").length}</p>}

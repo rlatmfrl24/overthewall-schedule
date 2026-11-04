@@ -1,0 +1,129 @@
+import type { FxRssContinuation, FxRssStats, FxRssStepResult } from "@contracts/x-collection";
+import { FxCandidateExcludedError, type FxRssCollectionPorts } from "../ports/fx-rss-collection";
+
+const nonnegative = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+export function parseFxRssContinuation(value: Record<string, unknown>): FxRssContinuation {
+  if (value.provider !== "fxembed" || value.mode !== "rss_candidates" || !["regular", "pending"].includes(String(value.scope)) ||
+    !Array.isArray(value.handles) || value.handles.length !== 1 || typeof value.handles[0] !== "string" || !/^[a-z0-9_]{1,15}$/.test(value.handles[0]) ||
+    !["fetch", "hydrate"].includes(String(value.phase)) || !Array.isArray(value.candidates) || value.candidates.length > 100 ||
+    !(value.nextAttemptAt === null || nonnegative(value.nextAttemptAt)) ||
+    !(value.resumeFromItemId == null || typeof value.resumeFromItemId === "string") ||
+    value.candidates.some(c => typeof c !== "object" || c === null || typeof c.id !== "string" || !/^\d{1,25}$/.test(c.id) || !nonnegative(c.firstSeenAt) || !nonnegative(c.createdAtHint) || !Number.isSafeInteger(c.attempts) || c.attempts < 0 || !nonnegative(c.nextAttemptAt) || !(c.error === null || typeof c.error === "string") || !["free", "official"].includes(c.stage)) ||
+    new Set(value.candidates.map(c => c.id)).size !== value.candidates.length || value.phase === "fetch" && value.candidates.length > 0) throw new Error("invalid_x_rss_continuation");
+  if (value.paidBatch != null) {
+    const batch = value.paidBatch as Record<string, unknown>;
+    const candidates = value.candidates as FxRssContinuation["candidates"];
+    if (value.phase !== "hydrate" || typeof batch.day !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(batch.day) ||
+      !Number.isFinite(Date.parse(batch.day)) || new Date(batch.day).toISOString().slice(0, 10) !== batch.day || typeof batch.requestId !== "string" || !new RegExp(`^(otw|luvdia):rss:${value.handles[0]}:${batch.day}:[a-f0-9-]{36}$`).test(batch.requestId) ||
+      !Array.isArray(batch.ids) || batch.ids.length === 0 || batch.ids.length >= 100 || new Set(batch.ids).size !== batch.ids.length ||
+      batch.ids.some(id => typeof id !== "string" || !/^\d{1,25}$/.test(id)) || !batch.ids.some(id => candidates.some(c => c.id === id && c.stage === "official"))) throw new Error("invalid_x_rss_paid_batch");
+  }
+  return value as FxRssContinuation;
+}
+
+// Match the existing half-hour Cron rather than drifting past it by execution time.
+const nextTick = (now: number) => Math.floor((now - 23 * 60_000) / (30 * 60_000) + 1) * 30 * 60_000 + 23 * 60_000;
+export const createFxRssCollection = (ports: FxRssCollectionPorts) => ({
+  async run(input: FxRssContinuation): Promise<FxRssStepResult> {
+    let state = structuredClone(parseFxRssContinuation(input));
+    let durable = structuredClone(state);
+    const stats: FxRssStats = { rawCount: 0, candidatesFound: 0, resolved: 0, postsReturned: 0, postsStored: 0, pending: state.candidates.length, freeApiCalls: 0, paidApiCalls: 0, estimatedCostMicros: 0, newlyStoredPosts: [] };
+    const result = (status: FxRssStepResult["status"], error: string | null): FxRssStepResult => ({ state, stats: { ...stats, pending: state.candidates.length }, status, error, nextAttemptAt: state.nextAttemptAt });
+    const checkpoint = async () => {
+      stats.pending = state.candidates.length;
+      if (!await ports.checkpoint(state, stats)) { state = structuredClone(durable); return false; }
+      durable = structuredClone(state);
+      return true;
+    };
+    const handle = state.handles[0], context = await ports.readContext(handle);
+    if (context.windowReduced !== undefined) stats.windowReduced = context.windowReduced;
+    if (!context.allowed || context.policy !== "rss_v1") return result("blocked", "rss_policy_inactive");
+    if (!context.trustedUserId) return result("blocked", "rss_identity_pending");
+    if (state.nextAttemptAt !== null && state.nextAttemptAt > ports.now()) return result("pending", "rss_retry_pending");
+    if (state.phase === "fetch") {
+      try {
+        const feed = await ports.fetchFeed(handle);
+        stats.rawCount = feed.rawCount;
+        if (feed.windowReduced !== undefined) stats.windowReduced = feed.windowReduced;
+        const entries = [...new Map(feed.entries.filter(entry => entry.handle === handle && entry.createdAtHint >= context.collectionStartedAt).map(entry => [entry.id, entry])).values()];
+        const stored = new Set(await ports.readStoredIds(entries.map(entry => entry.id)));
+        state.candidates = entries.filter(entry => !stored.has(entry.id)).map(entry => ({ id: entry.id, createdAtHint: entry.createdAtHint, firstSeenAt: ports.now(), attempts: 0, nextAttemptAt: ports.now(), error: null, stage: "free" }));
+        stats.candidatesFound = state.candidates.length;
+        state.phase = "hydrate";
+      } catch (error) {
+        state.nextAttemptAt = nextTick(ports.now());
+        const message = error instanceof Error ? error.message : "rss_feed_failed";
+        return await checkpoint() ? result("pending", message) : result("blocked", "rss_checkpoint_lost");
+      }
+    }
+    // Discovery is durable before any lookup; replay consults storage before writing.
+    if (!await checkpoint()) return result("blocked", "rss_checkpoint_lost");
+    if (!state.candidates.length) return result("complete", null);
+    const stored = new Set(await ports.readStoredIds(state.candidates.map(candidate => candidate.id)));
+    const pendingBeforeReadback = state.candidates.length;
+    state.candidates = state.candidates.filter(candidate => state.paidBatch?.ids.includes(candidate.id) || candidate.createdAtHint >= context.collectionStartedAt && !stored.has(candidate.id));
+    stats.resolved += pendingBeforeReadback - state.candidates.length;
+    for (const candidate of [...state.candidates]) {
+      if (candidate.stage === "official" || candidate.nextAttemptAt > ports.now() || stats.freeApiCalls >= 5) continue;
+      try {
+        stats.freeApiCalls++;
+        const post = await ports.fetchStatus(candidate.id, handle, context.trustedUserId);
+        if (Date.parse(post.createdAt) >= context.collectionStartedAt) {
+          stats.postsReturned++;
+          const storedPost = await ports.store(post).catch(() => ({ ok: false, postsStored: 0, newlyStoredPosts: [] }));
+          if (storedPost.newlyStoredPosts?.length) stats.newlyStoredPosts = [...(stats.newlyStoredPosts ?? []), ...storedPost.newlyStoredPosts];
+          if (!storedPost.ok) return result("blocked", "rss_storage_failed");
+          stats.postsStored += storedPost.postsStored;
+        }
+        state.candidates = state.candidates.filter(entry => entry.id !== candidate.id);
+        stats.resolved++;
+      } catch (error) {
+        if (error instanceof FxCandidateExcludedError) {
+          state.candidates = state.candidates.filter(entry => entry.id !== candidate.id);
+          stats.resolved++;
+        } else {
+          candidate.attempts++;
+          candidate.error = error instanceof Error ? error.message : "rss_lookup_failed";
+          candidate.stage = candidate.attempts >= 2 ? "official" : "free";
+          candidate.nextAttemptAt = nextTick(ports.now());
+        }
+      }
+      state.nextAttemptAt = state.candidates.length ? nextTick(ports.now()) : null;
+      if (!await checkpoint()) return result("blocked", "rss_checkpoint_lost");
+      if (!state.candidates.length) return result("complete", null);
+    }
+    const official = state.candidates.filter(candidate => candidate.stage === "official" && candidate.nextAttemptAt <= ports.now());
+    if (official.length) {
+      const prepared = await ports.prepareOfficialBatch(official, state.paidBatch ?? null);
+      if (prepared.batch) {
+        state.paidBatch = prepared.batch;
+        if (!await checkpoint()) return result("blocked", "rss_checkpoint_lost");
+        const hydrated = await ports.hydrateOfficial(official);
+        stats.postsReturned += hydrated.postsReturned;
+        stats.postsStored += hydrated.postsStored;
+        stats.paidApiCalls += hydrated.paidApiCalls;
+        stats.estimatedCostMicros += hydrated.estimatedCostMicros;
+        if (hydrated.newlyStoredPosts?.length) stats.newlyStoredPosts = [...(stats.newlyStoredPosts ?? []), ...hydrated.newlyStoredPosts];
+        if (hydrated.excludedCandidates?.length) stats.excludedCandidates = [...(stats.excludedCandidates ?? []), ...hydrated.excludedCandidates];
+        // Keep the fixed batch until every write succeeds, including crash replay.
+        if (hydrated.error !== "rss_storage_failed" && hydrated.error !== "rss_write_fence_lost") {
+          const resolved = new Set(hydrated.resolvedIds);
+          state.candidates = state.candidates.filter(candidate => !resolved.has(candidate.id));
+          stats.resolved += resolved.size;
+          // Resolved IDs also prove retirement when replay admission aborts after durable readback.
+          if (hydrated.batchProcessed || !state.candidates.some(candidate => state.paidBatch?.ids.includes(candidate.id))) state.paidBatch = null;
+        }
+        state.nextAttemptAt = state.candidates.length ? nextTick(ports.now()) : null;
+        if (!await checkpoint()) return result("blocked", "rss_checkpoint_lost");
+        if (hydrated.error) return result(hydrated.error.startsWith("rss_storage") || hydrated.error === "rss_write_fence_lost" ? "blocked" : "pending", hydrated.error);
+      } else if (prepared.error) {
+        state.nextAttemptAt = nextTick(ports.now());
+        if (!await checkpoint()) return result("blocked", "rss_checkpoint_lost");
+        return result("pending", prepared.error);
+      }
+    }
+    state.nextAttemptAt = state.candidates.length ? nextTick(ports.now()) : null;
+    if (JSON.stringify(state) !== JSON.stringify(durable) && !await checkpoint()) return result("blocked", "rss_checkpoint_lost");
+    return result(state.candidates.length ? "pending" : "complete", state.candidates.length ? "rss_candidates_pending" : null);
+  },
+});

@@ -14,7 +14,6 @@ import { hasScheduledYouTubeFeedWork, runScheduledYouTubeFeedCollection } from "
 import { D1NaverCafeApplication } from "../../naver-cafe/infrastructure/d1-naver-cafe-application";
 import { D1SharedXBudget, D1SharedXApiGateway } from "../../x-posts/infrastructure/x-shared-budget";
 import { clearXServiceCachesForTests } from "../../x-posts/infrastructure/x-api";
-import { clearActiveXHandlesCacheForTests } from "../../x-posts/infrastructure/d1-active-handles";
 
 const db = env.otw_db;
 const hour = 3_600_000;
@@ -36,7 +35,7 @@ afterEach(() => vi.restoreAllMocks());
 it("recovers only a pending X cursor within the shared budget without moving the site cadence", async () => {
   const actual=Date.now(), day=new Date(actual).toISOString().slice(0,10);
   const user="1607408138545950791", base="2114000000000000000", newest="2115000000000000001";
-  clearXServiceCachesForTests(); clearActiveXHandlesCacheForTests();
+  clearXServiceCachesForTests();
   await db.batch([
     ...["x_post_references","x_post_facts","x_posts","x_post_sources","x_api_cache","x_api_usage_events","x_api_usage_daily","x_api_resource_daily","scheduled_usage_daily","x_shared_requests","x_shared_budgets"].map(table=>db.prepare("DELETE FROM "+table)),
     db.prepare("UPDATE members SET url_twitter=NULL"),
@@ -297,9 +296,15 @@ it.each(["scheduled", "manual"] as const)("persists cafe actual timestamps and %
   console.info("CAFE_CADENCE_WRITE_COST", JSON.stringify({ trigger, before: before.meta.rows_written, after: progress.rowsWritten }));
 });
 
-const finalizeX = (source: "manual" | "scheduled", status: string, completedAt: number, slot: number, database = db) =>
-  new ScheduledJobExecutor(runtime(database), { readRunDto: async () => ({ jobType: "x_collection", source, status, finishedAt: completedAt, scheduledFor: slot }) } as never)
-    .finalizeLegacyState("fixture-x");
+const finalizeX = async (source: "manual" | "scheduled", status: string, completedAt: number, slot: number, database = db) => {
+  const repository = new D1ScheduledJobRepository(db);
+  const run = await repository.createRun({jobType:"x_collection",source,idempotencyKey:crypto.randomUUID(),scheduledFor:slot});
+  const [id] = await repository.addItems(run.id,[{targetKey:"legacy-cadence",phase:"collect",lane:"x",continuation:{handles:["legacy"]}}]);
+  const item = (await repository.claimItem(id))!;
+  await repository.completeItem(item,{status:status as "succeeded"|"failed"|"partial"});
+  await db.prepare("UPDATE scheduled_job_runs SET finished_at=? WHERE id=?").bind(completedAt,run.id).run();
+  await new ScheduledJobExecutor(runtime(database), new D1ScheduledJobRepository(database)).finalizeLegacyState(run.id);
+};
 
 it("atomically records X cadence while preserving real completion and rejecting stale finalizers", async () => {
   await db.prepare("DELETE FROM settings WHERE key IN ('x_collection_last_run','x_collection_last_success','x_collection_cadence_state')").run();
@@ -527,7 +532,7 @@ it("seeks YouTube policy membership without changing fenced metadata candidates"
 it.each([true,false])("includes a recovered source in the next full daily collection (optimizer=%s)",async optimized=>{
  const full=Date.parse("2026-11-01T01:00:00Z"), recoveredAt=full+2*hour;
  let actual=recoveredAt;vi.spyOn(Date,"now").mockImplementation(()=>actual);
- clearXServiceCachesForTests();clearActiveXHandlesCacheForTests();
+ clearXServiceCachesForTests();
  const day=new Date(actual).toISOString().slice(0,10), user="1607408138545950791";
  await db.batch([
   ...["scheduled_outbox","scheduled_job_items","scheduled_job_runs","x_shared_requests","x_shared_budgets","scheduled_usage_daily","x_post_references","x_post_facts","x_posts","x_post_sources","x_api_cache","x_api_usage_events","x_api_usage_daily","x_api_resource_daily"].map(table=>db.prepare("DELETE FROM "+table)),

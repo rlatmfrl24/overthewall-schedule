@@ -3,12 +3,14 @@
 // compiled unchanged; only the task-owned provider responses are supplied here.
 const calls: string[] = [];
 const channel = "e".repeat(32);
+let scenario = "";
 
 export default {
   fetch(request: Request) {
     const url = new URL(request.url);
     if (url.origin === "https://fixture.invalid" && url.pathname === "/reset") {
       calls.length = 0;
+      scenario = url.searchParams.get("scenario") ?? "";
       return new Response(null, { status: 204 });
     }
     if (url.origin === "https://fixture.invalid" && url.pathname === "/calls") {
@@ -16,11 +18,23 @@ export default {
     }
     if(url.origin === "https://api.cloudflare.com" && request.method === "POST" && url.pathname === "/client/v4/graphql") return Response.json({data:{viewer:{accounts:[{usage:[{sum:{rowsRead:1000}}]}]}}});
     calls.push(`${request.method} ${url.href}`);
+    if (request.method === "GET" && url.origin === "https://fxtwitter.com" && url.pathname === "/native_collect/feed.xml") {
+      return new Response(`<rss version="2.0"><channel>${(scenario === "rss-shrink" ? [] : [501, 502, 503, 504, 505, 506]).map(id => `<item><guid>https://x.com/native_collect/status/${id}</guid><pubDate>${new Date().toUTCString()}</pubDate></item>`).join("")}</channel></rss>`);
+    }
+    if (request.method === "GET" && url.origin === "https://api.fxtwitter.com" && /^\/2\/status\/50[1-6]$/.test(url.pathname)) {
+      const id = url.pathname.split("/").pop();
+      return Response.json({ code: 200, status: { type: "status", id, text: `Native RSS ${id}`, created_at: new Date().toUTCString(), author: { id: "1000000000001", screen_name: "native_collect", protected: false }, media: {} } });
+    }
+    if (request.method === "GET" && url.origin === "https://api.fxtwitter.com" && url.pathname === "/2/profile/native_collect/statuses") {
+      const page = Number((url.searchParams.get("cursor") ?? "fx_0").split("_")[1]);
+      return Response.json({ code: 200, results: [{ type: "status", id: scenario === "rss-shrink" ? "151" : "150", text: "Native Fx collection", created_at: new Date().toUTCString(), author: { id: "1000000000001", screen_name: "native_collect", protected: false }, media: {} }], cursor: { bottom: `fx_${page + 1}` } });
+    }
     if (request.method === "GET" && url.origin === "https://api.x.com") {
       if (url.pathname === "/2/users/by") return Response.json({ data: [{ id: "1000000000001", username: "native_collect" }] });
       if (url.pathname === "/2/users/1000000000001/tweets") return Response.json({
-        data: [{ id: "200", text: "Native collection", created_at: new Date().toISOString() }], meta: { newest_id: "200" },
+        data: [{ id: "200", text: "Native collection", created_at: new Date().toISOString() }], meta: { newest_id: "200", ...(scenario === "account-budget" && !url.searchParams.has("pagination_token") ? { next_token: "native-page-2" } : {}) },
       });
+      if (url.pathname === "/2/users/1000000000002/tweets") return Response.json({ data: [{ id: "300", text: "Independent peer", created_at: new Date().toISOString() }] });
     }
     if (request.method === "GET" && url.origin === "https://apis.naver.com" && url.pathname === "/cafe-web/cafe-boardlist-api/v1/cafes/98765432/menus/1/articles") {
       return Response.json({ result: { articleList: [{ type: "ARTICLE", item: {

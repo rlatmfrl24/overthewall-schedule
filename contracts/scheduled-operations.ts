@@ -61,6 +61,8 @@ export type OperationRunFailureDto = {
   lastAttemptAt: number;
 };
 
+export type ScheduledExecutionPriority = { deadlineAt: number; lastAttemptAt: number; key: string };
+
 export type XCollectionOperationItemDto = {
   itemId: string;
   targetKey: string;
@@ -72,6 +74,13 @@ export type XCollectionOperationItemDto = {
   retryPending: boolean;
   nextRetryAt: number | null;
   collection: {
+    provider?: import("./x-collection").XCollectionProvider;
+    mode?: import("./x-collection").XCollectionMode;
+    scope?: import("./x-collection").XCollectionScope;
+    pendingSources?: number;
+    paidApiCalls?: number;
+    newlyStoredPosts?: import("./x-collection").XNewlyStoredPost[];
+    rss?: { rawCount: number; candidatesFound: number; pendingCandidates: number; nextAttemptAt: number | null; windowReduced: boolean };
     status: "success" | "skipped" | "failed";
     checkedHandles: number;
     refreshedHandles: number;

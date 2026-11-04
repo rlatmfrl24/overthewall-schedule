@@ -1,5 +1,7 @@
+import { officialXPostContext, type XPostWriteContext } from "../domain/merge-x-post";
 import type { SiteId } from "@contracts/site-definition";
 import type { XApiGateway, XApiGatewayRequest } from "@contracts/x-activity";
+import type { XCollectionScope, XNewlyStoredPost } from "@contracts/x-collection";
 import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import { publicationHiddenSql } from "../../content-access";
 import { pMap } from "../../../platform/http-helpers";
@@ -15,12 +17,10 @@ import {
 } from "./link-preview";
 import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
 import { filterArchivedXReferences, readStoredXPreview } from "./x-reference-store";
-import { connectStoredReplyReferences } from "./x-reply-reference";
+import { commitStoredPosts } from "./x-post-writer";
 import { prepareXReferenceRedaction } from "./x-reference-redaction";
+import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
 import { reserveXReferenceBudget, XReferenceBudgetError } from "./x-reference-budget";
-import {
-  recordXPostFacts,
-} from "./x-history";
 
 export type XApiUser = {
   id: string;
@@ -103,7 +103,7 @@ export type XTweetLookupResponse = {
   errors?: Array<{ resource_id?: string; value?: string; type?: string; resource_type?: string }>;
 };
 
-type XCacheDb = Pick<D1Database, "prepare">;
+type XCacheDb = Pick<D1Database, "prepare"> & { batch?: (statements: D1PreparedStatement[]) => Promise<D1Result<unknown>[]> };
 
 type XCacheRow = {
   value: string;
@@ -146,15 +146,18 @@ type StoredXPostsEntry = CachedXPostsEntry & {
 type StoredXPostsWriteResult = {
   ok: boolean;
   count: number;
+  insertedIds: string[];
   error: string | null;
 };
 
 type CachedXPostsWriteEntry = CachedXPostsEntry & {
   postsStored: number;
+  newlyStoredPosts?: XNewlyStoredPost[];
   storageError: string | null;
 };
 
 type XStoredPostRow = {
+  source_authority?: string | null;
   id: string;
   handle: string;
   user_id: string | null;
@@ -166,6 +169,7 @@ type XStoredPostRow = {
 };
 
 type XPostSourceRow = {
+  fx_last_success_at?: number | null;
   handle: string;
   user_id: string | null;
   username: string | null;
@@ -208,6 +212,7 @@ type XHandlePostsResult = {
   errorDetail?: string | null;
   stale: boolean;
   postsStored?: number;
+  newlyStoredPosts?: XNewlyStoredPost[];
   storageError?: string | null;
 };
 
@@ -235,6 +240,8 @@ type FetchXPostsForHandlesOptions = {
 type XApiUsageOperation = "user_lookup" | "timeline" | "tweet_lookup";
 
 export type XApiUsageTracker = {
+  officialSyncOriginScope?: XCollectionScope;
+  officialSyncLeaseToken?: string;
   gateway?: XApiGateway;
   recoveryAnchorAt?: number;
   apiCalls: number;
@@ -250,6 +257,9 @@ export type XApiUsageTracker = {
 };
 
 type CollectXPostsOptions = {
+  officialSyncOriginScope?: XCollectionScope;
+  officialSyncLeaseToken?: string;
+  scheduledEligibilityConfirmed?: boolean;
   gateway?: XApiGateway;
   recoveryAnchorAt?: number;
   scheduledFor?: number | null;
@@ -488,13 +498,17 @@ const readDailyUsageMicros = async (
   }
 };
 
-export const readDailyBudgetMicros = async (cacheDb: XCacheDb | undefined) => {
-  const value = cacheDb ? (await cacheDb.prepare("SELECT value FROM settings WHERE key = ?")
-    .bind("x_collection_daily_budget_cents").first<{ value: string | null }>())?.value : null;
+export const normalizeDailyBudgetMicros = (value: string | null | undefined) => {
   const cents = Number.parseInt(value ?? "", 10);
   const safeCents =
     Number.isFinite(cents) && cents > 0 ? cents : X_DAILY_BUDGET_CENTS_DEFAULT;
   return Math.min(100, safeCents) * 10_000;
+};
+
+export const readDailyBudgetMicros = async (cacheDb: XCacheDb | undefined) => {
+  const value = cacheDb ? (await cacheDb.prepare("SELECT value FROM settings WHERE key = ?")
+    .bind("x_collection_daily_budget_cents").first<{ value: string | null }>())?.value : null;
+  return normalizeDailyBudgetMicros(value);
 };
 
 export async function readSiteXBudget(db: XCacheDb) {
@@ -631,18 +645,35 @@ export const getXTimelinePageSize = (requested: number, remainingMicros: number,
 
 type XApiBudgetSettlement = (actualUsedMicros?: number) => Promise<void>;
 const noopXApiBudgetSettlement: XApiBudgetSettlement = async () => {};
+type XApiAdmissionFence = { fence: FxRssWriteFence; siteId: SiteId };
 
 const reserveXApiBudget = async (
   cacheDb: XCacheDb | undefined,
   estimatedCostMicros: number,
   usageTracker?: XApiUsageTracker,
+  admissionFence?: XApiAdmissionFence,
 ) => {
-  if (!cacheDb) return noopXApiBudgetSettlement;
+  if (!cacheDb || estimatedCostMicros <= 0) {
+    if (admissionFence) throw new XApiError("RSS site admission unavailable", 503, { code: "budget_unavailable" });
+    if (!cacheDb) return noopXApiBudgetSettlement;
+  }
 
-  const usedMicros = await readDailyUsageMicros(cacheDb);
+  let usedMicros: number | null, budgetMicros: number;
+  if (admissionFence) {
+    const [usage, settings] = await cacheDb.batch!([
+      cacheDb.prepare("SELECT COALESCE(SUM(estimated_cost_micros),0) total FROM x_api_usage_events WHERE created_at>=?").bind(startOfUtcDay()),
+      cacheDb.prepare("SELECT key,value FROM settings WHERE key IN ('x_collection_daily_budget_cents','x_api_backoff_until')"),
+    ]);
+    const values = new Map((settings.results as {key:string;value:string}[]).map(row=>[row.key,row.value]));
+    const backoff = Number.parseInt(values.get("x_api_backoff_until") ?? "0",10);
+    if (backoff > now()) throw new XApiError("X API is temporarily paused after rate limiting",429,{code:"rate_limited",sourceStatus:429,detail:`X API calls are paused until ${new Date(backoff).toISOString()}.`});
+    budgetMicros = normalizeDailyBudgetMicros(values.get("x_collection_daily_budget_cents"));
+    usedMicros = Number((usage.results[0] as {total:number} | undefined)?.total ?? 0);
+  } else {
+    usedMicros = await readDailyUsageMicros(cacheDb);
+    budgetMicros = await readDailyBudgetMicros(cacheDb);
+  }
   if (usedMicros === null) throw new XApiError("X budget storage unavailable", 503, { code: "budget_unavailable" });
-
-  const budgetMicros = await readDailyBudgetMicros(cacheDb);
   const reservedMicros = usageTracker?.reservedCostMicros ?? 0;
   if (usedMicros + reservedMicros + estimatedCostMicros > budgetMicros) {
     throw new XApiError("X API daily budget exhausted", 429, {
@@ -655,19 +686,20 @@ const reserveXApiBudget = async (
 
   const timestamp = now();
   const day = new Date(timestamp).toISOString().slice(0, 10);
+  const fence = fxRssWriteFenceSql(admissionFence?.fence, admissionFence?.siteId ?? "otw");
   let ledgerReserved = false;
   try {
     const reservation = await cacheDb.prepare(
       `INSERT INTO scheduled_usage_daily (
          day, lane, resource, reserved, used, limit_value, updated_at
-       ) VALUES (?, 'all', 'x_api_cost_micros', ?, ?, ?, ?)
+       ) SELECT ?, 'all', 'x_api_cost_micros', ?, ?, ?, ? WHERE (${fence.sql})
        ON CONFLICT(day, lane, resource) DO UPDATE SET
          reserved = scheduled_usage_daily.reserved + excluded.reserved,
          limit_value = excluded.limit_value,
          updated_at = excluded.updated_at
        WHERE scheduled_usage_daily.used +
                scheduled_usage_daily.reserved + excluded.reserved
-             <= excluded.limit_value
+             <= excluded.limit_value AND (${fence.sql})
        RETURNING reserved`,
     ).bind(
       day,
@@ -675,8 +707,11 @@ const reserveXApiBudget = async (
       usedMicros,
       budgetMicros,
       timestamp,
+      ...fence.bindings,
+      ...fence.bindings,
     ).first<{ reserved: number | string }>();
     if (!reservation) {
+      if (admissionFence) throw new XApiError("RSS site admission denied", 503, { code: "rss_admission_denied" });
       const existing = await cacheDb.prepare(
         `SELECT limit_value AS limitValue FROM scheduled_usage_daily
          WHERE day = ? AND lane = 'all' AND resource = 'x_api_cost_micros'`,
@@ -796,19 +831,21 @@ const recordDailyXApiResources = async (
   let uniqueCount = 0;
   let listedCostMicros = 0;
   let conservativeCostMicros = 0;
-  for (const resource of resources) {
-    const inserted = await cacheDb.prepare(
+  const statements = resources.map(resource => cacheDb.prepare(
       `INSERT OR IGNORE INTO x_api_resource_daily (
          utc_day, resource_type, resource_id, first_operation,
          first_seen_at, unit_cost_micros
        ) VALUES (?, ?, ?, ?, ?, ?)`,
-    ).bind(day, resource.type, resource.id, operation, timestamp, resource.conservative).run();
+    ).bind(day, resource.type, resource.id, operation, timestamp, resource.conservative));
+  const insertedResources = statements.length ? await cacheDb.batch!(statements) : [];
+  for (const [index, resource] of resources.entries()) {
+    const inserted = insertedResources[index];
     if (Number(inserted.meta?.changes ?? 0) <= 0) continue;
     uniqueCount += 1;
     listedCostMicros += resource.listed;
     conservativeCostMicros += resource.conservative;
   }
-  await cacheDb.prepare(
+  const aggregate = cacheDb.prepare(
     `INSERT INTO x_api_usage_daily (
        utc_day, operation, resource_type, request_count, resource_count,
        unique_resource_count, listed_cost_micros,
@@ -821,8 +858,8 @@ const recordDailyXApiResources = async (
        listed_cost_micros = x_api_usage_daily.listed_cost_micros + excluded.listed_cost_micros,
        conservative_cost_micros = x_api_usage_daily.conservative_cost_micros + excluded.conservative_cost_micros,
        updated_at = excluded.updated_at`,
-  ).bind(day, operation, resources.length, uniqueCount, listedCostMicros, conservativeCostMicros, timestamp).run();
-  return { conservativeCostMicros, uniqueCount };
+  ).bind(day, operation, resources.length, uniqueCount, listedCostMicros, conservativeCostMicros, timestamp);
+  return { conservativeCostMicros, uniqueCount, aggregate };
 };
 
 const writeXApiUsageEvent = async (
@@ -853,11 +890,13 @@ const writeXApiUsageEvent = async (
   if (!cacheDb) return estimate.estimatedCostMicros;
 
   try {
+    const statements: D1PreparedStatement[] = [];
     if (response) {
       const recorded = await recordDailyXApiResources(cacheDb, operation, response, now());
       if (usageTracker) usageTracker.uniqueResources += recorded.uniqueCount;
+      statements.push(recorded.aggregate);
     }
-    await cacheDb
+    statements.push(cacheDb
       .prepare(
         `INSERT INTO x_api_usage_events (
            operation, endpoint, resource_type, resource_count,
@@ -886,8 +925,8 @@ const writeXApiUsageEvent = async (
               ? "conservative_request_estimate"
               : "no_measurable_resources",
         }),
-      )
-      .run();
+      ));
+    await cacheDb.batch!(statements);
   } catch (error) {
     console.warn("Failed to write X API usage event", error);
     throw new XApiError("X usage recording failed", 503, { code: "budget_unavailable" });
@@ -960,6 +999,7 @@ export const requestXApi = async <T>(
     gateway?: XApiGateway;
     requestId?: string;
     backoffDb?: XCacheDb;
+    admissionFence?: XApiAdmissionFence;
   } = {},
 ): Promise<T> => {
   let settleBudgetReservation: XApiBudgetSettlement = noopXApiBudgetSettlement;
@@ -969,8 +1009,12 @@ export const requestXApi = async <T>(
   let responseStatus = 0;
   let usageRecorded = false;
   try {
+  if (options.admissionFence && (!options.admissionFence.fence || !["otw", "luvdia"].includes(options.admissionFence.siteId) ||
+    !options.cacheDb || !options.operation || options.usageTracker?.purpose === "reference_preview")) {
+    throw new XApiError("RSS site admission unavailable", 503, { code: "budget_unavailable" });
+  }
   if (options.operation) {
-    await assertXApiNotBackedOff(options.backoffDb ?? options.cacheDb);
+    if (!options.admissionFence) await assertXApiNotBackedOff(options.backoffDb ?? options.cacheDb);
     reservedCostMicros = options.estimatedCostMicros ?? estimateXApiRequestCostMicros(
       options.operation,
       path,
@@ -981,6 +1025,7 @@ export const requestXApi = async <T>(
       options.cacheDb,
       reservedCostMicros,
       options.usageTracker,
+      options.admissionFence,
     );
   }
   } catch (error) {
@@ -1299,7 +1344,7 @@ const storedPostsEntry = (
     lastSeenPostId:
       source?.collection_started_at != null
         ? source.last_seen_post_id ?? null
-        : source?.last_seen_post_id ?? sortXPostsDesc(posts)[0]?.id ?? null,
+        : source?.last_seen_post_id ?? sortXPostsDesc(rows.filter(row => !row.source_authority).map(parseStoredXPost).filter((post): post is XPostItem => post !== null))[0]?.id ?? null,
     lastError: source?.last_error ?? null,
     collectionStartedAt: source?.collection_started_at == null
       ? null : Number(source.collection_started_at),
@@ -1325,7 +1370,7 @@ const readStoredPosts = async (
       readStoredPostSource(cacheDb, normalizedHandle),
       cacheDb
         .prepare(
-          `SELECT id, handle, user_id, username, value, created_at, fetched_at, hidden_at
+          `SELECT id, handle, user_id, username, value, created_at, fetched_at, hidden_at, source_authority
            FROM x_posts
            WHERE handle = ? AND hidden_at IS NULL
            ORDER BY created_at DESC, id DESC
@@ -1358,11 +1403,9 @@ const readStoredPostsForHandles = async (
     try {
       const [sourceRows, postRows] = await Promise.all([
         cacheDb.prepare(
-          `SELECT handle, user_id, username, last_seen_post_id, last_checked_at,
-             updated_at, last_error, collection_started_at,
-             initialization_completed_at, sync_pagination_token,
-             sync_base_post_id, sync_newest_post_id
-           FROM x_post_sources WHERE handle IN (${chunk.map(() => "?").join(",")})`,
+          `SELECT source.*, CASE WHEN (SELECT value FROM settings WHERE key='x_collection_primary_source')='fxembed' THEN fx.last_success_at END AS fx_last_success_at
+           FROM x_post_sources source LEFT JOIN x_fx_sources fx ON fx.handle=source.handle
+           WHERE source.handle IN (${chunk.map(() => "?").join(",")})`,
         ).bind(...chunk).all<XPostSourceRow>().catch((error) => {
           console.warn("Failed to read stored X post sources", error);
           return { results: [] as XPostSourceRow[] };
@@ -1370,7 +1413,7 @@ const readStoredPostsForHandles = async (
         cacheDb.prepare(
           `WITH requested(handle) AS (SELECT value FROM json_each(?))
            SELECT post.id, post.handle, post.user_id, post.username, post.value,
-             post.created_at, post.fetched_at, post.hidden_at
+             post.created_at, post.fetched_at, post.hidden_at, post.source_authority
            FROM requested CROSS JOIN x_posts AS post
            WHERE post.id IN (
              SELECT candidate.id FROM x_posts AS candidate
@@ -1390,7 +1433,9 @@ const readStoredPostsForHandles = async (
       }
       const staged = new Map<string, StoredXPostsEntry | null>();
       for (const handle of chunk) {
-        staged.set(handle, storedPostsEntry(sources.get(handle) ?? null, posts.get(handle) ?? [], richXLinkPreviewEnabled));
+        const source=sources.get(handle),entry=storedPostsEntry(source ?? null,posts.get(handle) ?? [],richXLinkPreviewEnabled);
+        const fxSuccess=Number(source?.fx_last_success_at ?? 0);
+        staged.set(handle,entry&&fxSuccess>entry.fetchedAt?{...entry,fetchedAt:fxSuccess,lastCheckedAt:fxSuccess,expiresAt:fxSuccess+X_POSTS_CACHE_POLICY.freshTtlMs,lastError:null}:entry);
       }
       const filtered = new Map((await filterArchivedXReferences(cacheDb,
         [...staged.values()].flatMap(entry => entry?.posts ?? []), siteId)).map(post => [post.id, post]));
@@ -1407,90 +1452,6 @@ const readStoredPostsForHandles = async (
   return entries;
 };
 
-const recordXPostReferences = async (
-  cacheDb: XCacheDb,
-  posts: XPostItem[],
-  recordedAt: number,
-  siteId: SiteId,
-) => {
-  for (const post of posts) {
-    const references = [
-      post.quote
-        ? { type: "quote", id: post.quote.postId, hydrated: Boolean(post.quote.post) }
-        : null,
-      post.reply
-        ? { type: "reply", id: post.reply.postId, hydrated: Boolean(post.reply.post) }
-        : null,
-    ].filter((reference): reference is { type: "quote" | "reply"; id: string; hydrated: boolean } =>
-      Boolean(reference?.id)
-    );
-    for (const reference of references) {
-      const local = reference.type === "quote" ? await cacheDb.prepare(
-        "SELECT 1 AS found FROM x_posts WHERE id = ? LIMIT 1",
-      ).bind(reference.id).first<{ found: number }>() : null;
-      const state = reference.type === "reply" && !reference.hydrated ? "link_only" : local
-        ? "local"
-        : reference.hydrated
-          ? "hydrated"
-          : "pending";
-      await cacheDb.prepare(
-        `INSERT INTO x_post_references (
-           source_post_id, relation_type, referenced_post_id,
-           resolution_state, attempt_count, next_attempt_at, hydrated_at,
-           created_at, updated_at
-         ) SELECT iif(EXISTS(SELECT 1 FROM x_posts p WHERE p.id=incoming.column1 AND ${publicationHiddenSql("x_posts", "p", siteId)}),json('site_member_cutover'),incoming.column1), incoming.column2, incoming.column3, incoming.column4, incoming.column5, incoming.column6, incoming.column7, incoming.column8, incoming.column9
-         FROM (VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)) incoming WHERE 1
-         ON CONFLICT(source_post_id, relation_type) DO UPDATE SET
-           referenced_post_id = excluded.referenced_post_id,
-            resolution_state = CASE
-              WHEN x_post_references.resolution_state = 'terminal'
-                AND x_post_references.referenced_post_id = excluded.referenced_post_id
-                THEN x_post_references.resolution_state
-              WHEN x_post_references.referenced_post_id = excluded.referenced_post_id
-                AND x_post_references.hydrated_at IS NOT NULL
-                THEN x_post_references.resolution_state
-              ELSE excluded.resolution_state
-            END,
-            next_attempt_at = CASE
-              WHEN excluded.relation_type = 'reply' THEN NULL
-              WHEN x_post_references.referenced_post_id = excluded.referenced_post_id
-                AND (x_post_references.hydrated_at IS NOT NULL OR x_post_references.resolution_state = 'terminal')
-              THEN x_post_references.next_attempt_at ELSE excluded.next_attempt_at END,
-           hydrated_at = CASE WHEN x_post_references.referenced_post_id=excluded.referenced_post_id
-             THEN COALESCE(excluded.hydrated_at, x_post_references.hydrated_at) ELSE excluded.hydrated_at END,
-           author_state = CASE WHEN x_post_references.referenced_post_id<>excluded.referenced_post_id THEN 'not_required'
-             WHEN excluded.relation_type='reply' AND x_post_references.resolution_state<>'terminal'
-             THEN 'not_required' ELSE x_post_references.author_state END,
-           author_next_attempt_at = CASE WHEN excluded.relation_type='reply' THEN NULL ELSE x_post_references.author_next_attempt_at END,
-           author_last_error_code = CASE WHEN excluded.relation_type='reply' THEN NULL ELSE x_post_references.author_last_error_code END,
-           last_error_code = CASE WHEN x_post_references.referenced_post_id<>excluded.referenced_post_id THEN NULL
-             WHEN excluded.relation_type='reply' AND x_post_references.resolution_state<>'terminal'
-             THEN NULL ELSE x_post_references.last_error_code END,
-           updated_at = excluded.updated_at`,
-      ).bind(
-        post.id,
-        reference.type,
-        reference.id,
-        state,
-        reference.type === "quote" && !reference.hydrated ? recordedAt : null,
-        reference.hydrated ? recordedAt : null,
-        recordedAt,
-        recordedAt,
-      ).run();
-    }
-  }
-};
-
-// A replay carries unhydrated timeline JSON. Preserve a previously attached
-// preview only for the same relation ID; never transfer it to a changed target.
-const replaySafePostValueSql = ["quote", "reply"].reduce((value, relation) =>
-  `CASE WHEN json_valid(x_posts.value)
-    AND json_extract(excluded.value,'$.${relation}.post') IS NULL
-    AND json_extract(excluded.value,'$.${relation}.postId')=json_extract(x_posts.value,'$.${relation}.postId')
-    AND json_extract(x_posts.value,'$.${relation}.post.id')=json_extract(excluded.value,'$.${relation}.postId')
-    THEN json_set(${value},'$.${relation}.post',json_extract(x_posts.value,'$.${relation}.post'))
-    ELSE ${value} END`, "excluded.value");
-
 export const writeStoredPosts = async (
   cacheDb: XCacheDb | undefined,
   handle: string,
@@ -1498,64 +1459,18 @@ export const writeStoredPosts = async (
   posts: XPostItem[],
   fetchedAt: number,
   siteId: SiteId,
+  context: XPostWriteContext | ((post: XPostItem) => XPostWriteContext) = officialXPostContext,
+  rssFence?: FxRssWriteFence,
 ): Promise<StoredXPostsWriteResult> => {
-  if (!cacheDb || posts.length === 0) {
-    return { ok: true, count: 0, error: null };
-  }
-
-  const normalizedHandle = normalizeHandle(handle);
+  if (!cacheDb || posts.length === 0) return { ok: true, count: 0, insertedIds: [], error: null };
   try {
-    for (let index = 0; index < posts.length; index += 12) {
-      const chunk = posts.slice(index, index + 12);
-      const placeholders = chunk.map(() =>
-        "(?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)"
-      ).join(", ");
-      const bindings = chunk.flatMap((post) => [
-        post.id,
-        normalizedHandle,
-        user.id,
-        post.username,
-        JSON.stringify(post),
-        post.createdAt,
-        fetchedAt,
-        fetchedAt,
-      ]);
-      await cacheDb
-        .prepare(
-          `INSERT INTO x_posts (
-             id, handle, user_id, username, value, created_at, first_seen_at,
-             fetched_at, hidden_at, hidden_reason, content_removed_at
-           ) SELECT iif(EXISTS(SELECT 1 FROM (SELECT incoming.column2 AS handle) selected_source WHERE ${publicationHiddenSql("x_post_sources","selected_source",siteId)}),json('site_member_cutover'),incoming.column1), incoming.column2, incoming.column3, incoming.column4, incoming.column5, incoming.column6, incoming.column7, incoming.column8, incoming.column9, incoming.column10, incoming.column11 FROM (VALUES ${placeholders}) incoming WHERE 1
-           ON CONFLICT(id) DO UPDATE SET
-             handle = excluded.handle,
-             user_id = excluded.user_id,
-             username = excluded.username,
-              value = ${replaySafePostValueSql},
-             created_at = excluded.created_at,
-             fetched_at = excluded.fetched_at,
-             hidden_at = NULL,
-             hidden_reason = NULL,
-             content_removed_at = NULL
-           WHERE x_posts.hidden_at IS NULL
-             AND x_posts.content_removed_at IS NULL`,
-        )
-        .bind(...bindings)
-        .run();
-    }
-    // Facts deliberately contain no raw content. They are gated separately so
-    // the existing feed can stay enabled until the approved analytics use-case
-    // is confirmed in the X Developer Console.
-    const connectedPosts = await connectStoredReplyReferences(cacheDb, posts);
-    await recordXPostFacts(cacheDb, normalizedHandle, connectedPosts, fetchedAt, siteId);
-    await recordXPostReferences(cacheDb, connectedPosts, fetchedAt, siteId);
-    return { ok: true, count: posts.length, error: null };
+    if (!("batch" in cacheDb) || typeof cacheDb.batch !== "function") throw new Error("stored_post_batch_required");
+    const result = await commitStoredPosts(cacheDb as Pick<D1Database, "prepare" | "batch">, normalizeHandle(handle), user, posts, fetchedAt, siteId, context, rssFence);
+    if (result.count) invalidateXPostMemoryCache();
+    return { ...result, ok: true, error: null };
   } catch (error) {
     console.warn("Failed to write stored X posts", error);
-    return {
-      ok: false,
-      count: 0,
-      error: error instanceof Error ? error.message : "stored_post_write_failed",
-    };
+    return { ok: false, count: 0, insertedIds: [], error: error instanceof Error ? error.message : "stored_post_write_failed" };
   }
 };
 
@@ -1621,31 +1536,35 @@ const writeXSyncContinuation = async (
   effectiveIntervalMs = X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS,
   siteId: SiteId = "otw",
   scheduledFor?: number | null,
+  officialSync?: Pick<XApiUsageTracker, "officialSyncOriginScope" | "officialSyncLeaseToken">,
 ) => {
   if (!cacheDb) return;
+  const official = officialSync?.officialSyncOriginScope !== undefined;
+  const fenced = official || officialSync?.officialSyncLeaseToken !== undefined;
   const checkedAt = now();
   const cadenceAnchorAt = state.nextToken ? checkedAt : collectionCadenceAnchor(scheduledFor, checkedAt);
   // Cursor, continuation and success timestamps form one durable acknowledgement.
   // A failed statement leaves the previous range intact for infrastructure retry.
-    await cacheDb
+    const acknowledgement = await cacheDb
       .prepare(
         `WITH incoming(handle,user_id,username,last_seen_post_id,last_checked_at,cadence_anchor_at,
            updated_at,last_error,collection_started_at,initialization_completed_at,
-           last_attempt_at,last_success_at,next_check_at,consecutive_failures,last_error_code,
+           last_attempt_at,last_success_at,next_check_at,consecutive_failures,last_error_code,last_completed_at,
            sync_pagination_token,sync_base_post_id,sync_newest_post_id) AS
-         (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?))
+         (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?))
          INSERT INTO x_post_sources (
            handle, user_id, username, last_seen_post_id, last_checked_at, cadence_anchor_at,
            updated_at, last_error, collection_started_at,
            initialization_completed_at, last_attempt_at, last_success_at,
-           next_check_at, consecutive_failures, last_error_code,
+           next_check_at, consecutive_failures, last_error_code, last_completed_at,
            sync_pagination_token, sync_base_post_id, sync_newest_post_id
          )
          SELECT iif(${publicationHiddenSql("x_post_sources", "incoming", siteId)},json('site_member_cutover'),handle),
            user_id,username,last_seen_post_id,last_checked_at,cadence_anchor_at,updated_at,last_error,
            collection_started_at,initialization_completed_at,last_attempt_at,last_success_at,
-           next_check_at,consecutive_failures,last_error_code,sync_pagination_token,sync_base_post_id,sync_newest_post_id
+           next_check_at,consecutive_failures,last_error_code,last_completed_at,sync_pagination_token,sync_base_post_id,sync_newest_post_id
          FROM incoming WHERE 1
+         ${fenced ? "AND EXISTS(SELECT 1 FROM x_post_sources locked WHERE locked.handle=incoming.handle AND locked.lease_token=? AND locked.lease_until>?)" : ""}
          ON CONFLICT(handle) DO UPDATE SET
            user_id = iif(${publicationHiddenSql("x_post_sources","x_post_sources",siteId)},json('site_member_cutover'),excluded.user_id),
            username = excluded.username,
@@ -1659,6 +1578,8 @@ const writeXSyncContinuation = async (
            initialization_completed_at = COALESCE(x_post_sources.initialization_completed_at, excluded.initialization_completed_at),
            last_attempt_at = excluded.last_attempt_at,
            last_success_at = excluded.last_success_at,
+           last_completed_at = ${official ? "x_post_sources.last_completed_at" : "CASE WHEN excluded.sync_pagination_token IS NULL THEN excluded.last_success_at ELSE x_post_sources.last_completed_at END"},
+           ${official ? "sync_timeline_completed_at = CASE WHEN excluded.sync_pagination_token IS NULL THEN excluded.last_success_at ELSE NULL END," : ""}
            next_check_at = excluded.next_check_at,
            consecutive_failures = 0,
            last_error_code = NULL,
@@ -1678,18 +1599,22 @@ const writeXSyncContinuation = async (
         checkedAt,
         checkedAt,
         checkedAt,
-        state.nextToken ? checkedAt + X_COLLECTION_CONTINUATION_CHECK_INTERVAL_MS : cadenceAnchorAt + effectiveIntervalMs,
+        state.nextToken || official ? checkedAt + X_COLLECTION_CONTINUATION_CHECK_INTERVAL_MS : cadenceAnchorAt + effectiveIntervalMs,
+        state.nextToken || official ? null : checkedAt,
         state.nextToken,
         state.nextToken ? state.basePostId : null,
         state.nextToken ? state.newestPostId : null,
+        ...(fenced ? [officialSync?.officialSyncLeaseToken ?? "", checkedAt] : []),
       )
       .run();
+    if (fenced && !acknowledgement.meta.changes) throw new Error("x_source_lease_lost");
 };
 
 const writeStoredPostSourceError = async (
   cacheDb: XCacheDb | undefined,
   handle: string,
   lastError: string | null,
+  leaseToken?: string,
 ) => {
   if (!cacheDb || !lastError) return;
 
@@ -1705,7 +1630,8 @@ const writeStoredPostSourceError = async (
            updated_at, last_error, last_attempt_at, next_check_at,
            consecutive_failures, last_error_code
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ? WHERE 1
+         ${leaseToken !== undefined ? "AND EXISTS(SELECT 1 FROM x_post_sources locked WHERE locked.handle=? AND locked.lease_token=? AND locked.lease_until>?)" : ""}
          ON CONFLICT(handle) DO UPDATE SET
            last_checked_at = excluded.last_checked_at,
            last_attempt_at = excluded.last_attempt_at,
@@ -1726,6 +1652,7 @@ const writeStoredPostSourceError = async (
         checkedAt,
         retryAt,
         lastError,
+        ...(leaseToken !== undefined ? [normalizeHandle(handle), leaseToken, checkedAt] : []),
       )
       .run();
   } catch (error) {
@@ -1850,6 +1777,7 @@ const setCachedPosts = async (
   cacheDb?: XCacheDb,
   postsToStore: XPostItem[] = posts,
   siteId: SiteId = "otw",
+  context: (post: XPostItem) => XPostWriteContext = () => officialXPostContext,
 ): Promise<CachedXPostsWriteEntry> => {
   const fetchedAt = now();
   const entry = {
@@ -1871,6 +1799,7 @@ const setCachedPosts = async (
     postsToStore,
     fetchedAt,
     siteId,
+    context,
   );
   if (storedPostsWrite.ok && await writeD1Cache<XPostsCacheValue>(
     cacheDb, cacheKey, "posts", { userId: user.id, posts }, fetchedAt,
@@ -1879,6 +1808,7 @@ const setCachedPosts = async (
   return {
     ...entry,
     postsStored: storedPostsWrite.count,
+    newlyStoredPosts: postsToStore.filter(post => storedPostsWrite.insertedIds.includes(post.id)).map(post => ({ id: post.id, createdAt: post.createdAt, storedAt: fetchedAt })),
     storageError: storedPostsWrite.ok ? null : "x_post_storage_failed",
   };
 };
@@ -2001,6 +1931,16 @@ const normalizeXMediaItems = (
       };
     })
     .filter((item): item is XPostMediaItem => item !== null);
+
+export const xTimelineWriteContext = (response: XUserTimelineResponse, postId: string, origin: XPostWriteContext["origin"] = "x_api"): XPostWriteContext => {
+  const raw = response.data?.find(post => post.id === postId);
+  const keys = raw?.attachments?.media_keys ?? [];
+  return { origin, completeness: {
+    text: typeof (raw?.note_tweet?.text ?? raw?.text) === "string",
+    media: Boolean(raw) && keys.every(key => response.includes?.media?.some(media => media.media_key === key && Boolean(media.url ?? media.preview_image_url))),
+    relations: Boolean(raw),
+  } };
+};
 
 export const normalizeXTimelineResponse = (
   response: XUserTimelineResponse,
@@ -2578,6 +2518,7 @@ const fetchXPostsForUser = async (
   errorDetail?: string | null;
   stale: boolean;
   postsStored: number;
+  newlyStoredPosts?: XNewlyStoredPost[];
   storageError: string | null;
 }> => {
   const hasRelationMarker = newPostsOnly || await hasCurrentRelationCollectionMarker(
@@ -2654,6 +2595,7 @@ const fetchXPostsForUser = async (
         error: null,
         stale: false,
         postsStored: entry.postsStored,
+        newlyStoredPosts: [],
         storageError: entry.storageError,
       };
     } catch (error) {
@@ -2681,10 +2623,7 @@ const fetchXPostsForUser = async (
   const syncToken = stored?.syncPaginationToken ?? null;
   const sinceId = syncToken
     ? stored?.syncBasePostId ?? null
-    : stored?.collectionStartedAt != null
-      ? stored.lastSeenPostId
-      : stored?.lastSeenPostId ??
-        sortXPostsDesc(activeFallback?.posts ?? [])[0]?.id ?? null;
+    : stored?.lastSeenPostId ?? null;
   if (syncToken) params.set("pagination_token", syncToken);
   if ((hasRelationMarker || syncToken) && sinceId) {
     params.set("since_id", sinceId);
@@ -2745,7 +2684,6 @@ const fetchXPostsForUser = async (
       stored?.syncNewestPostId ??
       sortXPostsDesc(posts)[0]?.id ??
       sinceId ??
-      mergedPostsForResponse[0]?.id ??
       null;
     const entry = await setCachedPosts(
       handle,
@@ -2756,6 +2694,7 @@ const fetchXPostsForUser = async (
       cacheDb,
       newPostsOnly ? enrichedNewPosts : mergedPostsForResponse,
       siteId,
+      post => xTimelineWriteContext(response, post.id),
     );
     // The timeline watermark is an acknowledgement that every post in this
     // page was durably stored. Advancing it after a D1 write failure would
@@ -2768,7 +2707,7 @@ const fetchXPostsForUser = async (
           newestPostId: lastSeenPostId,
           completedPostId: lastSeenPostId,
         }, effectiveIntervalMs, siteId,
-        usageTracker?.recoveryAnchorAt ?? (stored?.syncPaginationToken || stored?.lastError || (stored?.lastCheckedAt ?? 0) >= (scheduledFor ?? Infinity) ? undefined : scheduledFor));
+        usageTracker?.recoveryAnchorAt ?? (stored?.syncPaginationToken || stored?.lastError || (stored?.lastCheckedAt ?? 0) >= (scheduledFor ?? Infinity) ? undefined : scheduledFor), usageTracker);
       } catch (error) {
         console.warn("Failed to acknowledge stored X timeline page", error);
         entry.storageError = "x_post_storage_failed";
@@ -2789,6 +2728,7 @@ const fetchXPostsForUser = async (
       error: null,
       stale: false,
       postsStored: entry.postsStored,
+      newlyStoredPosts: entry.newlyStoredPosts,
       storageError: entry.storageError,
     };
   } catch (error) {
@@ -3124,6 +3064,7 @@ export const fetchXPostsForHandles = async (
             errorDetail,
             stale,
             postsStored,
+            newlyStoredPosts,
             storageError,
           } =
             await fetchXPostsForUser(
@@ -3153,6 +3094,7 @@ export const fetchXPostsForHandles = async (
             errorDetail,
             stale,
             postsStored,
+            newlyStoredPosts,
             storageError,
           };
         } catch (error) {
@@ -3338,11 +3280,12 @@ const getOptimizedXCollectionHandlesToRefresh = async (
 const writeXCollectionSourceErrors = async (
   cacheDb: XCacheDb | undefined,
   byHandle: XHandlePostsResult[],
+  leaseToken?: string,
 ) => {
   await Promise.all(
     byHandle
       .filter((item) => item.error)
-      .map((item) => writeStoredPostSourceError(cacheDb, item.handle, item.error)),
+      .map((item) => writeStoredPostSourceError(cacheDb, item.handle, item.error, leaseToken)),
   );
 };
 
@@ -3369,6 +3312,8 @@ export const collectXPostsForHandles = async (
     new Set(handles.map(normalizeHandle).filter(Boolean)),
   );
   const tracker: XApiUsageTracker = {
+    officialSyncOriginScope: options.officialSyncOriginScope,
+    officialSyncLeaseToken: options.officialSyncLeaseToken,
     gateway: options.gateway,
     recoveryAnchorAt: options.recoveryAnchorAt,
     apiCalls: 0,
@@ -3445,7 +3390,7 @@ export const collectXPostsForHandles = async (
     // A manual run is an explicit operator recovery action. It must still obey
     // the global rate-limit backoff and daily budget in requestXApi, but it
     // must not be turned into a no-op by the adaptive scheduled cooldown.
-    const handlesToRefresh = source === "manual"
+    let handlesToRefresh = source === "manual" || options.scheduledEligibilityConfirmed
       ? normalizedHandles
       : optimizerEnabled
         ? await getOptimizedXCollectionHandlesToRefresh(normalizedHandles, cacheDb, scheduledFor)
@@ -3456,6 +3401,15 @@ export const collectXPostsForHandles = async (
         cacheDb,
         scheduledFor,
       );
+
+    let timelineAlreadyCompleted = false;
+    if (options.officialSyncOriginScope !== undefined && cacheDb && handlesToRefresh.length) {
+      const completed = await cacheDb.prepare("SELECT handle FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_timeline_completed_at IS NOT NULL AND sync_pagination_token IS NULL")
+        .bind(JSON.stringify(handlesToRefresh)).all<{ handle: string }>();
+      const done = new Set(completed.results.map(row => row.handle));
+      timelineAlreadyCompleted = done.size > 0;
+      handlesToRefresh = handlesToRefresh.filter(handle => !done.has(handle));
+    }
 
     if (handlesToRefresh.length === 0) {
       const referenceHydration = await hydrate();
@@ -3469,8 +3423,8 @@ export const collectXPostsForHandles = async (
         uniqueResources: tracker.uniqueResources,
         previewDeferred: tracker.previewDeferred,
         coalescedHandles,
-        status: "skipped" as const,
-        error: "all_handles_cooldown",
+        status: timelineAlreadyCompleted ? "success" as const : "skipped" as const,
+        ...(timelineAlreadyCompleted ? {} : { error: "all_handles_cooldown" }),
         referenceHydration,
       };
       await writeXCollectionRun(cacheDb, {
@@ -3503,7 +3457,7 @@ export const collectXPostsForHandles = async (
     if (afterTimeline && content.byHandle.some(item => item.storageError || item.error === "budget_unavailable")) {
       throw new XApiError("X collection persistence unavailable", 503, { code: "budget_unavailable" });
     }
-    await writeXCollectionSourceErrors(cacheDb, content.byHandle);
+    await writeXCollectionSourceErrors(cacheDb, content.byHandle, options.officialSyncLeaseToken);
     const referenceHydration = await hydrate();
     const refreshedHandles = content.byHandle.filter(
       (item) => !item.error && !item.stale && !item.storageError,
@@ -3523,6 +3477,7 @@ export const collectXPostsForHandles = async (
       refreshedHandles,
       postsReturned: content.posts.length,
       postsStored,
+      newlyStoredPosts: content.byHandle.flatMap(item => item.newlyStoredPosts ?? []),
       apiCalls: tracker.apiCalls,
       estimatedCostMicros: tracker.estimatedCostMicros,
       uniqueResources: tracker.uniqueResources,
@@ -3548,7 +3503,7 @@ export const collectXPostsForHandles = async (
       await Promise.all(
         error.diagnostics.flatMap((item) =>
           item.handle && item.error
-            ? [writeStoredPostSourceError(cacheDb, item.handle, item.error)]
+            ? [writeStoredPostSourceError(cacheDb, item.handle, item.error, options.officialSyncLeaseToken)]
             : [],
         ),
       );

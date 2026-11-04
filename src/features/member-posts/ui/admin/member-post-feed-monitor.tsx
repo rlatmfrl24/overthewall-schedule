@@ -322,7 +322,7 @@ export function MemberPostFeedMonitor({
                 ) : (
                   <Play className="h-3.5 w-3.5" />
                 )}
-                REST 누락 복구 실행
+                기본 수집원으로 실행
               </Button>
             ) : null}
             {!isX && onRunNaverCafeCheck ? (

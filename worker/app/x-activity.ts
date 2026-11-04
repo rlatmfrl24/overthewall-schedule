@@ -1,5 +1,5 @@
 import { getSitePublication } from "@contracts/site-publication";
-import { isXActivityQueueMessage, type XActivitySitePort, type XActivityQueueMessage } from "@contracts/x-activity";
+import { isXActivityQueueMessage, type XActivitySiteControlRequest, type XActivitySitePort, type XActivityQueueMessage } from "@contracts/x-activity";
 import { D1XActivityCoordinator, D1XActivitySite, XActivityError, type XActivityService } from "../features/x-posts";
 import { getWorkerSiteResources } from "../platform/site";
 import { D1ScheduledJobRepository } from "../platform/scheduled-jobs";
@@ -13,7 +13,7 @@ async function send(env:Env,message:XActivityQueueMessage){
   await env.OTW_OPS_BACKGROUND_QUEUE.send(message);
 }
 const missingPeer=():never=>{throw new Error("x_activity_connection_unavailable");};
-const unavailableSite:XActivitySitePort={snapshot:async()=>missingPeer(),rememberUser:async()=>missingPeer(),accept:async()=>missingPeer(),events:async()=>missingPeer(),setRecoveryInterval:async()=>missingPeer()};
+const unavailableSite:XActivitySitePort={snapshot:async()=>missingPeer(),rememberUser:async()=>missingPeer(),accept:async()=>missingPeer(),events:async()=>missingPeer(),setRecoveryInterval:async()=>missingPeer(),setPrimarySource:async()=>missingPeer(),setWebhookDisabled:async()=>missingPeer()};
 
 export function buildXActivitySite(input:Env){
   const env=withXGateway(input),{site}=getWorkerSiteResources(env);
@@ -27,6 +27,21 @@ export function buildXActivityCoordinator(input:Env){
   if(site.id!=="otw"||!site.publicOrigin)throw new Error("x_activity_wrong_coordinator");
   return new D1XActivityCoordinator({db:env.otw_db,origin:site.publicOrigin,bearerToken:env.X_BEARER_TOKEN,clientSecret:env.X_CLIENT_SECRET,
     gateway:buildXGateway(env,"otw"),sites:{otw:buildXActivitySite(env),luvdia:env.X_ACTIVITY_LUVDIA??unavailableSite},
+    controlSite:(target,fence,disabledRevision)=>{
+      if(target==="otw")return buildXActivitySite(env).withControlFence(fence,disabledRevision);
+      const control=async(request:XActivitySiteControlRequest)=>{
+        const protocol=await env.X_ACTIVITY_LUVDIA?.protocol();
+        if(protocol?.version!==1||protocol.site!=="luvdia"||protocol.admittedDelivery!==1||!env.X_ACTIVITY_LUVDIA?.controlFenced||!env.X_ACTIVITY_LUVDIA.acceptDelivery)throw new XActivityError("x_activity_control_protocol_unavailable",503);
+        return env.X_ACTIVITY_LUVDIA.controlFenced(request);
+      };
+      return {setPrimarySource:source=>control({fence,disabledRevision,action:"primary",source}),setWebhookDisabled:disabled=>control({fence,disabledRevision,action:"webhook",disabled}),setRecoveryInterval:()=>control({fence,disabledRevision,action:"recovery"})};
+    },
+    acceptDelivery:async(target,request)=>{
+      if(target==="otw")return buildXActivitySite(env).withDeliveryRevision(request.admittedRevision).accept(request.body);
+      const protocol=await env.X_ACTIVITY_LUVDIA?.protocol();
+      if(protocol?.version!==1||protocol.site!=="luvdia"||protocol.admittedDelivery!==1||!env.X_ACTIVITY_LUVDIA?.acceptDelivery)throw new XActivityError("x_activity_delivery_protocol_unavailable",503);
+      return env.X_ACTIVITY_LUVDIA.acceptDelivery(request);
+    },
     peerReady:async()=>{if(!env.X_ACTIVITY_LUVDIA)return false;const result=await env.X_ACTIVITY_LUVDIA.protocol();return result.version===1&&result.site==="luvdia";},
     admitD1:async()=>(await new CloudflareD1ReadBudget(env.CLOUDFLARE_ACCOUNT_ID,env.CLOUDFLARE_D1_TOKEN,env.OTW_PLAY_D1_READ_DAILY_TARGET).read()).status==="available",
     dispatch:eventId=>send(env,{type:"x_activity_dispatch",eventId})});

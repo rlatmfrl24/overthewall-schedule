@@ -1,3 +1,4 @@
+import type { XCollectionProvider } from "@contracts/x-collection";
 import { parseSiteId } from "@contracts/site-definition";
 import { isRetiredScheduledJob, type ScheduledJobType } from "@contracts/scheduled-operations";
 import { parseAutoUpdateIntervalHours } from "@contracts/configuration";
@@ -18,6 +19,8 @@ import {
   getScheduledXCollectionDecision,
   readActiveXHandles,
   readDueXRecoveryHandles,
+  readHybridXCollectionTargets,
+  readDueFxRssCollectionTargets,
 } from "../../x-posts";
 import { hasScheduledYouTubeFeedWork } from "../../youtube";
 import { editableCollectorSql, publicationHiddenSql } from "../../content-access";
@@ -45,12 +48,30 @@ const planXCollection = async (
   source: ScheduledJobRunRecord["source"],
   timestamp: number,
   pendingOnly = false,
+  provider: XCollectionProvider = "x_api",
 ): Promise<NewScheduledItem[]> => {
   const rows = await env.otw_db.prepare(
     `SELECT value FROM settings WHERE key = 'x_collection_enabled'`,
   ).first<{ value: string | null }>();
   if (rows?.value === "false") return [];
+  const primary = await env.otw_db.prepare("SELECT value FROM settings WHERE key='x_collection_primary_source'").first<{value:string}>();
+  if (source === "scheduled" && primary?.value === "fxembed") {
+    const [targets, rssTargets] = await Promise.all([readHybridXCollectionTargets(env, timestamp), readDueFxRssCollectionTargets(env, timestamp)]);
+    const officialHandles = new Set(targets.filter(target => target.provider === "x_api").flatMap(target => target.handles));
+    return [...targets.flatMap(target => chunk(target.handles,4).map((handles,index) => ({
+      targetKey: `${target.provider}:${target.scope}:handles:${index}:${handles.join(",")}`, phase:"collect", lane:"x" as const,
+      continuation:{...target,handles},
+    }))), ...rssTargets.filter(state => !officialHandles.has(state.handles[0]) || state.phase === "fetch" || state.candidates.length === 0 || state.candidates.some(candidate => candidate.stage === "free"))
+      .map(state => ({ targetKey: `fxembed:rss_candidates:${state.scope}:${state.handles[0]}`, phase: "collect", lane: "x" as const, continuation: state }))];
+  }
   let handles = await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID));
+  if (source === "manual" && provider === "fxembed") {
+    if (pendingOnly && handles.length) {
+      const pending=await env.otw_db.prepare("SELECT handle FROM x_fx_sources WHERE handle IN (SELECT value FROM json_each(?)) AND cursor IS NOT NULL").bind(JSON.stringify(handles)).all<{handle:string}>();
+      const selected=new Set(pending.results.map(row=>row.handle));handles=handles.filter(handle=>selected.has(handle));
+    }
+    return chunk(handles,4).map((shard,index)=>({targetKey:`fxembed:handles:${index}:${shard.join(",")}`,phase:"collect",lane:"x" as const,continuation:{handles:shard,provider,scope:pendingOnly?"pending":"regular",hybrid:true}}));
+  }
   let recoveryOnly = false;
   let recoveryAnchorAt: number | undefined;
   if (source === "scheduled" || pendingOnly) {
@@ -76,7 +97,7 @@ const planXCollection = async (
     targetKey: `handles:${index}:${shard.join(",")}`,
     phase: "collect",
     lane: "x",
-    continuation: { handles: shard, ...(recoveryOnly ? { recoveryOnly: true } : {}),
+    continuation: { handles: shard, provider: "x_api", scope: pendingOnly || recoveryOnly ? "pending" : "regular", ...(primary?.value === "fxembed" ? { hybrid:true } : {}), ...(recoveryOnly ? { recoveryOnly: true } : {}),
       ...(recoveryAnchorAt !== undefined ? { recoveryAnchorAt } : {}) },
   }));
 };
@@ -303,7 +324,8 @@ export class ScheduledJobPlanner {
   async plan(run: ScheduledJobRunRecord) {
     const timestamp = run.scheduled_for ?? Date.now();
     const pendingOnly = run.job_type === "x_collection" && run.source === "manual" && typeof run.summary_json === "string" && JSON.parse(run.summary_json)?.xCollectionScope === "pending";
-    const items = pendingOnly ? await planXCollection(this.env, run.source, timestamp, true) : await this.buildItems(
+    const provider = run.job_type === "x_collection" && typeof run.summary_json === "string" && JSON.parse(run.summary_json)?.xCollectionProvider === "fxembed" ? "fxembed" : "x_api";
+    const items = run.job_type === "x_collection" && run.source === "manual" ? await planXCollection(this.env, run.source, timestamp, pendingOnly, provider) : await this.buildItems(
       run.job_type,
       run.source,
       timestamp,

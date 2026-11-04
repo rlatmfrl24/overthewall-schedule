@@ -7,6 +7,7 @@ import { useXActivityStatus } from "../../queries/use-x-activity-status";
 import { XActivityStatusCard } from "./x-activity-status-card";
 import { queryKeys } from "@/shared/query/query-keys";
 import { xReferenceHealthQueryKey } from "../../queries/use-x-reference-health";
+import { xCollectionQueryKey } from "../../api/x-collection-api";
 
 const labels:Record<string,string>={
   active:"구독 중",starting:"등록 확인 중",pending:"대기",stopped:"중지됨",error:"확인 필요",
@@ -20,31 +21,33 @@ export function XActivityManager(){
   const query=useXActivityStatus();
   const mutation=useMutation({mutationFn:(action:"start"|"resume"|"stop")=>action==="stop"?stopXActivity():startXActivity(action),
     onSuccess:data=>{client.setQueryData(xActivityQueryKey,data);void client.invalidateQueries({queryKey:queryKeys.settings.detail()});void client.invalidateQueries({queryKey:queryKeys.operations.all});void client.invalidateQueries({queryKey:xReferenceHealthQueryKey});},
-    onError:()=>{void client.invalidateQueries({queryKey:xActivityQueryKey});}});
+    onError:()=>{void client.invalidateQueries({queryKey:xActivityQueryKey});},
+    onSettled:()=>{void client.invalidateQueries({queryKey:xCollectionQueryKey});}});
   const data=query.data;
   const current=data?.sites?.find(site=>site.site===data.site);
+  const transition=data?.pauseReason==="hybrid_transition"||current?.pauseReason==="hybrid_transition";
   const controlDisabled=query.isError||query.isFetching||mutation.isPending;
   return <section id="x-webhook-monitoring" className="space-y-3">
     <XActivityStatusCard query={query} onRefresh={()=>void query.refetch()} />
     <details className="rounded-xl border bg-card" onToggle={event=>setOpen(event.currentTarget.open)}>
     <summary className="cursor-pointer px-5 py-4 text-sm font-medium">X 신규 피드 구독</summary>
     {open&&<div className="space-y-4 border-t p-4 text-sm">
-      <p>이 사이트에서 수집이 허용된 전체 활성 멤버를 구독합니다. 신규 글은 웹훅으로 받고, 누락은 24시간 간격으로 이어 수집합니다.</p>
+      <p>{transition?"수집원 전환 중에는 웹훅 시작·재개를 기다려 주세요.":"이 사이트에서 수집이 허용된 전체 활성 멤버를 구독합니다. FxEmbed 수집 중에도 관리자가 직접 활성화할 수 있습니다. 신규 글은 웹훅으로 받고, 누락은 정기 수집으로 보완합니다."}</p>
       <p className="rounded-md border p-3">양 사이트 합산 UTC 하루 $1 목표입니다. 전달 중인 이벤트로 초과할 수 있으며 강제 상한을 보장하지 않습니다. 기존 자동충전·주기 $30 한도는 유지합니다.</p>
       {query.isPending&&<p>구독 상태를 불러오는 중...</p>}
       {query.isError&&<p role="alert">{message(query.error)}</p>}
       {data&&<>
         {data.resumeAt&&<p>자동 재개 예정 {time(data.resumeAt)} · 예산 중지만 자동 재개합니다.</p>}
         <div className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" disabled={!data.configured||controlDisabled} onClick={()=>mutation.mutate(current?.enabled?"resume":"start")}>{current?.enabled?"전체 구독 재개":"전체 대상 적용"}</Button>
-          <Button type="button" size="sm" variant="outline" disabled={!current?.enabled||controlDisabled} onClick={()=>mutation.mutate("stop")}>이 사이트 웹훅 중지</Button>
+          <Button type="button" size="sm" disabled={!data.configured||controlDisabled||transition} onClick={()=>mutation.mutate(current?.enabled?"resume":"start")}>{current?.enabled?"전체 구독 재개":"전체 대상 적용"}</Button>
+          <Button type="button" size="sm" variant="outline" disabled={(!current?.enabled&&!current?.activeCount&&!current?.lastError)||controlDisabled} onClick={()=>mutation.mutate("stop")}>이 사이트 웹훅 중지</Button>
         </div>
         <p className="text-muted-foreground">사용자 중지·사이트 수집 중지는 자동으로 해제하지 않습니다. 사진·영상 표시 정보가 충분한 원본은 추가 조회 없이 처리합니다.</p>
         {mutation.isError&&<p role="alert">{message(mutation.error)}</p>}
         <div className="grid gap-2 sm:grid-cols-2">
           {data.sites?.map(site=><div className="rounded-md border p-3" key={site.site}>
             <p className="font-medium">{site.site==="otw"?"OTW":"LuvDia"} · 구독 {site.activeCount} / 대상 {site.targetCount}</p>
-            <p>등록 실패 {site.failedCount} · {site.pauseReason==="budget"?"예산 중지":site.pauseReason==="site"?"사이트 중지":!site.enabled?"사용자 중지":"수집 허용"}</p>
+            <p>등록 실패 {site.failedCount} · {site.pauseReason==="budget"?"예산 중지":site.pauseReason==="site"?"사이트 중지":!site.enabled?(site.pauseReason?.startsWith("hybrid")?"웹훅 Disabled":"사용자 중지"):"수집 허용"}</p>
             {site.lastError&&<p role="alert">{message(site.lastError)}</p>}
           </div>)}
         </div>

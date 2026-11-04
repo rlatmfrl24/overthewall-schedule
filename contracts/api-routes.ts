@@ -354,6 +354,7 @@ export const apiRoutes = {
     },
   },
   xPosts: {
+    collection: staticRoute("/api/x/collection"),
     activity: staticRoute("/api/x/activity"),
     activityWebhook: staticRoute("/api/x/activity/webhook"),
     config: staticRoute("/api/x/config"),

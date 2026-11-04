@@ -4,7 +4,7 @@ import {
   pendingSchedules,
 } from "@db/schema";
 import type { ScheduledOperationsWorkflowParams } from "@contracts/scheduled-operations";
-import type { XApiGateway, XApiGatewayRequest, XApiGatewayResult, XActivitySitePort, XActivityStatusDto, XActivityControlResult, XSharedBudgetState } from "@contracts/x-activity";
+import type { XActivityDeliveryRequest, XActivitySiteControlRequest, XApiGateway, XApiGatewayReceipt, XApiGatewayReceiptRequest, XApiGatewayRequest, XApiGatewayResult, XActivitySitePort, XActivityStatusDto, XActivityControlResult, XSharedBudgetState } from "@contracts/x-activity";
 
 export interface Env {
   SITE_PUBLICATION_HOLD?: string;
@@ -31,13 +31,15 @@ export interface Env {
   X_API_GATEWAY?: XApiGateway;
   X_ACTIVITY_COORDINATOR?: {
     gatewayForLuvdia(input: XApiGatewayRequest): Promise<XApiGatewayResult>;
+    receiptForLuvdia?(input: XApiGatewayReceiptRequest): Promise<XApiGatewayReceipt>;
     budgetForLuvdia(): Promise<XSharedBudgetState>;
     redactForLuvdia(postId:string): Promise<void>;
     protocol(): Promise<{ version: number; site: string }>;
     statusForLuvdia(): Promise<XActivityStatusDto>;
     controlForLuvdia(action: "start" | "stop"): Promise<XActivityControlResult>;
+    setCollectionForLuvdia(source: import("@contracts/x-collection").XCollectionProvider): Promise<XActivityControlResult>;
   };
-  X_ACTIVITY_LUVDIA?: XActivitySitePort & { protocol(): Promise<{version:number;site:string}> };
+  X_ACTIVITY_LUVDIA?: XActivitySitePort & { protocol(): Promise<{version:number;site:string;admittedDelivery?:number}>; acceptDelivery?(request:XActivityDeliveryRequest):Promise<boolean>; controlFenced?(request:XActivitySiteControlRequest):Promise<void> };
   VITE_CLERK_PUBLISHABLE_KEY?: string;
   CLERK_JWKS_URL?: string;
   CLERK_ISSUER?: string;

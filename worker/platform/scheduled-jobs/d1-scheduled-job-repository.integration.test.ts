@@ -37,6 +37,116 @@ beforeEach(async () => {
 });
 
 describe("D1 scheduled job state machine", () => {
+  it.each([
+    {name:'missing ledger',used:null,reserved:0,limit:5000,allowed:true},
+    {name:'exact remaining budget',used:4997,reserved:0,limit:5000,allowed:true},
+    {name:'reserved budget denial',used:4997,reserved:1,limit:5000,allowed:false},
+    {name:'stored lower limit denial',used:4,reserved:1,limit:7,allowed:false},
+  ])("atomically reserves reconciliation or records recoverable failure: $name",async({used,reserved,limit,allowed})=>{
+    const repo=createRepository(),run=await repo.createRun({jobType:'naver_cafe_collection',source:'scheduled',idempotencyKey:'reconcile-budget'});
+    const [done,queued,running]=await repo.addItems(run.id,[
+      {targetKey:'done',phase:'collect',lane:'naver'},
+      {targetKey:'queued',phase:'collect',lane:'naver'},
+      {targetKey:'running',phase:'collect',lane:'naver'},
+    ]);
+    await repo.completeItem((await repo.claimItem(done))!,{status:'succeeded',result:{stored:1}});
+    await repo.claimItem(running);
+    await db.prepare("UPDATE scheduled_job_runs SET status='succeeded' WHERE id=?").bind(run.id).run();
+    const before=await repo.readItem(done),active=await repo.readItem(running);
+    if(used!==null)await db.prepare("INSERT INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES('2026-08-31','all','queue_operations',?,?,?,0)").bind(used,reserved,limit).run();
+    const meter=meterD1(db,1),measured=new D1ScheduledJobRepository(meter.db,()=>timestamp);
+    expect(await measured.reserveReconciliationRetry(run.id,'post_completion_reconciliation_failed:test')).toBe(allowed);
+    expect(meter.bindingCalls).toBe(1);expect(meter.quotaDenials).toBe(0);
+    expect(await repo.readItem(done)).toEqual(before);expect(await repo.readItem(running)).toEqual(active);
+    expect((await repo.readItem(queued))?.status).toBe(allowed?'queued':'failed');
+    expect(await repo.readRun(run.id)).toMatchObject({status:allowed?'succeeded':'failed',last_error:allowed?null:'post_completion_reconciliation_failed:test'});
+    expect(await db.prepare("SELECT used,reserved FROM scheduled_usage_daily WHERE lane='all' AND resource='queue_operations'").first()).toEqual({used:allowed?(used??0)+3:used,reserved});
+    expect(await db.prepare("SELECT count(*) n FROM scheduled_outbox WHERE run_id=? AND status IN ('pending','failed','dispatching')").bind(run.id).first('n')).toBe(allowed?4:0);
+    expect(await db.prepare("SELECT reconciled_at FROM scheduled_outbox WHERE item_id=? AND event_type='reconcile'").bind(done).first('reconciled_at')).toBeNull();
+  });
+
+  it("fences delayed cohort send results to their own outbox claim",async()=>{
+    const repo=createRepository(),run=await repo.createRun({jobType:'x_collection',source:'scheduled',idempotencyKey:'late-marker'});
+    await repo.addItems(run.id,[{targetKey:'one',phase:'collect',lane:'x'}]);
+    const [claim]=await repo.claimPendingOutbox(run.id);
+    await db.prepare("UPDATE scheduled_outbox SET lease_token='new-owner' WHERE id=?").bind(claim.id).run();
+    await repo.markOutboxResults([{id:claim.id,error:null,leaseToken:claim.lease_token}]);
+    await repo.markOutboxResults([{id:claim.id,error:'late failure',leaseToken:claim.lease_token}]);
+    expect(await db.prepare('SELECT status,lease_token,last_error,dispatched_at FROM scheduled_outbox WHERE id=?').bind(claim.id).first()).toEqual({status:'dispatching',lease_token:'new-owner',last_error:null,dispatched_at:null});
+    await repo.markOutboxResults([{id:claim.id,error:null,leaseToken:'new-owner'}]);
+    expect(await db.prepare('SELECT status FROM scheduled_outbox WHERE id=?').bind(claim.id).first('status')).toBe('dispatched');
+  });
+
+  it("rolls back reconciliation-denial transitions together when recording failure fails",async()=>{
+    const repo=createRepository(),run=await repo.createRun({jobType:'naver_cafe_collection',source:'scheduled',idempotencyKey:'denial-rollback'});
+    const [id]=await repo.addItems(run.id,[{targetKey:'one',phase:'collect',lane:'naver'}]);
+    await repo.reserveQueueOperations('naver',5000);
+    const before=await repo.readRun(run.id),item=await repo.readItem(id);
+    await db.exec("CREATE TRIGGER fail_reconciliation_transition BEFORE UPDATE ON scheduled_job_runs WHEN NEW.last_error='denied' BEGIN SELECT RAISE(ABORT,'failure record unavailable'); END;");
+    const meter=meterD1(db,1);
+    try {
+      await expect(new D1ScheduledJobRepository(meter.db,()=>timestamp).reserveReconciliationRetry(run.id,'denied')).rejects.toThrow('failure record unavailable');
+    } finally { await db.exec('DROP TRIGGER fail_reconciliation_transition;'); }
+    expect(meter.bindingCalls).toBe(1);expect(meter.calls[0].completed).toBe(false);
+    expect(await repo.readRun(run.id)).toEqual(before);expect(await repo.readItem(id)).toEqual(item);
+    expect(await db.prepare('SELECT status FROM scheduled_outbox WHERE item_id=?').bind(id).first('status')).toBe('pending');
+    expect(await db.prepare("SELECT used FROM scheduled_usage_daily WHERE resource='queue_operations'").first('used')).toBe(5000);
+  });
+
+  it("admits only the highest-priority eligible paid item despite adverse IDs and reordered delivery", async () => {
+    const repo = createRepository(), run = await repo.createRun({ jobType: "x_collection", source: "scheduled", idempotencyKey: "ranked" });
+    const [low, high, free] = await repo.addItems(run.id, [
+      { targetKey: "a-low", lane: "x", phase: "collect", continuation: { executionPriority: { deadlineAt: timestamp + 1000, lastAttemptAt: 0, key: "low" } } },
+      { targetKey: "z-high", lane: "x", phase: "collect", continuation: { executionPriority: { deadlineAt: timestamp, lastAttemptAt: 0, key: "high" } } },
+      { targetKey: "free", lane: "x", phase: "collect" },
+    ]);
+    await db.prepare("UPDATE scheduled_outbox SET id=CASE item_id WHEN ? THEN 'a-low' WHEN ? THEN 'z-high' ELSE 'free' END").bind(low, high).run();
+    const exposed = await repo.claimPendingOutbox(run.id);
+    expect(new Set(exposed.map(row => row.item_id))).toEqual(new Set([high, free]));
+    expect(await repo.claimItem(low)).toBeNull();
+    await db.prepare("UPDATE scheduled_outbox SET status='dispatched',dispatched_at=? WHERE item_id=?").bind(timestamp,low).run();
+    expect(await repo.rearmDeferredPriorityItem(low)).toBe(true);
+    await repo.markOutboxDispatched("a-low");
+    expect(await db.prepare("SELECT status FROM scheduled_outbox WHERE item_id=?").bind(low).first("status")).toBe("pending");
+    const claimed = (await repo.claimItem(high))!;
+    expect(claimed).not.toBeNull();
+    expect(await repo.claimItem(low)).toBeNull();
+    await repo.checkpointItemContinuation(claimed, { ...JSON.parse(claimed.continuation_json!), phase: "hydrate" }, {});
+    expect(JSON.parse((await repo.readItem(high))!.continuation_json!).executionPriority.deadlineAt).toBe(timestamp);
+    await repo.completeItem(claimed, { status: "succeeded" });
+    expect((await repo.claimPendingOutbox(run.id)).map(row => row.item_id)).toContain(low);
+    expect(await repo.claimItem(low)).not.toBeNull();
+  });
+
+  it("does not let future retry priority block eligible work or other cohorts", async () => {
+    const repo = createRepository(), run = await repo.createRun({ jobType: "x_collection", source: "scheduled", idempotencyKey: "retry-rank" });
+    const [high, low] = await repo.addItems(run.id, [0, 1].map(rank => ({ targetKey: String(rank), lane: "x" as const, phase: "collect", continuation: { executionPriority: { deadlineAt: rank, lastAttemptAt: 0, key: String(rank) } } })));
+    const claimed = (await repo.claimItem(high))!;
+    await repo.releaseItemForRetry(claimed, "retry", "retry");
+    expect(await repo.claimItem(high)).toBeNull();
+    expect(await repo.claimItem(low)).not.toBeNull();
+    const otherRun = await repo.createRun({ jobType: "x_collection", source: "scheduled", idempotencyKey: "other-rank" });
+    const [other] = await repo.addItems(otherRun.id, [{ targetKey: "other", lane: "x", phase: "collect", continuation: { executionPriority: { deadlineAt: 2, lastAttemptAt: 0, key: "other" } } }]);
+    expect(await repo.claimItem(other)).not.toBeNull();
+  });
+
+  it("bounds priority admission reads to active items as retained history grows", async () => {
+    const repo=createRepository(),run=await repo.createRun({jobType:"x_collection",source:"scheduled",idempotencyKey:"priority-cost"});
+    const [,low]=await repo.addItems(run.id,[0,1].map(rank=>({targetKey:String(rank),lane:"x" as const,phase:"collect",continuation:{executionPriority:{deadlineAt:rank,lastAttemptAt:0,key:String(rank)}}})));
+    const measure=async()=>{
+      const meter=meterD1(db);
+      expect(await new D1ScheduledJobRepository(meter.db,()=>timestamp).claimItem(low)).toBeNull();
+      return meter;
+    };
+    const before=await measure();
+    await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<2000) INSERT INTO scheduled_job_items(id,run_id,target_key,phase,lane,status,available_at,created_at,updated_at) SELECT 'old-'||x,?,'old-'||x,'collect','x','succeeded',0,0,0 FROM n").bind(run.id).run();
+    const after=await measure();
+    expect(after.summary()).toEqual(before.summary());
+    const entry=after.entries[0];
+    const plan=await db.prepare(`EXPLAIN QUERY PLAN ${entry.sql}`).bind(...entry.args).all<{detail:string}>();
+    expect(plan.results.map(row=>row.detail).join(" ")).toContain("idx_scheduled_job_items_run_status_updated");
+    console.log("PRIORITY_ADMISSION_PROFILE",JSON.stringify({...after.summary(),bindingCalls:after.bindingCalls}));
+  });
   it("bounds latest-success reads by job type while preserving completion order and missing jobs", async () => {
     await db.prepare(`WITH RECURSIVE history(n) AS (
       VALUES (1) UNION ALL SELECT n+1 FROM history WHERE n<4000
@@ -351,6 +461,7 @@ describe("D1 scheduled job state machine", () => {
       const result = status === "failed" ? "invalid-json" : JSON.stringify({
         status: status === "skipped" ? "skipped" : "success", checkedHandles: 4, refreshedHandles: status === "skipped" ? 0 : 4,
         postsReturned: 3, postsStored: 3,
+        ...(status === "partial" ? {provider:"fxembed",mode:"rss_candidates",paidApiCalls:1,pendingSources:1,rawCount:7,candidatesFound:3,pending:2,nextAttemptAt:timestamp+1000,windowReduced:true} : {}),
         ...(status === "succeeded" ? {} : { referenceHydration: status === "partial" ? { ...hydration, scope: "quotes", status: "failed", failed: 1, errorCode: "x_api_503" } : hydration }),
       });
       await db.prepare("UPDATE scheduled_job_items SET status=?,result_json=? WHERE run_id=? AND target_key=?").bind(status, result, run.id, status).run();
@@ -365,6 +476,8 @@ describe("D1 scheduled job state machine", () => {
     expect(result?.status).toBe("partial");
     expect(result?.xCollection?.items).toHaveLength(4);
     expect(result?.xCollection?.items.find((item) => item.status === "partial")).toMatchObject({ collection: { status: "success", postsStored: 3 }, referenceHydration: { scope: "quotes", status: "failed", failed: 1 } });
+    expect(result?.xCollection?.items.find((item) => item.status === "partial")?.collection).toMatchObject({provider:"fxembed",mode:"rss_candidates",paidApiCalls:1,rss:{rawCount:7,candidatesFound:3,pendingCandidates:2,nextAttemptAt:timestamp+1000,windowReduced:true}});
+    expect(result?.xCollection?.items.find((item) => item.status === "succeeded")?.collection?.provider).toBeUndefined();
     expect(result?.xCollection?.items.find((item) => item.status === "skipped")?.referenceHydration?.scope).toBeUndefined();
     expect(result?.xCollection?.items.find((item) => item.status === "skipped")).toMatchObject({ collection: { status: "skipped" }, referenceHydration: { status: "deferred" } });
     expect(result?.xCollection?.items.find((item) => item.status === "succeeded")?.referenceHydration).toBeNull();

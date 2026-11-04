@@ -151,53 +151,36 @@ export class ScheduledJobCoordinator {
   ) {
 
     const outbox = await this.repository.claimPendingOutbox(runId, limit);
-    let dispatched = 0;
-    let failed = 0;
-    for (const record of outbox) {
-      const queue = getScheduledLaneQueue(this.env, record.lane);
-      if (!queue) {
-        await this.repository.markOutboxFailed(
-          record.id,
-          `queue_unavailable:${record.lane}`,
-        );
-        failed += 1;
-        continue;
+    let dispatched = 0, failed = 0;
+    const available = outbox.filter(record=>getScheduledLaneQueue(this.env,record.lane));
+    const reservations = await this.repository.reserveDispatchBudgets(available.map(record=>({lane:record.lane,estimate:getEstimatedD1RowsPerItem(record.job_type)})));
+    const admission = new Map(available.map((record,index)=>[record.id,reservations[index]]));
+    const outcomes: Array<{id:string;error:string|null;leaseToken:string}> = [];
+    let throttledRun: string | undefined;
+    try {
+      for (const record of outbox) {
+        const queue = getScheduledLaneQueue(this.env,record.lane);
+        if (!queue) {
+          outcomes.push({id:record.id,leaseToken:record.lease_token,error:`queue_unavailable:${record.lane}`}); failed++; continue;
+        }
+        if (!admission.get(record.id)) {
+          throttledRun = record.run_id;
+          break;
+        }
+        const message: ScheduledJobQueueMessage = {schemaVersion:1,messageType:"scheduled_job_item",runId:record.run_id,itemId:record.item_id,phase:record.phase};
+        try {
+          await queue.send(message,{contentType:"json"});
+          outcomes.push({id:record.id,leaseToken:record.lease_token,error:null}); dispatched++;
+        } catch(error) {
+          outcomes.push({id:record.id,leaseToken:record.lease_token,error:error instanceof Error?error.message:String(error)}); failed++;
+        }
       }
-      const reserved = await this.repository.reserveDispatchBudget(
-        record.lane,
-        getEstimatedD1RowsPerItem(record.job_type),
-      );
-      if (!reserved) {
-
-        await this.repository.markRunThrottled(
-          record.run_id,
-          "daily_background_budget_exhausted",
-        );
-        break;
-      }
-      const message: ScheduledJobQueueMessage = {
-        schemaVersion: 1,
-        messageType: "scheduled_job_item",
-        runId: record.run_id,
-        itemId: record.item_id,
-        phase: record.phase,
-      };
-      try {
-        await queue.send(message, { contentType: "json" });
-        await this.repository.markOutboxDispatched(record.id);
-        dispatched += 1;
-      } catch (error) {
-        await this.repository.markOutboxFailed(
-          record.id,
-          error instanceof Error ? error.message : String(error),
-        );
-        failed += 1;
-      }
-    }
+    } finally { await this.repository.markOutboxResults(outcomes,throttledRun); }
     return { claimed: outbox.length, dispatched, failed };
   }
 
   async advanceRun(item: ScheduledJobItemRecord) {
+    if (item.phase !== "scan" && item.phase !== "match") return false;
     const run = await this.repository.readRun(item.run_id);
     if (run?.job_type !== "schedule_auto_update") {
       return false;

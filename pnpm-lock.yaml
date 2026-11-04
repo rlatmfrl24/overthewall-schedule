@@ -62,6 +62,9 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.8
         version: 1.2.8(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@rgrove/parse-xml':
+        specifier: 5.1.0
+        version: 5.1.0
       '@tailwindcss/vite':
         specifier: ^4.3.0
         version: 4.3.0(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13))
@@ -2044,6 +2047,10 @@ packages:
         optional: true
       react-redux:
         optional: true
+
+  '@rgrove/parse-xml@5.1.0':
+    resolution: {integrity: sha512-ExwK7gowU5XT/WFC81o/Ou7Zvi9zQwW4SmxqFM6UaADOr7gC44BGwKSpGe20OyRD9EjwnT3d8n4qMbnAdlt8PQ==}
+    engines: {node: '>=22.12.0'}
 
   '@rolldown/pluginutils@1.0.0-rc.3':
     resolution: {integrity: sha512-eybk3TjzzzV97Dlj5c+XrBFW57eTNhzod66y9HrBlzJ6NsCrWCp/2kaPS3K9wJmurBC0Tdw4yPjXKZqlznim3Q==}
@@ -5887,6 +5894,8 @@ snapshots:
     optionalDependencies:
       react: 19.2.6
       react-redux: 9.3.0(@types/react@19.2.18)(react@19.2.6)(redux@5.0.1)
+
+  '@rgrove/parse-xml@5.1.0': {}
 
   '@rolldown/pluginutils@1.0.0-rc.3': {}
 

@@ -10,10 +10,11 @@ import type {
 import type { XPostItem } from "../../../platform/types";
 import { readXReferenceBudget } from "./x-reference-budget";
 import { readXReferenceHealthCounts } from "./x-reference-health-read-model";
+import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
 
 type D1 = Pick<D1Database, "prepare">;
 
-type MemberRow = { uid: number | string; name: string; url_twitter: string | null };
+export type MemberRow = { uid: number | string; name: string; url_twitter: string | null };
 type FactRow = {
   content_access: "normal" | "admin_archive";
   post_id: string;
@@ -50,7 +51,7 @@ const settingIsEnabled = async (db: D1, key: string) => {
 
 const normalizeHandle = (value: string) => value.trim().replace(/^@/, "").toLowerCase();
 
-const handleFromUrl = (url: string | null) => {
+export const handleFromUrl = (url: string | null) => {
   if (!url) return null;
   try {
     const parsed = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`);
@@ -125,12 +126,55 @@ const findMemberByHandle = async (db: D1, handle: string) => {
   return rows.results.find((row) => handleFromUrl(row.url_twitter) === normalized) ?? null;
 };
 
-export const recordXPostFacts = async (
+export const prepareXPostFact = (
+  db: D1, member: MemberRow, post: XPostItem, timestamp: number,
+  siteId: SiteId, rssFence?: FxRssWriteFence,
+) => {
+  const createdAt = Date.parse(post.createdAt);
+  const fence = fxRssWriteFenceSql(rssFence, siteId);
+  return db.prepare(
+    `INSERT INTO x_post_facts (
+       post_id, member_uid, member_name_snapshot, post_type, created_at,
+       first_seen_at, media_count, link_count, edit_root_post_id,
+       superseded_by_post_id, hidden_at, hidden_reason, updated_at
+     ) SELECT CASE WHEN (${fence.sql}) THEN iif(EXISTS(SELECT 1 FROM members m WHERE m.uid=${asNumber(member.uid)} AND ${publicationHiddenSql("members", "m", siteId)}),json('site_member_cutover'),incoming.column1) ELSE json_extract('[]','rss_write_fence_lost') END, incoming.column2,incoming.column3,incoming.column4,incoming.column5,incoming.column6,incoming.column7,incoming.column8,incoming.column9,NULL,NULL,NULL,incoming.column10
+     FROM (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)) incoming
+     WHERE EXISTS(SELECT 1 FROM x_posts current WHERE current.id=incoming.column1
+       AND current.hidden_at IS NULL AND current.content_removed_at IS NULL AND current.content_access='normal'
+       AND json_array_length(current.value,'$.media')=incoming.column7
+       AND COALESCE(json_array_length(current.value,'$.links'),0)=incoming.column8
+       AND CASE WHEN json_extract(current.value,'$.reply') IS NOT NULL THEN 'reply'
+         WHEN json_extract(current.value,'$.quote') IS NOT NULL THEN 'quote' ELSE 'post' END=incoming.column4)
+     ON CONFLICT(post_id) DO UPDATE SET
+       member_uid = excluded.member_uid,
+       member_name_snapshot = excluded.member_name_snapshot,
+       post_type = excluded.post_type,
+       media_count = excluded.media_count,
+       link_count = excluded.link_count,
+       updated_at = excluded.updated_at`,
+  ).bind(
+    ...fence.bindings,
+    post.id,
+    asNumber(member.uid),
+    member.name,
+    toPostType(post),
+    createdAt,
+    timestamp,
+    post.media.length,
+    post.links?.length ?? 0,
+    post.id,
+    timestamp,
+  );
+
+};
+
+const recordXPostFacts = async (
   db: D1,
   handle: string,
   posts: readonly XPostItem[],
   timestamp = Date.now(),
   siteId: SiteId = "luvdia",
+  rssFence?: FxRssWriteFence,
 ) => {
   if (posts.length === 0 || !(await settingIsEnabled(db, "x_history_analytics_enabled"))) {
     return { recorded: 0, skipped: posts.length };
@@ -141,31 +185,7 @@ export const recordXPostFacts = async (
   for (const post of posts) {
     const createdAt = Date.parse(post.createdAt);
     if (!Number.isFinite(createdAt)) continue;
-    await db.prepare(
-      `INSERT INTO x_post_facts (
-         post_id, member_uid, member_name_snapshot, post_type, created_at,
-         first_seen_at, media_count, link_count, edit_root_post_id,
-         superseded_by_post_id, hidden_at, hidden_reason, updated_at
-       ) VALUES (iif(EXISTS(SELECT 1 FROM members m WHERE m.uid=${asNumber(member.uid)} AND ${publicationHiddenSql("members", "m", siteId)}),json('site_member_cutover'),?), ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
-       ON CONFLICT(post_id) DO UPDATE SET
-         member_uid = excluded.member_uid,
-         member_name_snapshot = excluded.member_name_snapshot,
-         post_type = excluded.post_type,
-         media_count = excluded.media_count,
-         link_count = excluded.link_count,
-         updated_at = excluded.updated_at`,
-    ).bind(
-      post.id,
-      asNumber(member.uid),
-      member.name,
-      toPostType(post),
-      createdAt,
-      timestamp,
-      post.media.length,
-      post.links?.length ?? 0,
-      post.id,
-      timestamp,
-    ).run();
+    await prepareXPostFact(db, member, post, timestamp, siteId, rssFence).run();
     recorded += 1;
   }
   return { recorded, skipped: posts.length - recorded };
@@ -208,23 +228,6 @@ export const backfillXPostFactsFromStoredPosts = async (db: D1, siteId: SiteId, 
     for (const entry of entries) await acknowledgeRepair(db, entry.row, "facts", result.recorded === entries.length,siteId);
   }
   return { scanned: rows.results.length, recorded, invalid, skipped: false };
-};
-
-export const redactXPostHistory = async (
-  db: D1,
-  postIds: readonly string[],
-  timestamp = Date.now(),
-) => {
-  const ids = [...new Set(postIds.filter(Boolean))];
-  if (ids.length === 0) return { redacted: 0 };
-  for (let index = 0; index < ids.length; index += 50) {
-    const chunk = ids.slice(index, index + 50);
-    await db.prepare(
-      `UPDATE x_post_facts SET hidden_at = ?, hidden_reason = 'admin', updated_at = ?
-       WHERE post_id IN (${chunk.map(() => "?").join(", ")})`,
-    ).bind(timestamp, timestamp, ...chunk).run();
-  }
-  return { redacted: ids.length };
 };
 
 export const readXHistoryPosts = async (

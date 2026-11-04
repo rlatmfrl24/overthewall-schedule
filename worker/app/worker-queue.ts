@@ -8,6 +8,7 @@ import { handleQueue } from "./queue";
 import { isXActivityQueueMessage } from "@contracts/x-activity";
 import { handleXActivityQueue } from "./x-activity";
 import { withXGateway } from "./x-gateway";
+import { trackRssD1Calls } from "../features/x-posts";
 import { handleAiReviewQueue, isAiReviewMessage, isAiBatchMessage } from "./ai-review";
 import {
   handleScheduledControlQueue,
@@ -24,7 +25,7 @@ export const handleWorkerQueue = async (
   env: Env,
 ) => {
   const { site, queues } = getWorkerSiteResources(env);
-  env = withXGateway(env);
+  env = withXGateway({ ...env, otw_db: trackRssD1Calls(env.otw_db) });
 
   if (batch.queue === queues.aiReview) { await handleAiReviewQueue(batch, env); return; }
   if (batch.queue === queues.control) {

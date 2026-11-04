@@ -32,6 +32,8 @@ beforeEach(async () => {
     database.prepare("DELETE FROM x_post_references"),
     database.prepare("DELETE FROM x_posts"),
     database.prepare("DELETE FROM x_post_sources"),
+    database.prepare("DELETE FROM x_fx_sources"),
+    database.prepare("DELETE FROM settings WHERE key='x_collection_primary_source'"),
   ]);
   clearXServiceCachesForTests();
   vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Public feed must not call X"); }));
@@ -40,6 +42,29 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("X stored public feed batching", () => {
+  it("RSS HTTP success cannot refresh the public feed or repair the official error", async () => {
+    const body = post("member", "123");
+    await database.prepare("INSERT INTO x_post_sources(handle,last_seen_post_id,last_checked_at,updated_at,last_error) VALUES('member','100',1,1,'budget_exceeded')").run();
+    await database.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,fetched_at) VALUES('123','member','member',?,?,1)").bind(JSON.stringify(body),body.createdAt).run();
+    await database.prepare("INSERT INTO x_fx_sources(handle,collection_started_at,rss_last_http_success_at,updated_at) VALUES('member',1,?,1)").bind(Date.now()).run();
+    await database.prepare("INSERT INTO settings(key,value) VALUES('x_collection_primary_source','fxembed')").run();
+    const response = await fetchXPostsForHandles(["member"],{cacheDb:database,refresh:false});
+    expect(response.byHandle[0]).toMatchObject({stale:true});
+    expect(await database.prepare("SELECT last_error FROM x_post_sources WHERE handle='member'").first("last_error")).toBe("budget_exceeded");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("uses Fx success only for public freshness while retaining the official cursor and errors", async () => {
+    const body = post("member", "123");
+    await database.prepare("INSERT INTO x_post_sources(handle,last_seen_post_id,last_checked_at,updated_at,last_error) VALUES('member','100',1,1,'budget_exceeded')").run();
+    await database.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,fetched_at) VALUES('123','member','member',?,?,1)").bind(JSON.stringify(body), body.createdAt).run();
+    await database.prepare("INSERT INTO x_fx_sources(handle,collection_started_at,last_success_at,updated_at) VALUES('member',1,?,?)").bind(Date.now(), Date.now()).run();
+    await database.prepare("INSERT INTO settings(key,value) VALUES('x_collection_primary_source','fxembed')").run();
+    const before = await database.prepare("SELECT * FROM x_post_sources").first();
+    const response = await fetchXPostsForHandles(["member"], { cacheDb: database, refresh: false });
+    expect(response.byHandle[0]).toMatchObject({ stale: false, error: null });
+    expect(await database.prepare("SELECT * FROM x_post_sources").first()).toEqual(before);
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it("reads eight handles in three bounded queries with independent limits, tie order, and source freshness", async () => {
     const timestamp = Date.now();
     for (const [memberIndex, handle] of handles.entries()) {

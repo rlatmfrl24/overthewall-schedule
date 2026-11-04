@@ -1,0 +1,17 @@
+round,site,handle,rssRaw,rssOwn,rssForeign,jsonRaw,jsonOwn,jsonDuplicate,rssReference,jsonReference,neither,rssOnly,jsonOnly,rss24h,json24h,rssOnly24h,jsonOnly24h,rssRequests,jsonRequests,rssStatus,jsonError,jsonPending,ref24h,refMiss24h
+round1,otw,kurenai_natsuki,100,31,69,104,30,1,19,19,1,1,0,3,3,0,0,1,4,200,,true,3,0
+round1,otw,terri_nunna,100,50,50,105,50,4,18,18,2,0,0,3,3,0,0,1,4,200,,true,5,2
+round1,otw,otw_haru,100,58,42,137,79,2,19,19,1,0,21,44,44,0,0,1,4,200,,true,20,1
+round1,otw,otw_hane,100,81,19,99,79,2,19,19,1,2,0,4,4,0,0,1,4,200,,true,4,0
+round1,otw,otw_ate,100,58,42,138,75,3,18,18,2,0,17,11,11,0,0,1,4,200,,true,12,2
+round1,luvdia,binghayu,100,64,36,110,71,1,20,20,0,0,7,9,9,0,0,1,4,200,,true,9,0
+round1,luvdia,yangmei1126,100,44,56,86,34,0,20,20,0,10,0,0,0,0,0,1,4,200,,true,0,0
+round1,luvdia,u_lili__,100,60,40,134,80,3,20,20,0,0,20,2,2,0,0,1,4,200,,true,1,0
+round2,otw,terri_nunna,100,50,50,105,50,4,18,18,2,0,0,3,3,0,0,1,4,200,,true,5,2
+round2,otw,kurenai_natsuki,100,31,69,104,30,1,19,19,1,1,0,3,3,0,0,1,4,200,,true,3,0
+round2,otw,otw_haru,35,20,15,137,79,2,19,19,1,0,59,20,44,0,24,1,4,200,,true,20,1
+round2,otw,otw_hane,100,81,19,99,79,2,19,19,1,2,0,4,4,0,0,1,4,200,,true,4,0
+round2,otw,otw_ate,100,58,42,138,75,3,18,18,2,0,17,11,11,0,0,1,4,200,,true,12,2
+round2,luvdia,binghayu,100,64,36,110,71,1,20,20,0,0,7,9,9,0,0,1,4,200,,true,9,0
+round2,luvdia,yangmei1126,100,44,56,86,34,0,20,20,0,10,0,0,0,0,0,1,4,200,,true,0,0
+round2,luvdia,u_lili__,100,60,40,134,80,3,20,20,0,0,20,2,2,0,0,1,4,200,,true,1,0

@@ -21,7 +21,8 @@ import {
   scanAndPersistRecentChzzkObservations,
   type AutoUpdateResult,
 } from "../../schedules";
-import { runXCollectionForHandles, recordXCollectionCompletion } from "../../x-posts";
+import { runXCollectionForHandles, runFxCollectionForHandles, isHybridRegularCollectionComplete, recordXCollectionCompletion, parseFxRssContinuation } from "../../x-posts";
+import { runFxRssCollectionItem } from "../../../app/x-rss-collection";
 import { runScheduledYouTubeFeedCollection } from "../../youtube";
 import { getDb } from "../../../platform/db";
 import type { Env } from "../../../platform/types";
@@ -130,6 +131,7 @@ export const toXCollectionOutcome = (
     return { status: result.refreshedHandles > 0 ? "partial" : "failed", result,
       errorCode: result.referenceHydration.errorCode, error: "X 원문 보강 재시도 대기" };
   }
+  if(result.coalescedHandles) return {status:"partial",result,errorCode:"x_source_lease_busy",error:"X 계정 수집 경합 재시도 대기"};
   if(result.pendingSources)return {status:"partial",result,errorCode:result.error??"x_collection_continuation_pending",error:"X 누락 수집 다음 페이지 대기"};
   if (result.status === "success") return succeeded(result);
   const error = result.error ?? `x_collection_${result.status}`;
@@ -190,7 +192,7 @@ export const toYouTubeFeedCollectionOutcome = (
   };
 };
 
-const parseContinuation = (item: ScheduledJobItemRecord) => {
+const parseContinuation = (item: Pick<ScheduledJobItemRecord, "continuation_json">) => {
   if (!item.continuation_json) return {} as Record<string, unknown>;
   try {
     const value: unknown = JSON.parse(item.continuation_json);
@@ -309,15 +311,33 @@ export class ScheduledJobExecutor {
     }
     switch (run.job_type) {
       case "x_collection": {
+        if (continuation.provider !== undefined && continuation.provider !== "fxembed" && continuation.provider !== "x_api") throw new Error("invalid_x_collection_provider");
+        if (continuation.mode !== undefined && continuation.mode !== "timeline" && continuation.mode !== "rss_candidates") throw new Error("invalid_x_collection_mode");
+        if (continuation.scope !== undefined && !["regular", "pending", "fallback"].includes(String(continuation.scope))) throw new Error("invalid_x_collection_scope");
+        if (continuation.mode === "rss_candidates") {
+          const state = parseFxRssContinuation(continuation);
+          const result = await runFxRssCollectionItem(this.env, item, state, this.repository);
+          return { status: result.status === "complete" ? "succeeded" : result.status === "pending" ? "partial" : "skipped",
+            result: { ...result.stats, provider: "fxembed", mode: "rss_candidates", scope: state.scope,
+              status: result.status === "blocked" ? "skipped" : result.state.phase === "fetch" ? "failed" : "success",
+              checkedHandles: 1, refreshedHandles: result.status === "complete" ? 1 : 0,
+              pendingSources: result.stats.pending > 0 || result.state.phase === "fetch" && result.status === "pending" ? 1 : 0,
+              error: result.error, nextAttemptAt: result.nextAttemptAt }, errorCode: result.error, error: result.error };
+        }
         const handles = getStringArray(continuation.handles);
         if (handles.length === 0 || handles.length > 4) {
           throw new Error("invalid_x_collection_shard");
         }
-        return toXCollectionOutcome(
-          await runXCollectionForHandles(this.env, handles, run.source, run.scheduled_for,
-            run.source === "manual" && typeof run.summary_json === "string" && JSON.parse(run.summary_json)?.xCollectionScope === "pending",
-            typeof continuation.recoveryAnchorAt === "number" ? continuation.recoveryAnchorAt : undefined),
-        );
+        const provider = continuation.provider === "fxembed" ? "fxembed" : "x_api";
+        const pending = continuation.scope === "pending" || continuation.recoveryOnly === true || run.source === "manual" && typeof run.summary_json === "string" && JSON.parse(run.summary_json)?.xCollectionScope === "pending";
+        const scope = pending ? "pending" : continuation.scope === "fallback" ? "fallback" : "regular";
+        const result = provider === "fxembed"
+          ? await runFxCollectionForHandles(this.env, handles, run.source, run.scheduled_for)
+          : await runXCollectionForHandles(this.env, handles, run.source, run.scheduled_for, pending && (run.source === "manual" || continuation.hybrid === true),
+            typeof continuation.recoveryAnchorAt === "number" ? continuation.recoveryAnchorAt : undefined,
+            continuation.hybrid === true ? scope : undefined);
+        if (result.coalescedHandles && item.attempts < 3) throw new Error("x_source_lease_busy");
+        return toXCollectionOutcome({...result,provider,scope,mode:"timeline",paidApiCalls:provider === "fxembed" ? 0 : result.apiCalls});
       }
       case "naver_cafe_collection": {
         const sourceIds = new Set(getNumberArray(continuation.sourceIds));
@@ -519,16 +539,29 @@ export class ScheduledJobExecutor {
     throw new Error("unsupported_scheduled_job_type");
   }
 
-  async finalizeLegacyState(runId: string) {
-    const run = await this.repository.readRunDto(runId);
+  async finalizeLegacyState(runId: string) { await this.finalizeLegacyStates([runId]); }
+
+  async finalizeLegacyStates(runIds: string[]) {
+    for(const snapshot of await this.repository.readRunFinalizations(runIds)) await this.finalizeRunState(snapshot);
+  }
+
+  private async finalizeRunState({run,items}: Awaited<ReturnType<D1ScheduledJobRepository['readRunFinalizations']>>[number]) {
+    const runId=run.id;
     if (!run || !["succeeded", "partial", "failed", "skipped", "throttled"].includes(run.status)) {
       return;
     }
-    const completedAt = String(run.finishedAt ?? Date.now());
-    if (run.jobType === "x_collection" && run.summary?.xCollectionScope !== "pending") {
+    const completedAt = String(run.finished_at ?? Date.now());
+    if (run.job_type === "x_collection" && parseContinuation({continuation_json:run.summary_json}).xCollectionScope !== "pending") {
+      const regular = items.filter(item => {
+        const state = parseContinuation(item);
+        return state.provider !== "fxembed" && !state.recoveryOnly && (state.scope ?? "regular") === "regular";
+      });
+      if (!regular.length) return;
+      const hybrid = regular.some(item => parseContinuation(item).hybrid === true);
+      if (hybrid && (!regular.every(item => ["succeeded","skipped"].includes(item.status)) || !await isHybridRegularCollectionComplete(this.env))) return;
       await recordXCollectionCompletion(this.env, { completedAt: Number(completedAt), source: run.source,
-        scheduledFor: run.scheduledFor, successful: run.status === "succeeded" });
-    } else if (run.jobType === "naver_cafe_collection") {
+        scheduledFor: run.scheduled_for, successful: hybrid || run.status === "succeeded" });
+    } else if (run.job_type === "naver_cafe_collection") {
       await writeSetting(
         this.env,
         "naver_cafe_collection_last_run",
@@ -541,7 +574,7 @@ export class ScheduledJobExecutor {
           completedAt,
         );
       }
-    } else if (run.jobType === "retention_prune" && run.status === "succeeded") {
+    } else if (run.job_type === "retention_prune" && run.status === "succeeded") {
       await this.repository.updateRunSummary(runId, {
         retentionPrune: await summarizeDataRetentionRun(this.env, runId),
       });

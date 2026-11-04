@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   getScheduledXCollectionDecision: vi.fn(),
   readActiveXHandles: vi.fn(),
   readDueXRecoveryHandles: vi.fn(),
+  readHybridXCollectionTargets: vi.fn(),
+  readDueFxRssCollectionTargets: vi.fn(),
   readOtwPlayAutomationPaused: vi.fn(),
   readDueDataRetentionPolicyIds: vi.fn(),
   hasScheduledYouTubeFeedWork: vi.fn(),
@@ -30,6 +32,8 @@ vi.mock("../../x-posts", () => ({
   getScheduledXCollectionDecision: mocks.getScheduledXCollectionDecision,
   readActiveXHandles: mocks.readActiveXHandles,
   readDueXRecoveryHandles: mocks.readDueXRecoveryHandles,
+  readHybridXCollectionTargets: mocks.readHybridXCollectionTargets,
+  readDueFxRssCollectionTargets: mocks.readDueFxRssCollectionTargets,
 }));
 vi.mock("../../../platform/db", () => ({ getDb: vi.fn(() => ({})) }));
 
@@ -87,11 +91,24 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     });
     mocks.readActiveXHandles.mockResolvedValue(["member_a"]);
     mocks.readDueXRecoveryHandles.mockResolvedValue([]);
+    mocks.readHybridXCollectionTargets.mockResolvedValue([]);
+    mocks.readDueFxRssCollectionTargets.mockResolvedValue([]);
     mocks.readOtwPlayAutomationPaused.mockResolvedValue(false);
     mocks.readDueDataRetentionPolicyIds.mockResolvedValue([]);
     mocks.hasScheduledYouTubeFeedWork.mockResolvedValue(false);
   });
   afterEach(() => vi.restoreAllMocks());
+
+  it("plans RSS pending snapshots beside JSON with distinct mode target keys", async () => {
+    const { env } = makeEnv({ x_collection_enabled: "true", x_collection_primary_source: "fxembed" });
+    mocks.readHybridXCollectionTargets.mockResolvedValue([{ provider: "fxembed", scope: "regular", handles: ["member"], hybrid: true }]);
+    const state = { provider: "fxembed", mode: "rss_candidates", scope: "pending", handles: ["member"], phase: "hydrate", candidates: [], nextAttemptAt: 1, resumeFromItemId: "predecessor" };
+    mocks.readDueFxRssCollectionTargets.mockResolvedValue([state]);
+    const planned = await new ScheduledJobPlanner(env, {} as never).planScheduled("x_collection", 100);
+    expect(planned).toHaveLength(2);
+    expect(planned[1]).toMatchObject({ targetKey: "fxembed:rss_candidates:pending:member", continuation: state });
+    expect(new Set(planned.map(item => item.targetKey)).size).toBe(2);
+  });
 
   it("plans no empty recovery, WebSub, YouTube, or retention work", async () => {
     const { env } = makeEnv({});
@@ -104,6 +121,18 @@ describe("ScheduledJobPlanner interval eligibility", () => {
       expect(await planner.planScheduled(jobType, 100)).toEqual([]);
     }
     expect(repository.addItems).not.toHaveBeenCalled();
+  });
+
+  it("lets an independent official timeline own paid work for an account while keeping mixed free work", async () => {
+    const { env } = makeEnv({ x_collection_enabled: "true", x_collection_primary_source: "fxembed" });
+    mocks.readHybridXCollectionTargets.mockResolvedValue([{ provider: "x_api", scope: "regular", handles: ["member"], hybrid: true }]);
+    const candidate = { id: "201", firstSeenAt: 1, createdAtHint: 1, nextAttemptAt: 0, attempts: 2, stage: "official", error: null };
+    const state = { provider: "fxembed", mode: "rss_candidates", scope: "pending", handles: ["member"], phase: "hydrate", candidates: [candidate], nextAttemptAt: null };
+    mocks.readDueFxRssCollectionTargets.mockResolvedValue([state]);
+    const planner = new ScheduledJobPlanner(env, {} as never);
+    expect((await planner.planScheduled("x_collection", 100)).map(item => item.continuation)).toEqual([{ provider: "x_api", scope: "regular", handles: ["member"], hybrid: true }]);
+    mocks.readDueFxRssCollectionTargets.mockResolvedValue([{ ...state, candidates: [candidate, { ...candidate, id: "202", stage: "free", attempts: 1 }] }]);
+    expect((await planner.planScheduled("x_collection", 100)).map(item => item.targetKey)).toEqual(["x_api:regular:handles:0:member", "fxembed:rss_candidates:pending:member"]);
   });
 
   it("holds only ingestion requeue while the read budget is exhausted and resumes after reset", async () => {
@@ -231,7 +260,7 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     else await planner.addPlannedItems(run, await planner.planScheduled("x_collection", timestamp));
     expect(repository.updateRunSummary).toHaveBeenCalledExactlyOnceWith(run.id, { xCollectionScope: "pending" });
     expect(repository.addItems).toHaveBeenCalledWith(run.id, [expect.objectContaining({
-      continuation: { handles: ["member_a"], recoveryOnly: true, recoveryAnchorAt: anchorAt },
+      continuation: { handles: ["member_a"], provider: "x_api", scope: "pending", recoveryOnly: true, recoveryAnchorAt: anchorAt },
     })]);
   });
 
@@ -245,7 +274,7 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     const repository={addItems:vi.fn(async (_id:string,items:NewScheduledItem[])=>items)};
     const run={...makeRun("x_collection","manual",1),summary_json:JSON.stringify({xCollectionScope:"pending"})};
     await new ScheduledJobPlanner(env,repository as never).plan(run);
-    expect(repository.addItems).toHaveBeenCalledWith(run.id,[expect.objectContaining({continuation:{handles:["member_b"]}})]);
+    expect(repository.addItems).toHaveBeenCalledWith(run.id,[expect.objectContaining({continuation:{handles:["member_b"],provider:"x_api",scope:"pending"}})]);
   });
 
   it("scheduled auto-update는 configured interval 이전에 channel scan을 만들지 않는다", async () => {

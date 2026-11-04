@@ -1,0 +1,1 @@
+ALTER TABLE `x_activity_coordinator` ADD `lease_token` text;
