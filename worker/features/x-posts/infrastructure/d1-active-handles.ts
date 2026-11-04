@@ -50,7 +50,3 @@ export const readActiveXHandles = async (
     throw new XAllowlistUnavailableError({ cause: error });
   }
 };
-
-export const clearActiveXHandlesCacheForTests = () => {
-  // The access allowlist is read fresh before every provider/cache lookup.
-};

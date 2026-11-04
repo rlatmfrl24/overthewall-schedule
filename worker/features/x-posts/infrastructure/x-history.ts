@@ -168,7 +168,7 @@ export const prepareXPostFact = (
 
 };
 
-export const recordXPostFacts = async (
+const recordXPostFacts = async (
   db: D1,
   handle: string,
   posts: readonly XPostItem[],
@@ -228,23 +228,6 @@ export const backfillXPostFactsFromStoredPosts = async (db: D1, siteId: SiteId, 
     for (const entry of entries) await acknowledgeRepair(db, entry.row, "facts", result.recorded === entries.length,siteId);
   }
   return { scanned: rows.results.length, recorded, invalid, skipped: false };
-};
-
-export const redactXPostHistory = async (
-  db: D1,
-  postIds: readonly string[],
-  timestamp = Date.now(),
-) => {
-  const ids = [...new Set(postIds.filter(Boolean))];
-  if (ids.length === 0) return { redacted: 0 };
-  for (let index = 0; index < ids.length; index += 50) {
-    const chunk = ids.slice(index, index + 50);
-    await db.prepare(
-      `UPDATE x_post_facts SET hidden_at = ?, hidden_reason = 'admin', updated_at = ?
-       WHERE post_id IN (${chunk.map(() => "?").join(", ")})`,
-    ).bind(timestamp, timestamp, ...chunk).run();
-  }
-  return { redacted: ids.length };
 };
 
 export const readXHistoryPosts = async (

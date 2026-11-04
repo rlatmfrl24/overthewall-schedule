@@ -181,6 +181,7 @@ it.each(['plain','relations','facts','100-candidates','repair','durable','five-f
   expect(await db.prepare('SELECT count(*) n FROM x_posts WHERE content_hash IS NOT NULL').first('n')).toBe(mode.startsWith('five-')?0:5);
   expect(await db.prepare('SELECT count(*) n FROM x_post_facts').first('n')).toBe(mode==='facts'?5:0);
   expect(meter.quotaDenials).toBe(0);expect(meter.bindingCalls).toBeLessThanOrEqual(50);
+  if(mode==='plain')expect(meter.bindingCalls).toBeLessThanOrEqual(29);
   if(relations)expect(await db.prepare('SELECT count(DISTINCT referenced_post_id) n FROM x_post_references').first('n')).toBe(10);
   console.log(`RSS_QUEUE_PROFILE_free_${mode}`,JSON.stringify({...meter.summary(),bindingCalls:meter.bindingCalls,quotaDenials:meter.quotaDenials,processed:saved,pending}));
 });

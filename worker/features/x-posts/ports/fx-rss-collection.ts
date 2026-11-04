@@ -7,11 +7,11 @@ export type OfficialRssHydrationResult = { resolvedIds: string[]; remaining: FxR
 
 export interface FxRssCollectionPorts {
   now(): number;
-  readContext(handle: string): Promise<{ allowed: boolean; policy: XHybridPolicy; collectionStartedAt: number; trustedUserId: string | null; pendingItemId: string | null; windowReduced?: boolean }>;
+  readContext(handle: string): Promise<{ allowed: boolean; policy: XHybridPolicy; collectionStartedAt: number; trustedUserId: string | null; windowReduced?: boolean }>;
   fetchFeed(handle: string): Promise<FxRssPage>;
   fetchStatus(postId: string, handle: string, trustedUserId: string): Promise<XPostDto>;
   readStoredIds(ids: string[]): Promise<string[]>;
-  store(post: XPostDto, origin: "fxembed" | "x_api"): Promise<{ ok: boolean; postsStored: number; newlyStoredPosts?: XNewlyStoredPost[] }>;
+  store(post: XPostDto): Promise<{ ok: boolean; postsStored: number; newlyStoredPosts?: XNewlyStoredPost[] }>;
   prepareOfficialBatch(candidates: FxRssCandidate[], batch: FxRssPaidBatch | null): Promise<{ batch: FxRssPaidBatch | null; error: string | null }>;
   hydrateOfficial(candidates: FxRssCandidate[]): Promise<OfficialRssHydrationResult>;
   checkpoint(state: FxRssContinuation, stats: FxRssStats): Promise<boolean>;

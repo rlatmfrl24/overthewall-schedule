@@ -56,9 +56,8 @@ type ScheduledD1WriteGateRow = {
 
 const hasScheduledD1WriteCapacity = async (
   env: Env,
-  scheduledTime: number,
 ) => {
-  const day = new Date(scheduledTime).toISOString().slice(0, 10);
+  const day = new Date(Date.now()).toISOString().slice(0, 10);
   const row = await env.otw_db.prepare(
     `SELECT COALESCE(SUM(used + reserved), 0) AS consumed,
             MAX(limit_value) AS limitValue
@@ -69,13 +68,12 @@ const hasScheduledD1WriteCapacity = async (
   return Number(row.consumed) < Number(row.limitValue);
 };
 
-export async function filterRunnableScheduledWorkflowJobs(
+async function filterRunnableScheduledWorkflowJobs(
   jobs: readonly ScheduledJobType[],
-  scheduledTime: number,
   env: Env,
 ): Promise<readonly ScheduledJobType[]> {
   if (jobs.length === 0) return [];
-  if (!(await hasScheduledD1WriteCapacity(env, scheduledTime))) return [];
+  if (!(await hasScheduledD1WriteCapacity(env))) return [];
   const keys = jobs.map((jobType) => `scheduled_v2_${jobType}_enabled`);
   const rows = await env.otw_db.prepare(
     `SELECT key, value FROM settings WHERE key IN (${keys.map(() => "?").join(", ")})`,
@@ -103,7 +101,7 @@ async function dispatchScheduledWorkflows(event:ScheduledController,env:Env):Pro
   );
   if (selectedJobs.length === 0) return;
   const budget = await new CloudflareD1ReadBudget(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_D1_TOKEN, env.OTW_PLAY_D1_READ_DAILY_TARGET).read();
-  const canProcess = budget.status === "available" && await hasScheduledD1WriteCapacity(env, event.scheduledTime);
+  const canProcess = budget.status === "available" && await hasScheduledD1WriteCapacity(env);
   if (canProcess && selectedJobs.includes("x_collection") && getWorkerSiteResources(env).site.id === "otw") {
     try {
       const shared = new D1SharedXBudget(env.otw_db);
@@ -120,7 +118,6 @@ async function dispatchScheduledWorkflows(event:ScheduledController,env:Env):Pro
   }
   const runnableJobs = await filterRunnableScheduledWorkflowJobs(
     jobs,
-    event.scheduledTime,
     env,
   );
   if (runnableJobs.length === 0) return;

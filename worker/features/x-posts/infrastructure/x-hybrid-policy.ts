@@ -32,15 +32,15 @@ export type HybridCollectionTarget = { provider: XCollectionProvider; scope: XCo
 export async function readHybridXCollectionTargets(env: Env, timestamp: number): Promise<HybridCollectionTarget[]> {
   const handles = await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID));
   if (!handles.length) return [];
-  const [sources, fx, settings] = await Promise.all([
-    env.otw_db.prepare("SELECT handle,sync_pagination_token,sync_origin_scope,sync_origin_started_at,sync_timeline_completed_at,last_completed_at,regular_completed_at,last_attempt_at,next_check_at,last_error_code,deactivated_at FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?))").bind(JSON.stringify(handles)).all<OfficialAccountSource>(),
-    env.otw_db.prepare("SELECT f.handle,f.cadence_anchor_at,f.last_attempt_at,f.fallback_active,i.continuation_json rss_continuation FROM x_fx_sources f LEFT JOIN scheduled_job_items i ON i.id=f.rss_pending_item_id WHERE f.handle IN (SELECT value FROM json_each(?))").bind(JSON.stringify(handles)).all<{ handle: string; cadence_anchor_at: number | null; last_attempt_at: number | null; fallback_active: number; rss_continuation: string | null }>(),
-    env.otw_db.prepare("SELECT key,value FROM settings WHERE key IN ('x_collection_last_run','x_collection_cadence_state','x_api_backoff_until','x_collection_hybrid_policy','x_collection_hybrid_activated_at')").all<{ key: string; value: string }>(),
+  const [sources, fx, settings] = await env.otw_db.batch([
+    env.otw_db.prepare("SELECT handle,sync_pagination_token,sync_origin_scope,sync_origin_started_at,sync_timeline_completed_at,last_completed_at,regular_completed_at,last_attempt_at,next_check_at,last_error_code,deactivated_at FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?))").bind(JSON.stringify(handles)),
+    env.otw_db.prepare("SELECT f.handle,f.cadence_anchor_at,f.last_attempt_at,f.fallback_active,i.continuation_json rss_continuation FROM x_fx_sources f LEFT JOIN scheduled_job_items i ON i.id=f.rss_pending_item_id WHERE f.handle IN (SELECT value FROM json_each(?))").bind(JSON.stringify(handles)),
+    env.otw_db.prepare("SELECT key,value FROM settings WHERE key IN ('x_collection_last_run','x_collection_cadence_state','x_api_backoff_until','x_collection_hybrid_policy','x_collection_hybrid_activated_at')"),
   ]);
-  const values = new Map(settings.results.map(row => [row.key, row.value]));
+  const values = new Map((settings.results as Array<{ key: string; value: string }>).map(row => [row.key, row.value]));
   const decision = getXCollectionScheduleDecision("24", values.get("x_collection_last_run"), timestamp, values.get("x_collection_cadence_state"));
-  const official = new Map(sources.results.map(row => [row.handle, row]));
-  const primary = new Map(fx.results.map(row => [row.handle, row]));
+  const official = new Map((sources.results as OfficialAccountSource[]).map(row => [row.handle, row]));
+  const primary = new Map((fx.results as Array<{ handle: string; cadence_anchor_at: number | null; last_attempt_at: number | null; fallback_active: number; rss_continuation: string | null }>).map(row => [row.handle, row]));
   const result: HybridCollectionTarget[] = [];
   const fxHandles = handles.filter(handle => {
     if (official.get(handle)?.deactivated_at != null) return false;

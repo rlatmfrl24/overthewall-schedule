@@ -70,7 +70,7 @@ export const createFxRssCollection = (ports: FxRssCollectionPorts) => ({
         const post = await ports.fetchStatus(candidate.id, handle, context.trustedUserId);
         if (Date.parse(post.createdAt) >= context.collectionStartedAt) {
           stats.postsReturned++;
-          const storedPost = await ports.store(post, "fxembed").catch(() => ({ ok: false, postsStored: 0, newlyStoredPosts: [] }));
+          const storedPost = await ports.store(post).catch(() => ({ ok: false, postsStored: 0, newlyStoredPosts: [] }));
           if (storedPost.newlyStoredPosts?.length) stats.newlyStoredPosts = [...(stats.newlyStoredPosts ?? []), ...storedPost.newlyStoredPosts];
           if (!storedPost.ok) return result("blocked", "rss_storage_failed");
           stats.postsStored += storedPost.postsStored;

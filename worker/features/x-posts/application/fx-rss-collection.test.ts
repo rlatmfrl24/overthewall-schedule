@@ -10,7 +10,7 @@ const setup = () => {
   const stored = new Set<string>();
   const ports: FxRssCollectionPorts = {
     now: () => now,
-    readContext: async () => ({ allowed: true, policy: "rss_v1", collectionStartedAt: 1, trustedUserId: "101", pendingItemId: null }),
+    readContext: async () => ({ allowed: true, policy: "rss_v1", collectionStartedAt: 1, trustedUserId: "101" }),
     fetchFeed: vi.fn(async () => ({ rawCount: 6, entries: ["1", "2", "3", "4", "5", "6"].map(id => ({ id, handle: "member", createdAtHint: now })) })),
     fetchStatus: vi.fn(async id => ({ id, createdAt: new Date(now).toISOString() }) as XPostDto),
     readStoredIds: async ids => ids.filter(id => stored.has(id)),
@@ -80,7 +80,7 @@ it("retains 404 candidates and stages only the second free failure for official 
 
 it.each(["rollback", "allowlist", "identity"])("preserves pending candidates on %s", async reason => {
   const { ports } = setup();
-  ports.readContext = async () => ({ allowed: reason !== "allowlist", policy: reason === "rollback" ? "legacy" : "rss_v1", collectionStartedAt: 1, trustedUserId: reason === "identity" ? null : "101", pendingItemId: "item" });
+  ports.readContext = async () => ({ allowed: reason !== "allowlist", policy: reason === "rollback" ? "legacy" : "rss_v1", collectionStartedAt: 1, trustedUserId: reason === "identity" ? null : "101" });
   const input = state(["1"]), result = await run(ports, input);
   expect(result.state.candidates).toEqual(input.candidates);
   expect(result.status).not.toBe("complete");

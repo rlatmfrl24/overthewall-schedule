@@ -65,6 +65,7 @@ export class D1FxRssCollectionAdapter implements FxRssCollectionPorts {
   private feedFetched = false;
   private writeFence: FxRssWriteFence | undefined;
   private trustedUserId: string | null = null;
+  private previousRawCount: number | null = null;
   private readonly handle: string;
   private readonly env: Env;
   private readonly item: ScheduledJobItemRecord;
@@ -82,15 +83,16 @@ export class D1FxRssCollectionAdapter implements FxRssCollectionPorts {
     const [settings, members, sources, leased] = await this.env.otw_db.batch([
       this.env.otw_db.prepare(policySql),
       this.env.otw_db.prepare(`SELECT uid,url_twitter FROM members WHERE coalesce(is_deprecated,0)=0 AND content_access='normal' AND NOT (${publicationHiddenSql("members", "members", parseSiteId(this.env.SITE_ID))})`),
-      this.env.otw_db.prepare(`SELECT s.deactivated_at,COALESCE(s.user_id,f.user_id) user_id,COALESCE(f.collection_started_at,s.collection_started_at,?) collection_started_at,f.rss_pending_item_id,f.rss_last_raw_count,f.rss_previous_raw_count
+      this.env.otw_db.prepare(`SELECT s.deactivated_at,COALESCE(s.user_id,f.user_id) user_id,COALESCE(f.collection_started_at,s.collection_started_at,?) collection_started_at,f.rss_last_raw_count,f.rss_previous_raw_count
         FROM x_post_sources s LEFT JOIN x_fx_sources f ON f.handle=s.handle WHERE s.handle=?`).bind(this.now(), handle),
       ...(claim ? [prepareXSourceLeaseClaim(this.env,handle,claim.token,claim.timestamp)] : []),
     ]);
-    const source = sources.results[0] as { deactivated_at: number | null; user_id: string | null; collection_started_at: number; rss_pending_item_id: string | null; rss_last_raw_count: number | null; rss_previous_raw_count: number | null } | undefined;
+    const source = sources.results[0] as { deactivated_at: number | null; user_id: string | null; collection_started_at: number; rss_last_raw_count: number | null; rss_previous_raw_count: number | null } | undefined;
     const allowed = (members.results as Array<{ url_twitter: string | null }>).some(member => typeof member.url_twitter === "string" && extractXHandleFromUrl(member.url_twitter)?.toLowerCase() === handle);
     this.trustedUserId = source?.user_id ?? null;
+    this.previousRawCount = source?.rss_last_raw_count ?? null;
     return { claimed: Boolean(leased?.results.length), members: members.results as Array<{uid:number;url_twitter:string|null}>, allowed: allowed && source?.deactivated_at == null, policy: isRssPolicy(settings.results as Array<{ key: string; value: string }>) ? "rss_v1" as const : "legacy" as const,
-      collectionStartedAt: source?.collection_started_at ?? this.now(), trustedUserId: source?.user_id ?? null, pendingItemId: source?.rss_pending_item_id ?? null,
+      collectionStartedAt: source?.collection_started_at ?? this.now(), trustedUserId: source?.user_id ?? null,
       windowReduced: source?.rss_last_raw_count != null && source.rss_previous_raw_count != null && source.rss_last_raw_count < source.rss_previous_raw_count };
   }
   async start(state: FxRssContinuation) {
@@ -125,7 +127,7 @@ export class D1FxRssCollectionAdapter implements FxRssCollectionPorts {
   }
   async release() { if (this.token) await releaseXSourceLeases(this.env, this.token); }
   async fetchFeed(handle: string) {
-    const previous = await this.env.otw_db.prepare("SELECT rss_last_raw_count FROM x_fx_sources WHERE handle=?").bind(handle).first<number>("rss_last_raw_count");
+    const previous = this.previousRawCount;
     const page = await fetchFxRssFeed(handle);
     this.feedFetched = true;
     return { ...page, windowReduced: previous !== null && page.rawCount < previous };
@@ -134,12 +136,12 @@ export class D1FxRssCollectionAdapter implements FxRssCollectionPorts {
   async readStoredIds(ids: string[]) {
     return readStoredRssCandidateIds(this.env.otw_db, ids);
   }
-  async store(post: XPostDto, origin: "fxembed" | "x_api") {
+  async store(post: XPostDto) {
     if (!this.writeFence || !this.trustedUserId) return { ok: false, postsStored: 0 };
     const storedAt = this.now();
     // The writer snapshots and atomically revalidates the current effective identity and fence.
     const stored = await writeStoredPosts(this.env.otw_db, this.handle, { id: this.trustedUserId, username: this.handle }, [post], storedAt, parseSiteId(this.env.SITE_ID),
-      { origin, completeness: { text: true, media: true, relations: true } }, this.writeFence);
+      { origin: "fxembed", completeness: { text: true, media: true, relations: true } }, this.writeFence);
     return { ok: stored.ok, postsStored: stored.count,
       newlyStoredPosts: stored.insertedIds.includes(post.id) ? [{ id: post.id, createdAt: post.createdAt, storedAt }] : [] };
   }

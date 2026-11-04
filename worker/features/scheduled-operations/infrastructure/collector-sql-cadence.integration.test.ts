@@ -14,7 +14,6 @@ import { hasScheduledYouTubeFeedWork, runScheduledYouTubeFeedCollection } from "
 import { D1NaverCafeApplication } from "../../naver-cafe/infrastructure/d1-naver-cafe-application";
 import { D1SharedXBudget, D1SharedXApiGateway } from "../../x-posts/infrastructure/x-shared-budget";
 import { clearXServiceCachesForTests } from "../../x-posts/infrastructure/x-api";
-import { clearActiveXHandlesCacheForTests } from "../../x-posts/infrastructure/d1-active-handles";
 
 const db = env.otw_db;
 const hour = 3_600_000;
@@ -36,7 +35,7 @@ afterEach(() => vi.restoreAllMocks());
 it("recovers only a pending X cursor within the shared budget without moving the site cadence", async () => {
   const actual=Date.now(), day=new Date(actual).toISOString().slice(0,10);
   const user="1607408138545950791", base="2114000000000000000", newest="2115000000000000001";
-  clearXServiceCachesForTests(); clearActiveXHandlesCacheForTests();
+  clearXServiceCachesForTests();
   await db.batch([
     ...["x_post_references","x_post_facts","x_posts","x_post_sources","x_api_cache","x_api_usage_events","x_api_usage_daily","x_api_resource_daily","scheduled_usage_daily","x_shared_requests","x_shared_budgets"].map(table=>db.prepare("DELETE FROM "+table)),
     db.prepare("UPDATE members SET url_twitter=NULL"),
@@ -533,7 +532,7 @@ it("seeks YouTube policy membership without changing fenced metadata candidates"
 it.each([true,false])("includes a recovered source in the next full daily collection (optimizer=%s)",async optimized=>{
  const full=Date.parse("2026-11-01T01:00:00Z"), recoveredAt=full+2*hour;
  let actual=recoveredAt;vi.spyOn(Date,"now").mockImplementation(()=>actual);
- clearXServiceCachesForTests();clearActiveXHandlesCacheForTests();
+ clearXServiceCachesForTests();
  const day=new Date(actual).toISOString().slice(0,10), user="1607408138545950791";
  await db.batch([
   ...["scheduled_outbox","scheduled_job_items","scheduled_job_runs","x_shared_requests","x_shared_budgets","scheduled_usage_daily","x_post_references","x_post_facts","x_posts","x_post_sources","x_api_cache","x_api_usage_events","x_api_usage_daily","x_api_resource_daily"].map(table=>db.prepare("DELETE FROM "+table)),

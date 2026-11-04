@@ -154,7 +154,7 @@ it("resumes a durable RSS partial in a separate ordinary Cron Workflow and Queue
     const sourceBeforeGuard = await db.prepare("SELECT * FROM x_fx_sources WHERE handle='native_collect'").first();
     const officialBeforeGuard = await db.prepare("SELECT * FROM x_post_sources WHERE handle='native_collect'").first();
     const beforeGuardCalls = await (await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/calls")).json();
-    const day = new Date(currentSlot).toISOString().slice(0, 10);
+    const day = new Date().toISOString().slice(0, 10);
     await db.prepare("INSERT OR REPLACE INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES(?,'all','d1_rows_written',1,0,1,0)").bind(day).run();
     await handleScheduledWorkflowCron({ cron: SCHEDULED_WORKFLOW_CRON, scheduledTime: currentSlot } as ScheduledController, runtime);
     expect(await inspector.get()).toHaveLength(1);

@@ -5,6 +5,7 @@ import { clearXServiceCachesForTests } from "./x-api";
 import { runXCollectionForHandles } from "./x-collection";
 import { readHybridXCollectionTargets } from "./x-hybrid-policy";
 import { D1SharedXApiGateway } from "./x-shared-budget";
+import { meterD1 } from "../../../test-support/d1-meter";
 
 const HOUR = 3_600_000;
 const timestamp = Date.parse("2026-11-03T00:00:00Z");
@@ -36,6 +37,26 @@ beforeEach(async () => {
   clearXServiceCachesForTests();
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); clearXServiceCachesForTests(); });
+
+it.each([false, true])("plans both providers with bounded D1 calls and no progress writes, site ledger present: %s", async ledgerPresent => {
+  if (ledgerPresent) await db.prepare("INSERT INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES(?,'all','x_api_cost_micros',0,0,1000000,0)")
+    .bind(new Date(timestamp).toISOString().slice(0, 10)).run();
+  const limit = ledgerPresent ? 5 : 6;
+  const meter = meterD1(db, limit);
+  const before = await source();
+  const plan = await readHybridXCollectionTargets({ ...runtime, otw_db: meter.db,
+    X_API_GATEWAY: new D1SharedXApiGateway({ db: meter.db, site: "otw", admitD1: async () => true }) }, timestamp);
+  expect(plan.map(target => ({ provider: target.provider, scope: target.scope, handles: target.handles })))
+    .toEqual([
+      { provider: "fxembed", scope: "regular", handles: ["member"] },
+      { provider: "x_api", scope: "regular", handles: ["member"] },
+    ]);
+  expect(await source()).toEqual(before);
+  expect(meter.quotaDenials).toBe(0);
+  expect(meter.bindingCalls).toBeLessThanOrEqual(limit);
+  expect(meter.summary().rowsWritten).toBe(0);
+  console.log("X_HYBRID_PLAN_PROFILE", JSON.stringify({ bindingCalls: meter.bindingCalls, ...meter.summary() }));
+});
 
 it("regular_resume_finishes_original_scope", async () => {
   const calls = provider(url => page(url.searchParams.has("pagination_token") ? null : "page2"));
