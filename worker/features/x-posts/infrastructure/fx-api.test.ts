@@ -3,6 +3,27 @@ import { fetchFxStatus, fetchFxTimelinePage, parseFxStatus, parseFxTimelinePage 
 
 const raw = (id: string, handle = "member") => ({ type: "status", id, text: id, author: { id: handle === "member" ? "101" : "999", screen_name: handle, protected: false }, created_at: "Tue Nov 03 00:00:00 +0000 2026", media: {} });
 afterEach(() => vi.unstubAllGlobals());
+it("reads the trusted numeric account without depending on provider handle resolution", async () => {
+  const fetchMock = vi.fn(async (url: string) => new URL(url).pathname === "/2/profile/id:101/statuses"
+    ? Response.json({ code: 200, results: [raw("123")], cursor: { bottom: "next" } })
+    : Response.json({ code: 404, results: [], cursor: { top: null, bottom: null } }, { status: 404 }));
+  vi.stubGlobal("fetch", fetchMock);
+  const result = await fetchFxTimelinePage("member", "a+b", "101");
+  expect(result.posts.map(post => post.id)).toEqual(["123"]);
+  expect(result.nextCursor).toBe("next");
+  expect(new URL(fetchMock.mock.calls[0][0]).searchParams.get("cursor")).toBe("a+b");
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+it("validates the trusted numeric ID before sending a provider request", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(Response.json({ code: 200, results: [], cursor: {} }));
+  vi.stubGlobal("fetch", fetchMock);
+  await expect(fetchFxTimelinePage("member", null, "101/path")).rejects.toMatchObject({ code: "fx_invalid_payload" });
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+it("rejects a renamed pinned author instead of acknowledging an empty page", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ code: 200, results: [{ ...raw("123"), author: { id: "101", screen_name: "renamed_member", protected: false } }], cursor: {} })));
+  await expect(fetchFxTimelinePage("member", null, "101")).rejects.toMatchObject({ code: "fx_identity_mismatch" });
+});
 it("filters context and reposts, deduplicates unsorted own posts and normalizes GIF", () => {
   const payload = { code: 200, results: [raw("124"), raw("120", "other"), raw("123"), raw("124"), { ...raw("125"), reposted_by: { screen_name: "member" } }, { ...raw("126"), media: { all: [{ id: "321", type: "gif", url: "https://video.twimg.com/a.mp4", thumbnail_url: "https://pbs.twimg.com/a.jpg" }] } }], cursor: { bottom: "next" } };
   const result = parseFxTimelinePage(payload, "member", "101");

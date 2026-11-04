@@ -72,8 +72,9 @@ export function parseFxTimelinePage(payload: unknown, targetHandle: string, trus
   for (const value of body.results) {
     const raw = object(value);
     if (raw.type !== "status") continue;
-    const author = object(raw.author);
-    if (handle(author.screen_name) !== target || raw.reposted_by) continue;
+    const author = object(raw.author), username = handle(author.screen_name);
+    if (author.id === trustedUserId && username !== target) throw new FxApiError("fx_identity_mismatch");
+    if (username !== target || raw.reposted_by) continue;
     if (id(author.id) !== trustedUserId) throw new FxApiError("fx_identity_mismatch");
     const post = parseStatus(raw);
     if (!posts.has(post.id)) posts.set(post.id, post);
@@ -115,9 +116,10 @@ export async function fetchFxProfile(targetHandle: string) {
   return { id: id(user.id), username: target };
 }
 export async function fetchFxTimelinePage(targetHandle: string, cursor: string | null, trustedUserId: string) {
-  const target = handle(targetHandle), query = new URLSearchParams({ count: "20", with_replies: "true" });
+  const target = handle(targetHandle), userId = id(trustedUserId), query = new URLSearchParams({ count: "20", with_replies: "true" });
   if (cursor) query.set("cursor", cursor);
-  return parseFxTimelinePage(await request(`/2/profile/${target}/statuses?${query}`), target, id(trustedUserId));
+  // The pinned identity avoids a fallible provider handle lookup on every page.
+  return parseFxTimelinePage(await request(`/2/profile/id:${userId}/statuses?${query}`), target, userId);
 }
 export async function fetchFxStatus(postId: string, targetHandle: string, trustedUserId: string): Promise<XPostDto> {
   const expectedId = id(postId), target = handle(targetHandle), userId = id(trustedUserId);
