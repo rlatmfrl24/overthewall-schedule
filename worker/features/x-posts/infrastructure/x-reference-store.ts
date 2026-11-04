@@ -54,14 +54,26 @@ export async function filterArchivedXReferences(db: DB, posts: XPostDto[], siteI
     UNION SELECT post_id AS id, NULL AS handle FROM x_post_facts WHERE (content_access='admin_archive' OR ${publicationHiddenSql("x_post_facts","x_post_facts",siteId)}) AND post_id IN (SELECT value FROM json_each(?))
     UNION SELECT NULL AS id, url_twitter AS handle FROM members WHERE (content_access='admin_archive' OR ${publicationHiddenSql("members","members",siteId)}) AND url_twitter IS NOT NULL`)
     .bind(JSON.stringify(ids), JSON.stringify(ids)).all<{id:string|null;handle:string|null}>();
-  const hidden = new Set(rows.results.map(row => row.id).filter(Boolean));
-  const handles = new Set(rows.results.map(row => extractXHandle(row.handle)?.toLowerCase()).filter(Boolean));
-  const unavailable = (post: {id:string;username?:string} | null | undefined) => Boolean(post && (hidden.has(post.id) || handles.has(post.username?.toLowerCase())));
-  return posts.filter(post => !unavailable(post)).map(post => ({ ...post,
-    ...(post.quote && (hidden.has(post.quote.postId) || unavailable(post.quote.post)) ? { quote: undefined } : {}),
-    ...(post.reply && (hidden.has(post.reply.postId) || unavailable(post.reply.post) || handles.has(post.reply.targetUsername?.toLowerCase())) ? { reply: undefined } : {}),
-    links: post.links?.filter(link => !unavailable(link.linkedPost)),
-  }));
+  const hidden = new Set(rows.results.flatMap(row => row.id ? [row.id] : []));
+  const handles = new Set(rows.results.flatMap(row => { const handle = extractXHandle(row.handle)?.toLowerCase(); return handle ? [handle] : []; }));
+  return posts.filter(post => !hidden.has(post.id) && !handles.has(post.username.toLowerCase())).map(post => sanitizeXReferences(post, hidden, handles));
+}
+
+/** Archive removes relationships; ordinary redaction keeps links without their private preview. */
+export function sanitizeXReferences(post: XPostDto, archivedIds: ReadonlySet<string>, archivedHandles: ReadonlySet<string>, redactedIds?: ReadonlySet<string>): XPostDto {
+  const unavailable = (preview: { id: string; username?: string } | null | undefined) => Boolean(preview && (archivedIds.has(preview.id) || archivedHandles.has(preview.username?.toLowerCase() ?? "")));
+  return { ...post,
+    ...(post.quote ? { quote: archivedIds.has(post.quote.postId) || unavailable(post.quote.post) ? undefined
+      : redactedIds?.has(post.quote.postId) || redactedIds?.has(post.quote.post?.id ?? "") ? { ...post.quote, post: null } : post.quote } : {}),
+    ...(post.reply ? { reply: archivedIds.has(post.reply.postId) || unavailable(post.reply.post) || archivedHandles.has(post.reply.targetUsername?.toLowerCase() ?? "") ? undefined
+      : redactedIds?.has(post.reply.postId) || redactedIds?.has(post.reply.post?.id ?? "") ? { ...post.reply, post: null } : post.reply } : {}),
+    links: post.links?.filter(link => !unavailable(link.linkedPost)).map(link => {
+      if (!redactedIds?.has(link.linkedPost?.id ?? "")) return link;
+      const sanitized = { ...link };
+      for (const key of ["linkedPost", "title", "description", "imageUrl", "siteName", "previewStatus"] as const) delete sanitized[key];
+      return sanitized;
+    }),
+  };
 }
 
 // Used by both public reads and background hydration. No writes or provider calls.

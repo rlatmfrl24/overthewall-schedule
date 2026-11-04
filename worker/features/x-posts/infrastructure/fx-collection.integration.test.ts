@@ -1,6 +1,7 @@
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { runFxCollectionForHandles } from "./fx-collection";
+import { clearXServiceCachesForTests, fetchXPostsForHandles } from "./x-api";
 
 const runtime = { ...env, SITE_ID: "otw" } as Env & { X_REFERENCE_MIGRATIONS: D1Migration[] };
 const db = runtime.otw_db;
@@ -13,6 +14,25 @@ beforeEach(async () => {
   await db.prepare("INSERT INTO x_post_sources(handle,user_id,last_checked_at,updated_at,collection_started_at,last_seen_post_id,sync_pagination_token) VALUES('member','101',0,0,1,'100','official-next')").run();
 });
 afterEach(() => vi.unstubAllGlobals());
+it.each(["archive", "publication"])("stores a public Fx page and acknowledges its cursor despite a %s-protected quote", async mode => {
+  await db.prepare("INSERT INTO members(uid,code,name,url_twitter,content_access) VALUES(2,?,'Private','https://x.com/private_member',?)")
+    .bind(mode === "publication" ? "bing_hayu" : "private", mode === "archive" ? "admin_archive" : "normal").run();
+  const privateQuote = { ...raw("122"), text: "private quote body", author: { id: "999", screen_name: "private_member", protected: false } };
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ code: 200, results: [{ ...raw("123"), quote: privateQuote }, raw("124")], cursor: {} })));
+  const official = await db.prepare("SELECT user_id,last_seen_post_id,sync_pagination_token,last_success_at,last_completed_at FROM x_post_sources").first();
+  expect(await runFxCollectionForHandles(runtime, ["member"], "manual")).toMatchObject({ status: "success", postsStored: 2, pendingSources: 0 });
+  const stored = await db.prepare("SELECT id,value,content_hash FROM x_posts ORDER BY id").all<{ id: string; value: string; content_hash: string }>();
+  expect(stored.results.map(row => row.id)).toEqual(["123", "124"]);
+  expect(JSON.parse(stored.results[0].value).quote).toBeUndefined();
+  expect(stored.results.every(row => /^[a-f0-9]{64}$/.test(row.content_hash))).toBe(true);
+  expect(await db.prepare("SELECT cursor,last_completed_at,last_error FROM x_fx_sources").first()).toEqual({ cursor: null, last_completed_at: expect.any(Number), last_error: null });
+  expect(await db.prepare("SELECT user_id,last_seen_post_id,sync_pagination_token,last_success_at,last_completed_at FROM x_post_sources").first()).toEqual(official);
+  clearXServiceCachesForTests();
+  const feed = await fetchXPostsForHandles(["member"], { cacheDb: db, refresh: false, siteId: "otw" });
+  expect(feed.posts.map(post => post.id).sort()).toEqual(["123", "124"]);
+  expect(JSON.stringify(feed.posts)).not.toContain("private quote body");
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
 it("stores four pages through the normal writer without moving the official cursor", async () => {
   let active = 0, peak = 0;
   const fetchMock = vi.fn().mockImplementation(async (url: string) => {

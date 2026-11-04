@@ -6,7 +6,7 @@ import { publicationHiddenSql } from "../../content-access";
 import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
 import { mergeStoredXPost, xPostContentKey, type XPostAuthority, type XPostWriteContext } from "../domain/merge-x-post";
 import { handleFromUrl, prepareXPostFact, type MemberRow } from "./x-history";
-import { parseXPreview, parseCachedXPreview, storedXPreview, linkedPostKey, type StoredXPreview } from "./x-reference-store";
+import { parseXPreview, parseCachedXPreview, storedXPreview, sanitizeXReferences, linkedPostKey, type StoredXPreview } from "./x-reference-store";
 
 type XCacheDb = Pick<D1Database, "prepare" | "batch">;
 const prepareXPostReferences = (
@@ -130,8 +130,12 @@ export async function commitStoredPosts(
       const snapshot = await db.batch<{ data: string }>(queries.map(q => db.prepare(q.sql).bind(...q.bindings)));
       const data = snapshot.map(result => result.results[0]!.data);
       const roots = new Map((JSON.parse(data[0]) as RootRow[]).map(row => [row.id, row]));
-      const hidden = new Set([
+      const archived = new Set([
         ...(JSON.parse(data[1]) as { post_id: string }[]).map(row => row.post_id),
+        ...[...roots.values()].filter(row => row.content_access === "admin_archive" || row.publication_hidden).map(row => row.id),
+      ]);
+      const hidden = new Set([
+        ...archived,
         ...(JSON.parse(data[2]) as { referenced_post_id: string }[]).map(row => row.referenced_post_id),
         ...[...roots.values()].filter(protectedRoot).map(row => row.id),
       ]);
@@ -143,7 +147,7 @@ export async function commitStoredPosts(
       if (source?.user_id && source.user_id !== user.id) throw new Error("post_author_mismatch");
       if (rssFence && source?.user_id !== user.id) throw new Error("post_author_mismatch");
       const member = members.find(row => !row.is_deprecated && handleFromUrl(row.url_twitter) === handle);
-      const hiddenHandles = new Set(members.filter(row => row.content_access !== "normal" || row.publication_hidden).map(row => handleFromUrl(row.url_twitter)));
+      const hiddenHandles = new Set(members.filter(row => row.content_access !== "normal" || row.publication_hidden).flatMap(row => { const handle = handleFromUrl(row.url_twitter); return handle ? [handle] : []; }));
       const previews = new Map<string, StoredXPreview>();
       for (const row of roots.values()) {
         if (hidden.has(row.id)) continue;
@@ -163,6 +167,9 @@ export async function commitStoredPosts(
         const previous = byId.get(incoming.id);
         const existing = previous?.merged ?? (row ? { post: JSON.parse(row.value) as XPostItem, authority: row.source_authority ? JSON.parse(row.source_authority) as XPostAuthority : null } : null);
         const merged = mergeStoredXPost(existing, incoming, typeof context === "function" ? context(incoming) : context);
+        const sanitized = sanitizeXReferences(merged.post, archived, hiddenHandles, hidden);
+        merged.changed ||= xPostContentKey(sanitized) !== xPostContentKey(merged.post);
+        merged.post = sanitized;
         const repair = Boolean(previous || (row?.source_authority && row.content_hash === null));
         if (merged.changed || repair) byId.set(incoming.id, { row, merged: { ...merged, changed: merged.changed || Boolean(previous?.merged.changed) }, count: (previous?.count ?? 0) + 1 });
       }
@@ -182,10 +189,7 @@ export async function commitStoredPosts(
       if (plans.length) statements.push(assertion(db, fence.sql, fence.bindings, "rss_write_fence_lost"));
       const inserts: { id: string; index: number }[] = [];
       for (const { row, merged } of plans) {
-        let post = merged.post;
-        const embedded = [post.quote?.post, post.reply?.post, ...(post.links ?? []).map(link => link.linkedPost)];
-        if (embedded.some(preview => preview && (hidden.has(preview.id) || hiddenHandles.has(preview.username?.toLowerCase() ?? null)))) throw new Error("post_reference_protected");
-        post = connectReplyFromSnapshot(post, hidden, localPreview, sources, caches);
+        const post = sanitizeXReferences(connectReplyFromSnapshot(merged.post, hidden, localPreview, sources, caches), archived, hiddenHandles, hidden);
 
         const value = JSON.stringify(post), authority = JSON.stringify(merged.authority);
         const changed = merged.changed || value !== row?.value;

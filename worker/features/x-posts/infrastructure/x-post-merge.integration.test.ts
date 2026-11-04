@@ -4,6 +4,7 @@ import type { XPostDto } from "@contracts/x-posts";
 import { writeStoredPosts, xTimelineWriteContext } from "./x-api";
 import { xPostContentKey } from "../domain/merge-x-post";
 import { meterD1 } from "../../../test-support/d1-meter";
+import { filterArchivedXReferences } from "./x-reference-store";
 
 const bindings = env as Env & { X_REFERENCE_MIGRATIONS: D1Migration[] };
 const db = bindings.otw_db;
@@ -15,6 +16,35 @@ beforeEach(async () => {
   await db.prepare("DELETE FROM x_posts").run();
 });
 afterEach(() => vi.restoreAllMocks());
+const privatePreview = { id: "122", text: "private preview body", createdAt: post.createdAt, url: "https://x.com/private_member/status/122", username: "private_member", name: null, profileImageUrl: null, metrics: post.metrics, media: [] };
+const referencing = (relation: "quote" | "reply" | "link"): XPostDto => ({ ...post, reply: null,
+  ...(relation === "quote" ? { quote: { postId: "122", post: privatePreview } } : relation === "reply" ? { reply: { postId: "122", conversationId: null, post: privatePreview } }
+    : { links: [{ url: privatePreview.url, expandedUrl: privatePreview.url, displayUrl: "private", linkedPost: privatePreview, title: "private title", description: "private description", imageUrl: "https://example.com/private.png", siteName: "Private", previewStatus: "ready" as const }] }),
+});
+const seedPrivateTarget = async (mode = "normal") => {
+  await db.prepare("INSERT OR REPLACE INTO members(uid,code,name,url_twitter,content_access) VALUES(9901,?,'Private','https://x.com/private_member','normal')")
+    .bind(mode === "publication" ? "bing_hayu" : "private").run();
+  await db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,fetched_at,content_access,hidden_at,content_removed_at) VALUES('122','private_member','private_member',?,?,1,?,?,?)")
+    .bind(JSON.stringify({ ...post, id: "122", username: "private_member", reply: null }), post.createdAt, mode === "archive" ? "admin_archive" : "normal", mode === "hidden" ? 3 : null, mode === "removed" ? 3 : null).run();
+  if (mode === "terminal") await db.prepare("INSERT INTO x_post_references(source_post_id,relation_type,referenced_post_id,resolution_state,created_at,updated_at) VALUES('122','quote','122','terminal',1,1)").run();
+};
+it.each(["archive", "publication", "hidden", "removed", "terminal"].flatMap(mode => (["quote", "reply", "link"] as const).map(relation => ({ mode, relation }))))("stores the public root while sanitizing $mode $relation context in two calls", async ({ mode, relation }) => {
+  await seedPrivateTarget(mode);
+  const measured = meterD1(db);
+  expect(await writeStoredPosts(measured.db, "member", user, [referencing(relation)], 2, "otw")).toMatchObject({ ok: true, count: 1, insertedIds: [post.id] });
+  expect(measured.bindingCalls).toBe(2);
+  const saved = JSON.parse((await read())!.value) as XPostDto;
+  expect(saved.text).toBe(post.text);
+  expect(JSON.stringify(saved)).not.toContain("private preview body");
+  if (mode === "archive" || mode === "publication") {
+    if (relation === "link") expect(saved.links).toEqual([]);
+    else expect(saved[relation]).toBeUndefined();
+    expect(await filterArchivedXReferences(db, [saved], "otw")).toEqual([saved]);
+  } else if (relation === "link") expect(saved.links).toEqual([{ url: privatePreview.url, expandedUrl: privatePreview.url, displayUrl: "private" }]);
+  else expect(saved[relation]).toMatchObject({ postId: "122", post: null });
+  const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(xPostContentKey(saved))))].map(byte => byte.toString(16).padStart(2, "0")).join("");
+  expect(await db.prepare("SELECT content_hash FROM x_posts WHERE id='123'").first("content_hash")).toBe(hash);
+});
 it.each([1, 5])("atomically stores %i related roots in two D1 calls", async count => {
   const calls: string[] = [];
   const observed = {
@@ -137,6 +167,36 @@ const beforeCommit = (change: () => Promise<unknown>) => {
     return original(statements);
   });
 };
+it.each(["quote", "reply", "link"] as const)("sanitizes an unchanged official %s retained by an incomplete Fx replay", async relation => {
+  await seedPrivateTarget();
+  await writeStoredPosts(db, "member", user, [referencing(relation)], 1, "otw");
+  await db.prepare("UPDATE x_posts SET content_access='admin_archive' WHERE id='122'").run();
+  const measured = meterD1(db);
+  expect(await writeStoredPosts(measured.db, "member", user, [{ ...post, text: "ignored Fx" }], 2, "otw", { origin: "fxembed", completeness: { text: true, media: true, relations: false } })).toMatchObject({ ok: true, count: 1, insertedIds: [] });
+  expect(measured.bindingCalls).toBe(2);
+  const saved = JSON.parse((await read())!.value) as XPostDto;
+  expect(saved.text).toBe(post.text);
+  expect(JSON.stringify(saved)).not.toContain("private preview body");
+  expect(JSON.parse((await db.prepare("SELECT source_authority FROM x_posts WHERE id='123'").first<string>("source_authority"))!).relations).toBe("x_api");
+  const noop = meterD1(db);
+  expect(await writeStoredPosts(noop.db, "member", user, [saved], 3, "otw")).toMatchObject({ ok: true, count: 0, insertedIds: [] });
+  expect(noop.bindingCalls).toBe(1);
+});
+it.each(["archive", "hidden"])("re-reads a %s transition before commit and stores the public root with safe context", async mode => {
+  await seedPrivateTarget();
+  beforeCommit(() => db.prepare(mode === "archive" ? "UPDATE x_posts SET content_access='admin_archive' WHERE id='122'" : "UPDATE x_posts SET hidden_at=3 WHERE id='122'").run());
+  expect(await writeStoredPosts(db, "member", user, [referencing("reply")], 2, "otw")).toMatchObject({ ok: true, insertedIds: [post.id] });
+  const saved = JSON.parse((await read())!.value);
+  if (mode === "archive") expect(saved.reply).toBeUndefined();
+  else expect(saved.reply).toMatchObject({ postId: "122", post: null });
+});
+it("sanitizes a reply whose archived author is learned while connecting snapshot context", async () => {
+  await db.prepare("INSERT OR REPLACE INTO members(uid,code,name,url_twitter,content_access) VALUES(9901,'private','Private','https://x.com/private_member','admin_archive')").run();
+  await db.prepare("INSERT OR REPLACE INTO x_post_sources(handle,user_id,username,last_checked_at,updated_at) VALUES('private_member','999','private_member',0,0)").run();
+  const incoming: XPostDto = { ...post, reply: { ...post.reply!, inReplyToUserId: "999" } };
+  expect(await writeStoredPosts(db, "member", user, [incoming], 1, "otw")).toMatchObject({ ok: true, insertedIds: [post.id] });
+  expect(JSON.parse((await read())!.value).reply).toBeUndefined();
+});
 
 it.each([false, true])("uses one snapshot for a complete unchanged or protected root: protected=%s", async protectedPost => {
   await writeStoredPosts(db, "member", user, [post], 1, "otw");
