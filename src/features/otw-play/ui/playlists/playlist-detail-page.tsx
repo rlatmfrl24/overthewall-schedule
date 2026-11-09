@@ -12,6 +12,7 @@ import { deleteMyPlaylist } from "../../api/playlists";
 import { usePublicRequestOptions } from "../../queries/use-public-catalog";
 import { useMyPlaylist, usePlaylistActions, usePlaylistDefaults, usePlaylistPerformances, useResolvedPlaylist } from "../../queries/use-playlists";
 import { PerformanceRow, PlaylistFeedback, PlaylistLoginGate } from "./playlist-components";
+import { PlaylistArtwork } from "./playlist-artwork-preview";
 
 function PlaylistBackButton() {
   return <Button asChild variant="ghost" size="sm" className="w-fit -ml-2"><Link to="/play/playlists"><ArrowLeft />플레이리스트로 돌아가기</Link></Button>;
@@ -25,7 +26,7 @@ export function OtwPlayDefaultPlaylistPage({ playlistKey }: { playlistKey: strin
   if (defaults.isPending) return <div className="playlist-page playlist-detail"><PlaylistBackButton /><PlaylistDetailSkeleton /></div>;
   if (!playlist) return <div className="playlist-page"><p>{defaults.isError ? "목록을 불러오지 못했습니다." : "플레이리스트를 찾을 수 없습니다."}</p>
     {defaults.isError && <Button onClick={() => void defaults.refetch()}>다시 시도</Button>}<PlaylistBackButton /></div>;
-  return <div className="playlist-page playlist-detail"><PlaylistBackButton /><header className="playlist-heading playlist-detail-heading"><div className="playlist-detail-artwork" data-playlist-hero={`/play/playlists/defaults/${encodeURIComponent(playlist.id)}`} data-hero-kind="detail"><img width={208} height={208} src={playlist.imageUrl || "/images/otw-play/glass-note.png"} alt="" onError={event => { if (!event.currentTarget.src.endsWith("/images/otw-play/glass-note.png")) event.currentTarget.src = "/images/otw-play/glass-note.png"; }} /></div><div className="playlist-detail-copy"><h1 data-playlist-hero-title>{playlist.title}</h1><p className="playlist-detail-description">{playlist.description}</p>
+  return <div className="playlist-page playlist-detail"><PlaylistBackButton /><header className="playlist-heading playlist-detail-heading"><div className="playlist-detail-artwork" data-playlist-hero={`/play/playlists/defaults/${encodeURIComponent(playlist.id)}`} data-hero-kind="detail"><PlaylistArtwork imageUrl={playlist.imageUrl} /></div><div className="playlist-detail-copy"><h1 data-playlist-hero-title>{playlist.title}</h1><p className="playlist-detail-description">{playlist.description}</p>
     <p className="playlist-detail-meta">기본 플레이리스트 · {playlist.songCount}곡 · 가창 {playlist.performanceCount}개 · 최신순</p></div><div className="playlist-detail-actions flex flex-wrap gap-2">
       <Button disabled={actions.pending.includes(playlist.id)} onClick={() => actions.add(playlist.id, playlist.query, true)}>전체 대기열에 추가</Button>
       <Button variant="outline" asChild><Link to="/play/playlists/new" search={{ from: playlist.id }}>내 목록으로 편집</Link></Button></div></header>
@@ -58,7 +59,7 @@ function PersonalPlaylist({ playlistId }: { playlistId: string }) {
   if (saved.isPending) return <div className="playlist-page playlist-detail"><PlaylistBackButton /><PlaylistDetailSkeleton /></div>;
   if (!playlist) return <div className="playlist-page"><p>목록을 찾을 수 없거나 접근할 수 없습니다.</p>{saved.isError && <Button onClick={() => void saved.refetch()}>다시 시도</Button>}<PlaylistBackButton /></div>;
   const byId = new Map(resolved.data?.items.map(item => [item.performance.id, item]));
-  return <div className="playlist-page playlist-detail"><PlaylistBackButton /><header className="playlist-heading playlist-detail-heading"><div className="playlist-detail-artwork" data-playlist-hero={`/play/playlists/${encodeURIComponent(playlist.id)}`} data-hero-kind="detail"><img width={208} height={208} src={playlist.imageUrl || "/images/otw-play/glass-note.png"} alt="" onError={event => { if (!event.currentTarget.src.endsWith("/images/otw-play/glass-note.png")) event.currentTarget.src = "/images/otw-play/glass-note.png"; }} /></div><div className="playlist-detail-copy"><h1 data-playlist-hero-title>{playlist.title}</h1><p className="playlist-detail-description">{playlist.description}</p><p className="playlist-detail-meta">나만 볼 수 있는 플레이리스트 · 가창 {playlist.itemCount}개</p></div>
+  return <div className="playlist-page playlist-detail"><PlaylistBackButton /><header className="playlist-heading playlist-detail-heading"><div className="playlist-detail-artwork" data-playlist-hero={`/play/playlists/${encodeURIComponent(playlist.id)}`} data-hero-kind="detail"><PlaylistArtwork imageUrl={playlist.imageUrl} /></div><div className="playlist-detail-copy"><h1 data-playlist-hero-title>{playlist.title}</h1><p className="playlist-detail-description">{playlist.description}</p><p className="playlist-detail-meta">나만 볼 수 있는 플레이리스트 · 가창 {playlist.itemCount}개</p></div>
     <div className="playlist-detail-actions flex flex-wrap gap-2"><Button disabled={actions.pending.includes(playlist.id)} onClick={() => actions.add(playlist.id, playlist.performanceIds, true)}>대기열에 추가</Button>
       <Button asChild variant="outline"><Link to="/play/playlists/$playlistId/edit" params={{ playlistId }}>편집</Link></Button>
       <Button variant="ghost" disabled={deleting} onClick={() => void remove()}>삭제</Button></div></header>

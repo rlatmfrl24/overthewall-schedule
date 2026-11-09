@@ -8,6 +8,7 @@ import { ScheduledJobPlanner } from "./scheduled-job-planner";
 import { ScheduledJobExecutor } from "./scheduled-job-executor";
 import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
 import { handleScheduledJobQueue } from "../../../app/scheduled-queue";
+import { handleWorkerFetch } from "../../../app/fetch";
 import { D1ScheduledJobRepository } from "../../../platform/scheduled-jobs";
 import { collectNaverCafePostsForSources, readEnabledNaverCafeSources } from "../../naver-cafe";
 import { hasScheduledYouTubeFeedWork, runScheduledYouTubeFeedCollection } from "../../youtube";
@@ -274,6 +275,48 @@ it.each([1, 3, 6])("plans cafe at the %sh scheduled boundary without rounding ac
   const planner = new ScheduledJobPlanner(runtime(), {} as never);
   expect(await planner.planScheduled("naver_cafe_collection", scheduledFor - 1)).toEqual([]);
   expect((await planner.planScheduled("naver_cafe_collection", scheduledFor))[0].continuation).toMatchObject({ sourceIds: [id] });
+});
+
+it.each(["otw", "luvdia"] as const)("stores a new Cafe article from the %s scheduled queue and serves it on the feed", async site => {
+  const actual = Date.now(), id = site === "otw" ? 901620 : 901621;
+  const articleId = id + 1;
+  const existingId = `123:${id}:${articleId}`;
+  const oldKey = `notices/thumbnails/cafe-${site}.jpg`;
+  const thumbnail = "https://example.com/cafe-thumbnail.jpg";
+  const application = { ...runtime(), ...siteEnv(site) };
+  await db.batch([
+    seedCafeSource(id, 6),
+    db.prepare("UPDATE naver_cafe_sources SET collection_started_at=?,initialization_completed_at=?,last_seen_article_id=? WHERE id=?")
+      .bind(actual - hour, actual - hour, id, id),
+    db.prepare(`INSERT INTO naver_cafe_posts(id,article_id,source_id,source_name,cafe_id,menu_id,title,summary,created_at,url,fetched_at,thumbnail_url)
+      VALUES(?,?,?,'Cafe','123',?,'Earlier title','',?,'https://cafe.naver.com/test',?,?)`)
+      .bind(existingId, articleId, id, String(id), new Date(actual - 60_000).toISOString(), actual, `/r2-assets/${oldKey}`),
+    db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('naver_cafe_posts_enabled','true'),('naver_cafe_posts_visibility','public')"),
+  ]);
+  const provider = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ result: { articleList: [
+    { type: "ARTICLE", item: { articleId: articleId + 1, subject: "New Cafe article", writeDateTimestamp: actual - 30_000 } },
+    { type: "ARTICLE", item: { articleId, subject: "Updated Cafe article", writeDateTimestamp: actual - 60_000, representImage: thumbnail } },
+    { type: "ARTICLE", item: { articleId: id, writeDateTimestamp: actual - hour } },
+  ] } }));
+  const repository = new D1ScheduledJobRepository(db);
+  const run = await repository.createRun({ jobType: "naver_cafe_collection", source: "scheduled", idempotencyKey: `cafe-regression:${site}`, scheduledFor: actual });
+  const [itemId] = await repository.addItems(run.id, [{ targetKey: `cafe:${id}`, phase: "collect", lane: "naver", continuation: { sourceIds: [id] } }]);
+  await handleScheduledJobQueue({ queue: `${site}-ops-background`, messages: [{
+    body: { schemaVersion: 1, messageType: "scheduled_job_item", runId: run.id, itemId, phase: "collect" }, ack: vi.fn(), retry: vi.fn(),
+  }] } as unknown as MessageBatch<unknown>, application);
+  expect(await repository.readItem(itemId)).toMatchObject({ status: "succeeded", last_error_code: null });
+  expect(provider).toHaveBeenCalledOnce();
+  expect(await db.prepare("SELECT last_seen_article_id,last_error_code FROM naver_cafe_sources WHERE id=?").bind(id).first())
+    .toEqual({ last_seen_article_id: articleId + 1, last_error_code: null });
+  expect(await db.prepare("SELECT raw_url FROM asset_file_reference_paths WHERE row_table='naver_cafe_posts' AND row_key=?")
+    .bind(JSON.stringify([existingId])).first("raw_url")).toBe(thumbnail);
+  expect(await db.prepare("SELECT held, released_at FROM asset_file_retention_releases WHERE logical_key=?").bind(oldKey).first())
+    .toMatchObject({ held: 0, released_at: expect.any(Number) });
+  const response = await handleWorkerFetch(new Request(`${application.SITE_PUBLIC_ORIGIN}/api/naver-cafe/posts`), application);
+  expect(response.status).toBe(200);
+  const { posts } = await response.json<{ posts: { id: string }[] }>();
+  expect(posts.find(post => post.id === existingId)).toMatchObject({ articleId, title: "Updated Cafe article", thumbnailUrl: thumbnail });
+  expect(posts.find(post => post.id === `123:${id}:${articleId + 1}`)).toMatchObject({ articleId: articleId + 1, title: "New Cafe article" });
 });
 
 it.each(["scheduled", "manual"] as const)("persists cafe actual timestamps and %s cadence in the same progress update", async trigger => {

@@ -8,18 +8,23 @@ const externalOriginSql=(origin:string,scope:string)=>`EXISTS(SELECT 1 FROM cont
 const externalIndexedReferenceSql=(alias:string)=>externalOriginSql(`${alias}.origin`,`(${["notices","member_profile_images","naver_cafe_posts"].map(table=>`(${alias}.row_table='${table}' AND EXISTS(SELECT 1 FROM ${table} owner WHERE json_array(owner.id)=${alias}.row_key AND ${selectedFileRowSql(table,"owner")}))`).join(" OR ")})`);
 const candidatePathSql=(path:string,key:string)=>`${path} IN ('/r2-assets/'||${key},'/'||${key})`;
 export const noticeKeyFromPathSql=(path:string)=>`iif(${path} LIKE '/r2-assets/notices/thumbnails/%',substr(${path},12),iif(${path} LIKE '/notices/thumbnails/%',substr(${path},2),NULL))`;
-export const liveFileReferencesSql=(key:string)=>`(
+const liveFileReferencesSql=(key:string)=>`(
   EXISTS(SELECT 1 FROM asset_file_reference_paths f WHERE ${candidatePathSql("f.path",key)} AND ${currentFileIndexSql("f")} AND NOT ${externalIndexedReferenceSql("f")}) OR
-  EXISTS(SELECT 1 FROM asset_file_reference_inputs raw WHERE NOT EXISTS(SELECT 1 FROM asset_file_reference_paths f WHERE f.row_table=raw.row_table AND f.row_key=raw.row_key AND f.field=raw.field AND f.raw_url=raw.raw_url) AND ${candidatePathSql(filePathSql("raw.raw_url"),key)}) OR
-  EXISTS(SELECT 1 FROM members m WHERE ${key} LIKE 'members/'||m.code||'/backgrounds/%') OR
-  0
+  EXISTS(SELECT 1 FROM members m WHERE ${key} LIKE 'members/'||m.code||'/backgrounds/%')
 )`;
-export const historicalFileReferencesSql=(key:string)=>`(
+const unindexedFileValuesSql = `SELECT raw.raw_url AS value FROM asset_file_reference_inputs raw
+  WHERE NOT EXISTS(SELECT 1 FROM asset_file_reference_paths f WHERE f.row_table=raw.row_table AND f.row_key=raw.row_key AND f.field=raw.field AND f.raw_url=raw.raw_url)`;
+const historicalFileValuesSql = `SELECT image.atom AS value FROM content_transition_journal j,json_tree(j.before_json) image WHERE image.type='text'
+  UNION ALL SELECT image.atom FROM content_transition_journal j,json_tree(j.after_json) image WHERE image.type='text'
+  UNION ALL SELECT image.atom FROM content_transition_baseline_rows b,json_tree(b.record_json) image WHERE image.type='text'
+  UNION ALL SELECT image.atom FROM content_historical_records h,json_tree(h.record_json) image WHERE image.type='text'`;
+// LIMIT -1 keeps SQLite from pushing the recursive URL parser into each UNION arm.
+const unprojectedFileReferencesSql=(key:string)=>`(
   EXISTS(SELECT 1 FROM content_transition_membership m JOIN content_transitions t ON t.id=m.transition_id WHERE t.phase<>'prepared' AND m.row_table='asset_file_references' AND m.row_key=json_array(${key})) OR
-  EXISTS(SELECT 1 FROM content_transition_journal j,json_tree(j.before_json) image WHERE (image.atom=${key} OR ${candidatePathSql(filePathSql("image.atom"),key)})) OR
-  EXISTS(SELECT 1 FROM content_transition_journal j,json_tree(j.after_json) image WHERE (image.atom=${key} OR ${candidatePathSql(filePathSql("image.atom"),key)})) OR
-  EXISTS(SELECT 1 FROM content_transition_baseline_rows b,json_tree(b.record_json) image WHERE (image.atom=${key} OR ${candidatePathSql(filePathSql("image.atom"),key)})) OR
-  EXISTS(SELECT 1 FROM content_historical_records h,json_tree(h.record_json) image WHERE (image.atom=${key} OR ${candidatePathSql(filePathSql("image.atom"),key)}))
+  EXISTS(SELECT 1 FROM (
+    SELECT value, 0 AS historical FROM (${unindexedFileValuesSql})
+    UNION ALL SELECT value, 1 FROM (${historicalFileValuesSql}) LIMIT -1
+  ) input WHERE (input.historical AND input.value=${key}) OR ${candidatePathSql(filePathSql("input.value"),key)})
 )`;
 export const recoveryFileHeldSql=(key:string)=>`(
   EXISTS(SELECT 1 FROM content_transition_file_inventories i WHERE EXISTS(SELECT 1 FROM content_transition_file_inventory_rows r WHERE r.transition_id=i.transition_id AND r.inventory_id=i.inventory_id AND (r.kind='object' AND r.identity=${key} OR r.kind='reference' AND json_extract(r.value_json,'$.logicalKey')=${key})) OR EXISTS(SELECT 1 FROM json_each(i.plan_json,'$.members') m WHERE ${key} LIKE 'members/'||json_extract(m.value,'$.code')||'/backgrounds/%')) OR
@@ -34,12 +39,7 @@ export const noticeHistoryKeysSql=`candidate_paths(path) AS MATERIALIZED (SELECT
     UNION SELECT ${noticeKeyFromPathSql(filePathSql('raw.raw_url'))} FROM asset_file_reference_inputs raw
       WHERE NOT EXISTS(SELECT 1 FROM asset_file_reference_paths f WHERE f.row_table=raw.row_table AND f.row_key=raw.row_key AND f.field=raw.field AND f.raw_url=raw.raw_url)
         AND ${noticeKeyFromPathSql(filePathSql('raw.raw_url'))} IN(SELECT logical_key FROM requested)
-  ), history_values(value) AS MATERIALIZED (
-  SELECT image.atom FROM content_transition_journal j,json_tree(j.before_json) image WHERE image.type='text'
-  UNION ALL SELECT image.atom FROM content_transition_journal j,json_tree(j.after_json) image WHERE image.type='text'
-  UNION ALL SELECT image.atom FROM content_transition_baseline_rows b,json_tree(b.record_json) image WHERE image.type='text'
-  UNION ALL SELECT image.atom FROM content_historical_records h,json_tree(h.record_json) image WHERE image.type='text'
-), history_keys(logical_key) AS MATERIALIZED (
+  ), history_values(value) AS MATERIALIZED (${historicalFileValuesSql}), history_keys(logical_key) AS MATERIALIZED (
   SELECT DISTINCT COALESCE(${noticeKeyFromPathSql(filePathSql('value'))},value) FROM history_values
   WHERE COALESCE(${noticeKeyFromPathSql(filePathSql('value'))},value) IN(SELECT logical_key FROM requested)
 )`;
@@ -48,12 +48,22 @@ export const noticeListingProtectedSql=(key:string)=>`(${key} IN(SELECT logical_
   OR EXISTS(SELECT 1 FROM content_transition_membership m JOIN content_transitions t ON t.id=m.transition_id
     WHERE t.phase<>'prepared' AND m.row_table='asset_file_references' AND m.row_key=json_array(${key})))`;
 
-export const fileProtectedSql=(key:string)=>`(${liveFileReferencesSql(key)} OR ${historicalFileReferencesSql(key)} OR ${recoveryFileHeldSql(key)})`;
+export const fileProtectedSql=(key:string)=>`(${liveFileReferencesSql(key)} OR ${unprojectedFileReferencesSql(key)} OR ${recoveryFileHeldSql(key)})`;
 
 export const releaseLegacyFileSql=(candidates:string,now:string)=>`INSERT INTO asset_file_retention_releases(logical_key,released_at,held)
   SELECT candidate.logical_key,${now},0 FROM (${candidates}) candidate WHERE candidate.logical_key IS NOT NULL AND NOT ${fileProtectedSql("candidate.logical_key")}
     AND (NOT EXISTS(SELECT 1 FROM asset_file_versions v WHERE v.logical_key=candidate.logical_key) OR EXISTS(SELECT 1 FROM asset_file_retention_releases r WHERE r.logical_key=candidate.logical_key))
   ON CONFLICT(logical_key) DO UPDATE SET released_at=max(asset_file_retention_releases.released_at,excluded.released_at),held=0 WHERE asset_file_retention_releases.held=1`;
+
+// D1 prepares the retention check separately while it still runs inside the owning write.
+export const legacyFileReleaseTriggerSql = [
+  "CREATE VIEW asset_file_release_candidates AS SELECT NULL AS logical_key WHERE 0",
+  `CREATE TRIGGER asset_file_release_candidate INSTEAD OF INSERT ON asset_file_release_candidates BEGIN
+    ${releaseLegacyFileSql("SELECT NEW.logical_key AS logical_key","CAST(unixepoch('subsec')*1000 AS INTEGER)")};
+  END`,
+];
+export const releaseLegacyFileInTriggerSql = (candidates: string) =>
+  `INSERT INTO asset_file_release_candidates(logical_key) ${candidates}`;
 
 export const acquireLegacyFileSql=(candidates:string)=>`INSERT INTO asset_file_retention_releases(logical_key,released_at,held)
   SELECT candidate.logical_key,0,1 FROM (${candidates}) candidate WHERE candidate.logical_key IS NOT NULL

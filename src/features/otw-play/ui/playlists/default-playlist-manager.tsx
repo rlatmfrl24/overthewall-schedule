@@ -1,3 +1,4 @@
+import { LoadingImage } from "@/shared/ui/loading-image";
 import { AdminSectionHeader } from "@/app/admin/components/admin-section-header";
 import { QueryReadback } from "@/shared/ui/query-readback";
 import { useEffect, useState } from "react";
@@ -115,7 +116,7 @@ function DefaultEditor({ initial, owner, onDirty, discard }: { initial: PlayAdmi
       <div className="max-h-[65vh] space-y-1 overflow-y-auto">
         {candidates.isPending ? <p role="status">검색 중…</p> : candidates.isError ? <Button onClick={() => void candidates.refetch()}>검색 다시 시도</Button> : all.map(item =>
           <div className="flex min-w-0 items-center gap-2 rounded border p-2" key={item.performance.id}>
-            <img className="h-9 w-14 shrink-0 rounded object-cover" src={performanceArtwork(item) || "/images/otw-play/glass-note.png"} alt="" />
+            <LoadingImage className="h-9 w-14 shrink-0 rounded object-cover" src={performanceArtwork(item) || "/images/otw-play/glass-note.png"} alt="" />
             <div className="min-w-0 flex-1 text-xs"><p className="truncate font-medium">{item.song.title}</p>
               <p className="truncate text-muted-foreground">{item.performance.participants.map(p => p.displayName).join(" · ")} · {item.performance.releasedAt?.slice(0, 10)}</p></div>
             <Button size="sm" variant={draft.representativePerformanceId === item.performance.id ? "default" : "outline"}

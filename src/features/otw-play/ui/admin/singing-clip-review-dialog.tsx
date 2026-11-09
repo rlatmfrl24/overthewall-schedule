@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { LoadingImage } from "@/shared/ui/loading-image";
 import {getContentWriteMessage} from '@/shared/api/client';
 import { applyReviewCatalogChanges } from "../../queries/review-catalog-changes";
 import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
@@ -472,7 +473,7 @@ export function SingingClipReviewDialog({
             />}
             <div className="flex flex-wrap gap-3 border-b pb-3">
               {presentation === "dialog" && candidate.thumbnailUrl ? (
-                <img
+                <LoadingImage
                   className="h-24 w-40 shrink-0 rounded-lg object-cover"
                   src={candidate.thumbnailUrl}
                   alt=""

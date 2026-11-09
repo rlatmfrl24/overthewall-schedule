@@ -1,3 +1,4 @@
+import { LoadingImage } from "@/shared/ui/loading-image";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PiArchiveBold as Archive, PiCaretDownBold as ChevronDown, PiArrowSquareOutBold as ExternalLink, PiSpinnerGapBold as Loader2, PiArrowsClockwiseBold as RefreshCw, PiShieldWarningBold as ShieldX } from "react-icons/pi";
@@ -181,7 +182,7 @@ export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
                             )}
                           </div>
                         ))}
-                        {item.post.media.length > 0 && <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">{item.post.media.map((media) => media.previewImageUrl || media.url ? <img key={media.mediaKey} src={media.previewImageUrl ?? media.url ?? ""} alt={media.altText ?? "X 게시물 미디어"} className="aspect-video w-full rounded-md border object-cover" loading="lazy" /> : null)}</div>}
+                        {item.post.media.length > 0 && <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">{item.post.media.map((media) => media.previewImageUrl || media.url ? <LoadingImage key={media.mediaKey} src={media.previewImageUrl ?? media.url ?? ""} alt={media.altText ?? "X 게시물 미디어"} className="aspect-video w-full rounded-md border object-cover" loading="lazy" /> : null)}</div>}
                         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span>미디어 {item.mediaCount}</span><span>링크 {item.linkCount}</span><a href={item.post.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline">X 원문 <ExternalLink className="h-3 w-3" /></a></div>
                         <details className="mt-3 rounded-md border border-dashed bg-muted/10">
                           <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden">

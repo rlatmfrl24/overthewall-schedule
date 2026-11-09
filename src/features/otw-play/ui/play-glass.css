@@ -174,11 +174,12 @@
   transition: opacity 600ms ease-out;
 }
 .otw-play-glass .play-spotlight-artwork[data-active=true] { opacity: 1; }
-.otw-play-glass .play-spotlight-artwork > img:not(.play-spotlight-backdrop) { position: absolute; inset: 0; height: 100%; width: 100%; object-fit: cover; object-position: center; }
+.otw-play-glass .play-spotlight-artwork > [data-image-state]:not(.play-spotlight-backdrop) { position: absolute; inset: 0; height: 100%; width: 100%; object-fit: cover; object-position: center; }
 .otw-play-glass .play-spotlight-backdrop {
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
   filter: blur(16px); opacity: 0.6; transform: scale(1.1);
 }
+.otw-play-glass :is(.play-spotlight-backdrop, .play-song-artwork-backdrop > [data-image-state]):not([data-image-state=loaded]) { visibility: hidden; }
 .otw-play-glass .play-spotlight-content-stack { display: grid; width: min(100%, 760px); align-self: end; }
 .otw-play-glass .play-spotlight-content { display: grid; grid-area: 1 / 1; align-content: end; gap: 16px; width: 100%; visibility: hidden; }
 .otw-play-glass .play-spotlight-copy .text-muted-foreground { color: rgb(255 255 255 / 85%); }
@@ -218,7 +219,7 @@
 .otw-play-glass .play-member-rail { border: 0; padding-block: 4px 0; }
 .otw-play-glass .play-member-link { border-radius: 16px; padding: 8px 4px 4px; transition: background-color 180ms, transform 180ms; }
 .otw-play-glass .play-member-link:hover { background: var(--play-selection); transform: translateY(-2px); }
-.otw-play-glass .play-member-link img { border: 3px solid var(--card); box-shadow: 0 0 0 1px var(--border); }
+.otw-play-glass .play-member-link [data-image-state] { border: 3px solid var(--card); box-shadow: 0 0 0 1px var(--border); }
 .otw-play-glass .play-song-card {
   border-radius: 18px; border: 1px solid var(--border); background: var(--card);
   box-shadow: none; transition: border-color 180ms, transform 180ms;

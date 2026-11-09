@@ -1,4 +1,5 @@
 import { Textarea } from "@/shared/ui/textarea";
+import { LoadingImage } from "@/shared/ui/loading-image";
 import { TabsList } from "@/shared/ui/tabs-list";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { useState, useCallback, useEffect, useMemo } from "react";
@@ -1604,7 +1605,7 @@ export function AutoUpdateSettingsManager({
                             <div className="grid gap-3 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground md:grid-cols-[96px_1fr]">
                               <div className="relative h-14 w-24 overflow-hidden rounded-md bg-muted">
                                 {thumbnailUrl ? (
-                                  <img
+                                  <LoadingImage
                                     src={thumbnailUrl}
                                     alt={`${pending.title || pending.member_name} 썸네일`}
                                     className="h-full w-full object-cover"

@@ -1,6 +1,8 @@
 export const currentFileIndexSql=(alias:string)=>`EXISTS(SELECT 1 FROM asset_file_reference_inputs raw WHERE raw.row_table=${alias}.row_table AND raw.row_id=json_extract(${alias}.row_key,'$[0]') AND raw.row_key=${alias}.row_key AND raw.field=${alias}.field AND raw.raw_url=${alias}.raw_url)`;
 export const currentRowFileIndexSql=(indexed:string,table:string,row:string)=>table==="notices"
-  ? `(${indexed}.field='thumbnail_url' AND ${indexed}.raw_url=${row}.thumbnail_url OR ${indexed}.field LIKE 'image_urls.%' AND ${indexed}.raw_url=json_extract(${row}.image_urls,'$['||substr(${indexed}.field,12)||']'))`
+  ? `CASE WHEN ${indexed}.field='thumbnail_url' THEN ${indexed}.raw_url=${row}.thumbnail_url
+          WHEN ${indexed}.field LIKE 'image_urls.%' THEN ${indexed}.raw_url=json_extract(${row}.image_urls,'$['||substr(${indexed}.field,12)||']')
+          ELSE 0 END`
   : `${indexed}.field='${table==="member_profile_images"?"image_url":"thumbnail_url"}' AND ${indexed}.raw_url=${row}.${table==="member_profile_images"?"image_url":"thumbnail_url"}`;
 
 /** The manifest may classify references only for its selected owning row. */

@@ -5,8 +5,10 @@ import { Music2, ArrowUpRight, LoaderCircle, Info } from "lucide-react";
 import type { PlayDefaultPlaylist } from "@contracts/otw-play-playlists";
 import type { OtwPlayPublicPerformanceResponseDto } from "@contracts/otw-play";
 import { Button } from "@/shared/ui/button";
+import { LoadingImage } from "@/shared/ui/loading-image";
 import { useOtwPlayPlayer } from "../../player/play-player-context";
 import type { usePlaylistActions } from "../../queries/use-playlists";
+import { PlaylistArtwork } from "./playlist-artwork-preview";
 import "./playlists.css";
 
 export function PlaylistLoginGate({ children, className }: { children: ReactNode; className?: string }) {
@@ -47,8 +49,7 @@ export function DefaultPlaylistCard({ playlist }: { playlist: PlayDefaultPlaylis
   return <article className={`playlist-card ${playlist.query.relation ? "playlist-card-featured" : ""}`}>
     <Link className="playlist-card-main" to="/play/playlists/defaults/$playlistKey"
       params={{ playlistKey: playlist.id }} aria-label={`${playlist.title} 목록 보기`}>
-      <div className="playlist-art" data-playlist-hero={`/play/playlists/defaults/${encodeURIComponent(playlist.id)}`} data-hero-kind="card"><img src={playlist.imageUrl || "/images/otw-play/glass-note.png"} alt="" loading="lazy"
-        onError={event => { if (!event.currentTarget.src.endsWith("/images/otw-play/glass-note.png")) event.currentTarget.src = "/images/otw-play/glass-note.png"; }} /></div>
+      <div className="playlist-art" data-playlist-hero={`/play/playlists/defaults/${encodeURIComponent(playlist.id)}`} data-hero-kind="card"><PlaylistArtwork imageUrl={playlist.imageUrl} loading="lazy" /></div>
       <div className="playlist-card-copy">
         <span className="playlist-card-kicker">{member ? "멤버 가창곡" : "OTW PLAY COLLECTION"}</span>
         <div className="playlist-card-title"><h3 data-playlist-hero-title>{title}</h3><p>{playlist.description}</p></div>
@@ -65,7 +66,7 @@ export function PerformanceRow({ item, children, compact = false }: { item: OtwP
   const version = `${relation} · ${item.performance.releasedAt?.slice(0, 10) ?? "날짜 미상"}`;
 
   return <div className={`playlist-track${compact ? " playlist-track-compact" : ""}`}>
-    {source?.thumbnailUrl ? <img src={source.thumbnailUrl} alt="" loading="lazy" /> : <Music2 className="m-3 size-6 shrink-0" />}
+    {source?.thumbnailUrl ? <LoadingImage src={source.thumbnailUrl} alt="" loading="lazy" /> : <Music2 className="m-3 size-6 shrink-0" />}
     <div className="min-w-0 flex-1"><Link to="/play/songs/$songSlug" params={{ songSlug: item.song.slug }} search={{ performance: item.performance.id }} className={compact ? "block truncate text-sm font-medium" : "font-medium"} title={item.song.title}>{item.song.title}</Link>
       {compact ? <p className="playlist-track-summary text-xs text-muted-foreground"><span title={participants}>{participants}</span></p> : <>
         <p className="text-xs text-muted-foreground">{participants}</p>

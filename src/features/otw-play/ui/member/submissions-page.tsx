@@ -1,3 +1,4 @@
+import { LoadingImage } from "@/shared/ui/loading-image";
 import { site } from "@/shared/config/site";
 import { useUser } from "@clerk/clerk-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -159,7 +160,7 @@ export function OtwPlaySubmissionsPage() {
           {visibleItems.map((item) => (
             <li key={item.id}>
               <button type="button" aria-haspopup="dialog" onClick={event => { selectedCardRef.current = event.currentTarget; setCommandMessage(null); setSelectedId(item.id); }} className="flex w-full items-center gap-3 rounded-xl border bg-card p-4 text-left transition-colors hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:gap-4">
-                <img src={`https://i.ytimg.com/vi/${item.youtubeVideoId}/hqdefault.jpg`} alt="" loading="lazy" className="aspect-video w-20 shrink-0 rounded-lg object-cover sm:w-28" />
+                <LoadingImage src={`https://i.ytimg.com/vi/${item.youtubeVideoId}/hqdefault.jpg`} alt="" loading="lazy" className="aspect-video w-20 shrink-0 rounded-lg object-cover sm:w-28" />
                 <span className="min-w-0 flex-1">
                   <span className="mb-1.5 flex flex-wrap items-center gap-2"><Badge variant={item.status === "approved" ? "default" : "secondary"}>{labels[item.status]}</Badge><span className="text-xs text-muted-foreground">{item.submissionKind === "singing_clip" ? "노래 클립" : "공식 커버"}</span></span>
                   <span className="block break-words text-base font-semibold leading-snug sm:text-lg">{item.title}</span>

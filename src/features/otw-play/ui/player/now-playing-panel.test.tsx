@@ -362,14 +362,14 @@ describe("OTW Play player and queue rail", () => {
     mocks.usePlayer.mockReturnValue(player);
     const { rerender } = render(<OtwPlayPlayerQueuePanel />);
     const host = screen.getByLabelText("YouTube 영상 플레이어").firstElementChild;
-    expect(screen.getByRole("img", { name: `${track.song.title} 영상 썸네일` })).toBeTruthy();
+    expect(screen.getByAltText(`${track.song.title} 영상 썸네일`)).toBeTruthy();
     mocks.usePlayer.mockReturnValue({ ...player, status: "loading" });
     rerender(<OtwPlayPlayerQueuePanel />);
-    expect(screen.getByRole("img", { name: `${track.song.title} 영상 썸네일` })).toBeTruthy();
+    expect(screen.getByAltText(`${track.song.title} 영상 썸네일`)).toBeTruthy();
     for (const status of ["playing", "paused", "loading"]) {
       mocks.usePlayer.mockReturnValue({ ...player, status });
       rerender(<OtwPlayPlayerQueuePanel />);
-      expect(screen.queryByRole("img", { name: `${track.song.title} 영상 썸네일` })).toBeNull();
+      expect(screen.queryByAltText(`${track.song.title} 영상 썸네일`)).toBeNull();
       expect(screen.getByLabelText("YouTube 영상 플레이어").firstElementChild).toBe(host);
     }
   });

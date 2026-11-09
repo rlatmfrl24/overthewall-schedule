@@ -26,7 +26,8 @@ export function createPlaylistHeroTransition(root: HTMLElement, enabled: boolean
     const viewport = root.getBoundingClientRect();
     const visible = bounds.width > 0 && bounds.height > 0 && bounds.bottom > viewport.top && bounds.top < viewport.bottom && bounds.right > viewport.left && bounds.left < viewport.right;
     const keyboard = root.closest<HTMLElement>("[data-play-input]")?.dataset.playInput === "keyboard";
-    const overlay = enabled && !keyboard && visible && typeof source.animate === "function" ? document.createElement("div") : null;
+    const imageVisible = !image.closest("[data-image-state]:not([data-image-state=loaded])");
+    const overlay = enabled && !keyboard && visible && imageVisible && typeof source.animate === "function" ? document.createElement("div") : null;
     const layer = overlay ? document.createElement("div") : null;
     const animations: ReturnType<typeof waapi.animate>[] = [];
     let destination: HTMLElement | undefined;

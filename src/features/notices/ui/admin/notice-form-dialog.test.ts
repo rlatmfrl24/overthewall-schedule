@@ -87,7 +87,7 @@ describe("NoticeFormDialog", () => {
     render(createElement(NoticeFormDialog, { open: true, onOpenChange: vi.fn(), onSubmit: vi.fn(), members }));
     fireEvent.change(screen.getByLabelText("이미지 URL"), { target: { value: raw } });
     fireEvent.click(screen.getByRole("button", { name: "추가" }));
-    await waitFor(() => expect(screen.getByRole("img", { name: "공지 이미지 1" }).getAttribute("src")).toBe(raw));
+    await waitFor(() => expect(screen.getByAltText("공지 이미지 1").getAttribute("src")).toBe(raw));
     expect(JSON.parse(new URL(String(fetcher.mock.calls[0][0]), window.location.origin).searchParams.get("context")!)).toEqual({ kind: "notice-draft", relatedMemberUids: [] });
     fireEvent.click(screen.getByText("🌙 멤버 하나"));
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
@@ -192,8 +192,8 @@ describe("NoticeFormDialog", () => {
     fireEvent.change(screen.getByLabelText("공지 이미지 파일"), { target: { files } });
 
     await waitFor(() => expect(uploadNoticeThumbnailMock).toHaveBeenCalledTimes(3));
-    await waitFor(() => expect(screen.getByRole("img", { name: "공지 이미지 1" }).getAttribute("src")).toBe("blob:notice-preview"));
-    await waitFor(() => expect(screen.getByRole("img", { name: "공지 이미지 2" }).getAttribute("src")).toBe("blob:notice-preview"));
+    await waitFor(() => expect(screen.getByAltText("공지 이미지 1").getAttribute("src")).toBe("blob:notice-preview"));
+    await waitFor(() => expect(screen.getByAltText("공지 이미지 2").getAttribute("src")).toBe("blob:notice-preview"));
     expect(fetch).toHaveBeenCalledWith("/one.webp?archive=1", expect.anything());
     expect(fetch).toHaveBeenCalledWith("/three.webp?archive=1", expect.anything());
     expect(screen.getByRole("status").textContent).toContain("2개 업로드 완료");
@@ -248,7 +248,7 @@ describe("NoticeFormDialog", () => {
       expect(uploadNoticeThumbnailMock).toHaveBeenCalledTimes(1),
     );
     await waitFor(() => expect(
-      screen.getByRole("img", { name: "공지 이미지 10" }).getAttribute("src"),
+      screen.getByAltText("공지 이미지 10").getAttribute("src"),
     ).toBe("blob:notice-preview"));
     expect(fetch).toHaveBeenCalledWith("/tenth.webp?archive=1", expect.anything());
     expect(screen.getByRole("status").textContent).toContain("invalid.gif");
@@ -307,7 +307,7 @@ describe("NoticeFormDialog", () => {
     fireEvent.click(screen.getByText("멤버 둘"));
     const image = new File(["image"], "saved.png", { type: "image/png" });
     fireEvent.change(screen.getByLabelText("공지 이미지 파일"), { target: { files: [image] } });
-    await waitFor(() => expect(screen.getByRole("img", { name: "공지 이미지 1" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByAltText("공지 이미지 1")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "공지 등록" }));
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());

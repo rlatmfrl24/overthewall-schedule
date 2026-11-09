@@ -1,3 +1,4 @@
+import { LoadingImage } from "@/shared/ui/loading-image";
 import {fetchOtwPlayAdminCatalog} from "../../api/admin";
 import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
 import type { AiReviewFields, AiReviewField } from "@contracts/otw-play-ai-review";
@@ -853,7 +854,7 @@ export function CatalogEntryDialog({
                 </div>
                 {preflight && (
                   <div className="flex items-start gap-3">
-                    <img src={preflight.video.thumbnailUrl ?? `https://i.ytimg.com/vi/${preflight.video.videoId}/hqdefault.jpg`} alt="확인한 영상 썸네일" className="aspect-video w-24 shrink-0 rounded-md object-cover sm:w-32" />
+                    <LoadingImage src={preflight.video.thumbnailUrl ?? `https://i.ytimg.com/vi/${preflight.video.videoId}/hqdefault.jpg`} alt="확인한 영상 썸네일" className="aspect-video w-24 shrink-0 rounded-md object-cover sm:w-32" />
                     <div className="min-w-0 space-y-2">
                       <div className="break-words font-medium">{preflight.video.title}</div>
                       <div className="text-sm text-muted-foreground">{preflight.video.durationSeconds === null ? "영상 길이 미확인" : `영상 길이 · ${preflight.video.durationSeconds}초`}</div>

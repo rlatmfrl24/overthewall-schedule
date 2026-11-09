@@ -1,3 +1,4 @@
+import { LoadingImage } from "@/shared/ui/loading-image";
 import type { MemberDto } from "@contracts/members";
 import type { ChzzkVideo } from "../model/types";
 import { cn } from "@/shared/lib/utils";
@@ -115,7 +116,7 @@ export const VodCard = ({
         )}
       >
         {video.thumbnailImageUrl ? (
-          <img
+          <LoadingImage
             src={getThumbnailUrl(video.thumbnailImageUrl)}
             alt={video.videoTitle}
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
@@ -164,7 +165,7 @@ export const VodCard = ({
               title={channelName}
             >
               {avatarSrc ? (
-                <img
+                <LoadingImage
                   src={avatarSrc}
                   alt=""
                   className="h-full w-full object-cover"

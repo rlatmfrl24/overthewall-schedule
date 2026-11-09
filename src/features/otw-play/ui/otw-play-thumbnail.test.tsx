@@ -24,7 +24,7 @@ describe("OtwPlayThumbnail", () => {
     );
     expect(
       screen
-        .getByRole("img", { name: "고해상도 곡 썸네일" })
+        .getByAltText("고해상도 곡 썸네일")
         .getAttribute("src"),
     ).toBe("https://i.ytimg.com/vi/ASRCBcCY_qE/maxresdefault.jpg");
   });
@@ -38,12 +38,14 @@ describe("OtwPlayThumbnail", () => {
         height={540}
       />,
     );
-    const image = screen.getByRole("img", { name: "곡 썸네일" });
+    const image = screen.getByAltText("곡 썸네일");
     expect(image.getAttribute("src")).toContain("maxresdefault.jpg");
     fireEvent.error(image);
-    expect(
-      screen.getByRole("img", { name: "곡 썸네일" }).getAttribute("src"),
-    ).toBe(source.thumbnailUrl);
+    const alternate = screen.getByAltText("곡 썸네일");
+    expect(alternate.getAttribute("src")).toBe(source.thumbnailUrl);
+    expect(screen.getByRole("img", { name: "곡 썸네일 이미지 불러오는 중" })).toBeTruthy();
+    fireEvent.load(alternate);
+    expect(screen.getByRole("img", { name: "곡 썸네일" })).toBe(alternate);
   });
 
   it("keeps the supplied empty state when every image candidate fails", () => {
@@ -56,8 +58,8 @@ describe("OtwPlayThumbnail", () => {
         fallback={<span>썸네일 없음</span>}
       />,
     );
-    fireEvent.error(screen.getByRole("img", { name: "곡 썸네일" }));
-    fireEvent.error(screen.getByRole("img", { name: "곡 썸네일" }));
+    fireEvent.error(screen.getByAltText("곡 썸네일"));
+    fireEvent.error(screen.getByAltText("곡 썸네일"));
     expect(screen.queryByRole("img")).toBeNull();
     expect(screen.getByText("썸네일 없음")).toBeTruthy();
   });
