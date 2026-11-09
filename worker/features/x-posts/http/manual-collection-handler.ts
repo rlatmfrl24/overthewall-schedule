@@ -1,28 +1,21 @@
 import { requireAdminUser } from "../../../platform/auth";
 import type { Env } from "../../../platform/types";
 import { getActorInfo } from "../../../platform/http-helpers";
-import type { XPostsApplication } from "../application/x-posts-service";
 import type { OperationRunAcceptedDto } from "@contracts/scheduled-operations";
 import type { XCollectionProvider } from "@contracts/x-collection";
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 
-export type BuildManualXCollectionApplication = (
-  env: Env,
-) => XPostsApplication;
-export type EnqueueManualXCollection = (
+type EnqueueManualXCollection = (
   env: Env,
   actor: ReturnType<typeof getActorInfo>,
   idempotencyKey: string | null,
   scope?: "pending",
-  provider?: import("@contracts/x-collection").XCollectionProvider,
+  provider?: XCollectionProvider,
 ) => Promise<OperationRunAcceptedDto>;
 
 export const createManualXCollectionHandler =
-  (
-    buildApplication: BuildManualXCollectionApplication,
-    enqueue: EnqueueManualXCollection,
-  ) =>
+  (enqueue: EnqueueManualXCollection) =>
   async (
     request: Request,
     env: Env,
@@ -47,7 +40,6 @@ export const createManualXCollectionHandler =
   const actor = getActorInfo(request, admin.user);
   const collectionOptions: [scope?: "pending", provider?: XCollectionProvider] = provider
     ? [scope === "pending" ? "pending" : undefined, provider] : scope === "pending" ? ["pending"] : [];
-  void buildApplication;
   try {
     const accepted = await enqueue(
       env,

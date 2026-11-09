@@ -38,7 +38,6 @@ export type {
   ScheduledJobStatus,
   ScheduledJobType,
   XCollectionOperationRun,
-  XCollectionRunResult,
   XDailyUsageSummary,
   XForceRefreshPathSummary,
   XOperationUsageSummary,

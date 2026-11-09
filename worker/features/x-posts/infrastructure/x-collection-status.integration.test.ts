@@ -21,6 +21,33 @@ beforeEach(async () => {
   vi.stubGlobal("fetch",vi.fn(() => { throw new Error("status must not call upstream"); }));
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+it("counts unique first saves in the rolling day for active members, independently of the archive index", async () => {
+  const since = now - 24 * 3_600_000;
+  await db.batch([
+    db.prepare("INSERT INTO members(uid,code,name,url_twitter,is_deprecated,content_access) VALUES(2,'zero','Zero','https://x.com/zero',0,'normal'),(3,'other','Other','https://x.com/other',0,'normal'),(4,'retired','Retired','https://x.com/retired',1,'normal'),(5,'archive','Archive','https://x.com/archive',0,'admin_archive')"),
+    ...([
+      ["1", "member", since, "normal"],
+      ["2", "member", now, "normal"],
+      ["3", "member", since - 1, "normal"],
+      ["4", "member", now, "admin_archive"],
+      ["5", "other", now - 1, "normal"],
+      ["6", "other", now + 1, "normal"],
+      ["7", "retired", now, "normal"],
+      ["8", "archive", now, "normal"],
+      ["9", "unconfigured", now, "normal"],
+    ] as const).map(([id, handle, firstSeenAt, access]) =>
+      db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at,content_access) VALUES(?,?,?,?,'2020-01-01',?,?,?)")
+        .bind(id, handle, handle, JSON.stringify({ quote: { postId: "10" }, reply: id === "1" ? { postId: "11" } : null }), firstSeenAt, now, access)),
+  ]);
+  const result = await buildXCollectionApplication(runtime, { actorId: null, actorName: null, actorIp: null }).status();
+  expect(result.collectedByMember24h).toEqual([
+    { handle: "member", name: "Member", count: 2, quoteCount: 2, replyCount: 1 },
+    { handle: "zero", name: "Zero", count: 0, quoteCount: 0, replyCount: 0 },
+    { handle: "other", name: "Other", count: 1, quoteCount: 1, replyCount: 0 },
+  ]);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it("exposes the bounded scope and an unacknowledged first-page failure as pending", async () => {
   await db.prepare("UPDATE x_fx_sources SET last_error='fx_storage_failed',cursor=NULL,last_completed_at=?,retired_progress=?").bind(now-1,JSON.stringify({cursor:'historic',reason:'recent_48h_check'})).run();
   const result=await readXCollectionStatus(runtime,null);

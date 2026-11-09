@@ -10,7 +10,7 @@ import { writeStoredPosts } from "./x-api";
 import { fetchFxProfile, fetchFxTimelinePage, FxApiError } from "./fx-api";
 import { claimXSourceLeases, readActiveXHandles, releaseXSourceLeases, type XCollectionRunResult } from "./x-collection";
 
-type FxSource = { cursor: string | null; user_id: string | null; collection_started_at: number; window_until_at: number | null; pages_completed: number; last_completed_at: number | null; retired_progress: string | null };
+type FxSource = { official_user_id: string | null; official_started_at: number | null; cursor: string | null; user_id: string | null; collection_started_at: number; window_until_at: number | null; pages_completed: number; last_completed_at: number | null };
 
 export async function runFxCollectionForHandles(env: Env, handles: string[], source: "manual" | "scheduled", scheduledFor?: number | null): Promise<XCollectionRunResult & { provider: "fxembed" }> {
   const siteId = parseSiteId(env.SITE_ID), db = env.otw_db;
@@ -23,16 +23,24 @@ export async function runFxCollectionForHandles(env: Env, handles: string[], sou
     for (const handle of lease.claimed) {
       result.checkedHandles++;
       const now = Date.now();
-      const official = await db.prepare("SELECT user_id,collection_started_at FROM x_post_sources WHERE handle=?").bind(handle).first<{ user_id: string | null; collection_started_at: number | null }>();
-      const existing = await db.prepare("SELECT cursor,user_id,collection_started_at,window_until_at,pages_completed,last_completed_at,retired_progress FROM x_fx_sources WHERE handle=?").bind(handle).first<FxSource>();
-      await db.prepare(`INSERT INTO x_fx_sources(handle,collection_started_at,last_attempt_at,cadence_anchor_at,updated_at) VALUES(?,?,?,?,?)
-        ON CONFLICT(handle) DO UPDATE SET last_attempt_at=excluded.last_attempt_at,cadence_anchor_at=excluded.cadence_anchor_at,updated_at=excluded.updated_at`)
-        .bind(handle, official?.collection_started_at ?? now, now, collectionCadenceAnchor(source === "scheduled" ? scheduledFor : undefined, now), now).run();
+      const existing = await db.prepare(`
+        SELECT s.user_id AS official_user_id,s.collection_started_at AS official_started_at,
+               fx.cursor,fx.user_id,fx.collection_started_at,fx.window_until_at,fx.pages_completed,fx.last_completed_at
+        FROM x_post_sources s LEFT JOIN x_fx_sources fx ON fx.handle=s.handle WHERE s.handle=?`)
+        .bind(handle).first<FxSource>();
+      let userId = existing?.official_user_id ?? existing?.user_id;
+      await db.prepare(`INSERT INTO x_fx_sources(handle,user_id,collection_started_at,last_attempt_at,cadence_anchor_at,updated_at) VALUES(?,?,?,?,?,?)
+        ON CONFLICT(handle) DO UPDATE SET user_id=COALESCE(excluded.user_id,x_fx_sources.user_id),last_attempt_at=excluded.last_attempt_at,
+          cadence_anchor_at=excluded.cadence_anchor_at,updated_at=excluded.updated_at`)
+        .bind(handle, userId ?? null, existing?.official_started_at ?? now, now, collectionCadenceAnchor(source === "scheduled" ? scheduledFor : undefined, now), now).run();
       try {
-        let userId = official?.user_id ?? existing?.user_id;
-        if (!userId) { result.apiCalls++; userId = (await fetchFxProfile(handle)).id; }
-        await db.prepare("UPDATE x_fx_sources SET user_id=? WHERE handle=?").bind(userId, handle).run();
-        const startedAt = existing?.collection_started_at ?? official?.collection_started_at ?? now;
+        if (!userId) {
+          result.apiCalls++;
+          userId = (await fetchFxProfile(handle)).id;
+          await db.prepare("UPDATE x_fx_sources SET user_id=? WHERE handle=?").bind(userId, handle).run();
+        }
+        const author = { id: userId, username: handle };
+        const startedAt = existing?.collection_started_at ?? existing?.official_started_at ?? now;
         let cursor = existing?.window_until_at != null ? existing.cursor : null;
         let pages = cursor ? existing!.pages_completed : 0;
         let windowUntil = cursor ? existing!.window_until_at : null;
@@ -41,7 +49,7 @@ export async function runFxCollectionForHandles(env: Env, handles: string[], sou
           const from = Math.max(startedAt, until - FX_COLLECTION_LOOKBACK_HOURS * 3_600_000);
           const selected = posts.filter(post => Date.parse(post.createdAt) >= from && Date.parse(post.createdAt) <= until);
           result.postsReturned += selected.length;
-          const stored = await writeStoredPosts(db, handle, { id: userId, username: handle }, selected, Date.now(), siteId,
+          const stored = await writeStoredPosts(db, handle, author, selected, Date.now(), siteId,
             { origin: "fxembed", completeness: { text: true, media: true, relations: true } });
           if (!stored.ok) throw new Error(stored.error ?? "fx_storage_failed");
           result.postsStored += stored.count;

@@ -396,20 +396,6 @@ export interface AutoUpdateRunResultDto {
   details: AutoUpdateRunDetailDto[];
 }
 
-export interface XCollectionRunResultDto {
-  success: boolean;
-  pendingSources?: number;
-  status: "success" | "skipped" | "failed";
-  checkedHandles: number;
-  refreshedHandles: number;
-  postsReturned: number;
-  postsStored: number;
-  apiCalls: number;
-  estimatedCostMicros: number;
-  error: string | null;
-  updatedAt: string;
-}
-
 /** Account analytics used for background admission without spending D1 queries. */
 export interface D1ReadBudgetDto {
   status: "available" | "blocked" | "unavailable";

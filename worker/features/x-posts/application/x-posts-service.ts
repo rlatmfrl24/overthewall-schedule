@@ -1,10 +1,8 @@
-import type { XCollectionRunResultDto } from "@contracts/operations";
 import type {
   XHistoryHealthResponseDto,
   XHistoryPostStatus,
   XHistoryPostsResponseDto,
   XLinkedPostPreviewDto,
-  XPostsByHandleDto,
   XPostsResponseDto,
   XPostsVisibility,
 } from "@contracts/x-posts";
@@ -24,10 +22,9 @@ export type XHistoryReadOptions = {
   limit: number;
 };
 
-export type XPostsFetchOptions = {
+type XPostsFetchOptions = {
   maxResults: number;
   richXLinkPreviewEnabled: boolean;
-  refresh: boolean;
 };
 
 export type XActor = {
@@ -36,23 +33,7 @@ export type XActor = {
   actorIp?: string | null;
 };
 
-export type XCollectionAuditInput = XActor & {
-  status: "success" | "skipped" | "failed";
-  targetCount: number;
-  successCount: number;
-  failureCount: number;
-  detail: {
-    checkedHandles: number;
-    refreshedHandles: number;
-    postsReturned: number;
-    postsStored: number;
-    apiCalls: number;
-    estimatedCostMicros: number;
-  } | null;
-  error: string | null;
-};
-
-export interface XPostsApplicationPorts {
+interface XPostsApplicationPorts {
   readSetting(key: string): Promise<string | null>;
   readAllowedHandles(): Promise<ReadonlySet<string>>;
   fetchPosts(
@@ -65,8 +46,6 @@ export interface XPostsApplicationPorts {
   fetchPostPreview(postId: string): Promise<XLinkedPostPreviewDto | null>;
   redactStoredPost(postId: string, actor: XActor): Promise<{ found: boolean; changed: boolean; auditWritten?: boolean }>;
   writePostRedactionAudit(postId: string, actor: XActor, changed: boolean): Promise<void>;
-  runCollection(): Promise<XCollectionRunResultDto>;
-  writeCollectionAudit(input: XCollectionAuditInput): Promise<void>;
   readHistoryPosts(options: XHistoryReadOptions): Promise<XHistoryPostsResponseDto>;
   readHistoryHealth(): Promise<XHistoryHealthResponseDto>;
   warn(message: string, error: unknown): void;
@@ -135,34 +114,6 @@ const normalizeVisibility = (
 ): XPostsVisibility =>
   value === "public" || value === "private" ? value : "members";
 
-const toAuditInput = (
-  result: XCollectionRunResultDto,
-  actor: XActor,
-): XCollectionAuditInput => ({
-  ...actor,
-  status:
-    result.status === "success"
-      ? "success"
-      : result.status === "skipped"
-        ? "skipped"
-        : "failed",
-  targetCount: result.checkedHandles,
-  successCount: result.refreshedHandles,
-  failureCount:
-    result.status === "failed"
-      ? Math.max(1, result.checkedHandles - result.refreshedHandles)
-      : 0,
-  detail: {
-    checkedHandles: result.checkedHandles,
-    refreshedHandles: result.refreshedHandles,
-    postsReturned: result.postsReturned,
-    postsStored: result.postsStored,
-    apiCalls: result.apiCalls,
-    estimatedCostMicros: result.estimatedCostMicros,
-  },
-  error: result.error,
-});
-
 export const createXPostsApplication = (ports: XPostsApplicationPorts) => ({
   async readVisibility(): Promise<XPostsVisibility> {
     try {
@@ -198,7 +149,6 @@ export const createXPostsApplication = (ports: XPostsApplicationPorts) => ({
     return ports.fetchPosts(handles, {
       maxResults,
       richXLinkPreviewEnabled,
-      refresh: false,
     });
   },
 
@@ -232,26 +182,6 @@ export const createXPostsApplication = (ports: XPostsApplicationPorts) => ({
     return result.found;
   },
 
-  async runManualCollection(actor: XActor) {
-    try {
-      const result = await ports.runCollection();
-      await ports.writeCollectionAudit(toAuditInput(result, actor));
-      return { ok: true as const, result };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "unknown_error";
-      await ports.writeCollectionAudit({
-        ...actor,
-        status: "failed",
-        targetCount: 0,
-        successCount: 0,
-        failureCount: 1,
-        detail: null,
-        error: message,
-      });
-      return { ok: false as const, error: message };
-    }
-  },
-
   readHistoryPosts(options: XHistoryReadOptions) {
     return ports.readHistoryPosts(options);
   },
@@ -262,4 +192,3 @@ export const createXPostsApplication = (ports: XPostsApplicationPorts) => ({
 });
 
 export type XPostsApplication = ReturnType<typeof createXPostsApplication>;
-export type XPostFeedItem = XPostsByHandleDto["posts"][number];

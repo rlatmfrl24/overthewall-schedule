@@ -17,7 +17,6 @@ import type {
   OperationsStatusLevel,
   OperationsStatusResponseDto,
   XCollectionOperationRunDto,
-  XCollectionRunResultDto,
   XDailyUsageSummaryDto,
   XForceRefreshPathSummaryDto,
   XOperationUsageSummaryDto,
@@ -49,7 +48,6 @@ export type NaverCafeOperationSource = NaverCafeOperationSourceDto;
 export type OperationsIssue = OperationsIssueDto;
 export type OperationsStatusResponse = OperationsStatusResponseDto;
 export type XCollectionOperationRun = XCollectionOperationRunDto;
-export type XCollectionRunResult = XCollectionRunResultDto;
 export type XDailyUsageSummary = XDailyUsageSummaryDto;
 export type XForceRefreshPathSummary = XForceRefreshPathSummaryDto;
 export type XOperationUsageSummary = XOperationUsageSummaryDto;

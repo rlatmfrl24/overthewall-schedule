@@ -59,7 +59,9 @@ const prepareXPostReferences = (
               ELSE excluded.resolution_state
             END,
             next_attempt_at = CASE
-              WHEN excluded.relation_type = 'reply' THEN NULL
+              WHEN excluded.relation_type = 'reply' THEN
+                CASE WHEN x_post_references.referenced_post_id = excluded.referenced_post_id AND excluded.hydrated_at IS NULL
+                  THEN x_post_references.next_attempt_at ELSE NULL END
               WHEN x_post_references.referenced_post_id = excluded.referenced_post_id
                 AND (x_post_references.hydrated_at IS NOT NULL OR x_post_references.resolution_state = 'terminal')
               THEN x_post_references.next_attempt_at ELSE excluded.next_attempt_at END,
@@ -157,7 +159,8 @@ export async function commitStoredPosts(
       const localPreview = (id: string) => {
         if (hidden.has(id)) return null;
         if (previews.has(id)) return previews.get(id)!;
-        return parseCachedXPreview(caches.get(linkedPostKey(id)) ?? "null", id, hiddenHandles);
+        const cached = parseCachedXPreview(caches.get(linkedPostKey(id)) ?? "null", id, hiddenHandles);
+        return cached === "hidden" ? null : cached;
       };
       const byId = new Map<string, { row: RootRow | undefined; merged: ReturnType<typeof mergeStoredXPost>; count: number }>();
       for (const incoming of posts) {
@@ -166,8 +169,11 @@ export async function commitStoredPosts(
         if (row && (row.handle !== handle || (row.user_id && row.user_id !== user.id))) throw new Error("post_author_mismatch");
         const previous = byId.get(incoming.id);
         const existing = previous?.merged ?? (row ? { post: JSON.parse(row.value) as XPostItem, authority: row.source_authority ? JSON.parse(row.source_authority) as XPostAuthority : null } : null);
-        const merged = mergeStoredXPost(existing, incoming, typeof context === "function" ? context(incoming) : context);
+        const writeContext = typeof context === "function" ? context(incoming) : context;
+        if (writeContext.replyPreviewOnly && (!existing?.post.reply || existing.post.reply.postId !== incoming.reply?.postId || existing.post.reply.post)) continue;
+        const merged = mergeStoredXPost(existing, incoming, writeContext);
         const sanitized = sanitizeXReferences(merged.post, archived, hiddenHandles, hidden);
+        if (writeContext.replyPreviewOnly && sanitized.reply?.post?.id !== incoming.reply?.post?.id) continue;
         merged.changed = hasStoredXPostChanged(existing, sanitized, merged.authority);
         merged.post = sanitized;
         const repair = Boolean(previous || (row?.source_authority && row.content_hash === null));
@@ -218,6 +224,7 @@ export async function commitStoredPosts(
       return { count: plans.reduce((sum, plan) => sum + plan.count, 0), insertedIds: inserts.filter(insert => results[insert.index].meta.changes > 0).map(insert => insert.id) };
     } catch (error) {
       if (!(error instanceof Error) || !error.message.includes("post_revision_conflict")) throw error;
+      if (typeof context !== "function" && context.replyPreviewOnly) throw error;
       if (rssFence) {
         noteRssD1Conflict(db);
         // Two retry calls plus twelve for checkpoint, release, outbox and a failed final ACK retry.

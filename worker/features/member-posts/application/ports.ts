@@ -58,7 +58,6 @@ export interface MemberPostsPort {
     options: {
       maxResults: number;
       richXLinkPreviewEnabled: boolean;
-      adminView: boolean;
       page?: MemberPostsPageRequest;
     },
   ): Promise<XPostsContent>;

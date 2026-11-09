@@ -9,7 +9,6 @@ export {
 } from "./infrastructure/d1-member-posts-port";
 export type {
   NaverCafeReader,
-  XFeedService,
 } from "./infrastructure/d1-member-posts-port";
 export {
   createMemberPostsHandler,

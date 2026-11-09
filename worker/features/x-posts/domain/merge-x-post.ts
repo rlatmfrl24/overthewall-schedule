@@ -5,6 +5,7 @@ export type XPostAuthority = Record<"text" | "media" | "relations", XPostOrigin>
 export type XPostWriteContext = {
   origin: XPostOrigin;
   completeness: Record<keyof XPostAuthority, boolean>;
+  replyPreviewOnly?: true;
 };
 export const officialXPostContext: XPostWriteContext = {
   origin: "x_api", completeness: { text: true, media: true, relations: true },
@@ -52,9 +53,9 @@ export function mergeStoredXPost(
       }
     }
   }
-  if (existing && context.origin === "x_api" && !context.completeness.relations) {
+  if (existing && (context.origin === "x_api" || context.replyPreviewOnly) && !context.completeness.relations) {
     // A recovered preview fills only an already-known relation, without confirming other fields.
-    for (const relation of ["quote", "reply"] as const) {
+    for (const relation of context.replyPreviewOnly ? ["reply"] as const : ["quote", "reply"] as const) {
       const current = post[relation], next = incoming[relation];
       if (current && !current.post && current.postId === next?.postId && next.post?.id === current.postId) {
         if (relation === "quote" && post.quote) post.quote = { ...post.quote, post: next.post };

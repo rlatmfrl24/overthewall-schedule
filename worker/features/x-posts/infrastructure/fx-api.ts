@@ -7,9 +7,12 @@ export class FxApiError extends Error {
   constructor(code: string) { super(code); this.code = code; }
 }
 const invalid = (): never => { throw new FxApiError("fx_invalid_payload"); };
-const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : invalid();
-const id = (value: unknown) => typeof value === "string" && /^\d{1,25}$/.test(value) ? value : invalid();
-const handle = (value: unknown) => typeof value === "string" && /^[a-zA-Z0-9_]{1,15}$/.test(value) ? value.toLowerCase() : invalid();
+const asObject = (value: unknown) => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+const asId = (value: unknown) => typeof value === "string" && /^\d{1,25}$/.test(value) ? value : null;
+const asHandle = (value: unknown) => typeof value === "string" && /^[a-zA-Z0-9_]{1,15}$/.test(value) ? value.toLowerCase() : null;
+const object = (value: unknown) => asObject(value) ?? invalid();
+const id = (value: unknown) => asId(value) ?? invalid();
+const handle = (value: unknown) => asHandle(value) ?? invalid();
 export { id as parseFxId, handle as parseFxHandle };
 const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
 const webUrl = (value: unknown, media = false): string => {
@@ -48,21 +51,31 @@ const parseStatus = (value: unknown, preview = false): XPostDto => {
     const link = object(facet);
     if (link.type === "url") post.links!.push({ url: webUrl(link.original), expandedUrl: webUrl(link.replacement), displayUrl: typeof link.display === "string" ? link.display : null });
   }
-  if (!preview && raw.quote) {
-    const quote = object(raw.quote), quoteId = id(quote.id);
-    let quotedPost: XLinkedPostPreviewDto | null = null;
-    if (quote.type === "status" && object(quote.author).protected === false) {
-      const parsed = parseStatus(quote, true), quotedAuthor = object(quote.author);
-      quotedPost = { ...parsed, name: typeof quotedAuthor.name === "string" ? quotedAuthor.name : null, profileImageUrl: quotedAuthor.avatar_url ? webUrl(quotedAuthor.avatar_url, true) : null };
+  if (!preview) {
+    const quote = asObject(raw.quote);
+    const quoteId = asId(quote?.id);
+    if (quote && quoteId) post.quote = { postId: quoteId, post: parseStatusPreview(quote) };
+
+    const reply = asObject(raw.replying_to);
+    const replyId = asId(reply?.status);
+    if (replyId) {
+      post.reply = { postId: replyId, conversationId: null, targetUsername: asHandle(reply?.screen_name), post: null };
     }
-    post.quote = { postId: quoteId, post: quotedPost };
-  }
-  if (!preview && raw.replying_to) {
-    const reply = object(raw.replying_to);
-    post.reply = { postId: id(reply.status), conversationId: null, targetUsername: handle(reply.screen_name), post: null };
   }
   return post;
 };
+
+function parseStatusPreview(status: Record<string, unknown>): XLinkedPostPreviewDto | null {
+  const author = asObject(status.author);
+  if (status.type !== "status" || author?.protected !== false) return null;
+  try {
+    return { ...parseStatus(status, true), name: typeof author.name === "string" ? author.name : null, profileImageUrl: author.avatar_url ? webUrl(author.avatar_url, true) : null };
+  } catch (error) {
+    // An unusable embedded original must not discard its enclosing post or page.
+    if (error instanceof FxApiError) return null;
+    throw error;
+  }
+}
 
 export function parseFxTimelinePage(payload: unknown, targetHandle: string, trustedUserId: string) {
   const body = object(payload), target = handle(targetHandle);
@@ -124,4 +137,14 @@ export async function fetchFxTimelinePage(targetHandle: string, cursor: string |
 export async function fetchFxStatus(postId: string, targetHandle: string, trustedUserId: string): Promise<XPostDto> {
   const expectedId = id(postId), target = handle(targetHandle), userId = id(trustedUserId);
   return parseFxStatus(await request(`/2/status/${expectedId}`), target, userId, expectedId);
+}
+
+export async function fetchFxPostPreview(postId: string, expectedAuthorId?: string | null): Promise<XLinkedPostPreviewDto | null> {
+  const expectedId = id(postId);
+  const body = await request(`/2/status/${expectedId}`);
+  if (body.code !== 200) throw new FxApiError(`fx_payload_${body.code}`);
+  const status = asObject(body.status);
+  if (!status || status.id !== expectedId || status.reposted_by) return null;
+  if (expectedAuthorId && asObject(status.author)?.id !== expectedAuthorId) return null;
+  return parseStatusPreview(status);
 }

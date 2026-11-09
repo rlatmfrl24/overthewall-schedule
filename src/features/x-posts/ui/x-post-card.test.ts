@@ -199,7 +199,7 @@ describe("XPostCard", () => {
     ).toBe("https://x.com/linked/status/9876543210");
   });
 
-  it("인용 게시글을 자동 노출하고 3줄로 축약하며 라벨과 중복 링크를 숨긴다", () => {
+  it("인용 원문을 구분해 표시하고 3줄로 축약하며 중복 링크를 숨긴다", () => {
     const quoteId = "2059529979700846500";
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     const { container } = renderCard(
@@ -226,8 +226,7 @@ describe("XPostCard", () => {
       {},
     );
 
-    expect(screen.queryByText("인용")).toBeNull();
-    expect(screen.queryByText("인용 게시글")).toBeNull();
+    expect(screen.getByRole("group", { name: "인용 원문" })).toBeTruthy();
     expect(screen.getAllByText("quoted post body")).toHaveLength(1);
     expect(screen.getByText("quoted post body").className).toContain("line-clamp-3");
     expect(screen.queryByText("https://t.co/quote")).toBeNull();
@@ -243,6 +242,20 @@ describe("XPostCard", () => {
     fireEvent.click(quoteLink);
     expect(open).not.toHaveBeenCalled();
     expect(container.querySelectorAll("a a")).toHaveLength(0);
+  });
+
+  it("미확보 인용 원문과 답글 대상을 각각 연결하고 중복 미리보기를 숨긴다", () => {
+    const targetUrl = "https://x.com/parent/status/1234567890";
+    renderCard(makePost({
+      text: "답글 본문 https://t.co/parent",
+      links: [{ url: "https://t.co/parent", expandedUrl: targetUrl, displayUrl: null }],
+      reply: { postId: "1234567890", conversationId: null, targetUsername: "parent", post: null },
+      quote: { postId: "1234567891", post: null },
+    }));
+    expect(screen.getByRole("link", { name: "인용 원문 열기" }).getAttribute("href")).toBe("https://x.com/i/web/status/1234567891");
+    expect(screen.getByRole("link", { name: "답글 원문 열기" }).getAttribute("href")).toBe("https://x.com/i/web/status/1234567890");
+    expect(screen.queryByText("https://t.co/parent")).toBeNull();
+    expect(screen.getAllByRole("link").some(link => link.getAttribute("href") === targetUrl)).toBe(false);
   });
 
   it("답글 원문은 별도 영역에 바로 표시하며 선두 멘션만 제거한다", () => {

@@ -176,7 +176,7 @@ describe("member-posts aggregate worker route", () => {
     mockXPosts();
     await handleMemberPosts(new Request(`https://example.com/api/member-posts?sources=x&page=1&cursor=${cursor}&memberUid=1`), makeEnv());
     expect(authenticateRequestMock).toHaveBeenCalledOnce();
-    expect(fetchXPostsForHandlesMock).toHaveBeenCalledWith(["otw_member"], expect.objectContaining({ refresh: false, forceRefresh: false, storedPage: { memberUid: 1, cursor: { createdAt: "2026-09-17T00:00:00Z", id: "x:1" } } }));
+    expect(fetchXPostsForHandlesMock).toHaveBeenCalledWith(["otw_member"], expect.objectContaining({ storedPage: { memberUid: 1, cursor: { createdAt: "2026-09-17T00:00:00Z", id: "x:1" } } }));
   });
   beforeEach(() => {
     feedTimestampMock.mockReset().mockResolvedValue({ updated_at: null });
@@ -262,14 +262,9 @@ describe("member-posts aggregate worker route", () => {
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(fetchXPostsForHandlesMock).toHaveBeenCalledWith(["otw_member"], {
       siteId: "otw",
-      bearerToken: "token",
       cacheDb: env.otw_db,
-      forceRefresh: false,
-      forceRefreshPath: null,
       maxResults: 5,
-      refresh: false,
       richXLinkPreviewEnabled: true,
-      usageSource: "member-posts",
     });
     expect(readStoredNaverCafePostsForSourcesMock).toHaveBeenCalledWith(
       fakeState.cafeSources,
@@ -425,14 +420,9 @@ describe("member-posts aggregate worker route", () => {
     expect(response.status).toBe(200);
     expect(fetchXPostsForHandlesMock).toHaveBeenCalledWith(["otw_member"], {
       siteId: "otw",
-      bearerToken: "token",
       cacheDb: env.otw_db,
-      forceRefresh: false,
-      forceRefreshPath: null,
       maxResults: 5,
-      refresh: false,
       richXLinkPreviewEnabled: true,
-      usageSource: "member-posts",
     });
     expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
@@ -455,14 +445,9 @@ describe("member-posts aggregate worker route", () => {
     expect(requireAdminUserMock).toHaveBeenCalledTimes(1);
     expect(fetchXPostsForHandlesMock).toHaveBeenCalledWith(["otw_member"], {
       siteId: "otw",
-      bearerToken: "token",
       cacheDb: env.otw_db,
-      forceRefresh: false,
-      forceRefreshPath: null,
       maxResults: 5,
-      refresh: false,
       richXLinkPreviewEnabled: true,
-      usageSource: "member-posts:admin",
     });
   });
 

@@ -9,7 +9,6 @@ export const FX_COLLECTION_MAX_PAGES = 4;
 export type FxRecentCheck = { lookbackHours: 48; maxPages: 4; limitedSources: number };
 export const FX_RSS_INTERVAL_MS = 6 * 3_600_000;
 export const X_HYBRID_REGULAR_INTERVAL_MS = 12 * 3_600_000;
-export const X_REGULAR_INTERVAL_MS = 24 * 60 * 60_000;
 export const X_FALLBACK_INTERVAL_MS = 2 * 60 * 60_000;
 
 export type FxRssCandidate = { id: string; firstSeenAt: number; createdAtHint: number; attempts: number; nextAttemptAt: number; error: string | null; stage: "free" | "official" };
@@ -56,6 +55,7 @@ export interface XCollectionStatusDto {
   primarySource: XCollectionProvider;
   hybridPolicy: XHybridPolicy | null;
   observedAt: number;
+  collectedByMember24h?: { handle: string; name: string; count: number; quoteCount?: number; replyCount?: number }[] | null;
   rss: { enabled: boolean; intervalHours: number; lastHttpSuccessAt: number | null; lastCheckCompletedAt: number | null; pendingSources: number; pendingCandidates: number; windowReduced: boolean; error: string | null };
   fxembed: { intervalMinutes: number; lastSuccessAt: number | null; lastCompletedAt: number | null; pendingSources: number; failedSources: number; lookbackHours?: 48; maxPages?: 4; lastWindowUntilAt?: number | null; limitedSources?: number; retiredSources?: number };
   xApi: { intervalHours: number; lastRegularCompletedAt: number | null; nextRegularEligibleAt: number; pendingSources: number; failedSources: number; budgetReady: boolean | null };

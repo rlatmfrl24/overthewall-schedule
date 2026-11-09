@@ -13,7 +13,6 @@ const publicWorkerCommandEntries = new Set([
   "worker/features/ddays/commands.ts",
   "worker/features/otw-play/commands.ts",
   "worker/features/assets/commands.ts",
-  "worker/features/x-posts/commands.ts",
 ]);
 
 const walk = (directory) =>

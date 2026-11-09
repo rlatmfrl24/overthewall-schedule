@@ -150,7 +150,7 @@ it("keeps independently verified chunks when another chunk's archive-policy quer
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   const db = new Proxy(database, { get(target, property) {
     if (property === "prepare") return (sql: string) => {
-      if (sql.includes("SELECT id, NULL AS handle FROM x_posts") && ++policyReads === 1) throw failure;
+      if (sql.startsWith("WITH reference_ids") && ++policyReads === 1) throw failure;
       return target.prepare(sql);
     };
     const value = Reflect.get(target, property, target);

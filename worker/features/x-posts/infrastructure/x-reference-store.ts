@@ -45,18 +45,47 @@ export async function isXReferenceHidden(db: DB, id: string, siteId: SiteId = "l
   );
 }
 
-/** Embedded previews were stored before the access change; root filtering alone cannot protect them. */
+/** Apply current reference access and fill missing previews from posts collected since the original write. */
 export async function filterArchivedXReferences(db: DB, posts: XPostDto[], siteId: SiteId = "luvdia"): Promise<XPostDto[]> {
   const ids = [...new Set(posts.flatMap(post => [post.id, post.quote?.postId, post.reply?.postId,
     ...(post.links ?? []).map(link => link.linkedPost?.id)].filter((id): id is string => Boolean(id))))];
   if (!ids.length) return posts;
-  const rows = await db.prepare(`SELECT id, NULL AS handle FROM x_posts WHERE (content_access='admin_archive' OR ${publicationHiddenSql("x_posts","x_posts",siteId)}) AND id IN (SELECT value FROM json_each(?))
-    UNION SELECT post_id AS id, NULL AS handle FROM x_post_facts WHERE (content_access='admin_archive' OR ${publicationHiddenSql("x_post_facts","x_post_facts",siteId)}) AND post_id IN (SELECT value FROM json_each(?))
-    UNION SELECT NULL AS id, url_twitter AS handle FROM members WHERE (content_access='admin_archive' OR ${publicationHiddenSql("members","members",siteId)}) AND url_twitter IS NOT NULL`)
-    .bind(JSON.stringify(ids), JSON.stringify(ids)).all<{id:string|null;handle:string|null}>();
-  const hidden = new Set(rows.results.flatMap(row => row.id ? [row.id] : []));
-  const handles = new Set(rows.results.flatMap(row => { const handle = extractXHandle(row.handle)?.toLowerCase(); return handle ? [handle] : []; }));
-  return posts.filter(post => !hidden.has(post.id) && !handles.has(post.username.toLowerCase())).map(post => sanitizeXReferences(post, hidden, handles));
+  const missing = [...new Set(posts.flatMap(post => [post.quote, post.reply]
+    .flatMap(relation => relation && !relation.post ? [relation.postId] : [])))];
+  const rows = await db.prepare(`WITH reference_ids(id) AS (SELECT value FROM json_each(?))
+    SELECT p.id, NULL AS handle, CASE WHEN p.id IN (SELECT value FROM json_each(?)) THEN p.value END AS value,
+      CASE WHEN p.content_access='admin_archive' OR ${publicationHiddenSql("x_posts","p",siteId)} THEN 'archive'
+        WHEN p.hidden_at IS NOT NULL OR p.content_removed_at IS NOT NULL THEN 'redacted' ELSE 'local' END AS state
+    FROM x_posts p WHERE p.id IN (SELECT id FROM reference_ids)
+    UNION ALL SELECT post_id, NULL, NULL, 'archive' FROM x_post_facts
+      WHERE (content_access='admin_archive' OR ${publicationHiddenSql("x_post_facts","x_post_facts",siteId)}) AND post_id IN (SELECT id FROM reference_ids)
+    UNION ALL SELECT NULL, url_twitter, NULL, 'archive' FROM members
+      WHERE (content_access='admin_archive' OR ${publicationHiddenSql("members","members",siteId)}) AND url_twitter IS NOT NULL
+    UNION ALL SELECT referenced_post_id, NULL, NULL, 'redacted' FROM x_post_references
+      WHERE referenced_post_id IN (SELECT id FROM reference_ids) AND resolution_state='terminal'`)
+    .bind(JSON.stringify(ids), JSON.stringify(missing))
+    .all<{ id: string | null; handle: string | null; value: string | null; state: "archive" | "redacted" | "local" }>();
+  const archived = new Set<string>(), handles = new Set<string>(), redacted = new Set<string>();
+  const previews = new Map<string, XLinkedPostPreviewDto>();
+  for (const row of rows.results) {
+    if (row.handle) {
+      const handle = extractXHandle(row.handle)?.toLowerCase();
+      if (handle) handles.add(handle);
+    } else if (row.id && row.state === "archive") archived.add(row.id);
+    else if (row.id && row.state === "redacted") redacted.add(row.id);
+    else if (row.value) {
+      const original = parseXPreview(row.value);
+      if (original && original.id === row.id) previews.set(original.id, storedXPreview(original).post);
+    }
+  }
+  return posts.filter(post => !archived.has(post.id) && !handles.has(post.username.toLowerCase())).map(post => {
+    const quote = post.quote, reply = post.reply;
+    return sanitizeXReferences({
+      ...post,
+      quote: quote && !quote.post ? { ...quote, post: previews.get(quote.postId) ?? null } : quote,
+      reply: reply && !reply.post ? { ...reply, post: previews.get(reply.postId) ?? null } : reply,
+    }, archived, handles, redacted);
+  });
 }
 
 /** Archive removes relationships; ordinary redaction keeps links without their private preview. */
@@ -82,8 +111,8 @@ export async function readStoredXPreview(
   id: string,
   timestamp = Date.now(),
   siteId: SiteId = "luvdia",
-): Promise<StoredXPreview | null> {
-  if (await isXReferenceHidden(db, id, siteId)) return null;
+): Promise<StoredXPreview | "hidden" | null> {
+  if (await isXReferenceHidden(db, id, siteId)) return "hidden";
   const row = await db
     .prepare(
       `SELECT value, user_id, hidden_at, content_removed_at FROM x_posts WHERE id=?`,
@@ -96,11 +125,12 @@ export async function readStoredXPreview(
       content_removed_at: number | null;
     }>();
   if (row && (row.hidden_at != null || row.content_removed_at != null))
-    return null;
+    return "hidden";
   if (row) {
     const post = parseXPreview(row.value);
-    if (post?.id === id && (await filterArchivedXReferences(db, [post], siteId)).length)
-      return storedXPreview(post, row.user_id);
+    if (post?.id === id) {
+      return (await filterArchivedXReferences(db, [post], siteId)).length ? storedXPreview(post, row.user_id) : "hidden";
+    }
   }
   const cache = await db
     .prepare(`SELECT value FROM x_api_cache WHERE key=? AND expires_at>?`)
@@ -111,11 +141,11 @@ export async function readStoredXPreview(
   return parseCachedXPreview(cache.value, id, new Set(members.results.map(row => extractXHandle(row.url_twitter)?.toLowerCase() ?? null)));
 }
 
-export function parseCachedXPreview(value: string, id: string, hiddenHandles: ReadonlySet<string | null>): StoredXPreview | null {
+export function parseCachedXPreview(value: string, id: string, hiddenHandles: ReadonlySet<string | null>): StoredXPreview | "hidden" | null {
   try {
     const parsed = JSON.parse(value) as { post: XLinkedPostPreviewDto | null; authorId?: string | null };
-    if (parsed.post?.id !== id || typeof parsed.post.text !== "string" || !Array.isArray(parsed.post.media)
-      || hiddenHandles.has(parsed.post.username?.toLowerCase() ?? null)) return null;
+    if (parsed.post?.id !== id || typeof parsed.post.text !== "string" || !Array.isArray(parsed.post.media)) return null;
+    if (hiddenHandles.has(parsed.post.username?.toLowerCase() ?? null)) return "hidden";
     return { post: parsed.post, authorId: parsed.authorId, local: false };
   } catch { return null; }
 }
