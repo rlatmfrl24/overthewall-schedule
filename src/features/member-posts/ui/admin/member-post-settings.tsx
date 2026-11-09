@@ -5,7 +5,6 @@ import {
   updateSettings,
   type AutoUpdateSettings,
 } from "@/features/configuration";
-import { NaverCafeSourceManager } from "@/features/naver-cafe";
 import {
   fetchOperationsStatus,
   runNaverCafeCheckNow,
@@ -614,7 +613,6 @@ export function MemberPostSettingsManager({
                   );
                 })}
               </ButtonGroup>
-          <NaverCafeSourceManager />
             </div>
             </MemberPostFeedMonitor>
           )}

@@ -2,7 +2,8 @@ import { SecondaryAction } from "@/shared/ui/secondary-action";
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { NaverCafeSourceDto as NaverCafeSource } from "@contracts/naver-cafe";
-import { PiArrowSquareOutBold as ExternalLink, PiSpinnerGapBold as Loader2, PiPencilSimpleBold as Pencil, PiPlusCircleBold as PlusCircle, PiArrowsClockwiseBold as RefreshCw, PiTrashBold as Trash2 } from "react-icons/pi";
+import type { NaverCafeOperationSourceDto } from "@contracts/operations";
+import { PiArrowSquareOutBold as ExternalLink, PiPencilSimpleBold as Pencil, PiTrashBold as Trash2 } from "react-icons/pi";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import { QueryReadback } from "@/shared/ui/query-readback";
@@ -69,7 +70,28 @@ const NAVER_CAFE_SOURCES_QUERY_KEY = [
   "naver-cafe-sources",
 ] as const;
 
-export function NaverCafeSourceManager() {
+const checkLabels = {
+  ok: "정상",
+  stale: "확인 지연",
+  error: "오류",
+  private: "비공개",
+  invalid_response: "응답 오류",
+  disabled: "비활성",
+  unknown: "미확인",
+};
+const checkTime = (value: number | null | undefined) =>
+  value == null ? "기록 없음" : new Date(value).toLocaleString("ko-KR", {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul",
+  });
+
+export function NaverCafeSourceManager({ checks }: {
+  checks: {
+    sources: NaverCafeOperationSourceDto[];
+    loading: boolean;
+    error: boolean;
+    updatedAt: number;
+  };
+}) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -103,17 +125,21 @@ export function NaverCafeSourceManager() {
       }
       await createNaverCafeSource(payload);
     },
-    onSuccess: () =>
+    onSuccess: () => Promise.all([
       queryClient.invalidateQueries({ queryKey: NAVER_CAFE_SOURCES_QUERY_KEY }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.operations.statusRoot() }),
+    ]),
   });
   const deleteSourceMutation = useMutation({
     mutationFn: deleteNaverCafeSource,
-    onSuccess: () =>
+    onSuccess: () => Promise.all([
       queryClient.invalidateQueries({ queryKey: NAVER_CAFE_SOURCES_QUERY_KEY }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.operations.statusRoot() }),
+    ]),
   });
   const sources = sourcesQuery.data ?? EMPTY_SOURCES;
   const members = membersQuery.data ?? EMPTY_MEMBERS;
-  const isFetching = sourcesQuery.isFetching || membersQuery.isFetching;
+  const isFetching = sourcesQuery.isFetching || membersQuery.isFetching || checks.loading;
   const isSaving = saveSourceMutation.isPending;
 
   const loadData = useCallback(async () => {
@@ -121,6 +147,7 @@ export function NaverCafeSourceManager() {
       await Promise.all([
         sourcesQuery.refetch(),
         membersQuery.refetch(),
+        queryClient.invalidateQueries({ queryKey: queryKeys.operations.statusRoot() }),
       ]);
     } catch (error) {
       console.error("Failed to load Naver Cafe sources:", error);
@@ -129,7 +156,12 @@ export function NaverCafeSourceManager() {
         description: "네이버 카페 게시판 목록을 불러오지 못했습니다.",
       });
     }
-  }, [membersQuery, sourcesQuery, toast]);
+  }, [membersQuery, sourcesQuery, queryClient, toast]);
+
+  const checkMap = useMemo(
+    () => new Map(checks.sources.map((check) => [check.sourceId, check])),
+    [checks.sources],
+  );
 
   const memberMap = useMemo(
     () => new Map(members.map((member) => [member.uid, member])),
@@ -208,20 +240,21 @@ export function NaverCafeSourceManager() {
   };
 
   return (
-    <section className="min-w-0 space-y-3">
+    <section aria-label="네이버 카페 게시판 관리" className="min-w-0 space-y-5 rounded-lg border p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h4 className="text-sm font-semibold">네이버 카페 게시판</h4>
-            {sourcesQuery.data && <Badge variant="outline">{sortedSources.length}개</Badge>}
+            <h2 className="text-lg font-semibold">네이버 카페 게시판</h2>
+            {sourcesQuery.data && <span className="text-xs text-muted-foreground">{sortedSources.length}개</span>}
           </div>
+          <p className="mt-1 text-xs text-muted-foreground">게시판 설정과 최근 점검 결과를 확인합니다.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
             <Select
               value={sourceSort}
               onValueChange={(value) => setSourceSort(value as SourceSortKey)}
             >
-              <SelectTrigger size="sm" className="w-auto" aria-label="카페 게시판 정렬">
+              <SelectTrigger className="min-h-11 w-auto" aria-label="카페 게시판 정렬">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -235,43 +268,51 @@ export function NaverCafeSourceManager() {
             <Button
               variant="outline"
               size="sm"
+              className="min-h-11 min-w-11"
               onClick={() => void loadData()}
               disabled={isFetching}
               aria-label="카페 게시판 목록 새로고침"
             >
-              {isFetching ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
+              {isFetching ? "확인 중" : "새로고침"}
             </Button>
-            <Button onClick={handleOpenCreate} size="sm" className="gap-1.5">
-              <PlusCircle className="h-4 w-4" />새 게시판
+            <Button onClick={handleOpenCreate} size="sm" className="min-h-11">
+              새 게시판
             </Button>
         </div>
       </div>
 
       <QueryReadback updatedAt={sourcesQuery.dataUpdatedAt} fetching={sourcesQuery.isFetching} error={sourcesQuery.isError} />
+      {checks.error && <p role="alert" className="text-sm text-destructive">
+        점검 상태 최신 조회 실패{checks.updatedAt ? " · 이전 점검 정보입니다." : " · 점검 정보 확인 불가"}
+      </p>}
+      {checks.loading && <p role="status" className="text-xs text-muted-foreground">점검 상태 확인 중</p>}
       {sourcesQuery.isError && !sourcesQuery.data ? <p className="text-sm text-destructive">게시판 목록 조회 실패 · 새로고침으로 다시 확인해 주세요.</p> : isFetching && sortedSources.length === 0 ? (
         <div role="status" aria-label="게시판 목록 확인 중" className="space-y-2">{[1, 2, 3].map((row) => <Skeleton key={row} className="h-11 w-full" />)}</div>
       ) : sortedSources.length === 0 ? (
-        <div className="rounded-lg border p-6 text-center text-sm text-muted-foreground">
+        <div className="py-6 text-center text-sm text-muted-foreground">
           등록된 네이버 카페 게시판이 없습니다.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border bg-card">
-          <Table className="min-w-[560px] text-[13px]">
+          <Table aria-label="네이버 카페 게시판 및 점검 상태" className="min-w-[760px] text-[13px]">
             <TableHeader>
               <TableRow>
                 <TableHead className="px-3">게시판 / ID</TableHead>
                 <TableHead>멤버</TableHead>
-                <TableHead>활성</TableHead>
-                <TableHead className="text-right">정렬</TableHead>
+                <TableHead>점검 상태</TableHead>
+                <TableHead className="text-right">점검 응답</TableHead>
+                <TableHead>마지막 성공 · KST</TableHead>
+                <TableHead>오류</TableHead>
                 <TableHead className="text-right pr-3">작업</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {sortedSources.map((source) => {
+                const check = checkMap.get(source.id);
+                const status = source.enabled === false ? "disabled"
+                  : !check?.latestCheck ? "unknown"
+                  : check.stale && ["ok", "stale"].includes(check.latestCheck.status) ? "stale"
+                  : check.latestCheck.status;
+                const error = check?.disabledReason ?? check?.latestError ?? check?.latestCheck?.error;
                 const member = source.member_uid
                   ? memberMap.get(source.member_uid)
                   : null;
@@ -282,6 +323,10 @@ export function NaverCafeSourceManager() {
                         {source.name}<ExternalLink className="size-3 shrink-0" /><span className="sr-only">카페 새 탭에서 열기</span>
                       </a>
                       <p className="mt-0.5 text-xs text-muted-foreground">카페 {source.cafe_id} / 게시판 {source.menu_id}</p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <Badge variant={source.enabled !== false ? "outline" : "secondary"}>{source.enabled !== false ? "활성" : "비활성"}</Badge>
+                        <span className="text-xs text-muted-foreground">정렬 {source.sort_order ?? 0}</span>
+                      </div>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {member ? (
@@ -294,16 +339,21 @@ export function NaverCafeSourceManager() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={source.enabled !== false ? "outline" : "secondary"}>{source.enabled !== false ? "활성" : "비활성"}</Badge>
+                      <Badge variant={checks.error || ["disabled", "stale", "unknown"].includes(status) ? "secondary" : status === "ok" ? "default" : "destructive"}>
+                        {checks.error && check ? "이전 " : ""}{checkLabels[status]}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-right text-sm text-muted-foreground">
-                      {source.sort_order ?? 0}
+                      {check?.latestCheck ? `${check.latestCheck.postCount}건` : "-"}
                     </TableCell>
+                    <TableCell className="text-xs whitespace-normal">{checkTime(check?.lastSuccessAt)}</TableCell>
+                    <TableCell className={`max-w-48 whitespace-normal break-words text-xs ${error ? "text-destructive" : "text-muted-foreground"}`}>{error ?? "-"}</TableCell>
                     <TableCell className="text-right pr-3">
                       <div className="inline-flex items-center gap-1">
                         <Button
                           variant="ghost"
                           size="icon-sm"
+                          className="min-h-11 min-w-11"
                           onClick={() => handleOpenEdit(source)}
                           title="수정"
                           aria-label={`${source.name} 수정`}
@@ -313,7 +363,7 @@ export function NaverCafeSourceManager() {
                         <SecondaryAction
                           variant="ghost"
                           size="icon-sm"
-                          className="text-destructive hover:text-destructive"
+                          className="min-h-11 min-w-11 text-destructive hover:text-destructive"
                           onClick={() => setDeletingSource(source)}
                           title="삭제"
                           aria-label={`${source.name} 삭제`}
@@ -328,7 +378,6 @@ export function NaverCafeSourceManager() {
               })}
             </TableBody>
           </Table>
-        </div>
       )}
 
       <NaverCafeSourceFormDialog

@@ -6,21 +6,16 @@ import { useQuery } from "@tanstack/react-query";
 import { PiCheckCircleBold as CheckCircle2, PiClockBold as Clock3, PiSpinnerGapBold as Loader2, PiPlayBold as Play, PiArrowsClockwiseBold as RefreshCw } from "react-icons/pi";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardHeader } from "@/shared/ui/card";
+import { Card } from "@/shared/ui/card";
 import { QueryReadback } from "@/shared/ui/query-readback";
-import { Input } from "@/shared/ui/input";
-import { useConsoleSearch } from "@/shared/lib/admin-console-search";
-import { useNaverCafePosts } from "@/features/naver-cafe";
+import { NaverCafeSourceManager } from "@/features/naver-cafe";
 import {
   fetchOperationRuns,
   type OperationsStatusResponse,
 } from "@/features/operations";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
-import type {
-  NaverCafePostsVisibility,
-  NaverCafeSourceStatusDto,
-} from "@contracts/naver-cafe";
+import type { NaverCafePostsVisibility } from "@contracts/naver-cafe";
 
 export type MemberPostSource = "x" | "naver-cafe";
 
@@ -42,25 +37,6 @@ const formatMonitorUpdatedAt = (
     minute: "2-digit",
     timeZone: "Asia/Seoul",
   });
-};
-
-const getNaverCafeSourceStatusLabel = (
-  status: NaverCafeSourceStatusDto["status"],
-) => {
-  if (status === "ok") return "정상";
-  if (status === "stale") return "확인 지연";
-  if (status === "private") return "비공개";
-  if (status === "invalid_response") return "응답 오류";
-  if (status === "disabled") return "비활성";
-  return "오류";
-};
-
-const getNaverCafeSourceStatusVariant = (
-  status: NaverCafeSourceStatusDto["status"],
-) => {
-  if (status === "ok") return "default" as const;
-  if (status === "stale" || status === "disabled") return "secondary" as const;
-  return "destructive" as const;
 };
 
 const getVisibilityLabel = (visibility: NaverCafePostsVisibility) => {
@@ -143,7 +119,6 @@ export function MemberPostFeedMonitor({
   isRunningNaverCafeCheck?: boolean;
 }) {
   const isX = source === "x";
-  const [search, updateSearch] = useConsoleSearch();
   const operationRunsQuery = useQuery({
     queryKey: [...queryKeys.operations.runs(), source, "monitoring"],
     queryFn: () => fetchOperationRuns({
@@ -155,47 +130,10 @@ export function MemberPostFeedMonitor({
       run.status === "queued" || run.status === "running"
     ) ? 5_000 : 30_000,
   });
-  const cafeState = useNaverCafePosts({
-    enabled: !isX,
-    size: 10,
-    admin: true,
-  });
-
   const naverCafeStatus = operationsStatus?.naverCafe;
-  const operationalCafeSources = naverCafeStatus?.sources ?? [];
-  const cafeRows = operationalCafeSources.length
-    ? operationalCafeSources.map((item) => ({
-        id: item.sourceId,
-        name: item.sourceName,
-        cafeId: item.cafeId,
-        menuId: item.menuId,
-        enabled: item.enabled,
-        status: (item.enabled
-          ? item.stale && (!item.latestCheck || ["ok", "stale"].includes(item.latestCheck.status)) ? "stale" : item.latestCheck?.status ?? "stale"
-          : "disabled") as NaverCafeSourceStatusDto["status"],
-        postCount: item.latestCheck?.postCount ?? null,
-        error: item.disabledReason ?? item.latestError,
-        lastSuccessAt: item.lastSuccessAt,
-      }))
-    : cafeState.sources.map((item) => ({
-        ...item,
-        lastSuccessAt: null,
-      }));
-
-  const sourceError = !isX && cafeState.error;
-  const loading = (!isX && cafeState.loading) || operationsLoading;
-  const hasError = Boolean(sourceError || operationsError);
-  const sourceEnabled = naverCafeStatus
-    ? naverCafeStatus.enabled && naverCafeStatus.enabledSourceCount > 0
-    : cafeRows.some((item) => item.enabled);
-
-  const reloadMonitor = async () => {
-    if (isX) {
-      await onReloadOperations();
-      return;
-    }
-    await Promise.all([cafeState.reload(), onReloadOperations()]);
-  };
+  const loading = operationsLoading;
+  const hasError = operationsError;
+  const sourceEnabled = Boolean(naverCafeStatus?.enabled && naverCafeStatus.enabledSourceCount > 0);
 
   const statusBadge = loading ? (
     <Badge variant="secondary" className="gap-1">
@@ -213,11 +151,6 @@ export function MemberPostFeedMonitor({
     <Badge variant="destructive">오류 있음</Badge>
   ) : (naverCafeStatus?.staleSourceCount ?? 0) > 0 ? (
     <Badge variant="secondary">점검 지연</Badge>
-  ) : cafeState.stale ? (
-    <Badge variant="secondary" className="gap-1">
-      <Clock3 className="h-3 w-3" />
-      캐시 포함
-    </Badge>
   ) : (
     <Badge variant="default" className="gap-1 bg-emerald-600">
       <CheckCircle2 className="h-3 w-3" />
@@ -274,7 +207,7 @@ export function MemberPostFeedMonitor({
               variant="outline"
               size="sm"
               className="gap-2"
-              onClick={() => void reloadMonitor()}
+              onClick={() => void onReloadOperations()}
               disabled={reloadDisabled}
             >
               <RefreshCw className="h-4 w-4" />
@@ -310,7 +243,7 @@ export function MemberPostFeedMonitor({
             <MetricTile
               label="활성 게시판"
               value={naverCafeStatus ? `${naverCafeStatus.enabledSourceCount}/${naverCafeStatus.sourceCount}개` : "미확인"}
-              detail={`비활성 ${naverCafeStatus?.disabledSourceCount ?? cafeRows.filter((item) => !item.enabled).length}개 · 공개 ${getVisibilityLabel(naverCafeVisibility)}`}
+              detail={`비활성 ${naverCafeStatus ? naverCafeStatus.disabledSourceCount + "개" : "미확인"} · 공개 ${getVisibilityLabel(naverCafeVisibility)}`}
             />
             <MetricTile
               label="주의 게시판"
@@ -322,7 +255,6 @@ export function MemberPostFeedMonitor({
 
         {hasError ? (
           <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200">
-            {sourceError ? <p>{sourceError}</p> : null}
             {operationsError ? (
               <p>실제 수집 이력과 운영 지표를 불러오지 못했습니다.</p>
             ) : null}
@@ -333,6 +265,16 @@ export function MemberPostFeedMonitor({
 
         {!isX && (
         <>
+          <NaverCafeSourceManager checks={{
+            sources: naverCafeStatus?.sources ?? [],
+            loading: operationsLoading,
+            error: operationsError,
+            updatedAt: operationsUpdatedAt,
+          }} />
+          {children && <section aria-labelledby="cafe-settings-heading" className="space-y-3">
+            <h2 id="cafe-settings-heading" className="text-sm font-semibold">수집·공개 설정</h2>
+            {children}
+          </section>}
           <section className="space-y-2">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="text-sm font-semibold">최근 실행</h2>
@@ -362,54 +304,13 @@ export function MemberPostFeedMonitor({
             </Table>
             </div>
           </section>
-          <Card className="min-w-0 gap-0 py-0 shadow-none">
-            <CardHeader className="gap-2 px-3 py-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold">게시판별 점검 상태</h2>
-                <span className="text-xs text-muted-foreground">
-                  {`등록 ${cafeRows.length} · 공개 ${getVisibilityLabel(naverCafeVisibility)}`}
-                </span>
-              </div>
-              <Input aria-label="카페 게시판 검색" placeholder="게시판명 또는 ID 검색"
-                value={search.q ?? ""} onChange={(event) => updateSearch({ q: event.target.value || undefined })} />
-            </CardHeader>
-            <CardContent className="px-0">
-              <Table className="min-w-[560px] text-[13px]">
-                <TableHeader><TableRow>
-                  <TableHead className="px-3">게시판 / ID</TableHead>
-                  <TableHead>상태</TableHead><TableHead className="text-right">점검 응답</TableHead>
-                  <TableHead>마지막 성공 · KST</TableHead>
-                  <TableHead className="pr-3">오류</TableHead>
-                </TableRow></TableHeader>
-                <TableBody>
-                  {cafeRows.filter((row) => `${row.name} ${row.cafeId} ${row.menuId}`.toLocaleLowerCase().includes((search.q ?? "").trim().toLocaleLowerCase())).map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="px-3 whitespace-normal"><span className="font-medium">{item.name}</span><p className="text-xs text-muted-foreground">카페 {item.cafeId} / 게시판 {item.menuId}</p></TableCell>
-                      <TableCell><Badge variant={getNaverCafeSourceStatusVariant(item.status)}>{getNaverCafeSourceStatusLabel(item.status)}</Badge></TableCell>
-                      <TableCell className="text-right">{item.postCount == null ? "—" : item.postCount + "건"}</TableCell>
-                      <TableCell className="text-xs">{formatMonitorUpdatedAt(item.lastSuccessAt)}</TableCell>
-                      <TableCell className={`max-w-60 whitespace-normal break-words pr-3 text-xs ${item.error ? "text-destructive" : "text-muted-foreground"}`}>{item.error ?? "—"}</TableCell>
-                    </TableRow>
-                  ))}
-                  {cafeRows.length === 0 && <TableRow><TableCell colSpan={5} className="py-4 text-muted-foreground">
-                    {loading ? "소스 상태 확인 중" : hasError ? "소스 상태를 확인할 수 없습니다." : "등록된 카페 게시판이 없습니다."}
-                  </TableCell></TableRow>}
-                  {search.q && cafeRows.filter((row) => `${row.name} ${row.cafeId} ${row.menuId}`.toLocaleLowerCase().includes(search.q!.trim().toLocaleLowerCase())).length === 0 && cafeRows.length > 0 &&
-                    <TableRow><TableCell colSpan={5} className="py-4"><Button variant="ghost" size="sm" onClick={() => updateSearch({q: undefined})}>검색 결과 없음 · 초기화</Button></TableCell></TableRow>}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>{`피드 ${naverCafeEnabled ? "표시" : "숨김"} · 현재 게시판 상태 · 점검 이력 기준`} · 시각 KST</span>
             <Button variant="ghost" size="sm" asChild><a href="/admin/history?tab=runs&source=naver_cafe_collection">전체 실행 이력</a></Button>
           </div>
         </>
         )}
-        {isX ? children : children && <details key={source} className="rounded-lg border">
-          <summary className="cursor-pointer px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">수집·공개 설정 및 게시판 관리</summary>
-          <div className="border-t p-3">{children}</div>
-        </details>}
+        {isX && children}
         {isX && <>
           <XActivityManager />
           <XCollectionRuns

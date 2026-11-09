@@ -22,6 +22,7 @@ const fetchXActivityMock = vi.hoisted(() => vi.fn());
 const fetchXCollectionStatusMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 const useNaverCafePostsMock = vi.hoisted(() => vi.fn());
+const fetchNaverCafeSourcesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/features/configuration", async (importOriginal) => {
   const actual =
@@ -63,10 +64,25 @@ vi.mock("@/features/naver-cafe", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/naver-cafe")>();
   return {
     ...actual,
-    NaverCafeSourceManager: () => createElement("div", null, "카페 소스 관리"),
     useNaverCafePosts: useNaverCafePostsMock,
   };
 });
+
+vi.mock("@/features/naver-cafe/api/naver-cafe-api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/features/naver-cafe/api/naver-cafe-api")>(),
+  fetchNaverCafeSources: fetchNaverCafeSourcesMock,
+}));
+
+vi.mock("@/features/members", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/features/members")>(),
+  fetchActiveMembers: vi.fn(async () => []),
+}));
+
+const cafeBoard = {
+  id: 1, name: "테스트 게시판", cafe_id: "31352147", menu_id: "9",
+  cafe_url: "https://cafe.naver.com/f-e/cafes/31352147/menus/9",
+  member_uid: null, enabled: true, sort_order: 1, created_at: 1, updated_at: 1,
+};
 
 const makeSettings = () => ({
   auto_update_enabled: "true",
@@ -105,31 +121,7 @@ describe("MemberPostSettingsManager", () => {
         pendingReasons: [{ stage: "post", code: "preview_budget_exceeded", count: 40, nextAttemptAt: 2 }],
       },
     });
-    useNaverCafePostsMock.mockReturnValue({
-      posts: [],
-      sources: [
-        {
-          id: 1,
-          name: "테스트 게시판",
-          cafeId: "31352147",
-          menuId: "9",
-          cafeUrl: "https://cafe.naver.com/f-e/cafes/31352147/menus/9",
-          memberUid: 1,
-          enabled: true,
-          sortOrder: 0,
-          status: "ok",
-          error: null,
-          postCount: 2,
-          stale: false,
-        },
-      ],
-      updatedAt: "2026-05-28T07:10:00Z",
-      loading: false,
-      error: null,
-      stale: false,
-      hasLoaded: true,
-      reload: vi.fn(),
-    });
+    fetchNaverCafeSourcesMock.mockResolvedValue([cafeBoard]);
     fetchSettingsMock.mockResolvedValue(makeSettings());
     updateSettingsMock.mockResolvedValue(undefined);
     fetchOperationsStatusMock.mockResolvedValue({
@@ -334,15 +326,12 @@ describe("MemberPostSettingsManager", () => {
 
     expect(cafeTab.getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("heading", {level: 1, name: "네이버 카페 수집"})).toBeTruthy();
-    expect(screen.getByText("카페 소스 관리")).toBeTruthy();
-    expect(screen.getByRole("heading", {name: "게시판별 점검 상태"}).closest("details")).toBeNull();
-    expect(screen.getByText("테스트 게시판")).toBeTruthy();
-    expect(screen.getByRole("row", {name: /테스트 게시판 카페 31352147/})).toBeTruthy();
-    expect(screen.getByText("수집·공개 설정 및 게시판 관리").closest("details")?.open).toBe(false);
-    expect(screen.queryByText("X 수집 및 링크 설정")).toBeNull();
-    expect(useNaverCafePostsMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ admin: true, enabled: true, size: 10 }),
-    );
+    const table = await screen.findByRole("table", {name: "네이버 카페 게시판 및 점검 상태"});
+    expect(table.closest("details")).toBeNull();
+    expect(screen.getByRole("button", {name: "테스트 게시판 수정"}).closest("tr")?.textContent).toContain("2건");
+    expect(screen.queryByRole("heading", {name: "게시판별 점검 상태"})).toBeNull();
+    expect(screen.getByRole("heading", {name: "수집·공개 설정"})).toBeTruthy();
+    expect(useNaverCafePostsMock).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "지금 점검" }));
     await waitFor(() => expect(runNaverCafeCheckNowMock).toHaveBeenCalled());
@@ -357,6 +346,7 @@ describe("MemberPostSettingsManager", () => {
   it("지난 성공을 현재 정상으로 오인하지 않고 오류·지연 게시판을 중복 계산하지 않는다", async () => {
     const status = await fetchOperationsStatusMock();
     const source = status.naverCafe.sources[0];
+    fetchNaverCafeSourcesMock.mockResolvedValue([cafeBoard, {...cafeBoard, id: 2, name: "오류 게시판"}]);
     status.naverCafe.sources = [
       {...source, stale: true},
       {...source, sourceId: 2, sourceName: "오류 게시판", stale: true, failing: true, latestCheck: {...source.latestCheck, status: "error"}, latestError: "점검 실패"},
