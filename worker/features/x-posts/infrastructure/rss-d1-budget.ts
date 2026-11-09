@@ -1,7 +1,7 @@
-// No quota is spent observing the invocation; only RSS conflict recovery consults this counter.
+// Observing a binding call spends no D1 quota.
 const budgets = new WeakMap<object, { calls: number; conflicted: boolean }>();
 
-export function trackRssD1Calls(database: D1Database): D1Database {
+export function trackXCollectionD1Calls(database: D1Database): D1Database {
   const budget = { calls: 0, conflicted: false };
   const originals = new WeakMap<object, D1PreparedStatement>();
   const statement = (source: D1PreparedStatement): D1PreparedStatement => {
@@ -29,8 +29,12 @@ export function trackRssD1Calls(database: D1Database): D1Database {
   return wrap(database);
 }
 
+export function hasXCollectionD1Room(db: object, requiredCalls: number) {
+  return (budgets.get(db)?.calls ?? 0) + requiredCalls <= 50;
+}
+
 export function noteRssD1Conflict(db: object) { const budget=budgets.get(db); if(budget)budget.conflicted=true; }
 export function rssD1RetryHasRoom(db: object, requiredCalls: number) {
   const budget=budgets.get(db);
-  return !budget?.conflicted || budget.calls+requiredCalls<=50;
+  return !budget?.conflicted || hasXCollectionD1Room(db, requiredCalls);
 }

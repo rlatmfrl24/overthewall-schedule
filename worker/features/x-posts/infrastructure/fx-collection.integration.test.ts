@@ -1,6 +1,7 @@
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { runFxCollectionForHandles } from "./fx-collection";
+import { hydrateXReplyPreviews } from "./x-reply-hydration";
 import { clearXServiceCachesForTests, fetchXPostsForHandles } from "./x-api";
 
 const runtime = { ...env, SITE_ID: "otw" } as Env & { X_REFERENCE_MIGRATIONS: D1Migration[] };
@@ -156,9 +157,13 @@ it("collects a quote and reply with incomplete originals and previews the parent
     .mockResolvedValueOnce(new Response(null, { status: 404 }))
     .mockResolvedValueOnce(Response.json({ code: 200, results: [raw("122"), raw("121")], cursor: {} }));
   vi.stubGlobal("fetch", fetchMock);
-  const collect = () => runFxCollectionForHandles(runtime, ["member"], "manual");
+  const collect = async () => {
+    const result = await runFxCollectionForHandles(runtime, ["member"], "manual");
+    await hydrateXReplyPreviews(runtime, ["member"]);
+    return result;
+  };
   const read = () => fetchXPostsForHandles(["member"], { cacheDb: db, refresh: false, siteId: "otw" });
-  expect(await collect()).toMatchObject({ status: "success", postsStored: 2, apiCalls: 2 });
+  expect(await collect()).toMatchObject({ status: "success", postsStored: 2, apiCalls: 1 });
   const first = await read();
   expect(first.posts.find(post => post.id === "123")?.reply).toMatchObject({ postId: "122", targetUsername: null, post: null });
   expect(first.posts.find(post => post.id === "124")?.quote).toEqual({ postId: "121", post: null });
@@ -186,15 +191,19 @@ it("fetches a public reply original on replay, persists the preview and backs of
     return Response.json({ code: 200, status: { ...raw("122"), text: "Public original", author: { id: "999", screen_name: "other", protected: false } } });
   });
   vi.stubGlobal("fetch", fetchMock);
-  const collect = () => runFxCollectionForHandles(runtime, ["member"], "manual");
+  const collect = async () => {
+    const result = await runFxCollectionForHandles(runtime, ["member"], "manual");
+    await hydrateXReplyPreviews(runtime, ["member"]);
+    return result;
+  };
   const read = () => fetchXPostsForHandles(["member"], { cacheDb: db, refresh: false, siteId: "otw" });
-  expect(await collect()).toMatchObject({ status: "success", postsStored: 1, apiCalls: 2 });
+  expect(await collect()).toMatchObject({ status: "success", postsStored: 1, apiCalls: 1 });
   expect((await read()).posts[0].reply).toMatchObject({ postId: "122", post: null });
   const before = await db.prepare("SELECT first_seen_at,source_authority FROM x_posts WHERE id='123'").first();
   lookupAvailable = true;
   expect(await collect()).toMatchObject({ status: "success", postsStored: 0, apiCalls: 1 });
   vi.spyOn(Date, "now").mockReturnValue(1800000000000 + 6 * 3_600_000);
-  expect(await collect()).toMatchObject({ status: "success", postsStored: 0, apiCalls: 2 });
+  expect(await collect()).toMatchObject({ status: "success", postsStored: 0, apiCalls: 1 });
   expect((await read()).posts[0].reply?.post).toMatchObject({ id: "122", text: "Public original", username: "other" });
   expect(await db.prepare("SELECT first_seen_at,source_authority FROM x_posts WHERE id='123'").first()).toEqual(before);
   expect(await db.prepare("SELECT resolution_state,next_attempt_at FROM x_post_references WHERE source_post_id='123'").first()).toEqual({ resolution_state: "hydrated", next_attempt_at: null });

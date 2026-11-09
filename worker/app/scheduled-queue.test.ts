@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   acknowledgeReconciliation: vi.fn(),
   execute: vi.fn(),
   finalizeLegacyState: vi.fn(),
+  enrichCompletedXReplies: vi.fn(),
   advanceRun: vi.fn(),
   dispatchRun: vi.fn(),
   planManualRun: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("../features/scheduled-operations", () => ({
   ScheduledJobExecutor: class {
     execute = mocks.execute;
     finalizeLegacyState = mocks.finalizeLegacyState;
+    enrichCompletedXReplies = mocks.enrichCompletedXReplies;
   },
 }));
 
@@ -290,6 +292,9 @@ describe("scheduled job queue", () => {
     expect(mocks.refreshRun).toHaveBeenCalledWith("run-1");
     expect(mocks.refreshRun.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.finalizeLegacyState.mock.invocationCallOrder[0],
+    );
+    expect(mocks.acknowledgeReconciliation.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.enrichCompletedXReplies.mock.invocationCallOrder[0],
     );
     expect(ack).toHaveBeenCalledOnce();
   });

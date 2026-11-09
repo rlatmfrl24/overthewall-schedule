@@ -21,7 +21,7 @@ import {
   scanAndPersistRecentChzzkObservations,
   type AutoUpdateResult,
 } from "../../schedules";
-import { runXCollectionForHandles, runFxCollectionForHandles, isHybridRegularCollectionComplete, recordXCollectionCompletion, parseFxRssContinuation } from "../../x-posts";
+import { runXCollectionForHandles, runFxCollectionForHandles, isHybridRegularCollectionComplete, recordXCollectionCompletion, parseFxRssContinuation, hydrateXReplyPreviews } from "../../x-posts";
 import { runFxRssCollectionItem } from "../../../app/x-rss-collection";
 import { runScheduledYouTubeFeedCollection } from "../../youtube";
 import { getDb } from "../../../platform/db";
@@ -537,6 +537,14 @@ export class ScheduledJobExecutor {
       }
     }
     throw new Error("unsupported_scheduled_job_type");
+  }
+
+  async enrichCompletedXReplies(item: ScheduledJobItemRecord) {
+    if (item.phase !== "collect") return;
+    const continuation = parseContinuation(item);
+    const result = parseContinuation({ continuation_json: item.result_json });
+    if (result.mode !== "timeline" || (result.provider !== "fxembed" && result.provider !== "x_api")) return;
+    await hydrateXReplyPreviews(this.env, getStringArray(continuation.handles));
   }
 
   async finalizeLegacyState(runId: string) { await this.finalizeLegacyStates([runId]); }

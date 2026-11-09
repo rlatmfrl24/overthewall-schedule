@@ -21,6 +21,7 @@ import {
   type XApiUsageTracker,
 } from "./x-api";
 import { linkedPostKey, linkedUserKey } from "./x-reference-store";
+import { hydrateXReplyPreviews } from "./x-reply-hydration";
 import { writeStoredPosts } from "./x-api";
 import type { XPostDto } from "@contracts/x-posts";
 import { claimXSourceLeases, releaseXSourceLeases, runXCollectionForHandles } from "./x-collection";
@@ -151,6 +152,7 @@ describe("X replies use stored context or a completed relation", () => {
 
   it("advances the official cursor and uses free reply originals without purchasing posts or authors", async () => {
     await db.batch([
+      db.prepare("INSERT INTO members(uid,code,name,url_twitter) VALUES(101,'member','Member','https://x.com/member')"),
       db.prepare("INSERT INTO settings(key,value) VALUES('x_cost_optimizer_enabled','true'),('x_reference_preview_mode','cached_author')"),
       db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at) VALUES('member','1','member','100',0,0,1),('parent_member','2','parent_member','900',0,0,1)"),
     ]);
@@ -177,6 +179,8 @@ describe("X replies use stored context or a completed relation", () => {
     });
     const result = await runXCollectionForHandles({ ...testEnv, X_BEARER_TOKEN: "test" }, ["member"], "manual");
     expect(result.postsStored).toBe(3);
+    expect(await db.prepare("SELECT lease_token FROM x_post_sources WHERE handle='member'").first("lease_token")).toBeNull();
+    await hydrateXReplyPreviews(testEnv, ["member"]);
     expect(result.referenceHydration).toMatchObject({ scope: "quotes", status: "complete", scanned: 0, deferred: 0 });
     expect((await getPost("201")).reply).toMatchObject({ postId: "10", inReplyToUserId: "2", targetUsername: "parent_member", post: { id: "10", text: "Free reply original" } });
     expect((await getPost("202")).reply?.post?.text).toBe(cached.text);

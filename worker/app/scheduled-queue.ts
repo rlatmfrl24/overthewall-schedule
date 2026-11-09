@@ -69,6 +69,11 @@ export const handleScheduledJobQueue = async (
     await repository.refreshRun(item.run_id);
     await executor.finalizeLegacyState(item.run_id);
     await repository.acknowledgeReconciliation(item);
+    // Reply previews may use only what remains after all required Queue writes.
+    if (!isDeadLetter && batch.messages.length === 1 && item.lane === "x" &&
+        (item.status === "succeeded" || item.status === "partial")) {
+      await executor.enrichCompletedXReplies(item);
+    }
   };
   const retryReconciliation = async (
     message: Message<unknown>,

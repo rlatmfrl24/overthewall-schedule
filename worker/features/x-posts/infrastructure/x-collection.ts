@@ -27,7 +27,6 @@ import {
   backfillXPostReferencesFromStoredPosts,
 } from "./x-history";
 import { hydrateXReferences } from "./x-reference-hydration";
-import { hydrateXReplyPreviews } from "./x-reply-hydration";
 import { getOfficialAccountDecision } from "../domain/x-collection-policy";
 
 const X_COLLECTION_INTERVAL_SETTING_KEY = "x_collection_interval_hours";
@@ -357,7 +356,6 @@ export const runXCollectionForHandles = async (
       afterTimeline: (tracker) => hydrateXReferences({ db: env.otw_db,siteId:parseSiteId(env.SITE_ID), handles: claimed,
         bearerToken: env.X_BEARER_TOKEN ?? "shared-gateway", mode: policy.referencePreviewMode, tracker }),
     });
-    await hydrateXReplyPreviews(env.otw_db, parseSiteId(env.SITE_ID), claimed);
     if (independent && claimed.length) {
       const completedAt = Date.now();
       await env.otw_db.prepare(`UPDATE x_post_sources SET last_completed_at=?,

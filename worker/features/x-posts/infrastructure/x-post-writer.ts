@@ -224,6 +224,7 @@ export async function commitStoredPosts(
       return { count: plans.reduce((sum, plan) => sum + plan.count, 0), insertedIds: inserts.filter(insert => results[insert.index].meta.changes > 0).map(insert => insert.id) };
     } catch (error) {
       if (!(error instanceof Error) || !error.message.includes("post_revision_conflict")) throw error;
+      if (typeof context !== "function" && context.replyPreviewOnly) throw error;
       if (rssFence) {
         noteRssD1Conflict(db);
         // Two retry calls plus twelve for checkpoint, release, outbox and a failed final ACK retry.
