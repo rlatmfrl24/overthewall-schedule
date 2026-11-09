@@ -141,11 +141,11 @@ export async function readStoredXPreview(
   return parseCachedXPreview(cache.value, id, new Set(members.results.map(row => extractXHandle(row.url_twitter)?.toLowerCase() ?? null)));
 }
 
-export function parseCachedXPreview(value: string, id: string, hiddenHandles: ReadonlySet<string | null>): StoredXPreview | null {
+export function parseCachedXPreview(value: string, id: string, hiddenHandles: ReadonlySet<string | null>): StoredXPreview | "hidden" | null {
   try {
     const parsed = JSON.parse(value) as { post: XLinkedPostPreviewDto | null; authorId?: string | null };
-    if (parsed.post?.id !== id || typeof parsed.post.text !== "string" || !Array.isArray(parsed.post.media)
-      || hiddenHandles.has(parsed.post.username?.toLowerCase() ?? null)) return null;
+    if (parsed.post?.id !== id || typeof parsed.post.text !== "string" || !Array.isArray(parsed.post.media)) return null;
+    if (hiddenHandles.has(parsed.post.username?.toLowerCase() ?? null)) return "hidden";
     return { post: parsed.post, authorId: parsed.authorId, local: false };
   } catch { return null; }
 }

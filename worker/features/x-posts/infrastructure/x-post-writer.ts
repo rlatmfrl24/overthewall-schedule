@@ -159,7 +159,8 @@ export async function commitStoredPosts(
       const localPreview = (id: string) => {
         if (hidden.has(id)) return null;
         if (previews.has(id)) return previews.get(id)!;
-        return parseCachedXPreview(caches.get(linkedPostKey(id)) ?? "null", id, hiddenHandles);
+        const cached = parseCachedXPreview(caches.get(linkedPostKey(id)) ?? "null", id, hiddenHandles);
+        return cached === "hidden" ? null : cached;
       };
       const byId = new Map<string, { row: RootRow | undefined; merged: ReturnType<typeof mergeStoredXPost>; count: number }>();
       for (const incoming of posts) {

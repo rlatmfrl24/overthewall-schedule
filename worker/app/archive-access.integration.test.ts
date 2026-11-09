@@ -1224,7 +1224,7 @@ it("discards unverified stored X snapshots when archive policy lookup fails", as
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   const failingDb = new Proxy(db, { get(target, name) {
     if (name === "prepare") return (sql: string) => {
-      if (sql.includes("SELECT id, NULL AS handle FROM x_posts")) throw failure;
+      if (sql.includes("WITH reference_ids(id)")) throw failure;
       return target.prepare(sql);
     };
     const value = Reflect.get(target, name);
