@@ -8,6 +8,7 @@ import { runDataRetentionPolicyPrune } from "./data-retention";
 import { hydrateXReferences } from "../../x-posts/infrastructure/x-reference-hydration";
 import { getDb } from "../../../platform/db";
 import type { Env } from "../../../platform/types";
+import { D1OperationsApplication } from "./operations-application";
 
 const db=env.otw_db;
 beforeAll(async()=>{
@@ -17,6 +18,30 @@ beforeAll(async()=>{
   }
 },120000);
 afterEach(()=>vi.restoreAllMocks());
+
+it("reads schedule review status without unrelated D1 scans or writes", async () => {
+  vi.spyOn(Date,"now").mockReturnValue(Date.parse("2026-11-05T00:00:00Z"));
+  const network = vi.spyOn(globalThis,"fetch").mockRejectedValue(new Error("External calls disabled"));
+  const budget = vi.fn(async () => null);
+  const read = async (scheduleOnly: boolean) => {
+    const meter = meterD1(db);
+    const runtime = {...siteEnv(),otw_db:meter.db,X_API_GATEWAY:{readBudget:budget}} as unknown as Env;
+    const result = await new D1OperationsApplication(runtime,vi.fn()).getStatus(24,scheduleOnly?"schedule":undefined);
+    return {meter,result};
+  };
+  const full = await read(false);
+  budget.mockClear();
+  const scoped = await read(true);
+  expect(full.result.autoUpdate).toMatchObject(scoped.result.autoUpdate);
+  expect(scoped.result.autoUpdate).not.toHaveProperty("pending");
+  expect(scoped.meter.bindingCalls).toBe(3);
+  expect(scoped.meter.summary().rowsWritten).toBe(0);
+  expect(scoped.meter.bindingCalls).toBeLessThan(full.meter.bindingCalls);
+  expect(scoped.meter.entries.map(row=>row.sql.match(/\bFROM\s+(\w+)/i)?.[1]).sort()).toEqual(["auto_update_runs","schedule_candidate_rejections","settings"]);
+  expect(budget).not.toHaveBeenCalled();
+  expect(network).not.toHaveBeenCalled();
+  console.info("SCHEDULE_STATUS_D1_COST",JSON.stringify({full:{bindings:full.meter.bindingCalls,...full.meter.summary()},schedule:{bindings:scoped.meter.bindingCalls,...scoped.meter.summary()}}));
+});
 
 it("uses indexed log bounds without changing mixed timestamp or UID filter semantics",async()=>{
   await db.prepare("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO update_logs(member_uid,schedule_date,action,created_at) SELECT 90011,'2020-01-01','insert','2020-01-01 00:00:00' FROM n").run();

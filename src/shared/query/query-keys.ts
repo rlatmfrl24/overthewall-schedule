@@ -168,6 +168,7 @@ export const queryKeys = {
     all: ["settings"] as const,
     detail: () => [...queryKeys.settings.all, "detail"] as const,
     pending: () => [...queryKeys.settings.all, "pending"] as const,
+    pendingRejectionsRoot: () => [...queryKeys.settings.all, "pending-rejections"] as const,
     pendingRejections: (options: {
       search?: string;
       reasonCode?: string;
@@ -176,7 +177,7 @@ export const queryKeys = {
       page: number;
       pageSize: number;
     }) =>
-      [...queryKeys.settings.all, "pending-rejections", options] as const,
+      [...queryKeys.settings.pendingRejectionsRoot(), options] as const,
     logs: (options: UpdateLogQuery) =>
       [...queryKeys.settings.all, "logs", options] as const,
     auditLogs: (options: { page: number; pageSize: number }) =>
@@ -184,8 +185,10 @@ export const queryKeys = {
   },
   operations: {
     all: ["operations"] as const,
+    statusRoot: () => [...queryKeys.operations.all, "status"] as const,
+    scheduleStatus: () => [...queryKeys.operations.statusRoot(), "schedule"] as const,
     status: (windowHours: number) =>
-      [...queryKeys.operations.all, "status", windowHours] as const,
+      [...queryKeys.operations.statusRoot(), windowHours] as const,
     d1Observability: () =>
       [...queryKeys.operations.all, "d1-observability", "7d"] as const,
     jobSummaries: () =>

@@ -12,6 +12,8 @@ import {
 import { D1ScheduleWriteRepository } from "./d1-schedule-write-repository";
 
 const TEST_SCHEMA = [
+  "DROP TABLE IF EXISTS admin_audit_logs",
+  `CREATE TABLE admin_audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, event_type TEXT, resource_type TEXT, resource_id TEXT, action TEXT, status TEXT, actor_id TEXT, actor_name TEXT, actor_ip TEXT, detail TEXT, created_at NUMERIC)`,
   "DROP TABLE IF EXISTS schedule_candidate_rejections",
   "DROP TABLE IF EXISTS update_logs",
   "DROP TABLE IF EXISTS pending_schedules",
@@ -28,6 +30,7 @@ const TEST_SCHEMA = [
      start_time TEXT,
      title TEXT,
      status TEXT NOT NULL,
+     content_access TEXT NOT NULL DEFAULT 'normal',
      created_at NUMERIC DEFAULT CURRENT_TIMESTAMP
    )`,
   `CREATE TABLE pending_schedules (
@@ -229,6 +232,91 @@ describe("D1 pending schedule transaction", () => {
          VALUES (1, 10, '테스트 멤버', '2026-07-28', '20:00', '정규 방송', '방송', 'create', 'chzzk:vod-1')`,
       )
       .run();
+  });
+
+  const setupManualUpdate = async () => {
+    await env.otw_db.prepare("INSERT INTO schedules (id,member_uid,date,start_time,title,status) VALUES (33,10,'2026-07-28','18:00','기존 제목','미정')").run();
+    await env.otw_db.prepare("UPDATE pending_schedules SET candidate_kind='fill_missing_fields',action_type='update',existing_schedule_id=33 WHERE id=1").run();
+    return { ...updateOptions(33), changes:{title:"수정 제목"}, expectedTarget:{title:"기존 제목",startTime:"18:00",status:"미정"} };
+  };
+
+  it("manual title edit replaces a populated V2 value while preserving time/status and auditing the source", async () => {
+    const manual = await setupManualUpdate();
+    const repo = new D1PendingScheduleRepository(env.otw_db);
+    expect(await repo.approve((await repo.findById(1))!, manual, actor)).toMatchObject({success:true,action:"update"});
+    expect(await env.otw_db.prepare("SELECT title,start_time,status FROM schedules WHERE id=33").first()).toEqual({title:"수정 제목",start_time:"18:00",status:"미정"});
+    expect(await env.otw_db.prepare("SELECT title FROM update_logs WHERE action='approve'").first()).toEqual({title:"수정 제목"});
+    const audit = await env.otw_db.prepare("SELECT detail FROM admin_audit_logs WHERE event_type='pending.manual_approve'").first<{detail:string}>();
+    expect(JSON.parse(audit!.detail)).toMatchObject({source:{title:"정규 방송",startTime:"20:00"},before:manual.expectedTarget,after:{title:"수정 제목",startTime:"18:00",status:"미정"}});
+    expect((await readTransactionState()).pendingSchedules).toHaveLength(0);
+  });
+
+  it("manual time-only update rounds the edited input and preserves title/status", async () => {
+    const manual = await setupManualUpdate();
+    const repo = new D1PendingScheduleRepository(env.otw_db);
+    expect(await repo.approve((await repo.findById(1))!, {...manual,changes:{startTime:"14:16"}}, actor)).toMatchObject({success:true});
+    expect(await env.otw_db.prepare("SELECT title,start_time,status FROM schedules WHERE id=33").first()).toEqual({title:"기존 제목",start_time:"14:30",status:"미정"});
+  });
+
+  it("stale manual snapshot leaves candidate, latest values and history intact", async () => {
+    const manual = await setupManualUpdate();
+    await env.otw_db.prepare("UPDATE schedules SET title='다른 관리자 수정' WHERE id=33").run();
+    const before = await readTransactionState();
+    const repo = new D1PendingScheduleRepository(env.otw_db);
+    expect(await repo.approve((await repo.findById(1))!, manual, actor)).toMatchObject({success:false,error:"conflict"});
+    expect(await readTransactionState()).toEqual(before);
+    expect(await env.otw_db.prepare("SELECT COUNT(*) AS n FROM admin_audit_logs").first()).toEqual({n:0});
+  });
+
+  it("two manual approvers cannot overwrite each other or duplicate history", async () => {
+    const manual = await setupManualUpdate();
+    const repo = new D1PendingScheduleRepository(env.otw_db);
+    const first = (await repo.findById(1))!;
+    const results = await Promise.all([repo.approve(first,manual,actor),repo.approve(first,{...manual,changes:{title:"경합 수정"}},actor)]);
+    expect(results.filter(r=>r.success)).toHaveLength(1);
+    expect((await readTransactionState()).updateLogs).toHaveLength(1);
+    expect(await env.otw_db.prepare("SELECT COUNT(*) AS n FROM admin_audit_logs").first()).toEqual({n:1});
+  });
+
+  it("manual edits cannot approve archived candidates", async () => {
+    const manual = await setupManualUpdate();
+    await env.otw_db.prepare("UPDATE pending_schedules SET content_access='admin_archive' WHERE id=1").run();
+    const before = await readTransactionState();
+    const repo = new D1PendingScheduleRepository(env.otw_db);
+    expect(await repo.approve((await repo.findById(1))!,manual,actor)).toMatchObject({success:false});
+    expect(await readTransactionState()).toEqual(before);
+  });
+
+  it("manual new schedules persist edited values and original evidence in the same transaction", async () => {
+    const repo = new D1PendingScheduleRepository(env.otw_db);
+    const manual = {...options,changes:{title:"편집 신규",startTime:"21:17"}};
+    expect(await repo.approve((await repo.findById(1))!,manual,actor)).toMatchObject({success:true,action:"create"});
+    expect(await env.otw_db.prepare("SELECT title,start_time,status FROM schedules").first()).toEqual({title:"편집 신규",start_time:"21:30",status:"방송"});
+    const audit = await env.otw_db.prepare("SELECT resource_id,detail FROM admin_audit_logs").first<{resource_id:string;detail:string}>();
+    expect(JSON.parse(audit!.detail)).toMatchObject({source:{title:"정규 방송",startTime:"20:00"},before:null,after:{title:"편집 신규",startTime:"21:30"}});
+    expect(await env.otw_db.prepare("SELECT CAST(schedule_id AS TEXT) AS id,title FROM update_logs").first()).toEqual({id:audit!.resource_id,title:"편집 신규"});
+  });
+
+  it("manual audit failure rolls back the schedule, source candidate and success history", async () => {
+    const manual = await setupManualUpdate();
+    const repo = new D1PendingScheduleRepository(env.otw_db);
+    const before = await readTransactionState();
+    await env.otw_db.prepare("CREATE TRIGGER fail_manual_audit BEFORE INSERT ON admin_audit_logs BEGIN SELECT RAISE(ABORT,'audit failure'); END").run();
+    await expect(repo.approve((await repo.findById(1))!,manual,actor)).rejects.toThrow();
+    expect(await readTransactionState()).toEqual(before);
+  });
+
+  it("separate candidates sharing one snapshot cannot overwrite the winner", async () => {
+    const manual = await setupManualUpdate();
+    await env.otw_db.prepare("INSERT INTO pending_schedules (id,member_uid,member_name,date,start_time,title,status,action_type,candidate_kind,existing_schedule_id,vod_id) VALUES (2,10,'테스트 멤버','2026-07-28','21:00','다른 근거','방송','update','fill_missing_fields',33,'chzzk:vod-2')").run();
+    const repo = new D1PendingScheduleRepository(env.otw_db);
+    const [a,b] = await Promise.all([repo.findById(1),repo.findById(2)]);
+    const outcomes = await Promise.all([repo.approve(a!,manual,actor),repo.approve(b!,{...manual,changes:{title:"다른 관리자"}},actor)]);
+    expect(outcomes.filter(outcome=>outcome.success)).toHaveLength(1);
+    expect(outcomes.filter(outcome=>!outcome.success)).toMatchObject([{error:"conflict"}]);
+    const state = await readTransactionState();
+    expect(state.pendingSchedules).toHaveLength(1);
+    expect(state.updateLogs).toHaveLength(1);
   });
 
   it.each(["vod_started_at", "vod_duration_seconds", "vod_thumbnail_url"])(

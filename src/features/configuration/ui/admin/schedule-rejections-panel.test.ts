@@ -182,5 +182,6 @@ describe("ScheduleRejectionsPanel", () => {
       }),
     );
     expect(await screen.findByText("1/1 페이지")).toBeTruthy();
+    expect(fetchRejectionsMock.mock.calls.filter(([query])=>query.page===2)).toHaveLength(1);
   });
 });

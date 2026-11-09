@@ -11,7 +11,7 @@ export function AutoUpdateRunHistory({
   status,
   standalone = false,
 }: {
-  status: OperationsStatusResponse | undefined;
+  status: {autoUpdate: Pick<OperationsStatusResponse["autoUpdate"], "recentRuns">} | undefined;
   standalone?: boolean;
 }) {
   const runs = status?.autoUpdate.recentRuns ?? [];

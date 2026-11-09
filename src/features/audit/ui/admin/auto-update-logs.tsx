@@ -109,6 +109,7 @@ const AUDIT_EVENT_LABELS: Record<string, string> = {
   "manual_collection.youtube_cache_refresh": "수동 YouTube 캐시 새로고침",
   "manual_collection.naver_cafe_check": "수동 카페 점검",
   "pending.bulk_approve": "일괄 승인",
+  "pending.manual_approve": "일정 편집 승인",
   "pending.bulk_reject": "일괄 거부",
 };
 

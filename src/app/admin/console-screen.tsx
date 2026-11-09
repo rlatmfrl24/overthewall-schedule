@@ -16,8 +16,8 @@ import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 
 export type ConsoleArea = "review" | "collection" | "content" | "otw-play" | "resources" | "history";
 const tabs: Record<ConsoleArea, readonly (readonly [string, string])[]> = {
-  review: [["schedule", "일정 승인"], ["rejections", "거부 제외"]],
-  collection: [["x", "X(트위터)"], ["naver-cafe", "네이버 카페"], ["schedule", "일정 수집"], ["youtube", "YouTube 수집"], ["kirinuki", "방송 클립 채널"]],
+  review: [["schedule", "일정 검수"]],
+  collection: [["x", "X(트위터)"], ["naver-cafe", "네이버 카페"], ["youtube", "YouTube 수집"], ["kirinuki", "방송 클립 채널"]],
   content: [["schedules", "일정 보관"], ["notices", "공지"], ["ddays", "D-Day"], ["snapshot", "스냅샷"]],
   "otw-play": [["catalog", "카탈로그"], ["import", "가져오기/검수"], ["channels", "채널"], ["playlists", "기본 플레이리스트"], ["operations", "운영"]],
   resources: [["usage", "사용량·한도"], ["media", "이미지 정리"]],
@@ -37,9 +37,9 @@ export function ConsoleScreen({ area }: { area: ConsoleArea }) {
   const select = (next: string) => update(searchForTab(next), false);
   let content;
   if (area === "review") {
-    content = <AutoUpdateSettingsManager activeTab={tab === "schedule" ? "review" : "rejections"} />;
+    content = <AutoUpdateSettingsManager activeTab="review" />;
   } else if (area === "collection") {
-    content = tab === "x" || tab === "naver-cafe" ? <MemberPostSettingsManager activeSource={tab} onActiveSourceChange={select} /> : tab === "schedule" ? <AutoUpdateSettingsManager activeTab="settings" /> : tab === "youtube" ? <YouTubeFeedManager /> : <KirinukiChannelManager />;
+    content = tab === "x" || tab === "naver-cafe" ? <MemberPostSettingsManager activeSource={tab} onActiveSourceChange={select} /> : tab === "youtube" ? <YouTubeFeedManager /> : <KirinukiChannelManager />;
   } else if (area === "content") {
     const date = search.date && /^\d{4}-\d{2}-\d{2}$/.test(search.date) && isValid(parseISO(search.date)) && format(parseISO(search.date), "yyyy-MM-dd") === search.date ? search.date : format(new Date(), "yyyy-MM-dd");
     content = tab === "schedules" ? <ScheduleArchiveManager /> : tab === "notices" ? <NoticeManager /> : tab === "ddays" ? <DDayManager /> : <SnapshotPreviewManager date={date} mode={search.mode ?? "grid"} theme={search.theme ?? "light"} design={search.design ?? "poster"} onDesignChange={(design) => update({ design })} onDateChange={(date) => update({ date })} onModeChange={(mode) => update({ mode })} onThemeChange={(theme) => update({ theme })} />;
@@ -51,10 +51,10 @@ export function ConsoleScreen({ area }: { area: ConsoleArea }) {
     content = tab === "media" ? <NoticeManager view="resources" /> : <OperationsDashboard view="resources" />;
   }
   return <div className={area === "otw-play" ? "otw-play-console min-w-0 space-y-3" : "space-y-3"}>
-    <div className="md:hidden"><label className="text-xs text-muted-foreground">현재 화면<SelectField aria-label="관리자 하위 화면" className="mt-1 w-full" value={tab} onValueChange={select} options={tabs[area].map(([value, label]) => ({ value, label }))} /></label></div>
+    {area !== "review" && <><div className="md:hidden"><label className="text-xs text-muted-foreground">현재 화면<SelectField aria-label="관리자 하위 화면" className="mt-1 w-full" value={tab} onValueChange={select} options={tabs[area].map(([value, label]) => ({ value, label }))} /></label></div>
     <SectionNavigation label="업무 선택" className="console-tabs hidden md:flex">
       {tabs[area].map(([key, label]) => <Link key={key} to="." search={searchForTab(key)} resetScroll={false}
         aria-current={tab === key ? "page" : undefined} className={sectionNavigationItemClassName}>{label}</Link>)}
-    </SectionNavigation><div>{content}</div>
+    </SectionNavigation></>}<div>{content}</div>
   </div>;
 }

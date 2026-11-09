@@ -1,3 +1,4 @@
+import type { ScheduleOperationsStatusResponseDto } from "@contracts/operations";
 import type { SiteId } from "@contracts/site-definition";
 import { FX_COLLECTION_INTERVAL_MS } from "@contracts/x-collection";
 import { parseSiteId } from "@contracts/site-definition";
@@ -19,6 +20,7 @@ import {
 } from "./data-retention";
 import {
   readOperationsStatusRows,
+  readScheduleOperationsStatusRows,
   type AutoUpdateRunRow,
   type NaverCafeSourceCheckRow,
   type NaverCafeSourceRow,
@@ -650,6 +652,30 @@ const readScheduledOperationsStatus = async (db: D1Database, now: number) => {
   }
 };
 
+const buildAutoUpdateStatus = (settings: Map<string, string | null>, autoRuns: AutoUpdateRunRow[], rejectionCount: number, now: number): ScheduleOperationsStatusResponseDto["autoUpdate"] => {
+  const autoEnabled = settings.get("auto_update_enabled") === "true";
+  const autoInterval = parseAutoUpdateIntervalHours(normalizeAutoUpdateIntervalHours(settings.get("auto_update_interval_hours")));
+  const autoRangeDays = Math.max(1, Number.parseInt(settings.get("auto_update_range_days") ?? "3", 10) || 3);
+  const autoLastRun = Number.parseInt(settings.get("auto_update_last_run") ?? "", 10);
+  const latestAutoRun = autoRuns[0] ?? null;
+  return {
+    enabled: autoEnabled,
+    intervalHours: autoInterval,
+    rangeDays: autoRangeDays,
+    lastRun: Number.isFinite(autoLastRun) ? autoLastRun : null,
+    nextEligibleAt: getNextEligibleAt(autoEnabled, Number.isFinite(autoLastRun) ? autoLastRun : null, autoInterval, now),
+    rejectionCount,
+    latestRun: latestAutoRun ? serializeAutoRun(latestAutoRun) : null,
+    recentRuns: autoRuns.slice(0, 10).map(serializeAutoRun),
+  };
+};
+
+const getScheduleStatus = async (db: D1Database): Promise<ScheduleOperationsStatusResponseDto> => {
+  const now = Date.now();
+  const [rows, rejectionCount] = await Promise.all([readScheduleOperationsStatusRows(db), getRejectionCount(db)]);
+  return { updatedAt: new Date(now).toISOString(), autoUpdate: buildAutoUpdateStatus(getSettingMap(rows.settings), rows.autoRuns, rejectionCount, now) };
+};
+
 const getOperationsStatus = async (env: Env, windowHours: number) => {
   const now = Date.now();
   const since = now - windowHours * 60 * 60_000;
@@ -664,17 +690,6 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
   } = await readOperationsStatusRows(env.otw_db, since);
 
   const settings = getSettingMap(settingRows);
-  const autoInterval = parseAutoUpdateIntervalHours(
-    normalizeAutoUpdateIntervalHours(settings.get("auto_update_interval_hours")),
-  );
-  const autoRangeDays = Math.max(
-    1,
-    Number.parseInt(settings.get("auto_update_range_days") ?? "3", 10) || 3,
-  );
-  const autoLastRun = Number.parseInt(
-    settings.get("auto_update_last_run") ?? "",
-    10,
-  );
   const xInterval = parseXCollectionIntervalHours(
     settings.get("x_collection_primary_source") === "fxembed" ? "24" : normalizeXCollectionIntervalHours(settings.get("x_collection_interval_hours")),
   );
@@ -704,7 +719,7 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
     getVisiblePendingSummary(env.otw_db),
     getRejectionCount(env.otw_db),
   ]);
-  const autoEnabled = settings.get("auto_update_enabled") === "true";
+  const autoUpdate = buildAutoUpdateStatus(settings, autoRuns, rejectionCount, now);
   const xEnabled = settings.get("x_collection_enabled") !== "false";
   const parsedXDailyBudgetCents = Number.parseInt(
     settings.get("x_collection_daily_budget_cents") ?? "100",
@@ -757,20 +772,20 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
   }
 
   const latestAutoRun = autoRuns[0] ?? null;
-  if (autoEnabled && latestAutoRun?.status === "failed") {
+  if (autoUpdate.enabled && latestAutoRun?.status === "failed") {
     issues.push({
       severity: "critical",
       code: "auto_update_latest_failed",
       message: "최근 자동 업데이트 실행이 실패했습니다.",
     });
   }
-  if (autoEnabled) {
+  if (autoUpdate.enabled) {
     addStaleIssue(
       issues,
       "auto_update_stale",
       "자동 업데이트 성공 이력이 오래되었습니다.",
       getLatestSuccessAt(autoRuns),
-      autoInterval * 2 * 60 * 60_000,
+      autoUpdate.intervalHours * 2 * 60 * 60_000,
       now,
     );
   }
@@ -873,24 +888,12 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
     },
     scheduledOperations,
     autoUpdate: {
-      enabled: autoEnabled,
-      intervalHours: autoInterval,
-      rangeDays: autoRangeDays,
-      lastRun: Number.isFinite(autoLastRun) ? autoLastRun : null,
-      nextEligibleAt: getNextEligibleAt(
-        autoEnabled,
-        Number.isFinite(autoLastRun) ? autoLastRun : null,
-        autoInterval,
-        now,
-      ),
+      ...autoUpdate,
       pending: {
         total: toNumber(pending.total),
         createCount: toNumber(pending.create_count),
         updateCount: toNumber(pending.update_count),
       },
-      rejectionCount,
-      latestRun: latestAutoRun ? serializeAutoRun(latestAutoRun) : null,
-      recentRuns: autoRuns.slice(0, 10).map(serializeAutoRun),
     },
     xCollection: {
       enabled: xEnabled,
@@ -1171,8 +1174,8 @@ export class D1OperationsApplication implements OperationsApplication {
     this.collectNaverCafePostsForSources = collectNaverCafePostsForSources;
   }
 
-  getStatus(windowHours: number) {
-    return getOperationsStatus(this.env, windowHours);
+  getStatus(windowHours: number, scope?: "schedule") {
+    return scope === "schedule" ? getScheduleStatus(this.env.otw_db) : getOperationsStatus(this.env, windowHours);
   }
 
   getD1Observability() {

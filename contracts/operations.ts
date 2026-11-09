@@ -220,6 +220,10 @@ export interface OperationsStatusResponseDto {
   };
 }
 
+export type ScheduleOperationsStatusResponseDto = Pick<OperationsStatusResponseDto, "updatedAt"> & {
+  autoUpdate: Omit<OperationsStatusResponseDto["autoUpdate"], "pending">;
+};
+
 export type D1ObservabilityStatus =
   | "available"
   | "unconfigured"

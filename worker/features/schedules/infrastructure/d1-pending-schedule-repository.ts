@@ -1,5 +1,6 @@
 import type {
   PendingApprovalOptions,
+  PendingApprovalTargetSnapshot,
   PendingRejectionOptions,
 } from "../../../../contracts/pending-schedules";
 import type {
@@ -8,6 +9,7 @@ import type {
 } from "../application/ports/pending-schedule-repository";
 import {
   getPendingApprovalValues,
+  getPendingManualApprovalError,
   type PendingScheduleRow,
 } from "../domain/pending-schedule";
 import type { ScheduleActor } from "../domain/schedule";
@@ -24,11 +26,13 @@ type EmptyTargetRow = {
   status: string;
   start_time?: string | null;
   title?: string | null;
+  content_access?: string;
 };
 
 const PENDING_SELECT = `
   SELECT
     id,
+    content_access,
     member_uid,
     member_name,
     date,
@@ -138,8 +142,9 @@ export class D1PendingScheduleRepository
     options: PendingApprovalOptions | null,
     actor: ScheduleActor,
   ): Promise<PendingActionOutcome> {
-
+    if (item.content_access === "admin_archive") return { success:false,error:"validation",message:"보관된 후보는 승인할 수 없습니다." };
     if (item.candidate_kind === "holiday_suggestion") {
+      if (options?.changes) return { success:false,error:"validation",message:"휴방 후보는 직접 편집할 수 없습니다." };
       return this.approveHoliday(item, actor);
     }
     if (
@@ -167,8 +172,11 @@ export class D1PendingScheduleRepository
       };
     const normalizedOptions: PendingApprovalOptions = {
       ...requestedOptions,
+      targetMode,
       timeMode: "nearest_half_hour",
     };
+    const manualError = getPendingManualApprovalError(normalizedOptions);
+    if (manualError) return {success:false,error:"validation",message:manualError};
     const values = getPendingApprovalValues(item, normalizedOptions);
 
     if (targetMode === "create") {
@@ -177,6 +185,7 @@ export class D1PendingScheduleRepository
         values.startTime,
         values.title,
         actor,
+        normalizedOptions,
       );
     }
 
@@ -532,6 +541,7 @@ export class D1PendingScheduleRepository
     startTime: string | null,
     title: string | null,
     actor: ScheduleActor,
+    options?: PendingApprovalOptions,
   ): Promise<PendingActionOutcome> {
     if (item.candidate_kind) {
       const equivalent = await this.findEquivalentSchedule(
@@ -540,6 +550,7 @@ export class D1PendingScheduleRepository
         title,
       );
       if (equivalent) {
+        if (options?.changes) return {success:false,error:"conflict",message:"이미 비슷한 일정이 있습니다. 기존 일정과 비교해 주세요.",conflictingScheduleId:equivalent.id};
         return this.resolveObsolete(item, equivalent.id, actor);
       }
     }
@@ -559,6 +570,7 @@ export class D1PendingScheduleRepository
              CASE WHEN candidate_kind IS NOT NULL THEN '방송' ELSE status END
            FROM pending_schedules AS pending
            WHERE pending.id = ?
+             ${options?.changes ? "AND pending.content_access = 'normal'" : ""}
              AND (pending.candidate_kind IS NULL OR pending.candidate_kind <> 'missing_schedule'
                OR NOT EXISTS (
                  SELECT 1 FROM schedules existing
@@ -595,7 +607,7 @@ export class D1PendingScheduleRepository
           startTime,
           title,
           item.id,
-          timeToMinutes(item.start_time),
+          timeToMinutes(options?.changes ? startTime : item.start_time),
           AUTO_UPDATE_ADDITIONAL_SCHEDULE_MINUTES,
           minutes,
           minutes,
@@ -613,7 +625,7 @@ export class D1PendingScheduleRepository
              ?,
              date,
              'approve',
-             title,
+             ${options?.changes ? "?" : "title"},
              previous_status,
              vod_id,
              NULL,
@@ -621,7 +633,10 @@ export class D1PendingScheduleRepository
            FROM pending_schedules
            WHERE id = ? AND changes() = 1`,
         )
-        .bind(...actorBindings(actor), item.id),
+        .bind(...actorBindings(actor), ...(options?.changes ? [title] : []), item.id),
+      ...(options?.changes ? [this.manualApprovalAuditStatement(item, null, {
+        title, startTime, status:item.candidate_kind ? "방송" : item.status,
+      }, actor)] : []),
       this.db
         .prepare(
           `DELETE FROM pending_schedules
@@ -668,9 +683,9 @@ export class D1PendingScheduleRepository
   ): Promise<PendingActionOutcome> {
     const target = await this.db
       .prepare(
-        `SELECT id, status, start_time, title
+        `SELECT id, status, start_time, title, content_access
          FROM schedules
-         WHERE id = ? AND member_uid = ? AND date = ?`,
+         WHERE id = ? AND member_uid = ? AND date = ? AND content_access = 'normal'`,
       )
       .bind(targetId, item.member_uid, item.date)
       .first<EmptyTargetRow>();
@@ -689,7 +704,17 @@ export class D1PendingScheduleRepository
     const assignments: string[] = [];
     const bindings: unknown[] = [];
     const guards: string[] = [];
-    if (item.candidate_kind) {
+    const manual = options.changes !== undefined;
+    if (manual) {
+      if (options.changes!.startTime !== undefined) {
+        assignments.push("start_time = ?");
+        bindings.push(values.startTime);
+      }
+      if (options.changes!.title !== undefined) {
+        assignments.push("title = ?");
+        bindings.push(values.title);
+      }
+    } else if (item.candidate_kind) {
       if (!target.start_time?.trim()) {
         assignments.push(
           "start_time = CASE WHEN COALESCE(TRIM(start_time), '') = '' THEN ? ELSE start_time END",
@@ -724,6 +749,12 @@ export class D1PendingScheduleRepository
       }
     }
 
+    const after: PendingApprovalTargetSnapshot = {
+      title:manual && options.changes!.title !== undefined ? values.title : target.title ?? null,
+      startTime:manual && options.changes!.startTime !== undefined ? values.startTime : target.start_time ?? null,
+      status:target.status,
+    };
+
     const results = await this.db.batch([
       this.db
         .prepare(
@@ -732,13 +763,14 @@ export class D1PendingScheduleRepository
            WHERE id = ?
              AND member_uid = ?
              AND date = ?
+             ${manual ? "AND content_access = 'normal' AND title IS ? AND start_time IS ? AND status = ?" : ""}
              ${
                guards.length > 0
                  ? `AND (${guards.join(" OR ")})`
                  : ""
              }
              AND EXISTS (
-               SELECT 1 FROM pending_schedules WHERE id = ?
+               SELECT 1 FROM pending_schedules WHERE id = ? ${manual ? "AND content_access = 'normal'" : ""}
              ) RETURNING id`,
         )
         .bind(
@@ -746,6 +778,7 @@ export class D1PendingScheduleRepository
           targetId,
           item.member_uid,
           item.date,
+          ...(manual ? [options.expectedTarget!.title, options.expectedTarget!.startTime, options.expectedTarget!.status] : []),
           item.id,
         ),
       this.approvalLogStatement(
@@ -753,7 +786,9 @@ export class D1PendingScheduleRepository
         targetId,
         usesExplicitOptions ? target.status : item.previous_status,
         actor,
+        manual ? after.title : undefined,
       ),
+      ...(manual ? [this.manualApprovalAuditStatement(item, options.expectedTarget!, after, actor)] : []),
       this.db
         .prepare(
           `DELETE FROM pending_schedules
@@ -763,6 +798,7 @@ export class D1PendingScheduleRepository
     ]);
 
     if (results[0].results.length !== 1) {
+      if (manual) return {success:false,error:"conflict",message:"일정이 변경되었거나 이미 처리되었습니다. 새로고침 후 변경 내용을 다시 확인해 주세요."};
       return staleOutcome();
     }
     return { success: true, action: "update", scheduleId: targetId };
@@ -773,6 +809,7 @@ export class D1PendingScheduleRepository
     scheduleId: number,
     previousStatus: string | null,
     actor: ScheduleActor,
+    titleOverride?: string | null,
   ) {
     return this.db
       .prepare(
@@ -786,7 +823,7 @@ export class D1PendingScheduleRepository
            ?,
            date,
            'approve',
-           title,
+           ${titleOverride === undefined ? "title" : "?"},
            ?,
            vod_id,
            NULL,
@@ -797,9 +834,23 @@ export class D1PendingScheduleRepository
       .bind(
         scheduleId,
         ...actorBindings(actor),
+        ...(titleOverride === undefined ? [] : [titleOverride]),
         previousStatus,
         item.id,
       );
+  }
+
+  private manualApprovalAuditStatement(
+    item: PendingScheduleRow,
+    before: PendingApprovalTargetSnapshot | null,
+    after: PendingApprovalTargetSnapshot,
+    actor: ScheduleActor,
+  ) {
+    return this.db.prepare(`INSERT INTO admin_audit_logs (
+      event_type,resource_type,resource_id,action,status,actor_id,actor_name,actor_ip,detail,created_at
+    ) SELECT 'pending.manual_approve','schedules',CAST(schedule_id AS TEXT),'approve','success',?,?,?,?,?
+      FROM update_logs WHERE id = last_insert_rowid() AND changes() = 1`)
+      .bind(...actorBindings(actor), JSON.stringify({pendingId:item.id,source:{title:item.title,startTime:item.start_time,status:item.status,vodId:item.vod_id},before,after}), Date.now());
   }
 
   private findTimeConflict(

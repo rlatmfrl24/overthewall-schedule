@@ -88,6 +88,31 @@ export type NaverCafeSourceCheckRow = {
 
 const getResults = <T>(result: D1Result<T>) => result.results ?? [];
 
+const readAutoUpdateRuns = (db: D1Database, limit: 10 | 50) =>
+  db
+    .prepare(
+      `SELECT id, source, status, started_at, finished_at, range_days,
+              checked_count, segment_count, session_count,
+              resume_merged_count, updated_count, created_count, existing_count,
+              pending_created_count, rejected_suppressed_count,
+              duplicate_pending_count, short_suppressed_count,
+              holiday_suppressed_count, ambiguous_count,
+              obsolete_pending_count, actor_id, actor_name, actor_ip, error
+       FROM auto_update_runs
+       ORDER BY started_at DESC
+       LIMIT ${limit}`,
+    )
+    .all<AutoUpdateRunRow>();
+
+export const readScheduleOperationsStatusRows = async (db: D1Database) => {
+  const [settings, autoRuns] = await Promise.all([
+    db.prepare(`SELECT key, value FROM settings
+      WHERE key IN ('auto_update_enabled', 'auto_update_interval_hours', 'auto_update_last_run', 'auto_update_range_days')`).all<SettingRow>(),
+    readAutoUpdateRuns(db, 10),
+  ]);
+  return { settings: getResults(settings), autoRuns: getResults(autoRuns) };
+};
+
 export const readOperationsStatusRows = async (
   db: D1Database,
   since: number,
@@ -132,20 +157,7 @@ export const readOperationsStatusRows = async (
          )`,
       )
       .all<SettingRow>(),
-    db
-      .prepare(
-        `SELECT id, source, status, started_at, finished_at, range_days,
-                checked_count, segment_count, session_count,
-                resume_merged_count, updated_count, created_count, existing_count,
-                pending_created_count, rejected_suppressed_count,
-                duplicate_pending_count, short_suppressed_count,
-                holiday_suppressed_count, ambiguous_count,
-                obsolete_pending_count, actor_id, actor_name, actor_ip, error
-         FROM auto_update_runs
-         ORDER BY started_at DESC
-         LIMIT 50`,
-      )
-      .all<AutoUpdateRunRow>(),
+    readAutoUpdateRuns(db, 50),
     db
       .prepare(
         `SELECT id, source, started_at, finished_at, checked_handles,

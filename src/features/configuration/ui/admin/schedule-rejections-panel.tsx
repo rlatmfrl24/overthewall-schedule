@@ -23,6 +23,8 @@ import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
 import { queryKeys } from "@/shared/query/query-keys";
 import { useToast } from "@/shared/ui/toast";
 import { REJECTION_REASON_OPTIONS } from "../../model/rejection-reasons";
+import { useConsoleSearch } from "@/shared/lib/admin-console-search";
+import { QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 
 const getReasonLabel = (reason: PendingRejectionReasonCode | null) =>
   REJECTION_REASON_OPTIONS.find((option) => option.value === reason)?.label ??
@@ -88,16 +90,16 @@ const RejectionSnapshot = ({
   </div>
 );
 
-export function ScheduleRejectionsPanel({ standalone = false }: { standalone?: boolean } = {}) {
+export function ScheduleRejectionsPanel({ standalone = false, embedded = false }: { standalone?: boolean; embedded?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [search, setSearch] = useState("");
-  const [reasonCode, setReasonCode] = useState<
-    PendingRejectionReasonCode | "all"
-  >("all");
-  const [rejectedFrom, setRejectedFrom] = useState("");
-  const [rejectedTo, setRejectedTo] = useState("");
-  const [page, setPage] = useState(1);
+  const [filters, updateFilters] = useConsoleSearch();
+  const search = filters.q ?? "";
+  const reasonCode = REJECTION_REASON_OPTIONS.find(option=>option.value === filters.category)?.value ?? "all";
+  const rejectedFrom = filters.from ?? "";
+  const rejectedTo = filters.until ?? "";
+  const page = filters.page ?? 1;
+  const setPage = (nextPage: number) => updateFilters({page:nextPage});
   const [reopenTarget, setReopenTarget] =
     useState<ScheduleCandidateRejection | null>(null);
 
@@ -115,25 +117,26 @@ export function ScheduleRejectionsPanel({ standalone = false }: { standalone?: b
   const rejectionQuery = useQuery({
     queryKey: queryKeys.settings.pendingRejections(query),
     queryFn: () => fetchScheduleCandidateRejections(query),
+    staleTime: QUERY_STALE_TIME_MS,
   });
   const reopenMutation = useMutation({
     mutationFn: (id: number) => reopenScheduleCandidateRejection(id),
     onSuccess: async () => {
       setReopenTarget(null);
       const currentData = rejectionQuery.data;
+      let nextPage = page;
       if (currentData) {
         const nextTotalPages = Math.max(
           1,
           Math.ceil(Math.max(0, currentData.total - 1) / currentData.pageSize),
         );
-        setPage((currentPage) =>
-          Math.min(currentPage, nextTotalPages),
-        );
+        nextPage = Math.min(page, nextTotalPages);
       }
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.settings.all }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.settings.pendingRejectionsRoot(), refetchType:nextPage === page ? "active" : "none" }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.operations.statusRoot() }),
       ]);
+      if (nextPage !== page) setPage(nextPage);
       toast({
         variant: "success",
         description:
@@ -154,17 +157,17 @@ export function ScheduleRejectionsPanel({ standalone = false }: { standalone?: b
     <section
       id="auto-update-panel-rejections"
       role={standalone ? "region" : "tabpanel"}
-      aria-label={standalone ? "거부 제외" : undefined}
-      aria-labelledby={standalone ? undefined : "auto-update-tab-rejections"}
+      aria-label={standalone || embedded ? "거부 제외" : undefined}
+      aria-labelledby={standalone || embedded ? undefined : "auto-update-tab-rejections"}
       className="space-y-3"
     >
-      <div>
+      {!embedded && <div>
         <h2 className="text-base font-semibold">거부 제외</h2>
         <p className="text-sm text-muted-foreground">
           활성 제외 후보를 조회하고, 필요한 항목만 다시 수집되도록 재검토를
           허용합니다.
         </p>
-      </div>
+      </div>}
 
       <Card>
         <CardContent className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_180px_160px_160px]">
@@ -176,8 +179,7 @@ export function ScheduleRejectionsPanel({ standalone = false }: { standalone?: b
                 id="rejection-search"
                 value={search}
                 onChange={(event) => {
-                  setSearch(event.target.value);
-                  setPage(1);
+                  updateFilters({q:event.target.value,page:1});
                 }}
                 className="pl-9"
                 placeholder="검색어 입력"
@@ -189,8 +191,7 @@ export function ScheduleRejectionsPanel({ standalone = false }: { standalone?: b
             <Select
               value={reasonCode}
               onValueChange={(value) => {
-                setReasonCode(value as PendingRejectionReasonCode | "all");
-                setPage(1);
+                updateFilters({category:value,page:1});
               }}
             >
               <SelectTrigger id="rejection-reason">
@@ -214,8 +215,7 @@ export function ScheduleRejectionsPanel({ standalone = false }: { standalone?: b
               value={rejectedFrom}
               max={rejectedTo || undefined}
               onChange={(event) => {
-                setRejectedFrom(event.target.value);
-                setPage(1);
+                updateFilters({from:event.target.value,page:1});
               }}
             />
           </div>
@@ -227,8 +227,7 @@ export function ScheduleRejectionsPanel({ standalone = false }: { standalone?: b
               value={rejectedTo}
               min={rejectedFrom || undefined}
               onChange={(event) => {
-                setRejectedTo(event.target.value);
-                setPage(1);
+                updateFilters({until:event.target.value,page:1});
               }}
             />
           </div>
@@ -281,7 +280,7 @@ export function ScheduleRejectionsPanel({ standalone = false }: { standalone?: b
               variant="outline"
               size="sm"
               disabled={page <= 1}
-              onClick={() => setPage((value) => Math.max(1, value - 1))}
+              onClick={() => setPage(Math.max(1, page - 1))}
             >
               이전
             </Button>
@@ -289,7 +288,7 @@ export function ScheduleRejectionsPanel({ standalone = false }: { standalone?: b
               variant="outline"
               size="sm"
               disabled={data.totalPages === 0 || page >= data.totalPages}
-              onClick={() => setPage((value) => value + 1)}
+              onClick={() => setPage(page + 1)}
             >
               다음
             </Button>

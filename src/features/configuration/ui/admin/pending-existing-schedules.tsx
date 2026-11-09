@@ -29,11 +29,10 @@ export function PendingExistingSchedules({ pending, selectedScheduleId = null }:
   });
   const nearest = differences.length ? Math.min(...differences) : null;
   const hasUnknownTime = schedules.some(schedule => timeMinutes(schedule.start_time) === null && schedule.status !== "휴방");
-  const dateLabel = `${pending.date} (${new Date(`${pending.date}T12:00:00+09:00`).toLocaleDateString("ko-KR", { weekday: "short", timeZone: "Asia/Seoul" })})`;
 
   return (
-    <section className="min-w-0 overflow-hidden rounded-lg border bg-card" aria-label={`${pending.member_name} ${pending.date} 기존 일정 비교`}>
-      <div className="space-y-3 border-b bg-muted/30 p-4">
+    <section className="min-w-0 space-y-3" aria-label={`${pending.member_name} ${pending.date} 기존 일정 비교`}>
+      <div className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h4 className="flex items-center gap-2 text-sm font-semibold">
@@ -41,11 +40,7 @@ export function PendingExistingSchedules({ pending, selectedScheduleId = null }:
               같은 날짜의 기존 일정
               <span className="tabular-nums">{schedules.length}건</span>
             </h4>
-            <p className="mt-1 text-xs text-muted-foreground">{pending.member_name} · {dateLabel} · 한국 시간</p>
           </div>
-          {selectedScheduleId !== null && schedules.some(schedule => schedule.id === selectedScheduleId) && (
-            <Badge variant="outline">수정 대상 1건 선택됨</Badge>
-          )}
         </div>
         {!isHoliday && (
           <div className="grid gap-1 text-sm sm:grid-cols-[120px_minmax(0,1fr)]">
@@ -58,9 +53,9 @@ export function PendingExistingSchedules({ pending, selectedScheduleId = null }:
         )}
       </div>
       {schedules.length === 0 ? (
-        <p className="p-4 text-sm text-muted-foreground">이 멤버의 해당 날짜에 등록된 일정이 없습니다.</p>
+        <p className="text-sm text-muted-foreground">이 멤버의 해당 날짜에 등록된 일정이 없습니다.</p>
       ) : (
-        <ul className="divide-y">
+        <ul className="space-y-3">
           {schedules.map(schedule => {
             const start = timeMinutes(schedule.start_time);
             const difference = schedule.status !== "휴방" && start !== null && candidateStart !== null ? start - candidateStart : null;
@@ -69,7 +64,7 @@ export function PendingExistingSchedules({ pending, selectedScheduleId = null }:
             const canFill = ["방송", "미정"].includes(schedule.status);
             const missing = canFill ? [start === null ? "시간 미입력" : null, !schedule.title?.trim() ? "제목 미입력" : null].filter(Boolean) : [];
             return (
-              <li key={schedule.id} className={cn("grid min-w-0 gap-3 p-4 sm:grid-cols-[96px_minmax(0,1fr)]", selected && "bg-primary/5")}>
+              <li key={schedule.id} className={cn("grid min-w-0 gap-3 rounded-md px-3 py-2 sm:grid-cols-[96px_minmax(0,1fr)]", selected && "bg-muted/50")}>
                 <div className="flex items-baseline gap-2 sm:block">
                   <p className="text-lg font-semibold tabular-nums">{schedule.status === "휴방" ? "종일" : schedule.start_time?.trim() || "시간 미정"}</p>
                   <p className="mt-1 text-xs text-muted-foreground">등록 일정 #{schedule.id}</p>
@@ -102,7 +97,7 @@ export function PendingExistingSchedules({ pending, selectedScheduleId = null }:
         </ul>
       )}
       {pending.candidate_kind === "missing_schedule" && schedules.length > 0 && (
-        <p className="border-t bg-muted/20 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+        <p className="text-xs leading-relaxed text-muted-foreground">
           {hasUnknownTime ? "시간 미정 일정이 있습니다. 추가 일정으로 승인하기 전에 기존 일정을 확인해 주세요."
             : nearest !== null && nearest < 240 ? "가장 가까운 일정과 4시간 미만입니다. 중복 추천인지 확인해 주세요."
             : "추가 추천 기준은 가장 가까운 기존 시작 시각과 4시간 이상입니다. 기존 일정의 제목과 상태도 함께 확인해 주세요."}

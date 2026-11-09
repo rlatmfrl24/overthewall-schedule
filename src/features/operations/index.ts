@@ -6,6 +6,7 @@ export {
   fetchOperationRuns,
   fetchDataRetentionStatus,
   fetchOperationsStatus,
+  fetchScheduleOperationsStatus,
   runAutoUpdateNow,
   runDataRetentionPrune,
   runNaverCafeCheckNow,
