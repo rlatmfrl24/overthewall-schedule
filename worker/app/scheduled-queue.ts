@@ -69,11 +69,6 @@ export const handleScheduledJobQueue = async (
     await repository.refreshRun(item.run_id);
     await executor.finalizeLegacyState(item.run_id);
     await repository.acknowledgeReconciliation(item);
-    // Reply previews may use only what remains after all required Queue writes.
-    if (!isDeadLetter && batch.messages.length === 1 && item.lane === "x" &&
-        (item.status === "succeeded" || item.status === "partial")) {
-      await executor.enrichCompletedXReplies(item);
-    }
   };
   const retryReconciliation = async (
     message: Message<unknown>,
@@ -176,6 +171,11 @@ export const handleScheduledJobQueue = async (
         continue;
       }
       await reconcileTerminalItem(completed);
+      // Only fresh completions can spend the remaining D1 calls on reply previews.
+      if (batch.messages.length === 1 && completed.lane === "x" &&
+          (completed.status === "succeeded" || completed.status === "partial")) {
+        await executor.enrichCompletedXReplies(completed);
+      }
       message.ack();
     } catch (error) {
       if (error instanceof ScheduledAutoUpdateBlocked) {

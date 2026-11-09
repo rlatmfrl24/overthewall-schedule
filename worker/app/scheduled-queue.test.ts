@@ -152,6 +152,9 @@ describe("scheduled job queue", () => {
     } as unknown as MessageBatch<unknown>, siteEnv() as Env);
 
     expect(mocks.dispatchRun).toHaveBeenCalledWith("run-1");
+    expect(mocks.acknowledgeReconciliation.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.enrichCompletedXReplies.mock.invocationCallOrder[0],
+    );
     expect(ack).toHaveBeenCalledOnce();
   });
 
@@ -293,9 +296,7 @@ describe("scheduled job queue", () => {
     expect(mocks.refreshRun.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.finalizeLegacyState.mock.invocationCallOrder[0],
     );
-    expect(mocks.acknowledgeReconciliation.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.enrichCompletedXReplies.mock.invocationCallOrder[0],
-    );
+    expect(mocks.enrichCompletedXReplies).not.toHaveBeenCalled();
     expect(ack).toHaveBeenCalledOnce();
   });
 
