@@ -160,6 +160,7 @@ function NoticeCarousel({ notice, compact = false }: { notice: Notice; compact?:
   }, [imageUrls.length]);
   const current = imageUrls[index];
   const go = (direction: -1 | 1) => setIndex((value) => (value + direction + imageUrls.length) % imageUrls.length);
+  const logo = <img src={site.logoPath ?? undefined} alt={site.id === "otw" ? "OTW" : site.siteName} className={cn("max-w-[70%] opacity-90", compact ? "max-h-10" : "max-h-16")} />;
 
   return (
     <div
@@ -170,9 +171,9 @@ function NoticeCarousel({ notice, compact = false }: { notice: Notice; compact?:
     >
       <div className={cn("relative aspect-[4/3]", compact && "sm:aspect-auto sm:min-h-32 sm:flex-1")}>
         {current ? (
-          <AuthenticatedImage protectedImage={false} src={current} alt={`${notice.content} 이미지 ${index + 1}`} className="absolute inset-0 h-full w-full object-cover" loading={compact ? "lazy" : "eager"} />
+          <AuthenticatedImage protectedImage={false} showPlaceholder src={current} alt={`${notice.content} 이미지 ${index + 1}`} className="absolute inset-0 size-full object-cover" loading={compact ? "lazy" : "eager"} fallback={logo} />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center"><img src={site.logoPath ?? undefined} alt={site.id === "otw" ? "OTW" : site.siteName} className={cn("max-w-[70%] opacity-90", compact ? "max-h-10" : "max-h-16")} /></div>
+          <div className="absolute inset-0 flex items-center justify-center">{logo}</div>
         )}
       </div>
       {imageUrls.length > 1 ? (

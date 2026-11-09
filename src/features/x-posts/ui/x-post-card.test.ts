@@ -120,7 +120,7 @@ describe("XPostCard", () => {
     expect(
       screen.getByRole("link", { name: "Example Title 열기" }).getAttribute("href"),
     ).toBe("https://example.com/full");
-    fireEvent.error(screen.getByRole("img", { name: "링크 미리보기" }));
+    fireEvent.error(screen.getByAltText("링크 미리보기"));
     expect(screen.getByText("이미지를 불러오지 못했습니다")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Example Title 열기" }).getAttribute("href")).toBe("https://example.com/full");
   });

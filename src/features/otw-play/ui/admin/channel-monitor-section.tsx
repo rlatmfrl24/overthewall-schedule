@@ -1,3 +1,4 @@
+import { LoadingImage } from "@/shared/ui/loading-image";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useEffect, useMemo, useState } from "react";
@@ -551,7 +552,7 @@ export function ChannelMonitorSection({
                     ) : candidates.map((candidate) => (
                       <div key={candidate.candidateId} className="flex min-w-0 gap-3 p-3">
                         {candidate.thumbnailUrl ? (
-                          <img className="h-20 w-36 shrink-0 rounded-lg object-cover" src={candidate.thumbnailUrl} alt="" />
+                          <LoadingImage className="h-20 w-36 shrink-0 rounded-lg object-cover" src={candidate.thumbnailUrl} alt="" />
                         ) : null}
                         <div className="min-w-0 flex-1">
                           <a

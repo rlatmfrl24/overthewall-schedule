@@ -1,3 +1,4 @@
+import { LoadingImage } from "@/shared/ui/loading-image";
 import { site } from "@/shared/config/site";
 import { Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
@@ -276,7 +277,7 @@ export function OtwPlayHomePage() {
                   className="play-member-link group flex w-20 shrink-0 flex-col items-center gap-2 text-center sm:w-24"
                   aria-label={`${member.displayName} 메인 보컬·피처링 곡 보기`}
                 >
-                  <img
+                  <LoadingImage
                     src={`/profile/${member.code}.webp`}
                     alt=""
                     width={80}

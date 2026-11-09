@@ -1,3 +1,4 @@
+import { LoadingImage } from "@/shared/ui/loading-image";
 import type { CSSProperties } from "react";
 import SourceIcon from "@/assets/icon_x.svg";
 import {
@@ -243,7 +244,7 @@ const XEmbeddedPostCard = ({
     >
       <div className="flex min-w-0 items-start gap-2.5 p-2.5">
         {post.profileImageUrl ? (
-          <img
+          <LoadingImage
             src={post.profileImageUrl}
             alt=""
             className="h-7 w-7 shrink-0 rounded-full border border-border object-cover"
@@ -333,7 +334,7 @@ const XReplyPreviewCard = ({
       className="flex min-h-11 min-w-0 items-start gap-2.5 border-t border-border/60 p-2.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       {post.profileImageUrl ? (
-        <img
+        <LoadingImage
           src={post.profileImageUrl}
           alt=""
           className="h-7 w-7 shrink-0 rounded-full border border-border object-cover"
@@ -372,7 +373,7 @@ const XReplyPreviewCard = ({
         ) : null}
       </div>
       {previewMedia?.src ? (
-        <img
+        <LoadingImage
           src={previewMedia.src}
           alt={previewMedia.altText || ""}
           className="h-14 w-14 shrink-0 rounded-lg border border-border/70 object-cover"
@@ -455,7 +456,7 @@ const XLinkPreviewCard = ({ link }: { link: XPostLinkDto }) => {
         <div className="h-auto w-20 shrink-0 bg-muted sm:w-28">
           <PostImage
             item={{ src: link.imageUrl, alt: "링크 미리보기", kind: "photo" }}
-            className="h-full min-h-16 w-full object-cover"
+            className="h-full min-h-16 w-full object-cover data-[image-state=loading]:min-h-16"
           />
         </div>
       ) : null}

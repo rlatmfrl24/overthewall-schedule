@@ -139,7 +139,7 @@ describe("NoticeManager", () => {
     });
     render(createElement(NoticeManager), { wrapper: createQueryWrapper() });
     fireEvent.click(await screen.findByText("공지 이미지 보기"));
-    await waitFor(() => expect(screen.getByRole("img", { name: "일반 외부 이미지 이미지 1" }).getAttribute("src")).toBe(raw));
+    await waitFor(() => expect(screen.getByAltText("일반 외부 이미지 이미지 1").getAttribute("src")).toBe(raw));
     expect(fetcher).toHaveBeenCalledTimes(1);
     fetcher.mockRestore();
   });

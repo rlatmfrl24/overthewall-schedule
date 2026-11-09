@@ -204,7 +204,7 @@ function QueueItem({ player, item, index }: { player: Player; item: Player["queu
         }
       }} />
     <button type="button" className="am-queue-track" aria-current={index === player.queue.currentIndex ? "true" : undefined} disabled={unavailable || retryable} onClick={() => player.select(index)}>
-      <span className="am-queue-art">{track ? <OtwPlayThumbnail source={track.source} alt="" width={80} height={80} /> : index + 1}</span>
+      <span className="am-queue-art">{track ? <OtwPlayThumbnail source={track.source} alt="" width={80} height={80} className="size-full" /> : index + 1}</span>
       <span><strong title={track?.song.title}>{track?.song.title ?? (unavailable ? "사용할 수 없는 가창" : retryable ? "다시 불러오기 필요" : "불러오는 중")}</strong><small>{track ? names(track) : item.performanceId}</small></span>
     </button>
     {retryable && <button type="button" className="am-retry" aria-label="가창 정보 다시 불러오기" onClick={() => player.retry(item.id)}>재시도</button>}

@@ -1,3 +1,4 @@
+import { LoadingImage } from "@/shared/ui/loading-image";
 import { site } from "@/shared/config/site";
 import {
   ClerkFailed,
@@ -380,7 +381,7 @@ function PublicUserMenu({
           title={displayName}
         >
           {user?.imageUrl ? (
-            <img src={user.imageUrl} alt="" className="h-7 w-7 shrink-0 rounded-full object-cover" />
+            <LoadingImage src={user.imageUrl} alt="" className="h-7 w-7 shrink-0 rounded-full object-cover" />
           ) : (
             <UserRound className="h-5 w-5" />
           )}
@@ -401,7 +402,7 @@ function PublicUserMenu({
       >
         <div className="flex min-w-0 items-center gap-3 px-4 py-3">
           {user?.imageUrl ? (
-            <img src={user.imageUrl} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+            <LoadingImage src={user.imageUrl} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
           ) : (
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
               <UserRound className="h-4 w-4 text-muted-foreground" />

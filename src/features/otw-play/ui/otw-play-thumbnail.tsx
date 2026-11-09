@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { OtwPlayPublicSourceDto } from "@contracts/otw-play";
 import { cn } from "@/shared/lib/utils";
+import { LoadingImage } from "@/shared/ui/loading-image";
 
 type ThumbnailSource = Pick<
   OtwPlayPublicSourceDto,
@@ -24,15 +25,7 @@ const getOtwPlayThumbnailCandidates = (
   );
 };
 
-export function OtwPlayThumbnail({
-  source,
-  alt = "",
-  className,
-  loading = "lazy",
-  width,
-  height,
-  fallback,
-}: {
+type OtwPlayThumbnailProps = {
   source: ThumbnailSource | null | undefined;
   alt?: string;
   className?: string;
@@ -40,17 +33,16 @@ export function OtwPlayThumbnail({
   width: number;
   height: number;
   fallback?: ReactNode;
-}) {
-  const candidates = useMemo(
-    () => getOtwPlayThumbnailCandidates(source),
-    [source],
-  );
+};
+
+export function OtwPlayThumbnail({ source, ...props }: OtwPlayThumbnailProps) {
+  const candidates = getOtwPlayThumbnailCandidates(source);
+  return <ThumbnailCandidates key={JSON.stringify(candidates)} candidates={candidates} {...props} />;
+}
+
+function ThumbnailCandidates({ candidates, alt = "", className, loading = "lazy", width, height, fallback }:
+  Omit<OtwPlayThumbnailProps, "source"> & { candidates: string[] }) {
   const [candidateIndex, setCandidateIndex] = useState(0);
-
-  useEffect(() => {
-    setCandidateIndex(0);
-  }, [candidates]);
-
   const src = candidates[candidateIndex];
   if (!src) return fallback ?? null;
 
@@ -61,8 +53,7 @@ export function OtwPlayThumbnail({
   };
 
   return (
-    <img
-      key={src}
+    <LoadingImage
       src={src}
       alt={alt}
       width={width}

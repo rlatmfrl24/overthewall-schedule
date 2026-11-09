@@ -37,7 +37,7 @@ describe("공통 게시글 UI", () => {
 
   it("사진 실패 시 안내와 원문 링크를 유지하며 단일 사진 이동은 비활성화한다", () => {
     render(<PostMedia items={photos.slice(0, 1)} title="사진" url={url} />);
-    fireEvent.error(screen.getByRole("img"));
+    fireEvent.error(screen.getByAltText(photos[0].alt));
     expect(screen.getByText("이미지를 불러오지 못했습니다")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /확대/ }));
     expect((screen.getByRole("button", { name: "다음 이미지" }) as HTMLButtonElement).disabled).toBe(true);
@@ -76,7 +76,7 @@ describe("공통 게시글 UI", () => {
     const { rerender } = render(<PostMedia items={photos} title="사진" url={url} />);
     fireEvent.click(screen.getByRole("button", { name: /이미지 4 확대/ }));
     rerender(<PostMedia items={photos.slice(0, 1)} title="사진" url={url} />);
-    expect(within(screen.getByRole("dialog")).getByRole("img").getAttribute("src")).toBe(photos[3].src);
+    expect(within(screen.getByRole("dialog")).getByAltText(photos[3].alt).getAttribute("src")).toBe(photos[3].src);
     expect(within(screen.getByRole("dialog")).getByText("4 / 5")).toBeTruthy();
   });
 

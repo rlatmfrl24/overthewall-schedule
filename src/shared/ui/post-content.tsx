@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, ExternalLink, ImageOff, Share2, X } from "lucide-react";
 import { Button } from "./button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./dialog";
+import { LoadingImage } from "./loading-image";
 import { cn } from "@/shared/lib/utils";
 
 export function PostHeader({ name, profileSrc, accent, source, sourceIcon, secondary, time, dateTime, newPost, appearance = "card" }: {
@@ -10,7 +11,7 @@ export function PostHeader({ name, profileSrc, accent, source, sourceIcon, secon
   appearance?: "card" | "feed";
 }) {
   if (appearance === "feed") return <div className="flex min-w-0 items-start gap-2.5">
-    {profileSrc ? <img src={profileSrc} alt="" className="size-8 shrink-0 rounded-full border object-cover" style={{ borderColor: accent }} /> : <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs">{source}</span>}
+    {profileSrc ? <LoadingImage src={profileSrc} alt="" className="size-8 shrink-0 rounded-full border object-cover" style={{ borderColor: accent }} /> : <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs">{source}</span>}
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
         <h3 className="min-w-0 break-words text-sm font-semibold [overflow-wrap:anywhere]">{name}</h3>
@@ -23,7 +24,7 @@ export function PostHeader({ name, profileSrc, accent, source, sourceIcon, secon
     </div>
   </div>;
   return <div className="flex min-w-0 items-center gap-3">
-    {profileSrc ? <img src={profileSrc} alt="" className="size-10 shrink-0 rounded-full border object-cover" style={{ borderColor: accent }} /> : <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm">{source}</span>}
+    {profileSrc ? <LoadingImage src={profileSrc} alt="" className="size-10 shrink-0 rounded-full border object-cover" style={{ borderColor: accent }} /> : <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm">{source}</span>}
     <div className="min-w-0 flex-1">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
         <h3 className="min-w-0 break-words text-sm font-semibold [overflow-wrap:anywhere]">{name}</h3>
@@ -108,9 +109,9 @@ export function PostActions({ url, title, text, children, appearance = "card" }:
 export type PostMediaItem = { src: string; alt: string; kind: "photo" | "video" };
 
 export function PostImage({ item, className }: { item: PostMediaItem; className?: string }) {
-  const [failed, setFailed] = useState(false);
-  return failed || !item.src ? <span className="flex h-full min-h-24 flex-col items-center justify-center gap-2 px-3 text-sm text-muted-foreground"><ImageOff className="size-6" />이미지를 불러오지 못했습니다</span> :
-    <img src={item.src} alt={item.alt} loading="lazy" referrerPolicy="no-referrer" className={className} onError={() => setFailed(true)} />;
+  return <LoadingImage src={item.src} alt={item.alt} loading="lazy" referrerPolicy="no-referrer"
+    className={cn("max-w-full not-data-[image-state=loaded]:min-h-24 not-data-[image-state=loaded]:w-full", className)}
+    fallback={<span className="flex flex-col items-center gap-2 px-3 text-center text-sm text-muted-foreground"><ImageOff className="size-6" />이미지를 불러오지 못했습니다</span>} />;
 }
 
 export function PostMedia({ items, title, url }: { items: PostMediaItem[]; title: string; url: string }) {

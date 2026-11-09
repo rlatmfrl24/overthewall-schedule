@@ -1,3 +1,4 @@
+import { LoadingImage } from "@/shared/ui/loading-image";
 import type { MemberDto } from "@contracts/members";
 import type { ChzzkClip } from "../model/types";
 import { cn } from "@/shared/lib/utils";
@@ -106,7 +107,7 @@ export const ClipCard = ({
       {/* 썸네일 */}
       <div className="relative aspect-video overflow-hidden bg-muted">
         {clip.thumbnailImageUrl ? (
-          <img
+          <LoadingImage
             src={clip.thumbnailImageUrl}
             alt={clip.clipTitle}
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
@@ -140,7 +141,7 @@ export const ClipCard = ({
                 : "rgba(0,0,0,0.78)",
             }}
           >
-            <img
+            <LoadingImage
               src={`/profile/${member.code}.webp`}
               alt={member.name}
               className="h-5 w-5 rounded-full border border-white/50 object-cover"

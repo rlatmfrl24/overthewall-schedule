@@ -56,10 +56,10 @@ describe("NoticePage", () => {
     expect(noticeLinks[0].className).toContain("border");
     expect(screen.getByText("🌙 하나")).toBeTruthy();
     expect(screen.getByText("둘")).toBeTruthy();
-    expect(screen.getByRole("img", { name: /이미지 1/ }).getAttribute("src")).toBe("/one.webp");
+    expect(screen.getByAltText(/이미지 1/).getAttribute("src")).toBe("/one.webp");
     expect(screen.getByText("1 / 2")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "다음 이미지" }));
-    expect(screen.getByRole("img", { name: /이미지 2/ }).getAttribute("src")).toBe("/two.webp");
+    expect(screen.getByAltText(/이미지 2/).getAttribute("src")).toBe("/two.webp");
     expect(screen.getByText("2 / 2")).toBeTruthy();
   });
 
@@ -76,7 +76,7 @@ describe("NoticePage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "다음 이미지" }));
     expect(
-      screen.getByRole("img", { name: /이미지 2/ }).getAttribute("src"),
+      screen.getByAltText(/이미지 2/).getAttribute("src"),
     ).toBe("/two.webp");
 
     currentNotices = [
@@ -88,7 +88,7 @@ describe("NoticePage", () => {
     rerender(createElement(NoticePage));
 
     expect(
-      screen.getByRole("img", { name: /이미지 1/ }).getAttribute("src"),
+      screen.getByAltText(/이미지 1/).getAttribute("src"),
     ).toBe("/remaining.webp");
     expect(screen.queryByRole("button", { name: "다음 이미지" })).toBeNull();
   });

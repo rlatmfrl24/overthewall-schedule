@@ -1,3 +1,4 @@
+import { LoadingImage } from "@/shared/ui/loading-image";
 import { UserRound, UsersRound } from "lucide-react";
 import type { OtwPlayPublicParticipantDto } from "@contracts/otw-play";
 import { presentOtwPlayParticipants } from "./participant-presentation";
@@ -12,9 +13,8 @@ export function OtwPlayParticipantAvatarGroup({ participants }: { participants: 
         const Icon = participant.kind === "group" ? UsersRound : UserRound;
         return (
             <span key={participant.entityId} className="relative flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-background bg-muted" title={participant.displayName}>
-              <Icon className="size-3.5" />
-              {participant.kind === "current_member" && <img src={`/profile/${encodeURIComponent(participant.code)}.webp`} alt="" loading="lazy"
-                className="absolute inset-0 size-full object-cover" onError={event => { event.currentTarget.hidden = true; }} />}
+              {participant.kind === "current_member" ? <LoadingImage src={`/profile/${encodeURIComponent(participant.code)}.webp`} alt="" loading="lazy"
+                className="absolute inset-0 size-full object-cover" fallback={<Icon className="size-3.5" />} /> : <Icon className="size-3.5" />}
             </span>
         );
       })}

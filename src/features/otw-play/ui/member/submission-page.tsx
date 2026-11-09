@@ -1,3 +1,4 @@
+import { LoadingImage } from "@/shared/ui/loading-image";
 import { site } from "@/shared/config/site";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -213,7 +214,7 @@ function MemberSelector({ members, selectedUids, onChange, maxReached }: {
       {members.map(member => {
         const selected = selectedUids.includes(member.uid);
         return <button key={member.uid} type="button" aria-pressed={selected} disabled={!selected && maxReached} onClick={() => onChange(selected ? selectedUids.filter(uid => uid !== member.uid) : [...selectedUids, member.uid])} className={`flex items-center gap-2 rounded-lg border p-3 text-left text-sm ${selected ? "border-primary bg-primary/10" : "hover:bg-muted"}`}>
-          <img src={`/profile/${member.code}.webp`} alt="" className="size-9 shrink-0 rounded-full object-cover" />
+          <LoadingImage src={`/profile/${member.code}.webp`} alt="" className="size-9 shrink-0 rounded-full object-cover" />
           <span className="min-w-0 flex-1 break-words">{member.oshi_mark} {member.name}</span>{selected ? <Check className="size-4 shrink-0" /> : null}
         </button>;
       })}
@@ -225,7 +226,7 @@ function MemberSelector({ members, selectedUids, onChange, maxReached }: {
 function VideoSummary({ preflight, expanded = false, saved = false }: { preflight: OtwPlaySubmissionPreflightDto; expanded?: boolean; saved?: boolean }) {
   return (
     <div className={`grid items-center gap-3 ${expanded ? "grid-cols-[96px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)]" : "grid-cols-[88px_minmax(0,1fr)] sm:grid-cols-[112px_minmax(0,1fr)]"}`}>
-      <img src={preflight.thumbnailUrl} alt="확인한 YouTube 영상 썸네일" className="aspect-video w-full rounded-lg object-cover" />
+      <LoadingImage src={preflight.thumbnailUrl} alt="확인한 YouTube 영상 썸네일" className="aspect-video w-full rounded-lg object-cover" />
       <div className="min-w-0 self-center text-sm">
         <p className="font-medium text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="mr-1 inline size-4" /> {preflight.video ? "영상 확인 완료" : saved ? "저장된 제안 영상" : "영상 정보 재확인 필요"}</p>
         <a href={preflight.canonicalUrl} target="_blank" rel="noreferrer" className="mt-1 block text-xs text-muted-foreground underline-offset-4 hover:underline">YouTube에서 보기</a>
@@ -853,7 +854,7 @@ function SubmissionForm({ editId, initialKind }: SubmissionPageProps) {
                   if (participant.kind === "member") {
                     const member = members.data?.find(item => item.uid === participant.memberUid);
                     return member ? <li key={`member:${member.uid}`} className="flex items-center gap-3">
-                      <img src={`/profile/${member.code}.webp`} alt="" className="size-11 rounded-full object-cover" />
+                      <LoadingImage src={`/profile/${member.code}.webp`} alt="" className="size-11 rounded-full object-cover" />
                       <div className="min-w-0"><p className="break-words text-base font-semibold">{member.oshi_mark} {member.name}</p><p className="mt-1 text-sm text-muted-foreground">OTW 멤버 · {participantRoleLabel[participant.participantRole ?? "vocal"]}</p></div>
                     </li> : null;
                   }

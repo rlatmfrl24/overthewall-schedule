@@ -1,3 +1,4 @@
+import { LoadingImage } from "@/shared/ui/loading-image";
 import type { MemberDto } from "@contracts/members";
 import type { YouTubeVideo } from "../model/types";
 import { cn } from "@/shared/lib/utils";
@@ -101,7 +102,7 @@ export const YouTubeVideoCard = ({
         )}
       >
         {video.thumbnailUrl ? (
-          <img
+          <LoadingImage
             src={video.thumbnailUrl}
             alt={video.title}
             className={cn(
@@ -164,7 +165,7 @@ export const YouTubeVideoCard = ({
             }}
           >
             {member ? (
-              <img
+              <LoadingImage
                 src={`/profile/${member.code}.webp`}
                 alt=""
                 className="h-full w-full object-cover"

@@ -1,3 +1,4 @@
+import { LoadingImage } from "@/shared/ui/loading-image";
 import { useEffect, useRef, useState } from "react";
 import { PiPauseBold as Pause, PiPlayBold as Play, PiArrowCounterClockwiseBold as RotateCcw } from "react-icons/pi";
 import { Button } from "@/shared/ui/button";
@@ -58,7 +59,7 @@ export function ReviewSegmentPlayer({ videoId, startSeconds, endSeconds, thumbna
   };
   return <div className="space-y-3" aria-label="검수 구간 재생">
     <div className="aspect-video overflow-hidden rounded-xl bg-muted">
-      {started ? <div ref={host} className="h-full w-full" /> : thumbnailUrl ? <img src={thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center text-sm text-muted-foreground">영상 미리보기</div>}
+      {started ? <div ref={host} className="h-full w-full" /> : thumbnailUrl ? <LoadingImage src={thumbnailUrl} alt="" className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center text-sm text-muted-foreground">영상 미리보기</div>}
     </div>
     <div className="flex flex-wrap gap-2">
       {!started ? <Button type="button" disabled={!valid} onClick={() => { setStatus("불러오는 중"); setStarted(true); }}><Play /> 지정 구간 재생</Button> : <>
