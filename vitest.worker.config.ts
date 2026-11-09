@@ -82,6 +82,7 @@ const schemaTests = [
   "worker/app/archive-access.integration.test.ts",
   "worker/app/publication-schema-upgrade.integration.test.ts",
   "worker/features/assets/infrastructure/file-projection.integration.test.ts",
+  "worker/features/assets/infrastructure/file-write-compat.integration.test.ts",
   "worker/features/assets/infrastructure/file-recovery.integration.test.ts",
   "worker/features/operations/infrastructure/retained-content.integration.test.ts",
 ];

@@ -7,7 +7,7 @@ import { SITE_OPENS_AT } from "@contracts/site-publication";
 const runtime = env as unknown as { otw_db: D1Database; };
 const db = runtime.otw_db;
 let protectedRules: unknown[];
-const readProtectedRules = async () => (await db.prepare("SELECT name,sql FROM sqlite_master WHERE type='trigger' AND (name GLOB 'asset_*' AND name NOT GLOB 'asset_file_projection_*' OR name GLOB 'x_*') ORDER BY name").all()).results;
+const readProtectedRules = async () => (await db.prepare("SELECT name,sql FROM sqlite_master WHERE type='trigger' AND (name GLOB 'asset_*' AND name NOT GLOB 'asset_file_projection_*' OR name GLOB 'x_*') ORDER BY name").all<{ name: string; sql: string }>()).results;
 
 beforeAll(async () => {
   for (const migration of (await readSiteSchemaMigrations())) {
@@ -31,7 +31,9 @@ it("retires only transfer triggers after installing the nine owning file project
   const names = (await db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name GLOB 'asset_file_projection_*' ORDER BY name").all<{ name: string }>()).results;
   expect(names).toHaveLength(9);
   expect(await db.prepare("SELECT count(*) n FROM sqlite_master WHERE type='trigger' AND (name GLOB 'ct_*' OR name GLOB 'maintenance_*' OR name GLOB 'content_*')").first("n")).toBe(0);
-  expect(await readProtectedRules()).toEqual(protectedRules);
+  const rules = await readProtectedRules();
+  expect(rules.filter(rule => rule.name !== "asset_file_release_candidate")).toEqual(protectedRules);
+  expect(rules.find(rule => rule.name === "asset_file_release_candidate")?.sql).toContain("INSTEAD OF INSERT ON asset_file_release_candidates");
   expect(await db.prepare("SELECT content,image_urls FROM notices WHERE id=905").first()).toEqual({ content: "preserved original", image_urls: '["/r2-assets/notices/thumbnails/%6F riginal.webp"]' });
 });
 

@@ -1156,6 +1156,20 @@
       "when": 1793768453959,
       "tag": "0165_unusual_union_jack",
       "breakpoints": true
+    },
+    {
+      "idx": 166,
+      "version": "6",
+      "when": 1794181675049,
+      "tag": "0166_asset_retention_d1_compat",
+      "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "6",
+      "when": 1794183842771,
+      "tag": "0167_notice_profile_asset_d1_compat",
+      "breakpoints": true
     }
   ]
 }

@@ -105,6 +105,18 @@ beforeEach(async () => {
   ]);
 });
 
+it("saves a notice image edit through the admin route and serves it publicly", async () => {
+  const imageUrl = "/r2-assets/notices/thumbnails/notice-api-edit.webp";
+  const response = await request("/api/notices", "archive-admin", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: 2, content: "Edited public notice", image_urls: [imageUrl], is_active: true }),
+  });
+  expect(response.status).toBe(200);
+  const notices = await (await request("/api/notices")).json<Array<{ id: number }>>();
+  expect(notices.find(notice => notice.id === 2)).toMatchObject({ content: "Edited public notice", image_urls: [imageUrl] });
+  expect(await db.prepare("SELECT path FROM asset_file_reference_paths WHERE row_table='notices' AND row_key='[2]' AND field='thumbnail_url'").first("path")).toBe(imageUrl);
+});
+
 it("applies the timed OTW cutoff through normal member, schedule, notice and asset routes without changing rows", async () => {
   await db.batch([
     db.prepare("UPDATE members SET content_access='normal' WHERE uid=1"),

@@ -20,6 +20,6 @@ export {
 } from "./domain/asset-key-policy";
 export { D1R2FileStore } from "./infrastructure/d1-r2-file-store";
 
-export {fileProtectedSql,liveFileReferencesSql,historicalFileReferencesSql,recoveryFileHeldSql,fileReferenceGuardTriggers,releaseLegacyFileSql} from "./infrastructure/file-retention";
+export {fileProtectedSql,recoveryFileHeldSql,fileReferenceGuardTriggers,releaseLegacyFileSql} from "./infrastructure/file-retention";
 export {currentFileIndexSql,currentRowFileIndexSql,selectedFileRowSql} from "./infrastructure/file-reference-integrity";
 export {fileOriginSql,filePathSql} from "./infrastructure/file-reference-index";
