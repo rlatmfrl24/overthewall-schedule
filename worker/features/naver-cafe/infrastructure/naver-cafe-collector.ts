@@ -1,6 +1,5 @@
 import { publicationHiddenSql } from "../../content-access";
 import { parseSiteId, type SiteId } from "@contracts/site-definition";
-import { getHiddenMemberCodes } from "@contracts/site-publication";
 import { naverCafeSources, type NaverCafeSource } from "@db/schema";
 import { and, asc, isNull, sql } from "drizzle-orm";
 import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
@@ -8,6 +7,7 @@ import { getDb } from "../../../platform/db";
 import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import { pMap } from "../../../platform/http-helpers";
 import type { Env } from "../../../platform/types";
+import { naverCafeSourceMemberSql } from "./naver-cafe-source-scope";
 import {
   buildNaverCafeArticleUrl,
   buildNaverCafeBoardUrl,
@@ -493,7 +493,8 @@ const writeNaverSourceState = async (
        last_success_at = COALESCE(?, last_success_at), next_check_at = ?,
        consecutive_failures = CASE WHEN ? IS NULL THEN 0 ELSE consecutive_failures + 1 END,
        last_error_code = ?, updated_at = CURRENT_TIMESTAMP
-     WHERE id = ? AND NOT (${publicationHiddenSql("naver_cafe_sources","naver_cafe_sources",siteId)})`,
+     WHERE id = ? AND cafe_id = ? AND menu_id = ? AND member_uid IS ?
+       AND COALESCE(enabled, 1) = 1 AND archived_at IS NULL AND ${naverCafeSourceMemberSql("naver_cafe_sources", siteId)}`,
   ).bind(
     values.collectionStartedAt ?? values.attemptedAt,
     values.initializedAt ?? null,
@@ -508,8 +509,11 @@ const writeNaverSourceState = async (
     values.errorCode ?? null,
     values.errorCode ?? null,
     source.id,
+    source.cafe_id,
+    source.menu_id,
+    source.member_uid,
   );
-  await writeStoredNaverCafeSourcePosts(cacheDb, [source], posts, values.attemptedAt, siteId, progress);
+  await writeStoredNaverCafeSourcePosts(cacheDb, source, posts, values.attemptedAt, siteId, progress);
 };
 
 const collectNaverSourceNewFeed = async (
@@ -525,9 +529,17 @@ const collectNaverSourceNewFeed = async (
     !source.sync_page && !source.last_error_code) {
     return { posts: [], pagesRead: 0, initialized: false };
   }
-  if (cacheDb && getHiddenMemberCodes(siteId, attemptedAt).length && await cacheDb.prepare(
-    `SELECT 1 FROM naver_cafe_sources s WHERE s.id=? AND ${publicationHiddenSql("naver_cafe_sources", "s", siteId)}`,
-  ).bind(source.id).first()) throw new NaverCafeSourceError("source_cutover", "disabled");
+  if (cacheDb) {
+    const current = await cacheDb.prepare(`SELECT CASE
+      WHEN ${publicationHiddenSql("naver_cafe_sources", "s", siteId)} THEN 'source_cutover'
+      WHEN COALESCE(s.enabled, 1) <> 1 OR s.archived_at IS NOT NULL OR NOT ${naverCafeSourceMemberSql("s", siteId)}
+        THEN 'source_member_not_allowed' END AS error
+      FROM naver_cafe_sources s WHERE s.id=? AND s.cafe_id=? AND s.menu_id=? AND s.member_uid IS ?`)
+      .bind(source.id, source.cafe_id, source.menu_id, source.member_uid).first<{ error: string | null }>();
+    if (!current || current.error) {
+      throw new NaverCafeSourceError(current?.error ?? "source_member_not_allowed", "disabled");
+    }
+  }
   const initialized = source.initialization_completed_at != null;
   const startPage = initialized ? Math.max(1, source.sync_page ?? 1) : 1;
   const baseId = source.sync_base_article_id ?? source.last_seen_article_id ?? null;
@@ -882,7 +894,7 @@ export const readStoredNaverCafePostsForSources = async (
 
 const writeStoredNaverCafeSourcePosts = async (
   cacheDb: D1Database | undefined,
-  sources: NaverCafeSourceInput[],
+  source: NaverCafeSourceInput,
   posts: NaverCafePostItem[],
   fetchedAt: number,
   siteId: SiteId,
@@ -890,17 +902,14 @@ const writeStoredNaverCafeSourcePosts = async (
 ) => {
   if (!cacheDb) return;
 
-  const sourceKeyToId = new Map(
-    sources.map((source) => [`${source.cafe_id}:${source.menu_id}`, source.id]),
-  );
-  const records = posts.flatMap((post) => {
-    const sourceId = sourceKeyToId.get(`${post.cafeId}:${post.menuId}`);
-    return sourceId ? [{ post, sourceId }] : [];
-  });
+  const records = posts.filter(post => post.cafeId === source.cafe_id && post.menuId === source.menu_id);
 
   const statements: D1PreparedStatement[] = [cacheDb.prepare(
-    `SELECT iif(NOT EXISTS(SELECT 1 FROM naver_cafe_sources s WHERE s.id IN (SELECT value FROM json_each(?)) AND ${publicationHiddenSql("naver_cafe_sources", "s", siteId)}),1,json('cafe_source_no_longer_collectable'))`,
-  ).bind(JSON.stringify(sources.map(source => source.id)))];
+    `SELECT iif(EXISTS (
+      SELECT 1 FROM naver_cafe_sources s WHERE s.id=? AND s.cafe_id=? AND s.menu_id=? AND s.member_uid IS ?
+        AND COALESCE(s.enabled, 1)=1 AND s.archived_at IS NULL AND ${naverCafeSourceMemberSql("s", siteId)}
+    ),1,json('cafe_source_no_longer_collectable'))`,
+  ).bind(source.id, source.cafe_id, source.menu_id, source.member_uid)];
   // A post uses 18 bindings. Five rows keep each D1 statement below the
   // 100-bind ceiling while collapsing the former per-post write loop.
   for (let index = 0; index < records.length; index += 5) {
@@ -908,10 +917,10 @@ const writeStoredNaverCafeSourcePosts = async (
     const placeholders = chunk.map(() =>
       "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)"
     ).join(", ");
-    const bindings = chunk.flatMap(({ post, sourceId }) => [
+    const bindings = chunk.flatMap(post => [
       post.id,
       post.articleId,
-      sourceId,
+      source.id,
       post.sourceName,
       post.cafeId,
       post.menuId,
@@ -1141,7 +1150,7 @@ export const readEnabledNaverCafeSources = async (env: Env) =>
       and(
         sql`${naverCafeSources.enabled} IS NULL OR ${naverCafeSources.enabled} = 1`,
         isNull(naverCafeSources.archived_at),
-        sql.raw(`NOT (${publicationHiddenSql("naver_cafe_sources","naver_cafe_sources",parseSiteId(env.SITE_ID))})`),
+        sql.raw(naverCafeSourceMemberSql("naver_cafe_sources", parseSiteId(env.SITE_ID))),
       ),
     )
     .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));

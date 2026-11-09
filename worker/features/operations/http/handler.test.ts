@@ -222,7 +222,7 @@ const makeStatusD1 = (
         },
       ]);
     }
-    if (sql.includes("FROM naver_cafe_sources")) {
+    if (sql.includes("FROM naver_cafe_sources") && !sql.includes("FROM naver_cafe_source_checks")) {
       return makeStatement([
         {
           id: 10,
@@ -265,6 +265,7 @@ const makeStatusD1 = (
 
 const makeEnv = (db: D1Database = makeStatusD1()): Env =>
   ({
+    SITE_ID: "otw",
     YOUTUBE_API_KEY: "youtube-key",
     X_BEARER_TOKEN: "x-token",
     otw_db: db,
@@ -843,7 +844,7 @@ describe("operations worker route", () => {
           },
         ]);
       }
-      if (sql.includes("FROM naver_cafe_sources")) {
+      if (sql.includes("FROM naver_cafe_sources") && !sql.includes("FROM naver_cafe_source_checks")) {
         return makeStatement([]);
       }
       if (sql.includes("FROM naver_cafe_source_checks")) {
@@ -924,7 +925,7 @@ describe("operations worker route", () => {
       prepare: (sql: string) => ReturnType<typeof makeStatement>;
     };
     const prepare = vi.fn((sql: string) => {
-      if (sql.includes("FROM naver_cafe_sources")) {
+      if (sql.includes("FROM naver_cafe_sources") && !sql.includes("FROM naver_cafe_source_checks")) {
         return makeStatement([
           {
             id: 10,

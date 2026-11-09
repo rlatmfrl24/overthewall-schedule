@@ -73,6 +73,7 @@ const SCHEDULED_OPERATIONS_MIGRATION_NAME = "0068_fixed_amazoness.sql";
 const SCHEDULED_OPERATIONS_PARTIAL_MIGRATION_NAME = "0071_gifted_romulus.sql";
 let schemaMigrations: ReturnType<typeof readD1Migrations> | undefined;
 const schemaTests = [
+  "worker/features/naver-cafe/infrastructure/site-sources.integration.test.ts",
   "worker/features/scheduled-operations/infrastructure/collector-sql-cadence.integration.test.ts",
   "worker/features/scheduled-operations/infrastructure/scheduled-auto-update.integration.test.ts",
   "worker/app/admin-catalog-replay.integration.test.ts",
@@ -290,7 +291,8 @@ return defineConfig({
             OTW_PLAY_SEARCH_INTEGRITY_SQL: readFileSync(path.resolve(__dirname, "scripts/otw-play-search-integrity.sql"), "utf8"),
             OTW_PLAY_SEARCH_BACKFILL_MIGRATIONS: migrations.filter(({ name }) => name === "0095_otw-play-ready-search-backfill.sql"),
             MEMBER_POSTS_CAFE_MIGRATIONS: [...migrations.filter(({ name }) => /^(0024_|0036_|0039_)/.test(name))
-              .map(migration => ({ ...migration, queries: migration.queries.filter(query => !/^\s*CREATE INDEX `idx_x_/.test(query)) })), ...accessMigrations(["naver_cafe_posts"])],
+              .map(migration => ({ ...migration, queries: migration.queries.filter(query => !/^\s*CREATE INDEX `idx_x_/.test(query)) })), { name: "0072_common_katie_power.sql:naver_cafe_sources", queries: migrationsByName.get("0072_common_katie_power.sql")!.queries
+                .filter(query => query.startsWith("ALTER TABLE `naver_cafe_sources`")) }, ...accessMigrations(["naver_cafe_posts"])],
             OTW_PLAY_PLAYLIST_MIGRATIONS: migrations.filter(({ name }) => ["0038_misty_speed_demon.sql", "0087_burly_midnight.sql", "0088_friendly_photon.sql"].includes(name)),
             SETTINGS_MIGRATIONS: [...migrations.filter(({ name }) =>
               /^(0011_|0038_|0086_)/.test(name)
