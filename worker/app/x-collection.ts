@@ -1,3 +1,4 @@
+import type { XActivityStatusDto } from "@contracts/x-activity";
 import { createXCollectionApplication, readXCollectionStatus, XActivityError } from "../features/x-posts";
 import { getDb } from "../platform/db";
 import { insertAdminAuditLog, type getActorInfo } from "../platform/http-helpers";
@@ -10,8 +11,10 @@ export function buildXCollectionApplication(input: Env, actor: ReturnType<typeof
   const env = withXGateway(input), site = getWorkerSiteDefinition(env).id;
   return createXCollectionApplication({
     read: async () => {
-      try { return await readXCollectionStatus(env, await buildXActivityService(env).status()); }
+      let activity: XActivityStatusDto;
+      try { activity = await buildXActivityService(env).status(); }
       catch (error) { return readXCollectionStatus(env, null, error instanceof Error ? error.message : "x_activity_unavailable"); }
+      return readXCollectionStatus(env, activity);
     },
     change: async source => {
       if (site === "otw") { await buildXActivityCoordinator(env).setPrimarySource(site, source); return; }

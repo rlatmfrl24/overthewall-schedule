@@ -3,6 +3,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { readXCollectionStatus } from "./x-collection-status";
 import { buildXCollectionApplication } from "../../../app/x-collection";
 import type { XActivityStatusDto } from "@contracts/x-activity";
+import type { Env as WorkerEnv } from "../../../platform/types";
+import { siteEnv } from "../../../test-support/site-env";
 import { D1ScheduledJobRepository } from "../../../platform/scheduled-jobs/d1-scheduled-job-repository";
 import { readHybridXCollectionTargets } from "./x-hybrid-policy";
 const runtime = { ...env, SITE_ID: "otw" } as Env & { X_REFERENCE_MIGRATIONS: D1Migration[]; SCHEDULED_OPERATIONS_MIGRATIONS: D1Migration[] };
@@ -21,6 +23,33 @@ beforeEach(async () => {
   vi.stubGlobal("fetch",vi.fn(() => { throw new Error("status must not call upstream"); }));
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+it("fails the status request once when D1 fails after a successful webhook status read", async () => {
+  const d1Error = new Error("d1_read_limit");
+  let settingsReads = 0;
+  const measured = new Proxy(db, { get(target, key) {
+    if (key === "prepare") return (sql: string) => {
+      if (sql.startsWith("SELECT key,value FROM settings") && ++settingsReads === 1) throw d1Error;
+      return target.prepare(sql);
+    };
+    const value = Reflect.get(target, key, target);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
+  const activity: XActivityStatusDto = {
+    site: "luvdia", configured: true, callbackUrl: null, subscription: null, events: [], mode: "user_paused",
+    budget: { limitMicros: 1000000, usedMicros: 0, reservedMicros: 0, strictDailyCap: false },
+  };
+  const statusForLuvdia = vi.fn(async () => activity);
+  const application = buildXCollectionApplication({
+    ...runtime, ...siteEnv("luvdia"), otw_db: measured,
+    X_ACTIVITY_COORDINATOR: { statusForLuvdia } as unknown as WorkerEnv["X_ACTIVITY_COORDINATOR"],
+  }, { actorId: null, actorName: null, actorIp: null });
+
+  await expect(application.status()).rejects.toBe(d1Error);
+  expect(statusForLuvdia).toHaveBeenCalledOnce();
+  expect(settingsReads).toBe(1);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it("counts unique first saves in the rolling day for active members, independently of the archive index", async () => {
   const since = now - 24 * 3_600_000;
   await db.batch([
