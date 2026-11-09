@@ -3,8 +3,9 @@ import { LoadingImage } from "@/shared/ui/loading-image";
 import { TabsList } from "@/shared/ui/tabs-list";
 import { ConsoleSearchContext, useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { useState, useEffect, useMemo, type ReactNode } from "react";
+import { gsap } from "gsap";
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PiMinusBold as Minus, PiPlusBold as Plus, PiSpinnerGapBold as Loader2, PiArrowsClockwiseBold as RefreshCw, PiPlayBold as Play, PiCheckCircleBold as CheckCircle, PiXCircleBold as XCircle, PiCheckBold as Check, PiXBold as X, PiWarningCircleBold as AlertCircle } from "react-icons/pi";
+import { PiSpinnerGapBold as Loader2, PiArrowsClockwiseBold as RefreshCw, PiPlayBold as Play, PiCheckCircleBold as CheckCircle, PiXCircleBold as XCircle, PiCheckBold as Check, PiXBold as X, PiWarningCircleBold as AlertCircle } from "react-icons/pi";
 import { Button } from "@/shared/ui/button";
 import { ButtonGroup } from "@/shared/ui/button-group";
 import { Switch } from "@/shared/ui/switch";
@@ -274,11 +275,12 @@ const getPendingReviewRisk = (
       options.targetMode === "create" &&
       pending.same_day_schedule_count > 0);
   const warnings = [
-    hasMissingTarget ? "수정 대상이 선택되지 않아 승인할 수 없습니다." : null,
-    pending.candidate_kind === "ambiguous" && !options.targetScheduleId
-      ? "매칭 후보가 복수입니다. 승인할 기존 일정을 반드시 선택하세요."
+    hasMissingTarget
+      ? pending.candidate_kind === "ambiguous"
+        ? "매칭 후보가 복수입니다. 승인할 기존 일정을 반드시 선택하세요."
+        : "수정 대상이 선택되지 않아 승인할 수 없습니다."
       : null,
-    hasMultipleSameDayTargets
+    hasMultipleSameDayTargets && !hasMissingTarget
       ? `동일 날짜 기존 스케줄이 ${pending.same_day_schedule_count}건입니다. 수정 대상을 확인하세요.`
       : null,
     hasOriginalTargetMissing
@@ -309,24 +311,23 @@ const DiffCell = ({value, secondary, tone, emptyLabel, children, label}: {
   children?: ReactNode;
   label: string;
 }) => {
-  const Indicator = tone === "removed" ? Minus : tone === "added" ? Plus : null;
   return (
     <td className={cn("min-w-0 px-3 py-3 align-top max-sm:block", tone === "removed" && "bg-rose-500/5 text-rose-800 dark:text-rose-200", tone === "added" && "bg-emerald-500/10 text-emerald-900 dark:text-emerald-200")}>
-      <div className="mb-2 text-xs text-muted-foreground sm:hidden">{label}</div>
-      <div className="flex items-start gap-2">
-        {Indicator && <Indicator className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />}
-        {children ?? <span className={cn("min-w-0 whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]", !value?.trim() && "text-muted-foreground")}>{value?.trim() || emptyLabel}</span>}
+      <div className="mb-1 text-xs text-muted-foreground sm:hidden">{label}</div>
+      <div className="@container">
+        <div className={cn(children && "grid items-start gap-x-3 @min-[12rem]:grid-cols-[4rem_minmax(0,1fr)]")}>
+          {children ?? <span className={cn("block whitespace-pre-wrap text-sm leading-relaxed [overflow-wrap:anywhere]", !value?.trim() && "text-muted-foreground")}>{value?.trim() || emptyLabel}</span>}
+          {secondary && <p className={cn("mt-1 text-xs leading-relaxed text-muted-foreground", children && "@min-[12rem]:col-start-2")}>{secondary}</p>}
+        </div>
       </div>
-      {secondary && <p className="mt-2 break-words text-xs leading-relaxed text-muted-foreground">{secondary}</p>}
     </td>
   );
 };
 
-const DiffRow = ({label, beforeValue, afterValue, sourceValue, afterNote, active, isNew, editor}: {
+const DiffRow = ({label, beforeValue, afterValue, afterNote, active, isNew, editor}: {
   label: string;
   beforeValue: string | null | undefined;
   afterValue: string | null | undefined;
-  sourceValue?: string | null;
   afterNote?: string;
   editor?: ReactNode;
   active: boolean;
@@ -334,16 +335,15 @@ const DiffRow = ({label, beforeValue, afterValue, sourceValue, afterNote, active
 }) => {
   const changed = active && isDiffChanged(beforeValue, afterValue);
   const stateLabel = !active ? "유지" : !changed ? "동일" : isNew ? "추가" : !beforeValue?.trim() ? "보완" : "변경";
-  const sourceLabel = sourceValue && normalizeDiffValue(sourceValue) !== normalizeDiffValue(afterValue)
-    ? (active ? "수집 원본: " : "미반영 수집 원본: ") + sourceValue : null;
+  const result = changed ? afterValue : active ? "기존 값과 동일" : "기존 값 유지";
   return (
     <tr className="border-b last:border-b-0 max-sm:block">
       <th scope="row" className="px-3 py-3 text-left align-top max-sm:flex max-sm:items-center max-sm:justify-between">
         <span className="block text-sm font-medium">{label}</span>
-        <span className={cn("mt-2 inline-block text-xs font-medium", changed ? "text-emerald-800 dark:text-emerald-300" : "text-muted-foreground")}>{stateLabel}</span>
+        <span className={cn("inline-block text-xs font-medium sm:mt-1", changed ? "text-emerald-800 dark:text-emerald-300" : "text-muted-foreground")}>{stateLabel}</span>
       </th>
-      <DiffCell label="기존 일정" value={beforeValue} tone={changed && beforeValue?.trim() ? "removed" : "neutral"} emptyLabel={isNew ? "미등록" : "미입력"} />
-      <DiffCell label="승인 후" value={afterValue} secondary={[sourceLabel, afterNote].filter(Boolean).join(" · ")} tone={changed ? "added" : "neutral"} emptyLabel="미입력">{editor}</DiffCell>
+      <DiffCell label="기존 값" value={beforeValue} tone={changed && beforeValue?.trim() ? "removed" : "neutral"} emptyLabel={isNew ? "미등록" : "미입력"} />
+      <DiffCell label="승인 후" value={result} secondary={afterNote} tone={changed ? "added" : "neutral"} emptyLabel="미입력">{editor}</DiffCell>
     </tr>
   );
 };
@@ -379,7 +379,10 @@ export function AutoUpdateSettingsManager({
   const [pendingApprovalOptions, setPendingApprovalOptions] = useState<
     Record<number, Partial<PendingApprovalOptionState>>
   >({});
-  const [batchApprovalOpen, setBatchApprovalOpen] = useState(false);
+  const [batchApproval, setBatchApproval] = useState<{
+    ids: number[];
+    optionsById: Record<string, PendingApprovalOptions>;
+  } | null>(null);
   const [pendingRejectIds, setPendingRejectIds] = useState<number[] | null>(
     null,
   );
@@ -637,13 +640,14 @@ export function AutoUpdateSettingsManager({
     pending: PendingSchedule,
   ): PendingApprovalOptions => {
     const options = getPendingApprovalOptions(pending);
+    const {changes, expectedTarget} = getPendingApprovalPreview(pending, options);
     return {
-      applyMode: options.changes ? options.changes.startTime !== undefined ? options.changes.title !== undefined ? "all" : "time" : "title" : options.applyMode,
+      applyMode: changes ? changes.startTime !== undefined ? changes.title !== undefined ? "all" : "time" : "title" : options.applyMode,
       targetMode: options.targetMode,
       timeMode: options.timeMode,
       targetScheduleId:
         options.targetMode === "update" ? options.targetScheduleId : null,
-      ...(options.changes !== undefined ? {changes:options.changes,...(options.expectedTarget ? {expectedTarget:options.expectedTarget} : {})} : {}),
+      ...(changes !== undefined ? {changes,...(expectedTarget ? {expectedTarget} : {})} : {}),
     };
   };
 
@@ -677,19 +681,26 @@ export function AutoUpdateSettingsManager({
       },
     );
   }, [batchPendingList, pendingApprovalOptions]);
-  const hasInvalidBatchApproval = batchPendingList.some(pending => {
-    if (pending.candidate_kind === "holiday_suggestion") return false;
-    const options = getPendingApprovalOptions(pending);
-    const preview = getPendingApprovalPreview(pending,options);
-    return Boolean(preview.error || (options.targetMode === "update" && !preview.selectedExistingSchedule));
+  const hasInvalidBatchApproval = (batchApproval !== null && batchApproval.ids.length !== batchPendingList.length) ||
+    batchPendingList.some(pending => {
+      const confirmedOptions = batchApproval?.optionsById[pending.id];
+      if (batchApproval && !confirmedOptions) return true;
+      if (pending.candidate_kind === "holiday_suggestion") return false;
+      const options = confirmedOptions ?? getPendingApprovalOptions(pending);
+      const preview = getPendingApprovalPreview(pending, options);
+      return Boolean(preview.error || (options.targetMode === "update" && !preview.selectedExistingSchedule));
+    });
+
+  const openPendingBatchApproval = () => setBatchApproval({
+    ids: batchPendingList.map(pending => pending.id),
+    optionsById: Object.fromEntries(batchPendingList.map(pending => [pending.id, buildPendingApprovalPayload(pending)])),
   });
 
   const handlePendingBatchAction = async () => {
-    if (!batchApprovalOpen || batchPendingList.length === 0 || hasInvalidBatchApproval) return;
-    const targetIds = batchPendingList.map((item) => item.id);
+    if (!batchApproval || batchApproval.ids.length === 0 || hasInvalidBatchApproval) return;
     setIsBatchProcessing(true);
     try {
-      const result = await approveSelectedPendingSchedules(targetIds,Object.fromEntries(batchPendingList.map(pending=>[String(pending.id),buildPendingApprovalPayload(pending)])));
+      const result = await approveSelectedPendingSchedules(batchApproval.ids, batchApproval.optionsById);
       await refreshApprovedSchedules();
       setPendingApprovalOptions((prev) => {
         const next = { ...prev };
@@ -698,7 +709,7 @@ export function AutoUpdateSettingsManager({
         }
         return next;
       });
-      setBatchApprovalOpen(false);
+      setBatchApproval(null);
       const failures = result.results.filter(item => !item.success)
         .map(item => item.message || item.error).filter(Boolean).slice(0, 3).join(" · ");
       toast({
@@ -1035,13 +1046,13 @@ export function AutoUpdateSettingsManager({
               className="space-y-4"
             >
               <header className="space-y-4">
-                <h2 className="text-lg font-semibold">승인 대기 스케줄</h2>
+                <h2 className="max-w-full text-lg font-semibold">승인 대기 스케줄</h2>
                 <div role="group" aria-label="후보 목록 조작" className="flex flex-wrap items-end gap-3">
                   <TabsList value={pendingActionFilter} onValueChange={setPendingActionFilter} label="후보 유형"
                     className="gap-0 border-0 bg-transparent p-0 [&_button]:min-h-11"
                     items={PENDING_ACTION_FILTER_OPTIONS.map(option=>({value:option.value,label:<>{option.label} <span className="ml-1 tabular-nums">{pendingActionCounts[option.value] ?? "—"}</span></>,id:`pending-filter-${option.value}`,panelId:option.value === "rejections" ? "auto-update-panel-rejections" : "pending-candidates-panel"}))} />
                   {pendingActionFilter !== "rejections" && <><div role="group" aria-label="목록 일괄 처리" className="flex flex-wrap gap-2">
-                    <Button type="button" size="sm" className="min-h-11" onClick={() => setBatchApprovalOpen(true)}
+                    <Button type="button" size="sm" className="min-h-11" onClick={openPendingBatchApproval}
                       disabled={pendingBatchSummary.total === 0 || isBatchProcessing || processingPendingId !== null || hasInvalidBatchApproval}>
                       <Check className="h-4 w-4" />전체 승인
                     </Button>
@@ -1093,18 +1104,6 @@ export function AutoUpdateSettingsManager({
                     const thumbnailUrl = getThumbnailUrl(pending.vod_thumbnail_url);
                     const preview = getPendingApprovalPreview(pending, options);
                     const {selectedExistingSchedule,appliesTime,appliesTitle,appliesStatus,currentTitle,currentStartTime,currentStatus,nextTitle,nextStartTime,nextStatus} = preview;
-                    const existingDateTime = selectedExistingSchedule && currentStartTime?.trim()
-                      ? formatScheduleDateTime(pending.date, currentStartTime)
-                      : null;
-                    const nextDateTime = appliesTime
-                      ? nextStartTime
-                        ? formatScheduleDateTime(pending.date, nextStartTime)
-                        : null
-                      : existingDateTime;
-                    const collectedDateTime = formatScheduleDateTime(
-                      pending.date,
-                      pending.start_time,
-                    );
                     const vodDateTime = `${getBroadcastStartDate(
                       pending,
                     )} ${getBroadcastStartTime(pending)}`;
@@ -1124,71 +1123,106 @@ export function AutoUpdateSettingsManager({
                       <article
                         key={pending.id}
                         aria-label={`${pending.member_name} 일정 후보`}
-                        className="space-y-4 rounded-lg border bg-card p-5"
+                        className="@container space-y-4 rounded-lg border bg-card p-4 sm:p-5"
                       >
-                        <header className="space-y-2">
-                          <h3 className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-semibold">
-                            <span>{pending.member_name}</span>{" "}
-                            <span className="text-sm font-medium text-muted-foreground">{formatTargetDate(pending.date)}</span>
-                          </h3>
-                          {editable && options.changes !== undefined && <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={editBlocked} onClick={()=>updatePendingApprovalOptions(pending,{changes:undefined,expectedTarget:undefined,draftValues:undefined})}>편집 초기화</Button>}
-                          <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            <Badge
-                              variant={
-                                pending.action_type === "create"
-                                  ? "default"
-                                  : "secondary"
-                              }
-                            >
-                              {getCandidateKindLabel(pending)}
-                            </Badge>
-                            {pending.match_reason ? (
-                              <Badge variant="outline">
-                                {MATCH_REASON_LABELS[pending.match_reason] ??
-                                  pending.match_reason}
-                                {pending.match_confidence
-                                  ? ` · ${
-                                      MATCH_CONFIDENCE_LABELS[
-                                        pending.match_confidence
-                                      ] ?? pending.match_confidence
-                                    }`
-                                  : ""}
-                              </Badge>
-                            ) : null}
-                            {isProcessed ? (
+                        <header className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0 space-y-2">
+                            <h3 className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-semibold">
+                              <span>{pending.member_name}</span>{" "}
+                              <span className="text-sm font-medium text-muted-foreground">{formatTargetDate(pending.date)}</span>
+                            </h3>
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
                               <Badge
-                                variant="outline"
-                                className={cn(
-                                  pending.processed_decision === "approved"
-                                    ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                                    : "border-rose-300 bg-rose-50 text-rose-800",
-                                )}
+                                variant={
+                                  pending.action_type === "create"
+                                    ? "default"
+                                    : "secondary"
+                                }
                               >
-                                {getProcessedLabel(pending)}
+                                {getCandidateKindLabel(pending)}
                               </Badge>
-                            ) : null}
-                            {!isProcessed && reviewRisk.hasConflict ? (
-                              <Badge
-                                variant="outline"
-                                className="border-amber-400 bg-amber-50 text-amber-800"
-                              >
-                                충돌 후보
-                              </Badge>
-                            ) : null}
-                            {!isProcessed && reviewRisk.hasDuplicate ? (
-                              <Badge
-                                variant="outline"
-                                className="border-rose-300 bg-rose-50 text-rose-800"
-                              >
-                                중복 가능
-                              </Badge>
-                            ) : null}
+                              {pending.match_reason ? (
+                                <Badge variant="outline">
+                                  {MATCH_REASON_LABELS[pending.match_reason] ??
+                                    pending.match_reason}
+                                  {pending.match_confidence
+                                    ? ` · ${
+                                        MATCH_CONFIDENCE_LABELS[
+                                          pending.match_confidence
+                                        ] ?? pending.match_confidence
+                                      }`
+                                    : ""}
+                                </Badge>
+                              ) : null}
+                              {isProcessed ? (
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    pending.processed_decision === "approved"
+                                      ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                                      : "border-rose-300 bg-rose-50 text-rose-800",
+                                  )}
+                                >
+                                  {getProcessedLabel(pending)}
+                                </Badge>
+                              ) : null}
+                              {!isProcessed && reviewRisk.hasConflict ? (
+                                <Badge
+                                  variant="outline"
+                                  className="border-amber-400 bg-amber-50 text-amber-800"
+                                >
+                                  충돌 후보
+                                </Badge>
+                              ) : null}
+                              {!isProcessed && reviewRisk.hasDuplicate ? (
+                                <Badge
+                                  variant="outline"
+                                  className="border-rose-300 bg-rose-50 text-rose-800"
+                                >
+                                  중복 가능
+                                </Badge>
+                              ) : null}
+                            </div>
                           </div>
+                          {editable && options.changes !== undefined && <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={editBlocked} onClick={()=>updatePendingApprovalOptions(pending,{changes:undefined,expectedTarget:undefined,draftValues:undefined})}>편집 초기화</Button>}
                         </header>
+
+                        <section aria-label="수집 원본" className="grid min-w-0 gap-x-4 gap-y-1 rounded-md border bg-muted/35 px-3 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-baseline">
+                          <h4 className="text-xs font-semibold text-muted-foreground">수집 원본</h4>
+                          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+                            <span className="font-semibold tabular-nums">{pending.start_time?.trim() || "시각 확인 필요"}</span>
+                            <span className="whitespace-pre-wrap font-medium [overflow-wrap:anywhere]">{pending.title?.trim() || "제목 없음"}</span>
+                            <span className="text-xs text-muted-foreground">{pending.status}</span>
+                          </div>
+                        </section>
+
+                        {!isV2 && (
+                          <fieldset className="max-w-sm space-y-2" disabled={!editable || editBlocked}>
+                            <legend className="text-xs text-muted-foreground">반영 방식</legend>
+                            <ButtonGroup orientation="horizontal" className="w-full">
+                              {PENDING_TARGET_MODE_OPTIONS.map(option => (
+                                <Button
+                                  key={option.value}
+                                  type="button"
+                                  size="sm"
+                                  variant={options.targetMode === option.value ? "default" : "outline"}
+                                  aria-pressed={options.targetMode === option.value}
+                                  className="min-h-11 w-full justify-center"
+                                  disabled={option.value === "update" && pending.same_day_schedules.length === 0}
+                                  onClick={() => updatePendingApprovalOptions(pending, {
+                                    targetMode: option.value,
+                                    targetScheduleId: option.value === "update" ? getDefaultTargetScheduleId(pending) : null,
+                                  })}
+                                >
+                                  {option.label}
+                                </Button>
+                              ))}
+                            </ButtonGroup>
+                          </fieldset>
+                        )}
 
                         <div className="space-y-3">
                           <div className="space-y-3">
-                            {pending.same_day_schedules.length > 0 && <PendingExistingSchedules pending={pending} selectedScheduleId={selectedExistingSchedule?.id ?? null} />}
                             {!isProcessed && reviewRisk.warnings.length > 0 ? (
                               <div
                                 className={cn(
@@ -1209,74 +1243,64 @@ export function AutoUpdateSettingsManager({
                                 </ul>
                               </div>
                             ) : null}
-                            <section className="space-y-3" aria-label="승인 시 변경 내용">
-                                {options.targetMode === "update" && <div className="w-full space-y-2 sm:w-72">
-                                  <Label htmlFor={"pending-target-" + pending.id} className="text-xs text-muted-foreground">수정 대상</Label>
-                                  <Select
-                                    value={String(options.targetScheduleId ?? "none")}
-                                    onValueChange={(value) =>
-                                      updatePendingApprovalOptions(pending, {
-                                        targetScheduleId:
-                                          value === "none" ? null : Number(value),
-                                      })
-                                    }
-                                    disabled={
-                                      isArchived || isProcessed || editBlocked ||
-                                      pending.same_day_schedules.length === 0
-                                    }
-                                  >
-                                    <SelectTrigger id={"pending-target-" + pending.id} aria-label="수정할 기존 일정" className="min-h-11 w-full">
-                                      <SelectValue placeholder="수정 대상" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="none">
-                                        {pending.candidate_kind === "ambiguous"
-                                          ? "대상을 선택하세요"
-                                          : "대상 없음"}
-                                      </SelectItem>
-                                      {pending.same_day_schedules.map((schedule) => (
-                                        <SelectItem
-                                          key={schedule.id}
-                                          value={String(schedule.id)}
-                                        >
-                                          #{schedule.id} {schedule.start_time || "--:--"}{" "}
-                                          {schedule.title || "제목 없음"}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>}
-                              {options.targetMode === "update" && !selectedExistingSchedule ? (
-                                <p role="status" className="rounded-md bg-muted/40 p-4 text-sm text-muted-foreground">{isArchived || isProcessed ? "수정할 기존 일정이 없어 변경 내용을 비교할 수 없습니다." : "수정 대상을 선택하면 변경 내용을 비교할 수 있습니다."}</p>
-                              ) : (
-                                <table className="w-full table-fixed border-collapse text-left max-sm:block" aria-label={pending.member_name + " " + pending.date + " 변경 비교"}>
-                                  <thead className="border-b bg-muted/30 max-sm:sr-only">
-                                    <tr>
-                                      <th scope="col" className="w-20 px-3 py-3 text-xs font-medium text-muted-foreground sm:w-24">항목</th>
-                                      <th scope="col" className="px-3 py-3 text-sm font-semibold">기존 일정 <span className="text-xs font-normal text-muted-foreground">{options.targetMode === "create" ? "없음" : "#" + selectedExistingSchedule?.id}</span></th>
-                                      <th scope="col" className="px-3 py-3 text-sm font-semibold">승인 후{isV2 && options.targetMode === "update" && options.changes === undefined && <> <span className="ml-2 text-xs font-normal text-muted-foreground">빈 항목 보완</span></>}</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="max-sm:block">
-                                    <DiffRow label="제목" beforeValue={currentTitle} afterValue={nextTitle} sourceValue={pending.title} active={appliesTitle} isNew={options.targetMode === "create"} editor={editable ? <div className="flex min-w-0 w-full items-center gap-2">
-                                      <Label htmlFor={`pending-title-${pending.id}`} className="flex size-11 shrink-0 cursor-pointer items-center justify-center"><Checkbox id={`pending-title-${pending.id}`} aria-label="제목 반영" checked={appliesTitle} disabled={editBlocked} onCheckedChange={checked=>editField("title",checked === true ? preview.titleInput : null)} /></Label>
-                                      <Textarea rows={2} aria-label="승인할 제목" className="min-h-11 min-w-0 flex-1 resize-y" value={appliesTitle ? preview.titleInput : currentTitle ?? ""} disabled={!appliesTitle || editBlocked} onChange={event=>editField("title",event.target.value)} />
-                                    </div> : undefined} />
-                                    <DiffRow label="방송 시간" beforeValue={existingDateTime} afterValue={nextDateTime} sourceValue={collectedDateTime} afterNote={appliesTime ? `승인 시각 ${nextDateTime ?? "미입력"} · 가장 가까운 30분 단위로 적용` : undefined} active={appliesTime} isNew={options.targetMode === "create"} editor={editable ? <div className="flex min-w-0 w-full items-center gap-2">
-                                      <Label htmlFor={`pending-time-${pending.id}`} className="flex size-11 shrink-0 cursor-pointer items-center justify-center"><Checkbox id={`pending-time-${pending.id}`} aria-label="방송 시간 반영" checked={appliesTime} disabled={editBlocked} onCheckedChange={checked=>editField("startTime",checked === true ? preview.timeInput : null)} /></Label>
-                                      <Input type="time" step="60" aria-label="승인할 방송 시간" className="min-h-11 min-w-0 flex-1" value={appliesTime ? preview.timeInput : currentStartTime ?? ""} disabled={!appliesTime || editBlocked} onChange={event=>editField("startTime",event.target.value)} />
-                                    </div> : undefined} />
-                                    <DiffRow label="상태" beforeValue={currentStatus} afterValue={nextStatus} sourceValue={pending.status} active={appliesStatus} isNew={options.targetMode === "create"} />
-                                  </tbody>
-                                </table>
+                            <div className={cn("grid grid-flow-dense items-start gap-4", pending.same_day_schedules.length > 0 && "@min-[52rem]:grid-cols-[minmax(0,5fr)_minmax(0,9fr)]")}>
+                              {pending.same_day_schedules.length > 0 && (
+                                <PendingExistingSchedules
+                                  pending={pending}
+                                  selectedScheduleId={selectedExistingSchedule?.id ?? null}
+                                  onSelectSchedule={editable && options.targetMode === "update"
+                                    ? targetScheduleId => updatePendingApprovalOptions(pending, { targetScheduleId })
+                                    : undefined}
+                                  disabled={editBlocked}
+                                />
                               )}
-                            </section>
-                            {editable && preview.error && <p role="alert" className="text-sm text-destructive">{preview.error}</p>}
-
-
+                              <section className="min-w-0" aria-label="승인 시 변경 내용">
+                                <div className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-1 pb-2">
+                                  <h4 className="text-sm font-semibold">승인 시 변경 내용</h4>
+                                  {editable && isV2 && options.targetMode === "update" && options.changes === undefined && selectedExistingSchedule && (appliesTitle || appliesTime) && (
+                                    <span className="text-xs text-muted-foreground">기본값 · 수집된 항목 선택</span>
+                                  )}
+                                </div>
+                                {options.targetMode === "update" && !selectedExistingSchedule ? (
+                                  <p role="status" className="rounded-md border border-dashed bg-muted/25 p-4 text-sm text-muted-foreground">{!editable || pending.same_day_schedules.length === 0 ? "수정할 기존 일정이 없어 변경 내용을 비교할 수 없습니다." : "수정 대상을 선택하면 변경 내용을 비교할 수 있습니다."}</p>
+                                ) : (
+                                  <div className="overflow-hidden rounded-md border">
+                                    <table className="w-full table-fixed border-collapse text-left max-sm:block" aria-label={pending.member_name + " " + pending.date + " 변경 비교"}>
+                                      <thead className="border-b bg-muted/30 max-sm:sr-only">
+                                        <tr>
+                                          <th scope="col" className="w-20 px-3 py-3 text-xs font-medium text-muted-foreground">항목</th>
+                                          <th scope="col" className="w-[30%] px-3 py-3 text-sm font-semibold">기존 값</th>
+                                          <th scope="col" className="px-3 py-3 text-sm font-semibold">승인 후</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="max-sm:block">
+                                        <DiffRow label="제목" beforeValue={currentTitle} afterValue={nextTitle} active={appliesTitle} isNew={options.targetMode === "create"} editor={editable ? <>
+                                          <Label htmlFor={`pending-title-${pending.id}`} className="min-h-11 w-fit min-w-16 cursor-pointer">
+                                            <Checkbox id={`pending-title-${pending.id}`} aria-label="제목 반영" className="min-h-4!" checked={appliesTitle} disabled={editBlocked} onCheckedChange={checked=>editField("title",checked === true ? preview.titleInput : null)} />
+                                            반영
+                                          </Label>
+                                          {appliesTitle && <Textarea rows={1} aria-label="승인할 제목" className="min-h-11 min-w-0 resize-y bg-background" value={preview.titleInput} disabled={editBlocked} onChange={event=>editField("title",event.target.value)} />}
+                                        </> : undefined} />
+                                        <DiffRow label="방송 시간" beforeValue={currentStartTime} afterValue={nextStartTime} afterNote={appliesTime ? `승인 시각 ${nextStartTime ?? "미입력"} · 가장 가까운 30분 단위로 적용` : undefined} active={appliesTime} isNew={options.targetMode === "create"} editor={editable ? <>
+                                          <Label htmlFor={`pending-time-${pending.id}`} className="min-h-11 w-fit min-w-16 cursor-pointer">
+                                            <Checkbox id={`pending-time-${pending.id}`} aria-label="방송 시간 반영" className="min-h-4!" checked={appliesTime} disabled={editBlocked} onCheckedChange={checked=>editField("startTime",checked === true ? preview.timeInput : null)} />
+                                            반영
+                                          </Label>
+                                          {appliesTime && <Input type="time" step="60" aria-label="승인할 방송 시간" className="min-h-11 min-w-0 bg-background" value={preview.timeInput} disabled={editBlocked} onChange={event=>editField("startTime",event.target.value)} />}
+                                        </> : undefined} />
+                                        <DiffRow label="상태" beforeValue={currentStatus} afterValue={nextStatus} active={appliesStatus} isNew={options.targetMode === "create"} />
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                                {editable && (options.targetMode === "create" || selectedExistingSchedule) && preview.error && (
+                                  <p role="alert" className="mt-2 text-sm text-destructive">{preview.error}</p>
+                                )}
+                              </section>
+                            </div>
                           </div>
 
-                          <fieldset disabled={isArchived || editBlocked} className="min-w-0 space-y-4">
+                          <fieldset disabled={isArchived || editBlocked} className="min-w-0 space-y-4 border-t pt-3">
                             {isArchived && <Badge variant="outline">관리자 보관 · 읽기 전용</Badge>}
                               {isProcessed ? (
                                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -1291,53 +1315,15 @@ export function AutoUpdateSettingsManager({
                                   </div>
                                 </div>
                               ) : null}
-                            {!isV2 && <div className="max-w-sm">
-                              <div className="space-y-2">
-                                <Label className="text-xs text-muted-foreground">
-                                  반영 방식
-                                </Label>
-                                <ButtonGroup orientation="horizontal" className="w-full">
-                                  {PENDING_TARGET_MODE_OPTIONS.map((option) => (
-                                    <Button
-                                      key={option.value}
-                                      type="button"
-                                      size="sm"
-                                      variant={
-                                        options.targetMode === option.value
-                                          ? "default"
-                                          : "outline"
-                                      }
-                                      className="min-h-11 w-full justify-center"
-                                      disabled={
-                                        isProcessed ||
-                                        isV2 ||
-                                        (option.value === "update" &&
-                                          pending.same_day_schedules.length === 0)
-                                      }
-                                      onClick={() =>
-                                        updatePendingApprovalOptions(pending, {
-                                          targetMode: option.value,
-                                          targetScheduleId:
-                                            option.value === "update"
-                                              ? getDefaultTargetScheduleId(pending)
-                                              : null,
-                                        })
-                                      }
-                                    >
-                                      {option.label}
-                                    </Button>
-                                  ))}
-                                </ButtonGroup>
-
-                              </div>
-
-
-                            </div>}
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-                            <details className="min-w-0 flex-1">
-                              <summary className="min-h-11 cursor-pointer py-3 text-xs font-medium text-muted-foreground">수집 근거 · 방송 {formatDuration(pending.vod_duration_seconds)} · VOD {pending.vod_segment_count ?? 1}개</summary>
+                            <details className="min-w-0 flex-1" onToggle={({currentTarget}) => {
+                              if (!currentTarget.open || !window.matchMedia("(prefers-reduced-motion: no-preference)").matches) return;
+                              const preview = currentTarget.querySelector("[data-vod-preview]");
+                              if (preview) gsap.fromTo(preview, { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.2, overwrite: true, clearProps: "opacity,transform" });
+                            }}>
+                              <summary className="min-h-11 cursor-pointer py-3 text-xs font-medium text-muted-foreground">수집 근거 · 방송 {formatDuration(pending.vod_duration_seconds)} · VOD {pending.vod_segment_count ?? 1}개{(pending.vod_segment_count ?? 1) > 1 && " (중단·재개 병합)"}</summary>
                               <div className="grid gap-3 py-2 text-xs text-muted-foreground md:grid-cols-[96px_minmax(0,1fr)]">
-                              <div className="relative h-14 w-24 overflow-hidden rounded-md bg-muted">
+                              <div data-vod-preview className="relative h-14 w-24 overflow-hidden rounded-md bg-muted">
                                 {thumbnailUrl ? (
                                   <LoadingImage
                                     src={thumbnailUrl}
@@ -1353,7 +1339,6 @@ export function AutoUpdateSettingsManager({
                               </div>
                               <div className="min-w-0 space-y-1">
                                 <p>추천 생성 {formatPendingDate(pending.created_at)}</p>
-                                <p>방송 길이 {formatDuration(pending.vod_duration_seconds)}</p>
                                 <div>
                                   세션:{" "}
                                   {pending.session_started_at
@@ -1365,12 +1350,6 @@ export function AutoUpdateSettingsManager({
                                     ? ` ~ ${formatPendingDate(
                                         pending.session_ended_at,
                                       )}`
-                                    : ""}
-                                </div>
-                                <div>
-                                  VOD 조각: {pending.vod_segment_count ?? 1}개
-                                  {(pending.vod_segment_count ?? 1) > 1
-                                    ? " (중단·재개 병합)"
                                     : ""}
                                 </div>
                                 <div
@@ -1445,10 +1424,10 @@ export function AutoUpdateSettingsManager({
         onConfirm={() => { if (holidayApproval) void handleApprovePending(holidayApproval).then(() => setHolidayApproval(null)); }}
       />
       <ConfirmActionDialog
-        open={batchApprovalOpen}
+        open={batchApproval !== null}
         onOpenChange={(open) => {
           if (!open && !isBatchProcessing) {
-            setBatchApprovalOpen(false);
+            setBatchApproval(null);
           }
         }}
         title="승인 대기 전체 승인"

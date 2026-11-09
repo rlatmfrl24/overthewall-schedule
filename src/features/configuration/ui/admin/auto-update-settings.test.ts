@@ -164,13 +164,14 @@ describe("AutoUpdateSettingsManager", () => {
     await waitFor(()=>expect(approveSelectedPendingSchedulesMock).toHaveBeenCalledWith([101],{"101":expect.objectContaining({targetMode:"create"})}));
   });
 
-  it("전체 승인 확인 중 대상 snapshot이 바뀌면 확인을 막고 재검토를 안내한다", async () => {
+  it.each([false, true])("전체 승인 확인 중 대상이 바뀌면 확인을 막는다 (직접 편집: %s)", async edited => {
     const existing = {id:201,title:null,start_time:"12:00",status:"방송"};
     const candidate = makePendingSchedule({candidate_kind:"fill_missing_fields",action_type:"update",existing_schedule:existing,same_day_schedules:[existing]});
     fetchPendingSchedulesMock.mockResolvedValue([candidate]);
     const client = createTestQueryClient();
     render(createElement(QueryClientProvider,{client},createElement(AutoUpdateSettingsManager)));
-    fireEvent.change(await screen.findByRole("textbox",{name:"승인할 제목"}),{target:{value:"내 편집"}});
+    const title = await screen.findByRole("textbox",{name:"승인할 제목"});
+    if (edited) fireEvent.change(title,{target:{value:"내 편집"}});
     fireEvent.click(screen.getByRole("button",{name:"전체 승인"}));
     act(()=>client.setQueryData(queryKeys.settings.pending(),[{...candidate,existing_schedule:{...existing,title:"다른 관리자"},same_day_schedules:[{...existing,title:"다른 관리자"}]}]));
     const dialog = screen.getByRole("alertdialog");
@@ -179,14 +180,39 @@ describe("AutoUpdateSettingsManager", () => {
     expect(approveSelectedPendingSchedulesMock).not.toHaveBeenCalled();
   });
 
+  it.each(["single", "batch"])("%s 승인은 수정 후보의 기본 선택과 비교 대상 값을 함께 전송한다", async mode => {
+    const existing = {id:201,start_time:"12:00",title:"기존 제목",status:"미정"};
+    fetchPendingSchedulesMock.mockResolvedValue([makePendingSchedule({candidate_kind:"fill_missing_fields",action_type:"update",existing_schedule:existing,same_day_schedules:[existing],missing_fields:["title"]})]);
+    render(createElement(AutoUpdateSettingsManager), {wrapper:createQueryWrapper()});
+    expect((await screen.findByRole("checkbox",{name:"제목 반영"})).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("checkbox",{name:"방송 시간 반영"}).getAttribute("aria-checked")).toBe("true");
+    const payload = expect.objectContaining({applyMode:"all",targetMode:"update",targetScheduleId:201,changes:{title:"수집된 방송",startTime:"12:30"},expectedTarget:{title:"기존 제목",startTime:"12:00",status:"미정"}});
+    if (mode === "single") {
+      fireEvent.click(screen.getByRole("button",{name:"승인"}));
+      await waitFor(()=>expect(approvePendingScheduleMock).toHaveBeenCalledWith(101,payload));
+    } else {
+      fireEvent.click(screen.getByRole("button",{name:"전체 승인"}));
+      fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button",{name:"전체 승인"}));
+      await waitFor(()=>expect(approveSelectedPendingSchedulesMock).toHaveBeenCalledWith([101],{"101":payload}));
+    }
+  });
+
+  it("수집된 제목이 없으면 기존 제목을 유지하고 유효한 시간만 기본 반영한다", async () => {
+    const existing = {id:201,start_time:"12:00",title:"기존 제목",status:"미정"};
+    fetchPendingSchedulesMock.mockResolvedValue([makePendingSchedule({candidate_kind:"fill_missing_fields",action_type:"update",title:" ",existing_schedule:existing,same_day_schedules:[existing]})]);
+    render(createElement(AutoUpdateSettingsManager), {wrapper:createQueryWrapper()});
+    expect((await screen.findByRole("checkbox",{name:"제목 반영"})).getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(screen.getByRole("button",{name:"승인"}));
+    await waitFor(()=>expect(approvePendingScheduleMock).toHaveBeenCalledWith(101,expect.objectContaining({applyMode:"time",changes:{startTime:"12:30"}})));
+  });
+
   it("Diff 편집은 선택한 기존 제목만 바꾸고 입력 중에는 요청하지 않는다", async () => {
     const existing = {id:201,start_time:"12:00",title:"보존할 기존 제목",status:"미정"};
     fetchPendingSchedulesMock.mockResolvedValue([makePendingSchedule({candidate_kind:"fill_missing_fields",action_type:"update",existing_schedule:existing,same_day_schedules:[existing]})]);
     render(createElement(AutoUpdateSettingsManager), {wrapper:createQueryWrapper()});
     const title = await screen.findByRole("checkbox",{name:"제목 반영"});
-    expect(title.getAttribute("data-state")).toBe("unchecked");
-    expect(screen.getByRole("button",{name:/^승인$/})).toHaveProperty("disabled",true);
-    fireEvent.click(title);
+    expect(title.getAttribute("data-state")).toBe("checked");
+    fireEvent.click(screen.getByRole("checkbox",{name:"방송 시간 반영"}));
     fireEvent.change(screen.getByRole("textbox",{name:"승인할 제목"}),{target:{value:"관리자 수정 제목"}});
     expect(within(screen.getByRole("table",{name:"테스트 멤버 2026-07-09 변경 비교"})).getByText("보존할 기존 제목")).toBeTruthy();
     expect(approvePendingScheduleMock).not.toHaveBeenCalled();
@@ -254,8 +280,7 @@ describe("AutoUpdateSettingsManager", () => {
     const candidate = makePendingSchedule({candidate_kind:"fill_missing_fields",action_type:"update",existing_schedule:existing,same_day_schedules:[existing]});
     fetchPendingSchedulesMock.mockResolvedValueOnce([candidate]).mockResolvedValue([{...candidate,existing_schedule:{...existing,title:"다른 관리자"},same_day_schedules:[{...existing,title:"다른 관리자"}]}]);
     render(createElement(AutoUpdateSettingsManager), {wrapper:createQueryWrapper()});
-    fireEvent.click(await screen.findByRole("checkbox",{name:"제목 반영"}));
-    fireEvent.change(screen.getByRole("textbox",{name:"승인할 제목"}),{target:{value:"내 수정"}});
+    fireEvent.change(await screen.findByRole("textbox",{name:"승인할 제목"}),{target:{value:"내 수정"}});
     fireEvent.click(screen.getByRole("button",{name:"상태 새로고침"}));
     expect(await screen.findByText(/기존 일정이 바뀌었습니다/)).toBeTruthy();
     expect(screen.getByRole("textbox",{name:"승인할 제목"})).toHaveProperty("value","내 수정");
@@ -337,7 +362,7 @@ describe("AutoUpdateSettingsManager", () => {
     fetchPendingSchedulesMock.mockResolvedValue([makePendingSchedule({candidate_kind:"missing_schedule",status:"방송",same_day_schedule_count:0,same_day_schedules:[]})]);
     render(createElement(AutoUpdateSettingsManager), {wrapper:createQueryWrapper()});
     const diff = await screen.findByRole("table", {name:"테스트 멤버 2026-07-09 변경 비교"});
-    expect(within(diff).getByRole("columnheader",{name:/기존 일정/})).toBeTruthy();
+    expect(within(diff).getByRole("columnheader",{name:"기존 값"})).toBeTruthy();
     expect(within(diff).getByRole("columnheader",{name:/승인 후/})).toBeTruthy();
     expect(within(diff).getAllByText("미등록")).toHaveLength(3);
     expect(within(diff).getAllByText("추가",{exact:true})).toHaveLength(3);
@@ -346,7 +371,7 @@ describe("AutoUpdateSettingsManager", () => {
     expect(screen.queryByRole("button",{name:"기존 수정"})).toBeNull();
   });
 
-  it("매칭 대상을 고른 뒤 해당 일정만 비교하고 기존 값 유지와 빈 필드 보완을 구분한다", async () => {
+  it("매칭 대상을 고른 뒤 해당 일정만 비교하고 기본 반영 항목을 바꿀 수 있다", async () => {
     fetchPendingSchedulesMock.mockResolvedValue([makePendingSchedule({candidate_kind:"ambiguous",action_type:"update",missing_fields:["title"],same_day_schedule_count:2,same_day_schedules:[
       {id:201,start_time:"12:00",title:null,status:"방송"},
       {id:202,start_time:"13:00",title:"다른 방송",status:"방송"},
@@ -355,15 +380,26 @@ describe("AutoUpdateSettingsManager", () => {
     expect(await screen.findByText("수정 대상을 선택하면 변경 내용을 비교할 수 있습니다.")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.getByRole("button",{name:"승인"})).toHaveProperty("disabled",true);
-    fireEvent.click(screen.getByRole("combobox",{name:"수정할 기존 일정"}));
-    fireEvent.click(await screen.findByRole("option",{name:/#201 12:00/}));
+    const targetPicker = screen.getByRole("group",{name:"수정할 기존 일정"});
+    const firstTarget = within(targetPicker).getByRole("radio",{name:/#201 12:00/});
+    fireEvent.click(firstTarget);
+    expect(firstTarget).toHaveProperty("checked",true);
     const diff = await screen.findByRole("table",{name:"테스트 멤버 2026-07-09 변경 비교"});
-    expect(within(diff).getByRole("columnheader",{name:/#201/})).toBeTruthy();
     expect(within(within(diff).getByRole("row",{name:/제목/})).getByText("보완")).toBeTruthy();
     const time = within(diff).getByRole("row",{name:/방송 시간/});
+    expect(within(time).getByRole("checkbox",{name:"방송 시간 반영"}).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(within(time).getByRole("checkbox",{name:"방송 시간 반영"}));
     expect(within(time).getByText("유지")).toBeTruthy();
-    expect(within(time).getByText("2026-07-09 12:00")).toBeTruthy();
-    expect(within(time).getByLabelText("승인할 방송 시간")).toHaveProperty("value","12:00");
+    expect(within(time).getByText("12:00")).toBeTruthy();
+    expect(within(time).queryByLabelText("승인할 방송 시간")).toBeNull();
+    expect(within(screen.getByRole("region",{name:"수집 원본"})).getByText("수집된 방송")).toBeTruthy();
+    fireEvent.click(within(targetPicker).getByRole("radio",{name:/#202 13:00/}));
+    expect(within(diff).getByText("다른 방송")).toBeTruthy();
+    expect(within(diff).getByRole("textbox",{name:"승인할 제목"})).toHaveProperty("value","수집된 방송");
+    expect(within(time).queryByLabelText("승인할 방송 시간")).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"선택 해제"}));
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.getByRole("button",{name:"승인"})).toHaveProperty("disabled",true);
     expect(approvePendingScheduleMock).not.toHaveBeenCalled();
   });
 
@@ -714,7 +750,7 @@ describe("AutoUpdateSettingsManager", () => {
     expect(
       await screen.findByText(/가장 가까운 30분 단위로 적용/),
     ).toBeTruthy();
-    expect(screen.getByText(/승인 시각 2026-07-09 12:30/)).toBeTruthy();
+    expect(screen.getByText(/승인 시각 12:30/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "승인" }));
 
     await waitFor(() =>
