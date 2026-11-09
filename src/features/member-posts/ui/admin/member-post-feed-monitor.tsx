@@ -1,5 +1,7 @@
-import { useMemo, type ReactNode } from "react";
-import { XCollectionOverview, XCollectionRuns, XUsageChart } from "./x-collection-monitoring";
+import type { ReactNode } from "react";
+import { XCollectionBudget, XCollectionMemberCounts, XCollectionRuns } from "./x-collection-monitoring";
+import { XCollectionManager } from "./x-collection-manager";
+import { XActivityManager } from "./x-activity-manager";
 import { useQuery } from "@tanstack/react-query";
 import { PiCheckCircleBold as CheckCircle2, PiClockBold as Clock3, PiSpinnerGapBold as Loader2, PiPlayBold as Play, PiArrowsClockwiseBold as RefreshCw } from "react-icons/pi";
 import { Badge } from "@/shared/ui/badge";
@@ -15,13 +17,10 @@ import {
 } from "@/features/operations";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
-import { useScheduleData } from "@/features/schedule-board";
-import { getMembersWithXHandles, useXPosts } from "@/features/x-posts";
 import type {
   NaverCafePostsVisibility,
   NaverCafeSourceStatusDto,
 } from "@contracts/naver-cafe";
-import type { XPostsVisibility } from "@contracts/x-posts";
 
 export type MemberPostSource = "x" | "naver-cafe";
 
@@ -64,9 +63,7 @@ const getNaverCafeSourceStatusVariant = (
   return "destructive" as const;
 };
 
-const getVisibilityLabel = (
-  visibility: XPostsVisibility | NaverCafePostsVisibility,
-) => {
+const getVisibilityLabel = (visibility: NaverCafePostsVisibility) => {
   if (visibility === "public") return "모두 공개";
   if (visibility === "private") return "비공개";
   return "회원 전용";
@@ -117,7 +114,6 @@ const MetricTile = ({
 export function MemberPostFeedMonitor({
   source,
   xCollectionEnabled,
-  xPostsVisibility,
   naverCafeEnabled,
   naverCafeVisibility,
   operationsStatus,
@@ -126,16 +122,13 @@ export function MemberPostFeedMonitor({
   operationsUpdatedAt,
   onReloadOperations,
   children,
-  xActivity,
   onRunXCollection,
-  onRunXPending,
   isRunningXCollection = false,
   onRunNaverCafeCheck,
   isRunningNaverCafeCheck = false,
 }: {
   source: MemberPostSource;
   xCollectionEnabled: boolean;
-  xPostsVisibility: XPostsVisibility;
   naverCafeEnabled: boolean;
   naverCafeVisibility: NaverCafePostsVisibility;
   operationsStatus: OperationsStatusResponse | null;
@@ -144,9 +137,7 @@ export function MemberPostFeedMonitor({
   operationsUpdatedAt: number;
   onReloadOperations: () => Promise<unknown>;
   children?: ReactNode;
-  xActivity?: ReactNode;
   onRunXCollection?: () => void;
-  onRunXPending?: () => void;
   isRunningXCollection?: boolean;
   onRunNaverCafeCheck?: () => void;
   isRunningNaverCafeCheck?: boolean;
@@ -164,62 +155,11 @@ export function MemberPostFeedMonitor({
       run.status === "queued" || run.status === "running"
     ) ? 5_000 : 30_000,
   });
-  const {
-    members,
-    loading: membersLoading,
-    hasLoaded: membersLoaded,
-    reloadMembers,
-  } = useScheduleData();
-  const membersWithXHandles = useMemo(
-    () => getMembersWithXHandles(members),
-    [members],
-  );
-  const membersWithX = useMemo(
-    () => membersWithXHandles.map(({ member }) => member),
-    [membersWithXHandles],
-  );
-  const xState = useXPosts(membersWithX, {
-    enabled: isX && membersWithX.length > 0,
-    maxResults: 10,
-    admin: true,
-  });
   const cafeState = useNaverCafePosts({
     enabled: !isX,
     size: 10,
     admin: true,
   });
-
-  const xByHandle = useMemo(
-    () =>
-      new Map(
-        xState.byHandle.map((item) => [item.handle.toLowerCase(), item]),
-      ),
-    [xState.byHandle],
-  );
-  const xHandleRows = useMemo(
-    () =>
-      membersWithXHandles.map(({ member, handle }) => {
-        const result = xByHandle.get(handle.toLowerCase());
-        const status = !result
-          ? "미확인"
-          : result.error
-            ? "오류"
-            : result.stale
-              ? "캐시"
-              : "정상";
-        return {
-          memberName: member.name,
-          handle,
-          status,
-          postCount: result?.posts.length ?? null,
-          error: result?.errorDetail ?? result?.error ?? null,
-        };
-      }),
-    [membersWithXHandles, xByHandle],
-  );
-  const xErrorCount = xHandleRows.filter((row) => row.status === "오류").length;
-  const xStaleCount = xHandleRows.filter((row) => row.status === "캐시").length;
-  const xUsage = operationsStatus?.xCollection.usage;
 
   const naverCafeStatus = operationsStatus?.naverCafe;
   const operationalCafeSources = naverCafeStatus?.sources ?? [];
@@ -242,27 +182,16 @@ export function MemberPostFeedMonitor({
         lastSuccessAt: null,
       }));
 
-  const sourceError = isX ? xState.error : cafeState.error;
-  const sourceStale = isX ? xState.stale : cafeState.stale;
-  const sourceLoading = isX
-    ? membersLoading || xState.loading
-    : cafeState.loading;
-  const loading = sourceLoading || operationsLoading;
+  const sourceError = !isX && cafeState.error;
+  const loading = (!isX && cafeState.loading) || operationsLoading;
   const hasError = Boolean(sourceError || operationsError);
-  const sourceEnabled = isX
-    ? xCollectionEnabled
-    : naverCafeStatus
-      ? naverCafeStatus.enabled && naverCafeStatus.enabledSourceCount > 0
-      : cafeRows.some((item) => item.enabled);
-  const sourceVisibility = isX ? xPostsVisibility : naverCafeVisibility;
+  const sourceEnabled = naverCafeStatus
+    ? naverCafeStatus.enabled && naverCafeStatus.enabledSourceCount > 0
+    : cafeRows.some((item) => item.enabled);
 
   const reloadMonitor = async () => {
     if (isX) {
-      await Promise.all([
-        reloadMembers(),
-        membersWithX.length > 0 ? xState.reload() : Promise.resolve(),
-        onReloadOperations(),
-      ]);
+      await onReloadOperations();
       return;
     }
     await Promise.all([cafeState.reload(), onReloadOperations()]);
@@ -284,7 +213,7 @@ export function MemberPostFeedMonitor({
     <Badge variant="destructive">오류 있음</Badge>
   ) : (naverCafeStatus?.staleSourceCount ?? 0) > 0 ? (
     <Badge variant="secondary">점검 지연</Badge>
-  ) : sourceStale ? (
+  ) : cafeState.stale ? (
     <Badge variant="secondary" className="gap-1">
       <Clock3 className="h-3 w-3" />
       캐시 포함
@@ -296,9 +225,7 @@ export function MemberPostFeedMonitor({
     </Badge>
   );
 
-  const reloadDisabled = isX
-    ? loading || !membersLoaded
-    : loading || isRunningNaverCafeCheck;
+  const reloadDisabled = loading || (!isX && isRunningNaverCafeCheck);
 
   return (
     <section id={`${source}-monitoring`} className="admin-dense-panel min-w-0 space-y-3 text-[13px] tabular-nums">
@@ -358,15 +285,12 @@ export function MemberPostFeedMonitor({
         <QueryReadback updatedAt={operationsUpdatedAt} fetching={operationsLoading} error={operationsError} className="my-0" />
       </header>
       <div className="space-y-3">
-        {isX && xActivity}
         {isX ? (
-          <XCollectionOverview
-            operations={operationsStatus} loading={operationsLoading} error={operationsError}
-            latestRun={operationRunsQuery.data?.runs[0]} runsLoading={operationRunsQuery.isLoading}
-            runsError={operationRunsQuery.isError} runsUpdatedAt={operationRunsQuery.dataUpdatedAt}
-            enabled={xCollectionEnabled}
-            onRunPending={onRunXPending} isRunning={isRunningXCollection}
-          />
+          <>
+            <XCollectionBudget />
+            <XCollectionMemberCounts />
+            <XCollectionManager enabled={xCollectionEnabled} />
+          </>
         ) : (
           <Card className="grid grid-cols-2 gap-0 py-0 shadow-none lg:grid-cols-4">
             <MetricTile
@@ -386,7 +310,7 @@ export function MemberPostFeedMonitor({
             <MetricTile
               label="활성 게시판"
               value={naverCafeStatus ? `${naverCafeStatus.enabledSourceCount}/${naverCafeStatus.sourceCount}개` : "미확인"}
-              detail={`비활성 ${naverCafeStatus?.disabledSourceCount ?? cafeRows.filter((item) => !item.enabled).length}개 · 공개 ${getVisibilityLabel(sourceVisibility)}`}
+              detail={`비활성 ${naverCafeStatus?.disabledSourceCount ?? cafeRows.filter((item) => !item.enabled).length}개 · 공개 ${getVisibilityLabel(naverCafeVisibility)}`}
             />
             <MetricTile
               label="주의 게시판"
@@ -407,96 +331,92 @@ export function MemberPostFeedMonitor({
 
 
 
-        {isX ? <XCollectionRuns
-          runs={operationRunsQuery.data?.runs ?? []} loading={operationRunsQuery.isLoading}
-          error={operationRunsQuery.isError} updatedAt={operationRunsQuery.dataUpdatedAt}
-        /> : (
-        <section className="space-y-2">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-sm font-semibold">최근 실행</h2>
-            <p className="text-xs text-muted-foreground">
-              작업 묶음 진행률과 오류를 기준으로 표시합니다.
-            </p>
-          </div>
-          <div className="max-h-72 overflow-auto rounded-md border">
-          <Table className="min-w-[680px]">
-            <TableHeader><TableRow><TableHead>시작 · KST</TableHead><TableHead>구분</TableHead><TableHead>상태</TableHead><TableHead>완료·건너뜀 / 작업</TableHead><TableHead>오류</TableHead></TableRow></TableHeader>
-            <TableBody>
-              {(operationRunsQuery.data?.runs ?? []).map((run) => (
-                <TableRow key={run.runId}>
-                  <TableCell>{formatMonitorUpdatedAt(run.startedAt ?? run.acceptedAt)}</TableCell>
-                  <TableCell>{run.source === "manual" ? "수동" : "정기"}</TableCell>
-                  <TableCell><Badge variant={getRunStatusVariant(run.status)}>{getRunStatusLabel(run.status)}</Badge></TableCell>
-                  <TableCell>{run.progress.succeeded + run.progress.skipped}/{run.progress.total}</TableCell>
-                  <TableCell className="max-w-56 truncate">{run.failures[0]?.message ?? run.lastError ?? "-"}</TableCell>
-                </TableRow>
-              ))}
-              {operationRunsQuery.isLoading && <TableRow><TableCell colSpan={5} className="py-4 text-muted-foreground">실행 이력 확인 중</TableCell></TableRow>}
-              {operationRunsQuery.isError && <TableRow><TableCell colSpan={5} className="whitespace-normal text-destructive">실행 이력 조회 실패{operationRunsQuery.data ? " · 이전 조회 결과" : ""}</TableCell></TableRow>}
-              {!operationRunsQuery.isLoading && !operationRunsQuery.isError && (operationRunsQuery.data?.runs.length ?? 0) === 0 ? (
-                <TableRow><TableCell colSpan={5} className="text-muted-foreground">작업 이력이 없습니다.</TableCell></TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
-          </div>
-        </section>
-        )}
-
-
-        {isX && <XUsageChart usage={xUsage} error={operationsError} hours={operationsStatus?.window.hours ?? 24} />}
-        <Card className="min-w-0 gap-0 py-0 shadow-none">
-          <CardHeader className="gap-2 px-3 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold">{isX ? "계정별 관리자 피드 응답" : "게시판별 점검 상태"}</h2>
-              <span className="text-xs text-muted-foreground">
-                {isX ? `계정 ${xHandleRows.length} · 오류 ${xErrorCount} · 캐시 ${xStaleCount}` : `등록 ${cafeRows.length} · 공개 ${getVisibilityLabel(sourceVisibility)}`}
-              </span>
+        {!isX && (
+        <>
+          <section className="space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-sm font-semibold">최근 실행</h2>
+              <p className="text-xs text-muted-foreground">
+                작업 묶음 진행률과 오류를 기준으로 표시합니다.
+              </p>
             </div>
-            <Input aria-label={isX ? "X 계정 검색" : "카페 게시판 검색"} placeholder={isX ? "멤버 또는 계정 검색" : "게시판명 또는 ID 검색"}
-              value={search.q ?? ""} onChange={(event) => updateSearch({ q: event.target.value || undefined })} />
-          </CardHeader>
-          <CardContent className="px-0">
-            <Table className="min-w-[560px] text-[13px]">
-              <TableHeader><TableRow>
-                <TableHead className="px-3">{isX ? "멤버 / 계정" : "게시판 / ID"}</TableHead>
-                <TableHead>상태</TableHead><TableHead className="text-right">{isX ? "피드 응답" : "점검 응답"}</TableHead>
-                {!isX && <TableHead>마지막 성공 · KST</TableHead>}
-                <TableHead className="pr-3">오류</TableHead>
-              </TableRow></TableHeader>
+            <div className="max-h-72 overflow-auto rounded-md border">
+            <Table className="min-w-[680px]">
+              <TableHeader><TableRow><TableHead>시작 · KST</TableHead><TableHead>구분</TableHead><TableHead>상태</TableHead><TableHead>완료·건너뜀 / 작업</TableHead><TableHead>오류</TableHead></TableRow></TableHeader>
               <TableBody>
-                {isX ? xHandleRows.filter((row) => `${row.memberName} ${row.handle}`.toLocaleLowerCase().includes((search.q ?? "").trim().toLocaleLowerCase())).map((row) => (
-                  <TableRow key={row.handle}>
-                    <TableCell className="px-3 whitespace-normal"><span className="font-medium">{row.memberName}</span><p className="text-xs text-muted-foreground">@{row.handle}</p></TableCell>
-                    <TableCell><Badge variant={row.status === "오류" ? "destructive" : "secondary"}>{row.status}</Badge></TableCell>
-                    <TableCell className="text-right">{row.postCount == null ? "—" : row.postCount + "건"}</TableCell>
-                    <TableCell className={`max-w-60 whitespace-normal break-words pr-3 text-xs ${row.error ? "text-destructive" : "text-muted-foreground"}`}>{row.error ?? "—"}</TableCell>
-                  </TableRow>
-                )) : cafeRows.filter((row) => `${row.name} ${row.cafeId} ${row.menuId}`.toLocaleLowerCase().includes((search.q ?? "").trim().toLocaleLowerCase())).map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="px-3 whitespace-normal"><span className="font-medium">{item.name}</span><p className="text-xs text-muted-foreground">카페 {item.cafeId} / 게시판 {item.menuId}</p></TableCell>
-                    <TableCell><Badge variant={getNaverCafeSourceStatusVariant(item.status)}>{getNaverCafeSourceStatusLabel(item.status)}</Badge></TableCell>
-                    <TableCell className="text-right">{item.postCount == null ? "—" : item.postCount + "건"}</TableCell>
-                    <TableCell className="text-xs">{formatMonitorUpdatedAt(item.lastSuccessAt)}</TableCell>
-                    <TableCell className={`max-w-60 whitespace-normal break-words pr-3 text-xs ${item.error ? "text-destructive" : "text-muted-foreground"}`}>{item.error ?? "—"}</TableCell>
+                {(operationRunsQuery.data?.runs ?? []).map((run) => (
+                  <TableRow key={run.runId}>
+                    <TableCell>{formatMonitorUpdatedAt(run.startedAt ?? run.acceptedAt)}</TableCell>
+                    <TableCell>{run.source === "manual" ? "수동" : "정기"}</TableCell>
+                    <TableCell><Badge variant={getRunStatusVariant(run.status)}>{getRunStatusLabel(run.status)}</Badge></TableCell>
+                    <TableCell>{run.progress.succeeded + run.progress.skipped}/{run.progress.total}</TableCell>
+                    <TableCell className="max-w-56 truncate">{run.failures[0]?.message ?? run.lastError ?? "-"}</TableCell>
                   </TableRow>
                 ))}
-                {(isX ? xHandleRows : cafeRows).length === 0 && <TableRow><TableCell colSpan={isX ? 4 : 5} className="py-4 text-muted-foreground">
-                  {loading ? "소스 상태 확인 중" : hasError ? "소스 상태를 확인할 수 없습니다." : isX ? "등록된 X 계정이 없습니다." : "등록된 카페 게시판이 없습니다."}
-                </TableCell></TableRow>}
-                {search.q && (isX ? xHandleRows.filter((row) => `${row.memberName} ${row.handle}`.toLocaleLowerCase().includes(search.q!.trim().toLocaleLowerCase())) : cafeRows.filter((row) => `${row.name} ${row.cafeId} ${row.menuId}`.toLocaleLowerCase().includes(search.q!.trim().toLocaleLowerCase()))).length === 0 && (isX ? xHandleRows : cafeRows).length > 0 &&
-                  <TableRow><TableCell colSpan={isX ? 4 : 5} className="py-4"><Button variant="ghost" size="sm" onClick={() => updateSearch({q: undefined})}>검색 결과 없음 · 초기화</Button></TableCell></TableRow>}
+                {operationRunsQuery.isLoading && <TableRow><TableCell colSpan={5} className="py-4 text-muted-foreground">실행 이력 확인 중</TableCell></TableRow>}
+                {operationRunsQuery.isError && <TableRow><TableCell colSpan={5} className="whitespace-normal text-destructive">실행 이력 조회 실패{operationRunsQuery.data ? " · 이전 조회 결과" : ""}</TableCell></TableRow>}
+                {!operationRunsQuery.isLoading && !operationRunsQuery.isError && (operationRunsQuery.data?.runs.length ?? 0) === 0 ? (
+                  <TableRow><TableCell colSpan={5} className="text-muted-foreground">작업 이력이 없습니다.</TableCell></TableRow>
+                ) : null}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span>{isX ? "저장 피드 응답 ≠ 예약 수집 성공" : `피드 ${naverCafeEnabled ? "표시" : "숨김"} · 현재 게시판 상태 · 점검 이력 기준`} · 시각 KST</span>
-          <Button variant="ghost" size="sm" asChild><a href={`/admin/history?tab=runs&source=${isX ? "x_collection" : "naver_cafe_collection"}`}>전체 실행 이력</a></Button>
-        </div>
-        {children && <details key={source} className="rounded-lg border">
-          <summary className="cursor-pointer px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">{isX ? "수집·공개 설정 및 보관 기록" : "수집·공개 설정 및 게시판 관리"}</summary>
+            </div>
+          </section>
+          <Card className="min-w-0 gap-0 py-0 shadow-none">
+            <CardHeader className="gap-2 px-3 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-sm font-semibold">게시판별 점검 상태</h2>
+                <span className="text-xs text-muted-foreground">
+                  {`등록 ${cafeRows.length} · 공개 ${getVisibilityLabel(naverCafeVisibility)}`}
+                </span>
+              </div>
+              <Input aria-label="카페 게시판 검색" placeholder="게시판명 또는 ID 검색"
+                value={search.q ?? ""} onChange={(event) => updateSearch({ q: event.target.value || undefined })} />
+            </CardHeader>
+            <CardContent className="px-0">
+              <Table className="min-w-[560px] text-[13px]">
+                <TableHeader><TableRow>
+                  <TableHead className="px-3">게시판 / ID</TableHead>
+                  <TableHead>상태</TableHead><TableHead className="text-right">점검 응답</TableHead>
+                  <TableHead>마지막 성공 · KST</TableHead>
+                  <TableHead className="pr-3">오류</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>
+                  {cafeRows.filter((row) => `${row.name} ${row.cafeId} ${row.menuId}`.toLocaleLowerCase().includes((search.q ?? "").trim().toLocaleLowerCase())).map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell className="px-3 whitespace-normal"><span className="font-medium">{item.name}</span><p className="text-xs text-muted-foreground">카페 {item.cafeId} / 게시판 {item.menuId}</p></TableCell>
+                      <TableCell><Badge variant={getNaverCafeSourceStatusVariant(item.status)}>{getNaverCafeSourceStatusLabel(item.status)}</Badge></TableCell>
+                      <TableCell className="text-right">{item.postCount == null ? "—" : item.postCount + "건"}</TableCell>
+                      <TableCell className="text-xs">{formatMonitorUpdatedAt(item.lastSuccessAt)}</TableCell>
+                      <TableCell className={`max-w-60 whitespace-normal break-words pr-3 text-xs ${item.error ? "text-destructive" : "text-muted-foreground"}`}>{item.error ?? "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                  {cafeRows.length === 0 && <TableRow><TableCell colSpan={5} className="py-4 text-muted-foreground">
+                    {loading ? "소스 상태 확인 중" : hasError ? "소스 상태를 확인할 수 없습니다." : "등록된 카페 게시판이 없습니다."}
+                  </TableCell></TableRow>}
+                  {search.q && cafeRows.filter((row) => `${row.name} ${row.cafeId} ${row.menuId}`.toLocaleLowerCase().includes(search.q!.trim().toLocaleLowerCase())).length === 0 && cafeRows.length > 0 &&
+                    <TableRow><TableCell colSpan={5} className="py-4"><Button variant="ghost" size="sm" onClick={() => updateSearch({q: undefined})}>검색 결과 없음 · 초기화</Button></TableCell></TableRow>}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span>{`피드 ${naverCafeEnabled ? "표시" : "숨김"} · 현재 게시판 상태 · 점검 이력 기준`} · 시각 KST</span>
+            <Button variant="ghost" size="sm" asChild><a href="/admin/history?tab=runs&source=naver_cafe_collection">전체 실행 이력</a></Button>
+          </div>
+        </>
+        )}
+        {isX ? children : children && <details key={source} className="rounded-lg border">
+          <summary className="cursor-pointer px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">수집·공개 설정 및 게시판 관리</summary>
           <div className="border-t p-3">{children}</div>
         </details>}
+        {isX && <>
+          <XActivityManager />
+          <XCollectionRuns
+            runs={operationRunsQuery.data?.runs ?? []} loading={operationRunsQuery.isLoading}
+            error={operationRunsQuery.isError} updatedAt={operationRunsQuery.dataUpdatedAt}
+          />
+        </>}
       </div>
     </section>
   );

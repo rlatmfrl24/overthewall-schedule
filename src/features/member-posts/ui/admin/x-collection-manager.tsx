@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { XCollectionProvider } from "@contracts/x-collection";
+import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { queryKeys } from "@/shared/query/query-keys";
 import { changeXCollectionSource, xCollectionQueryKey } from "../../api/x-collection-api";
@@ -7,6 +8,15 @@ import { xActivityQueryKey } from "../../api/x-activity-api";
 import { useXCollectionStatus } from "../../queries/use-x-collection-status";
 import { formatXEligibility, formatXTime, xReasonLabel } from "../../model/x-collection-monitoring";
 import { xActivityErrorMessage } from "../../model/x-activity-monitoring";
+
+function SourceStats({ rows }: { rows: [string, string][] }) {
+  return <dl className="space-y-1 text-xs">
+    {rows.map(([label, value]) => <div key={label} className="flex flex-wrap justify-between gap-x-2">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="font-medium tabular-nums">{value}</dd>
+    </div>)}
+  </dl>;
+}
 
 export function XCollectionManager({ enabled }: { enabled: boolean }) {
   const query = useXCollectionStatus(), client = useQueryClient();
@@ -20,62 +30,71 @@ export function XCollectionManager({ enabled }: { enabled: boolean }) {
     onError: () => { void client.invalidateQueries({ queryKey: xCollectionQueryKey }); void client.invalidateQueries({ queryKey: xActivityQueryKey }); },
   });
   const data = query.data, blocked = query.isError || query.isFetching || mutation.isPending;
-  return <section aria-label="X 혼합 수집 관리" className="space-y-3 rounded-lg border p-3 text-sm">
+  const officialHealth = data?.accounts.some(account => account.officialHealth === "overdue") ? "공식 정기 완료 24시간 지연"
+    : data?.accounts.some(account => account.officialHealth === "attention") ? "공식 정기 완료 18시간 경과"
+    : data?.accounts.some(account => account.officialHealth === "due") ? "공식 정기 12시간 점검 자격 도달" : null;
+  return <section aria-label="X 혼합 수집 관리" className="@container space-y-3 rounded-lg border p-3 text-sm">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <h2 className="font-semibold">X 수집원</h2>
-      <Button type="button" size="sm" variant="outline" onClick={() => void query.refetch()} disabled={query.isFetching}>수집원 상태 새로고침</Button>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <h2 className="font-semibold">X 수집원</h2>
+        {data && <Badge variant="secondary">현재 기본 수집원 · {data.primarySource === "fxembed" ? "FxEmbed" : "공식 X API"}</Badge>}
+      </div>
+      <div className="ml-auto flex flex-wrap justify-end gap-2">
+        <Button type="button" size="sm" variant="outline" onClick={() => void query.refetch()} disabled={query.isFetching}>수집원 상태 새로고침</Button>
+        {data && <>
+          {data.primarySource === "x_api"
+            ? <Button type="button" size="sm" disabled={blocked || !enabled} onClick={() => mutation.mutate("fxembed")}>FxEmbed 기본 수집 사용</Button>
+            : <Button type="button" size="sm" variant="outline" disabled={blocked} onClick={() => mutation.mutate("x_api")}>공식 X 기본 수집으로 복귀</Button>}
+          {data.primarySource === "fxembed" && data.hybridPolicy !== "rss_v1" && <Button type="button" size="sm" disabled={blocked || !enabled} onClick={() => mutation.mutate("fxembed")}>혼합 구성 적용</Button>}
+        </>}
+      </div>
     </div>
     {query.isPending && <p>수집원 상태를 불러오는 중...</p>}
     {query.isError && <p role="alert">최신 수집원 상태 확인 불가{data ? " · 아래는 이전 조회 정보입니다." : ""}</p>}
     {data && <>
-      <p>현재 기본 수집원: <strong>{data.primarySource === "fxembed" ? "FxEmbed" : "공식 X API"}</strong></p>
-      <div className="grid gap-3 md:grid-cols-2">
-        <article className="space-y-1 rounded-md border p-3">
-          <h3 className="font-medium">FxEmbed 기본 수집</h3>
-          <p className="text-xs text-muted-foreground">{data.fxembed.lookbackHours ? `최근 ${data.fxembed.lookbackHours}시간 · 최대 ${data.fxembed.maxPages}페이지 확인` : "JSON 검증·저장 상태"}</p>
-          <p>30분 간격 · 최근 성공 {formatXTime(data.fxembed.lastSuccessAt)}</p>
-          <p>미완료 {data.fxembed.pendingSources}개 · 오류 {data.fxembed.failedSources}개</p>
-          <p className="text-xs text-muted-foreground">{data.fxembed.lookbackHours ? "확인 완료" : "전체 탐색 완료"} {formatXTime(data.fxembed.lastCompletedAt)}</p>
-          {data.fxembed.lookbackHours && <>
-            <p className="text-xs text-muted-foreground">확인 범위 종료 {formatXTime(data.fxembed.lastWindowUntilAt ?? null)} · 상한 도달 {data.fxembed.limitedSources ?? 0}계정</p>
-            <p className="text-xs text-muted-foreground">이전 탐색 기록 보존 {data.fxembed.retiredSources ?? 0}계정 · 무료 확인은 전량 발견을 보장하지 않으며 누락은 공식 대조로 보완합니다.</p>
-          </>}
+      <div className="grid gap-2 @min-[34rem]:grid-cols-3">
+        <article aria-labelledby="x-source-fxembed" className="space-y-2 rounded-md border p-2.5">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+            <h3 id="x-source-fxembed" className="font-semibold">FxEmbed 기본 수집</h3>
+            <span className="text-xs text-muted-foreground">{data.fxembed.intervalMinutes}분 간격</span>
+          </div>
+          <SourceStats rows={[
+            ["최근 성공", formatXTime(data.fxembed.lastSuccessAt)],
+            [data.fxembed.lookbackHours ? "확인 완료" : "전체 탐색 완료", formatXTime(data.fxembed.lastCompletedAt)],
+            ["미완료 · 오류", `${data.fxembed.pendingSources} · ${data.fxembed.failedSources}계정`],
+          ]} />
+          {data.fxembed.lookbackHours && <p className="text-xs text-muted-foreground">최근 {data.fxembed.lookbackHours}시간 · 최대 {data.fxembed.maxPages}페이지 확인</p>}
+          {!!data.fxembed.limitedSources && <p className="text-xs font-medium">상한 도달 {data.fxembed.limitedSources}계정</p>}
+          {!!data.fxembed.retiredSources && <p className="text-xs text-muted-foreground">이전 탐색 기록 보존 {data.fxembed.retiredSources}계정</p>}
         </article>
-        <article className="space-y-1 rounded-md border p-3">
-          <h3 className="font-medium">FxEmbed RSS 보완 {data.rss?.enabled ? "활성" : "비활성"}</h3>
-          <p>6시간 간격 · HTTP 성공 {formatXTime(data.rss?.lastHttpSuccessAt)}</p>
-          <p>후보 확인 완료 {formatXTime(data.rss?.lastCheckCompletedAt)}</p>
-          <p>미완료 계정 {data.rss?.pendingSources ?? 0}개 · 후보 {data.rss?.pendingCandidates ?? 0}건</p>
-          {data.rss?.windowReduced && <p role="alert">RSS 발견창 축소 관측</p>}
-          {data.rss?.error && <p role="alert">{xReasonLabel(data.rss.error)}</p>}
-          <p className="text-xs text-muted-foreground">JSON과 같은 공급자의 불완전한 발견 목록입니다. HTTP 성공은 후보 확인·공식 정기 완료를 뜻하지 않습니다.</p>
+        <article aria-labelledby="x-source-rss" className="space-y-2 rounded-md border p-2.5">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+            <h3 id="x-source-rss" className="font-semibold">FxEmbed RSS 보완</h3>
+            <span className="text-xs text-muted-foreground">{data.rss?.enabled ? `${data.rss.intervalHours}시간 간격` : "비활성"}</span>
+          </div>
+          <SourceStats rows={[
+            ["HTTP 성공", formatXTime(data.rss?.lastHttpSuccessAt)],
+            ["후보 확인 완료", formatXTime(data.rss?.lastCheckCompletedAt)],
+            ["미완료 · 후보", `${data.rss?.pendingSources ?? 0}계정 · ${data.rss?.pendingCandidates ?? 0}건`],
+          ]} />
+          {data.rss?.windowReduced && <p role="alert" className="text-xs font-medium">RSS 발견창 축소</p>}
+          {data.rss?.error && <p role="alert" className="text-xs font-medium">{xReasonLabel(data.rss.error)}</p>}
         </article>
-        <article className="space-y-1 rounded-md border p-3">
-          <h3 className="font-medium">공식 X 정기 보강</h3>
-          <p>{data.xApi.intervalHours}시간 간격 · 정기 완료 {formatXTime(data.xApi.lastRegularCompletedAt)}</p>
-          <p>다음 정기 자격 {formatXEligibility(data.xApi.nextRegularEligibleAt)}</p>
-          <p role={data.xApi.pendingSources || data.xApi.failedSources ? "alert" : undefined}>공식 X 미완료 {data.xApi.pendingSources}개 · 오류 {data.xApi.failedSources}개</p>
-          {data.accounts.some(account => account.officialHealth === "overdue") && <p role="alert">공식 정기 완료 24시간 지연 · RSS 성공과 별도로 확인이 필요합니다.</p>}
-          {data.accounts.some(account => account.officialHealth === "attention") && <p role="alert">공식 정기 완료 18시간 경과 · 주의</p>}
-          {data.accounts.some(account => account.officialHealth === "due") && <p>공식 정기 12시간 점검 자격 도달</p>}
-          {data.xApi.budgetReady !== true && <p role="alert">공통 예산 확인 불가 · 공식 X 유료 조회 차단</p>}
-        </article>
-        <article className="space-y-1 rounded-md border p-3">
-          <h3 className="font-medium">{data.webhook.state === "disabled" ? "웹훅 Disabled" : data.webhook.state === "enabled" ? "웹훅 활성" : "웹훅 확인 불가"}</h3>
-          <p>최근 확인된 사이트 구독 {data.webhook.siteActiveCount ?? "확인 불가"}개</p>
-          <p className="text-xs text-muted-foreground">인증·설정·이력을 보존하며 자동 재활성화하지 않습니다.</p>
-          {data.webhook.error && <p role="alert">{xActivityErrorMessage(new Error(data.webhook.error))}</p>}
+        <article aria-labelledby="x-source-official" className="space-y-2 rounded-md border p-2.5">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+            <h3 id="x-source-official" className="font-semibold">공식 X 정기 보강</h3>
+            <span className="text-xs text-muted-foreground">{data.xApi.intervalHours}시간 간격</span>
+          </div>
+          <SourceStats rows={[
+            ["정기 완료", formatXTime(data.xApi.lastRegularCompletedAt)],
+            ["다음 점검", formatXEligibility(data.xApi.nextRegularEligibleAt)],
+            ["미완료 · 오류", `${data.xApi.pendingSources} · ${data.xApi.failedSources}계정`],
+          ]} />
+          {officialHealth && <p role="alert" className="text-xs font-medium">{officialHealth}</p>}
+          {data.xApi.budgetReady !== true && <p role="alert" className="text-xs font-medium">공통 예산 확인 불가 · 유료 조회 차단</p>}
         </article>
       </div>
-      <p className="text-muted-foreground">FxEmbed로 처음 전환하면 웹훅은 Disabled입니다. 이후 관리자가 직접 활성화할 수 있습니다. 공식 X는 공통 UTC 하루 $1 목표와 사이트 보호 한도 안에서 보강합니다.</p>
-      <div className="flex flex-wrap gap-2">
-        {data.primarySource === "x_api"
-          ? <Button type="button" size="sm" disabled={blocked || !enabled} onClick={() => mutation.mutate("fxembed")}>FxEmbed 기본 수집 사용</Button>
-          : <Button type="button" size="sm" variant="outline" disabled={blocked} onClick={() => mutation.mutate("x_api")}>공식 X 기본 수집으로 복귀</Button>}
-        {data.primarySource === "fxembed" && data.hybridPolicy !== "rss_v1" && <Button type="button" size="sm" disabled={blocked || !enabled} onClick={() => mutation.mutate("fxembed")}>혼합 구성 적용</Button>}
-      </div>
-      {!enabled && <p className="text-muted-foreground">FxEmbed 전환은 게시물 수집을 켠 뒤 사용할 수 있습니다.</p>}
-      <p className="text-xs text-muted-foreground">공식 X로 복귀해도 현재 웹훅 상태는 유지됩니다. 웹훅을 중지하려면 구독 관리에서 별도로 중지하세요.</p>
+      {!enabled && <p className="text-xs text-muted-foreground">게시물 수집 비활성 · FxEmbed 전환 불가</p>}
       {data.accounts.length > 0 && <details>
         <summary className="cursor-pointer font-medium">계정별 수집·임시 전환 상태</summary>
         <div className="overflow-x-auto pt-2"><table className="w-full text-left text-xs">

@@ -1,4 +1,3 @@
-import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import { createElement } from "react";
 import {
@@ -7,12 +6,10 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
 import { MemberPostSettingsManager } from "./member-post-settings";
-import { useXCollectionStatus } from "../../queries/use-x-collection-status";
 
 const fetchOperationRunsMock = vi.hoisted(() => vi.fn());
 const fetchXHistoryHealthMock = vi.hoisted(() => vi.fn());
@@ -24,8 +21,6 @@ const fetchOperationsStatusMock = vi.hoisted(() => vi.fn());
 const fetchXActivityMock = vi.hoisted(() => vi.fn());
 const fetchXCollectionStatusMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
-const useScheduleDataMock = vi.hoisted(() => vi.fn());
-const useXPostsMock = vi.hoisted(() => vi.fn());
 const useNaverCafePostsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/features/configuration", async (importOriginal) => {
@@ -46,8 +41,7 @@ vi.mock("@/features/operations", () => ({
   useOperationRun: () => ({ data: null, isLoading: false }),
 }));
 
-vi.mock("../../api/x-history-api", async (importOriginal) => ({
-  ...await importOriginal<typeof import("../../api/x-history-api")>(),
+vi.mock("../../api/x-history-api", () => ({
   fetchXHistoryHealth: fetchXHistoryHealthMock,
 }));
 vi.mock("../../api/x-activity-api",()=>({
@@ -64,18 +58,6 @@ vi.mock("../../api/x-collection-api", () => ({
 vi.mock("@/shared/ui/toast", () => ({
   useToast: () => ({ toast: toastMock }),
 }));
-
-vi.mock("@/features/schedule-board", () => ({
-  useScheduleData: useScheduleDataMock,
-}));
-
-vi.mock("@/features/x-posts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/features/x-posts")>();
-  return {
-    ...actual,
-    useXPosts: useXPostsMock,
-  };
-});
 
 vi.mock("@/features/naver-cafe", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/naver-cafe")>();
@@ -112,7 +94,6 @@ describe("MemberPostSettingsManager", () => {
   beforeEach(() => {
     fetchXCollectionStatusMock.mockResolvedValue({primarySource:"x_api",observedAt:Date.now(),fxembed:{intervalMinutes:30,lastSuccessAt:null,lastCompletedAt:null,pendingSources:0,failedSources:0},xApi:{intervalHours:24,lastRegularCompletedAt:null,nextRegularEligibleAt:0,pendingSources:0,failedSources:0,budgetReady:true},accounts:[],webhook:{state:"disabled",siteActiveCount:0,reason:null,error:null}});
     fetchXActivityMock.mockResolvedValue(makeActivity());
-    Element.prototype.scrollIntoView = vi.fn();
     fetchOperationRunsMock.mockResolvedValue({ runs: [] });
     fetchXHistoryHealthMock.mockResolvedValue({
       referenceHydration: {
@@ -123,56 +104,6 @@ describe("MemberPostSettingsManager", () => {
         byRelation: [{ relation: "reply", pendingPosts: 40, pendingAuthors: 0, terminal: 0 }],
         pendingReasons: [{ stage: "post", code: "preview_budget_exceeded", count: 40, nextAttemptAt: 2 }],
       },
-    });
-    useScheduleDataMock.mockReturnValue({
-      members: [
-        createMemberFixture({
-    uid: 1,
-    code: "otw",
-    name: "테스트 멤버",
-    main_color: "#111111",
-    sub_color: "#ffffff",
-    oshi_mark: "💙",
-    url_twitter: "https://x.com/otw_member"
-  }),
-      ],
-      loading: false,
-      hasLoaded: true,
-      reloadMembers: vi.fn(),
-    });
-    useXPostsMock.mockReturnValue({
-      posts: [
-        {
-          id: "x1",
-          text: "X 게시글",
-          createdAt: "2026-05-28T07:00:00Z",
-          url: "https://x.com/otw_member/status/x1",
-          username: "otw_member",
-          metrics: {
-            likeCount: 1,
-            replyCount: 0,
-            repostCount: 0,
-            quoteCount: 0,
-          },
-          media: [],
-          memberUid: 1,
-        },
-      ],
-      updatedAt: "2026-05-28T07:05:00Z",
-      byHandle: [
-        {
-          handle: "otw_member",
-          userId: "u1",
-          posts: [],
-          error: null,
-          stale: false,
-        },
-      ],
-      loading: false,
-      error: null,
-      stale: false,
-      hasLoaded: true,
-      reload: vi.fn(),
     });
     useNaverCafePostsMock.mockReturnValue({
       posts: [],
@@ -328,189 +259,59 @@ describe("MemberPostSettingsManager", () => {
     vi.clearAllMocks();
   });
 
-  it.each([false, true])("reads persisted RSS state in both consumers after collection change, partial failure=%s", async fail => {
-    let enabled = true;
-    const previous = await fetchXCollectionStatusMock();
-    fetchSettingsMock.mockImplementation(async () => ({ ...makeSettings(), x_collection_enabled: String(enabled) }));
-    fetchXCollectionStatusMock.mockImplementation(async () => ({ ...previous, primarySource: "fxembed", hybridPolicy: "rss_v1", rss: { enabled, intervalHours: 6, lastHttpSuccessAt: null, lastCheckCompletedAt: null, pendingSources: 0, pendingCandidates: 0, windowReduced: false, error: null } }));
-    updateSettingsMock.mockImplementation(async (patch: { x_collection_enabled?: string }) => {
-      enabled = patch.x_collection_enabled !== "false";
-      if (fail) throw new Error("remote stop failed after local setting persisted");
-    });
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const Observer = () => createElement("output", { "aria-label": "shared RSS state" }, String(useXCollectionStatus().data?.rss?.enabled));
-    render(createElement("div", null, createElement(MemberPostSettingsManager), createElement(Observer)), { wrapper: createQueryWrapper() });
-    expect(await screen.findByRole("heading", { name: "FxEmbed RSS 보완 활성" })).toBeTruthy();
-    expect(screen.getByLabelText("shared RSS state").textContent).toBe("true");
-    const section = document.getElementById("x-collection-settings") as HTMLDetailsElement;
-    section.open = true;
-    fireEvent.click(screen.getByRole("switch", { name: "Cron 수집 사용" }));
-    await waitFor(() => expect(screen.getByLabelText("shared RSS state").textContent).toBe("false"));
-    expect(screen.queryByRole("heading", { name: "FxEmbed RSS 보완 활성" })).toBeNull();
-    expect((screen.getByRole("switch", { name: "Cron 수집 사용" })).getAttribute("aria-checked")).toBe("false");
-    error.mockRestore();
-  });
-
-  it("opens and focuses the linked settings after the X tab mounts", async () => {
-    window.history.replaceState(null, "", "#x-collection-settings");
-    try {
-      render(createElement(MemberPostSettingsManager, {activeSource: "x"}), {wrapper: createQueryWrapper()});
-      await waitFor(() => {
-        const section = document.getElementById("x-collection-settings") as HTMLDetailsElement | null;
-        expect(section?.open).toBe(true);
-        expect(document.activeElement).toBe(section?.querySelector("summary"));
-      });
-      expect(updateSettingsMock).not.toHaveBeenCalled();
-      expect(runXCollectionNowMock).not.toHaveBeenCalled();
-    } finally {
-      window.history.replaceState(null, "", window.location.pathname);
-    }
-  });
-
-  it("shows REST reservation estimates and effective remaining budget before a paid run",async()=>{
-    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
-    const preview=await screen.findByRole("region",{name:"REST 실행 전 예산"});
-    await waitFor(()=>expect(preview.textContent).toContain("첫 페이지 예상 예약 $0.675"));
-    expect(preview.textContent).toContain("사용 가능 $0.640");
-    expect(preview.textContent).toContain("대상 5개 · 신규 스캔 계정당 5개");
-    expect(preview.textContent).toContain("추가 페이지·인용 원문 보강");
-    expect(fetchXActivityMock).toHaveBeenCalledTimes(1);
-    expect(runXCollectionNowMock).not.toHaveBeenCalled();
-    expect(updateSettingsMock).not.toHaveBeenCalled();
-  });
-  it("marks cached REST budget figures as previous values when the top refresh fails",async()=>{
-    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
-    await screen.findByText(/첫 페이지 예상 예약/);
-    fetchXActivityMock.mockRejectedValueOnce(new Error("offline"));
-    fireEvent.click(screen.getByRole("button",{name:"상태 새로고침"}));
-    expect(await screen.findByText("REST 예산 산정 최신 조회 실패 · 아래는 이전 조회값입니다.")).toBeTruthy();
-    expect(runXCollectionNowMock).not.toHaveBeenCalled();
-  });
-  it("does not invent zero remaining budget when an older peer has no estimate",async()=>{
-    const legacy=makeActivity();
-    delete (legacy.recovery as {budget?:unknown}).budget;
-    fetchXActivityMock.mockResolvedValue(legacy);
-    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
-    await screen.findByText(/구독 정상/);
-    const preview=await screen.findByRole("region",{name:"REST 실행 전 예산"});
-    expect(within(preview).getByText(/REST 필요액·잔여액 확인 불가/)).toBeTruthy();
-    expect(preview.textContent).not.toContain("사용 가능 $0.000");
-    expect(runXCollectionNowMock).not.toHaveBeenCalled();
-  });
-  it("explains the larger first request when an unfinished cursor must continue",async()=>{
-    const pending=makeActivity();
-    pending.recovery.pendingSources=1;
-    pending.recovery.budget.firstPagesMicros=1175000;
-    pending.recovery.budget.siteFirstPagesMicros=500000;
-    fetchXActivityMock.mockResolvedValue(pending);
-    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
-    expect(await screen.findByText("이월 커서 1개는 계정당 25개 요청으로 포함했습니다.")).toBeTruthy();
-    expect(screen.getByText(/다음 페이지당 공통 예약/).textContent).toContain("$0.625");
-    fireEvent.click(screen.getByRole("button", {name:"미완료 페이지만 복구"}));
-    await waitFor(() => expect(runXCollectionNowMock).toHaveBeenCalledWith("pending", undefined));
-    expect(screen.getByText(/첫 페이지 예상 예약/).textContent).toContain("$1.175");
-  });
-  it("explains a first-page shortfall without spending or reallocating the common budget",async()=>{
-    const limited=makeActivity();
-    limited.recovery.budget.availableMicros=10000;
-    limited.recovery.budget.siteRemainingMicros=10000;
-    fetchXActivityMock.mockResolvedValue(limited);
-    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
-    expect(await screen.findByText(/예상 예약액이 해당 잔여액보다 큽니다/)).toBeTruthy();
-    expect(runXCollectionNowMock).not.toHaveBeenCalled();
-    expect(updateSettingsMock).not.toHaveBeenCalled();
-  });
-
-  it("does not allow a continuation request when its reservation exceeds the shared remainder",async()=>{
-    const pending=makeActivity();
-    pending.recovery.pendingSources=1;
-    pending.recovery.budget.sharedRemainingMicros=600000;
-    fetchXActivityMock.mockResolvedValue(pending);
-    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
-    expect(await screen.findByRole("button",{name:"미완료 페이지만 복구"})).toHaveProperty("disabled",true);
-    expect(runXCollectionNowMock).not.toHaveBeenCalled();
-  });
-  it("compares common and site reservation requirements against their own remaining amounts",async()=>{
-    const enough=makeActivity();
-    Object.assign(enough.recovery.budget,{firstPagesMicros:675000,siteFirstPagesMicros:300000,availableMicros:350000,sharedRemainingMicros:700000,siteRemainingMicros:350000});
-    fetchXActivityMock.mockResolvedValue(enough);
-    render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
-    await screen.findByText(/구독 정상/);
-    expect(screen.queryByText(/예상 예약액이.*잔여액보다 큽니다/)).toBeNull();
-    expect(screen.queryByText(/첫 페이지 예상 예약액이 사용 가능액보다 큽니다/)).toBeNull();
-    expect(runXCollectionNowMock).not.toHaveBeenCalled();
-  });
   it("refreshes current webhook state from the top refresh without opening settings",async()=>{
     render(createElement(MemberPostSettingsManager),{wrapper:createQueryWrapper()});
     await waitFor(()=>expect(fetchXActivityMock).toHaveBeenCalledTimes(1));
     const before=fetchXActivityMock.mock.calls.length;
     fireEvent.click(screen.getByRole("button",{name:"상태 새로고침"}));
     await waitFor(()=>expect(fetchXActivityMock.mock.calls.length).toBeGreaterThan(before));
-    expect(screen.getByRole("heading",{name:"게시물 수집 실행"})).toBeTruthy();
     expect(screen.getByRole("heading",{name:"웹훅 신규 게시물"})).toBeTruthy();
     expect(runXCollectionNowMock).not.toHaveBeenCalled();
     expect(updateSettingsMock).not.toHaveBeenCalled();
   });
 
-  it("X 탭에서 핵심 운영 정보와 설정을 한 작업 공간에 밀집해 표시한다", async () => {
-    render(createElement(MemberPostSettingsManager), {
-      wrapper: createQueryWrapper(),
-    });
+  it("places the X budget and member chart first, groups visible settings, and puts history last", async () => {
+    const status = await fetchXCollectionStatusMock();
+    fetchXCollectionStatusMock.mockResolvedValue({ ...status, collectedByMember24h: [
+      { handle: "one", name: "멤버 하나", count: 3, quoteCount: 1, replyCount: 2 },
+      { handle: "two", name: "멤버 둘", count: 0 },
+      { handle: "three", name: "멤버 셋", count: 1 },
+    ] });
+    render(createElement(MemberPostSettingsManager), { wrapper: createQueryWrapper() });
 
-    await waitFor(() => expect(screen.getByText("수집 주기")).toBeTruthy());
-    expect(
-      screen.getByRole("tab", { name: /X 수집/ }).getAttribute("aria-selected"),
-    ).toBe("true");
-    expect(screen.getByText("2시간마다")).toBeTruthy();
-    expect(screen.getByText("게시물 수집 설정")).toBeTruthy();
-    expect(screen.queryByText("수집 실행")).toBeNull();
-    expect(screen.getByRole("heading", {level: 1, name: "X(트위터) 수집"})).toBeTruthy();
-    expect(screen.queryByText("수집 소스별 설정, 비용과 실제 운영 상태를 한 화면에서 관리합니다.")).toBeNull();
-    await screen.findByRole("progressbar", { name: "전체 X 예산" });
-    expect(screen.getByText("보강 대기")).toBeTruthy();
-    const settingGroup = document.getElementById("x-collection-settings") as HTMLDetailsElement;
-    expect(settingGroup.open).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "게시물 수집 설정 열기" }));
-    expect(settingGroup.open).toBe(true);
-    expect(settingGroup.parentElement?.closest("details")?.open).toBe(true);
-    expect(document.activeElement).toBe(settingGroup.querySelector("summary"));
-    const referenceGroup = document.getElementById("x-reference-settings") as HTMLDetailsElement;
-    fireEvent.click(screen.getByRole("button", { name: "원문 보강 설정 열기" }));
-    expect(referenceGroup.open).toBe(true);
-    expect(document.activeElement).toBe(referenceGroup.querySelector("summary"));
-    const healthCalls = fetchXHistoryHealthMock.mock.calls.length;
-    const runCalls = fetchOperationRunsMock.mock.calls.length;
-    fireEvent.click(screen.getByRole("button", { name: "상태 새로고침" }));
-    await waitFor(() => {
-      expect(fetchXHistoryHealthMock.mock.calls.length).toBeGreaterThan(healthCalls);
-      expect(fetchOperationRunsMock.mock.calls.length).toBeGreaterThan(runCalls);
-    });
-    expect(screen.getByRole("heading", { name: "계정별 관리자 피드 응답" }).closest("details")).toBeNull();
-    expect(screen.getByRole("row", { name: /테스트 멤버 @otw_member/ })).toBeTruthy();
-    fireEvent.change(screen.getByRole("textbox", {name: "X 계정 검색"}), {target: {value: "없는계정"}});
-    expect(screen.queryByRole("row", {name: /테스트 멤버 @otw_member/})).toBeNull();
-    fireEvent.click(screen.getByRole("button", {name: "검색 결과 없음 · 초기화"}));
-    expect(screen.getByRole("row", {name: /테스트 멤버 @otw_member/})).toBeTruthy();
-    expect(screen.queryByText("카페 소스 관리")).toBeNull();
-    expect(useXPostsMock).toHaveBeenCalledWith(
-      expect.any(Array),
-      expect.objectContaining({ admin: true, enabled: true, maxResults: 10 }),
-    );
-    expect(useNaverCafePostsMock).toHaveBeenCalledWith(
-      expect.objectContaining({ admin: true, enabled: false, size: 10 }),
-    );
-    expect(fetchOperationsStatusMock).toHaveBeenCalledWith(24);
+    const budget = (await screen.findByRole("heading", { name: /X API 예산/ })).closest('[data-slot="card"]')!;
+    const chart = screen.getByRole("region", { name: "멤버별 X 수집" });
+    const settings = screen.getByRole("region", { name: "피드 설정" });
+    const history = screen.getByRole("region", { name: "X 실행 이력" });
+    const webhook = screen.getByRole("region", { name: "웹훅" });
+    expect(budget.parentElement?.firstElementChild).toBe(budget);
+    expect(budget.nextElementSibling).toBe(chart);
+    const counts = await screen.findByRole("list", { name: "멤버별 수집 건수" });
+    expect(Array.from(counts.children, row => row.textContent)).toEqual(["멤버 하나인용 1건 · 답글 2건3건", "멤버 셋1건", "멤버 둘0건"]);
+    expect(chart.querySelector<HTMLElement>('[style*="conic-gradient"]')?.style.backgroundImage)
+      .toBe("conic-gradient(var(--chart-1) 0% 75%, var(--chart-2) 75% 100%)");
+    expect(history.parentElement?.lastElementChild).toBe(history);
+    expect(webhook.nextElementSibling).toBe(history);
 
-    const runButton = await screen.findByRole("button", { name: "기본 수집원으로 실행" });
-    fireEvent.click(runButton);
+    const visibility = screen.getByRole("button", { name: /회원 전용/ });
+    const linkPreview = screen.getByRole("switch", { name: "링크된 X 게시글 내용 표시" });
+    const archiveIndex = screen.getByRole("switch", { name: "관리자 영구 아카이브 색인" });
+    for (const control of [visibility, linkPreview, archiveIndex]) {
+      expect(control.closest("details")).toBeNull();
+      expect(control.closest('[data-slot="card"]')).toBe(settings);
+    }
+    for (const name of [
+      "게시물 수집 실행", "인용 원문 보강", "REST 실행 전 예산", "작업별 X API 호출",
+      "계정별 관리자 피드 응답", "Cron 수집 사용", "사이트 조회 보호 한도 센트", "수집 주기",
+      "X API 비용 최적화", "인용 원문 미리보기 모드", "인용 보강 일일 예산 센트",
+      "답글 표시 정책", "보관 기록 관리",
+    ]) {
+      expect(screen.queryByText(name)).toBeNull();
+    }
+    expect(updateSettingsMock).not.toHaveBeenCalled();
 
+    fireEvent.click(await screen.findByRole("button", { name: "기본 수집원으로 실행" }));
     await waitFor(() => expect(runXCollectionNowMock).toHaveBeenCalled());
-    expect(toastMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        variant: "success",
-        description: "X 게시글 수집이 대기열에 등록되었습니다.",
-      }),
-    );
   });
 
   it("uses the confirmed Fx source for ordinary runs", async () => {

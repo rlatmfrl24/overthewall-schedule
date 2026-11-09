@@ -171,6 +171,11 @@ export const handleScheduledJobQueue = async (
         continue;
       }
       await reconcileTerminalItem(completed);
+      // Only fresh completions can spend the remaining D1 calls on reply previews.
+      if (batch.messages.length === 1 && completed.lane === "x" &&
+          (completed.status === "succeeded" || completed.status === "partial")) {
+        await executor.enrichCompletedXReplies(completed);
+      }
       message.ack();
     } catch (error) {
       if (error instanceof ScheduledAutoUpdateBlocked) {

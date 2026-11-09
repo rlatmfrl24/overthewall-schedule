@@ -1,32 +1,16 @@
-export {
-  XAllowlistUnavailableError,
-  XPostFeedError,
-  XReplyContextNotFoundError,
-  XTargetsNotAllowedError, createXPostsApplication, type XPostsApplication,
-  type XPostsApplicationPorts
-} from "./application/x-posts-service";
-export {
-  createManualXCollectionHandler,
-  type BuildManualXCollectionApplication
-} from "./http/manual-collection-handler";
-export {
-  createXPostsHandler,
-  type BuildXPostsApplication
-} from "./http/x-posts";
+export { createManualXCollectionHandler } from "./http/manual-collection-handler";
+export { createXPostsHandler } from "./http/x-posts";
 export {
   redactStoredXPosts
 } from "./infrastructure/x-api";
-export { getScheduledXCollectionDecision, readActiveXHandles, readDueXRecoveryHandles, runXCollection, runXCollectionForHandles, recordXCollectionCompletion } from "./infrastructure/x-collection";
-export {
-  readXHistoryHealth,
-  readXHistoryPosts
-} from "./infrastructure/x-history";
+export { getScheduledXCollectionDecision, readActiveXHandles, readDueXRecoveryHandles, runXCollectionForHandles, recordXCollectionCompletion } from "./infrastructure/x-collection";
 export { D1XActivityCoordinator } from "./infrastructure/x-activity-coordinator";
 export { D1XActivitySite } from "./infrastructure/x-activity-site";
 export { runFxCollectionForHandles } from "./infrastructure/fx-collection";
 export { createFxRssCollection, parseFxRssContinuation } from "./application/fx-rss-collection";
 export { D1FxRssCollectionAdapter, readDueFxRssCollectionTargets } from "./infrastructure/d1-fx-rss-collection";
-export { trackRssD1Calls } from "./infrastructure/rss-d1-budget";
+export { trackXCollectionD1Calls } from "./infrastructure/rss-d1-budget";
+export { hydrateXReplyPreviews } from "./infrastructure/x-reply-hydration";
 export { readHybridXCollectionTargets, isHybridRegularCollectionComplete } from "./infrastructure/x-hybrid-policy";
 export { XActivityError, type XActivityService } from "./application/x-activity-service";
 export { createXActivityHandler } from "./http/x-activity";
@@ -37,6 +21,5 @@ export { D1SharedXApiGateway, D1SharedXBudget, readSiteXBudget } from "./infrast
 export {
   buildXPostsApplication,
   xPostFeedService,
-  type XPostFeedService,
-  type XPostFeedServiceOptions
+  type XPostFeedService
 } from "./infrastructure/x-posts-adapters";

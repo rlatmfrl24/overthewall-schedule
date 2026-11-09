@@ -19,6 +19,7 @@ import {
   Heart,
   ImageOff,
   MessageCircle,
+  Quote,
   Repeat2,
   CornerDownRight,
 } from "lucide-react";
@@ -212,7 +213,7 @@ const getPreviewLinks = (post: XPostViewModel) => {
 
   for (const link of post.links ?? []) {
     const href = getLinkHref(link);
-    if (isLinkForPostId(link, post.quote?.postId) || isOwnDisplayedMedia(post, link)) continue;
+    if (isLinkForPostId(link, post.quote?.postId) || isLinkForPostId(link, post.reply?.postId) || isOwnDisplayedMedia(post, link)) continue;
     if (!shouldShowLinkPreview(link)) continue;
 
     const key = href.toLowerCase();
@@ -485,21 +486,21 @@ const XLinkPreviewCard = ({ link }: { link: XPostLinkDto }) => {
 };
 
 const XQuotePostCard = ({ post }: { post: XPostViewModel }) => {
-  if (!post.quote) return null;
-  if (post.quote.post) {
-    return <XEmbeddedPostCard post={post.quote.post} />;
-  }
+  const quote = post.quote;
+  if (!quote) return null;
 
-  const href = `https://x.com/i/web/status/${post.quote.postId}`;
   return (
-    <XLinkPreviewCard
-      link={{
-        url: href,
-        expandedUrl: href,
-        displayUrl: `x.com/i/web/status/${post.quote.postId}`,
-        previewStatus: "unavailable",
-      }}
-    />
+    <div role="group" aria-label="인용 원문" className="min-w-0 space-y-1">
+      <div className="flex min-h-8 items-center gap-2 px-2.5 text-xs">
+        <Quote aria-hidden="true" className="size-4 shrink-0 text-foreground/70" />
+        <span className="flex-1 font-medium">인용 원문</span>
+        {!quote.post && <a href={`https://x.com/i/web/status/${quote.postId}`} target="_blank" rel="noopener noreferrer" aria-label="인용 원문 열기"
+          className="inline-flex min-h-8 shrink-0 items-center gap-1 rounded px-1 text-muted-foreground underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-sm:min-h-11 pointer-coarse:min-h-11">
+          X에서 보기 <ExternalLink aria-hidden="true" className="size-3" />
+        </a>}
+      </div>
+      {quote.post && <XEmbeddedPostCard post={quote.post} />}
+    </div>
   );
 };
 
@@ -551,7 +552,7 @@ const renderPostText = (post: XPostViewModel, text = post.text) => {
     if (isUrl) {
       const { url, trailing } = trimUrlMatch(rawMatch);
       const link = linksByUrl.get(url);
-      if (!link || !(isLinkForPostId(link, post.quote?.postId) || isOwnDisplayedMedia(post, link) || shouldShowLinkPreview(link))) {
+      if (!link || !(isLinkForPostId(link, post.quote?.postId) || isLinkForPostId(link, post.reply?.postId) || isOwnDisplayedMedia(post, link) || shouldShowLinkPreview(link))) {
         nodes.push(<a key={`${url}-${startIndex}`} href={link ? getLinkHref(link) : url} title={link?.displayUrl ?? url} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-4">{url}</a>);
       }
       if (trailing) nodes.push(trailing);

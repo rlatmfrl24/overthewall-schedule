@@ -1,13 +1,8 @@
-import { XCollectionManager } from "./x-collection-manager";
 import { useXCollectionStatus } from "../../queries/use-x-collection-status";
 import IconX from "@/assets/icon_x.svg";
 import {
   fetchSettings,
-  isXCollectionIntervalHours,
-  isXReferencePreviewMode,
-  normalizeXCollectionIntervalHours,
   updateSettings,
-  X_COLLECTION_INTERVAL_HOURS,
   type AutoUpdateSettings,
 } from "@/features/configuration";
 import { NaverCafeSourceManager } from "@/features/naver-cafe";
@@ -18,7 +13,6 @@ import {
   useOperationRun,
   type OperationRunAccepted
 } from "@/features/operations";
-import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -26,37 +20,24 @@ import { ButtonGroup } from "@/shared/ui/button-group";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/shared/ui/card";
-import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/shared/ui/select";
 import { Switch } from "@/shared/ui/switch";
 import { TabsList } from "@/shared/ui/tabs-list";
 import { useToast } from "@/shared/ui/toast";
 import type { NaverCafePostsVisibility } from "@contracts/naver-cafe";
 import type { XPostsVisibility } from "@contracts/x-posts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { PiClockBold as Clock3, PiCoffeeBold as Coffee, PiEyeSlashBold as EyeOff, PiGlobeBold as Globe2, PiSpinnerGapBold as Loader2, PiLockKeyBold as LockKeyhole } from "react-icons/pi";
+import { PiCoffeeBold as Coffee, PiEyeSlashBold as EyeOff, PiGlobeBold as Globe2, PiSpinnerGapBold as Loader2, PiLockKeyBold as LockKeyhole } from "react-icons/pi";
 import { useCallback, useEffect, useState } from "react";
 import { xReferenceHealthQueryKey } from "../../queries/use-x-reference-health";
 import {
   MemberPostFeedMonitor,
   type MemberPostSource,
 } from "./member-post-feed-monitor";
-import { XPostHistoryManager } from "./x-post-history-manager";
-import { XActivityManager } from "./x-activity-manager";
 import { xActivityQueryKey } from "../../api/x-activity-api";
 import { xCollectionQueryKey } from "../../api/x-collection-api";
-import { openXSettings } from "./x-settings-navigation";
 
 const VISIBILITY_OPTIONS: Array<{
   value: XPostsVisibility;
@@ -83,13 +64,6 @@ const VISIBILITY_OPTIONS: Array<{
     icon: EyeOff,
   },
 ];
-
-const X_COLLECTION_INTERVAL_OPTIONS = X_COLLECTION_INTERVAL_HOURS.map(
-  (value) => ({
-    value,
-    label: value === "0.5" ? "30분마다" : `${value}시간마다`,
-  }),
-);
 
 const SOURCE_TABS: Array<{
   value: MemberPostSource;
@@ -127,10 +101,6 @@ export function MemberPostSettingsManager({
   const [isRunningCollection, setIsRunningCollection] = useState(false);
   const [isRunningNaverCafeCheck, setIsRunningNaverCafeCheck] =
     useState(false);
-  const [budgetEdited, setBudgetEdited] = useState(false);
-  const [previewBudgetEdited, setPreviewBudgetEdited] = useState(false);
-  const [budgetDraft, setBudgetDraft] = useState("100");
-  const [previewBudgetDraft, setPreviewBudgetDraft] = useState("10");
   const [collectionRun, setCollectionRun] =
     useState<OperationRunAccepted | null>(null);
   const collectionRunQuery = useOperationRun(collectionRun);
@@ -146,32 +116,6 @@ export function MemberPostSettingsManager({
   });
   const settings = settingsQuery.data ?? null;
   const collectionSourceQuery = useXCollectionStatus(activeSource === "x");
-  const hybridCollection = collectionSourceQuery.data?.primarySource === "fxembed";
-  useUnsavedChanges(Boolean(settings && (
-    (budgetEdited && budgetDraft !== settings.x_collection_daily_budget_cents) ||
-    (previewBudgetEdited && previewBudgetDraft !== settings.x_reference_preview_daily_budget_cents)
-  )));
-  useEffect(() => {
-    if (activeSource !== "x") return;
-    let observer: MutationObserver | undefined;
-    const openHash = () => {
-      observer?.disconnect();
-      const id = window.location.hash.slice(1);
-      if (id !== "x-collection-settings" && id !== "x-reference-settings" && id !== "x-feed-settings") return;
-      const openWhenMounted = () => {
-        if (!document.getElementById(id)) return;
-        observer?.disconnect();
-        openXSettings(id);
-      };
-      // The tab panel can mount after its parent's effect (or after loading).
-      observer = new MutationObserver(openWhenMounted);
-      observer.observe(document.body, {childList: true, subtree: true});
-      openWhenMounted();
-    };
-    openHash();
-    window.addEventListener("hashchange", openHash);
-    return () => { observer?.disconnect(); window.removeEventListener("hashchange", openHash); };
-  }, [activeSource]);
   const isFetching = settingsQuery.isFetching;
 
   const patchSettings = useCallback(
@@ -212,14 +156,6 @@ export function MemberPostSettingsManager({
   }, [operationsQuery, settingsQuery, queryClient, toast]);
 
   useEffect(() => {
-    if (!budgetEdited) setBudgetDraft(settings?.x_collection_daily_budget_cents ?? "100");
-  }, [settings?.x_collection_daily_budget_cents, budgetEdited]);
-
-  useEffect(() => {
-    if (!previewBudgetEdited) setPreviewBudgetDraft(settings?.x_reference_preview_daily_budget_cents ?? "10");
-  }, [settings?.x_reference_preview_daily_budget_cents, previewBudgetEdited]);
-
-  useEffect(() => {
     const run = collectionRunQuery.data;
     if (!run || !["succeeded", "partial", "failed", "skipped", "throttled"].includes(run.status)) {
       return;
@@ -245,11 +181,6 @@ export function MemberPostSettingsManager({
   const naverCafePostsVisibility =
     settings?.naver_cafe_posts_visibility ?? "members";
   const isXCollectionEnabled = settings?.x_collection_enabled !== "false";
-  const isXCostOptimizerEnabled = settings?.x_cost_optimizer_enabled === "true";
-  const xReferencePreviewMode = settings?.x_reference_preview_mode ?? "cached_author";
-  const xCollectionInterval = normalizeXCollectionIntervalHours(
-    settings?.x_collection_interval_hours,
-  );
 
   const handleVisibilityChange = async (visibility: XPostsVisibility) => {
     if (!settings || visibility === xPostsVisibility) return;
@@ -278,158 +209,11 @@ export function MemberPostSettingsManager({
     }
   };
 
-  const handleToggleXCollection = async (enabled: boolean) => {
-    if (!settings) return;
-    setIsSaving(true);
-    try {
-      await updateSettings({
-        x_collection_enabled: enabled ? "true" : "false",
-      });
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.settings.detail(),
-      });
-      await patchSettings({
-        x_collection_enabled: enabled ? "true" : "false",
-      });
-      toast({
-        variant: "success",
-        description: enabled
-          ? "X 게시글 백그라운드 수집을 활성화했습니다."
-          : "X 게시글 백그라운드 수집을 비활성화했습니다.",
-      });
-    } catch (error) {
-      console.error("Failed to update X collection setting:", error);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.settings.detail() }),
-        queryClient.invalidateQueries({ queryKey: xActivityQueryKey }),
-        queryClient.invalidateQueries({ queryKey: xCollectionQueryKey }),
-      ]);
-      toast({
-        variant: "error",
-        description: "X 게시글 수집 설정 변경에 실패했습니다.",
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleToggleXCostOptimizer = async (enabled: boolean) => {
-    if (!settings) return;
-    setIsSaving(true);
-    try {
-      const value = enabled ? "true" : "false";
-      await updateSettings({ x_cost_optimizer_enabled: value });
-      await patchSettings({ x_cost_optimizer_enabled: value });
-      toast({
-        variant: "success",
-        description: enabled
-          ? "X API 비용 최적화를 활성화했습니다."
-          : "X API 비용 최적화를 비활성화했습니다.",
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleXReferencePreviewModeChange = async (mode: string) => {
-    if (!settings || !isXReferencePreviewMode(mode)) return;
-    setIsSaving(true);
-    try {
-      await updateSettings({ x_reference_preview_mode: mode });
-      await patchSettings({ x_reference_preview_mode: mode });
-      toast({ variant: "success", description: "X 참조 미리보기 비용 모드를 저장했습니다." });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleSaveXReferencePreviewBudget = async () => {
-    if (!settings) return;
-    const value = String(Math.min(Math.max(Number.parseInt(previewBudgetDraft, 10) || 0, 0), 100));
-    setIsSaving(true);
-    try {
-      await updateSettings({ x_reference_preview_daily_budget_cents: value });
-      await patchSettings({ x_reference_preview_daily_budget_cents: value });
-      setPreviewBudgetDraft(value);
-      setPreviewBudgetEdited(false);
-      toast({ variant: "success", description: "X 미리보기 일일 예산을 저장했습니다." });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleSaveBudget = async () => {
-    if (!settings) return;
-    const normalized = String(
-      Math.min(Math.max(Number.parseInt(budgetDraft, 10) || 100, 1), 100_000),
-    );
-    setIsSaving(true);
-    try {
-      await updateSettings({
-        x_collection_daily_budget_cents: normalized,
-      });
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.settings.detail(),
-      });
-      await patchSettings({
-        x_collection_daily_budget_cents: normalized,
-      });
-      setBudgetDraft(normalized);
-      setBudgetEdited(false);
-      toast({
-        variant: "success",
-        description: "X API 일일 예산을 저장했습니다.",
-      });
-    } catch (error) {
-      console.error("Failed to update X collection budget:", error);
-      toast({
-        variant: "error",
-        description: "X API 일일 예산 저장에 실패했습니다.",
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleXCollectionIntervalChange = async (interval: string) => {
-    if (
-      !settings ||
-      !isXCollectionIntervalHours(interval) ||
-      interval === xCollectionInterval
-    ) {
-      return;
-    }
-    setIsSaving(true);
-    try {
-      await updateSettings({
-        x_collection_interval_hours: interval,
-      });
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.settings.detail(),
-      });
-      await patchSettings({
-        x_collection_interval_hours: interval,
-      });
-      toast({
-        variant: "success",
-        description: "X 게시글 수집 주기를 저장했습니다.",
-      });
-    } catch (error) {
-      console.error("Failed to update X collection interval:", error);
-      toast({
-        variant: "error",
-        description: "X 게시글 수집 주기 저장에 실패했습니다.",
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleRunXCollectionNow = async (scope?: "pending") => {
+  const handleRunXCollectionNow = async () => {
     if (!settings) return;
     setIsRunningCollection(true);
     try {
-      const accepted = await runXCollectionNow(scope, scope === "pending" ? undefined : collectionSourceQuery.data?.primarySource);
+      const accepted = await runXCollectionNow(undefined, collectionSourceQuery.data?.primarySource);
       setCollectionRun(accepted);
       void queryClient.invalidateQueries({ queryKey: queryKeys.operations.runs() });
       toast({
@@ -654,7 +438,6 @@ export function MemberPostSettingsManager({
             <MemberPostFeedMonitor
               source="x"
               xCollectionEnabled={isXCollectionEnabled}
-              xPostsVisibility={xPostsVisibility}
               naverCafeEnabled={isNaverCafePostsEnabled}
               naverCafeVisibility={naverCafePostsVisibility}
               operationsStatus={operationsQuery.data ?? null}
@@ -663,303 +446,82 @@ export function MemberPostSettingsManager({
               operationsUpdatedAt={operationsQuery.dataUpdatedAt}
               onReloadOperations={loadSettings}
               onRunXCollection={settings && collectionSourceQuery.data && !collectionSourceQuery.isError ? () => void handleRunXCollectionNow() : undefined}
-              onRunXPending={settings ? () => void handleRunXCollectionNow("pending") : undefined}
-              xActivity={<><XCollectionManager enabled={isXCollectionEnabled} /><XActivityManager /></>}
               isRunningXCollection={isRunningCollection || (
                 collectionRun?.jobType === "x_collection" &&
                 (!collectionRunQuery.data || ["queued", "running"].includes(collectionRunQuery.data.status))
               )}
             >
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">수집 설정</h3>
-              <details id="x-feed-settings" className="rounded-lg border">
-                <summary className="cursor-pointer px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">공개·피드 설정<span className="ml-2 text-xs font-normal text-muted-foreground">접근 범위와 피드 미리보기</span></summary>
-                <div className="space-y-3 border-t p-3">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">X 게시글 공개 범위</CardTitle>
-              <CardDescription>
-                X 게시글의 사용자 피드 공개 범위입니다. 수집 활성 여부는 아래에서 별도로 관리합니다.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <ButtonGroup className="flex w-full flex-col sm:flex-row">
-                {VISIBILITY_OPTIONS.map((option) => {
-                  const Icon = option.icon;
-                  const active = xPostsVisibility === option.value;
-                  return (
-                    <Button
-                      key={option.value}
-                      type="button"
-                      variant={active ? "default" : "outline"}
-                      className="h-auto flex-1 justify-start gap-3 px-3 py-2 text-left"
-                      onClick={() => void handleVisibilityChange(option.value)}
-                      disabled={!settings || isSaving}
-                    >
-                      <Icon className="h-4 w-4 shrink-0" />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-semibold">
-                          {option.label}
-                        </span>
-                        <span className="block whitespace-normal text-xs font-normal opacity-75">
-                          {option.description}
-                        </span>
-                      </span>
-                    </Button>
-                  );
-                })}
-              </ButtonGroup>
-            </CardContent>
-          </Card>
-
-
-              <div className="border-t pt-3">
-              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0 space-y-1">
-                  <Label
-                    htmlFor="x-rich-link-preview-enabled"
-                    className="text-sm font-semibold"
-                  >
-                    링크된 X 게시글 내용 표시
-                  </Label>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    게시글 안의 X 링크를 카드형 미리보기로 표시합니다. 켜면
-                    tweet lookup 호출과 API 비용이 늘 수 있습니다.
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  <Badge
-                    variant={isRichXLinkPreviewEnabled ? "default" : "secondary"}
-                    className={isRichXLinkPreviewEnabled ? "bg-emerald-600" : undefined}
-                  >
-                    {isRichXLinkPreviewEnabled ? "활성화" : "비활성"}
-                  </Badge>
-                  <Switch
-                    id="x-rich-link-preview-enabled"
-                    checked={isRichXLinkPreviewEnabled}
-                    onCheckedChange={handleToggleRichXLinkPreview}
-                    disabled={!settings || isSaving}
-                  />
-                </div>
-              </div>
-              </div>
-              <div className="border-t pt-3">
-                <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0 space-y-1">
-                    <Label htmlFor="x-history-analytics-enabled" className="text-sm font-semibold">
-                      관리자 영구 아카이브 색인
-                    </Label>
-                    <p className="text-sm leading-6 text-muted-foreground">
-                      꺼도 신규 게시물 원본 수집과 영구 보존은 계속됩니다. 다시 켜면 공급자 호출 없이 D1 원문에서 누락 색인을 보충합니다.
-                    </p>
+              <Card id="x-feed-settings" role="region" aria-labelledby="x-feed-settings-title" className="gap-0 py-0 shadow-none">
+                <CardHeader className="border-b px-3 py-2 [.border-b]:pb-2">
+                  <h2 id="x-feed-settings-title" className="text-sm font-semibold">피드 설정</h2>
+                </CardHeader>
+                <CardContent className="divide-y px-3">
+                  <div className="space-y-2 py-3">
+                    <h3 className="text-sm font-semibold">X 게시글 공개 범위</h3>
+                    <ButtonGroup className="flex w-full flex-col sm:flex-row">
+                      {VISIBILITY_OPTIONS.map(({ value, label, description, icon: Icon }) => (
+                        <Button
+                          key={value}
+                          type="button"
+                          variant={xPostsVisibility === value ? "default" : "outline"}
+                          className="h-auto flex-1 justify-start gap-3 px-3 py-2 text-left"
+                          onClick={() => void handleVisibilityChange(value)}
+                          disabled={!settings || isSaving}
+                        >
+                          <Icon className="h-4 w-4 shrink-0" />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-semibold">{label}</span>
+                            <span className="block whitespace-normal text-xs font-normal opacity-75">{description}</span>
+                          </span>
+                        </Button>
+                      ))}
+                    </ButtonGroup>
                   </div>
-                  <div className="flex shrink-0 items-center gap-3">
-                    <Badge variant={isXHistoryAnalyticsEnabled ? "default" : "secondary"}>
-                      {isXHistoryAnalyticsEnabled ? "활성화" : "비활성"}
-                    </Badge>
-                    <Switch
-                      id="x-history-analytics-enabled"
-                      checked={isXHistoryAnalyticsEnabled}
-                      onCheckedChange={handleToggleXHistoryAnalytics}
-                      disabled={!settings || isSaving}
-                    />
+                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3">
+                    <div className="min-w-0 space-y-1">
+                      <Label htmlFor="x-rich-link-preview-enabled" className="text-sm font-semibold">링크된 X 게시글 내용 표시</Label>
+                      <p className="text-xs text-muted-foreground">
+                        X 링크에 미리보기를 표시합니다. API 비용이 늘 수 있습니다.
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <Badge variant={isRichXLinkPreviewEnabled ? "default" : "secondary"} className={isRichXLinkPreviewEnabled ? "bg-emerald-600" : undefined}>
+                        {isRichXLinkPreviewEnabled ? "활성화" : "비활성"}
+                      </Badge>
+                      <Switch
+                        id="x-rich-link-preview-enabled"
+                        checked={isRichXLinkPreviewEnabled}
+                        onCheckedChange={handleToggleRichXLinkPreview}
+                        disabled={!settings || isSaving}
+                      />
+                    </div>
                   </div>
-                </div>
-              </div>
-
-                </div>
-              </details>
-              <details id="x-collection-settings" className="rounded-lg border">
-                <summary className="cursor-pointer px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">게시물 수집 설정<span className="ml-2 text-xs font-normal text-muted-foreground">자동 수집·주기·전체 예산</span></summary>
-                <div className="space-y-3 border-t p-3">
-
-              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0 space-y-1">
-                  <Label
-                    htmlFor="x-collection-enabled"
-                    className="text-sm font-semibold"
-                  >
-                    Cron 수집 사용
-                  </Label>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    저장된 게시글을 표시하며, 선택한 기본 수집원과 공식 X 보강이 새 글을 확인합니다.
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  {isXCollectionEnabled ? (
-                    <Badge variant="default" className="bg-green-600">
-                      활성화
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary">비활성</Badge>
-                  )}
-                  <Switch
-                    id="x-collection-enabled"
-                    checked={isXCollectionEnabled}
-                    onCheckedChange={handleToggleXCollection}
-                    disabled={!settings || isSaving}
-                  />
-                </div>
-              </div>
-              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-end sm:justify-between">
-                <div className="min-w-0 space-y-1">
-                  <Label
-                    htmlFor="x-daily-budget"
-                    className="text-sm font-semibold"
-                  >
-                    사이트 조회 보호 한도 센트
-                  </Label>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    이 사이트의 유료 조회에 추가로 적용하는 보호 한도입니다. 실제 비용은 양 사이트 합산 UTC 하루 $1 목표 안에서 관리합니다. 웹훅은 신규 피드 구독에서 중지합니다.
-                  </p>
-                </div>
-                <div className="flex w-full shrink-0 gap-2 sm:w-48">
-                  <Input
-                    id="x-daily-budget"
-                    inputMode="numeric"
-                    value={budgetDraft}
-                    onChange={(event) => { setBudgetEdited(true); setBudgetDraft(event.target.value); }}
-                    disabled={!settings || isSaving}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => void handleSaveBudget()}
-                    disabled={!settings || isSaving}
-                  >
-                    저장
-                  </Button>
-                </div>
-              </div>
-              <div className="grid gap-3 rounded-md border bg-muted/20 p-3 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
-                <div className="min-w-0 space-y-1">
-                  <Label
-                    htmlFor="x-collection-interval"
-                    className="flex items-center gap-2 text-sm font-semibold"
-                  >
-                    <Clock3 className="h-4 w-4 text-muted-foreground" />
-                    수집 주기
-                  </Label>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    {hybridCollection ? `FxEmbed JSON은 30분${collectionSourceQuery.data?.rss?.enabled ? ", RSS는 6시간" : ""}, 공식 X는 ${collectionSourceQuery.data?.xApi.intervalHours ?? 24}시간마다 확인하며 장애 계정만 공식 2시간 수집으로 전환합니다.` : "Cron 점검에서 설정한 주기가 지난 경우 공식 X API를 호출합니다."}
-                  </p>
-                </div>
-                <Select
-                  value={hybridCollection ? String(collectionSourceQuery.data?.xApi.intervalHours ?? 24) : xCollectionInterval}
-                  onValueChange={(value) =>
-                    void handleXCollectionIntervalChange(value)
-                  }
-                  disabled={!settings || isSaving || hybridCollection || collectionSourceQuery.isPending || collectionSourceQuery.isError}
-                >
-                  <SelectTrigger
-                    id="x-collection-interval"
-                    className="w-full"
-                    size="sm"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {X_COLLECTION_INTERVAL_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-3 rounded-md border bg-muted/20 p-3 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-center">
-                <div className="min-w-0 space-y-1">
-                  <Label htmlFor="x-cost-optimizer" className="text-sm font-semibold">
-                    X API 비용 최적화
-                  </Label>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    공식 X의 첫 조회량을 줄이고, 예산·호출 제한에 따라 조회를 늦춥니다.
-                  </p>
-                </div>
-                <div className="flex items-center justify-end gap-3">
-                  <Badge variant={isXCostOptimizerEnabled ? "default" : "secondary"}>
-                    {isXCostOptimizerEnabled ? "활성화" : "비활성"}
-                  </Badge>
-                  <Switch
-                    id="x-cost-optimizer"
-                    checked={isXCostOptimizerEnabled}
-                    onCheckedChange={handleToggleXCostOptimizer}
-                    disabled={!settings || isSaving}
-                  />
-                </div>
-              </div>
-
-                </div>
-              </details>
-              <details id="x-reference-settings" className="rounded-lg border">
-                <summary className="cursor-pointer px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">원문 보강 설정<span className="ml-2 text-xs font-normal text-muted-foreground">미리보기 모드·보강 예산</span></summary>
-                <div className="space-y-3 border-t p-3">
-              <div className="grid gap-3 rounded-md border bg-muted/20 p-3 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
-                <div className="min-w-0 space-y-1">
-                  <Label htmlFor="x-reference-preview-mode" className="text-sm font-semibold">
-                    인용 원문 미리보기 모드
-                  </Label>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    인용 작성자 캐시는 30일 재사용합니다. 비용 비상 시 인용 게시글만 또는 링크만 표시할 수 있습니다.
-                  </p>
-                </div>
-                <Select
-                  value={xReferencePreviewMode}
-                  onValueChange={(value) => void handleXReferencePreviewModeChange(value)}
-                  disabled={!settings || isSaving}
-                >
-                  <SelectTrigger id="x-reference-preview-mode" className="w-full" size="sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cached_author">작성자 캐시</SelectItem>
-                    <SelectItem value="post_only">게시글만</SelectItem>
-                    <SelectItem value="link_only">링크만</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-end sm:justify-between">
-                <div className="min-w-0 space-y-1">
-                  <Label htmlFor="x-preview-budget" className="text-sm font-semibold">
-                    인용 보강 일일 예산 센트
-                  </Label>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    기본 10센트입니다. 신규 수집을 우선하며, 예산이 소진된 인용 보강은 다음 UTC 일로 이월합니다. 저장된 원문 연결에는 X 비용이 들지 않습니다.
-                  </p>
-                </div>
-                <div className="flex w-full shrink-0 gap-2 sm:w-48">
-                  <Input
-                    id="x-preview-budget"
-                    inputMode="numeric"
-                    value={previewBudgetDraft}
-                    onChange={(event) => { setPreviewBudgetEdited(true); setPreviewBudgetDraft(event.target.value); }}
-                    disabled={!settings || isSaving}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => void handleSaveXReferencePreviewBudget()}
-                    disabled={!settings || isSaving}
-                  >
-                    저장
-                  </Button>
-                </div>
-              </div>
-
-                </div>
-              </details>
-              <p className="rounded-md border bg-muted/20 p-3 text-sm leading-6">
-                <strong>답글 표시 정책</strong><br />
-                저장된 미리보기 유지 · 미확보 원문은 관계와 링크 표시 · 추가 X 조회 없음
-              </p>
-              <XPostHistoryManager enabled={isXHistoryAnalyticsEnabled} />
-            </div>
+                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3">
+                    <div className="min-w-0 space-y-1">
+                      <Label htmlFor="x-history-analytics-enabled" className="text-sm font-semibold">관리자 영구 아카이브 색인</Label>
+                      <p className="text-xs text-muted-foreground">
+                        원본은 계속 보존하며, 다시 켜면 저장된 원본으로 색인을 보충합니다.
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <Badge variant={isXHistoryAnalyticsEnabled ? "default" : "secondary"}>
+                        {isXHistoryAnalyticsEnabled ? "활성화" : "비활성"}
+                      </Badge>
+                      <Switch
+                        id="x-history-analytics-enabled"
+                        checked={isXHistoryAnalyticsEnabled}
+                        onCheckedChange={handleToggleXHistoryAnalytics}
+                        disabled={!settings || isSaving}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </MemberPostFeedMonitor>
           ) : (
             <MemberPostFeedMonitor
               source="naver-cafe"
               xCollectionEnabled={isXCollectionEnabled}
-              xPostsVisibility={xPostsVisibility}
               naverCafeEnabled={isNaverCafePostsEnabled}
               naverCafeVisibility={naverCafePostsVisibility}
               operationsStatus={operationsQuery.data ?? null}

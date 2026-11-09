@@ -1,11 +1,11 @@
 import type { MemberDto } from "@contracts/members";
 
-export type MemberXHandle<TMember extends MemberDto = MemberDto> = {
+type MemberXHandle<TMember extends MemberDto = MemberDto> = {
   member: TMember;
   handle: string;
 };
 
-export const X_HANDLE_PATTERN = /^[A-Za-z0-9_]{1,15}$/;
+const X_HANDLE_PATTERN = /^[A-Za-z0-9_]{1,15}$/;
 
 const normalizeUrl = (value: string) => {
   const trimmed = value.trim();
@@ -28,9 +28,6 @@ const RESERVED_X_PATHS = new Set([
   "search",
   "share",
 ]);
-
-export const normalizeXHandle = (handle: string) =>
-  handle.trim().toLowerCase();
 
 export const extractXHandleFromUrl = (
   value?: string | null,
@@ -80,7 +77,7 @@ export const getMembersWithXHandles = <TMember extends MemberDto>(
     const handle = extractXHandleFromUrl(member.url_twitter);
     if (!handle) continue;
 
-    const normalizedHandle = normalizeXHandle(handle);
+    const normalizedHandle = handle.toLowerCase();
     if (usedHandles.has(normalizedHandle)) continue;
 
     usedHandles.add(normalizedHandle);

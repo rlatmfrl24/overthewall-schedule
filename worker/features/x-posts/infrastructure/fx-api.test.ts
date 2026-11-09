@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { fetchFxStatus, fetchFxTimelinePage, parseFxStatus, parseFxTimelinePage } from "./fx-api";
+import { fetchFxPostPreview, fetchFxStatus, fetchFxTimelinePage, parseFxStatus, parseFxTimelinePage } from "./fx-api";
 
 const raw = (id: string, handle = "member") => ({ type: "status", id, text: id, author: { id: handle === "member" ? "101" : "999", screen_name: handle, protected: false }, created_at: "Tue Nov 03 00:00:00 +0000 2026", media: {} });
 afterEach(() => vi.unstubAllGlobals());
@@ -71,6 +71,12 @@ it("validates_status_identity_and_gif with the existing relations parser", () =>
   expect(() => parseFxStatus({ code: 200, status: raw("123", "other") }, "member", "101", "123")).toThrowError(expect.objectContaining({ code: "fx_candidate_excluded" }));
   expect(() => parseFxStatus({ code: 200, status: { ...raw("123"), reposted_by: {} } }, "member", "101", "123")).toThrowError(expect.objectContaining({ code: "fx_candidate_excluded" }));
 });
+it("keeps RSS status candidates when the quoted tombstone has no ID or the reply author is unavailable", () => {
+  const status = { ...raw("123"), quote: { type: "tombstone", reason: "deleted" }, replying_to: { status: "122" } };
+  expect(parseFxStatus({ code: 200, status }, "member", "101", "123")).toMatchObject({
+    id: "123", quote: null, reply: { postId: "122", targetUsername: null, post: null },
+  });
+});
 it.each([
   [{ code: 200, status: raw("124") }, "fx_identity_mismatch"],
   [{ code: 200, status: { ...raw("123"), author: { id: "999", screen_name: "member", protected: false } } }, "fx_identity_mismatch"],
@@ -88,4 +94,20 @@ it("fetches an individual status only from the fixed free endpoint", async () =>
   expect(fetchMock.mock.calls[0][0]).toBe("https://api.fxtwitter.com/2/status/123");
   await expect(fetchFxStatus("123/456", "member", "101")).rejects.toMatchObject({ code: "fx_invalid_payload" });
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it("accepts only the requested public reply original and validates a known author ID", async () => {
+  const original = raw("122", "other");
+  const response = (status: unknown) => Response.json({ code: 200, status });
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(response(original))
+    .mockResolvedValueOnce(response({ ...original, id: "123" }))
+    .mockResolvedValueOnce(response({ ...original, author: { ...original.author, protected: true } }))
+    .mockResolvedValueOnce(response(original));
+  vi.stubGlobal("fetch", fetchMock);
+  expect(await fetchFxPostPreview("122", "999")).toMatchObject({ id: "122", username: "other" });
+  await expect(fetchFxPostPreview("122")).resolves.toBeNull();
+  await expect(fetchFxPostPreview("122")).resolves.toBeNull();
+  await expect(fetchFxPostPreview("122", "101")).resolves.toBeNull();
+  expect(fetchMock.mock.calls[0][0]).toBe("https://api.fxtwitter.com/2/status/122");
 });

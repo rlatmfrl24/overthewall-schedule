@@ -43,6 +43,9 @@ const chunk = <T>(items: T[], size: number) => {
   return result;
 };
 
+// Two Fx timelines leave room for completion after both four-page windows.
+const FX_TIMELINE_HANDLES_PER_ITEM = 2;
+
 const planXCollection = async (
   env: Env,
   source: ScheduledJobRunRecord["source"],
@@ -58,7 +61,7 @@ const planXCollection = async (
   if (source === "scheduled" && primary?.value === "fxembed") {
     const [targets, rssTargets] = await Promise.all([readHybridXCollectionTargets(env, timestamp), readDueFxRssCollectionTargets(env, timestamp)]);
     const officialHandles = new Set(targets.filter(target => target.provider === "x_api").flatMap(target => target.handles));
-    return [...targets.flatMap(target => chunk(target.handles,4).map((handles,index) => ({
+    return [...targets.flatMap(target => chunk(target.handles, target.provider === "fxembed" ? FX_TIMELINE_HANDLES_PER_ITEM : 4).map((handles,index) => ({
       targetKey: `${target.provider}:${target.scope}:handles:${index}:${handles.join(",")}`, phase:"collect", lane:"x" as const,
       continuation:{...target,handles},
     }))), ...rssTargets.filter(state => !officialHandles.has(state.handles[0]) || state.phase === "fetch" || state.candidates.length === 0 || state.candidates.some(candidate => candidate.stage === "free"))
@@ -70,7 +73,7 @@ const planXCollection = async (
       const pending=await env.otw_db.prepare("SELECT handle FROM x_fx_sources WHERE handle IN (SELECT value FROM json_each(?)) AND (cursor IS NOT NULL OR last_error IS NOT NULL)").bind(JSON.stringify(handles)).all<{handle:string}>();
       const selected=new Set(pending.results.map(row=>row.handle));handles=handles.filter(handle=>selected.has(handle));
     }
-    return chunk(handles,4).map((shard,index)=>({targetKey:`fxembed:handles:${index}:${shard.join(",")}`,phase:"collect",lane:"x" as const,continuation:{handles:shard,provider,scope:pendingOnly?"pending":"regular",hybrid:true}}));
+    return chunk(handles, FX_TIMELINE_HANDLES_PER_ITEM).map((shard,index)=>({targetKey:`fxembed:handles:${index}:${shard.join(",")}`,phase:"collect",lane:"x" as const,continuation:{handles:shard,provider,scope:pendingOnly?"pending":"regular",hybrid:true}}));
   }
   let recoveryOnly = false;
   let recoveryAnchorAt: number | undefined;

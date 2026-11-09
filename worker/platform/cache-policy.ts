@@ -26,9 +26,6 @@ export const WORKER_CACHE_POLICY = {
       staleTtlMs: 24 * HOUR_MS,
       version: "v4",
     },
-    linkedPostLookup: {
-      freshTtlMs: 30 * DAY_MS,
-    },
   },
   naverCafe: {
     posts: {

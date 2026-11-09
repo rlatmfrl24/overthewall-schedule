@@ -19,7 +19,6 @@ import {
   redactStoredXPosts,
   XApiError,
 } from "./x-api";
-import { runXCollection } from "./x-collection";
 import { readXSetting } from "./x-settings";
 import {
   readXHistoryHealth,
@@ -47,13 +46,11 @@ export const buildXPostsApplication = (env: Env) => {
     fetchPosts: async (handles, options) => {
       try {
         return await fetchXPostsForHandles(handles, {
-          gateway: env.X_API_GATEWAY ?? unavailableXApiGateway,
-          bearerToken: env.X_BEARER_TOKEN,
           cacheDb: env.otw_db,
           siteId: parseSiteId(env.SITE_ID),
           maxResults: options.maxResults,
           richXLinkPreviewEnabled: options.richXLinkPreviewEnabled,
-          refresh: options.refresh,
+          refresh: false,
         });
       } catch (error) {
         return mapApiError(error);
@@ -103,23 +100,6 @@ export const buildXPostsApplication = (env: Env) => {
         detail: { reason: "admin" },
       });
     },
-    runCollection: () => runXCollection(env, "manual"),
-    writeCollectionAudit: async (input) => {
-      await insertAdminAuditLog(db, {
-        eventType: "manual_collection.x",
-        resourceType: "x_collection",
-        action: "run_now",
-        status: input.status,
-        actorId: input.actorId,
-        actorName: input.actorName,
-        actorIp: input.actorIp,
-        targetCount: input.targetCount,
-        successCount: input.successCount,
-        failureCount: input.failureCount,
-        detail: input.detail,
-        error: input.error,
-      });
-    },
     readHistoryPosts: (options) => readXHistoryPosts(env.otw_db, options),
     readHistoryHealth: async () => {
       const health:XHistoryHealthResponseDto=await readXHistoryHealth(env.otw_db);
@@ -134,17 +114,12 @@ export const buildXPostsApplication = (env: Env) => {
   });
 };
 
-export type XPostFeedServiceOptions = {
+type XPostFeedServiceOptions = {
   siteId: import("@contracts/site-definition").SiteId;
   storedPage?: import("@contracts/member-posts").MemberPostsPageRequest;
-  bearerToken?: string;
   cacheDb: D1Database;
   maxResults: number;
   richXLinkPreviewEnabled: boolean;
-  refresh: boolean;
-  forceRefresh: boolean;
-  usageSource: string;
-  forceRefreshPath: string | null;
 };
 
 export interface XPostFeedService {
@@ -163,17 +138,8 @@ export const xPostFeedService: XPostFeedService = {
   extractHandle: (value) => extractXHandleFromUrl(value),
   fetchPosts: (handles, options) =>
     fetchXPostsForHandles(handles, {
-      gateway: unavailableXApiGateway,
-      siteId: options.siteId,
-      ...(options.storedPage ? { storedPage: options.storedPage } : {}),
-      bearerToken: options.bearerToken,
-      cacheDb: options.cacheDb,
-      maxResults: options.maxResults,
-      richXLinkPreviewEnabled: options.richXLinkPreviewEnabled,
-      refresh: options.refresh,
-      forceRefresh: options.forceRefresh,
-      usageSource: options.usageSource,
-      forceRefreshPath: options.forceRefreshPath,
+      ...options,
+      refresh: false,
     }),
   isApiError: (error) => error instanceof XApiError,
 };

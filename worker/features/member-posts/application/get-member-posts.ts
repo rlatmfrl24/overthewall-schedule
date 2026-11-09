@@ -221,7 +221,6 @@ export class GetMemberPosts {
           const content = await this.port.fetchXPosts(handles, {
             maxResults: input.page ? 11 : maxResults,
             richXLinkPreviewEnabled: configs.x.richLinkPreviewEnabled,
-            adminView,
             ...(input.page ? { page: input.page } : {}),
           });
           return {

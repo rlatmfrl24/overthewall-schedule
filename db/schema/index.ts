@@ -786,6 +786,8 @@ export const xPosts = sqliteTable(
   (table) => [
     check("x_posts_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
     index("idx_x_posts_handle_created_at").on(table.handle, table.created_at),
+    index("idx_x_posts_first_seen_handle").on(table.first_seen_at, table.handle)
+      .where(sql`content_access = 'normal'`),
     index("idx_x_posts_handle_hidden_created").on(
       table.handle,
       table.hidden_at,

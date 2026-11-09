@@ -7,10 +7,7 @@ import {
   vi,
 } from "vitest";
 import type { Env } from "../../../platform/types";
-import {
-  buildXPostsApplication,
-  createManualXCollectionHandler,
-} from "../index";
+import { createManualXCollectionHandler } from "./manual-collection-handler";
 
 type AdminResult =
   | { ok: true; user: { id: string; displayName: string } }
@@ -22,19 +19,10 @@ const requireAdminUserMock = vi.hoisted(() =>
     user: { id: "admin", displayName: "Admin User" },
   })),
 );
-const getDbMock = vi.hoisted(() => vi.fn(() => ({ id: "db" })));
-const runXCollectionMock = vi.hoisted(() => vi.fn());
-const insertAdminAuditLogMock = vi.hoisted(() => vi.fn());
 const enqueueMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../platform/auth", () => ({
   requireAdminUser: requireAdminUserMock,
-}));
-vi.mock("../../../platform/db", () => ({
-  getDb: getDbMock,
-}));
-vi.mock("../infrastructure/x-collection", () => ({
-  runXCollection: runXCollectionMock,
 }));
 vi.mock("../../../platform/http-helpers", () => ({
   getActorInfo: () => ({
@@ -42,14 +30,10 @@ vi.mock("../../../platform/http-helpers", () => ({
     actorName: "Admin User",
     actorIp: null,
   }),
-  insertAdminAuditLog: insertAdminAuditLogMock,
 }));
 
 const env = { otw_db: {} as D1Database } as Env;
-const handleManualXCollection = createManualXCollectionHandler(
-  buildXPostsApplication,
-  enqueueMock,
-);
+const handleManualXCollection = createManualXCollectionHandler(enqueueMock);
 const makeRequest = () =>
   new Request("https://example.com/api/settings/x-collection/run-now", {
     method: "POST",
@@ -62,8 +46,6 @@ describe("manual X collection handler", () => {
       ok: true,
       user: { id: "admin", displayName: "Admin User" },
     });
-    runXCollectionMock.mockReset();
-    insertAdminAuditLogMock.mockReset();
     enqueueMock.mockReset();
     enqueueMock.mockResolvedValue({
       runId: "run-x",
@@ -93,7 +75,6 @@ describe("manual X collection handler", () => {
       expect.objectContaining({ actorId: "admin" }),
       null,
     );
-    expect(runXCollectionMock).not.toHaveBeenCalled();
   });
 
   it("미완료 페이지 전용 요청을 명시적으로 전달하고 잘못된 범위는 거절한다", async () => {

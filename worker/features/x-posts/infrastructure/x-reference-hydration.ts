@@ -394,11 +394,11 @@ export async function hydrateXReferences(
         continue;
       }
       claimed.set(id, row);
-      if (await isXReferenceHidden(db, id,siteId)) {
+      const stored = await readStoredXPreview(db, id,Date.now(),siteId);
+      if (stored === "hidden") {
         if(await attachPreview(db, id, token, null, "terminal", null, false)) result.terminal++;
         continue;
       }
-      const stored = await readStoredXPreview(db, id,Date.now(),siteId);
       if (stored) {
         const authorPending =
           !stored.local &&

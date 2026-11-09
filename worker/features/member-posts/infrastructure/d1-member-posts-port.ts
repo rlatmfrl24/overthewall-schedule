@@ -1,5 +1,6 @@
 import { publicationHiddenSql } from "../../content-access";
-import { parseSiteId, type SiteId } from "@contracts/site-definition";
+import { parseSiteId } from "@contracts/site-definition";
+import type { XPostFeedService } from "../../x-posts";
 import { asc, sql } from "drizzle-orm";
 import type { MemberPostsPageRequest } from "@contracts/member-posts";
 import { members, naverCafeSources } from "@db/schema";
@@ -11,29 +12,9 @@ import type {
   NaverCafePostsContent,
   NaverCafeSourceRecord,
   Visibility,
-  XPostsContent,
 } from "../application/ports";
 import { GetMemberPosts } from "../application/get-member-posts";
 
-export type XFeedService = {
-  extractHandle(url: string | null | undefined): string | null;
-  fetchPosts(
-    handles: string[],
-    options: {
-      siteId: SiteId;
-      bearerToken?: string;
-      cacheDb: D1Database;
-      maxResults: number;
-      richXLinkPreviewEnabled: boolean;
-      refresh: boolean;
-      forceRefresh: boolean;
-      usageSource: string;
-      forceRefreshPath: string | null;
-      storedPage?: MemberPostsPageRequest;
-    },
-  ): Promise<XPostsContent>;
-  isApiError(error: unknown): boolean;
-};
 
 export type NaverCafeReader = (
   sources: NaverCafeSourceRecord[],
@@ -48,12 +29,12 @@ const normalizeVisibility = (
 export class D1MemberPostsPort implements MemberPostsPort {
   private readonly db: ReturnType<typeof getDb>;
   private readonly env: Env;
-  private readonly xFeed: XFeedService;
+  private readonly xFeed: XPostFeedService;
   private readonly readNaverCafe: NaverCafeReader;
 
   constructor(
     env: Env,
-    xFeed: XFeedService,
+    xFeed: XPostFeedService,
     readNaverCafe: NaverCafeReader,
   ) {
     this.env = env;
@@ -113,20 +94,14 @@ export class D1MemberPostsPort implements MemberPostsPort {
     options: {
       maxResults: number;
       richXLinkPreviewEnabled: boolean;
-      adminView: boolean;
       page?: MemberPostsPageRequest;
     },
   ) {
     return this.xFeed.fetchPosts(handles, {
       siteId: parseSiteId(this.env.SITE_ID),
-      bearerToken: this.env.X_BEARER_TOKEN,
       cacheDb: this.env.otw_db,
       maxResults: options.maxResults,
       richXLinkPreviewEnabled: options.richXLinkPreviewEnabled,
-      refresh: false,
-      forceRefresh: false,
-      usageSource: options.adminView ? "member-posts:admin" : "member-posts",
-      forceRefreshPath: null,
       ...(options.page ? { storedPage: options.page } : {}),
     });
   }
@@ -164,6 +139,6 @@ export class D1MemberPostsPort implements MemberPostsPort {
 
 export const createD1MemberPostsApplication = (
   env: Env,
-  xFeed: XFeedService,
+  xFeed: XPostFeedService,
   readNaverCafe: NaverCafeReader,
 ) => new GetMemberPosts(new D1MemberPostsPort(env, xFeed, readNaverCafe));

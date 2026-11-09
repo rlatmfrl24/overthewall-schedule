@@ -60,7 +60,7 @@ afterEach(() => {
 });
 
 describe("declared Worker command entries", () => {
-  it.each(["schedules", "otw-play", "assets", "x-posts"])("allows only the declared %s pure command entry", (capability) => {
+  it.each(["schedules", "otw-play", "assets"])("allows only the declared %s pure command entry", (capability) => {
     const root = createFilesFixture(new Map([
       [`worker/features/${capability}/commands.ts`, 'export { parse } from "./domain/input";'],
       [`worker/features/${capability}/domain/input.ts`, "export const parse = () => null;"],
@@ -68,7 +68,7 @@ describe("declared Worker command entries", () => {
     ]));
     expect(runArchitectureCheck(root).status).toBe(0);
   });
-  it.each(["other/commands", "assets/domain/input"])("rejects undeclared entry %s", (entry) => {
+  it.each(["other/commands", "assets/domain/input", "x-posts/commands"])("rejects undeclared entry %s", (entry) => {
     const root = createFilesFixture(new Map([
       [`worker/features/${entry}.ts`, "export const parse = () => null;"],
       ["worker/features/content-transition/infrastructure/commands.ts", `import { parse } from "../../${entry}"; void parse;`],

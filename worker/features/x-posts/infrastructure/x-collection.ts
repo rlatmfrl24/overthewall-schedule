@@ -236,17 +236,22 @@ export const getXCollectionScheduleDecision = (
   };
 };
 
-export const readActiveXHandles = async (db: DbInstance, siteId: SiteId = "otw") => {
+export const readXCollectionMembers = async (db: DbInstance, siteId: SiteId) => {
   const activeCondition = sql`(${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0) AND NOT (${sql.raw(publicationHiddenSql("members","members",siteId))})`;
   const rows = await db
-    .select({ urlTwitter: members.url_twitter })
+    .select({ name: members.name, urlTwitter: members.url_twitter, contentAccess: members.content_access })
     .from(members)
-    .where(activeCondition);
+    .where(activeCondition)
+    .orderBy(members.uid);
 
-  return normalizeXCollectionHandles(
-    rows.flatMap((member) => extractXHandleFromUrl(member.urlTwitter) ?? []),
-  );
+  return rows.flatMap(({ name, urlTwitter, contentAccess }) => {
+    const handle = extractXHandleFromUrl(urlTwitter)?.toLowerCase();
+    return handle ? [{ name, handle, contentAccess }] : [];
+  });
 };
+
+export const readActiveXHandles = async (db: DbInstance, siteId: SiteId = "otw") =>
+  normalizeXCollectionHandles((await readXCollectionMembers(db, siteId)).map(member => member.handle));
 
 const normalizeCollectionResult = (
   result: XCollectionServiceResult & Partial<XCollectionObservability> & { pendingSources?: number },
@@ -347,7 +352,6 @@ export const runXCollectionForHandles = async (
       officialSyncLeaseToken: lease.token,
       ...(independent ? { officialSyncOriginScope: scope } : {}),
       effectiveIntervalMinutes: policy.effectiveIntervalMinutes,
-      referencePreviewMode: policy.referencePreviewMode,
       coalescedHandles: lease.coalesced,
       afterTimeline: (tracker) => hydrateXReferences({ db: env.otw_db,siteId:parseSiteId(env.SITE_ID), handles: claimed,
         bearerToken: env.X_BEARER_TOKEN ?? "shared-gateway", mode: policy.referencePreviewMode, tracker }),
@@ -384,30 +388,6 @@ export const runXCollectionForHandles = async (
   } finally {
     await releaseXSourceLeases(env, lease.token);
   }
-};
-
-export const runXCollection = async (
-  env: Env,
-  source: XCollectionSource,
-): Promise<XCollectionRunResult> => {
-  const db = getDb(env);
-  const handles = await readActiveXHandles(db, parseSiteId(env.SITE_ID));
-  const result = await runXCollectionForHandles(env, handles, source);
-  const updatedAtMs = Date.now();
-
-  if (!result.pendingSources && (
-    result.status === "success" ||
-    result.status === "failed" ||
-    ("error" in result && result.error === "all_handles_cooldown")
-  )) {
-    await updateSetting(
-      db,
-      X_COLLECTION_LAST_RUN_SETTING_KEY,
-      String(updatedAtMs),
-    );
-  }
-
-  return { ...result, updatedAt: new Date(updatedAtMs).toISOString() };
 };
 
 export const readXCollectionBudgetAvailable = async (env: Env) => {
