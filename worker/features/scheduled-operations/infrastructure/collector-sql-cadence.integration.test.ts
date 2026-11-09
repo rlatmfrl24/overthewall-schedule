@@ -227,7 +227,7 @@ it.each([1, 3, 6])("does not replay a %sh cafe slot already checked after its sc
 it("keeps cafe cadence out of the serialized source DTO", async () => {
   const id = 901600;
   await seedCafeSource(id, 6).run();
-  const sources = await new D1NaverCafeApplication(runtime()).listSources(true);
+  const sources = await new D1NaverCafeApplication(runtime()).listSources();
   const serialized = await Response.json(sources).json<Array<Record<string, unknown>>>();
   expect(serialized.find(source => source.id === id)).toHaveProperty("last_attempt_at");
   expect(serialized.some(source => "cadence_anchor_at" in source)).toBe(false);

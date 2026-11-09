@@ -14,3 +14,4 @@ export {
 } from "./infrastructure/d1-naver-cafe-application";
 export { NAVER_CAFE_COLLECTION_SIZE, collectNaverCafePostsForSources, readEnabledNaverCafeSources, readStoredNaverCafePostsForSources } from "./infrastructure/naver-cafe-collector";
 export type { NaverCafeSourceInput } from "./infrastructure/naver-cafe-collector";
+export { naverCafeSourceMemberSql } from "./infrastructure/naver-cafe-source-scope";

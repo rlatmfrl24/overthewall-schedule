@@ -130,6 +130,7 @@ const makeD1Store = (
       }),
       first: vi.fn(async () => {
         if (sql.includes("FROM settings")) return null;
+        if (sql.includes("FROM naver_cafe_sources s")) return { error: null };
         if (sql.includes("UPDATE naver_cafe_usage_daily")) {
           return { requests_used: 1 };
         }

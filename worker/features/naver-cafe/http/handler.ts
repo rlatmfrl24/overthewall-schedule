@@ -217,7 +217,7 @@ export const createNaverCafeHandler =
     if (!admin.ok) return admin.response;
 
     if (request.method === "GET") {
-      const sources = await application.listSources(true);
+      const sources = await application.listSources();
       return Response.json(sources);
     }
 
@@ -307,7 +307,7 @@ export const createNaverCafeHandler =
       return badRequest("size must be an integer between 5 and 20");
     }
 
-    const sources = await application.listSources(adminView);
+    const sources = await application.listSources();
     const accessRevision = await application.readAccessRevision();
 
     if (sources.length === 0) {

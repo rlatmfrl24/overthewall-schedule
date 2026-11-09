@@ -3,9 +3,7 @@ import type { SiteId } from "@contracts/site-definition";
 import { FX_COLLECTION_INTERVAL_MS } from "@contracts/x-collection";
 import { parseSiteId } from "@contracts/site-definition";
 import { readAdminReviewSummary } from "../../otw-play";
-import { asc, eq, and, sql } from "drizzle-orm";
-import { publicationHiddenSql } from "../../content-access";
-import { naverCafeSources } from "@db/schema";
+import { readEnabledNaverCafeSources } from "../../naver-cafe";
 import {
   normalizeAutoUpdateIntervalHours,
   normalizeXCollectionIntervalHours,
@@ -687,7 +685,7 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
     xUsageEvents: xUsageRows,
     naverSources,
     naverChecks,
-  } = await readOperationsStatusRows(env.otw_db, since);
+  } = await readOperationsStatusRows(env.otw_db, since, parseSiteId(env.SITE_ID));
 
   const settings = getSettingMap(settingRows);
   const xInterval = parseXCollectionIntervalHours(
@@ -1114,12 +1112,7 @@ const runNaverCafeCheck = async (
   env: Env,
   collectNaverCafePostsForSources: CollectNaverCafePosts,
 ) => {
-  const db = getDb(env);
-  const sources = await db
-    .select()
-    .from(naverCafeSources)
-    .where(and(eq(naverCafeSources.enabled, true), sql.raw(`NOT (${publicationHiddenSql("naver_cafe_sources", "naver_cafe_sources", parseSiteId(env.SITE_ID))})`)))
-    .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));
+  const sources = await readEnabledNaverCafeSources(env);
 
   if (sources.length === 0) {
     return {

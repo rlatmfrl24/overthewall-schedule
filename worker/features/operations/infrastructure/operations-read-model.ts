@@ -1,3 +1,6 @@
+import type { SiteId } from "@contracts/site-definition";
+import { naverCafeSourceMemberSql } from "../../naver-cafe";
+
 export type SettingRow = {
   key: string;
   value: string | null;
@@ -116,6 +119,7 @@ export const readScheduleOperationsStatusRows = async (db: D1Database) => {
 export const readOperationsStatusRows = async (
   db: D1Database,
   since: number,
+  site: SiteId,
 ) => {
   const [
     settingsResult,
@@ -182,7 +186,7 @@ export const readOperationsStatusRows = async (
       .prepare(
         `SELECT id, name, cafe_id, menu_id, cafe_url, member_uid, enabled, sort_order
          FROM naver_cafe_sources
-         WHERE archived_at IS NULL
+         WHERE archived_at IS NULL AND ${naverCafeSourceMemberSql("naver_cafe_sources", site)}
          ORDER BY sort_order, name`,
       )
       .all<NaverCafeSourceRow>(),
@@ -191,6 +195,8 @@ export const readOperationsStatusRows = async (
         `SELECT id, source_id, source_name, cafe_id, menu_id, trigger, status,
                 checked_at, duration_ms, post_count, error
          FROM naver_cafe_source_checks
+         WHERE source_id IN (SELECT s.id FROM naver_cafe_sources s
+           WHERE s.archived_at IS NULL AND ${naverCafeSourceMemberSql("s", site)})
          ORDER BY checked_at DESC
          LIMIT 200`,
       )

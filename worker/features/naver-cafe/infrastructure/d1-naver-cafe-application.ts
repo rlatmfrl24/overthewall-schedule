@@ -1,4 +1,3 @@
-import { publicationHiddenSql } from "../../content-access";
 import { parseSiteId } from "@contracts/site-definition";
 import { and, asc, eq, getTableColumns, isNull, sql } from "drizzle-orm";
 import { naverCafePosts, naverCafeSources } from "@db/schema";
@@ -14,6 +13,7 @@ import type {
 } from "../application/naver-cafe-application";
 import { readContentAccessRevision } from "../../content-access";
 import { readStoredNaverCafePostsForSources } from "./naver-cafe-collector";
+import { naverCafeSourceMemberSql } from "./naver-cafe-source-scope";
 
 const ENABLED_SETTING_KEY = "naver_cafe_posts_enabled";
 const VISIBILITY_SETTING_KEY = "naver_cafe_posts_visibility";
@@ -48,13 +48,13 @@ export class D1NaverCafeApplication implements NaverCafeApplication {
 
   readAccessRevision() { return readContentAccessRevision(this.env.otw_db, parseSiteId(this.env.SITE_ID)); }
 
-  async listSources(includeArchived = false): Promise<NaverCafeSourceRecord[]> {
+  async listSources(): Promise<NaverCafeSourceRecord[]> {
     const columns = { ...getTableColumns(naverCafeSources) };
     delete (columns as Partial<typeof columns>).cadence_anchor_at;
     return this.db
       .select(columns)
       .from(naverCafeSources)
-      .where(and(isNull(naverCafeSources.archived_at), includeArchived ? undefined : sql`NOT EXISTS (SELECT 1 FROM members archive_member WHERE archive_member.uid = ${naverCafeSources.member_uid} AND (archive_member.content_access = 'admin_archive' OR ${sql.raw(publicationHiddenSql("members","archive_member",parseSiteId(this.env.SITE_ID)))}))`))
+      .where(and(isNull(naverCafeSources.archived_at), sql.raw(naverCafeSourceMemberSql("naver_cafe_sources", parseSiteId(this.env.SITE_ID)))))
       .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));
   }
 

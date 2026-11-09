@@ -24,6 +24,7 @@ beforeEach(async () => {
   await applyD1Migrations(db, testEnv.X_REFERENCE_MIGRATIONS);
   await applyD1Migrations(db, testEnv.MEMBER_POSTS_CAFE_MIGRATIONS);
   await db.batch([db.prepare("DELETE FROM x_posts"), db.prepare("DELETE FROM naver_cafe_posts"), db.prepare("DELETE FROM naver_cafe_sources")]);
+  await db.prepare("INSERT INTO members(uid,code,name,content_access,is_deprecated) VALUES(2,'cafe-member','Cafe Member','normal',0) ON CONFLICT(uid) DO UPDATE SET content_access='normal',is_deprecated=0").run();
   await db.prepare("INSERT INTO naver_cafe_sources(id,name,cafe_id,menu_id,cafe_url,member_uid,enabled,sort_order) VALUES(1,'member','1','1','https://cafe.naver.com',2,1,0)").run();
   vi.spyOn(port, "listActiveMembers").mockResolvedValue([{
     content_access: "normal",

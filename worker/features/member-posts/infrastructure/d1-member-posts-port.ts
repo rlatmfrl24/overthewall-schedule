@@ -1,4 +1,5 @@
 import { publicationHiddenSql } from "../../content-access";
+import { naverCafeSourceMemberSql } from "../../naver-cafe";
 import { parseSiteId } from "@contracts/site-definition";
 import type { XPostFeedService } from "../../x-posts";
 import { asc, sql } from "drizzle-orm";
@@ -81,7 +82,7 @@ export class D1MemberPostsPort implements MemberPostsPort {
     return this.db
       .select()
       .from(naverCafeSources)
-      .where(sql`NOT EXISTS (SELECT 1 FROM members archive_member WHERE archive_member.uid = ${naverCafeSources.member_uid} AND (archive_member.content_access = 'admin_archive' OR ${sql.raw(publicationHiddenSql("members","archive_member",parseSiteId(this.env.SITE_ID)))}))`)
+      .where(sql`${naverCafeSources.archived_at} IS NULL AND ${sql.raw(naverCafeSourceMemberSql("naver_cafe_sources", parseSiteId(this.env.SITE_ID)))}`)
       .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));
   }
 
