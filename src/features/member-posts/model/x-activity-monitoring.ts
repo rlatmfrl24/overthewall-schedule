@@ -1,5 +1,4 @@
 import type { XActivityStatusDto } from "@contracts/x-activity";
-import type { OperationsIssueDto } from "@contracts/operations";
 import { ApiError } from "@/shared/api/client";
 
 const modes: Record<NonNullable<XActivityStatusDto["mode"]>, string> = {
@@ -17,7 +16,7 @@ export function xActivityErrorMessage(value: unknown) {
     x_activity_subscription_owned_elsewhere:"같은 계정에 다른 소유자의 구독이 있습니다. 해당 구독은 변경하지 않았습니다.",
     x_activity_user_unavailable:"X 계정을 확인하거나 현재 멤버와 연결할 수 없습니다.",
     x_activity_inventory_incomplete:"X의 전체 구독 목록을 확인하지 못해 등록·해지를 보류했습니다. 잠시 후 상태를 확인해주세요.",
-    x_activity_hybrid_disabled:"수집원 전환이 완료된 뒤 상태를 새로고침하고 웹훅을 직접 활성화하세요.",
+    x_activity_hybrid_disabled:"수집원 전환이 끝난 뒤 상태를 새로고침하고 구독을 재개하세요.",
     x_collection_policy_readback_failed:"사이트의 혼합 정책 적용을 확인하지 못했습니다. 일부 설정이 변경됐을 수 있으니 상태를 새로고침해 주세요.",
     x_activity_control_busy:"다른 구독 제어가 진행 중입니다. 완료 후 상태를 새로고침해 주세요.",
     webhook_hybrid_disabled:"웹훅 Disabled로 처리에서 제외했습니다. 새 유료 보강을 실행하지 않았습니다.",
@@ -29,14 +28,9 @@ export function xActivityErrorMessage(value: unknown) {
   return messages[code]??"요청을 완료하지 못했습니다. 상태를 새로고침해 실패한 대상을 확인해주세요.";
 }
 export function xActivityStateLabel(data: XActivityStatusDto) {
-  if (data.primarySource === "fxembed" && data.sites?.find(site => site.site === data.site)?.enabled === false && !data.coordinatorError && !data.sites.some(site => site.site === data.site && (site.lastError || site.failedCount))) return "웹훅 Disabled";
+  const current = data.sites?.find(site => site.site === data.site);
+  if (current && !current.enabled && current.activeCount > 0) return "웹훅 구독 중지 확인 필요";
   if (!data.configured) return "웹훅 연결·인증 확인 필요";
   const mode = data.mode ?? "unavailable";
   return mode === "normal" && data.events.length === 0 ? "구독 정상 · 신규 수신 대기" : modes[mode];
-}
-export function xWebhookIssue(data: XActivityStatusDto | undefined, readFailed: boolean): OperationsIssueDto | null {
-  if (readFailed || !data) return { code: "x_webhook_status_unavailable", severity: "warning", message: readFailed ? "현재 웹훅 상태를 조회하지 못했습니다. 이전 정보를 현재 정상으로 판단하지 마세요." : "현재 웹훅 상태를 확인하는 중입니다." };
-  if (!data.configured || data.mode === "unavailable" || !data.mode) return { code: "x_webhook_unavailable", severity: "critical", message: xActivityStateLabel(data) };
-  if (data.mode === "partial" || data.mode === "registering" || data.mode === "budget_paused") return { code: "x_webhook_attention", severity: "warning", message: xActivityStateLabel(data) };
-  return null;
 }

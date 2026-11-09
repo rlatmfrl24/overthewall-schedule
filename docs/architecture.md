@@ -520,7 +520,7 @@ flowchart TB
   gate["MemberPostsPage<br/>접근 가능 여부 판단"]
   query["useMemberPosts<br/>aggregate TanStack Query"]
   route["GET /api/member-posts"]
-  xMonitorQuery["useXPosts"]
+  xMonitorQuery["X collection status · budget · execution history"]
   cafeMonitorQuery["useNaverCafePosts"]
   xRoute["GET /api/x/posts"]
   cafeRoute["GET /api/naver-cafe/posts"]
@@ -542,7 +542,7 @@ flowchart TB
   monitor --> xMonitorQuery
   monitor --> cafeMonitorQuery
   query --> route
-  xMonitorQuery --> xRoute
+  xMonitorQuery --> settings
   cafeMonitorQuery --> cafeRoute
   route --> policy
   xRoute -->|"source read"| xReader
@@ -558,7 +558,6 @@ flowchart TB
   cafeSite --> store
   xReader -->|"aggregate result"| merge
   cafeReader -->|"aggregate result"| merge
-  xReader -->|"source result"| xMonitorQuery
   cafeReader -->|"source result"| cafeMonitorQuery
   merge --> query
 ```

@@ -39,9 +39,7 @@ export function xCollectionItemLabel(result: NonNullable<XCollectionOperationIte
   return progressed ? "일부 저장 후 실패" : "실패";
 }
 
-export function xCollectionStatusText(run: OperationRunDto | null | undefined) {
-  const items = run?.xCollection?.items ?? [];
-  const results = items.flatMap((item) => item.collection ? [item.collection] : []);
+function xCollectionStatusText(run: OperationRunDto | null | undefined, items: XCollectionOperationItemDto[], results: NonNullable<XCollectionOperationItemDto["collection"]>[]) {
   if (!results.length) return run?.status === "queued" ? "수집 대기" : run?.status === "running" ? "수집 실행 중" : "수집 결과 기록 없음";
   const incomplete = items.some((item) => item.status === "queued" || item.status === "running") || results.length !== items.length;
   if (incomplete) return "진행 중 또는 일부 결과 미확인";
@@ -54,8 +52,9 @@ export function xCollectionStatusText(run: OperationRunDto | null | undefined) {
 }
 
 export function xCollectionResultText(run: OperationRunDto | null | undefined) {
-  const results = run?.xCollection?.items.flatMap((item) => item.collection ? [item.collection] : []) ?? [];
-  const label = xCollectionStatusText(run);
+  const items = run?.xCollection?.items ?? [];
+  const results = items.flatMap((item) => item.collection ? [item.collection] : []);
+  const label = xCollectionStatusText(run, items, results);
   return results.length ? `${label} · 저장 ${results.reduce((sum, result) => sum + result.postsStored, 0)}건` : label;
 }
 

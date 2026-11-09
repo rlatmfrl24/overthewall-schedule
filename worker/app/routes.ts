@@ -298,7 +298,6 @@ const handleXPosts = createXPostsHandler(buildXPostsApplication);
 const handleXActivity = createXActivityHandler(buildXActivityService);
 const handleXCollection = createXCollectionHandler(buildXCollectionApplication);
 const handleManualXCollection = createManualXCollectionHandler(
-  buildXPostsApplication,
   (env, actor, idempotencyKey, scope, provider) =>
     new ScheduledRunClient(env).createManualRun(
       "x_collection",

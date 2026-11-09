@@ -1,26 +1,9 @@
-export {
-  XAllowlistUnavailableError,
-  XPostFeedError,
-  XReplyContextNotFoundError,
-  XTargetsNotAllowedError, createXPostsApplication, type XPostsApplication,
-  type XPostsApplicationPorts
-} from "./application/x-posts-service";
-export {
-  createManualXCollectionHandler,
-  type BuildManualXCollectionApplication
-} from "./http/manual-collection-handler";
-export {
-  createXPostsHandler,
-  type BuildXPostsApplication
-} from "./http/x-posts";
+export { createManualXCollectionHandler } from "./http/manual-collection-handler";
+export { createXPostsHandler } from "./http/x-posts";
 export {
   redactStoredXPosts
 } from "./infrastructure/x-api";
-export { getScheduledXCollectionDecision, readActiveXHandles, readDueXRecoveryHandles, runXCollection, runXCollectionForHandles, recordXCollectionCompletion } from "./infrastructure/x-collection";
-export {
-  readXHistoryHealth,
-  readXHistoryPosts
-} from "./infrastructure/x-history";
+export { getScheduledXCollectionDecision, readActiveXHandles, readDueXRecoveryHandles, runXCollectionForHandles, recordXCollectionCompletion } from "./infrastructure/x-collection";
 export { D1XActivityCoordinator } from "./infrastructure/x-activity-coordinator";
 export { D1XActivitySite } from "./infrastructure/x-activity-site";
 export { runFxCollectionForHandles } from "./infrastructure/fx-collection";
@@ -37,6 +20,5 @@ export { D1SharedXApiGateway, D1SharedXBudget, readSiteXBudget } from "./infrast
 export {
   buildXPostsApplication,
   xPostFeedService,
-  type XPostFeedService,
-  type XPostFeedServiceOptions
+  type XPostFeedService
 } from "./infrastructure/x-posts-adapters";

@@ -16,7 +16,7 @@ import type {
 } from "../api/member-posts-api";
 import type { MemberDto } from "@contracts/members";
 import type { NaverCafePostDto } from "@contracts/naver-cafe";
-import type { XPostViewModel } from "@/features/x-posts";
+import type { XPostDto } from "@contracts/x-posts";
 import { MemberPostsOverview } from "./member-posts-overview";
 
 const useMemberPostsMock = vi.hoisted(() => vi.fn());
@@ -62,7 +62,9 @@ vi.mock("../queries/use-member-posts", () => ({
   useMemberPosts: useMemberPostsMock,
 }));
 
-const xPost: XPostViewModel = {
+type FeedXPostFixture = XPostDto & { memberUid?: number };
+
+const xPost: FeedXPostFixture = {
   id: "x1",
   text: "X 최신 게시글입니다.",
   createdAt: "2026-05-27T12:00:00Z",
@@ -99,7 +101,7 @@ const cafePost: NaverCafePostDto = {
 };
 
 const makeUnifiedPosts = (
-  xPosts: XPostViewModel[] = [xPost],
+  xPosts: FeedXPostFixture[] = [xPost],
   cafePosts: NaverCafePostDto[] = [cafePost],
 ): UnifiedMemberPost[] =>
   [
@@ -141,7 +143,7 @@ const makePolicy = (
 });
 
 const makeXState = (
-  posts: XPostViewModel[] = [xPost],
+  posts: FeedXPostFixture[] = [xPost],
   reload = vi.fn(),
   policy = makePolicy("x"),
 ) => ({
@@ -193,7 +195,7 @@ const makeMemberPostsState = ({
   xPolicy = makePolicy("x"),
   cafePolicy = makePolicy("naver-cafe"),
 }: {
-  xPosts?: XPostViewModel[];
+  xPosts?: FeedXPostFixture[];
   cafePosts?: NaverCafePostDto[];
   xPolicy?: MemberPostSourcePolicy;
   cafePolicy?: MemberPostSourcePolicy;
@@ -216,7 +218,7 @@ const makeMemberPostsState = ({
   };
 };
 
-const replyPost: XPostViewModel = { ...xPost, reply: { postId: "10", conversationId: "9", targetUsername: "OTW_MEMBER", post: null } };
+const replyPost: FeedXPostFixture = { ...xPost, reply: { postId: "10", conversationId: "9", targetUsername: "OTW_MEMBER", post: null } };
 const mount = (props = { loadX: true, loadCafe: true }) => renderWithQueryClient(createElement(MemberPostsOverview, { ...props, footer: createElement("footer", null, "팬 운영 안내") }));
 
 describe("MemberPostsOverview", () => {

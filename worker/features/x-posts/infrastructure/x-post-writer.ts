@@ -59,7 +59,9 @@ const prepareXPostReferences = (
               ELSE excluded.resolution_state
             END,
             next_attempt_at = CASE
-              WHEN excluded.relation_type = 'reply' THEN NULL
+              WHEN excluded.relation_type = 'reply' THEN
+                CASE WHEN x_post_references.referenced_post_id = excluded.referenced_post_id AND excluded.hydrated_at IS NULL
+                  THEN x_post_references.next_attempt_at ELSE NULL END
               WHEN x_post_references.referenced_post_id = excluded.referenced_post_id
                 AND (x_post_references.hydrated_at IS NOT NULL OR x_post_references.resolution_state = 'terminal')
               THEN x_post_references.next_attempt_at ELSE excluded.next_attempt_at END,
@@ -166,8 +168,11 @@ export async function commitStoredPosts(
         if (row && (row.handle !== handle || (row.user_id && row.user_id !== user.id))) throw new Error("post_author_mismatch");
         const previous = byId.get(incoming.id);
         const existing = previous?.merged ?? (row ? { post: JSON.parse(row.value) as XPostItem, authority: row.source_authority ? JSON.parse(row.source_authority) as XPostAuthority : null } : null);
-        const merged = mergeStoredXPost(existing, incoming, typeof context === "function" ? context(incoming) : context);
+        const writeContext = typeof context === "function" ? context(incoming) : context;
+        if (writeContext.replyPreviewOnly && (!existing?.post.reply || existing.post.reply.postId !== incoming.reply?.postId || existing.post.reply.post)) continue;
+        const merged = mergeStoredXPost(existing, incoming, writeContext);
         const sanitized = sanitizeXReferences(merged.post, archived, hiddenHandles, hidden);
+        if (writeContext.replyPreviewOnly && sanitized.reply?.post?.id !== incoming.reply?.post?.id) continue;
         merged.changed = hasStoredXPostChanged(existing, sanitized, merged.authority);
         merged.post = sanitized;
         const repair = Boolean(previous || (row?.source_authority && row.content_hash === null));

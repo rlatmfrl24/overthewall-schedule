@@ -262,7 +262,7 @@ it("blocks timed X reply context including cached author content while keeping o
   expect((await request(`/api/x/posts/${reply.id}/context`)).status).toBe(200);
   await clock.mockReturnValue(Date.parse(SITE_OPENS_AT));
   expect((await request(`/api/x/posts/${reply.id}/context`)).status).toBe(404);
-  expect(await readStoredXPreview(db,parent.id,Date.now(),"otw")).toBeNull();
+  expect(await readStoredXPreview(db,parent.id,Date.now(),"otw")).toBe("hidden");
 });
 
 it("rejects a late X post instead of recording facts or acknowledging its watermark", async () => {

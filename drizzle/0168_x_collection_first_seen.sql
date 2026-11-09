@@ -1,0 +1,1 @@
+CREATE INDEX `idx_x_posts_first_seen_handle` ON `x_posts` (`first_seen_at`,`handle`) WHERE content_access = 'normal';

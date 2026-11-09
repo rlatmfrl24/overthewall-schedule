@@ -1,21 +1,12 @@
 import { useState } from "react";
-import { PiCaretDownBold as ChevronDown, PiFileTextBold as FileText, PiWalletBold as Wallet } from "react-icons/pi";
+import { PiCaretDownBold as ChevronDown, PiWalletBold as Wallet } from "react-icons/pi";
 import type { OperationRunDto, XCollectionOperationItemDto } from "@contracts/scheduled-operations";
-import type { XReferenceHydrationHealthDto } from "@contracts/x-posts";
 import { Badge } from "@/shared/ui/badge";
-import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader } from "@/shared/ui/card";
 import { Progress } from "@/shared/ui/progress";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/shared/ui/chart";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
-import { Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from "recharts";
-import type { OperationsStatusResponse } from "@/features/operations";
-import { useXReferenceHealth } from "../../queries/use-x-reference-health";
-import { useXActivityStatus } from "../../queries/use-x-activity-status";
 import { useXCollectionStatus } from "../../queries/use-x-collection-status";
-import { formatXEligibility, formatXTime, xCollectionItemLabel, xCollectionStatusText, xCollectionResultText, xHydrationResultText, xPaidLookupText, xReasonLabel } from "../../model/x-collection-monitoring";
-import { openXSettings } from "./x-settings-navigation";
-import { XReferenceHealth } from "./x-reference-health";
+import { useXReferenceHealth } from "../../queries/use-x-reference-health";
+import { formatXEligibility, formatXTime, xCollectionItemLabel, xCollectionResultText, xHydrationResultText, xPaidLookupText, xReasonLabel } from "../../model/x-collection-monitoring";
 
 const money = (micros: number) => "$" + (micros / 1_000_000).toFixed(3);
 const statusLabel = (status: string) => ({
@@ -24,6 +15,56 @@ const statusLabel = (status: string) => ({
 }[status] ?? status);
 const failed = (status: string) => ["failed", "partial", "throttled"].includes(status);
 const runType = (run: OperationRunDto) => run.summary?.xCollectionScope === "pending" ? "이월 복구" : run.source === "manual" ? "수동" : "정기";
+
+export function XCollectionMemberCounts() {
+  const { data, isPending, isError } = useXCollectionStatus();
+  const members = data?.collectedByMember24h?.slice().sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "ko"));
+  const total = members?.reduce((sum, { count }) => sum + count, 0) ?? 0;
+  let counted = 0;
+  const slices = members?.map((member, index) => {
+    const color = index < 5 ? `var(--chart-${index + 1})` : `oklch(0.65 0.15 ${(index * 137.5) % 360})`;
+    const start = counted;
+    counted += member.count;
+    const sector = member.count > 0 ? `${color} ${start / total * 100}% ${counted / total * 100}%` : null;
+    return { ...member, color, sector };
+  });
+  const sectors = slices?.filter(({ sector }) => sector !== null) ?? [];
+  const pieStyle = sectors.length > 1
+    ? { backgroundImage: `conic-gradient(${sectors.map(({ sector }) => sector).join(", ")})` }
+    : { backgroundColor: sectors[0]?.color };
+
+  return <Card role="region" aria-labelledby="x-member-counts-title" className="gap-0 py-0 shadow-none">
+    <CardHeader className="px-3 py-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id="x-member-counts-title" className="text-sm font-semibold">멤버별 X 수집</h2>
+        <span className="text-xs text-muted-foreground">최근 24시간{slices && <> · 합계 <strong className="tabular-nums text-foreground">{total.toLocaleString("ko-KR")}건</strong></>}</span>
+      </div>
+    </CardHeader>
+    <CardContent className="space-y-2 px-3 pb-3">
+      {isError && slices && <p role="status" className="text-xs text-muted-foreground">새로고침 실패 · 이전 집계 표시 중</p>}
+      {slices?.length ? <div className="flex items-center gap-4 sm:gap-6">
+        <div aria-hidden="true" className="grid size-24 shrink-0 place-items-center rounded-full bg-muted sm:size-32"
+          style={pieStyle}>
+          {total === 0 && <span className="text-lg font-semibold tabular-nums text-muted-foreground">0</span>}
+        </div>
+        <ul aria-label="멤버별 수집 건수" className="min-w-0 flex-1 divide-y">
+          {slices.map(({ handle, name, count, color, quoteCount, replyCount }) => <li key={handle} className="flex items-center gap-2 py-1.5 text-sm">
+            <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: count ? color : "var(--muted-foreground)" }} />
+            <div className="min-w-0 flex-1 break-words">
+              <span>{name}</span>
+              {quoteCount !== undefined && replyCount !== undefined && <p className="text-xs tabular-nums text-muted-foreground">
+                인용 {quoteCount.toLocaleString("ko-KR")}건 · 답글 {replyCount.toLocaleString("ko-KR")}건
+              </p>}
+            </div>
+            <strong className="shrink-0 tabular-nums">{count.toLocaleString("ko-KR")}건</strong>
+          </li>)}
+        </ul>
+      </div> : <p role="status" className="text-sm text-muted-foreground">
+        {isPending ? "수집 건수를 불러오는 중" : slices ? "수집 대상 멤버가 없습니다." : "수집 건수를 확인할 수 없습니다."}
+      </p>}
+    </CardContent>
+  </Card>;
+}
 
 function BudgetRow({ title, used, reserved, limit }: { title: string; used: number; reserved: number; limit: number }) {
   const percent = limit > 0 ? Math.min(100, Math.round((used + reserved) / limit * 100)) : 0;
@@ -38,7 +79,9 @@ function BudgetRow({ title, used, reserved, limit }: { title: string; used: numb
   </div>;
 }
 
-export function XCollectionBudget({ health }: { health: XReferenceHydrationHealthDto | undefined }) {
+export function XCollectionBudget() {
+  const query = useXReferenceHealth();
+  const health = query.data?.referenceHydration;
   const global = health?.globalBudget;
   return <Card aria-label="X 예산" className="gap-0 py-0 shadow-none">
     <CardHeader className="px-3 py-2"><h2 className="flex flex-wrap items-center gap-2 text-sm font-semibold"><Wallet className="size-4" />X API 예산 <span className="text-xs font-normal text-muted-foreground">{health ? health.budgetDay + " UTC" : "확인 중"}</span></h2></CardHeader>
@@ -51,102 +94,7 @@ export function XCollectionBudget({ health }: { health: XReferenceHydrationHealt
       <p className="text-xs text-muted-foreground">보강 예산은 전체에 포함 · UTC 자정 초기화</p>
       {global && health && <p className="text-[13px]">보강 가능 <strong className="tabular-nums">{money(Math.max(0, Math.min(global.limitMicros - global.usedMicros - global.reservedMicros, health.budgetLimitMicros - health.budgetUsedMicros - health.budgetReservedMicros)))}</strong></p>}
     </div>
-    </CardContent>
-  </Card>;
-}
-
-export function XCollectionOverview({ latestRun, runsLoading, runsError, runsUpdatedAt, enabled, onRunPending, isRunning }: {
-  operations: OperationsStatusResponse | null; loading: boolean; error: boolean;
-  latestRun: OperationRunDto | undefined; runsLoading: boolean; runsError: boolean; runsUpdatedAt: number; enabled: boolean;
-  onRunPending?: () => void; isRunning?: boolean;
-}) {
-  const query = useXReferenceHealth();
-  const activity=useXActivityStatus();
-  const collection=useXCollectionStatus();
-  const recoveryBudget=activity.data?.recovery?.budget;
-  const policyCurrent=!!collection.data&&!collection.isError&&!collection.isFetching;
-  const items = latestRun?.xCollection?.items ?? [];
-  const known = items.filter((item) => item.collection !== null);
-  const stale = Boolean(latestRun && (runsError || Date.now() - runsUpdatedAt > 120_000));
-  const state = runsLoading ? "확인 중" : runsError || stale ? "최신 결과 확인 불가"
-    : !latestRun ? "실행 이력 없음"
-      : latestRun.status === "queued" || latestRun.status === "running" ? statusLabel(latestRun.status)
-        : xCollectionStatusText(latestRun);
-  return <div className="space-y-3">
-    <div className="grid items-stretch gap-3 md:grid-cols-2">
-      <Card aria-label="X 게시물 수집 실행 상태" className="min-w-0 gap-0 py-0 shadow-none">
-        <CardHeader className="px-3 py-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="flex items-center gap-2 text-sm font-semibold"><FileText className="size-4" />게시물 수집 실행</h2>
-          <Button variant="ghost" size="sm" onClick={() => openXSettings("x-collection-settings")} aria-label="게시물 수집 설정 열기">설정</Button>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <Badge variant={!stale && known.some((item) => item.collection?.status === "failed") ? "destructive" : "secondary"}>{state}</Badge>
-        </div>
-        </CardHeader>
-        <CardContent className="flex flex-1 flex-col gap-3 px-3 pb-3">
-        {stale && <p role="alert" className="text-xs text-amber-700 dark:text-amber-300">이전 조회 결과입니다. 마지막 조회 {formatXTime(runsUpdatedAt)}</p>}
-        <dl className="grid grid-cols-2 items-baseline gap-x-4 gap-y-3 text-[13px] tabular-nums">
-          <div><dt className="text-xs text-muted-foreground">최근 실행 저장</dt><dd className="mt-1 text-xl font-semibold">{known.length ? known.reduce((sum, item) => sum + item.collection!.postsStored, 0) : "—"}<span className="ml-1 text-xs font-normal">건</span></dd></div>
-          <div><dt className="text-xs text-muted-foreground">실행 유형</dt><dd className="mt-1 font-medium">{latestRun ? runType(latestRun) : "기록 없음"}</dd></div>
-          <div><dt className="text-xs text-muted-foreground">최근 실행</dt><dd className="mt-1 font-medium">{formatXTime(latestRun?.startedAt ?? latestRun?.acceptedAt)}</dd></div>
-          <div><dt className="text-xs text-muted-foreground">다음 공식 점검 자격</dt><dd className="mt-1 break-keep font-medium">{!enabled ? "자동 수집 중지" : !policyCurrent ? "확인 불가" : formatXEligibility(collection.data!.xApi.nextRegularEligibleAt)}</dd></div>
-        </dl>
-        {collection.isError && <p role="alert">공식 점검 자격 최신 조회 실패 · 수집원 상태를 새로고침해 주세요.</p>}
-        {policyCurrent && collection.data!.accounts.filter(account => account.officialBlockedReason).map(account => <p key={account.handle} className="text-[13px]">@{account.handle} · {xReasonLabel(account.officialBlockedReason)}</p>)}
-        {Array.from(new Set(known.flatMap((item) => item.collection?.error ? [item.collection.error] : []))).map((reason) => <p key={reason} className="text-[13px]">{xReasonLabel(reason)}</p>)}
-        <section aria-label="REST 실행 전 예산" className="space-y-2 border-t pt-2 text-[13px]">
-          <h3 className="font-medium">REST 실행 전 예산{recoveryBudget?` · ${recoveryBudget.day} UTC`:""}</h3>
-          {activity.isError&&<p role="alert">REST 예산 산정 최신 조회 실패{recoveryBudget?" · 아래는 이전 조회값입니다.":""}</p>}
-          {!activity.isError&&activity.isFetching&&recoveryBudget&&<p className="text-muted-foreground">REST 예산 갱신 중 · 아래는 이전 조회값입니다.</p>}
-          {recoveryBudget?<>
-            <div className="grid gap-1 sm:grid-cols-2"><p>공통 첫 페이지 예상 예약 <strong>{money(recoveryBudget.firstPagesMicros)}</strong></p><p>사용 가능 <strong>{money(recoveryBudget.availableMicros)}</strong></p></div>
-            <p>사이트 보호 예약 {money(recoveryBudget.siteFirstPagesMicros)}</p>
-            <p>대상 {recoveryBudget.targetCount}개 · 신규 스캔 계정당 {recoveryBudget.pageSize}개 · 기본 페이지 예약 {money(recoveryBudget.perPageMicros)}</p>
-            {!!activity.data?.recovery?.pendingSources&&<div className="space-y-1"><p>이월 커서 {activity.data.recovery.pendingSources}개는 계정당 {recoveryBudget.continuationPageSize}개 요청으로 포함했습니다.</p><p>다음 페이지당 공통 예약 {money(recoveryBudget.perPageMicros * recoveryBudget.continuationPageSize / recoveryBudget.pageSize)} (계정 갱신·보강 별도)</p><Button variant="outline" size="sm" onClick={onRunPending} disabled={!onRunPending || !enabled || isRunning || activity.isError || activity.isFetching || recoveryBudget.sharedRemainingMicros < recoveryBudget.perPageMicros * recoveryBudget.continuationPageSize / recoveryBudget.pageSize}>미완료 페이지만 복구</Button></div>}
-            <p className="text-muted-foreground">공통 잔여 {money(recoveryBudget.sharedRemainingMicros)} · 사이트 보호 잔여 {money(recoveryBudget.siteRemainingMicros)} · 계정 캐시 갱신 상한 {money(recoveryBudget.identityMicros)} 포함</p>
-            {!activity.isError&&!activity.isFetching&&(recoveryBudget.firstPagesMicros>recoveryBudget.sharedRemainingMicros||recoveryBudget.siteFirstPagesMicros>recoveryBudget.siteRemainingMicros)&&<p role="alert">공통 또는 사이트 예상 예약액이 해당 잔여액보다 큽니다. 실제 요청별 잔여 예산을 확인하며 진행합니다.</p>}
-          </>:<p>{activity.isPending?"REST 예산 산정 중":"REST 필요액·잔여액 확인 불가 · 웹훅 상태와 공통 장부를 새로고침해주세요."}</p>}
-          <p className="text-xs text-muted-foreground">조회 시점의 첫 요청 예약 합계이며 한 번에 차감하는 금액이 아닙니다. 공통·사이트 기준을 각각 비교하고 별도 배정 없이 요청별 예약·정산합니다. 유효한 계정 캐시는 재조회하지 않으며 실제 비용은 응답량에 따라 다릅니다. 추가 페이지·인용 원문 보강 비용은 별도입니다.</p>
-        </section>
-        <p className="mt-auto border-t pt-2 text-[13px]"><span className="mr-2 text-xs text-muted-foreground">REST 누락 복구</span>{!policyCurrent ? "설정 확인 불가" : (enabled ? "활성" : "중지") + (collection.data!.rss?.enabled ? " · 계정별 정기 " : " · 정기 ") + collection.data!.xApi.intervalHours + "시간 주기"}{enabled&&<span className="mt-1 block text-muted-foreground">미완료 계정은 예산과 재시도 시각에 따라 별도로 이어 수집합니다. 점검 자격은 실행 보장이 아닙니다.</span>}</p>
-        </CardContent>
-      </Card>
-      <XReferenceHealth />
-    </div>
-    <XCollectionBudget health={query.data?.referenceHydration} />
-    {query.isError && <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">예산·대기 상태 최신 조회 실패{query.data ? " · 마지막으로 조회한 값을 표시합니다." : ""}</p>}
-  </div>;
-}
-
-export function XUsageChart({ usage, error, hours }: { usage: OperationsStatusResponse["xCollection"]["usage"] | undefined; error: boolean; hours: number }) {
-  const rows = [...(usage?.byOperation ?? [])].sort((a, b) => b.apiCalls - a.apiCalls);
-  return <Card className="min-w-0 gap-0 py-0 shadow-none">
-    <CardHeader className="px-3 py-2">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold">작업별 X API 호출</h2>
-        <span className="text-xs text-muted-foreground">최근 {hours}시간 · {usage ? `${usage.apiCalls}회 · 추정 ${money(usage.estimatedCostMicros)}` : "미확인"}</span>
-      </div>
-    </CardHeader>
-    <CardContent className="space-y-2 px-3 pb-3">
-      {error && <p role="alert" className="text-xs text-destructive">사용량 조회 실패{usage ? " · 이전 조회 결과" : ""}</p>}
-      {!usage ? <p className="py-3 text-sm text-muted-foreground">API 사용량을 확인할 수 없습니다.</p> : rows.length === 0 ? <p className="py-3 text-sm text-muted-foreground">{usage.apiCalls === 0 ? "조회 기간에 기록된 API 호출이 없습니다." : "작업별 호출 내역 미기록"}</p> : <>
-        <ChartContainer config={{ apiCalls: { label: "API 호출 수", color: "var(--chart-1)" } }} className="h-44 w-full aspect-auto" aria-label={`최근 ${hours}시간 작업별 X API 호출 수`}>
-          <BarChart data={rows} layout="vertical" accessibilityLayer margin={{left: 0, right: 32, top: 4, bottom: 0}}>
-            <CartesianGrid horizontal={false} />
-            <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} />
-            <YAxis type="category" dataKey="operation" width={145} tickLine={false} axisLine={false} interval={0} />
-            <ChartTooltip content={<ChartTooltipContent />} />
-            <Bar dataKey="apiCalls" fill="var(--color-apiCalls)" barSize={16} isAnimationActive={false}><LabelList dataKey="apiCalls" position="right" className="fill-foreground" /></Bar>
-          </BarChart>
-        </ChartContainer>
-        <details className="text-xs"><summary className="cursor-pointer py-1 focus-visible:outline-2 focus-visible:outline-ring">호출·비용 상세</summary>
-          <Table className="text-xs"><TableHeader><TableRow><TableHead>작업</TableHead><TableHead className="text-right">호출</TableHead><TableHead className="text-right">추정 비용</TableHead><TableHead className="text-right">실패</TableHead><TableHead className="text-right">호출 제한</TableHead></TableRow></TableHeader>
-            <TableBody>{rows.map((row) => <TableRow key={row.operation}><TableCell>{row.operation}</TableCell><TableCell className="text-right">{row.apiCalls}</TableCell><TableCell className="text-right">{money(row.estimatedCostMicros)}</TableCell><TableCell className="text-right">{row.failureCount}</TableCell><TableCell className="text-right">{row.rateLimitCount}</TableCell></TableRow>)}</TableBody>
-          </Table>
-          <p className="pt-2 text-muted-foreground">강제 새로고침 경로: {usage.forceRefreshPaths.map((item) => `${item.label} ${item.apiCalls}회`).join(" · ") || "기록 없음"}</p>
-        </details>
-      </>}
+    {query.isError && <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">예산 상태 최신 조회 실패{health ? " · 마지막으로 조회한 값을 표시합니다." : ""}</p>}
     </CardContent>
   </Card>;
 }
@@ -203,11 +151,13 @@ export function XCollectionRuns({ runs, loading, error, updatedAt }: { runs: Ope
           <ChevronDown className={"size-4 " + (expanded.includes(run.runId) ? "rotate-180" : "")} />
         </button>
         <div id={"x-run-" + run.runId} hidden={!expanded.includes(run.runId)} className="space-y-3 border-t bg-muted/10 p-3">
+          {expanded.includes(run.runId) && <>
           <p className="text-xs">작업 묶음: 성공·부분 완료 {run.progress.succeeded} / 건너뜀 {run.progress.skipped} / 실패 {run.progress.failed} / 제한 {run.progress.throttled} / 대기 {run.progress.queued} / 실행 중 {run.progress.running} · 전체 {run.progress.total}개</p>
           <p className="text-xs text-muted-foreground">각 수치는 이번 실행 결과입니다. 현재 전체 대기량과 다르며, 검토·연결·이월·오류는 집계 단위가 달라 합산 완료율로 표시하지 않습니다.</p>
           {run.xCollection?.items.length ? <ul className="space-y-2">{run.xCollection.items.map((item) => <ItemResult key={item.itemId} item={item} />)}</ul> : <p className="text-sm text-muted-foreground">계정 묶음별 결과 기록 없음</p>}
           {run.lastError && <p className="break-words text-sm text-destructive">{run.lastError}</p>}
           {run.failures.map((failure) => <p key={failure.itemId} className="break-words text-xs text-destructive">{failure.targetKey}: {failure.message}</p>)}
+          </>}
         </div>
       </div>)}
     </div>}

@@ -19,7 +19,7 @@ const X_AUTHENTICATED_POSTS_CACHE_CONTROL = "no-store";
 import { isXPostId } from "../domain/post-identity";
 type XPostsVisibility = "public" | "members" | "private";
 
-export type BuildXPostsApplication = (env: Env) => XPostsApplication;
+type BuildXPostsApplication = (env: Env) => XPostsApplication;
 
 const getXErrorPayload = (error: XPostFeedError) => ({
   error: error.code ?? "x_api_error",

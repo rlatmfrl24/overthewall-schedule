@@ -8,6 +8,7 @@ import type { Env } from "../../../platform/types";
 import { publicationHiddenSql } from "../../content-access";
 import { writeStoredPosts } from "./x-api";
 import { fetchFxProfile, fetchFxTimelinePage, FxApiError } from "./fx-api";
+import { hydrateXReplyPreviews } from "./x-reply-hydration";
 import { claimXSourceLeases, readActiveXHandles, releaseXSourceLeases, type XCollectionRunResult } from "./x-collection";
 
 type FxSource = { cursor: string | null; user_id: string | null; collection_started_at: number; window_until_at: number | null; pages_completed: number; last_completed_at: number | null; retired_progress: string | null };
@@ -90,6 +91,7 @@ export async function runFxCollectionForHandles(env: Env, handles: string[], sou
         result.error = providerFailure ? error.code : "fx_storage_failed";
       }
     }
+    result.apiCalls += await hydrateXReplyPreviews(db, siteId, lease.claimed);
     result.pendingSources = Number(await db.prepare("SELECT COUNT(*) AS count FROM x_fx_sources WHERE handle IN (SELECT value FROM json_each(?)) AND (cursor IS NOT NULL OR last_error IS NOT NULL)")
       .bind(JSON.stringify(lease.claimed)).first("count"));
     if (!lease.claimed.length) { result.status = "skipped"; result.error = "coalesced"; }

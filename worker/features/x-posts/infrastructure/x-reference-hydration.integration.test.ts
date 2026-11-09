@@ -149,7 +149,7 @@ describe("X replies use stored context or a completed relation", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("collects replies and advances the cursor without purchasing their parent or author", async () => {
+  it("advances the official cursor and uses free reply originals without purchasing posts or authors", async () => {
     await db.batch([
       db.prepare("INSERT INTO settings(key,value) VALUES('x_cost_optimizer_enabled','true'),('x_reference_preview_mode','cached_author')"),
       db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at) VALUES('member','1','member','100',0,0,1),('parent_member','2','parent_member','900',0,0,1)"),
@@ -161,6 +161,11 @@ describe("X replies use stored context or a completed relation", () => {
       .bind(linkedUserKey("3"), JSON.stringify({ user: { id: "3", username: "cached_external" } }), Date.now(), Date.now()+86_400_000).run();
     vi.mocked(fetch).mockImplementation(async (input) => {
       const url = new URL(String(input));
+      if (url.hostname === "api.fxtwitter.com" && url.pathname === "/2/status/10") {
+        return json({ code: 200, status: { type: "status", id: "10", text: "Free reply original", created_at: new Date().toISOString(),
+          author: { id: "2", screen_name: "parent_member", protected: false } } });
+      }
+      if (url.hostname === "api.fxtwitter.com" && url.pathname === "/2/status/30") return new Response(null, { status: 404 });
       if (url.pathname === "/2/users/by") return json({ data: [{ id: "1", username: "member" }] });
       if (url.pathname === "/2/users/1/tweets") return json({ meta: { newest_id: "203" }, data: [
         { id: "201", text: "reply one", created_at: new Date().toISOString(), in_reply_to_user_id: "2", conversation_id: "root",
@@ -173,12 +178,12 @@ describe("X replies use stored context or a completed relation", () => {
     const result = await runXCollectionForHandles({ ...testEnv, X_BEARER_TOKEN: "test" }, ["member"], "manual");
     expect(result.postsStored).toBe(3);
     expect(result.referenceHydration).toMatchObject({ scope: "quotes", status: "complete", scanned: 0, deferred: 0 });
-    expect((await getPost("201")).reply).toMatchObject({ postId: "10", inReplyToUserId: "2", targetUsername: "parent_member", post: null });
+    expect((await getPost("201")).reply).toMatchObject({ postId: "10", inReplyToUserId: "2", targetUsername: "parent_member", post: { id: "10", text: "Free reply original" } });
     expect((await getPost("202")).reply?.post?.text).toBe(cached.text);
     expect((await getPost("203")).reply).toMatchObject({ inReplyToUserId: "3", targetUsername: "cached_external", post: null });
     expect(await db.prepare("SELECT last_seen_post_id FROM x_post_sources WHERE handle='member'").first()).toMatchObject({ last_seen_post_id: "203" });
-    expect((await db.prepare("SELECT resolution_state,author_state,next_attempt_at,author_next_attempt_at FROM x_post_references WHERE source_post_id='201'").first()))
-      .toMatchObject({ resolution_state: "link_only", author_state: "not_required", next_attempt_at: null, author_next_attempt_at: null });
+    expect((await db.prepare("SELECT resolution_state,author_state,next_attempt_at,author_next_attempt_at FROM x_post_references WHERE source_post_id='203'").first()))
+      .toMatchObject({ resolution_state: "link_only", author_state: "not_required", next_attempt_at: expect.any(Number), author_next_attempt_at: null });
     expect(await db.prepare("SELECT COUNT(*) AS count FROM x_api_usage_events WHERE operation='tweet_lookup' OR json_extract(detail,'$.purpose')='reference_preview'").first()).toEqual({ count: 0 });
     const readOnly = { prepare(sql: string) { expect(sql.trim()).toMatch(/^(SELECT|WITH)\b/i); return db.prepare(sql); } };
     const calls = vi.mocked(fetch).mock.calls.length;
@@ -509,12 +514,6 @@ describe("X durable reference hydration", () => {
         Date.now(),
         Date.now() + 86_400_000,
       )
-      .run();
-    await db
-      .prepare(
-        "INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES('x:relations:v3:member','relation_version','{\"version\":\"v3\"}',?,?)",
-      )
-      .bind(Date.now(), Date.now() + 86_400_000)
       .run();
     // Populate another reader's in-memory feed cache before the admin mutation.
     await fetchXPostsForHandles(["member"], {
@@ -1209,12 +1208,6 @@ describe("X durable reference hydration", () => {
       .prepare(
         "INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at) VALUES('member','1','member','101',0,0,0)",
       )
-      .run();
-    await db
-      .prepare(
-        "INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES('x:relations:v3:member','relation_version','{\"version\":\"v3\"}',?,?)",
-      )
-      .bind(Date.now(), Date.now() + 86_400_000)
       .run();
     vi.mocked(fetch)
       .mockResolvedValueOnce(json({ data: [{ id: "1", username: "member" }] }))

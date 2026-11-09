@@ -147,6 +147,60 @@ it("preserves an acquired reply when the normal JSON collector replays an omitte
   const after = await db.prepare("SELECT * FROM x_post_sources").first();
   expect(after).toMatchObject({ last_seen_post_id: official!.last_seen_post_id, sync_pagination_token: official!.sync_pagination_token, collection_started_at: official!.collection_started_at });
 });
+
+it("collects a quote and reply with incomplete originals and previews the parent once it is stored", async () => {
+  const reply = { ...raw("123"), replying_to: { status: "122", screen_name: "1234567890123456789" } };
+  const quote = { ...raw("124"), quote: { ...raw("121"), media: { all: [{ id: "1", type: "photo", url: "https://untrusted.example/image.jpg" }] } } };
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(Response.json({ code: 200, results: [reply, quote], cursor: {} }))
+    .mockResolvedValueOnce(new Response(null, { status: 404 }))
+    .mockResolvedValueOnce(Response.json({ code: 200, results: [raw("122"), raw("121")], cursor: {} }));
+  vi.stubGlobal("fetch", fetchMock);
+  const collect = () => runFxCollectionForHandles(runtime, ["member"], "manual");
+  const read = () => fetchXPostsForHandles(["member"], { cacheDb: db, refresh: false, siteId: "otw" });
+  expect(await collect()).toMatchObject({ status: "success", postsStored: 2, apiCalls: 2 });
+  const first = await read();
+  expect(first.posts.find(post => post.id === "123")?.reply).toMatchObject({ postId: "122", targetUsername: null, post: null });
+  expect(first.posts.find(post => post.id === "124")?.quote).toEqual({ postId: "121", post: null });
+
+  expect(await collect()).toMatchObject({ status: "success", postsStored: 2, apiCalls: 1 });
+  const next = await read();
+  expect(next.posts.find(post => post.id === "123")?.reply?.post).toMatchObject({ id: "122", text: "122" });
+  expect(next.posts.find(post => post.id === "124")?.quote?.post).toMatchObject({ id: "121", text: "121" });
+  await db.batch([
+    db.prepare("UPDATE x_posts SET hidden_at=1 WHERE id='122'"),
+    db.prepare("UPDATE x_posts SET content_access='admin_archive' WHERE id='121'"),
+  ]);
+  const restricted = await read();
+  expect(restricted.posts.find(post => post.id === "123")?.reply).toMatchObject({ postId: "122", post: null });
+  expect(restricted.posts.find(post => post.id === "124")?.quote).toBeUndefined();
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+});
+
+it("fetches a public reply original on replay, persists the preview and backs off when a target is unavailable", async () => {
+  let lookupAvailable = false;
+  const reply = { ...raw("123"), replying_to: { status: "122", screen_name: "other" } };
+  const fetchMock = vi.fn(async (url: string) => {
+    if (new URL(url).pathname !== "/2/status/122") return Response.json({ code: 200, results: [reply], cursor: {} });
+    if (!lookupAvailable) return new Response(null, { status: 404 });
+    return Response.json({ code: 200, status: { ...raw("122"), text: "Public original", author: { id: "999", screen_name: "other", protected: false } } });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const collect = () => runFxCollectionForHandles(runtime, ["member"], "manual");
+  const read = () => fetchXPostsForHandles(["member"], { cacheDb: db, refresh: false, siteId: "otw" });
+  expect(await collect()).toMatchObject({ status: "success", postsStored: 1, apiCalls: 2 });
+  expect((await read()).posts[0].reply).toMatchObject({ postId: "122", post: null });
+  const before = await db.prepare("SELECT first_seen_at,source_authority FROM x_posts WHERE id='123'").first();
+  lookupAvailable = true;
+  expect(await collect()).toMatchObject({ status: "success", postsStored: 0, apiCalls: 1 });
+  vi.spyOn(Date, "now").mockReturnValue(1800000000000 + 6 * 3_600_000);
+  expect(await collect()).toMatchObject({ status: "success", postsStored: 0, apiCalls: 2 });
+  expect((await read()).posts[0].reply?.post).toMatchObject({ id: "122", text: "Public original", username: "other" });
+  expect(await db.prepare("SELECT first_seen_at,source_authority FROM x_posts WHERE id='123'").first()).toEqual(before);
+  expect(await db.prepare("SELECT resolution_state,next_attempt_at FROM x_post_references WHERE source_post_id='123'").first()).toEqual({ resolution_state: "hydrated", next_attempt_at: null });
+  expect(await db.prepare("SELECT COUNT(*) AS count FROM x_posts").first("count")).toBe(1);
+  expect(await collect()).toMatchObject({ status: "success", postsStored: 0, apiCalls: 1 });
+});
 it("checks the head and resumes the durable continuation, retaining it on storage failure", async () => {
   await db.prepare("INSERT INTO x_fx_sources(handle,collection_started_at,cursor,window_until_at,pages_completed,updated_at) VALUES('member',1,'old',?,1,0)").bind(Date.now() - 1000).run();
   const fetchMock = vi.fn().mockResolvedValueOnce(page("125", "head-next")).mockResolvedValueOnce(page("123", "after-old", Date.now() - 1000));
