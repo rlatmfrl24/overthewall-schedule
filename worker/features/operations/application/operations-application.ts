@@ -16,7 +16,7 @@ export type OperationRunRetryResult =
   | { kind: "not_retryable"; status: ScheduledJobStatus };
 
 export interface OperationsApplication {
-  getStatus(windowHours: number): Promise<unknown>;
+  getStatus(windowHours: number, scope?: "schedule"): Promise<unknown>;
   getD1Observability(): Promise<unknown>;
   getJobSummaries(): Promise<unknown>;
   checkNaverCafe(actor: OperationsActor): Promise<unknown>;

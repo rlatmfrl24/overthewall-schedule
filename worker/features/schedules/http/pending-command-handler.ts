@@ -18,6 +18,7 @@ import {
   isPendingRejectionReasonCode,
   isPendingTargetMode,
   isPendingTimeMode,
+  getPendingManualApprovalError,
 } from "../domain/pending-schedule";
 
 export type ResolvePendingScheduleService = (env: Env) => PendingScheduleService;
@@ -52,7 +53,7 @@ const parseApprovalOptions = (
     "applyMode" in value ||
     "targetMode" in value ||
     "timeMode" in value ||
-    "targetScheduleId" in value;
+    "targetScheduleId" in value || "changes" in value || "expectedTarget" in value;
   if (!hasOptions) return null;
 
   if (value.applyMode !== undefined && !isPendingApplyMode(value.applyMode)) {
@@ -80,7 +81,7 @@ const parseApprovalOptions = (
     return badRequest("Invalid targetScheduleId");
   }
 
-  return {
+  const options: PendingApprovalOptions = {
     applyMode: isPendingApplyMode(value.applyMode) ? value.applyMode : "all",
     targetMode: isPendingTargetMode(value.targetMode)
       ? value.targetMode
@@ -89,7 +90,11 @@ const parseApprovalOptions = (
       ? value.timeMode
       : "nearest_half_hour",
     targetScheduleId,
+    ...("changes" in value ? { changes: value.changes as PendingApprovalOptions["changes"] } : {}),
+    ...("expectedTarget" in value ? { expectedTarget: value.expectedTarget as PendingApprovalOptions["expectedTarget"] } : {}),
   };
+  const error = getPendingManualApprovalError(options);
+  return error ? badRequest(error) : options;
 };
 
 const parseIds = (value: unknown): number[] | null => {
@@ -178,6 +183,16 @@ export const createPendingScheduleCommandHandler =
   if (body === INVALID_JSON) {
     return badRequest("Malformed JSON");
   }
+  const containsManualOptions = (value: unknown) => isRecord(value) && ("changes" in value || "expectedTarget" in value);
+  if (isRecord(body) && (
+    (url.pathname === "/api/settings/pending/actions" && containsManualOptions(body)) ||
+    (/^\/api\/settings\/pending\/\d+\/approve$/.test(url.pathname) && ("optionsById" in body || containsManualOptions(body.options)))
+  )) return badRequest("Invalid approval options placement");
+  if (isRecord(body) && (containsManualOptions(body) || containsManualOptions(body.options) || "optionsById" in body) &&
+    !(url.pathname === "/api/settings/pending/actions" && body.action === "approve") &&
+    !/^\/api\/settings\/pending\/\d+\/approve$/.test(url.pathname)) {
+    return badRequest("Manual options require an approval action");
+  }
 
   if (url.pathname === "/api/settings/pending/actions") {
     if (!isRecord(body)) return badRequest("Invalid pending action body");
@@ -197,21 +212,36 @@ export const createPendingScheduleCommandHandler =
       return badRequest("reset_processed does not support all mode");
     }
 
-    const ids = mode === "all" ? await service.listIds() : parseIds(body.ids);
-    if (!ids || (mode === "selected" && ids.length === 0)) {
-      return badRequest("ids are required");
-    }
     const options =
       action === "approve" ? parseApprovalOptions(body.options) : null;
     if (options instanceof Response) return options;
     const rejectionOptions =
       action === "reject" ? parseRejectionOptions(body) : null;
     if (rejectionOptions instanceof Response) return rejectionOptions;
-
+    if ("optionsById" in body && mode !== "selected") return badRequest("Invalid optionsById");
+    const ids = mode === "all" ? await service.listIds() : parseIds(body.ids);
+    if (!ids || (mode === "selected" && ids.length === 0)) {
+      return badRequest("ids are required");
+    }
+    let optionsById: Record<string, PendingApprovalOptions> | undefined;
+    if ("optionsById" in body) {
+      if ("options" in body || !isRecord(body.optionsById) ||
+        !Array.isArray(body.ids) || ids.length !== body.ids.length ||
+        Object.keys(body.optionsById).length !== ids.length) return badRequest("Invalid optionsById");
+      optionsById = Object.create(null) as Record<string, PendingApprovalOptions>;
+      for (const [key, value] of Object.entries(body.optionsById)) {
+        if (String(Number(key)) !== key || !ids.includes(Number(key))) return badRequest("Invalid optionsById ID");
+        const itemOptions = parseApprovalOptions(value);
+        if (itemOptions instanceof Response) return itemOptions;
+        if (!itemOptions) return badRequest("Approval options are required for every ID");
+        optionsById[key] = itemOptions;
+      }
+    }
     const result = await service.runBatch({
       ids,
       action,
       options,
+      ...(optionsById ? { optionsById } : {}),
       rejectionOptions,
       actor,
     });

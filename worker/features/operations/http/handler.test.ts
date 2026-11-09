@@ -312,6 +312,41 @@ describe("operations worker route", () => {
     );
   });
 
+  it("일정 전용 상태는 기존 일정 값과 같고 관련 D1 세 번만 읽는다", async () => {
+    const db = makeStatusD1();
+    const runtime = makeEnv(db);
+    const full = await (await handleOperations(new Request("https://example.com/api/operations/status"), runtime)).json() as {autoUpdate:unknown};
+    vi.mocked(db.prepare).mockClear();
+    const budget = vi.fn();
+    runtime.X_API_GATEWAY = {readBudget:budget} as unknown as NonNullable<Env["X_API_GATEWAY"]>;
+    const response = await handleOperations(new Request("https://example.com/api/operations/status?scope=schedule"), runtime);
+    const scoped = await response.json() as {autoUpdate:Record<string,unknown>};
+    expect(full.autoUpdate).toMatchObject(scoped.autoUpdate);
+    expect(scoped.autoUpdate).not.toHaveProperty("pending");
+    expect(Object.keys(scoped).sort()).toEqual(["autoUpdate","updatedAt"]);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Vary")).toBe("Authorization");
+    expect(db.prepare).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(db.prepare).mock.calls.every(([sql]) => /^SELECT\b/i.test(sql.trim()))).toBe(true);
+    expect(vi.mocked(db.prepare).mock.calls.map(([sql]) => sql.match(/\bFROM\s+(\w+)/i)?.[1]).sort()).toEqual(["auto_update_runs","schedule_candidate_rejections","settings"]);
+    expect(budget).not.toHaveBeenCalled();
+  });
+
+  it("알 수 없는 상태 범위는 D1 조회 없이 거절한다", async () => {
+    const db = makeStatusD1();
+    const response = await handleOperations(new Request("https://example.com/api/operations/status?scope=other"), makeEnv(db));
+    expect(response.status).toBe(400);
+    expect(db.prepare).not.toHaveBeenCalled();
+  });
+
+  it.each([401,403])("일정 전용 상태도 관리자 권한 거절을 유지한다 (%s)", async status => {
+    const db = makeStatusD1();
+    requireAdminUserMock.mockResolvedValueOnce({ok:false,response:new Response("denied",{status})});
+    const response = await handleOperations(new Request("https://example.com/api/operations/status?scope=schedule"), makeEnv(db));
+    expect(response.status).toBe(status);
+    expect(db.prepare).not.toHaveBeenCalled();
+  });
+
   it("D1 실계측은 7d만 허용하고 관리자 no-store로 반환한다", async () => {
     const getD1Observability = vi.fn(async () => ({
       status: "unconfigured",

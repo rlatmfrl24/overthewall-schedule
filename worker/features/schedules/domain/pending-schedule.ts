@@ -7,6 +7,7 @@ import type {
 } from "../../../../contracts/pending-schedules";
 
 export type PendingScheduleRow = {
+  content_access?: "normal" | "admin_archive";
   id: number;
   member_uid: number;
   member_name: string;
@@ -110,10 +111,35 @@ export const roundTimeToNearestScheduleHour = (time: string | null) => {
   return `${Math.min(roundedHour, 23).toString().padStart(2, "0")}:00`;
 };
 
+export const getPendingManualApprovalError = (options: PendingApprovalOptions): string | null => {
+  if (options.changes === undefined) {
+    return options.expectedTarget === undefined ? null : "expectedTarget requires changes";
+  }
+  const changes = options.changes;
+  if (!changes || typeof changes !== "object" || Array.isArray(changes) ||
+    Object.keys(changes).length === 0 || Object.keys(changes).some(key => key !== "title" && key !== "startTime")) {
+    return "Invalid changes";
+  }
+  if ("title" in changes && (typeof changes.title !== "string" || !changes.title.trim())) return "Invalid edited title";
+  if ("startTime" in changes && (typeof changes.startTime !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(changes.startTime))) return "Invalid edited startTime";
+  const snapshot = options.expectedTarget;
+  if (options.targetMode === "create") return snapshot === undefined ? null : "Create does not accept expectedTarget";
+  if (!Number.isSafeInteger(options.targetScheduleId) || (options.targetScheduleId ?? 0) <= 0) return "Manual update requires targetScheduleId";
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot) ||
+    Object.keys(snapshot).length !== 3 || Object.keys(snapshot).some(key => !["title", "startTime", "status"].includes(key)) ||
+    (snapshot.title !== null && typeof snapshot.title !== "string") ||
+    (snapshot.startTime !== null && typeof snapshot.startTime !== "string") ||
+    typeof snapshot.status !== "string" || !snapshot.status) return "Invalid expectedTarget";
+  return null;
+};
+
 export const getPendingApprovalValues = (
   item: PendingScheduleRow,
   options: PendingApprovalOptions,
-) => ({
+) => options.changes ? ({
+  startTime: options.changes.startTime === undefined ? null : roundTimeToNearestScheduleHalfHour(options.changes.startTime),
+  title: options.changes.title?.trim() ?? null,
+}) : ({
   startTime:
     options.applyMode === "all" || options.applyMode === "time"
       ? options.timeMode === "exact"

@@ -23,6 +23,7 @@ type PendingActionsPayload = {
   mode?: "selected" | "all";
   ids?: number[];
   options?: PendingApprovalOptions;
+  optionsById?: Record<string, PendingApprovalOptions>;
   reasonCode?: PendingRejectionOptions["reasonCode"];
   reasonNote?: string | null;
 };
@@ -137,10 +138,12 @@ export async function rejectAllPendingSchedules(): Promise<{
 
 export async function approveSelectedPendingSchedules(
   ids: number[],
+  optionsById?: Record<string, PendingApprovalOptions>,
 ): Promise<SelectedPendingBatchResponse> {
   return runPendingActions({
     action: "approve",
     ids,
+    ...(optionsById ? { optionsById } : {}),
   });
 }
 

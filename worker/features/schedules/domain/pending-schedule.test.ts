@@ -38,6 +38,11 @@ const makeOptions = (
 });
 
 describe("pending schedule domain policy", () => {
+  it("manual fields override only explicitly selected values and retain the half-hour policy", () => {
+    const manual = { ...makeOptions(), changes: { startTime: "14:16" } };
+    expect(getPendingApprovalValues(pendingSchedule, manual)).toEqual({startTime:"14:30",title:null});
+    expect(getPendingApprovalValues(pendingSchedule, {...makeOptions(), changes:{title:"  새 제목  "}})).toEqual({startTime:null,title:"새 제목"});
+  });
   it.each(["all", "time", "title"])(
     "지원하는 적용 모드를 허용한다: %s",
     (value) => {

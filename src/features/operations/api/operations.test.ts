@@ -4,6 +4,7 @@ import {
   fetchDataRetentionStatus,
   fetchOperationJobSummaries,
   fetchOperationsStatus,
+  fetchScheduleOperationsStatus,
   runAutoUpdateNow,
   runDataRetentionPrune,
   runNaverCafeCheckNow,
@@ -19,6 +20,11 @@ vi.mock("@/shared/api/client", () => ({
 describe("operations api", () => {
   beforeEach(() => {
     apiFetchMock.mockReset();
+  });
+
+  it("일정 검수는 전체 운영 이력 대신 일정 범위를 no-store로 요청한다", async () => {
+    await fetchScheduleOperationsStatus();
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/operations/status?scope=schedule", {cache:"no-store"});
   });
 
   it("운영 상태 조회의 기본·지정 window를 query에 반영한다", async () => {

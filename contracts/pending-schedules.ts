@@ -40,11 +40,24 @@ export type ScheduleCandidateRejectionQuery = {
   pageSize: number;
 };
 
+export type PendingApprovalChanges = {
+  title?: string;
+  startTime?: string;
+};
+
+export type PendingApprovalTargetSnapshot = {
+  title: string | null;
+  startTime: string | null;
+  status: string;
+};
+
 export type PendingApprovalOptions = {
   applyMode: PendingApplyMode;
   targetMode: PendingTargetMode;
   timeMode: PendingTimeMode;
   targetScheduleId?: number | null;
+  changes?: PendingApprovalChanges;
+  expectedTarget?: PendingApprovalTargetSnapshot;
 };
 
 export type PendingScheduleActionResult = {

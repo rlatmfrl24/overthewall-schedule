@@ -77,7 +77,9 @@ export const createOperationsHandler =
       if (windowHours === null) {
         return badRequest("windowHours must be an integer between 1 and 168");
       }
-      return json(await application.getStatus(windowHours), 200, {
+      const scope = url.searchParams.get("scope");
+      if (scope !== null && scope !== "schedule") return badRequest("scope must be schedule");
+      return json(await application.getStatus(windowHours, scope ?? undefined), 200, {
         headers: NO_STORE_HEADERS,
       });
     }

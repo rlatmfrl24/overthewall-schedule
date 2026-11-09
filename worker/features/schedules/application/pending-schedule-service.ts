@@ -30,6 +30,7 @@ type RunBatchInput = {
   ids: number[];
   action: PendingAction;
   options: PendingApprovalOptions | null;
+  optionsById?: Record<string, PendingApprovalOptions>;
   rejectionOptions?: PendingRejectionOptions | null;
   actor: ScheduleActor;
 };
@@ -149,6 +150,7 @@ export class PendingScheduleService {
     ids,
     action,
     options,
+    optionsById,
     rejectionOptions = null,
     actor,
   }: RunBatchInput): Promise<PendingScheduleBatchResult> {
@@ -159,7 +161,7 @@ export class PendingScheduleService {
           return await this.runOne({
             id,
             action,
-            options,
+            options: optionsById?.[String(id)] ?? options,
             rejectionOptions,
             actor,
           });

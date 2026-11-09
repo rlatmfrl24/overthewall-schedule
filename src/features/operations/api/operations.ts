@@ -1,5 +1,6 @@
 import { apiRoutes, withRouteSearch } from "@contracts/api-routes";
 import { apiFetch } from "@/shared/api/client";
+import type { ScheduleOperationsStatusResponseDto } from "@contracts/operations";
 import type {
   DataRetentionPruneResponse,
   DataRetentionStatusResponse,
@@ -20,6 +21,13 @@ export async function fetchOperationsStatus(
   return apiFetch<OperationsStatusResponse>(
     withRouteSearch(apiRoutes.operations.status.build(), params),
     { cache: "no-store" },
+  );
+}
+
+export async function fetchScheduleOperationsStatus(): Promise<ScheduleOperationsStatusResponseDto> {
+  return apiFetch<ScheduleOperationsStatusResponseDto>(
+    withRouteSearch(apiRoutes.operations.status.build(), new URLSearchParams({scope:"schedule"})),
+    {cache:"no-store"},
   );
 }
 

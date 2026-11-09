@@ -35,6 +35,11 @@ async function request(path: string, user?: string, body?: unknown, method = bod
   return handleWorkerFetch(new Request(origin + path, { method, headers, body: body ? JSON.stringify(body) : undefined }), runtime);
 }
 const input = { member_uid: 1, date: "2026-11-16", title: "관리자 예외 방송", status: "방송", start_time: "20:00" };
+async function manualApprovalFixture() {
+  const target = await d1.prepare("INSERT INTO schedules(member_uid,date,start_time,title,status) VALUES(1,'2026-11-04','18:00','기존 제목','미정') RETURNING id").first<{id:number}>();
+  const candidate = await d1.prepare("INSERT INTO pending_schedules(member_uid,member_name,date,start_time,title,status,action_type,candidate_kind,existing_schedule_id,vod_id) VALUES(1,'빙하유','2026-11-04','20:00','수집 원본','방송','update','fill_missing_fields',?,'chzzk:manual-fixture') RETURNING id").bind(target!.id).first<{id:number}>();
+  return {targetId:target!.id,pendingId:candidate!.id,payload:{action:"approve",ids:[candidate!.id],optionsById:{[candidate!.id]:{applyMode:"title",targetMode:"update",timeMode:"nearest_half_hour",targetScheduleId:target!.id,changes:{title:"관리자가 고친 제목"},expectedTarget:{title:"기존 제목",startTime:"18:00",status:"미정"}}}}};
+}
 beforeAll(async () => {
   for (const migration of await readSiteSchemaMigrations()) {
     if (migration.name.startsWith("0030_")) await d1.batch(["kurenai_natsuki", "terri_nunna", "bing_hayu", "yang_mei", "u_lili", "on_haru", "hane", "kim_ate"].map((code, index) =>
@@ -58,6 +63,30 @@ beforeEach(async () => {
   ]);
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+it("실제 관리자 승인 경로는 선택한 편집값을 D1에 저장하고 비관리자·원본·이력을 보호한다",async()=>{
+  const fixture = await manualApprovalFixture();
+  expect((await request("/api/settings/pending/actions","viewer",fixture.payload)).status).toBe(403);
+  expect(await d1.prepare("SELECT title FROM schedules WHERE id=?").bind(fixture.targetId).first("title")).toBe("기존 제목");
+  const response = await request("/api/settings/pending/actions","policy-admin",fixture.payload);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({success:true,successCount:1,results:[{id:fixture.pendingId,success:true,action:"update"}]});
+  expect(await d1.prepare("SELECT title,start_time,status FROM schedules WHERE id=?").bind(fixture.targetId).first()).toEqual({title:"관리자가 고친 제목",start_time:"18:00",status:"미정"});
+  expect(await d1.prepare("SELECT id FROM pending_schedules WHERE id=?").bind(fixture.pendingId).first()).toBeNull();
+  const audit = await d1.prepare("SELECT detail FROM admin_audit_logs WHERE event_type='pending.manual_approve' AND resource_id=?").bind(String(fixture.targetId)).first<{detail:string}>();
+  expect(JSON.parse(audit!.detail)).toMatchObject({source:{title:"수집 원본",startTime:"20:00"},before:{title:"기존 제목"},after:{title:"관리자가 고친 제목",startTime:"18:00"}});
+});
+
+it.each(["stale","archived"])("실제 승인 경로는 %s 후보의 편집을 저장하지 않는다",async kind=>{
+  const fixture = await manualApprovalFixture();
+  if(kind === "stale") await d1.prepare("UPDATE schedules SET title='먼저 저장한 제목' WHERE id=?").bind(fixture.targetId).run();
+  else await d1.prepare("UPDATE pending_schedules SET content_access='admin_archive' WHERE id=?").bind(fixture.pendingId).run();
+  const before = await d1.prepare("SELECT title,start_time,status FROM schedules WHERE id=?").bind(fixture.targetId).first();
+  const response = await request("/api/settings/pending/actions","policy-admin",fixture.payload);
+  expect(await response.json()).toMatchObject({success:false,successCount:0,failedCount:1});
+  expect(await d1.prepare("SELECT title,start_time,status FROM schedules WHERE id=?").bind(fixture.targetId).first()).toEqual(before);
+  expect(await d1.prepare("SELECT id FROM pending_schedules WHERE id=?").bind(fixture.pendingId).first()).not.toBeNull();
+  expect(await d1.prepare("SELECT id FROM update_logs WHERE schedule_id=?").bind(fixture.targetId).first()).toBeNull();
+});
 it("정상 날짜, 빈 종료 날짜, 관리자 저장과 공개 동일 ID 조회를 지원한다", async () => {
   const board = async (date: string) => (await request("/api/schedule-board?startDate=" + date + "&endDate=" + date)).json<{ members: { code: string }[]; schedules: { id: number }[] }>();
   expect((await board("2026-11-15")).members.some(m => m.code === "bing_hayu")).toBe(true);

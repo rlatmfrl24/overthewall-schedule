@@ -209,6 +209,77 @@ describe("pending schedule command boundary", () => {
     expect(repositoryMock.approve).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { changes: {} },
+    { changes: { title: "   " } },
+    { changes: { title: null } },
+    { changes: { startTime: "24:00" } },
+    { changes: { startTime: "12:60" } },
+    { changes: { status: "휴방" } },
+    { changes: { title: "수정" }, targetMode: "update" },
+    { expectedTarget: { title: null, startTime: null, status: "방송" } },
+  ])("rejects invalid manual edits before repository access %#", async (manual) => {
+    const response = await handlePendingScheduleCommand(makeRequest("/api/settings/pending/actions", {
+      action: "approve", ids: [12], options: { targetMode: "create", ...manual },
+    }), makeEnv());
+    expect(response.status).toBe(400);
+    expect(repositoryMock.findById).not.toHaveBeenCalled();
+    expect(repositoryMock.approve).not.toHaveBeenCalled();
+  });
+
+  it("uses each selected candidate's own manual approval options", async () => {
+    const optionsById = {
+      "12": { applyMode: "all", targetMode: "create", timeMode: "nearest_half_hour", targetScheduleId: null, changes: { title: "제목 수정" } },
+      "13": { applyMode: "all", targetMode: "update", timeMode: "nearest_half_hour", targetScheduleId: 88, changes: { startTime: "14:16" }, expectedTarget: { title: "기존", startTime: "12:00", status: "방송" } },
+    };
+    const response = await handlePendingScheduleCommand(makeRequest("/api/settings/pending/actions", {
+      action: "approve", ids: [12, 13], optionsById,
+    }), makeEnv());
+    expect(response.status).toBe(200);
+    expect(repositoryMock.approve).toHaveBeenCalledWith(expect.objectContaining({ id: 12 }), optionsById["12"], expect.anything());
+    expect(repositoryMock.approve).toHaveBeenCalledWith(expect.objectContaining({ id: 13 }), optionsById["13"], expect.anything());
+  });
+
+  it.each([
+    { options: { targetMode: "create", changes: { title: "  " } } },
+    { optionsById: {} },
+  ])("rejects invalid all-mode edits before listing any D1 candidates %#", async extra => {
+    const response = await handlePendingScheduleCommand(makeRequest("/api/settings/pending/actions",{
+      action:"approve",mode:"all",...extra,
+    }),makeEnv());
+    expect(response.status).toBe(400);
+    expect(repositoryMock.listIds).not.toHaveBeenCalled();
+    expect(repositoryMock.findById).not.toHaveBeenCalled();
+    expect(repositoryMock.approve).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["/api/settings/pending/actions", { action: "approve", ids: [12], changes: { title: "편집" } }],
+    ["/api/settings/pending/actions", { action: "approve", ids: [12], expectedTarget: { title: null, startTime: null, status: "방송" } }],
+    ["/api/settings/pending/12/approve", { optionsById: { "12": { changes: { title: "편집" } } } }],
+    ["/api/settings/pending/12/approve", { options: { changes: { title: "편집" } } }],
+  ])("rejects misplaced edits instead of approving default values %#", async (path, body) => {
+    const response = await handlePendingScheduleCommand(makeRequest(path, body), makeEnv());
+    expect(response.status).toBe(400);
+    expect(repositoryMock.findById).not.toHaveBeenCalled();
+    expect(repositoryMock.approve).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { optionsById: { "99": { targetMode: "create" } } },
+    { optionsById: { "12": { targetMode: "create" } }, options: {} },
+    { optionsById: { "12": {}, "13": {} } },
+    { ids: [12, 12], optionsById: { "12": {} } },
+    { action: "reject", optionsById: { "12": {} } },
+    { action: "reject", options: { changes: { title: "수정" } } },
+  ])("rejects ambiguous per-candidate edit requests %#", async (extra) => {
+    const response = await handlePendingScheduleCommand(makeRequest("/api/settings/pending/actions", {
+      action: "approve", ids: [12], ...extra,
+    }), makeEnv());
+    expect(response.status).toBe(400);
+    expect(repositoryMock.findById).not.toHaveBeenCalled();
+  });
+
   it("승인 옵션의 기본 시간 정책을 가장 가까운 30분 단위로 정규화한다", async () => {
     const response = await handlePendingScheduleCommand(
       makeRequest("/api/settings/pending/actions", {
