@@ -51,8 +51,8 @@ import {
   TableRow,
 } from "@/shared/ui/table";
 import { Textarea } from "@/shared/ui/textarea";
-import { PiCaretDownBold as ChevronDown, PiCaretUpBold as ChevronUp, PiCaretRightBold as ChevronRight, PiSpinnerGapBold as Loader2, PiPencilSimpleBold as Pencil, PiPlusBold as Plus, PiArrowsClockwiseBold as RefreshCw, PiTrashBold as Trash2, PiUploadSimpleBold as Upload } from "react-icons/pi";
-import { PiDotsThreeBold, PiMicrophoneBold } from "react-icons/pi";
+import { PiCaretDownBold as ChevronDown, PiCaretUpBold as ChevronUp, PiCaretRightBold as ChevronRight, PiPencilSimpleBold as Pencil, PiPlusBold as Plus, PiArrowsClockwiseBold as RefreshCw, PiTrashBold as Trash2, PiUploadSimpleBold as Upload } from "react-icons/pi";
+import { PiCheckBold, PiDotsThreeBold, PiLockSimpleBold, PiMicrophoneBold, PiMinusBold } from "react-icons/pi";
 import {
   fetchOtwPlayAdminCatalog,
   deleteOtwPlayPerformance,
@@ -77,7 +77,20 @@ const CATALOG_BATCH_SIZE = 25;
 
 const relationLabel = (value: string) => (value === "singing_clip" ? "노래 클립" : value === "original" ? "오리지널" : "커버");
 const publicationLabel = (value: string) =>
-  value === "published" ? "게시됨" : value === "withdrawn" ? "철회됨" : "임시 저장";
+  value === "published" ? "게시됨" : value === "withdrawn" ? "철회됨" : "비공개";
+const publicationFilters = [
+  { value: "", label: "전체 상태" }, { value: "draft", label: "비공개" },
+  { value: "published", label: "게시됨" }, { value: "withdrawn", label: "철회됨" },
+] as const;
+
+function PublicationBadge({ status }: { status: OtwPlayAdminPerformanceDto["publicationStatus"] }) {
+  const Icon = status === "published" ? PiCheckBold : status === "withdrawn" ? PiMinusBold : PiLockSimpleBold;
+  return <Badge variant={status === "published" ? "secondary" : "outline"} className="gap-1 whitespace-nowrap"><Icon aria-hidden="true" />{publicationLabel(status)}</Badge>;
+}
+
+const canPublishDraft = (performance: OtwPlayAdminPerformanceDto) =>
+  performance.contentAccess !== "admin_archive" && performance.publicationStatus === "draft" &&
+  (performance.releaseType !== "broadcast" || Boolean(performance.broadcast?.extent));
 const releaseLabel = (value: string) => ({
   official_mv: "공식 MV",
   official_video: "공식 영상",
@@ -139,6 +152,7 @@ export function WorkflowCatalog({
   run,
   onPublishDrafts,
   onAddPerformance,
+  onScopeChange,
   publicationRequestId,
   deletionRequestId,
 }: {
@@ -149,12 +163,16 @@ export function WorkflowCatalog({
   run: Run;
   onPublishDrafts: (performances: OtwPlayAdminPerformanceDto[]) => Promise<void>;
   onAddPerformance: (songId: string) => void;
+  onScopeChange: (scope: "official" | "broadcast" | "all") => void;
   publicationRequestId: (performance: OtwPlayAdminPerformanceDto, target: "published" | "withdrawn") => string;
   deletionRequestId: (kind: "song" | "performance", id: string, version: number) => string;
 }) {
   const scopedPerformances = catalog.performances.filter(performance => scope === "all" || (scope === "broadcast" ? performance.releaseType === "broadcast" : performance.releaseType !== "broadcast"));
   const scopedSongIds = new Set(scopedPerformances.map(performance => performance.songId));
   const [consoleSearch, updateConsole] = useConsoleSearch();
+  const draftView = consoleSearch.state === "draft";
+  const filterPerformances = (songId: string) => scopedPerformances.filter(performance =>
+    performance.songId === songId && (!consoleSearch.state || performance.publicationStatus === consoleSearch.state));
   const expanded = new Set(consoleSearch.selected ? [consoleSearch.selected] : []);
   const [editSong, setEditSong] = useState<OtwPlayAdminSongDto | null>(null);
   const [editPerformance, setEditPerformance] = useState<OtwPlayAdminPerformanceDto | null>(null);
@@ -173,6 +191,8 @@ export function WorkflowCatalog({
       (!consoleSearch.state || scopedPerformances.some((item) => item.songId === song.id && item.publicationStatus === consoleSearch.state));
   });
   const filterKey = JSON.stringify([scope, consoleSearch.q, consoleSearch.category, consoleSearch.state, consoleSearch.page]);
+  const [selection, setSelection] = useState<{ filter: string; versions: Record<string, number> }>({ filter: filterKey, versions: {} });
+  if (selection.filter !== filterKey) setSelection({ filter: filterKey, versions: {} });
   // Old page links still reveal their results, now together with preceding rows.
   const initialCount = (consoleSearch.page ?? 1) * CATALOG_BATCH_SIZE;
   const [windowState, setWindowState] = useState({ filterKey, count: initialCount });
@@ -211,16 +231,50 @@ export function WorkflowCatalog({
     queryFn: () => fetchOtwPlayAdminCatalog(),
     enabled: false,
   });
-  const draftPerformances = scopedPerformances.filter(
-    (performance) =>
-      performance.contentAccess !== "admin_archive" && performance.publicationStatus === "draft" &&
-      (performance.releaseType !== "broadcast" || Boolean(performance.broadcast?.extent)) &&
-      activeSongIds.has(performance.songId),
-  );
-  const draftSongCount = new Set(
-    draftPerformances.map((performance) => performance.songId),
-  ).size;
+  const draftPerformances = scopedPerformances.filter(performance => canPublishDraft(performance) && activeSongIds.has(performance.songId));
+  const visibleSongIds = new Set(visibleSongs.map(song => song.id));
+  const visibleDrafts = draftView ? draftPerformances.filter(performance => visibleSongIds.has(performance.songId)) : [];
+  const selectedDrafts = selection.filter === filterKey ? visibleDrafts.filter(performance => selection.versions[performance.id] === performance.version) : [];
+  const allVisibleSelected = visibleDrafts.length > 0 && selectedDrafts.length === visibleDrafts.length;
   const publishingDrafts = saving?.startsWith("미게시 가창 게시") ?? false;
+  const [emptyBulkScope, setEmptyBulkScope] = useState<typeof scope | null>(null);
+
+  const preparePublication = (performances: OtwPlayAdminPerformanceDto[], all: boolean) => {
+    if (!performances.length) return;
+    setConfirmation({
+      title: all ? "미게시 곡을 모두 게시할까요?" : "선택한 영상을 게시할까요?",
+      description: `${all ? "검색 조건과 관계없이 현재 영상 종류의 " : "선택한 "}${new Set(performances.map(item => item.songId)).size}곡 · ${performances.length}개 가창을 공개합니다. 실패 항목은 임시 저장 상태로 유지합니다.`,
+      confirmLabel: `${performances.length}개 게시`,
+      action: () => onPublishDrafts(performances),
+    });
+  };
+  const prepareBulkPublication = async () => {
+    setEmptyBulkScope(null);
+    if (!catalog.paged) { preparePublication(draftPerformances, true); return; }
+    const prepared = await publicationCatalog.refetch();
+    if (prepared.isError || !prepared.data) return;
+    const full = prepared.data;
+    const songs = new Set(full.songs.filter(song => song.archivedAt === null).map(song => song.id));
+    const targets = full.performances.filter(performance => canPublishDraft(performance) && songs.has(performance.songId) &&
+      (scope === "all" || (scope === "broadcast" ? performance.releaseType === "broadcast" : performance.releaseType !== "broadcast")));
+    setEmptyBulkScope(targets.length === 0 ? scope : null);
+    preparePublication(targets, true);
+  };
+  const publicationCheckbox = (song: OtwPlayAdminSongDto, performance: OtwPlayAdminPerformanceDto) => {
+    if (!draftView || !canPublishDraft(performance)) return null;
+    const participantNames = performance.participants.map(participant => participant.displayName).join(", ");
+    const sourceTitle = orderedPerformanceSources(performance)[0]?.source.title;
+    return <label className="inline-flex min-h-11 min-w-9 items-center justify-center lg:min-h-9">
+      <Checkbox aria-label={`${[song.title, participantNames, sourceTitle].filter(Boolean).join(" · ")} 게시 선택`} checked={selection.filter === filterKey && selection.versions[performance.id] === performance.version} disabled={saving !== null} onCheckedChange={checked => {
+        setSelection(current => {
+          const versions = current.filter === filterKey ? { ...current.versions } : {};
+          if (checked === true) versions[performance.id] = performance.version;
+          else delete versions[performance.id];
+          return { filter: filterKey, versions };
+        });
+      }} />
+    </label>;
+  };
 
   const performanceActions = (performance: OtwPlayAdminPerformanceDto) => performance.contentAccess === "admin_archive"
     ? <Badge variant="outline">관리자 보관 · 읽기 전용</Badge> : (
@@ -249,7 +303,7 @@ export function WorkflowCatalog({
           <RefreshCw className="h-3.5 w-3.5" /> 영상 확인
         </DropdownMenuItem>
       )}
-      {performance.publicationStatus === "draft" && (performance.releaseType !== "broadcast" || Boolean(performance.broadcast?.extent)) && (
+      {canPublishDraft(performance) && (
         <DropdownMenuItem disabled={saving !== null} onSelect={() => setConfirmation({
           title: "가창을 게시할까요?",
           description: "승인 채널, 가창 정보와 재생 구간을 다시 확인한 뒤 공개 상태로 전환합니다.",
@@ -334,52 +388,46 @@ export function WorkflowCatalog({
 
   return (
     <>
-      <div role="search" aria-label="카탈로그 필터" className="flex flex-wrap items-center gap-2">
-        <CatalogSearchInput value={consoleSearch.q ?? ""} onSearch={(q) => updateConsole({ q, page: 1 })} />
-        <SelectField aria-label="게시 상태" value={consoleSearch.state ?? ""} onValueChange={(value) => updateConsole({ state: value, page: 1 })} options={[{ value: "", label: "모든 게시 상태" }, { value: "draft", label: "임시 저장만" }, { value: "published", label: "게시됨" }, { value: "withdrawn", label: "철회된 가창" }]} />
-        <SelectField aria-label="곡 분류" value={consoleSearch.category ?? ""} onValueChange={(value) => updateConsole({ category: value, page: 1 })} options={[{ value: "", label: "모든 분류" }, ...[...new Set(catalog.availableTags??activeSongs.flatMap((song) => song.tags ?? []))].sort().map((tag) => ({ value: tag, label: tag }))]} />
-        {(consoleSearch.q || consoleSearch.state || consoleSearch.category) && <Button variant="ghost" size="sm" onClick={() => updateConsole({ q: undefined, state: undefined, category: undefined, page: 1 })}>필터 초기화</Button>}
-        <span role="status" className="ml-auto text-sm tabular-nums text-muted-foreground">{activeSongs.length}곡 중 {filteredSongs.length}곡 · {visibleCount}곡 표시</span>
-      </div>
-          {(catalog.paged || draftPerformances.length > 0 || publishingDrafts) && (
-            <div className="flex flex-col gap-3 rounded-xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="font-medium">
-                  {catalog.paged?"전체 미게시 가창 게시":`미게시 가창 ${draftPerformances.length}개 · ${draftSongCount}곡`}
-                </p>
-                {draftPerformances.length > 0 && <p className="text-xs text-muted-foreground">전체 카탈로그 대상 · 검색 필터 미적용</p>}
-              </div>
-              <Button
-                className="shrink-0"
-                disabled={saving !== null || publicationCatalog.isFetching}
-                onClick={async () => {
-                  if(catalog.paged) {
-                    const prepared = await publicationCatalog.refetch();
-                    if (prepared.isError || !prepared.data) return;
-                    const full = prepared.data;
-                    const drafts=full.performances.filter(p=>p.contentAccess!=='admin_archive'&&p.publicationStatus==='draft'&&(p.releaseType!=='broadcast'||Boolean(p.broadcast?.extent))&&full.songs.some(s=>s.id===p.songId&&s.archivedAt===null)&&(scope==='all'||(scope==='broadcast'?p.releaseType==='broadcast':p.releaseType!=='broadcast')));
-                    setConfirmation({title:"미게시 곡을 모두 게시할까요?",description:`전체 ${new Set(drafts.map(p=>p.songId)).size}곡 · ${drafts.length}개 가창을 게시합니다.`,confirmLabel:`${drafts.length}개 게시`,action:async()=>{await onPublishDrafts(drafts);}});return;
-                  }
-                  setConfirmation({
-                  title: "미게시 곡을 모두 게시할까요?",
-                  description: `${draftSongCount}곡에 연결된 임시 저장 가창 ${draftPerformances.length}개를 순서대로 게시합니다. 각 항목은 승인된 공식 채널과 실제 가창 참여자를 다시 검증하며, 실패 항목은 임시 저장 상태로 유지합니다.`,
-                  confirmLabel: `${draftPerformances.length}개 게시`,
-                  action: async () => {
-                    await onPublishDrafts(draftPerformances);
-                  },
-                });}}
-              >
-                {publishingDrafts ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Upload className="h-4 w-4" />
-
-          )}
-              {publishingDrafts ? saving : "미게시 곡 모두 게시"}
-            </Button>
+      <div role="search" aria-label="카탈로그 필터" className="space-y-3 rounded-xl border bg-card p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <div role="group" aria-label="게시 상태" className="flex max-w-full flex-wrap gap-1 rounded-lg border bg-background p-1">
+            {publicationFilters.map(option => {
+              const current = (consoleSearch.state ?? "") === option.value;
+              return <Button key={option.value} size="sm" variant={current ? "default" : "ghost"} aria-pressed={current} className="min-h-11 px-2.5 md:min-h-9" onClick={() => updateConsole({ state: option.value || undefined, selected: undefined, page: 1 }, false)}>{option.label}</Button>;
+            })}
           </div>
-          )}
+          {(catalog.paged || draftPerformances.length > 0 || publishingDrafts) && <DropdownMenu>
+            <DropdownMenuTrigger asChild><Button size="sm" variant="ghost" className="min-h-11 md:min-h-9" disabled={saving !== null || publicationCatalog.isFetching}>
+              <PiDotsThreeBold aria-hidden="true" />{publicationCatalog.isFetching ? "게시 대상 확인 중" : "게시 옵션"}
+            </Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => void prepareBulkPublication()}>미게시 곡 모두 게시</DropdownMenuItem>
+              <p className="max-w-56 px-2 py-1 text-xs text-muted-foreground">검색 조건과 관계없이 현재 영상 종류의 비공개 영상이 대상입니다.</p>
+            </DropdownMenuContent>
+          </DropdownMenu>}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-t pt-3 [&>input]:h-11 md:[&>input]:h-9">
+          <CatalogSearchInput value={consoleSearch.q ?? ""} onSearch={(q) => updateConsole({ q, page: 1 })} />
+          <SelectField aria-label="카탈로그 영상 종류" className="min-h-11 md:min-h-9" value={scope} onValueChange={value => onScopeChange(value as typeof scope)} options={[{ value: "official", label: "공식 곡" }, { value: "broadcast", label: "노래 클립" }, { value: "all", label: "전체" }]} />
+          <SelectField aria-label="곡 분류" className="min-h-11 md:min-h-9" value={consoleSearch.category ?? ""} onValueChange={(value) => updateConsole({ category: value, page: 1 })} options={[{ value: "", label: "모든 분류" }, ...[...new Set(catalog.availableTags ?? activeSongs.flatMap(song => song.tags ?? []))].sort().map(tag => ({ value: tag, label: tag }))]} />
+          {(consoleSearch.q || consoleSearch.state || consoleSearch.category) && <Button variant="ghost" size="sm" onClick={() => updateConsole({ q: undefined, state: undefined, category: undefined, page: 1 })}>필터 초기화</Button>}
+          <span role="status" className="text-sm tabular-nums text-muted-foreground sm:ml-auto">{activeSongs.length}곡 중 {filteredSongs.length}곡 · {visibleCount}곡 표시</span>
+        </div>
+      </div>
+      {(draftView && visibleSongs.length > 0 || publishingDrafts) && <section aria-label="선택한 영상 게시" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4">
+        <div className="space-y-1">
+          <h2 className="text-sm font-semibold tabular-nums"><span role="status">{publishingDrafts ? saving : `영상 ${selectedDrafts.length}개 선택`}</span></h2>
+          <p className="text-xs text-muted-foreground">{visibleDrafts.length ? "비공개 영상 중 공개할 항목을 체크하세요." : "현재 목록에 선택할 수 있는 비공개 영상이 없습니다."}</p>
+        </div>
+        {draftView && visibleDrafts.length > 0 && <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" className="min-h-11 md:min-h-9" disabled={saving !== null} onClick={() => setSelection({
+            filter: filterKey, versions: allVisibleSelected ? {} : Object.fromEntries(visibleDrafts.map(item => [item.id, item.version])),
+          })}>{allVisibleSelected ? "선택 해제" : "표시된 영상 선택"}</Button>
+          <Button size="sm" className="min-h-11 md:min-h-9" disabled={saving !== null || !selectedDrafts.length} onClick={() => preparePublication(selectedDrafts, false)}><Upload aria-hidden="true" />선택 항목 게시</Button>
+        </div>}
+      </section>}
       {publicationCatalog.isError && <p role="alert" className="text-sm text-destructive">전체 게시 대상을 불러오지 못했습니다. 다시 시도해 주세요.</p>}
+      {emptyBulkScope === scope && !publicationCatalog.isFetching && <p role="status" className="text-sm text-muted-foreground">현재 영상 종류에 게시할 수 있는 비공개 영상이 없습니다.</p>}
       {(activeSongs.length > 0 || consoleSearch.q || consoleSearch.state || consoleSearch.category) && filteredSongs.length === 0 && <p role="status" className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">조건에 맞는 곡이 없습니다. 검색어를 바꾸거나 필터를 초기화해 주세요.</p>}
       {activeSongs.length === 0 ? (consoleSearch.q || consoleSearch.state || consoleSearch.category ? null :
         <div className="rounded-xl border border-dashed p-3 text-center text-sm text-muted-foreground">
@@ -389,14 +437,14 @@ export function WorkflowCatalog({
         <>
           <div className="hidden overflow-hidden rounded-lg border lg:block">
             <Table aria-label="곡 카탈로그" className="w-full table-fixed">
-              <TableHeader className="bg-muted/40"><TableRow><TableHead className="w-10"><span className="sr-only">가창 상세</span></TableHead><TableHead>곡 / 가창</TableHead><TableHead className="w-32">게시 현황</TableHead><TableHead className="w-32">분류</TableHead><TableHead className="w-28 text-right">작업</TableHead></TableRow></TableHeader>
+              <TableHeader className="bg-muted/40"><TableRow><TableHead className="w-12"><span className="sr-only">{draftView ? "게시 선택" : "가창 상세"}</span></TableHead><TableHead>곡 / 가창</TableHead><TableHead className="w-32">게시 현황</TableHead><TableHead className="w-32">분류</TableHead><TableHead className="w-28 text-right">작업</TableHead></TableRow></TableHeader>
               <TableBody>
                 {visibleSongs.flatMap((song) => {
-                  const performances = scopedPerformances.filter((item) => item.songId === song.id);
-                  const open = expanded.has(song.id);
+                  const performances = filterPerformances(song.id);
+                  const open = draftView || expanded.has(song.id);
                   const rows = [
                     <TableRow key={song.id} className={open ? "bg-muted/30" : undefined}>
-                      <TableCell><Button size="icon-sm" variant="ghost" aria-expanded={open} aria-controls={open ? `catalog-song-${song.id}` : undefined} aria-label={`${song.title} 가창 펼치기`} onClick={() => updateConsole({selected: open ? undefined : song.id}, false)}>{open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</Button></TableCell>
+                      <TableCell>{!draftView && <Button size="icon-sm" variant="ghost" aria-expanded={open} aria-controls={open ? `catalog-song-${song.id}` : undefined} aria-label={`${song.title} 가창 펼치기`} onClick={() => updateConsole({selected: open ? undefined : song.id}, false)}>{open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</Button>}</TableCell>
                       <TableCell className="whitespace-normal"><div className="line-clamp-2 text-[15px] font-semibold leading-5 break-words" title={song.title}>{song.title}</div><div className="mt-1 text-[13px] leading-5 text-muted-foreground">{song.originalArtists.map((artist) => artist.displayName).join(", ") || "원곡 가수 미입력"}</div></TableCell>
                       <TableCell className="whitespace-normal"><PublicationSummary performances={performances} /></TableCell>
                       <TableCell className="whitespace-normal"><div className="text-[13px] text-muted-foreground">{song.isOtwOriginal ? "오리지널" : "커버 원곡"}</div><div className="mt-1 flex flex-wrap gap-1">{(song.tags?.length ?? 0) > 0 ? song.tags.map((tag) => <Badge variant="outline" key={tag}>{tag}</Badge>) : <span className="text-[13px] text-muted-foreground">미분류</span>}</div></TableCell>
@@ -405,9 +453,9 @@ export function WorkflowCatalog({
                   ];
                   if (open) rows.push(...performances.map((performance, index) => (
                     <TableRow key={performance.id} id={index === 0 ? `catalog-song-${song.id}` : undefined} aria-label={`${song.title} 가창 ${index + 1}`} className="bg-muted/15">
-                      <TableCell><PiMicrophoneBold className="mx-auto size-4 text-muted-foreground" aria-hidden="true" /><span className="sr-only">가창</span></TableCell>
+                      <TableCell className="text-center">{draftView ? publicationCheckbox(song, performance) : <><PiMicrophoneBold className="mx-auto size-4 text-muted-foreground" aria-hidden="true" /><span className="sr-only">가창</span></>}</TableCell>
                       <TableCell className="whitespace-normal"><div className="border-l-2 border-border pl-3"><div className="font-medium leading-5 break-words">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</div><PerformanceSourceSummary catalog={catalog} performance={performance} /></div></TableCell>
-                      <TableCell><Badge className="whitespace-nowrap text-[13px]" variant={performance.publicationStatus === "published" ? "secondary" : "outline"}>{publicationLabel(performance.publicationStatus)}</Badge>{performance.publicationStatus === "draft" && performance.releaseType === "broadcast" && <div className="mt-1 whitespace-normal text-[13px] text-muted-foreground">{performance.broadcast?.extent ? "검수 완료" : "완곡 여부 확인 필요"}</div>}</TableCell>
+                      <TableCell><PublicationBadge status={performance.publicationStatus} />{performance.publicationStatus === "draft" && performance.releaseType === "broadcast" && <div className="mt-1 whitespace-normal text-[13px] text-muted-foreground">{performance.broadcast?.extent ? "검수 완료" : "완곡 여부 확인 필요"}</div>}</TableCell>
                       <TableCell className="whitespace-normal"><div className="flex flex-wrap gap-x-2 gap-y-1 text-[13px] text-muted-foreground">{[relationLabel(performance.relationType), releaseLabel(performance.releaseType), participationLabel(performance.participationType)].map((label) => <span key={label} className="whitespace-nowrap">{label}</span>)}{performance.tags?.map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>)}</div></TableCell>
                       <TableCell>{performanceActions(performance)}</TableCell>
                     </TableRow>
@@ -420,19 +468,19 @@ export function WorkflowCatalog({
 
           <div className="space-y-3 lg:hidden">
             {visibleSongs.map((song) => {
-              const performances = scopedPerformances.filter((item) => item.songId === song.id);
-              const open = expanded.has(song.id);
-              return <Card key={song.id}><CardContent className="space-y-2 px-3 py-0">
+              const performances = filterPerformances(song.id);
+              const open = draftView || expanded.has(song.id);
+              return <Card key={song.id} className="py-3.5"><CardContent className="space-y-2.5 px-3.5 py-0">
                 <div className="text-[15px] font-semibold leading-5 break-words">{song.title}</div>
                 <div className="text-sm text-muted-foreground">{song.originalArtists.map((artist) => artist.displayName).join(", ") || "원곡 가수 미입력"}</div>
                 <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground"><span>{song.isOtwOriginal ? "오리지널" : "커버 원곡"}</span>{song.tags?.map((tag) => <Badge variant="outline" key={tag}>{tag}</Badge>)}</div>
                 <PublicationSummary performances={performances} />
-                <div className="flex items-center justify-between gap-2"><Button size="sm" variant="outline" aria-expanded={open} aria-controls={open ? `catalog-mobile-${song.id}` : undefined} onClick={() => updateConsole({ selected: open ? undefined : song.id }, false)}>{open ? "가창 접기" : "가창 보기"}</Button>{songActions(song)}</div>
+                <div className={`flex items-center gap-2 ${draftView ? "justify-end" : "justify-between"}`}>{!draftView && <Button size="sm" variant="outline" className="min-h-11" aria-expanded={open} aria-controls={open ? `catalog-mobile-${song.id}` : undefined} onClick={() => updateConsole({ selected: open ? undefined : song.id }, false)}>{open ? "가창 접기" : "가창 보기"}</Button>}{songActions(song)}</div>
                 {open && <div id={`catalog-mobile-${song.id}`} className="space-y-2">
                   {performances.map((performance) => <div key={performance.id} className="border-t pt-2">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0 font-medium break-words">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</div>
-                      <Badge className="shrink-0 whitespace-nowrap" variant="outline">{publicationLabel(performance.publicationStatus)}</Badge>
+                      <div className="flex min-w-0 items-center gap-1">{publicationCheckbox(song, performance)}<span className="min-w-0 font-medium wrap-anywhere">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</span></div>
+                      <PublicationBadge status={performance.publicationStatus} />
                     </div>
                     <div className="mt-1 text-[13px] text-muted-foreground">{relationLabel(performance.relationType)} · {releaseLabel(performance.releaseType)} · {participationLabel(performance.participationType)}</div>
                     {performance.publicationStatus === "draft" && performance.releaseType === "broadcast" && <div className="text-[13px] text-muted-foreground">{performance.broadcast?.extent ? "검수 완료" : "완곡 여부 확인 필요"}</div>}

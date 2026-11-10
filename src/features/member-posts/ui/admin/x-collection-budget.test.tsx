@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement } from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { XCollectionBudget } from "./x-collection-monitoring";
 import { fetchXHistoryHealth } from "../../api/x-history-api";
@@ -41,6 +41,12 @@ describe("XCollectionBudget", () => {
     expect((await screen.findByRole("progressbar", { name: "전체 X 예산" })).getAttribute("aria-valuenow")).toBe("98");
     expect(screen.getByRole("progressbar", { name: /원문 보강 한도/ }).getAttribute("aria-valuenow")).toBe("60");
     expect(screen.getByText("보강 가능").textContent).toContain("$0.020");
+    const backlog = screen.getByRole("region", { name: "자동 처리 대기" });
+    expect(backlog.closest("details")).toBeNull();
+    for (const [label, count] of [["원문 대기", "2건"], ["작성자 대기", "1건"], ["접근 불가", "3건"]] as const) {
+      expect(within(backlog).getByText(label).nextElementSibling?.textContent).toBe(count);
+    }
+    expect(fetchXHistoryHealth).toHaveBeenCalledTimes(1);
   });
 
   it("identifies the last known budget after a refresh fails", async () => {
@@ -48,7 +54,10 @@ describe("XCollectionBudget", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     client.setQueryData(xReferenceHealthQueryKey, health(), { updatedAt: Date.now() - 180_000 });
     show(client);
-    expect((await screen.findByRole("alert")).textContent).toContain("마지막으로 조회한 값");
+    expect((await screen.findByRole("alert")).textContent).toContain("이전 정보");
     expect(screen.getByRole("progressbar", { name: "전체 X 예산" })).toBeTruthy();
+    const backlog = screen.getByRole("region", { name: "자동 처리 대기" });
+    expect(within(backlog).getByText("원문 대기").nextElementSibling?.textContent).toBe("2건");
+    expect(backlog.querySelector("time")).toBeTruthy();
   });
 });

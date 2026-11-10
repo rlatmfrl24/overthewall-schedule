@@ -2611,7 +2611,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           candidateConversion.jobId,
           candidateConversion.candidateId,
           actor!.userId,
-          eventJson({ performanceId: ids.performanceId }),
+          eventJson({ performanceId: ids.performanceId, expectedVersion: candidateConversion.expectedVersion }),
           now,
         )])),
       );

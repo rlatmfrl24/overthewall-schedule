@@ -69,6 +69,7 @@ const repository = () => ({
     job: job(),
     message: { schemaVersion: 1 as const, jobId: "job-1", idempotencyKey: "message-1" },
   })),
+  readAcceptedFullImport: vi.fn(async () => null),
   getJobContext: vi.fn(async () => job()),
   getJob: vi.fn(async () => job()),
   listReviewItems: vi.fn(),
@@ -76,6 +77,9 @@ const repository = () => ({
   changeCandidateKind: vi.fn(),
   deleteJobHistory: vi.fn(async () => {}),
   listJobs: vi.fn(async () => [job()]),
+  assertPlaylistReviewReady: vi.fn(async () => {}),
+  assertStandaloneCandidateConversion: vi.fn(async () => {}),
+  readConversionReceipt: vi.fn(async () => null),
   listItems: vi.fn(async () => ({ page: { items: [], nextCursor: null }, hasMore: false })),
   readMessage: vi.fn(async () => ({
     jobId: "job-1",
@@ -581,7 +585,7 @@ describe("IngestionService", () => {
       catalogRevision: 4,
     }));
     const catalog = {
-      preflightCatalogEntry,
+      prepareCatalogEntry: async () => ({ preflight: await preflightCatalogEntry(), video: {} }),
       createCatalogEntry,
     } as unknown as AdminCatalogService;
     const service = new IngestionService(
@@ -628,6 +632,7 @@ describe("IngestionService", () => {
         candidateId: "candidate-1",
         expectedVersion: 1,
       }),
+      {},
     );
     expect(repo.recordConversionOutcome).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -669,7 +674,7 @@ describe("IngestionService", () => {
       { send: vi.fn(async () => undefined) },
       () => "event-1",
       () => 100,
-      { preflightCatalogEntry, createCatalogEntry } as unknown as AdminCatalogService,
+      { prepareCatalogEntry: preflightCatalogEntry, createCatalogEntry } as unknown as AdminCatalogService,
     );
 
     await expect(service.convertCandidates("job-1", {
@@ -722,7 +727,7 @@ describe("IngestionService", () => {
       },
       linkedPerformanceId: null,
     });
-    const preflightCatalogEntry = vi.fn(async () => ({
+    const prepareCatalogEntry = vi.fn(async () => ({ video: {}, preflight: {
       catalogRevision: 4,
       channel: {
         state: "approved" as const,
@@ -730,6 +735,7 @@ describe("IngestionService", () => {
         channelRole: "approved_kirinuki" as const,
       },
       duplicate: null,
+    },
     }));
     const createCatalogEntry = vi.fn(async () => ({
       data: { performance: { id: "performance-broadcast" } },
@@ -741,7 +747,7 @@ describe("IngestionService", () => {
       { send: vi.fn(async () => undefined) },
       () => "event-clip",
       () => 100,
-      { preflightCatalogEntry, createCatalogEntry } as unknown as AdminCatalogService,
+      { prepareCatalogEntry, createCatalogEntry } as unknown as AdminCatalogService,
     );
 
     await expect(service.convertCandidate("candidate-clip", {
@@ -756,9 +762,10 @@ describe("IngestionService", () => {
       performanceId: "performance-broadcast",
       errorCode: null,
     });
-    expect(preflightCatalogEntry).toHaveBeenCalledWith({
+    expect(prepareCatalogEntry).toHaveBeenCalledWith({
       youtubeUrl: "https://www.youtube.com/watch?v=AAAAAAAAAAA",
       startSeconds: 12,
+      endSeconds: 185,
     });
     expect(createCatalogEntry).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -774,6 +781,7 @@ describe("IngestionService", () => {
         candidateId: "candidate-clip",
         expectedVersion: 2,
       }),
+      {},
     );
   });
 
@@ -818,7 +826,7 @@ describe("IngestionService", () => {
       { send: vi.fn(async () => undefined) },
       () => "event-clip",
       () => 100,
-      { preflightCatalogEntry, createCatalogEntry: vi.fn() } as unknown as AdminCatalogService,
+      { prepareCatalogEntry: async () => ({ preflight: await preflightCatalogEntry(), video: {} }), createCatalogEntry: vi.fn() } as unknown as AdminCatalogService,
     );
 
     await expect(service.convertCandidate("candidate-clip", {

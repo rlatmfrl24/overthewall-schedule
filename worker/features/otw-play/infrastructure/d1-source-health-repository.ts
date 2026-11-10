@@ -9,6 +9,7 @@ import type {
   OtwPlaySourceHealthRetryCode,
 } from "@contracts/otw-play";
 import type {
+  SourceHealthActor,
   SourceHealthMutationResult,
   SourceHealthObservationCommand,
   SourceHealthRepository,
@@ -240,7 +241,7 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
     return row ? targetOf(row) : null;
   }
 
-  async claimDueSources(now: number, leaseUntil: number, limit: number) {
+  async claimDueSources(now: number, leaseUntil: number, limit: number, actor: SourceHealthActor = { kind: "system" }) {
     const boundedLimit = Math.min(
       OTW_PLAY_SOURCE_HEALTH_LIMIT,
       Math.max(0, Math.trunc(limit)),
@@ -251,7 +252,8 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
         SET next_check_at = ?, updated_at = ?
         WHERE id IN (
           SELECT id FROM music_media_sources
-          WHERE next_check_at <= ? AND ${OTW_PLAY_AUTOMATION_RUNNING_SQL} AND NOT (${publicationHiddenSql("music_media_sources", "music_media_sources", this.siteId)})
+          WHERE next_check_at <= ? AND NOT (${publicationHiddenSql("music_media_sources", "music_media_sources", this.siteId)})
+            ${actor.kind === "system" ? `AND ${OTW_PLAY_AUTOMATION_RUNNING_SQL}` : ""}
           ORDER BY next_check_at, id
           LIMIT ?
         )
@@ -473,17 +475,18 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
       OTW_PLAY_SOURCE_HEALTH_LINK_LIMIT,
       Math.max(0, Math.trunc(linkLimit)),
     );
+    const dueScope = `next_check_at <= ? AND NOT (${publicationHiddenSql("music_media_sources", "music_media_sources", this.siteId)})`;
     const [dueCount, unplayableCount, recoveredCount, dueIds, unplayableIds, recoveredIds] =
       await this.database.batch([
         this.database.prepare(`SELECT COUNT(*) AS count FROM music_media_sources
-          WHERE next_check_at <= ?`).bind(now),
+          WHERE ${dueScope}`).bind(now),
         this.database.prepare(`SELECT COUNT(*) AS count FROM music_media_sources INDEXED BY idx_music_media_sources_unplayable_checked
           WHERE availability_status <> 'playable'`),
         this.database.prepare(`SELECT COUNT(DISTINCT aggregate_id) AS count
           FROM music_catalog_events
           WHERE event_type = 'source.recovered' AND created_at >= ?`).bind(recentSince),
         this.database.prepare(`SELECT id FROM music_media_sources
-          WHERE next_check_at <= ? ORDER BY next_check_at, id LIMIT ?`).bind(now, boundedListLimit),
+          WHERE ${dueScope} ORDER BY next_check_at, id LIMIT ?`).bind(now, boundedListLimit),
         this.database.prepare(`SELECT id FROM music_media_sources INDEXED BY idx_music_media_sources_unplayable_checked
           WHERE availability_status <> 'playable'
           ORDER BY CASE WHEN last_checked_at IS NULL THEN 0 ELSE last_checked_at END, id LIMIT ?`).bind(boundedListLimit),

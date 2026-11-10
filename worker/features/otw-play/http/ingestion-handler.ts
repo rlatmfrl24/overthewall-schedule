@@ -82,6 +82,7 @@ const pathId = (pathname: string, pattern: RegExp) => {
 
 export const createIngestionHandler = (
   resolveService: ResolveIngestionService,
+  isAiExecutionAvailable: (env: Env) => boolean = () => false,
 ) => async (request: Request, env: Env): Promise<Response> => {
   const requestId = requestIdFor(request);
   const url = new URL(request.url);
@@ -125,14 +126,14 @@ export const createIngestionHandler = (
         || (jobId !== null && (!jobId.trim() || jobId !== jobId.trim() || jobId.length > 200 || (source !== null && source !== "playlist")))
         || (kind !== null && !["official_video", "singing_clip"].includes(kind))
         || (source !== null && !["playlist", "automatic", "user"].includes(source))
-        || (status !== null && !["pending", "ready", "completed"].includes(status)) || (cursor?.length ?? 0) > 2000) return errorResponse(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "Invalid review filters");
-      return responseJson({ data: await service.listReviewItems({ jobId: jobId ?? undefined, candidateKind: kind as "official_video" | "singing_clip" | undefined ?? undefined, source: source as "playlist" | "automatic" | "user" | undefined ?? undefined, status: status as "pending" | "ready" | "completed" | undefined ?? undefined, cursor: cursor ?? undefined }) });
+        || (status !== null && !["pending", "ready", "completed", ...(jobId && source === "playlist" ? ["all"] : [])].includes(status)) || (cursor?.length ?? 0) > 2000) return errorResponse(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "Invalid review filters");
+      return responseJson({ data: await service.listReviewItems({ jobId: jobId ?? undefined, candidateKind: kind as "official_video" | "singing_clip" | undefined ?? undefined, source: source as "playlist" | "automatic" | "user" | undefined ?? undefined, status: (status ?? undefined) as "pending" | "ready" | "completed" | "all" | undefined, cursor: cursor ?? undefined }) });
     }
     if (
       request.method === "GET" &&
       url.pathname === "/api/play/admin/imports"
     ) {
-      if ([...url.searchParams.keys()].some((key) => key !== "limit")) {
+      if ([...url.searchParams.keys()].some((key) => key !== "limit" && key !== "cursor")) {
         return errorResponse(
           requestId,
           400,
@@ -150,7 +151,12 @@ export const createIngestionHandler = (
           "limit must be between 1 and 100",
         );
       }
-      return responseJson({ data: await service.listJobs(limit) });
+      const rawCursor = url.searchParams.get("cursor");
+      const cursor = rawCursor?.match(/^(\d+):([\w:-]{1,160})$/);
+      if (rawCursor !== null && (!cursor || !Number.isSafeInteger(Number(cursor[1])))) {
+        return errorResponse(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "Invalid import list cursor");
+      }
+      return responseJson(await service.listJobs(limit, cursor ? { createdAt: Number(cursor[1]), id: cursor[2] } : undefined));
     }
     if (
       request.method === "POST" &&
@@ -241,7 +247,7 @@ export const createIngestionHandler = (
         );
       }
       return responseJson({
-        data: await service.convertCandidates(convertJobId, parsed.value, actor),
+        data: await service.convertCandidates(convertJobId, parsed.value, actor, !isAiExecutionAvailable(env)),
       });
     }
     const ignoreJobId = pathId(
@@ -368,7 +374,7 @@ export const createIngestionHandler = (
           "Unknown query parameter",
         );
       }
-      return responseJson({ data: await service.getJob(jobId) });
+      return responseJson({ data: { ...await service.getJob(jobId), aiExecutionAvailable: isAiExecutionAvailable(env) } });
     }
     return new Response(null, { status: 404, headers: NO_STORE_HEADERS });
   } catch (error) {

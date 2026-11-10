@@ -168,7 +168,12 @@ export interface OtwPlayIngestionJobCountsDto {
 }
 
 export interface OtwPlayIngestionJobDto {
+  canResumeLegacyReview?: boolean;
+  aiExecutionAvailable?: boolean;
+  aiBatchNeedsResume?: boolean;
+  aiSharedPending?: boolean;
   candidateKind?: OtwPlayIngestionCandidateKind;
+  aiBatchId?: string;
   workBatchId?: string;
   id: string;
   playlistId: string;
@@ -399,6 +404,7 @@ export type OtwPlayUpdateIngestionCandidateRequest =
       expectedVersion: number;
       expectedReviewInput?: OtwPlayIngestionReviewInput | null;
       expectedReviewStatus?: OtwPlayIngestionCandidateStatus;
+      playlistJobId?: string;
       action: "save";
       input: OtwPlayIngestionReviewInput;
     }
@@ -1102,97 +1108,6 @@ export interface OtwPlayAdminSourceHealthDto {
   recentlyRecovered: OtwPlayAdminSourceHealthItemDto[];
 }
 
-export type OtwPlayAdminObservabilityStatus =
-  | "available"
-  | "unconfigured"
-  | "unavailable";
-
-export interface OtwPlayAdminObservabilitySummaryDto {
-  requestCount: number;
-  errorCount: number;
-  errorRate: number;
-  cacheHit: number;
-  cacheMiss: number;
-  cacheBypass: number;
-  p95DurationMs: number | null;
-  d1RowsRead: number | null;
-  d1RowsWritten: number | null;
-}
-
-export interface OtwPlayAdminObservabilityRouteDto
-  extends OtwPlayAdminObservabilitySummaryDto {
-  routeId: string;
-}
-
-export interface OtwPlayAdminObservabilityEventDto {
-  event: string;
-  count: number;
-}
-
-export interface OtwPlayAdminObservabilityDto {
-  status: OtwPlayAdminObservabilityStatus;
-  generatedAt: string;
-  windowHours: 24;
-  summary: OtwPlayAdminObservabilitySummaryDto;
-  routes: OtwPlayAdminObservabilityRouteDto[];
-  events: OtwPlayAdminObservabilityEventDto[];
-  reasonCode?: "analytics_unconfigured" | "analytics_unavailable";
-}
-
-export interface OtwPlayAdminReleaseFlagsDto {
-  publicReadEnabled: boolean;
-  navigationVisible: boolean;
-}
-
-export interface OtwPlayAdminReleaseStateDto
-  extends OtwPlayAdminReleaseFlagsDto {
-  catalogRevision: number;
-  readModelRevision: number | null;
-  updatedAt: number;
-  readyForPublicRead: boolean;
-}
-
-export const OTW_PLAY_ADMIN_RELEASE_CONFIRMATIONS = [
-  "direct_routes_verified",
-  "public_canary_verified",
-  "rollback_reviewed",
-] as const;
-
-export type OtwPlayAdminReleaseConfirmation =
-  (typeof OTW_PLAY_ADMIN_RELEASE_CONFIRMATIONS)[number];
-
-export type OtwPlayAdminReleaseTransition =
-  | "enable_public_read"
-  | "enable_navigation"
-  | "disable_navigation"
-  | "rollback_all";
-
-export interface OtwPlayAdminReleaseRequest {
-  expected: OtwPlayAdminReleaseFlagsDto & { updatedAt: number };
-  target: OtwPlayAdminReleaseFlagsDto;
-  confirmation: OtwPlayAdminReleaseConfirmation;
-}
-
-export interface OtwPlayAdminReleaseAuditDto {
-  id: string;
-  transition: OtwPlayAdminReleaseTransition;
-  previous: OtwPlayAdminReleaseFlagsDto;
-  current: OtwPlayAdminReleaseFlagsDto;
-  actor: { id: string; displayName: string | null };
-  changedAt: number;
-}
-
-export interface OtwPlayAdminReleaseReadResponse {
-  data: OtwPlayAdminReleaseStateDto;
-  recentChanges: OtwPlayAdminReleaseAuditDto[];
-}
-
-export interface OtwPlayAdminReleaseCommandResponse {
-  data: OtwPlayAdminReleaseStateDto;
-  transition: OtwPlayAdminReleaseTransition;
-  changedAt: number;
-}
-
 export type OtwPlayAdminSourceRecheckResponse =
   OtwPlayAdminCommandResponse<OtwPlayAdminSourceDto> & {
     check:
@@ -1563,7 +1478,7 @@ export interface OtwPlayReviewFilters {
   jobId?: string;
   candidateKind?: OtwPlayIngestionCandidateKind;
   source?: "playlist" | "automatic" | "user";
-  status?: "pending" | "ready" | "completed";
+  status?: "pending" | "ready" | "completed" | "all";
   cursor?: string;
 }
 export interface OtwPlayReviewItemDto {
@@ -1580,6 +1495,7 @@ export interface OtwPlayReviewItemDto {
   channelId: string | null;
   candidate: OtwPlayChannelMonitorCandidateDto | null;
   pendingProposalId?: string | null;
+  conversionErrorCode?: string;
   aiDraft?: { status: import("./otw-play-ai-batch").AiBatchItemStatus; errorMessage: string | null } | null;
 }
 export interface OtwPlayReviewPageDto {

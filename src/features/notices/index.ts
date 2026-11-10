@@ -49,4 +49,5 @@ export type {
 export { useNoticePageData } from "./queries/use-notice-page-data";
 export { NoticeBanner } from "./ui/notice-banner";
 export { NoticeManager } from "./ui/admin/notice-manager";
+export { NoticeImageCleanupCard } from "./ui/admin/notice-image-cleanup-card";
 export { NoticePage } from "./ui/notice-page";

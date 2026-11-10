@@ -9,6 +9,7 @@ const id = (v: unknown): v is string => typeof v === "string" && /^[a-zA-Z0-9_:-
 const invalid = () => new AiReviewError("invalid_request", "일괄 요청 대상과 조회 조건을 확인하세요.");
 export function parseAiBatchSelection(value: unknown): AiBatchSelection {
   if (!object(value) || Object.keys(value).length !== 1) throw invalid();
+  if (id(value.importJobId)) return { importJobId: value.importJobId };
   if (Array.isArray(value.candidates)) {
     if (!value.candidates.length || value.candidates.length > 1000) throw invalid();
     const candidates = new Map<string, number>();

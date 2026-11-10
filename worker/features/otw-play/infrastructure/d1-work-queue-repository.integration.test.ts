@@ -25,7 +25,7 @@ const ingestion=new IngestionService(imports,reader as unknown as OtwPlayYouTube
 const ai=new AiBatchService(new D1AiBatchRepository(db),{} as AiReviewService,async()=>{},true,id,()=>now,new D1AiReviewContext(db));
 const service=new WorkQueueService(repo,imports,ingestion,ai,reader as unknown as OtwPlayYouTubeIngestionReader,async m=>{sent.push(m);},id,()=>now);
 beforeEach(async()=>{
-  await applyD1Migrations(db,(env as unknown as {OTW_PLAY_INGESTION_MIGRATIONS:D1Migration[]}).OTW_PLAY_INGESTION_MIGRATIONS);
+  await applyD1Migrations(db,(env as unknown as {OTW_PLAY_AI_REVIEW_MIGRATIONS:D1Migration[]}).OTW_PLAY_AI_REVIEW_MIGRATIONS);
   await db.batch([
     db.prepare("DELETE FROM music_catalog_events WHERE aggregate_type IN ('playlist_work_queue','playlist_work_batch') OR event_type='ai_batch.retry'"),
     db.prepare("DELETE FROM music_playlist_work_items"),db.prepare("DELETE FROM music_playlist_work_batches"),db.prepare("DELETE FROM music_playlist_work_queues"),db.prepare("DELETE FROM music_ai_review_batches"),
@@ -66,6 +66,11 @@ it("persists private catalog conversion, retains partial successes and never con
   expect(await db.prepare("SELECT count(*) AS n FROM music_performances WHERE id LIKE 'work-id-%'").first()).toEqual({n:1});
   expect(await repo.active()).not.toBeNull();
   failSecond=false;
+  const registered = await db.prepare("SELECT song_id FROM music_performances WHERE id LIKE 'work-id-%'").first<{ song_id: string }>();
+  await actualIngestion.updateCandidate(b.items[1].candidateId!, {
+    action: "save", expectedVersion: partial.items[1].candidateVersion,
+    input: { ...review, song: { kind: "existing", songId: registered!.song_id } },
+  }, actor);
   await actual.retry(b.id,{expectedVersion:partial.version,idempotencyKey:"partial-registration-retry"},actor);
   expect((await ai.get(b.ai!.id)).batch.counts.queued).toBe(0);
   const latest=await actual.batch(b.id);
@@ -75,7 +80,7 @@ it("persists private catalog conversion, retains partial successes and never con
   expect(await repo.active()).toBeNull();
   const performances=(await db.prepare("SELECT publication_status,relation_type,release_type,song_id FROM music_performances WHERE id LIKE 'work-id-%'").all()).results;
   expect(performances).toHaveLength(2);
-  for(const p of performances) expect(p).toMatchObject({publication_status:"draft",relation_type:"singing_clip",release_type:"broadcast",song_id:saved.reviewInput!.song.kind === "existing" ? saved.reviewInput!.song.songId : "unexpected"});
+  for(const p of performances) expect(p).toMatchObject({publication_status:"draft",relation_type:"singing_clip",release_type:"broadcast",song_id:registered!.song_id});
 });
 async function sourceReady() {
   const result=await service.add([summary.playlistId],"admin");
@@ -181,7 +186,7 @@ it("allows only one active batch under concurrent administrators",async()=>{
   expect(results.filter(r=>r.status === "fulfilled")).toHaveLength(1);
   expect(await db.prepare("SELECT count(*) AS n FROM music_playlist_work_batches WHERE status!='completed'").first()).toEqual({n:1});
 });
-it("completion is blocked while AI is pending, then advances one page exactly once on replay",async()=>{
+it("completion is blocked while AI is pending and never starts another legacy batch",async()=>{
   let b=await prepared();
   for(const i of b.items) await service.disposition(i.id,i.version,"excluded","검수 대상 아님","admin");
   await expect(service.complete(b.id,{expectedVersion:b.version,idempotencyKey:"finish-first",startNext:true},"admin")).rejects.toMatchObject({code:"review_incomplete"});
@@ -192,12 +197,9 @@ it("completion is blocked while AI is pending, then advances one page exactly on
   await service.process({kind:"otw_play_work_queue",schemaVersion:1,target:"batch",id:b.id});
   await service.complete(b.id,command,"admin");
   await service.process({kind:"otw_play_work_queue",schemaVersion:1,target:"batch",id:b.id});
-  expect(await db.prepare("SELECT count(*) AS n FROM music_playlist_work_batches").first()).toEqual({n:2});
-  const next=(await repo.active())!;
-  await service.process({kind:"otw_play_work_queue",schemaVersion:1,target:"batch",id:next.id});
-  expect(reader.readPlaylistPage).toHaveBeenLastCalledWith(summary.playlistId,"next-50");
-  await ingestion.process(ingestionSent.shift()!);await service.afterIngestion(next.jobId);
-  expect((await service.batch(next.id)).items).toHaveLength(1);
+  expect(await db.prepare("SELECT count(*) AS n FROM music_playlist_work_batches").first()).toEqual({n:1});
+  expect(await repo.active()).toBeNull();
+  expect(reader.readPlaylistPage).toHaveBeenCalledTimes(1);
 });
 it("explicit defer remains visible across completion and a fresh service read",async()=>{
   let b=await prepared();

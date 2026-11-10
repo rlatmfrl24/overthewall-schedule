@@ -1,4 +1,5 @@
 import { getWorkerSiteResources } from "../platform/site";
+import { isOtwPlayAiExecutionAvailable } from "../platform/otw-play-ai-policy";
 import {
   AiReviewService,
   AiBatchService,
@@ -36,9 +37,7 @@ export const createOtwPlayAiReviewService = (env: Env) => {
       },
     },
     {
-      enabled:
-        env.OTW_PLAY_AI_REVIEW_ENABLED === "true" &&
-        Boolean(env.GEMINI_API_KEY && env.OTW_PLAY_AI_REVIEW_QUEUE),
+      enabled: isOtwPlayAiExecutionAvailable(env),
       model,
       dailyLimit: Math.max(
         1,
@@ -81,6 +80,11 @@ export async function handleAiReviewQueue(
   const isDeadLetter = batch.queue === getWorkerSiteResources(env).queues.deadLetter;
 
   for (const message of batch.messages) {
+    if (!isOtwPlayAiExecutionAvailable(env)) {
+      // Pending jobs remain stored for recovery after execution is resumed.
+      message.ack();
+      continue;
+    }
     if (isAiBatchMessage(message.body)) {
       const batches = createOtwPlayAiBatchService(env);
       try {
@@ -100,10 +104,6 @@ export async function handleAiReviewQueue(
     }
     try {
 
-      if (env.OTW_PLAY_AI_REVIEW_ENABLED !== "true" || !env.GEMINI_API_KEY || !env.OTW_PLAY_AI_REVIEW_QUEUE) {
-        // Ordinary pending jobs are recovered after re-enabling.
-        message.ack();continue;
-      }
       if (isDeadLetter)
         await service.markDead(message.body.reviewId);
       else await service.process(message.body.reviewId);
@@ -136,7 +136,7 @@ export const createOtwPlayAiBatchService = (env: Env) => new AiBatchService(
   async (itemId, generation) => {
     if (!env.OTW_PLAY_AI_REVIEW_QUEUE) throw new Error("AI queue unconfigured");
     await env.OTW_PLAY_AI_REVIEW_QUEUE.send({ kind: "otw_play_ai_batch", schemaVersion: 1, itemId, generation });
-  }, env.OTW_PLAY_AI_REVIEW_ENABLED === "true" && Boolean(env.GEMINI_API_KEY && env.OTW_PLAY_AI_REVIEW_QUEUE),
+  }, isOtwPlayAiExecutionAvailable(env),
   () => crypto.randomUUID(), Date.now, new D1AiReviewContext(env.otw_db),
 );
 export const isAiBatchMessage = (body: unknown): body is { kind: "otw_play_ai_batch"; schemaVersion: 1; itemId: string; generation: number } =>

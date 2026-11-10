@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
 import { NoticeManager } from "./notice-manager";
+import { NoticeImageCleanupCard } from "./notice-image-cleanup-card";
 import { ApiError } from "@/shared/api/client";
 
 const fetchNoticesMock = vi.hoisted(() => vi.fn());
@@ -102,13 +103,15 @@ describe("NoticeManager", () => {
   });
 
   it("미사용 R2 썸네일 정리는 확인 전까지 삭제 API를 호출하지 않는다", async () => {
-    render(createElement(NoticeManager, {view: "resources" as const}), {
+    render(createElement(NoticeImageCleanupCard), {
       wrapper: createQueryWrapper(),
     });
 
     await waitFor(() =>
       expect(fetchNoticeThumbnailStatusMock).toHaveBeenCalled(),
     );
+    expect(fetchNoticesMock).not.toHaveBeenCalled();
+    expect(fetchAdminMembersMock).not.toHaveBeenCalled();
 
     const cleanupButton = screen.getByRole("button", {
       name: "미사용 정리",
@@ -125,6 +128,21 @@ describe("NoticeManager", () => {
     await waitFor(() =>
       expect(cleanupUnusedNoticeThumbnailsMock).toHaveBeenCalledTimes(1),
     );
+  });
+
+  it("미사용 이미지가 있어도 정리 가능 대상이 없으면 정리를 비활성화한다", async () => {
+    const status = makeThumbnailStatus();
+    status.stats.cleanupEligibleObjects = 0;
+    status.objects[0].cleanupEligible = false;
+    fetchNoticeThumbnailStatusMock.mockResolvedValueOnce(status);
+    render(createElement(NoticeImageCleanupCard), { wrapper: createQueryWrapper() });
+
+    await screen.findByText("연결됨");
+    const cleanupButton = screen.getByRole("button", { name: "미사용 정리" }) as HTMLButtonElement;
+    expect(cleanupButton.disabled).toBe(true);
+    fireEvent.click(cleanupButton);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(cleanupUnusedNoticeThumbnailsMock).not.toHaveBeenCalled();
   });
 
   it("opens an ordinary external notice image with its actual notice identity", async () => {

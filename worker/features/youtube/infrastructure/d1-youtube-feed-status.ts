@@ -1,7 +1,9 @@
 import type { YouTubeFeedChannelDto, YouTubeFeedRole, YouTubeFeedState, YouTubeFeedStatusDto, YouTubeUsageRequestOrigin } from "@contracts/youtube";
+import { parseSiteId } from "@contracts/site-definition";
 import type { Env } from "../../../platform/types";
 import { D1ScheduledJobRepository } from "../../../platform/scheduled-jobs/d1-scheduled-job-repository";
 import { YOUTUBE_CHANNEL_ID_PATTERN } from "../domain/channel-targets";
+import { officialChannelRegistrationsSql, youtubeFeedSourceBlockedSql } from "./official-channel-targets";
 import { getYouTubeQuotaWindow, readYouTubeDailyQuota, readYouTubeQuotaLedgerUsage } from "./youtube-quota";
 
 type Registration = { channel_id: string | null; name: string; role: YouTubeFeedRole; owner_id: number };
@@ -28,14 +30,12 @@ export const classifyYouTubeFeedState = (
 /** Read-only operator snapshot. Never synchronize the registry or reserve quota here. */
 export const readYouTubeFeedStatus = async (env: Env, hours: 24 | 168, now = Date.now()): Promise<YouTubeFeedStatusDto> => {
   const db = env.otw_db;
+  const siteId = parseSiteId(env.SITE_ID);
   const since = now - hours * HOUR;
   const [registrations, sourceRows, automatic, usageRows, quota, quotaLimit, recentRuns] = await Promise.all([
     db.prepare(`
-      SELECT youtube_channel_id AS channel_id, name, 'official' AS role, uid AS owner_id
-      FROM members WHERE is_deprecated IS NULL OR is_deprecated != 1
-      UNION ALL SELECT link.youtube_channel_id, member.name || ' · ' || link.label, 'vod', member.uid
-      FROM member_links link JOIN members member ON member.uid = link.member_uid
-      WHERE link.type = 'youtube_vod' AND link.enabled = 1 AND (member.is_deprecated IS NULL OR member.is_deprecated != 1)
+      SELECT youtube_channel_id AS channel_id, name, role, member_uid AS owner_id
+      FROM (${officialChannelRegistrationsSql(siteId)})
       UNION ALL SELECT youtube_channel_id, channel_name, 'kirinuki', id FROM kirinuki_channels
     `).all<Registration>(),
     db.prepare(`
@@ -44,6 +44,7 @@ export const readYouTubeFeedStatus = async (env: Env, hours: 24 | 168, now = Dat
         MIN(video.fetched_at) AS oldest_metadata_at
       FROM youtube_feed_sources source LEFT JOIN youtube_feed_videos video
         ON video.source_id = source.id AND video.available = 1
+      WHERE NOT ${youtubeFeedSourceBlockedSql(siteId, "source")}
       GROUP BY source.id
     `).bind(now - 24 * HOUR).all<Source>(),
     db.prepare("SELECT value FROM settings WHERE key = 'scheduled_v2_youtube_feed_collection_enabled'").first<{ value: string }>(),

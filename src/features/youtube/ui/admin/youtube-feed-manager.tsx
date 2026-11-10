@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { PiArrowRightBold, PiArrowsClockwiseBold } from "react-icons/pi";
 import type { OperationRunAcceptedDto, OperationRunDto } from "@contracts/scheduled-operations";
 import type { YouTubeFeedChannelDto, YouTubeFeedRole, YouTubeFeedState, YouTubeFeedStatusDto } from "@contracts/youtube";
 import { createOperationRun, useOperationRun } from "@/features/operations";
+import { site } from "@/shared/config/site";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/shared/ui/chart";
+import { Card, CardContent } from "@/shared/ui/card";
 import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
 import { Input } from "@/shared/ui/input";
 import { Progress } from "@/shared/ui/progress";
@@ -37,7 +36,6 @@ const age = (value: number | null | undefined, now: number) => value == null ? "
 const isDue = (channel: YouTubeFeedChannelDto, now: number) => channel.nextCheckAt === null || channel.nextCheckAt <= now;
 const runLabel = (run: OperationRunDto) => ({ queued: "접수 · 큐 대기", running: "실행 중", succeeded: "완료", failed: "실패", partial: "일부 미완료", skipped: "처리 대상 없음", throttled: "예산 제한" })[run.status];
 const channelResult = (run: OperationRunDto | undefined) => !run?.youtubeCollection ? "—" : run.youtubeCollection.attempted === 0 ? run.status === "skipped" ? "처리 대상 없음" : "채널 시도 없음" : `${number(run.youtubeCollection.succeeded)} / ${number(run.youtubeCollection.attempted)}`;
-const stateColor = (state: YouTubeFeedState) => ["misconfigured", "failed"].includes(state) ? "var(--destructive)" : ["delayed", "due"].includes(state) ? "var(--chart-3)" : state === "healthy" ? "var(--chart-2)" : "var(--muted-foreground)";
 
 function StateBadge({ state }: { state: YouTubeFeedState }) {
   return <Badge variant="outline" className={`feed-state feed-state-${state}`}>{labels[state]}</Badge>;
@@ -92,7 +90,6 @@ export function YouTubeFeedManager() {
   const queryClient = useQueryClient();
   const [search, update] = useConsoleSearch();
   const [hours, setHours] = useState<24 | 168>(24);
-  const [usageMetric, setUsageMetric] = useState<"quotaUnits" | "apiCalls">("quotaUnits");
   const [confirmation, setConfirmation] = useState(false);
   const [tracked, setTracked] = useState<OperationRunAcceptedDto | null>(null);
   const status = useQuery({ queryKey: queryKeys.youtubeFeed.status(hours), queryFn: () => fetchYouTubeFeedStatus(hours), staleTime: 60_000, placeholderData: keepPreviousData });
@@ -127,18 +124,13 @@ export function YouTubeFeedManager() {
   const view = ["runs", "issues"].includes(search.view ?? "") ? search.view : "channels";
   const period = data?.window.hours === 168 ? "최근 7일" : "최근 24시간";
   const refresh = () => { void status.refetch(); if (accepted) void monitor.refetch(); };
-  const states = data ? priorities.map((state) => ({ state, label: labels[state], count: data.summary.states[state], fill: stateColor(state) })) : [];
-  const usage = data ? Object.entries(origins).map(([origin, label]) => {
-    const row = data.usage.byOrigin.find((item) => item.origin === origin);
-    return { label, apiCalls: row?.apiCalls ?? 0, quotaUnits: row?.quotaUnits ?? 0, failures: row?.failures ?? 0 };
-  }) : [];
 
   return <section className="youtube-collection-dashboard min-w-0 space-y-3" aria-label="YouTube 수집 대시보드">
-    <Button variant="outline" asChild><a href="/admin/history?tab=youtube">저장 영상 이력 · 관리자 보관</a></Button>
     <header className="feed-toolbar">
       <div className="flex min-w-0 flex-wrap items-center gap-2"><h1 className="mr-1 text-xl font-semibold tracking-tight">YouTube 수집</h1>{import.meta.env.DEV && <Badge variant="outline" title="운영 DB와 별도의 로컬 저장 데이터입니다.">로컬 데이터</Badge>}{data && <><Badge variant="outline">{data.automaticEnabled ? "자동 수집 켜짐" : "자동 수집 중지"}</Badge><Badge variant={data.apiConfigured ? "secondary" : "destructive"}>{data.apiConfigured ? "API 연결 설정됨" : "API 키 미설정"}</Badge></>}</div>
       <div className="feed-toolbar-actions"><SelectField aria-label="사용량·실행 조회 기간" value={String(hours)} onValueChange={(value) => setHours(value === "168" ? 168 : 24)} options={[{ value: "24", label: "최근 24시간" }, { value: "168", label: "최근 7일" }]} /><Button variant="outline" onClick={refresh} disabled={status.isFetching}><PiArrowsClockwiseBold />상태 새로고침</Button><Button ref={executeButton} onClick={() => setConfirmation(true)} disabled={running || !data?.apiConfigured}>대기 작업 실행<PiArrowRightBold /></Button></div>
     </header>
+    <p className="text-sm text-muted-foreground">{site.serviceName}의 활성 멤버 공식 채널과 사용 중인 다시보기 채널, 이 사이트에 등록된 키리누키를 수집합니다.</p>
     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground"><QueryReadback updatedAt={data?.updatedAt ?? 0} fetching={status.isFetching} error={status.isError} /><span>채널·할당량: 현재 상태 · 사용량·실행: {period} · 시각 KST</span></div>
     {status.isError && <Alert variant="destructive"><AlertTitle>{data ? "조회 실패 · 이전 조회 결과" : "수집 상태 조회 실패"}</AlertTitle><AlertDescription>상태 새로고침으로 다시 확인해 주세요. 미확인 값을 0이나 정상으로 표시하지 않습니다.</AlertDescription></Alert>}
     {status.isPlaceholderData && <p role="status" className="text-xs text-muted-foreground">기간 변경 조회 중 · 이전 조회 결과 ({period})</p>}
@@ -160,24 +152,23 @@ export function YouTubeFeedManager() {
         <Metric label="오류 채널" value={number(data.summary.states.misconfigured + data.summary.states.failed)} onClick={() => showState("errors")}>설정 {number(data.summary.states.misconfigured)} · 수집 실패 {number(data.summary.states.failed)}</Metric>
         <Metric label="저장 영상" value={number(data.summary.videos)}>등록 채널 저장 피드</Metric>
         <Metric label="메타데이터 갱신 대기" value={number(data.summary.metadataPending)}>최대 경과 {age(data.summary.oldestMetadataAt, data.updatedAt)} · 24시간 기준</Metric>
-        <Metric label="기간 API 호출" value={number(data.usage.apiCalls)}>{period} · 실패 {number(data.usage.failures)}회 · {number(data.usage.quotaUnits)} units</Metric>
+        <Metric label="기간 API 호출" value={number(data.usage.apiCalls)}>
+          <p>{period} · 실패 {number(data.usage.failures)}회 · {number(data.usage.quotaUnits)} units</p>
+          <details>
+            <summary className="min-h-6 cursor-pointer py-1 font-medium text-foreground">출처별 내역</summary>
+            {data.usage.byOrigin.length ? <dl className="space-y-1">
+              {data.usage.byOrigin.map((row) => <div key={row.origin}>
+                <dt className="font-medium text-foreground">{origins[row.origin]}</dt>
+                <dd>{number(row.apiCalls)}회 · {number(row.quotaUnits)} units · 실패 {number(row.failures)}회</dd>
+              </div>)}
+            </dl> : <p>조회 기간 내 API 사용 기록 없음</p>}
+          </details>
+        </Metric>
         <Metric label="Pacific 일자 할당량" value={<>{number(data.quota.used)} <span className="text-sm font-normal text-muted-foreground">/ {number(data.quota.limit)}</span></>}>
           {data.quota.limit != null && data.quota.limit > 0 && <Progress aria-label="Pacific 일일 할당량 사용" value={Math.min(100, data.quota.used / data.quota.limit * 100)} aria-valuetext={`${number(data.quota.used)} / ${number(data.quota.limit)} units`} className="mb-1 h-1" />}
           <p>{data.quota.day} · 초기화 {time(data.quota.nextResetAt)}</p><p>피드 한도 {number(data.quota.lowPriorityLimit)} units</p>
         </Metric>
         <Metric label="최근 실행 결과" value={channelResult(latest)} onClick={() => update({ view: "runs" })}>{latest ? `${runLabel(latest)} · 채널 성공 / 시도` : "조회 기간 내 기록 없음"}<p>메타데이터 {number(latest?.youtubeCollection?.metadataRefreshed)} · 종료 {time(latest?.finishedAt)}</p></Metric>
-      </section>
-      <section aria-label="수집 분석" className="grid gap-3 lg:grid-cols-2">
-        <Card><CardHeader><CardTitle className="text-sm">채널 상태별 건수</CardTitle><span className="text-xs text-muted-foreground">현재 {number(data.summary.channels)}채널 · 상태 선택 시 필터</span></CardHeader><CardContent>
-          <div className="feed-chart-layout"><div className="feed-state-controls">{states.map((row) => <Button key={row.state} variant="ghost" className="justify-between px-1 text-xs" aria-label={`${row.label} ${row.count}채널 보기`} aria-pressed={search.state === row.state && view === "channels"} onClick={() => showState(row.state)}><span className={`feed-state-text-${row.state}`}>{row.label}</span><span className="tabular-nums">{number(row.count)}</span></Button>)}</div>
-            <ChartContainer config={{ count: { label: "채널 수" } }} className="feed-chart" aria-label="채널 상태 건수 막대 차트"><BarChart accessibilityLayer layout="vertical" data={states} margin={{ top: 0, right: 8, bottom: 0, left: 0 }}><CartesianGrid horizontal={false} /><XAxis type="number" allowDecimals={false} axisLine={false} tickLine={false} height={20} domain={[0, (max: number) => Math.max(1, max)]} /><YAxis type="category" dataKey="label" hide /><ChartTooltip cursor={false} isAnimationActive={false} content={<ChartTooltipContent />} /><Bar dataKey="count" barSize={13} radius={2} isAnimationActive={false} onClick={(_, index) => showState(states[index].state)} /></BarChart></ChartContainer>
-          </div>
-        </CardContent></Card>
-        <Card><CardHeader><CardTitle className="text-sm">출처별 API 사용량</CardTitle><Tabs value={usageMetric} onValueChange={(value) => setUsageMetric(value === "apiCalls" ? "apiCalls" : "quotaUnits")}><TabsList aria-label="API 사용량 단위" className="h-7"><TabsTrigger value="quotaUnits" className="text-xs">할당량 단위</TabsTrigger><TabsTrigger value="apiCalls" className="text-xs">호출 수</TabsTrigger></TabsList></Tabs></CardHeader><CardContent>
-          <div className="feed-chart-layout"><dl className="feed-origin-values">{usage.map((row) => <div key={row.label}><dt className="text-xs font-medium">{row.label}</dt><dd className="text-xs tabular-nums">{number(row[usageMetric])} {usageMetric === "quotaUnits" ? "units" : "회"}<span className="block text-muted-foreground">실패 {number(row.failures)}회</span></dd></div>)}</dl>
-            <ChartContainer config={{ quotaUnits: { label: "할당량 단위", color: "var(--chart-1)" }, apiCalls: { label: "호출 수", color: "var(--chart-1)" } }} className="feed-chart" aria-label="출처별 API 사용량 막대 차트"><BarChart accessibilityLayer layout="vertical" data={usage} margin={{ top: 0, right: 8, bottom: 0, left: 0 }}><CartesianGrid horizontal={false} /><XAxis type="number" allowDecimals={false} axisLine={false} tickLine={false} height={20} domain={[0, (max: number) => Math.max(1, max)]} /><YAxis type="category" dataKey="label" hide /><ChartTooltip cursor={false} isAnimationActive={false} content={<ChartTooltipContent />} /><Bar dataKey={usageMetric} fill={`var(--color-${usageMetric})`} barSize={16} radius={2} isAnimationActive={false} /></BarChart></ChartContainer>
-          </div>
-        </CardContent></Card>
       </section>
       <Card><CardContent><Tabs value={view} onValueChange={(value) => update({ view: value })}>
         <div className="flex flex-wrap items-center justify-between gap-2"><TabsList aria-label="수집 상세"><TabsTrigger value="channels">채널 상태 <Badge variant="secondary">{data.channels.length}</Badge></TabsTrigger><TabsTrigger value="runs">최근 실행 <Badge variant="secondary">{recentRuns.length}</Badge></TabsTrigger><TabsTrigger value="issues">설정 문제 <Badge variant={data.configurationIssues.length ? "destructive" : "secondary"}>{data.configurationIssues.length}</Badge></TabsTrigger></TabsList><span className="text-xs text-muted-foreground">{view === "channels" ? `${channels.length} / ${data.channels.length}채널` : view === "runs" ? `${period} · 최대 8건` : "등록 정보·수집 소스 비교"}</span></div>
@@ -195,6 +186,6 @@ export function YouTubeFeedManager() {
         <TabsContent value="issues"><Table aria-label="등록·수집 설정 문제"><TableHeader><TableRow><TableHead>등록 이름</TableHead><TableHead>채널 ID</TableHead><TableHead>문제</TableHead></TableRow></TableHeader><TableBody>{data.configurationIssues.map((issue, index) => <TableRow key={index}><TableCell className="whitespace-normal">{issue.name}</TableCell><TableCell className="break-all whitespace-normal">{issue.channelId ?? "—"}</TableCell><TableCell className="whitespace-normal text-destructive">{issue.issue}</TableCell></TableRow>)}{!data.configurationIssues.length && <TableRow><TableCell colSpan={3} className="h-24 text-center">등록·수집 소스 불일치 없음</TableCell></TableRow>}</TableBody></Table></TabsContent>
       </Tabs></CardContent></Card>
     </>}
-    <ConfirmActionDialog open={confirmation} onOpenChange={setConfirmation} title="대기 작업을 실행할까요?" description="확인 시각이 된 채널과 오래된 메타데이터를 기존 큐·수집량·할당량 제한 안에서 처리합니다. 접수 후 실제 종료 결과와 남은 대기를 확인할 수 있습니다." confirmLabel="대기 작업 실행" onConfirm={() => { setConfirmation(false); execute.mutate(); }} isProcessing={execute.isPending} restoreFocusTo={executeButton.current} />
+    <ConfirmActionDialog open={confirmation} onOpenChange={setConfirmation} title="대기 작업을 실행할까요?" description={`${site.serviceName} 수집 범위에서 확인 시각이 된 채널과 오래된 메타데이터를 기존 수집량·할당량 제한 안에서 처리합니다. 접수 후 실제 종료 결과와 남은 대기를 확인할 수 있습니다.`} confirmLabel="대기 작업 실행" onConfirm={() => { setConfirmation(false); execute.mutate(); }} isProcessing={execute.isPending} restoreFocusTo={executeButton.current} />
   </section>;
 }

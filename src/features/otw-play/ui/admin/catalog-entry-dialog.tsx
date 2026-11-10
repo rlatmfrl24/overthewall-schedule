@@ -926,7 +926,7 @@ export function CatalogEntryDialog({
                   <Button type="button" size="sm" variant="outline" disabled={saving || checking || channelRecheck === "checking" || aiSession.launching}
                     onClick={() => onManageChannel({externalChannelId:preflight.video.channelId,displayName:preflight.video.channelTitle,kind:clip?"singing_clip":"official_video",role:clip?"approved_kirinuki":channelRole})}>{preflight.channel.state === "unknown" ? "이 채널 등록하기" : preflight.channel.state === "pending" ? "승인 검토" : preflight.channel.state === "inactive" ? "영상 사용 설정" : preflight.channel.state === "revoked" ? "철회 상태 확인" : !channelReady ? "채널 용도 확인" : "채널 설정"}</Button>
                   {channelRecheck === "failed" && <Button type="button" size="sm" variant="outline" onClick={() => void recheckChannel()}>채널 상태 다시 확인</Button>}
-                </div> : !channelReady && <a className="underline" href="/admin/otw-play?tab=channels" target="_blank" rel="noreferrer">Play 채널 관리</a>}
+                </div> : !channelReady && <a className="underline" href="/admin/otw-play?tab=operations&view=channels" target="_blank" rel="noreferrer">Play 채널 관리</a>}
               </section>
             )}
 

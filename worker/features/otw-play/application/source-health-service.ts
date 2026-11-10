@@ -246,8 +246,9 @@ export class SourceHealthService {
     return result.response;
   }
 
-  async runScheduled(
+  async runDue(
     limit = OTW_PLAY_SOURCE_HEALTH_LIMIT,
+    actor: SourceHealthActor = { kind: "system" },
   ): Promise<ScheduledSourceHealthResult> {
     const now = this.clock();
     const startedAt = now;
@@ -255,6 +256,7 @@ export class SourceHealthService {
       now,
       now + OTW_PLAY_SOURCE_HEALTH_LEASE_MS,
       Math.max(1, Math.min(limit, OTW_PLAY_SOURCE_HEALTH_LIMIT)),
+      actor,
     );
     const result: ScheduledSourceHealthResult = {
       claimed: targets.length,
@@ -266,7 +268,6 @@ export class SourceHealthService {
       failed: 0,
     };
     if (targets.length === 0) return result;
-    const actor = { kind: "system" } as const;
     let observations: OtwPlayYouTubeVideoObservation[];
     try {
       observations = await this.youtube.readVideos(

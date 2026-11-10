@@ -196,11 +196,18 @@ export class IngestionService {
     actorUserId: string,
     input: OtwPlayCreatePlaylistImportRequest,
   ) {
+    const playlistId = extractYouTubePlaylistId(input.playlistUrl);
+    const fullPlaylistReview = input.mode === "all_new" && input.rangeStart === undefined;
+    const accepted = fullPlaylistReview && playlistId
+      ? await this.repository.readAcceptedFullImport(actorUserId, input, playlistId)
+      : null;
+    if (accepted) return accepted;
+
     const preflight = await this.preflight(input);
     if (preflight.requiresSplit) {
       throw new IngestionServiceError(
         "limit_exceeded",
-        "The playlist exceeds 5,000 items and must be imported in an explicit range",
+        "The playlist exceeds 5,000 items",
       );
     }
     const created = await this.repository.createJob({
@@ -210,7 +217,13 @@ export class IngestionService {
       input,
       preflight,
       now: this.clock(),
+      fullPlaylistReview,
     });
+    return this.dispatchImport(created);
+  }
+
+  private async dispatchImport(created: Awaited<ReturnType<IngestionRepository["createJob"]>>) {
+    if (created.replayed) return created.job;
     if ((await this.readBudget()).status === "blocked") return created.job;
     try {
       await this.queue.send(created.message);
@@ -240,8 +253,11 @@ export class IngestionService {
     return this.repository.deleteReviewItem({ ...input, id, actorUserId, eventId: this.createId(), now: this.clock() });
   }
 
-  listJobs(limit = 100) {
-    return this.repository.listJobs(Math.max(1, Math.min(100, limit)));
+  async listJobs(limit: number, before?: { createdAt: number; id: string }) {
+    const jobs = await this.repository.listJobs(limit + 1, before);
+    const data = jobs.slice(0, limit);
+    const last = data.at(-1);
+    return { data, nextCursor: jobs.length > limit && last ? `${last.createdAt}:${last.id}` : null };
   }
 
   async listItems(
@@ -392,11 +408,9 @@ export class IngestionService {
     };
     if (input.action === "change_kind") return this.repository.changeCandidateKind({ ...command, candidateKind: input.candidateKind });
     if (input.action === "save") {
-      const catalogMaterialization = this.createReviewCatalogMaterialization(
-        input.input,
-      );
       return this.repository.saveCandidateReview({
         ...command,
+        playlistJobId: input.playlistJobId,
         ...(input.expectedReviewInput !== undefined
           ? { expectedReviewInput: input.expectedReviewInput }
           : {}),
@@ -404,7 +418,7 @@ export class IngestionService {
           ? { expectedReviewStatus: input.expectedReviewStatus }
           : {}),
         input: input.input,
-        catalogMaterialization,
+        catalogMaterialization: this.createReviewCatalogMaterialization(input.input),
       });
     }
     if (input.action === "ignore") {
@@ -633,6 +647,9 @@ export class IngestionService {
     ) {
       return { outcome: "retryable_failed", errorCode: "external_service_unavailable" };
     }
+    if (error instanceof IngestionRepositoryError && error.fields?.reason === "channel_not_approved") {
+      return { outcome: "validation_failed", errorCode: "channel_not_approved" };
+    }
     return { outcome: "validation_failed", errorCode: "validation_failed" };
   }
 
@@ -678,11 +695,22 @@ export class IngestionService {
     jobId: string,
     input: OtwPlayConvertIngestionCandidatesRequest,
     actor: AdminCatalogActor,
+    allowManualReview = false,
   ) {
     await this.repository.getJobContext(jobId);
-    const results:import('@contracts/otw-play').OtwPlayConvertIngestionCandidatesResponse['results']=[];
-    for(const selection of input.candidates) {
-      try {results.push(await this.convertCandidateSelection(jobId,selection,actor));}
+    const results: import("@contracts/otw-play").OtwPlayConvertIngestionCandidatesResponse["results"] = [];
+    let phaseChecked = false;
+    for (const selection of input.candidates) {
+      const receipt = await this.readConversionReceipt(jobId, selection);
+      if (receipt) {
+        results.push(receipt);
+        continue;
+      }
+      if (!phaseChecked) {
+        await this.repository.assertPlaylistReviewReady(jobId, allowManualReview);
+        phaseChecked = true;
+      }
+      try {results.push(await this.convertSelectionOriginal(jobId,selection,actor));}
       catch(error) {
         if(!(error instanceof IngestionRepositoryError)||!['content_moved','content_conflict'].includes(error.code)) throw error;
         const code=error.code==='content_moved'?'CONTENT_MOVED':'CONTENT_CONFLICT';
@@ -697,10 +725,15 @@ export class IngestionService {
     input: OtwPlayConvertIngestionCandidateRequest,
     actor: AdminCatalogActor,
   ) {
-    return this.convertCandidateSelection(null,{id:candidateId,expectedVersion:input.expectedVersion},actor);
+    await this.repository.assertStandaloneCandidateConversion(candidateId);
+    const selection = { id: candidateId, expectedVersion: input.expectedVersion };
+    return await this.readConversionReceipt(null, selection) ?? this.convertSelectionOriginal(null, selection, actor);
   }
 
-  private async convertCandidateSelection(jobId:string|null,selection:OtwPlayConvertIngestionCandidatesRequest["candidates"][number],actor:AdminCatalogActor) {return this.convertSelectionOriginal(jobId,selection,actor);}
+  private async readConversionReceipt(jobId: string | null, selection: { id: string; expectedVersion: number }): Promise<OtwPlayIngestionConversionResultDto | null> {
+    const receipt = await this.repository.readConversionReceipt(jobId, selection.id, selection.expectedVersion);
+    return receipt && { candidateId: selection.id, ...receipt, errorCode: receipt.outcome === "duplicate" ? "duplicate_source" : null };
+  }
 
   private async readConversionCandidate(jobId:string|null,selection:{id:string;expectedVersion:number}) {
     const candidate=await this.repository.readReviewCandidate(jobId,selection.id);
@@ -710,7 +743,7 @@ export class IngestionService {
       !Number.isSafeInteger(start)||start<0||(end!==null&&(!Number.isSafeInteger(end)||end<=start))) throw new IngestionRepositoryError(candidate.version!==selection.expectedVersion?'stale_message':'validation_failed','Candidate is not ready for draft conversion');
     return candidate;
   }
-  private async convertSelectionOriginal(jobId:string|null,selection:{id:string;expectedVersion:number},actor:AdminCatalogActor|null):Promise<OtwPlayIngestionConversionResultDto> {
+  private async convertSelectionOriginal(jobId:string|null,selection:{id:string;expectedVersion:number},actor:AdminCatalogActor):Promise<OtwPlayIngestionConversionResultDto> {
     if(!this.catalog) throw new IngestionServiceError('unavailable','Catalog draft conversion is unavailable');
 
       try {
@@ -718,8 +751,7 @@ export class IngestionService {
         const candidate=await this.readConversionCandidate(jobId,selection);
         const startSeconds=candidate.reviewInput!.startSeconds??0,endSeconds=candidate.reviewInput!.endSeconds??null;
         const youtubeUrl = `https://www.youtube.com/watch?v=${candidate.videoId}`;
-        const readPreflight=()=>this.catalog!.preflightCatalogEntry({youtubeUrl,startSeconds} );
-        const preflight=(await readPreflight());
+        const { preflight, video } = await this.catalog.prepareCatalogEntry({ youtubeUrl, startSeconds, endSeconds });
         const channelRoleAllowed = candidate.candidateKind === "singing_clip"
           ? preflight.channel.channelRole === "approved_kirinuki"
           : isOtwPlayIngestionOfficialChannelRole(preflight.channel.channelRole);
@@ -732,6 +764,7 @@ export class IngestionService {
           throw new IngestionRepositoryError(
             "validation_failed",
             "Candidate channel is not approved and active",
+            { reason: "channel_not_approved" },
           );
         }
         if (preflight.duplicate) {
@@ -746,7 +779,8 @@ export class IngestionService {
             eventId: (this.createId()),
             now: (this.clock()),
           });
-          return {
+          const receipt = outcome === "stale" ? await this.readConversionReceipt(jobId, selection) : null;
+          return receipt ?? {
             candidateId: candidate.id,
             outcome,
             performanceId: preflight.duplicate.performanceId,
@@ -757,8 +791,8 @@ export class IngestionService {
           expectedCatalogRevision:preflight.catalogRevision,youtubeUrl,startSeconds,endSeconds,
           ...candidate.reviewInput!,channel:{kind:'existing' as const,channelId:preflight.channel.catalogChannelId},publicationTarget:'draft' as const,
         };
-        if(!actor) throw new Error('Missing original conversion actor');
-        const created=(await this.catalog.createCatalogEntry(input,actor!,{jobId,candidateId:candidate.id,expectedVersion:candidate.version,eventId:this.createId()}));
+        const created = await this.catalog.createCatalogEntry(input, actor,
+          { jobId, candidateId: candidate.id, expectedVersion: candidate.version, eventId: this.createId() }, video);
         return {
           candidateId: candidate.id,
           outcome: "created",
@@ -767,6 +801,8 @@ export class IngestionService {
         };
       } catch (error) {
         if (error instanceof IngestionRepositoryError && ['content_moved','content_conflict'].includes(error.code)) throw error;
+        const receipt = await this.readConversionReceipt(jobId, selection);
+        if (receipt) return receipt;
         if (
           jobId === null &&
           error instanceof IngestionRepositoryError &&
@@ -790,7 +826,7 @@ export class IngestionService {
             eventId: (this.createId()),
             now: (this.clock()),
           });
-          return {
+          return (outcome === "stale" ? await this.readConversionReceipt(jobId, selection) : null) ?? {
             candidateId: selection.id,
             outcome,
             performanceId,
@@ -809,7 +845,7 @@ export class IngestionService {
           eventId: (this.createId()),
           now: (this.clock()),
         });
-        return {
+        return (outcome === "stale" ? await this.readConversionReceipt(jobId, selection) : null) ?? {
           candidateId: selection.id,
           outcome,
           performanceId: null,

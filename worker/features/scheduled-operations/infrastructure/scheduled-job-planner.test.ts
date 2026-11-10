@@ -170,6 +170,7 @@ describe("ScheduledJobPlanner interval eligibility", () => {
   it("recovers AI-only batches despite paused ingestion and an exhausted read budget", async () => {
     const { env } = makeEnv({});
     env.OTW_PLAY_AI_REVIEW_ENABLED = "true";
+    env.OTW_PLAY_AI_REVIEW_PAUSED = "false";
     env.GEMINI_API_KEY = "test";
     env.OTW_PLAY_AI_REVIEW_QUEUE = { send: vi.fn() } as unknown as Queue;
     mocks.readOtwPlayAutomationPaused.mockResolvedValue(true);

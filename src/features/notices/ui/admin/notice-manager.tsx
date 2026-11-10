@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminMembers, type Member } from "@/features/members";
 import type { Notice } from "../../model/types";
-import { PiSpinnerGapBold as Loader2, PiPlusCircleBold as PlusCircle, PiPencilSimpleBold as Pencil, PiTrashBold as Trash2, PiArrowsClockwiseBold as RefreshCw, PiHardDriveBold as HardDrive, PiImageBrokenBold as ImageOff, PiTrashBold as Trash, PiStarBold as Star } from "react-icons/pi";
+import { PiSpinnerGapBold as Loader2, PiPlusCircleBold as PlusCircle, PiPencilSimpleBold as Pencil, PiTrashBold as Trash2, PiArrowsClockwiseBold as RefreshCw, PiStarBold as Star } from "react-icons/pi";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import { AuthenticatedImage } from "@/shared/ui/authenticated-image";
@@ -21,7 +21,6 @@ import {
 
 import { NoticeFormDialog, type NoticeFormValues } from "./notice-form-dialog";
 import {
-  cleanupUnusedNoticeThumbnails,
   createNotice,
   deleteNotice,
   fetchNotices,
@@ -79,13 +78,6 @@ const formatPeriod = (notice: Notice) => {
   }`;
 };
 
-const formatBytes = (value: number) => {
-  if (!Number.isFinite(value) || value <= 0) return "0B";
-  if (value < 1024) return `${value}B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)}KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)}MB`;
-};
-
 const noticePublicationStatusOrder: Record<NoticePublicationStatus, number> = {
   published: 3,
   scheduled: 2,
@@ -120,14 +112,12 @@ const getRelatedMemberLabel = (
   return names.length > 0 ? names.join(", ") : "OTW 단독";
 };
 
-export function NoticeManager({ view = "content" }: { view?: "content" | "resources" }) {
+export function NoticeManager() {
   const [search, updateSearch] = useConsoleSearch();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isSaving, setIsSaving] = useState(false);
   const [featuringNoticeId, setFeaturingNoticeId] = useState<number | null>(null);
-  const [isCleaningThumbnails, setIsCleaningThumbnails] = useState(false);
-  const [isCleanupConfirmOpen, setIsCleanupConfirmOpen] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingNotice, setEditingNotice] = useState<Notice | null>(null);
   const [deletingNotice, setDeletingNotice] = useState<Notice | null>(null);
@@ -158,7 +148,6 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
   );
   const thumbnailStatus = thumbnailStatusQuery.data ?? null;
   const isFetching = noticesQuery.isFetching;
-  const isThumbnailStatusLoading = thumbnailStatusQuery.isFetching;
 
   useEffect(() => {
     if (!noticesQuery.error) return;
@@ -260,12 +249,6 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
       ),
     [thumbnailStatus],
   );
-  const cleanupEligibleThumbnailPreview = useMemo(
-    () =>
-      thumbnailStatus?.objects.filter((object) => object.cleanupEligible) ?? [],
-    [thumbnailStatus],
-  );
-
   const handleOpenCreate = () => {
     setEditingNotice(null);
     setIsDialogOpen(true);
@@ -353,31 +336,6 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
     }
   };
 
-  const handleCleanupThumbnails = async () => {
-    setIsCleaningThumbnails(true);
-    try {
-      const result = await cleanupUnusedNoticeThumbnails();
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.notices.thumbnailStatus(),
-      });
-      toast({
-        variant: result.failedCount > 0 ? "info" : "success",
-        description:
-          result.failedCount > 0
-            ? `미사용 썸네일 ${result.deletedCount}개를 정리했고 ${result.failedCount}개는 실패했습니다.`
-            : `미사용 썸네일 ${result.deletedCount}개를 정리했습니다.`,
-      });
-    } catch (error) {
-      console.error("Failed to clean up notice thumbnails:", error);
-      toast({
-        variant: "error",
-        description: "미사용 썸네일 정리에 실패했습니다.",
-      });
-    } finally {
-      setIsCleaningThumbnails(false);
-    }
-  };
-
   const renderThumbnailBadge = (notice: Notice) => {
     const imageUrls = getNoticeImageUrls(notice);
     if (imageUrls.length === 0) {
@@ -436,12 +394,11 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
 
   return (
     <div className="space-y-4">
-      {view === "resources" && <a className="text-sm underline" href="/admin/content?tab=notices">공지 관리로 이동</a>}
       <AdminSectionHeader
-        title={view === "resources" ? "이미지 정리" : "공지사항 관리"}
-        description={view === "resources" ? "공지에 사용되는 이미지의 저장 상태와 미사용 파일을 관리합니다." : "메인 페이지 상단에 노출될 공지사항과 이벤트를 관리합니다."}
+        title="공지사항 관리"
+        description="메인 페이지 상단에 노출될 공지사항과 이벤트를 관리합니다."
         count={noticesQuery.data ? sortedNotices.length : undefined}
-        actions={view === "content" &&
+        actions={
           <>
             <Select
               value={noticeSort}
@@ -479,149 +436,10 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
         }
       />
 
-      <QueryReadback updatedAt={view === "resources" ? thumbnailStatusQuery.dataUpdatedAt : noticesQuery.dataUpdatedAt} fetching={isFetching} error={view === "resources" ? thumbnailStatusQuery.isError : noticesQuery.isError}/>
-      {view === "content" && <p className="text-sm text-muted-foreground">대표 공지를 선택하면 즉시 반영됩니다.</p>}
-      {view === "resources" && (<>
-      <div className="rounded-xl border bg-card p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0 space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <HardDrive className="h-4 w-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold">R2 썸네일 상태</h3>
-              {thumbnailStatus ? (
-                <Badge
-                  variant="outline"
-                  className={
-                    thumbnailStatus.bucketConfigured
-                      ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                      : "border-rose-300 bg-rose-50 text-rose-800"
-                  }
-                >
-                  {thumbnailStatus.bucketConfigured ? "연결됨" : "미설정"}
-                </Badge>
-              ) : null}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              업로드 제한 {thumbnailStatus ? formatBytes(thumbnailStatus.maxBytes) : "미확인"} ·{" "}
-              {thumbnailStatus?.prefix ?? "notices/thumbnails/"}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void thumbnailStatusQuery.refetch()}
-              disabled={isThumbnailStatusLoading || isCleaningThumbnails}
-            >
-              {isThumbnailStatusLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
-              상태 점검
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsCleanupConfirmOpen(true)}
-              disabled={
-                isThumbnailStatusLoading ||
-                isCleaningThumbnails ||
-                !thumbnailStatus?.bucketConfigured ||
-                (thumbnailStatus?.stats.unusedObjects ?? 0) === 0
-              }
-            >
-              {isCleaningThumbnails ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Trash className="h-4 w-4" />
-              )}
-              미사용 정리
-            </Button>
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-          <div className="rounded-md border bg-background px-3 py-2">
-            <div className="text-xs text-muted-foreground">전체</div>
-            <div className="text-lg font-semibold">
-              {thumbnailStatus ? `${thumbnailStatus.stats.totalObjects}개` : "미확인"}
-            </div>
-          </div>
-          <div className="rounded-md border bg-background px-3 py-2">
-            <div className="text-xs text-muted-foreground">사용중</div>
-            <div className="text-lg font-semibold">
-              {thumbnailStatus ? `${thumbnailStatus.stats.referencedObjects}개` : "미확인"}
-            </div>
-          </div>
-          <div className="rounded-md border bg-background px-3 py-2">
-            <div className="text-xs text-muted-foreground">미사용</div>
-            <div className="text-lg font-semibold">
-              {thumbnailStatus ? `${thumbnailStatus.stats.unusedObjects}개` : "미확인"}
-            </div>
-          </div>
-          <div className="rounded-md border bg-background px-3 py-2">
-            <div className="text-xs text-muted-foreground">누락</div>
-            <div className="text-lg font-semibold">
-              {thumbnailStatus ? `${thumbnailStatus.stats.missingReferencedObjects}개` : "미확인"}
-            </div>
-          </div>
-          <div className="rounded-md border bg-background px-3 py-2">
-            <div className="text-xs text-muted-foreground">정리 가능</div>
-            <div className="text-lg font-semibold">
-              {thumbnailStatus ? `${thumbnailStatus.stats.cleanupEligibleObjects}개` : "미확인"}
-            </div>
-          </div>
-        </div>
-
-        {thumbnailStatus && !thumbnailStatus.bucketConfigured ? (
-          <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
-            R2 버킷이 설정되지 않아 업로드와 정리를 사용할 수 없습니다.
-          </div>
-        ) : null}
-
-        {thumbnailStatus?.missingReferences.length ? (
-          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            <div className="flex items-center gap-2 font-medium">
-              <ImageOff className="h-4 w-4" />
-              R2 객체가 없는 공지 썸네일 {thumbnailStatus.missingReferences.length}개
-            </div>
-            <div className="mt-1 space-y-1 text-xs">
-              {thumbnailStatus.missingReferences.slice(0, 3).map((reference) => (
-                <div key={reference.key} className="truncate">
-                  {reference.key} · 참조 {reference.referenceCount}건
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        {cleanupEligibleThumbnailPreview.length ? (
-          <div className="mt-3 rounded-md border bg-muted/20 px-3 py-2 text-sm">
-            <div className="font-medium">
-              정리 대상 {cleanupEligibleThumbnailPreview.length}개 ·{" "}
-              {formatBytes(thumbnailStatus?.stats.cleanupEligibleBytes ?? 0)}
-            </div>
-            <div className="mt-1 space-y-1 text-xs text-muted-foreground">
-              {cleanupEligibleThumbnailPreview
-                .slice(0, 3)
-                .map((asset) => (
-                  <div key={asset.objectKey ?? asset.key} className="truncate">
-                    {asset.key} · {formatBytes(asset.size)}
-                  </div>
-                ))}
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      </>)}
-
-      {view === "content" && <div className="flex flex-wrap gap-2"><Input aria-label="공지 내용 검색" placeholder="공지 내용 검색" className="max-w-sm" value={search.q ?? ""} onChange={(event) => updateSearch({q: event.target.value || undefined})}/><SelectField aria-label="공지 노출 상태" value={search.state ?? ""} onValueChange={(value) => updateSearch({state: value || undefined})} options={[{ value: "", label: "모든 노출 상태" }, { value: "published", label: "노출 중" }, { value: "scheduled", label: "예정" }, { value: "expired", label: "종료" }, { value: "inactive", label: "비활성" }]} /></div>}
-      {view === "content" && (noticesQuery.isError && !noticesQuery.data ? <p role="alert">공지 목록을 확인할 수 없습니다.</p> : isFetching && sortedNotices.length === 0 ? (
+      <QueryReadback updatedAt={noticesQuery.dataUpdatedAt} fetching={isFetching} error={noticesQuery.isError} />
+      <p className="text-sm text-muted-foreground">대표 공지를 선택하면 즉시 반영됩니다.</p>
+      <div className="flex flex-wrap gap-2"><Input aria-label="공지 내용 검색" placeholder="공지 내용 검색" className="max-w-sm" value={search.q ?? ""} onChange={(event) => updateSearch({q: event.target.value || undefined})}/><SelectField aria-label="공지 노출 상태" value={search.state ?? ""} onValueChange={(value) => updateSearch({state: value || undefined})} options={[{ value: "", label: "모든 노출 상태" }, { value: "published", label: "노출 중" }, { value: "scheduled", label: "예정" }, { value: "expired", label: "종료" }, { value: "inactive", label: "비활성" }]} /></div>
+      {noticesQuery.isError && !noticesQuery.data ? <p role="alert">공지 목록을 확인할 수 없습니다.</p> : isFetching && sortedNotices.length === 0 ? (
         <div className="flex h-44 items-center justify-center rounded-xl border border-dashed">
           <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
         </div>
@@ -652,7 +470,7 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
               </article>
             ))}
           </div>
-      ))}
+      )}
 
       <NoticeFormDialog
         open={isDialogOpen}
@@ -674,31 +492,6 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
         destructive
         onConfirm={() => {
           void handleDelete();
-        }}
-      />
-
-      <ConfirmActionDialog
-        open={isCleanupConfirmOpen}
-        onOpenChange={setIsCleanupConfirmOpen}
-        title="미사용 썸네일 정리 확인"
-        description={
-          <div className="space-y-2">
-            <p>
-              R2에서 사용 중이지 않은 썸네일{" "}
-              {thumbnailStatus ? `${thumbnailStatus.stats.cleanupEligibleObjects}개` : "미확인"} (
-              {formatBytes(thumbnailStatus?.stats.cleanupEligibleBytes ?? 0)})
-              를 삭제합니다.
-            </p>
-            <p className="font-medium text-destructive">
-              삭제 후에는 복구할 수 없습니다.
-            </p>
-          </div>
-        }
-        confirmLabel="정리"
-        destructive
-        isProcessing={isCleaningThumbnails}
-        onConfirm={() => {
-          void handleCleanupThumbnails();
         }}
       />
     </div>

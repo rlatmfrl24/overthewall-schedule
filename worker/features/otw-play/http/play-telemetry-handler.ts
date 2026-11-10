@@ -127,11 +127,6 @@ const successEvent = async (
       ? { event: "play.catalog.read", recordKind: "request" }
       : { event: "play.ingestion.updated" };
   }
-  if (pathname === "/api/play/admin/release") {
-    return request.method === "GET"
-      ? { event: "play.catalog.read", recordKind: "request" }
-      : { event: "play.release.updated" };
-  }
   if (
     pathname.startsWith("/api/play/admin/") &&
     ["POST", "PUT", "PATCH", "DELETE"].includes(request.method)

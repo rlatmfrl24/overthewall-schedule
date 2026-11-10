@@ -22,6 +22,7 @@ export interface Env {
   YOUTUBE_API_KEY: string;
   GEMINI_API_KEY?: string;
   OTW_PLAY_AI_REVIEW_ENABLED?: string;
+  OTW_PLAY_AI_REVIEW_PAUSED?: string;
   OTW_PLAY_AI_REVIEW_MODEL?: string;
   OTW_PLAY_AI_REVIEW_DAILY_LIMIT?: string;
   OTW_PLAY_D1_READ_DAILY_TARGET?: string;
@@ -49,7 +50,6 @@ export interface Env {
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_D1_DATABASE_ID?: string;
   CLOUDFLARE_D1_TOKEN?: string;
-  OTW_PLAY_ANALYTICS_READ_TOKEN?: string;
   OTW_PLAY_ANALYTICS?: AnalyticsEngineDataset;
   OTW_PLAY_SUBMISSION_RATE_LIMITER?: RateLimit;
   MULTIVIEW_RATE_LIMITER?: RateLimit;

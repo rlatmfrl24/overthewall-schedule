@@ -245,7 +245,7 @@ const planSimpleJob = async (
         repository.hasRecoveryWork(timestamp),
         ingestion.hasExpiredApiData(timestamp),
         paused || budget.status === "blocked" ? Promise.resolve([]) : ingestion.listPendingMessages(timestamp, 1),
-        env.OTW_PLAY_AI_REVIEW_ENABLED === "true" && env.GEMINI_API_KEY && env.OTW_PLAY_AI_REVIEW_QUEUE
+        isOtwPlayAiExecutionAvailable(env)
           ? new D1AiBatchRepository(env.otw_db).hasRecoveryWork(timestamp) : Promise.resolve(false),
         work.hasRecoveryWork(timestamp,budget.status !== "blocked"),
         work.hasExpired(timestamp),
@@ -343,3 +343,4 @@ export class ScheduledJobPlanner {
     return this.repository.addItems(run.id, items);
   }
 }
+import { isOtwPlayAiExecutionAvailable } from "../../../platform/otw-play-ai-policy";

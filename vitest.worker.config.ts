@@ -54,13 +54,8 @@ const OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES = [
   "0097_fine_agent_zero.sql",
   "0102_content_transition_foundation.sql",
 ] as const;
-const OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES = [
-  ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.slice(0, 4),
-  "0038_misty_speed_demon.sql",
-  ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.slice(4),
-] as const;
 const OTW_PLAY_SOURCE_HEALTH_MIGRATION_NAME = "0056_moaning_killmonger.sql";
-const OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES = [...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES, "0098_late_beast.sql", "0099_acoustic_rachel_grey.sql", "0100_far_shotgun.sql", "0101_playlist_work_progress_backfill.sql"];
+const OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES = [...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES, "0092_perfect_manta.sql", "0098_late_beast.sql", "0099_acoustic_rachel_grey.sql", "0100_far_shotgun.sql", "0101_playlist_work_progress_backfill.sql"];
 const OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATION_NAME =
   "0067_otw-play-external-identity-consolidation.sql";
 const OTW_PLAY_HARDENING_MIGRATION_NAMES = [
@@ -177,11 +172,6 @@ return defineConfig({
             const migration = migrationsByName.get(name);
             return migration ? [migration] : [];
           });
-      const otwPlayReleaseMigrations =
-        OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES.flatMap((name) => {
-          const migration = otwPlayPublicCatalogMigrations.find(migration => migration.name === name) ?? migrationsByName.get(name);
-          return migration ? [migration] : [];
-        });
       const otwPlaySourceHealthMigration = migrationsByName.get(
         OTW_PLAY_SOURCE_HEALTH_MIGRATION_NAME,
       );
@@ -230,18 +220,6 @@ return defineConfig({
       ) {
         throw new Error(
           `Expected exact ordered OTW Play proposal/search migrations: ${OTW_PLAY_PROPOSAL_SEARCH_MIGRATION_NAMES.join(", ")}`,
-        );
-      }
-      if (
-        otwPlayReleaseMigrations.length !==
-          OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES.length ||
-        otwPlayReleaseMigrations.some(
-          ({ name }, index) =>
-            name !== OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES[index],
-        )
-      ) {
-        throw new Error(
-          `Expected exact ordered OTW Play release test migrations: ${OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES.join(", ")}`,
         );
       }
       if (
@@ -329,7 +307,6 @@ return defineConfig({
               ...accessMigrations(["content_transitions"]).filter(migration => migration.name.endsWith(":control"))],
             OTW_PLAY_AI_REVIEW_MIGRATIONS: [
               ...otwPlayIngestionMigrations,
-              migrationsByName.get("0092_perfect_manta.sql")!,
               ...accessMigrations(["content_transitions"]).filter(migration => migration.name.endsWith(":control")),
             ],
             OTW_PLAY_POLLING_MIGRATIONS: migrations.filter(({ name }) =>
@@ -341,7 +318,6 @@ return defineConfig({
               otwPlayPreSourceHealthMigrations,
             OTW_PLAY_SOURCE_HEALTH_MIGRATIONS:
               otwPlaySourceHealthMigration ? [otwPlaySourceHealthMigration,...efficiencyIndexes("music_media_sources")] : [],
-            OTW_PLAY_RELEASE_MIGRATIONS: otwPlayReleaseMigrations,
             OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATIONS: [
               otwPlayExternalIdentityConsolidationMigration,
             ],

@@ -15,7 +15,7 @@ export interface RegistrationChannelVisit {
 }
 
 export const isRegistrationChannelSearch = (search: ConsoleSearch, visit: RegistrationChannelVisit) =>
-  search.tab === "channels" && search.view === "channel-edit" &&
+  search.tab === "operations" && search.view === "channel-edit" &&
   search.from === "play-registration" && search.channel === visit.target.externalChannelId;
 
 export const preservesRegistrationVisit = (visit: RegistrationChannelVisit): PreservedNavigation =>

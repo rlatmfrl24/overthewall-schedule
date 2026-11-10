@@ -65,9 +65,16 @@ export interface CreateIngestionJobCommand {
   preflight: OtwPlayPlaylistPreflightDto;
   now: number;
   initialPageToken?: string | null;
+  fullPlaylistReview?: boolean;
 }
 
 export type IngestionReviewCandidate = OtwPlayIngestionReviewCandidateDto;
+
+export interface AcceptedIngestionJob {
+  job: OtwPlayIngestionJobDto;
+  message: OtwPlayIngestionQueueMessage;
+  replayed?: boolean;
+}
 
 export interface IngestionReviewCatalogMaterializationIds {
   entityIds: Record<string, string>;
@@ -78,6 +85,7 @@ export interface IngestionReviewCatalogMaterializationIds {
 
 export interface SaveCandidateReviewCommand {
   candidateId: string;
+  playlistJobId?: string;
   expectedVersion: number;
   expectedReviewInput?: OtwPlayIngestionReviewInput | null;
   expectedReviewStatus?: OtwPlayIngestionCandidateStatus;
@@ -100,12 +108,19 @@ export interface IngestionRepository {
   ): Promise<OtwPlayPlaylistPreflightDto["previousImport"]>;
   createJob(
     command: CreateIngestionJobCommand,
-  ): Promise<{ job: OtwPlayIngestionJobDto; message: OtwPlayIngestionQueueMessage }>;
+  ): Promise<AcceptedIngestionJob>;
+  readAcceptedFullImport(actorUserId: string, input: OtwPlayCreatePlaylistImportRequest, playlistId: string): Promise<OtwPlayIngestionJobDto | null>;
   changeCandidateKind(command: { candidateId: string; expectedVersion: number; candidateKind: "official_video" | "singing_clip"; actorUserId: string; eventId: string; now: number }): Promise<IngestionReviewCandidate>;
   getJobContext(jobId: string): Promise<Pick<OtwPlayIngestionJobDto, "playlistId" | "rangeStartPosition" | "rangeEndExclusive" | "requestedItemCount">>;
   getJob(jobId: string): Promise<OtwPlayIngestionJobDto>;
   deleteJobHistory(jobId: string, actorUserId: string, now: number): Promise<void>;
-  listJobs(limit: number): Promise<OtwPlayIngestionJobDto[]>;
+  listJobs(limit: number, before?: { createdAt: number; id: string }): Promise<OtwPlayIngestionJobDto[]>;
+  assertPlaylistReviewReady(jobId: string, allowManualReview: boolean): Promise<void>;
+  assertStandaloneCandidateConversion(candidateId: string): Promise<void>;
+  readConversionReceipt(jobId: string | null, candidateId: string, expectedVersion: number): Promise<{
+    outcome: "created" | "duplicate";
+    performanceId: string;
+  } | null>;
   listItems(
     jobId: string,
     limit: number,

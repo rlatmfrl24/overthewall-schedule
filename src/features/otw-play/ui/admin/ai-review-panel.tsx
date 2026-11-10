@@ -105,6 +105,7 @@ export function AiReviewPanel({
   session,
   segmentEnabled = false,
   storedDraft,
+  draftOnly = false,
 }: {
   target: AiReviewTarget;
   videoId: string;
@@ -118,6 +119,7 @@ export function AiReviewPanel({
   session?: ReturnType<typeof useAiReviewSession>;
   segmentEnabled?: boolean;
   storedDraft?: AiBatchDraft | null;
+  draftOnly?: boolean;
 }) {
   const client = useQueryClient();
 
@@ -166,21 +168,21 @@ export function AiReviewPanel({
   const recent = useQuery({
     queryKey: ["otw-play-ai-review-latest", scope],
     queryFn: () => latestAiReview({ target, range }),
-    enabled: valid && !disabled,
+    enabled: !draftOnly && valid && !disabled,
     retry: false,
   });
   const id = jobId ?? recent.data?.data?.id;
   const job = useQuery({
     queryKey: ["otw-play-ai-review", id],
     queryFn: () => getAiReview(id!),
-    enabled: Boolean(id) && !disabled,
+    enabled: !draftOnly && Boolean(id) && !disabled,
     retry: false,
     refetchInterval: (q) =>
       q.state.data?.data && isAiReviewExecuting(q.state.data.data)
         ? 3000
         : false,
   });
-  const data = job.data?.data ?? (jobId ? null : recent.data?.data);
+  const data = draftOnly ? null : job.data?.data ?? (jobId ? null : recent.data?.data);
 
   useEffect(() => {
     if (disabled || !data) return;
@@ -203,7 +205,7 @@ export function AiReviewPanel({
       durationMs: 6000,
     });
   }, [data, disabled, launching, notificationJob, toast, playSound]);
-  const batchDraft = !rangeEnabled && !jobId ? storedDraft : null;
+  const batchDraft = draftOnly || !rangeEnabled && !jobId ? storedDraft : null;
   const result = batchDraft?.result ?? data?.result;
   const batchDraftId = batchDraft?.itemId, batchSongCount = batchDraft?.result.songs.length;
   useEffect(() => {
@@ -292,19 +294,19 @@ export function AiReviewPanel({
         (candidateKind === "singing_clip"));
   return (
     <section
-      aria-label="AI 자동 채우기"
+      aria-label={draftOnly ? "저장된 AI 초안" : "AI 자동 채우기"}
       className="min-w-0 space-y-2 break-words rounded-lg border bg-muted/10 p-3 text-sm"
     >
       <div className="flex flex-wrap items-center gap-2">
 
-        <Button
+        {!draftOnly && <Button
           type="button"
           size="sm"
           disabled={disabled || !valid || pending}
           onClick={() => void launch(false)}
         >
           AI로 자동 채우기
-        </Button>
+        </Button>}
         {data && !pending && (
           <Button
             type="button"
@@ -331,7 +333,7 @@ export function AiReviewPanel({
             )}
           </>
         )}
-      <label className="flex min-h-11 items-center gap-2 text-xs text-muted-foreground sm:ml-auto sm:min-h-8">
+      {!draftOnly && <label className="flex min-h-11 items-center gap-2 text-xs text-muted-foreground sm:ml-auto sm:min-h-8">
         <input
           type="checkbox"
           checked={rangeEnabled}
@@ -339,7 +341,7 @@ export function AiReviewPanel({
           onChange={(e) => setRangeEnabled(e.target.checked)}
         />
         지정 구간만 분석
-      </label>
+      </label>}
       {data && !batchDraft && (
         <span role="status" className="rounded bg-muted px-2 py-1 text-xs">
           {statuses[data.status]}
@@ -347,7 +349,7 @@ export function AiReviewPanel({
       )}
       </div>
 
-      {rangeEnabled && (
+      {!draftOnly && rangeEnabled && (
         <div className="flex max-w-xs items-center gap-2">
           <Input
             aria-label="AI 분석 시작 초"

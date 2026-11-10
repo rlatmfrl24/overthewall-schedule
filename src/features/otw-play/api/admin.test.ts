@@ -13,9 +13,7 @@ import {
   deleteOtwPlaySong,
   deleteOtwPlayChannelMonitor,
   fetchOtwPlayAdminCatalog,
-  fetchOtwPlayAdminObservability,
   fetchOtwPlayAdminProposals,
-  fetchOtwPlayAdminRelease,
   fetchOtwPlayAdminSourceHealth,
   fetchOtwPlayChannelMonitorCandidates,
   fetchOtwPlayImportJobItems,
@@ -27,7 +25,6 @@ import {
   recheckOtwPlaySource,
   retryOtwPlayImportJob,
   updateOtwPlayImportCandidate,
-  updateOtwPlayAdminRelease,
   updateOtwPlayChannelMonitor,
 } from "./admin";
 
@@ -54,8 +51,6 @@ describe("OTW Play admin API", () => {
   it("always uses required authentication", async () => {
     await fetchOtwPlayAdminCatalog();
     await fetchOtwPlayAdminSourceHealth();
-    await fetchOtwPlayAdminObservability();
-    await fetchOtwPlayAdminRelease();
     await lookupOtwPlayChannel("UC1111111111111111111111");
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/play/admin/catalog",
@@ -66,33 +61,8 @@ describe("OTW Play admin API", () => {
       { auth: "required" },
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/play/admin/observability",
-      { auth: "required" },
-    );
-    expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/play/admin/release",
-      { auth: "required" },
-    );
-    expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/play/admin/channels/lookup?externalChannelId=UC1111111111111111111111",
       { auth: "required" },
-    );
-  });
-
-  it("sends release authority changes only through PATCH", async () => {
-    const command = {
-      expected: {
-        publicReadEnabled: false,
-        navigationVisible: false,
-        updatedAt: 10,
-      },
-      target: { publicReadEnabled: true, navigationVisible: false },
-      confirmation: "direct_routes_verified" as const,
-    };
-    await updateOtwPlayAdminRelease(command);
-    expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/play/admin/release",
-      { method: "PATCH", json: command, auth: "required" },
     );
   });
 

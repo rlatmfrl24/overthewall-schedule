@@ -1,94 +1,74 @@
 // @vitest-environment jsdom
 import { createElement } from "react";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
 import { AutoUpdateLogsManager } from "./auto-update-logs";
+import type { UpdateLogPageResponse } from "../../model/types";
 
 const fetchUpdateLogsMock = vi.hoisted(() => vi.fn());
 const fetchAdminAuditLogsMock = vi.hoisted(() => vi.fn());
-const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../api/audit", () => ({
   fetchAdminAuditLogs: fetchAdminAuditLogsMock,
   fetchUpdateLogs: fetchUpdateLogsMock,
 }));
+vi.mock("@/features/members", () => ({ fetchAdminMembers: async () => [] }));
 
-vi.mock("@/shared/ui/toast", () => ({
-  useToast: () => ({ toast: toastMock }),
-}));
+const empty = {
+  items: [],
+  total: 0,
+  page: 1,
+  pageSize: 50,
+  totalPages: 1,
+  hasPrevPage: false,
+  hasNextPage: false,
+} satisfies UpdateLogPageResponse;
 
 describe("AutoUpdateLogsManager", () => {
-  beforeEach(() => {
-    fetchUpdateLogsMock.mockResolvedValue({
-      items: [],
-      total: 0,
-      page: 1,
-      pageSize: 50,
-      totalPages: 1,
-      hasPrevPage: false,
-      hasNextPage: false,
-    });
-    fetchAdminAuditLogsMock.mockResolvedValue({
-      items: [],
-      total: 0,
-      page: 1,
-      pageSize: 50,
-      totalPages: 1,
-      hasPrevPage: false,
-      hasNextPage: false,
-    });
+  beforeEach(() => fetchUpdateLogsMock.mockResolvedValue(empty));
+  afterEach(() => { cleanup(); vi.resetAllMocks(); });
+
+  it("shows schedule filters and ordering without reading admin audit records", async () => {
+    render(createElement(AutoUpdateLogsManager), { wrapper: createQueryWrapper() });
+
+    expect(await screen.findByText("아직 일정 변경 기록이 없습니다.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "일정 변경 기록" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "상태 새로고침" })).toBeTruthy();
+    const additionalFilters = screen.getByText("멤버·기간·보기 설정");
+    expect(additionalFilters.closest("details")?.open).toBe(false);
+    fireEvent.click(additionalFilters);
+    expect(screen.getByRole("combobox", { name: "정렬" })).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "표시 개수" })).toBeTruthy();
+    expect(fetchUpdateLogsMock).toHaveBeenCalled();
+    expect(fetchAdminAuditLogsMock).not.toHaveBeenCalled();
   });
 
-  afterEach(() => {
-    cleanup();
-    vi.clearAllMocks();
+  it("opens inline change details and re-queries the server when search changes", async () => {
+    fetchUpdateLogsMock.mockResolvedValueOnce({
+      ...empty,
+      total: 1,
+      items: [{
+        id: 42, schedule_id: 3, member_uid: 2, member_name: "테스트 멤버",
+        actor_id: null, actor_name: "일정 관리자", actor_ip: null,
+        schedule_date: "2026-11-10", action: "reject", title: "공식 방송 일정",
+        previous_status: "pending", vod_id: "video", reason_code: "duplicate",
+        reason_note: "이미 등록된 방송", created_at: "2026-11-09 18:30:00",
+      }],
+    } satisfies UpdateLogPageResponse);
+    render(createElement(AutoUpdateLogsManager), { wrapper: createQueryWrapper() });
+
+    const open = await screen.findByRole("button", { name: "공식 방송 일정 상세 보기" });
+    expect(screen.getByText("거부")).toBeTruthy();
+    expect(open.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(open);
+    expect(open.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("일정 관리자")).toBeTruthy();
+    expect(screen.getByText("duplicate · 이미 등록된 방송")).toBeTruthy();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "내용·수정 주체" }), { target: { value: "다른 일정" } });
+    await waitFor(() => expect(fetchUpdateLogsMock).toHaveBeenLastCalledWith(expect.objectContaining({ q: "다른 일정", page: 1 })));
+    expect(await screen.findByText("선택한 조건에 맞는 일정 변경 기록이 없습니다.")).toBeTruthy();
+    expect(screen.queryByText("변경 상세")).toBeNull();
   });
-
-  it("로그 목록과 보기 옵션을 표시한다", async () => {
-    render(createElement(AutoUpdateLogsManager), {
-      wrapper: createQueryWrapper(),
-    });
-
-    expect(screen.getByText("일정 변경 기록")).toBeTruthy();
-    expect(screen.getByText("로그 목록")).toBeTruthy();
-    expect(screen.getByLabelText("정렬")).toBeTruthy();
-    expect(screen.getByLabelText("표시 개수")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "업데이트 로그 새로고침" }),
-    ).toBeTruthy();
-    expect(screen.getByRole("region", { name: "관리자 감사 로그" })).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "감사 로그 새로고침" }),
-    ).toBeTruthy();
-    expect(screen.queryByText("로그 필터")).toBeNull();
-    expect(screen.queryByLabelText("검색어")).toBeNull();
-    expect(screen.queryByLabelText("작업")).toBeNull();
-    expect(screen.queryByLabelText("멤버")).toBeNull();
-    expect(screen.queryByLabelText("시작일")).toBeNull();
-    expect(screen.queryByLabelText("종료일")).toBeNull();
-
-    await waitFor(() => expect(fetchUpdateLogsMock).toHaveBeenCalled());
-    await waitFor(() => expect(fetchAdminAuditLogsMock).toHaveBeenCalled());
-  });
-  it("감사 기록에서 원본 이벤트와 대상 ID, 미기록 건수를 보존하고 상세를 연다", async () => {
-    fetchAdminAuditLogsMock.mockResolvedValue({items: [{id: 42, event_type: "future.operation", resource_type: "custom_resource", resource_id: "target-42", action: "run", status: "partial", actor_name: null, actor_id: null, actor_ip: null, target_count: null, success_count: null, failure_count: null, detail: null, error: "재시도 필요", created_at: 1756706400000}], total: 1, page: 1, pageSize: 50, totalPages: 1});
-    render(createElement<{view: "audit"}>(AutoUpdateLogsManager, {view: "audit"}), {wrapper: createQueryWrapper()});
-    const event = await screen.findByText("future.operation");
-    expect(screen.getByText("target-42")).toBeTruthy();
-    expect(screen.getByText("처리 건수 미기록")).toBeTruthy();
-    expect(screen.getByText("이름 미기록")).toBeTruthy();
-    expect(screen.getByText("재시도 필요")).toBeTruthy();
-    fireEvent.click(event);
-    expect(screen.getByRole("dialog")).toBeTruthy();
-    expect(screen.getByText("기록 ID")).toBeTruthy();
-    expect(screen.getByText("42")).toBeTruthy();
-  });
-
 });

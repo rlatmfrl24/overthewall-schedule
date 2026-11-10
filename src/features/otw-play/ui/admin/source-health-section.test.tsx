@@ -2,9 +2,14 @@
 import { createElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createQueryWrapper } from "@/test/query-client";
 import { SourceHealthSection } from "./source-health-section";
 
 const recheckSourceMock = vi.hoisted(() => vi.fn());
+const batchMock = vi.hoisted(() => vi.fn());
+const monitorMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/features/operations", () => ({ createOperationRun: batchMock, useOperationRun: monitorMock }));
 
 vi.mock("../../api/admin", () => ({
   recheckOtwPlaySource: recheckSourceMock,
@@ -41,19 +46,13 @@ const dueItem = {
   recoveredAt: null,
 };
 
-describe("OTW Play source health section", () => {
-  afterEach(() => {
-    cleanup();
-    vi.clearAllMocks();
-  });
-
-  it("groups summary, status lists, and actions into one dense panel", async () => {
-    recheckSourceMock.mockResolvedValue({});
+const show = () => {
     const run = vi.fn(async (_label: string, task: () => Promise<unknown>) => {
       await task();
       return true;
     });
-    const { container } = render(createElement(SourceHealthSection, {
+    const onBatchFinished = vi.fn(async () => undefined);
+    const panel = createElement(SourceHealthSection, {
       data: {
         generatedAt: 1_777_000_000_000,
         recentRecoveryWindowDays: 7,
@@ -69,7 +68,21 @@ describe("OTW Play source health section", () => {
       saving: null,
       run,
       refetch: vi.fn(async () => undefined),
-    }));
+      onBatchFinished,
+    });
+    return { ...render(panel, { wrapper: createQueryWrapper() }), panel, onBatchFinished };
+};
+
+describe("OTW Play source health section", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("groups summary, status lists, and actions into one dense panel", async () => {
+    recheckSourceMock.mockResolvedValue({});
+    monitorMock.mockReturnValue({});
+    const { container } = show();
 
     expect(container.querySelectorAll('[data-slot="card"]')).toHaveLength(1);
     expect(screen.getByLabelText("재확인 필요")).toBeTruthy();
@@ -85,5 +98,24 @@ describe("OTW Play source health section", () => {
         channelId: "channel-due",
       },
     ));
+  });
+
+  it("confirms the batch, waits for its result, and refreshes source health on completion", async () => {
+    batchMock.mockResolvedValue({ runId: "source-batch", acceptedAt: Date.now() });
+    monitorMock.mockReturnValue({});
+    const { panel, rerender, onBatchFinished } = show();
+    fireEvent.click(screen.getByRole("button", { name: "일괄 재검사" }));
+    expect(screen.getByRole("alertdialog").textContent).toContain("재확인 시각이 지난 영상만");
+    expect(batchMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "재검사 실행" }));
+    await screen.findByText("재검사 접수 · 대기 중");
+    expect(batchMock).toHaveBeenCalledExactlyOnceWith("source_health");
+    expect(onBatchFinished).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "일괄 재검사" })).toHaveProperty("disabled", true);
+
+    monitorMock.mockReturnValue({ data: { runId: "source-batch", status: "partial" } });
+    rerender(createElement(SourceHealthSection, panel.props));
+    expect(await screen.findByText("일부 재검사 미완료")).toBeTruthy();
+    expect(onBatchFinished).toHaveBeenCalledOnce();
   });
 });

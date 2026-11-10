@@ -40,17 +40,13 @@ import {
   D1DefaultPlaylistSettingsRepository,
   PlaylistService,
   createPlaylistHandler,
-  CloudflarePlayObservabilityReader,
   CloudflarePlayTelemetryWriter,
   createAdminCatalogHandler,
   createPublicCatalogEtag,
   createPublicCatalogHandler,
-  createPlayObservabilityHandler,
   D1SourceHealthRepository,
   D1PublicCatalogReader,
-  D1ReleaseRepository,
   PublicCatalogService,
-  ReleaseService,
   SourceHealthService,
   YouTubeOtwPlayMetadataReader,
   withPlayOperationsTelemetry,
@@ -59,7 +55,6 @@ import {
   createChannelMonitorHandler,
   createWebsubAdminHandler,
   createWebsubCallbackHandler,
-  createReleaseHandler,
 } from "../features/otw-play";
 import { createOtwPlayIngestionService } from "./ingestion";
 import { createOtwPlayChannelMonitorService } from "./channel-monitors";
@@ -218,21 +213,6 @@ const handleOtwPlayPublicCatalog = createPublicCatalogHandler(
   createPublicCatalogEtag,
   resolvePlayTelemetry,
 );
-const handleOtwPlayObservability = withPlayOperationsTelemetry(
-  createPlayObservabilityHandler(
-    (env) =>
-      new CloudflarePlayObservabilityReader(
-        env.CLOUDFLARE_ACCOUNT_ID,
-        env.OTW_PLAY_ANALYTICS_READ_TOKEN,
-        getWorkerSiteResources(env).analyticsDataset,
-      ),
-  ),
-  resolvePlayTelemetry,
-);
-const handleOtwPlayRelease = createReleaseHandler(
-  (env) => new ReleaseService(new D1ReleaseRepository(env.otw_db)),
-  resolvePlayTelemetry,
-);
 const handleOtwPlayAdminCatalogCore = createAdminCatalogHandler(
   createOtwPlayAdminCatalogService,
   (env) =>
@@ -256,7 +236,7 @@ const handleOtwPlayMemberSubmissions = withPlayOperationsTelemetry(
   resolvePlayTelemetry,
 );
 const handleOtwPlayIngestion = withPlayOperationsTelemetry(
-  createIngestionHandler(createOtwPlayIngestionService),
+  createIngestionHandler(createOtwPlayIngestionService, isOtwPlayAiExecutionAvailable),
   resolvePlayTelemetry,
 );
 const handleOtwPlayAiReview = createAiReviewHandler(createOtwPlayAiReviewService);
@@ -1029,20 +1009,6 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleOtwPlayAdminCatalog,
   },
   {
-    id: "otw-play.admin.observability",
-    owner: "otw-play",
-    path: apiRoutes.otwPlay.admin.observability.pattern,
-    methods: methods(get(ADMIN_NO_STORE)),
-    handler: handleOtwPlayObservability,
-  },
-  {
-    id: "otw-play.admin.release",
-    owner: "otw-play",
-    path: apiRoutes.otwPlay.admin.release.pattern,
-    methods: methods(get(ADMIN_NO_STORE), patch(ADMIN_NO_STORE)),
-    handler: handleOtwPlayRelease,
-  },
-  {
     id: "otw-play.admin.source.recheck",
     owner: "otw-play",
     path: apiRoutes.otwPlay.admin.recheckSource.pattern,
@@ -1476,3 +1442,4 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
 
 export const workerRouteRegistry = createRouteRegistry(routeDefinitions);
 export const workerRouteManifest = workerRouteRegistry.manifest;
+import { isOtwPlayAiExecutionAvailable } from "../platform/otw-play-ai-policy";

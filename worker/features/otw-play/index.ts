@@ -34,7 +34,6 @@ export type {
   PublicCatalogSongSeoProjection
 } from "./application/ports/public-catalog-seo-reader";
 export { PublicCatalogService } from "./application/public-catalog-service";
-export { ReleaseService } from "./application/release-service";
 export { SourceHealthService } from "./application/source-health-service";
 export {
   PublicCatalogCursorError, decodePublicCatalogCursor,
@@ -58,18 +57,13 @@ export { createAdminCatalogHandler } from "./http/admin-catalog-handler";
 export { createChannelMonitorHandler } from "./http/channel-monitor-handler";
 export { createIngestionHandler } from "./http/ingestion-handler";
 export { createMemberSubmissionHandler } from "./http/member-submission-handler";
-export { createPlayObservabilityHandler } from "./http/observability-handler";
 export { withPlayOperationsTelemetry } from "./http/play-telemetry-handler";
 export { createPublicCatalogHandler } from "./http/public-catalog-handler";
-export { createReleaseHandler } from "./http/release-handler";
 export {
   createWebsubAdminHandler,
   createWebsubCallbackHandler
 } from "./http/websub-handler";
 export { DrizzleAdminCatalogAudit } from "./infrastructure/admin-catalog-audit";
-export {
-  CloudflarePlayObservabilityReader,
-} from "./infrastructure/cloudflare-play-observability-reader";
 export {
   CloudflarePlayTelemetryWriter,
   shouldWritePlayCustomLog,
@@ -87,7 +81,6 @@ export { D1PublicCatalogReader } from "./infrastructure/d1-public-catalog-reader
 export { D1PlaylistRepository } from "./infrastructure/d1-playlist-repository";
 export { PlaylistService } from "./application/playlist-service";
 export { createPlaylistHandler } from "./http/playlist-handler";
-export { D1ReleaseRepository } from "./infrastructure/d1-release-repository";
 export { D1SourceHealthRepository } from "./infrastructure/d1-source-health-repository";
 export { YouTubeOtwPlayMetadataReader } from "./infrastructure/youtube-metadata-reader";
 

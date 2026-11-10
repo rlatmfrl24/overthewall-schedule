@@ -1,10 +1,12 @@
 import type { PreservedNavigation } from "@/shared/lib/unsaved-changes";
 import type { ConsoleSearch } from "@/shared/lib/admin-console-search";
 
-// Catalog, import, channels and operations share the mounted catalog manager.
-// Playlists replace it; other pages and reloads also discard the review forms.
 export const preservesPlayReview: PreservedNavigation = ({ current, next }) => {
   if (current.pathname !== next.pathname || next.pathname !== "/admin/otw-play") return false;
-  return (current.search as ConsoleSearch).tab !== "playlists"
-    && (next.search as ConsoleSearch).tab !== "playlists";
+  const from = current.search as ConsoleSearch;
+  const to = next.search as ConsoleSearch;
+  if (from.tab === "playlists" || to.tab === "playlists") return false;
+  // Opening another card or leaving the import workspace unmounts its editor.
+  if (from.category && (from.tab === "import" || from.from === "play-review")) return from.category === to.category;
+  return true;
 };

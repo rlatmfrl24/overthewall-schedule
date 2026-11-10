@@ -18,7 +18,6 @@ const candidatesQueryMock = vi.hoisted(() => vi.fn());
 const previousCandidatesQueryMock = vi.hoisted(() => vi.fn());
 const settingsMock = vi.hoisted(() => vi.fn());
 
-vi.mock("./play-automation-control", () => ({ PlayAutomationControl: () => null }));
 vi.mock("@/features/configuration", () => ({ fetchSettings: settingsMock }));
 
 vi.mock("../../api/admin", () => ({

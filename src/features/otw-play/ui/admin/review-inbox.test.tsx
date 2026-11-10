@@ -3,288 +3,110 @@ import { createAdminCatalogFixture, createReviewItemFixture } from "../../test/c
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { createQueryWrapper, createTestQueryClient } from "@/test/query-client";
-import { QueryClientProvider } from "@tanstack/react-query";
-import type { OtwPlayAdminCatalogDto, OtwPlayReviewItemDto } from "@contracts/otw-play";
+import { createQueryWrapper } from "@/test/query-client";
+import type { OtwPlayAdminCatalogDto, OtwPlayIngestionJobDto, OtwPlayReviewItemDto } from "@contracts/otw-play";
 import { ReviewInbox } from "./review-inbox";
 import { ApiError } from "@/shared/api/client";
 import { ConsoleSearchContext } from "@/shared/lib/admin-console-search";
 const fetchReview = vi.hoisted(() => vi.fn());
 const convert = vi.hoisted(() => vi.fn());
+const convertJob = vi.hoisted(() => vi.fn());
 const updateCandidate = vi.hoisted(() => vi.fn());
 const deleteReviewItem = vi.hoisted(() => vi.fn());
 const confirm = vi.hoisted(() => vi.fn());
 const toast = vi.hoisted(() => vi.fn());
-const jobs = vi.hoisted(() => vi.fn());
-const jobDetail = vi.hoisted(() => vi.fn());
-const batchApi = vi.hoisted(() => ({ preview: vi.fn(), start: vi.fn(), list: vi.fn(), get: vi.fn() }));
-vi.mock("../../api/ai-batch", () => ({ previewAiBatch: batchApi.preview, startAiBatch: batchApi.start, listAiBatches: batchApi.list, getAiBatch: batchApi.get, getAiBatchDraft: async () => ({ data: null }), retryAiBatch: vi.fn() }));
+const getAiBatchDraft = vi.hoisted(() => vi.fn());
+vi.mock("../../api/ai-batch", () => ({ getAiBatchDraft }));
 const scrollIntoView = vi.hoisted(() => vi.fn());
-vi.mock("../../queries/use-admin-catalog", async importOriginal => ({
-  ...await importOriginal<typeof import("../../queries/use-admin-catalog")>(),
-  useOtwPlayImportJobs: jobs,
-  useOtwPlayImportJob: jobDetail,
-}));
-vi.mock("../../api/admin", () => ({ fetchOtwPlayIngestionBudget: vi.fn(async () => ({ status: "available" })), fetchOtwPlayReviewItems: fetchReview, convertOtwPlayImportCandidate: convert, updateOtwPlayImportCandidate: updateCandidate, deleteOtwPlayReviewItem: deleteReviewItem }));
+vi.mock("../../api/admin", () => ({ fetchOtwPlayIngestionBudget: vi.fn(async () => ({ status: "available" })), fetchOtwPlayReviewItems: fetchReview, convertOtwPlayImportCandidate: convert, convertOtwPlayImportCandidates: convertJob, updateOtwPlayImportCandidate: updateCandidate, deleteOtwPlayReviewItem: deleteReviewItem }));
 vi.mock("@/features/members", () => ({ fetchActiveMembers: vi.fn(async () => []) }));
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast }) }));
 vi.mock("@/shared/lib/confirmation", () => ({ useConfirmation: () => confirm }));
 const row = (id: string, status = "ready"): OtwPlayReviewItemDto => createReviewItemFixture({ id, kind: "candidate", candidateKind: "singing_clip", sources: ["playlist", "automatic"], title: id, version: 4, status, createdAt: 1 });
 const catalog = createAdminCatalogFixture({ revision: 1, readModelRevision: 1 });
-const selectOption = async (label: string, option: string | RegExp) => {
-  fireEvent.click(screen.getByRole("combobox", { name: label }));
-  fireEvent.click(await screen.findByRole("option", { name: option }));
-};
+const clipJob = { id: "job-a", candidateKind: "singing_clip", status: "completed", aiBatchId: "ai-job-a" } as OtwPlayIngestionJobDto;
+const officialJob = { ...clipJob, candidateKind: "official_video" } as const;
 beforeEach(() => {
   vi.clearAllMocks();
   confirm.mockResolvedValue(true);
   deleteReviewItem.mockReset();
-  jobDetail.mockReturnValue({ data: undefined });
-  batchApi.list.mockResolvedValue({ data: [] });
-  batchApi.preview.mockResolvedValue({ data: { count: 75 } });
-  batchApi.start.mockResolvedValue({ data: { id: "batch-one" } });
-  batchApi.get.mockResolvedValue({ data: { batch: { id: "batch-one", total: 75, counts: { queued: 75 } }, items: [], nextCursor: null } });
+  getAiBatchDraft.mockResolvedValue({ data: null });
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
-  jobs.mockReturnValue({ data: [{ id: "job-a", playlistTitle: "첫 번째 가져오기", createdAt: 1, candidateKind: "singing_clip" }, { id: "job-b", playlistTitle: "두 번째 가져오기", createdAt: 2, candidateKind: "official_video" }], isLoading: false });
   fetchReview.mockResolvedValue({ items: [row("clip-a"), row("clip-b"), row("clip-c", "needs_input")], nextCursor: null });
 });
 afterEach(cleanup);
-it("deletes a confirmed review item, refreshes all inbox scopes and clears its registration selection", async () => {
-  const client = createTestQueryClient();
-  const otherKey = ["otw-play-review-inbox", { source: "automatic", status: "completed" }];
-  client.setQueryData(otherKey, { pages: [{ items: [row("clip-a")], nextCursor: null }], pageParams: [null] });
-  deleteReviewItem.mockImplementation(async () => { fetchReview.mockResolvedValue({ items: [row("clip-b")], nextCursor: null }); });
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
-  fireEvent.click(await screen.findByRole("checkbox", { name: "clip-a 선택" }));
-  fireEvent.click(screen.getByRole("button", { name: "clip-a 삭제" }));
-  await waitFor(() => expect(deleteReviewItem).toHaveBeenCalledExactlyOnceWith("clip-a", { kind: "candidate", expectedVersion: 4 }));
-  expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ confirmLabel: "삭제", destructive: true }));
-  await waitFor(() => expect(screen.queryByText("clip-a")).toBeNull());
-  expect(screen.getByRole("button", { name: "선택 0개 일괄 임시 등록" })).toHaveProperty("disabled", true);
-  expect(client.getQueryState(otherKey)?.isInvalidated).toBe(true);
-  expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: "success" }));
-  expect(document.activeElement).toBe(screen.getByRole("region", { name: "통합 검수 목록" }));
-  client.clear();
-});
-
-it("keeps the item and selection when deletion is cancelled or fails", async () => {
+it("requires final confirmation and only converts selected videos in the open playlist", async () => {
   confirm.mockResolvedValueOnce(false);
-  deleteReviewItem.mockRejectedValueOnce(new Error("다른 관리자가 변경했습니다."));
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
-  const checkbox = await screen.findByRole("checkbox", { name: "clip-a 선택" });
-  fireEvent.click(checkbox);
-  fireEvent.click(screen.getByRole("button", { name: "clip-a 삭제" }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "clip-a 삭제" })).toHaveProperty("disabled", false));
-  expect(deleteReviewItem).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "clip-a 삭제" }));
-  await waitFor(() => expect(toast).toHaveBeenCalledWith({ variant: "error", description: "다른 관리자가 변경했습니다." }));
-  expect(screen.getByText("clip-a")).toBeTruthy();
-  expect(checkbox.getAttribute("data-state")).toBe("checked");
+  convertJob.mockResolvedValue({ results: [{ candidateId: "clip-a", outcome: "created", performanceId: "p-a" }] });
+  render(<ReviewInbox playlistJob={clipJob} canReview catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  fireEvent.click(await screen.findByRole("checkbox", { name: "clip-a 선택" }));
+  const add = screen.getByRole("button", { name: "선택 항목 카탈로그 추가 (1개)" });
+  fireEvent.click(add);
+  await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ confirmLabel: "카탈로그 추가" })));
+  expect(convertJob).not.toHaveBeenCalled();
+  fireEvent.click(add);
+  await waitFor(() => expect(convertJob).toHaveBeenCalledExactlyOnceWith("job-a", { candidates: [{ id: "clip-a", expectedVersion: 4 }] }));
+  expect(fetchReview).toHaveBeenCalledWith(expect.objectContaining({ jobId: "job-a", source: "playlist", status: "all" }));
+  expect(screen.queryByRole("combobox", { name: "검수 출처" })).toBeNull();
 });
 
-it("requires proposal processing before removal and lets processed proposals be deleted", async () => {
+it("does not allow a reused ready candidate to be registered during collection", async () => {
+  render(<ReviewInbox playlistJob={{ ...clipJob, status: "collecting", aiBatchId: undefined }} catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  expect(await screen.findByRole("checkbox", { name: "clip-a 선택" })).toHaveProperty("disabled", true);
+  expect(screen.queryByRole("button", { name: /선택 항목 카탈로그 추가|검수 열기/ })).toBeNull();
+});
+
+it("replays a registration with the same version when the first response is lost", async () => {
+  convertJob.mockRejectedValueOnce(new TypeError("Failed to fetch"))
+    .mockResolvedValueOnce({ results: [{ outcome: "created", performanceId: "performance" }] });
+  render(<ReviewInbox playlistJob={clipJob} canReview catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  fireEvent.click(await screen.findByRole("checkbox", { name: "clip-a 선택" }));
+  fireEvent.click(screen.getByRole("button", { name: "선택 항목 카탈로그 추가 (1개)" }));
+  const summary = await screen.findByRole("status", { name: "일괄 임시 등록 결과" });
+  expect(summary.textContent).toContain("완료 1개");
+  expect(summary.textContent).toContain("실패 0개");
+  expect(convertJob.mock.calls).toEqual(Array.from({ length: 2 }, () => ["job-a", { candidates: [{ id: "clip-a", expectedVersion: 4 }] }]));
+});
+
+it("shows proposal processing status and keeps deletion for processed proposals", async () => {
   const proposal = { ...row("proposal"), kind: "proposal" as const, candidate: null, status: "pending_review", sources: ["user" as const] };
-  fetchReview.mockResolvedValue({ items: [proposal, { ...row("linked"), pendingProposalId: "proposal" }, { ...proposal, id: "processed", title: "processed", status: "rejected" }], nextCursor: null });
+  const onProposal = vi.fn();
+  fetchReview.mockImplementation(async ({ status }) => ({
+    items: [status === "completed" ? { ...proposal, status: "rejected" } : proposal], nextCursor: null,
+  }));
   deleteReviewItem.mockResolvedValue(undefined);
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
-  expect(await screen.findByRole("button", { name: "proposal 삭제" })).toHaveProperty("disabled", true);
-  expect(screen.getByRole("button", { name: "linked 삭제" })).toHaveProperty("disabled", true);
-  expect(screen.getByText("대기 중인 제안은 승인·거절 후 목록에서 삭제할 수 있습니다.")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "processed 삭제" }));
-  await waitFor(() => expect(deleteReviewItem).toHaveBeenCalledWith("processed", { kind: "proposal", expectedVersion: 4 }));
-});
-
-it("keeps the original inbox deletion selected while its owner accepts the same retry", async () => {
-  deleteReviewItem.mockRejectedValueOnce(new ApiError("삭제 중 동시 변경이 발생했습니다. 다시 확인해 주세요.",409,{code:"CONTENT_CONFLICT"}));
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
-  const checkbox=await screen.findByRole("checkbox",{name:"clip-a 선택"});fireEvent.click(checkbox);
-  fireEvent.click(screen.getByRole("button",{name:"clip-a 삭제"}));
-  await waitFor(()=>expect(toast).toHaveBeenCalledWith({variant:"error",description:"삭제 중 동시 변경이 발생했습니다. 다시 확인해 주세요."}));
-  expect(checkbox.getAttribute("data-state")).toBe("checked");expect(screen.getByText("clip-a")).toBeTruthy();
-  deleteReviewItem.mockResolvedValueOnce(undefined);
-  fireEvent.click(screen.getByRole("button",{name:"clip-a 삭제"}));
-  await waitFor(()=>expect(deleteReviewItem).toHaveBeenCalledTimes(2));
-  expect(deleteReviewItem.mock.calls[1]).toEqual(deleteReviewItem.mock.calls[0]);
-});
-
-it("refreshes the inbox only when batch progress changes, not on unchanged polls", async () => {
-  const progress = { data: [{ id: "batch", createdAt: 1, updatedAt: 1, total: 2, counts: { queued: 2, analyzing: 0, saving: 0, saved: 0, needs_selection: 0, failed: 0, changed: 0 } }] };
-  batchApi.list.mockImplementation(async () => structuredClone(progress));
-  const client = createTestQueryClient();
-  render(<QueryClientProvider client={client}><ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} /></QueryClientProvider>);
-  await screen.findByText("총 2개 · 대기 2개");
-  await screen.findByText("clip-a");
-  const invalidate = vi.spyOn(client, "invalidateQueries");
-  await act(async () => { await client.refetchQueries({ queryKey: ["otw-play-ai-batches"] }); });
-  expect(invalidate).not.toHaveBeenCalled();
-  await act(async () => { client.setQueriesData({ queryKey: ["otw-play-review-inbox"] }, { pages: [{ items: [row("clip-a")], nextCursor: "page-2" }, { items: [row("later-page")], nextCursor: null }], pageParams: [null, "page-2"] }); });
-  fetchReview.mockClear();
-  progress.data[0].counts.queued = 1; progress.data[0].counts.saved = 1;
-  await act(async () => { await client.refetchQueries({ queryKey: ["otw-play-ai-batches"] }); });
-  await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["otw-play-review-inbox"], exact: false }));
-  expect(fetchReview.mock.calls.every(([filters]) => filters.cursor === undefined)).toBe(true);
-  expect(client.getQueriesData<{ pages: unknown[] }>({ queryKey: ["otw-play-review-inbox"] })[0][1]?.pages).toHaveLength(1);
-  invalidate.mockClear();
-  progress.data[0].updatedAt = 2;
-  await act(async () => { await client.refetchQueries({ queryKey: ["otw-play-ai-batches"] }); });
-  await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["otw-play-review-inbox"], exact: false }));
-  client.clear();
-});
-it("shows AI status and draft review in the existing candidate row without a duplicate batch list", async () => {
-  fetchReview.mockResolvedValue({ items: [
-    { ...reviewRow("saved-video"), aiDraft: { status: "saved", errorMessage: null } },
-    { ...reviewRow("failed-video"), aiDraft: { status: "failed", errorMessage: "분석 실패" } },
-  ], nextCursor: null });
-  const update = vi.fn();
-  render(<ConsoleSearchContext.Provider value={[{ source: "playlist", category: "job-a" }, update]}>
-    <ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />
-  </ConsoleSearchContext.Provider>, { wrapper: createQueryWrapper() });
-  const saved = (await screen.findByText("saved-video")).closest("article")!;
-  expect(within(saved).getByText("AI · 초안 저장")).toBeTruthy();
-  fireEvent.click(within(saved).getByRole("button", { name: "초안 검수" }));
-  expect(update).toHaveBeenCalledWith({ view: "review", selected: "saved-video" }, false);
-  const failed = screen.getByText("failed-video").closest("article")!;
-  expect(within(failed).getByText("AI · 실패")).toBeTruthy();
-  expect(within(failed).getByText("AI · 분석 실패")).toBeTruthy();
-  expect(within(screen.getByRole("region", { name: "일괄 AI 검수 초안" })).queryByRole("list")).toBeNull();
-  expect(batchApi.get).not.toHaveBeenCalled();
-});
-it("shows an older batch's import job even when it is absent from recent history", async () => {
-  jobDetail.mockReturnValue({ data: { id: "old-job", playlistTitle: "오래된 가져오기", candidateKind: "singing_clip" } });
-  render(<ConsoleSearchContext.Provider value={[{ source: "playlist", category: "old-job" }, vi.fn()]}>
-    <ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />
-  </ConsoleSearchContext.Provider>, { wrapper: createQueryWrapper() });
-  expect(await screen.findByRole("combobox", { name: "검수 가져오기 이력" })).toHaveProperty("textContent", "오래된 가져오기");
-});
-it("opens imported playlist candidates without a live job and reaches the original AI draft action", async () => {
-  jobs.mockReturnValue({ data: [], isLoading: false });
-  fetchReview.mockResolvedValue({ items: [reviewRow("imported-candidate")], nextCursor: null });
-  const client = createTestQueryClient(), update = vi.fn();
-  render(<ConsoleSearchContext.Provider value={[{ source: "playlist" }, update]}>
-    <ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />
-  </ConsoleSearchContext.Provider>, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
-  fireEvent.click(await screen.findByRole("checkbox", { name: "imported-candidate AI 초안 선택" }));
-  expect(fetchReview).toHaveBeenCalledWith(expect.objectContaining({ source: "playlist", jobId: undefined }));
-  expect(screen.getByRole("combobox", { name: "검수 가져오기 이력" })).toHaveProperty("textContent", "전체 플레이리스트 후보");
-  fireEvent.click(screen.getByRole("button", { name: "선택 1개 AI 분석·초안 저장" }));
-  await waitFor(() => expect(batchApi.start).toHaveBeenCalledWith({ candidates: [{ id: "imported-candidate", version: 4 }] }, expect.any(String)));
-  await waitFor(() => expect(screen.getByRole("button", { name: "현재 필터 전체 대상 선택" })).toHaveProperty("disabled", false));
-  fireEvent.click(screen.getByRole("button", { name: "현재 필터 전체 대상 선택" }));
-  fireEvent.click(screen.getByRole("button", { name: "전체 대상 AI 분석·초안 저장" }));
-  await waitFor(() => expect(batchApi.start).toHaveBeenLastCalledWith({ filters: { source: "playlist" } }, expect.any(String)));
-  fetchReview.mockResolvedValue({ items: [{ ...reviewRow("imported-candidate"), aiDraft: { status: "needs_selection", errorMessage: null } }], nextCursor: null });
-  await act(async () => { await client.invalidateQueries({ queryKey: ["otw-play-review-inbox"] }); });
-  fireEvent.click(await screen.findByRole("button", { name: "초안 검수" }));
-  expect(update).toHaveBeenCalledWith({ view: "review", selected: "imported-candidate" }, false);
-  expect(jobDetail.mock.calls.every(([id]) => id === null)).toBe(true);
-  client.clear();
-});
-it("submits selected versions or the complete filter rather than only loaded rows", async () => {
-  fetchReview.mockResolvedValue({ items: [reviewRow("clip-a")], nextCursor: null });
-  const client = createTestQueryClient();
-  const draftKey = ["otw-play-ai-draft", "clip-a"];
-  client.setQueryData(draftKey, { data: { itemId: "old-draft", autoApply: true } });
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
-  fireEvent.click(await screen.findByRole("checkbox", { name: "clip-a AI 초안 선택" }));
-  fireEvent.click(screen.getByRole("button", { name: "선택 1개 AI 분석·초안 저장" }));
-  await waitFor(() => expect(batchApi.start).toHaveBeenCalledWith({ candidates: [{ id: "clip-a", version: 4 }] }, expect.any(String)));
-  await waitFor(() => expect(screen.getByRole("button", { name: "현재 필터 전체 대상 선택" })).toHaveProperty("disabled", false));
-  expect(client.getQueryData(draftKey)).toBeUndefined();
-  client.setQueryData(draftKey, { data: { itemId: "old-draft", autoApply: true } });
-  fireEvent.click(screen.getByRole("button", { name: "현재 필터 전체 대상 선택" }));
-  fireEvent.click(screen.getByRole("button", { name: "전체 대상 AI 분석·초안 저장" }));
-  await waitFor(() => expect(batchApi.start).toHaveBeenLastCalledWith({ filters: { source: "playlist", jobId: "job-a" } }, expect.any(String)));
-  await waitFor(() => expect(client.getQueryData(draftKey)).toBeUndefined());
-  expect(convert).not.toHaveBeenCalled();
-});
-it("reuses the accepted request key after a lost response instead of requiring targets to be eligible again", async () => {
-  fetchReview.mockResolvedValue({ items: [reviewRow("clip-a")], nextCursor: null });
-  batchApi.start.mockRejectedValueOnce(new Error("응답 연결 끊김")).mockResolvedValueOnce({ data: { id: "batch-one" } });
-  const client = createTestQueryClient();
-  const draftKey = ["otw-play-ai-draft", "clip-a"];
-  client.setQueryData(draftKey, { data: { itemId: "old-draft", autoApply: true } });
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
-  fireEvent.click(await screen.findByRole("checkbox", { name: "clip-a AI 초안 선택" }));
-  fireEvent.click(screen.getByRole("button", { name: "선택 1개 AI 분석·초안 저장" }));
-  await screen.findByText("응답 연결 끊김");
-  expect(client.getQueryData(draftKey)).toBeUndefined();
-  await waitFor(() => expect(screen.getByRole("button", { name: "선택 1개 AI 분석·초안 저장" })).toHaveProperty("disabled", false));
-  batchApi.preview.mockResolvedValue({ data: { count: 0 } });
-  fireEvent.click(screen.getByRole("button", { name: "선택 1개 AI 분석·초안 저장" }));
-  await waitFor(() => expect(batchApi.start).toHaveBeenCalledTimes(2));
-  expect(batchApi.start.mock.calls[1][1]).toBe(batchApi.start.mock.calls[0][1]);
-  expect(batchApi.preview).toHaveBeenCalledTimes(1);
-});
-it("only converts selected ready candidates and retains failed selections for retry", async () => {
-  convert.mockResolvedValueOnce({ outcome: "created", performanceId: "p-a" }).mockResolvedValueOnce({ outcome: "stale", errorCode: "stale_write" });
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
-  fireEvent.click(await screen.findByRole("button", { name: "등록 가능 2개 일괄 선택" }));
-  expect(screen.getByRole("checkbox", { name: "clip-a 선택" }).getAttribute("data-state")).toBe("checked");
-  expect(screen.getByRole("checkbox", { name: "clip-b 선택" }).getAttribute("data-state")).toBe("checked");
-  expect(screen.getByRole("checkbox", { name: "clip-c 선택" })).toHaveProperty("disabled", true);
-  fireEvent.click(screen.getByRole("button", { name: "선택 2개 일괄 임시 등록" }));
-  await waitFor(() => expect(convert).toHaveBeenCalledTimes(2));
-  expect(convert).toHaveBeenCalledWith("clip-a", { expectedVersion: 4 });
-  expect(await screen.findByText("등록 실패: stale_write")).toBeTruthy();
-  expect(screen.getByRole("status", { name: "일괄 임시 등록 결과" }).textContent).toContain("완료 1개");
-  expect(screen.getByRole("status", { name: "일괄 임시 등록 결과" }).textContent).toContain("실패 1개");
-  expect(screen.getByRole("button", { name: "선택 1개 일괄 임시 등록" })).toBeTruthy();
-});
-it('conversion_pending_feedback retains the accepted selection while independent registration completes',async()=>{
-  convert.mockRejectedValueOnce(new ApiError('변환 중 동시 변경이 발생했습니다. 다시 확인해 주세요.',409,{code:'CONTENT_CONFLICT'})).mockResolvedValueOnce({outcome:'created',performanceId:'p-b'});
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
-  fireEvent.click(await screen.findByRole('button',{name:'등록 가능 2개 일괄 선택'}));
-  fireEvent.click(screen.getByRole('button',{name:'선택 2개 일괄 임시 등록'}));
-  await waitFor(()=>expect(convert).toHaveBeenCalledTimes(2));
-  expect(await screen.findByText('변환 중 동시 변경이 발생했습니다. 다시 확인해 주세요.')).toBeTruthy();
-  const summary=screen.getByRole('status',{name:'일괄 임시 등록 결과'}).textContent;
-  expect(summary).toContain('완료 1개');expect(summary).toContain('실패 1개');
-  expect(screen.getByRole('button',{name:'선택 1개 일괄 임시 등록'})).toBeTruthy();
+  render(<ReviewInbox catalog={null} onProposal={onProposal} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  fireEvent.click(await screen.findByRole("button", { name: "검수 열기" }));
+  expect(onProposal).toHaveBeenCalledWith("proposal");
+  expect(screen.queryByRole("button", { name: "proposal 삭제" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "처리 완료" }));
+  expect(await screen.findByText("거절됨")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "proposal 삭제" }));
+  await waitFor(() => expect(deleteReviewItem).toHaveBeenCalledWith("proposal", { kind: "proposal", expectedVersion: 4 }));
 });
 it("summarizes successful draft registrations once instead of repeating row messages", async () => {
-  convert.mockResolvedValue({ outcome: "created", performanceId: "performance" });
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  convertJob.mockResolvedValue({ results: [{ outcome: "created", performanceId: "performance" }] });
+  render(<ReviewInbox playlistJob={clipJob} canReview catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
   fireEvent.click(await screen.findByRole("button", { name: "등록 가능 2개 일괄 선택" }));
-  fireEvent.click(screen.getByRole("button", { name: "선택 2개 일괄 임시 등록" }));
-  await waitFor(() => expect(convert).toHaveBeenCalledTimes(2));
+  fireEvent.click(screen.getByRole("button", { name: "선택 항목 카탈로그 추가 (2개)" }));
+  await waitFor(() => expect(convertJob).toHaveBeenCalledTimes(2));
   const summary = screen.getByRole("status", { name: "일괄 임시 등록 결과" });
   expect(summary.textContent).toContain("완료 2개");
   expect(summary.textContent).toContain("실패 0개");
   expect(screen.queryByText("임시 등록 완료")).toBeNull();
 });
 it("toggles every loaded eligible candidate without selecting blocked rows", async () => {
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  render(<ReviewInbox playlistJob={clipJob} canReview catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
   fireEvent.click(await screen.findByRole("button", { name: "등록 가능 2개 일괄 선택" }));
-  expect(screen.getByRole("button", { name: "선택 2개 일괄 임시 등록" })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("button", { name: "선택 항목 카탈로그 추가 (2개)" })).toHaveProperty("disabled", false);
   fireEvent.click(screen.getByRole("button", { name: "일괄 선택 해제 (2개)" }));
-  expect(screen.getByRole("button", { name: "선택 0개 일괄 임시 등록" })).toHaveProperty("disabled", true);
-  expect(screen.getByRole("checkbox", { name: "clip-c 선택" }).getAttribute("data-state")).toBe("unchecked");
+  expect(screen.getByRole("button", { name: "선택 항목 카탈로그 추가 (0개)" })).toHaveProperty("disabled", true);
+  expect(screen.queryByRole("checkbox", { name: "clip-c 선택" })).toBeNull();
 });
 it("keeps review discovery available when catalog editing cannot load", async () => {
-  render(<ReviewInbox catalog={null} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  render(<ReviewInbox playlistJob={clipJob} canReview catalog={null} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
   expect(await screen.findByText("clip-a")).toBeTruthy();
   expect(screen.getAllByRole("button", { name: "검수 열기" }).every(button => !(button as HTMLButtonElement).disabled)).toBe(true);
-});
-
-it("scopes playlist rows and bulk selections to the chosen import history", async () => {
-  fetchReview.mockImplementation(async ({ jobId }) => ({ items: [row(jobId === "job-b" ? "clip-b" : "clip-a")], nextCursor: null }));
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
-  fireEvent.click(await screen.findByRole("checkbox", { name: "clip-a 선택" }));
-  expect(fetchReview).toHaveBeenCalledWith(expect.objectContaining({ source: "playlist", jobId: "job-a" }));
-  await selectOption("검수 가져오기 이력", /두 번째 가져오기/);
-  await screen.findByText("clip-b");
-  expect(screen.queryByText("clip-a")).toBeNull();
-  expect(screen.getByRole("button", { name: "선택 0개 일괄 임시 등록" })).toHaveProperty("disabled", true);
-  expect(fetchReview).toHaveBeenCalledWith(expect.objectContaining({ jobId: "job-b", cursor: undefined }));
-  await selectOption("검수 출처", "자동 수집");
-  await waitFor(() => expect(fetchReview).toHaveBeenCalledWith(expect.objectContaining({ source: "automatic", jobId: undefined })));
-});
-
-it("keeps retained playlist candidates reachable when import history has expired", async () => {
-  jobs.mockReturnValue({ data: [], isLoading: false });
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
-  expect(screen.getByLabelText('검수 가져오기 이력').textContent).toContain('전체 플레이리스트 후보');
-  await waitFor(()=>expect(fetchReview).toHaveBeenCalledWith(expect.objectContaining({source:'playlist'})));
 });
 
 const reviewRow = (id: string): OtwPlayReviewItemDto => ({
@@ -308,17 +130,31 @@ const reviewCatalog = {
   entities: [{ id: "singer-1", displayName: "Singer", entityKind: "person", memberUid: null }],
 } as unknown as OtwPlayAdminCatalogDto;
 
+it("shows the stored AI draft without single-video launch or range controls", async () => {
+  const entry = reviewRow("clip-a");
+  fetchReview.mockResolvedValue({ items: [entry], nextCursor: null });
+  getAiBatchDraft.mockResolvedValue({ data: {
+    itemId: "saved-draft", candidateVersion: entry.version, candidateKind: entry.candidateKind,
+    autoApply: false, result: { songs: [], warnings: [], videoAnalyzed: true },
+  } });
+  render(<ReviewInbox playlistJob={officialJob} canReview catalog={reviewCatalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  fireEvent.click(await screen.findByRole("button", { name: "검수 열기" }));
+  expect(await screen.findByText(/AI 초안이 저장되어 있습니다/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "AI로 자동 채우기" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "재분석" })).toBeNull();
+  expect(screen.queryByLabelText("지정 구간만 분석")).toBeNull();
+});
+
 it("opens a full review page and preserves per-candidate input and filters when returning to the list", async () => {
   fetchReview.mockResolvedValue({ items: [reviewRow("clip-a"), reviewRow("clip-b")], nextCursor: null });
   const manageChannel = vi.fn();
-  render(<ReviewInbox catalog={reviewCatalog} onProposal={vi.fn()} onManageChannel={manageChannel} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  render(<ReviewInbox playlistJob={officialJob} canReview catalog={reviewCatalog} onProposal={vi.fn()} onManageChannel={manageChannel} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
   await screen.findByText("clip-a");
-  expect(screen.getByLabelText("검수 출처").textContent).toBe("플레이리스트");
   const openFirst = (await screen.findAllByRole("button", { name: "검수 열기" }))[0];
   fireEvent.click(openFirst);
   let page = screen.getByRole("region", { name: "공식 영상 검수 화면" });
   expect(screen.queryByRole("dialog")).toBeNull();
-  expect(screen.queryByRole("region", { name: "통합 검수 목록" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "플레이리스트 영상 목록" })).toBeNull();
   expect(within(page).getByTitle("검수 영상 · clip-a")).toBeTruthy();
   fireEvent.change(within(page).getByLabelText("시작 위치(초)"), { target: { value: "42" } });
   fireEvent.click(within(page).getByRole("button", { name: "채널 승인·수집 설정" }));
@@ -326,7 +162,6 @@ it("opens a full review page and preserves per-candidate input and filters when 
   fireEvent.click(within(page).getByRole("button", { name: "검수 목록으로" }));
   expect(openFirst).toBe(document.activeElement);
   expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
-  expect(screen.getByLabelText("검수 출처").textContent).toBe("플레이리스트");
   fireEvent.click(screen.getAllByRole("button", { name: "검수 열기" })[1]);
   page = screen.getByRole("region", { name: "공식 영상 검수 화면" });
   expect(within(page).getByLabelText("시작 위치(초)")).toHaveProperty("value", "0");
@@ -340,14 +175,14 @@ it("retains failed review input, then saves to ready and returns to the same lis
   const entry = reviewRow("clip-a");
   fetchReview.mockResolvedValue({ items: [entry], nextCursor: null });
   updateCandidate.mockRejectedValueOnce(new ApiError("일시적으로 저장하지 못했습니다.",503,{code:"PLAY_ADMIN_UNAVAILABLE"})).mockResolvedValueOnce({ version: 5, status: "ready", reviewInput: entry.candidate!.reviewInput });
-  render(<ReviewInbox catalog={reviewCatalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  render(<ReviewInbox playlistJob={officialJob} canReview catalog={reviewCatalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
   fireEvent.click(await screen.findByRole("button", { name: "검수 열기" }));
   fireEvent.change(screen.getByLabelText("시작 위치(초)"), { target: { value: "25" } });
   fireEvent.click(screen.getByRole("button", { name: "검수 저장 · 등록 준비 완료" }));
   expect(await screen.findByText(/저장 실패 · 입력값/)).toBeTruthy();
   expect(screen.getByLabelText("시작 위치(초)")).toHaveProperty("value", "25");
   fireEvent.click(screen.getByRole("button", { name: "검수 저장 · 등록 준비 완료" }));
-  await screen.findByRole("region", { name: "통합 검수 목록" });
+  await screen.findByRole("region", { name: "플레이리스트 영상 목록" });
   expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "start" });
   expect(updateCandidate).toHaveBeenLastCalledWith("clip-a", expect.objectContaining({ expectedVersion: 4, input: expect.objectContaining({ startSeconds: 25, releaseType: "official_video" }) }));
   expect(convert).not.toHaveBeenCalled();
@@ -358,38 +193,19 @@ it("restores a review URL by finding the selected candidate on the next page", a
     ? { items: [reviewRow("clip-b")], nextCursor: null }
     : { items: [reviewRow("clip-a")], nextCursor: "next" });
   render(<ConsoleSearchContext.Provider value={[{ view: "review", selected: "clip-b", source: "playlist" }, vi.fn()]}>
-    <ReviewInbox catalog={reviewCatalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />
+    <ReviewInbox playlistJob={officialJob} canReview catalog={reviewCatalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />
   </ConsoleSearchContext.Provider>, { wrapper: createQueryWrapper() });
   expect(await screen.findByTitle("검수 영상 · clip-b")).toBeTruthy();
   expect(fetchReview).toHaveBeenCalledWith(expect.objectContaining({ cursor: "next", source: "playlist" }));
-});
-
-it("corrects every conflicting page within one import and keeps failed rows retryable", async () => {
-  const legacy = (id: string) => ({ ...row(id, "needs_input"), candidateKind: "official_video" as const });
-  let corrected = false;
-  fetchReview.mockImplementation(async ({ candidateKind, cursor }) => {
-    if (candidateKind === "official_video") return { items: cursor ? [legacy("legacy-b")] : corrected ? [] : [legacy("legacy-a")], nextCursor: !cursor && !corrected ? "conflict-page-2" : null };
-    return { items: [legacy("legacy-a"), legacy("legacy-b")], nextCursor: null };
-  });
-  updateCandidate.mockImplementation(async (id) => { if (id === "legacy-b") throw new Error("stale_write"); corrected = true; return {}; });
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
-  const button = await screen.findByRole("button", { name: "가져오기 종류로 일괄 정정" });
-  expect(screen.getByText(/기존 후보 2개의 이전 분류/)).toBeTruthy();
-  fireEvent.click(button);
-  await waitFor(() => expect(updateCandidate).toHaveBeenCalledTimes(2));
-  expect(updateCandidate).toHaveBeenCalledWith("legacy-a", { action: "change_kind", expectedVersion: 4, candidateKind: "singing_clip" });
-  expect(updateCandidate).toHaveBeenCalledWith("legacy-b", { action: "change_kind", expectedVersion: 4, candidateKind: "singing_clip" });
-  expect(await screen.findByText(/종류 정정 실패/)).toBeTruthy();
-  expect(fetchReview).toHaveBeenCalledWith(expect.objectContaining({ jobId: "job-a", candidateKind: "official_video", cursor: "conflict-page-2" }));
 });
 
 it("keeps overlapping proposals reachable without offering duplicate draft conversion", async () => {
   const proposal = { ...row("clip-with-proposal"), pendingProposalId: "proposal-1", sources: ["playlist", "user"] };
   fetchReview.mockResolvedValue({ items: [proposal], nextCursor: null });
   const onProposal = vi.fn();
-  render(<ReviewInbox catalog={catalog} onProposal={onProposal} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  render(<ReviewInbox playlistJob={clipJob} canReview catalog={catalog} onProposal={onProposal} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
   fireEvent.click(await screen.findByRole("button", { name: "연결된 제안 검수" }));
-  expect(onProposal).toHaveBeenCalledWith("proposal-1");
+  expect(onProposal).toHaveBeenCalledWith("proposal-1", "clip-with-proposal");
   expect(screen.getByRole("checkbox", { name: "clip-with-proposal 선택" })).toHaveProperty("disabled", true);
   expect(within(screen.getByRole("article")).getByText("노래 클립")).toBeTruthy();
 });
@@ -414,7 +230,7 @@ it("loads the next cursor at the list bottom only once and retains earlier rows"
   fetchReview.mockImplementation(({ cursor, candidateKind }) => candidateKind ? Promise.resolve({ items: [], nextCursor: null }) : cursor
     ? new Promise(resolve => { resolveNext = resolve; })
     : Promise.resolve({ items: [row("first")], nextCursor: "next" }));
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  render(<ReviewInbox playlistJob={clipJob} canReview catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
   await screen.findByText("first");
   await waitFor(() => expect(callbacks.length).toBeGreaterThan(0));
   const enter = callbacks.at(-1)!;
@@ -435,7 +251,7 @@ it("stops automatic retries after a next-page failure and retries the same curso
     if (!failed) { failed = true; throw new Error("offline"); }
     return { items: [row("second")], nextCursor: null };
   });
-  render(<ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
+  render(<ReviewInbox playlistJob={clipJob} canReview catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} />, { wrapper: createQueryWrapper() });
   await screen.findByText("first");
   await waitFor(() => expect(callbacks.length).toBeGreaterThan(0));
   act(() => callbacks.at(-1)!());
@@ -451,28 +267,11 @@ it("stops automatic retries after a next-page failure and retries the same curso
 it("disconnects automatic pagination when the review inbox becomes inactive", async () => {
   const callbacks = observeReviewBottom();
   fetchReview.mockImplementation(async ({ candidateKind }) => ({ items: candidateKind ? [] : [row("first")], nextCursor: candidateKind ? null : "next" }));
-  const props = { catalog, onProposal: vi.fn(), onManageChannel: vi.fn(), onOpenCatalog: vi.fn() };
+  const props = { playlistJob: clipJob, canReview: true, catalog, onProposal: vi.fn(), onManageChannel: vi.fn(), onOpenCatalog: vi.fn() };
   const view = render(<ReviewInbox {...props} />, { wrapper: createQueryWrapper() });
   await screen.findByText("first");
   await waitFor(() => expect(callbacks.length).toBeGreaterThan(0));
   view.rerender(<ReviewInbox {...props} active={false} />);
   act(() => callbacks.forEach(callback => callback()));
   expect(fetchReview.mock.calls.some(([filters]) => filters.cursor)).toBe(false);
-});
-
-it("blocks opening a review until an in-flight AI request and cache reset finish", async () => {
-  fetchReview.mockResolvedValue({ items: [reviewRow("clip-a")], nextCursor: null });
-  let reject!: (reason: Error) => void;
-  batchApi.start.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
-  const client = createTestQueryClient();
-  const draftKey = ["otw-play-ai-draft", "clip-a"];
-  client.setQueryData(draftKey, { data: { itemId: "old-draft", autoApply: true } });
-  render(<QueryClientProvider client={client}><ReviewInbox catalog={catalog} onProposal={vi.fn()} onManageChannel={vi.fn()} onOpenCatalog={vi.fn()} /></QueryClientProvider>);
-  fireEvent.click(await screen.findByRole("checkbox", { name: "clip-a AI 초안 선택" }));
-  fireEvent.click(screen.getByRole("button", { name: "선택 1개 AI 분석·초안 저장" }));
-  await waitFor(() => expect(batchApi.start).toHaveBeenCalled());
-  expect(screen.getByRole("button", { name: "검수 열기" })).toHaveProperty("disabled", true);
-  await act(async () => { reject(new Error("응답 연결 끊김")); });
-  await waitFor(() => expect(screen.getByRole("button", { name: "검수 열기" })).toHaveProperty("disabled", false));
-  expect(client.getQueryData(draftKey)).toBeUndefined();
 });

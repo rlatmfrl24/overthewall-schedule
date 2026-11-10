@@ -15,6 +15,7 @@ it("inspects retained metadata as read-only and drops the previous page on a den
   const view = render(<QueryClientProvider client={client}><YouTubeHistory /></QueryClientProvider>);
   expect(await screen.findByText("보관 다시보기")).toBeTruthy();
   expect(screen.getByText("관리자 보관 · 읽기 전용")).toBeTruthy();
+  expect(screen.getByText("제공자 이용 불가")).toBeTruthy();
   fireEvent.click(screen.getByText("저장 메타데이터"));
   expect(view.container.querySelector("details")?.open).toBe(true);
   expect(view.container.textContent).toContain("보관 설명");

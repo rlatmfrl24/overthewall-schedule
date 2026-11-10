@@ -14,12 +14,13 @@ it("selects an archived channel and inspects expired held snapshot metadata", as
   vi.mocked(fetchChzzkHistory).mockResolvedValueOnce({channels,snapshots:[],nextCursor:null}).mockResolvedValue({channels,nextCursor:null,snapshots:[{key:"held",type:"clips",storedAt:"2026-10-01",contentAccess:"admin_archive",content:{size:10,page:{next:null,prev:null},data:[{clipUID:"held",videoNo:null,clipTitle:"보관 클립",ownerChannelId:"archived",thumbnailImageUrl:null,categoryType:"",clipCategory:"",duration:10,adult:false,createdDate:"2026-10-01",readCount:1,blindType:null,hasStreamerClips:true}]}}]});
   const client = new QueryClient({defaultOptions:{queries:{retry:false}}});
   render(<QueryClientProvider client={client}><ChzzkHistory /></QueryClientProvider>);
-  // Wait for the actual query before opening the owning selector.
-  await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+  await screen.findByText("채널을 선택하면 저장본을 볼 수 있습니다.");
   fireEvent.keyDown(screen.getByRole("combobox"), {key:"Enter"});
   fireEvent.click(await screen.findByRole("option", {name:"보관 멤버 · 관리자 보관"}));
   expect(await screen.findByText("보관 클립")).toBeTruthy();
   expect(screen.getByText("관리자 보관 · 읽기 전용")).toBeTruthy();
   expect(fetchChzzkHistory).toHaveBeenLastCalledWith("archived",null);
+  fireEvent.click(screen.getByRole("button", {name:"채널 초기화"}));
+  await waitFor(() => expect(fetchChzzkHistory).toHaveBeenLastCalledWith("", null));
   client.clear();
 });

@@ -86,8 +86,6 @@ const expectedPolicies = [
     "/api/play/admin/submissions",
     "/api/play/admin/channels/lookup",
     "/api/play/admin/source-health",
-    "/api/play/admin/observability",
-    "/api/play/admin/release",
     "/api/notices/thumbnails/status",
     "/api/x/history/posts",
     "/api/x/history/health",
@@ -265,7 +263,6 @@ const expectedPolicies = [
     cache: "no-store", paths: [
     "/api/play/admin/import-candidates/:id",
     "/api/play/admin/channel-monitors/:id",
-    "/api/play/admin/release",
   ] },
   { method: "POST", auth: "public-write", successStatus: 201,
     cache: "no-store", paths: [

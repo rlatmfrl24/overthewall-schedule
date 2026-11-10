@@ -15,6 +15,7 @@ import { OperationsDashboard } from "./operations-dashboard";
 const fetchDataRetentionStatusMock = vi.hoisted(() => vi.fn());
 const fetchD1ObservabilityMock = vi.hoisted(() => vi.fn());
 const fetchOperationJobSummariesMock = vi.hoisted(() => vi.fn());
+const fetchOperationRunMock = vi.hoisted(() => vi.fn());
 const fetchOperationRunsMock = vi.hoisted(() => vi.fn());
 const fetchOperationsStatusMock = vi.hoisted(() => vi.fn());
 const runDataRetentionPruneMock = vi.hoisted(() => vi.fn());
@@ -23,6 +24,7 @@ vi.mock("../../api/operations", () => ({
   fetchDataRetentionStatus: fetchDataRetentionStatusMock,
   fetchD1Observability: fetchD1ObservabilityMock,
   fetchOperationJobSummaries: fetchOperationJobSummariesMock,
+  fetchOperationRun: fetchOperationRunMock,
   fetchOperationRuns: fetchOperationRunsMock,
   fetchOperationsStatus: fetchOperationsStatusMock,
   runDataRetentionPrune: runDataRetentionPruneMock,
@@ -30,6 +32,10 @@ vi.mock("../../api/operations", () => ({
 
 vi.mock("@/shared/ui/toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
+}));
+
+vi.mock("@/features/notices", () => ({
+  NoticeImageCleanupCard: () => <section aria-label="이미지 정리" />,
 }));
 
 const makeOperationsStatus = (
@@ -207,12 +213,41 @@ describe("OperationsDashboard", () => {
     vi.clearAllMocks();
   });
 
+  it("filters the full history on the server and refreshes only the active view", async () => {
+    render(<OperationsDashboard view="history" />, { wrapper: createQueryWrapper() });
+    expect(await screen.findByText("아직 기록된 작업이 없습니다.")).toBeTruthy();
+    expect(fetchOperationsStatusMock).not.toHaveBeenCalled();
+    expect(fetchOperationJobSummariesMock).not.toHaveBeenCalled();
+
+    const filters = screen.getByRole("search", { name: "작업 실행 필터" });
+    const failed = within(filters).getByRole("button", { name: "실패" });
+    fireEvent.click(failed);
+    expect(failed.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(within(filters).getByText("작업 종류·기간"));
+    fireEvent.change(within(filters).getByLabelText("시작일 UTC"), { target: { value: "2026-09-01" } });
+    await waitFor(() => expect(fetchOperationRunsMock).toHaveBeenLastCalledWith(expect.objectContaining({ status: "failed", from: "2026-09-01", offset: 0 })));
+    expect(await screen.findByText(/선택한 조건에 맞는 실행이 없습니다/)).toBeTruthy();
+    fireEvent.click(within(filters).getByRole("button", { name: "필터 초기화" }));
+    expect(await screen.findByText("아직 기록된 작업이 없습니다.")).toBeTruthy();
+    expect(within(filters).getByRole("button", { name: "전체 상태" }).getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(screen.getByRole("tab", { name: "작업별 최신" }));
+    await waitFor(() => expect(fetchOperationJobSummariesMock).toHaveBeenCalledTimes(1));
+    const runsRequests = fetchOperationRunsMock.mock.calls.length;
+    const refresh = screen.getByRole("button", { name: "상태 새로고침" });
+    await waitFor(() => expect((refresh as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(refresh);
+    await waitFor(() => expect(fetchOperationJobSummariesMock).toHaveBeenCalledTimes(2));
+    expect(fetchOperationRunsMock).toHaveBeenCalledTimes(runsRequests);
+  });
+
   it("keeps resource-only usage, guard and retention with one header and refresh", async () => {
     render(<OperationsDashboard view="resources" />, { wrapper: createQueryWrapper() });
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByRole("heading", { name: "사용량·한도" })).toBeTruthy();
     await screen.findByText("Cloudflare D1 실제 사용량");
-    expect(screen.getByText("정기 작업 쓰기 예산")).toBeTruthy();
+    const budgetCard = screen.getByText("정기 작업 쓰기 예산").closest("[data-slot='card']");
+    expect(budgetCard?.nextElementSibling).toBe(screen.getByRole("region", { name: "이미지 정리" }));
     await screen.findByText("D1 데이터 보존");
     expect(screen.queryByText("X(트위터) 일일 예산")).toBeNull();
     expect(screen.queryByText("YouTube 일일 할당량")).toBeNull();
@@ -247,7 +282,27 @@ describe("OperationsDashboard", () => {
     render(<OperationsDashboard view="home" />, { wrapper: createQueryWrapper() });
     expect(await screen.findByText("Play 자동화가 일시 중지되어 있습니다.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Play 채널 감시 설정 열기" }).getAttribute("href"))
-      .toBe("/admin/otw-play?tab=play-monitor");
+      .toBe("/admin/otw-play?tab=operations&view=channels");
+  });
+
+  it("keeps the dashboard review section with only current workflow links", async () => {
+    const status = makeOperationsStatus();
+    status.review = { entries: [
+      { kind: "automatic", status: "available", count: 5, checkedAt: 1 },
+      { kind: "proposals", status: "available", count: 0, checkedAt: 1 },
+      { kind: "imports", status: "unavailable", count: null, checkedAt: 1 },
+    ] };
+    fetchOperationsStatusMock.mockResolvedValue(status);
+    render(<OperationsDashboard view="home" />, { wrapper: createQueryWrapper() });
+
+    const review = await screen.findByRole("region", { name: "사람의 검토 필요" });
+    const links = within(review).getAllByRole("link");
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/admin/review?tab=schedule", "/admin/otw-play?tab=review", "/admin/otw-play?tab=import",
+    ]);
+    expect(within(review).getByRole("link", { name: "사용자 제안 0건" })).toBeTruthy();
+    expect(within(review).getByRole("link", { name: "가져오기 검토 미확인" })).toBeTruthy();
+    expect(within(review).queryByText("자동 영상 후보")).toBeNull();
   });
 
   it("shows a failed YouTube lookup independently of a successful dashboard lookup and can retry", async () => {
@@ -352,7 +407,7 @@ describe("OperationsDashboard", () => {
         resetAt: Date.UTC(2026, 8, 2, 0, 0),
       },
     }));
-    fetchOperationRunsMock.mockResolvedValue({
+    const runs = {
       runs: [{
         runId: "run-skipped",
         jobType: "source_health",
@@ -376,7 +431,9 @@ describe("OperationsDashboard", () => {
         summary: { reason: "no_eligible_targets" },
         lastError: null,
       }],
-    });
+    } satisfies OperationRunList;
+    fetchOperationRunsMock.mockResolvedValue(runs);
+    fetchOperationRunMock.mockResolvedValueOnce(runs.runs[0]);
 
     render(createElement(OperationsDashboard), { wrapper: createQueryWrapper() });
 
@@ -393,12 +450,12 @@ describe("OperationsDashboard", () => {
     fireEvent.click(screen.getByRole("tab", { name: "전체 이력" }));
     await waitFor(() => expect(fetchOperationRunsMock).toHaveBeenCalledTimes(1));
     expect((await screen.findAllByText("대상 없음")).length).toBeGreaterThan(0);
-    fireEvent.click((await screen.findAllByText("상세"))[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "소스 상태 점검 상세 보기" }));
     expect((await screen.findAllByText("사유: no_eligible_targets")).length).toBeGreaterThan(0);
   });
 
   it("reads back genuine YouTube partial source counts instead of the wrapper item count", async () => {
-    fetchOperationRunsMock.mockResolvedValue({
+    const runs = {
       runs: [{
         runId: "youtube-partial",
         jobType: "youtube_feed_collection",
@@ -430,7 +487,9 @@ describe("OperationsDashboard", () => {
         summary: null,
         lastError: null,
       }],
-    } satisfies OperationRunList);
+    } satisfies OperationRunList;
+    fetchOperationRunsMock.mockResolvedValue(runs);
+    fetchOperationRunMock.mockResolvedValueOnce(runs.runs[0]);
 
     render(createElement(OperationsDashboard), { wrapper: createQueryWrapper() });
 
@@ -438,8 +497,11 @@ describe("OperationsDashboard", () => {
     expect((await screen.findAllByText("YouTube 신규 피드 수집")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("일부 실패").length).toBeGreaterThan(0);
     expect((await screen.findAllByText("5/5 작업 묶음")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/성공 4 · 실패 1 · 진행 0 · 대기 0/).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getAllByText("상세")[0]!);
+    expect(screen.getByText("성공 4 · 실패 1")).toBeTruthy();
+    expect(fetchOperationRunMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "YouTube 신규 피드 수집 상세 보기" }));
+    expect(screen.getByRole("button", { name: "YouTube 신규 피드 수집 상세 닫기" }).getAttribute("aria-expanded")).toBe("true");
+    await waitFor(() => expect(fetchOperationRunMock).toHaveBeenCalledWith("youtube-partial"));
     expect(
       screen.getAllByText(/YouTube feed collection failed for 1 of 5 sources/).length,
     ).toBeGreaterThan(0);

@@ -140,7 +140,7 @@ describe("scheduled job executor outcomes", () => {
   it("executes AI-only recovery planned while ingestion is paused and read-budget blocked", async () => {
     const statement = { bind: vi.fn(), first: vi.fn(async () => ({ value: "true" })) };
     statement.bind.mockReturnValue(statement);
-    const env = { ...siteEnv(), otw_db: { prepare: vi.fn(() => statement) }, YOUTUBE_API_KEY: "test", OTW_PLAY_AI_REVIEW_ENABLED: "true", GEMINI_API_KEY: "test", OTW_PLAY_AI_REVIEW_QUEUE: { send: vi.fn() } } as unknown as Env;
+    const env = { ...siteEnv(), otw_db: { prepare: vi.fn(() => statement) }, YOUTUBE_API_KEY: "test", OTW_PLAY_AI_REVIEW_PAUSED: "false", OTW_PLAY_AI_REVIEW_ENABLED: "true", GEMINI_API_KEY: "test", OTW_PLAY_AI_REVIEW_QUEUE: { send: vi.fn() } } as unknown as Env;
     const repository = { readRun: vi.fn(async () => ({ job_type: "ingestion_recovery", source: "scheduled" })), hasRecoveryWork: async () => false };
     vi.spyOn(D1IngestionRepository.prototype, "hasExpiredApiData").mockResolvedValue(false);
     vi.spyOn(D1AiBatchRepository.prototype, "hasRecoveryWork").mockResolvedValue(true);
