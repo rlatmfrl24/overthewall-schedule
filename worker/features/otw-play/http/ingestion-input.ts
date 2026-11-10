@@ -158,6 +158,7 @@ export const parseUpdateIngestionCandidate = (
       "expectedVersion",
       "expectedReviewInput",
       "expectedReviewStatus",
+      "playlistJobId",
       "action",
       "input",
     ])) {
@@ -165,6 +166,10 @@ export const parseUpdateIngestionCandidate = (
     }
     const input = parseCandidateReviewInput(value.input);
     if (!input.ok) return input;
+    const playlistJobId = value.playlistJobId;
+    if (playlistJobId !== undefined && (typeof playlistJobId !== "string" || !/^[\w:-]{1,160}$/.test(playlistJobId))) {
+      return { ok: false, fields: { playlistJobId: "invalid" } };
+    }
     const expectedReviewInput = value.expectedReviewInput === undefined ||
         value.expectedReviewInput === null
       ? value.expectedReviewInput
@@ -199,6 +204,7 @@ export const parseUpdateIngestionCandidate = (
             }
           : {}),
         ...(expectedReviewStatus !== undefined ? { expectedReviewStatus } : {}),
+        ...(playlistJobId === undefined ? {} : { playlistJobId }),
         action: "save",
         input: input.value,
       },

@@ -1,325 +1,143 @@
 // @vitest-environment jsdom
-import { createElement } from "react";
+import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError } from "@/shared/api/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
 import { ConsoleSearchContext } from "@/shared/lib/admin-console-search";
 import { IngestionSection } from "./ingestion-section";
 
-const budgetMock = vi.hoisted(() => vi.fn());
-const preflightMock = vi.hoisted(() => vi.fn());
-const createImportMock = vi.hoisted(() => vi.fn());
-const deleteHistoryMock = vi.hoisted(() => vi.fn());
-const retryMock = vi.hoisted(() => vi.fn());
-const toastMock = vi.hoisted(() => vi.fn());
-const jobHookMock = vi.hoisted(() => vi.fn());
-const jobsHookMock = vi.hoisted(() => vi.fn());
-
+const mocks = vi.hoisted(() => ({
+  jobs: vi.fn(), job: vi.fn(), budget: vi.fn(), preflight: vi.fn(), create: vi.fn(),
+  batch: vi.fn(), start: vi.fn(), retry: vi.fn(), retryCollection: vi.fn(),
+}));
 vi.mock("../../api/admin", () => ({
-  fetchOtwPlayIngestionBudget: budgetMock,
-  resumeOtwPlayImportJob: vi.fn(async () => ({ enqueued: 1 })),
-  preflightOtwPlayPlaylistImport: preflightMock,
-  createOtwPlayPlaylistImport: createImportMock,
-  retryOtwPlayImportJob: retryMock,
-  deleteOtwPlayImportHistory: deleteHistoryMock,
+  fetchOtwPlayIngestionBudget: mocks.budget,
+  preflightOtwPlayPlaylistImport: mocks.preflight,
+  createOtwPlayPlaylistImport: mocks.create,
+  resumeOtwPlayImportJob: vi.fn(),
+  retryOtwPlayImportJob: mocks.retryCollection,
+}));
+vi.mock("../../api/ai-batch", () => ({ getAiBatch: mocks.batch, startAiBatch: mocks.start, retryAiBatch: mocks.retry }));
+vi.mock("../../queries/use-admin-catalog", () => ({ useOtwPlayImportJob: mocks.job, useOtwPlayImportJobs: mocks.jobs }));
+vi.mock("./review-inbox", () => ({
+  ReviewInbox: ({ canReview }: { canReview: boolean }) => <p>{canReview ? "관리자 검수 가능" : "관리자 검수 대기"}</p>,
 }));
 
-vi.mock("../../queries/use-admin-catalog", () => ({
-  useOtwPlayImportJob: jobHookMock,
-  useOtwPlayImportJobs: jobsHookMock,
-  useOtwPlayChannelMonitors: () => ({ data: [], isLoading: false }),
-  useOtwPlayChannelMonitorCandidates: () => ({ data: [], isLoading: false }),
-}));
+const url = "https://www.youtube.com/playlist?list=PL1234567890";
+const job = {
+  id: "job-1", playlistId: "PL1234567890", playlistTitle: "Official Covers", candidateKind: "official_video",
+  requestedItemCount: 63, status: "completed", counts: { discovered: 63, retryPending: 0 }, createdAt: 1, aiExecutionAvailable: true,
+};
+const ready = {
+  playlistId: job.playlistId, canonicalUrl: url, title: job.playlistTitle,
+  itemCount: 63, requiresSplit: false,
+};
+const analysis = {
+  id: "batch", total: 63, budgetWaiting: 1,
+  counts: { queued: 0, analyzing: 1, saving: 0, saved: 61, needs_selection: 0, failed: 1, changed: 0 },
+};
 
-vi.mock("@/shared/ui/toast", () => ({
-  useToast: () => ({ toast: toastMock }),
-}));
+beforeEach(() => {
+  vi.resetAllMocks();
+  sessionStorage.clear();
+  mocks.jobs.mockReturnValue({ data: { pages: [{ data: [] }] }, isSuccess: true });
+  mocks.job.mockImplementation((id: string | null) => ({ data: id ? job : undefined, refetch: vi.fn() }));
+  mocks.budget.mockResolvedValue({ status: "available" });
+  mocks.preflight.mockResolvedValue(ready);
+  mocks.create.mockResolvedValue(job);
+  mocks.start.mockResolvedValue({ data: analysis });
+  mocks.batch.mockResolvedValue({ data: { batch: analysis } });
+});
+afterEach(cleanup);
 
-describe("IngestionSection", () => {
-  beforeAll(() => {
-    Element.prototype.scrollIntoView = vi.fn();
-    Element.prototype.hasPointerCapture = vi.fn(() => false);
-    Element.prototype.setPointerCapture = vi.fn();
-    Element.prototype.releasePointerCapture = vi.fn();
-  });
+function checkLink() {
+  fireEvent.change(screen.getByRole("textbox", { name: "YouTube 플레이리스트 링크" }), { target: { value: url } });
+  fireEvent.click(screen.getByRole("button", { name: "링크 확인" }));
+}
+function openJob() {
+  return render(<ConsoleSearchContext.Provider value={[{ category: job.id }, vi.fn()]}><IngestionSection /></ConsoleSearchContext.Provider>, { wrapper: createQueryWrapper() });
+}
 
-  afterEach(cleanup);
+it("checks the full playlist before creating one job and does not start AI automatically", async () => {
+  render(<IngestionSection />, { wrapper: createQueryWrapper() });
+  checkLink();
+  const start = await screen.findByRole("button", { name: "가져오기 시작" });
+  expect(screen.getByText("Official Covers · 63개")).toBeTruthy();
+  expect(mocks.create).not.toHaveBeenCalled();
+  fireEvent.click(start);
+  const startAi = await screen.findByRole("button", { name: "AI 일괄 검수 시작" });
+  expect(mocks.create).toHaveBeenCalledWith({ playlistUrl: url, mode: "all_new", candidateKind: "official_video", idempotencyKey: expect.any(String) });
+  expect(mocks.start).not.toHaveBeenCalled();
+  fireEvent.click(startAi);
+  await waitFor(() => expect(mocks.start).toHaveBeenCalledWith({ importJobId: job.id }, expect.any(String)));
+});
 
-  beforeEach(() => {
-    budgetMock.mockReset().mockResolvedValue({ status: "available" });
-    deleteHistoryMock.mockReset();
-    preflightMock.mockReset();
-    createImportMock.mockReset();
-    retryMock.mockReset();
-    jobHookMock.mockReset();
-    jobsHookMock.mockReset();
-    toastMock.mockReset();
-    jobsHookMock.mockReturnValue({
-      data: [],
-      isLoading: false,
-      isError: false,
-      isFetching: false,
-      refetch: vi.fn(async () => undefined),
-    });
-    jobHookMock.mockImplementation((jobId: string | null) => ({
-      data: jobId
-        ? {
-             id: "job-1",
-             playlistId: "PL1234567890",
-             playlistTitle: "Official Covers",
-             playlistOwnerChannelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
-             playlistOwnerChannelTitle: "Approved Channel",
-             sourceMetadataCheckedAt: 1,
-             retentionExpiresAt: 2_592_000_001,
-             mode: "all_new",
-             rangeStartPosition: 0,
-             rangeEndExclusive: 1,
-             requestedItemCount: 1,
-             status: "completed",
-             counts: {
-               discovered: 1,
-               metadataChecked: 1,
-               eligible: 1,
-               existingCatalog: 0,
-               existingProposal: 0,
-               existingCandidate: 0,
-               channelReview: 0,
-               unavailable: 0,
-               policyBlocked: 0,
-               scopeReview: 0,
-               playlistDuplicate: 0,
-               retryPending: 0,
-               permanentError: 0,
-             },
-             lastErrorCode: null,
-             nextRetryAt: null,
-             createdAt: 1,
-             startedAt: 1,
-             completedAt: 1,
-           }
-         : undefined,
-      isError: false,
-      isFetching: false,
-      refetch: vi.fn(async () => undefined),
-    }));
-    preflightMock.mockResolvedValue({
-      playlistId: "PL1234567890",
-      canonicalUrl: "https://www.youtube.com/playlist?list=PL1234567890",
-      title: "Official Covers",
-      ownerChannelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
-      ownerChannelTitle: "Approved Channel",
-      itemCount: 1,
-      privacyStatus: "public",
-      rangeStartPosition: 0,
-      rangeEndExclusive: 1,
-      nextRangeStart: null,
-      requestedItemCount: 1,
-      estimatedPageCount: 1,
-      estimatedVideoBatchCount: 1,
-      hardCap: 5000,
-      requiresSplit: false,
-      previousImport: null,
-    });
-    createImportMock.mockResolvedValue({ id: "job-1" });
-    retryMock.mockResolvedValue(undefined);
-  });
+it("blocks a playlist beyond the collection cap before submission", async () => {
+  mocks.preflight.mockResolvedValue({ ...ready, itemCount: 5001, requiresSplit: true });
+  render(<IngestionSection />, { wrapper: createQueryWrapper() });
+  checkLink();
+  expect((await screen.findByRole("alert")).textContent).toContain("5,000개를 초과");
+  expect(screen.getByRole("button", { name: "가져오기 시작" })).toHaveProperty("disabled", true);
+  expect(mocks.create).not.toHaveBeenCalled();
+});
 
-  it("stops fast job polling when the current account budget blocks collection", async () => {
-    budgetMock.mockResolvedValue({ status: "blocked", rowsRead: 4_000_000, dailyTarget: 4_000_000,
-      measuredAt: new Date().toISOString(), resetAt: new Date(Date.now() + 60_000).toISOString(), reason: "daily_read_target" });
-    render(createElement(IngestionSection), { wrapper: createQueryWrapper() });
-    expect(await screen.findByText(/새 수집 예산 소진/)).toBeTruthy();
-    await waitFor(() => expect(jobHookMock).toHaveBeenLastCalledWith(null, true, true));
-  });
+it("keeps a lost-response retry on the same import request", async () => {
+  mocks.create.mockRejectedValueOnce(new Error("응답 연결 끊김"));
+  render(<IngestionSection />, { wrapper: createQueryWrapper() });
+  checkLink();
+  fireEvent.click(await screen.findByRole("button", { name: "가져오기 시작" }));
+  await screen.findByText("응답 연결 끊김");
+  fireEvent.click(screen.getByRole("button", { name: "가져오기 시작" }));
+  await screen.findByRole("button", { name: "AI 일괄 검수 시작" });
+  expect(mocks.create.mock.calls[1][0]).toEqual(mocks.create.mock.calls[0][0]);
+});
 
-  it("does not enable job queries on a hidden visited screen", () => {
-    render(createElement(IngestionSection, { active: false }), { wrapper: createQueryWrapper() });
-    expect(jobsHookMock).toHaveBeenLastCalledWith(false);
-    expect(jobHookMock).toHaveBeenLastCalledWith(null, false, false);
-    expect(budgetMock).not.toHaveBeenCalled();
-  });
+it("shows AI budget waiting and enables review after pending analysis ends", async () => {
+  mocks.job.mockReturnValue({ data: { ...job, aiBatchId: analysis.id }, refetch: vi.fn() });
+  const page = openJob();
+  expect(await screen.findByText(/AI 예산 대기 1/)).toBeTruthy();
+  expect(screen.getByText("관리자 검수 대기")).toBeTruthy();
+  page.unmount();
+  mocks.batch.mockResolvedValue({ data: { batch: { ...analysis, budgetWaiting: 0, counts: { ...analysis.counts, analyzing: 0, needs_selection: 1 } } } });
+  openJob();
+  expect(await screen.findByText("관리자 검수 가능")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "AI 실패 항목 재시도" }));
+  await waitFor(() => expect(mocks.retry).toHaveBeenCalledWith(analysis.id));
+});
 
-  it("routes playlist review to the unified inbox without rendering a second editor", () => {
-    const updateSearch = vi.fn();
-    const job = { ...jobHookMock("job-1").data, candidateKind: "singing_clip" };
-    jobHookMock.mockReturnValue({ data: job });
-    jobsHookMock.mockReturnValue({ data: [job], isLoading: false });
-    render(createElement(ConsoleSearchContext.Provider, {
-      value: [{ category: "job-1", view: "jobs" }, updateSearch],
-    }, createElement(IngestionSection)), { wrapper: createQueryWrapper() });
+it("opens historical jobs from cards and distinguishes a list error from no imports", async () => {
+  const fetchNextPage = vi.fn();
+  mocks.jobs.mockReturnValue({ data: { pages: [{ data: [job] }] }, isSuccess: true, hasNextPage: true, fetchNextPage });
+  const first = render(<IngestionSection />, { wrapper: createQueryWrapper() });
+  fireEvent.click(screen.getByRole("button", { name: "이전 작업 더 보기" }));
+  expect(fetchNextPage).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: /Official Covers/ }));
+  expect(await screen.findByRole("heading", { name: "Official Covers" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "이력 삭제" })).toBeNull();
+  first.unmount();
+  const refetch = vi.fn();
+  mocks.jobs.mockReturnValue({ isError: true, refetch });
+  render(<IngestionSection />, { wrapper: createQueryWrapper() });
+  expect(screen.queryByText(/아직 가져온/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+  expect(refetch).toHaveBeenCalledOnce();
+});
 
-    expect(screen.getByRole("region", { name: "수집 작업 상태" })).toBeTruthy();
-    expect(screen.queryByText(/후보 검토/)).toBeNull();
-    expect(screen.queryByRole("table")).toBeNull();
-    expect(screen.queryByRole("button", { name: "행별 보완" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "검수 목록으로 이동" }));
-    expect(updateSearch).toHaveBeenCalledWith({
-      view: "inbox", source: "playlist", kind: "broadcast", state: "pending", selected: undefined, proposal: undefined,
-    }, false);
-  });
+it("allows direct review of a collected playlist without starting paid AI", () => {
+  mocks.job.mockReturnValue({ data: { ...job, aiExecutionAvailable: false }, refetch: vi.fn() });
+  openJob();
+  expect(screen.getByText("AI 실행이 보류 중입니다. 수집된 영상은 직접 검수할 수 있습니다.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "AI 일괄 검수 시작" })).toBeNull();
+  expect(screen.getByText("관리자 검수 가능")).toBeTruthy();
+});
 
-  it("collects singing clips after preflight and exposes collection status", async () => {
-    render(createElement(IngestionSection), { wrapper: createQueryWrapper() });
-    fireEvent.click(screen.getByRole("radio", { name: "노래 클립" }));
-    fireEvent.change(screen.getByLabelText("YouTube 플레이리스트 URL 또는 ID"), { target: { value: "PL1234567890" } });
-    fireEvent.click(screen.getByRole("button", { name: "가져오기 전 확인" }));
-    await screen.findByRole("button", { name: /수집 시작/ });
-    expect(preflightMock).toHaveBeenCalledWith({ playlistUrl: "PL1234567890", mode: "all_new", candidateKind: "singing_clip" });
-    fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
-    await screen.findByRole("button", { name: "검수 목록으로 이동" });
-    expect(createImportMock).toHaveBeenCalledWith(expect.objectContaining({ playlistUrl: "PL1234567890", candidateKind: "singing_clip", idempotencyKey: expect.any(String) }));
-  });
-
-  it("keeps the import form above history and preserves input while collapsed", () => {
-    render(createElement(IngestionSection, {}), { wrapper: createQueryWrapper() });
-    const input = screen.getByLabelText("YouTube 플레이리스트 URL 또는 ID") as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "PLdraft123" } });
-    const panel = document.getElementById("playlist-import")!;
-    expect(panel.compareDocumentPosition(screen.getByText("가져오기 이력")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "가져오기 숨기기" }));
-    expect(document.getElementById("playlist-import-form")!.hidden).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "가져오기 펼치기" }));
-    expect(input.value).toBe("PLdraft123");
-  });
-
-  it("confirms history deletion and retains the dialog on failure", async () => {
-    jobsHookMock.mockReturnValue({ data: [jobHookMock("job-1").data], isLoading: false });
-    deleteHistoryMock.mockRejectedValueOnce(new Error("busy"));
-    render(createElement(IngestionSection, {}), { wrapper: createQueryWrapper() });
-    fireEvent.keyDown(screen.getByRole("button", { name: "이력 삭제 메뉴" }), { key: "Enter" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "이력 삭제" }));
-    expect(deleteHistoryMock).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "삭제" }));
-    await waitFor(() => expect(deleteHistoryMock).toHaveBeenCalledWith("job-1"));
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ variant: "error" })));
-    expect(screen.getByRole("alertdialog")).toBeTruthy();
-    deleteHistoryMock.mockResolvedValueOnce({ deleted: true });
-    fireEvent.click(screen.getByRole("button", { name: "삭제" }));
-    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-  });
-
-  it("renders an ingestion query failure instead of an empty history and retries", () => {
-    const refetch = vi.fn(async () => undefined);
-    jobsHookMock.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-      isError: true,
-      isFetching: false,
-      refetch,
-    });
-
-    render(
-      createElement(IngestionSection, {}),
-      { wrapper: createQueryWrapper() },
-    );
-
-    expect(screen.getByText("가져오기 이력을 불러오지 못했습니다. 저장된 작업이 없는 것으로 간주하지 않습니다.")).toBeTruthy();
-    expect(screen.queryByText("저장된 가져오기 작업이 없습니다.")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
-    expect(refetch).toHaveBeenCalledOnce();
-  });
-
-  it("keeps previously imported playlists visible and reopens their collection status", async () => {
-    jobsHookMock.mockReturnValue({
-      isLoading: false,
-      data: [{
-        id: "saved-job",
-        playlistTitle: "Previously Imported Playlist",
-        playlistOwnerChannelTitle: "Saved Channel",
-        status: "completed",
-        createdAt: 100,
-        counts: { discovered: 23 },
-      }],
-    });
-    render(
-      createElement(IngestionSection, {}),
-      { wrapper: createQueryWrapper() },
-    );
-
-    expect(await screen.findByText("Previously Imported Playlist")).toBeTruthy();
-    await waitFor(() => expect(jobHookMock).toHaveBeenCalledWith("saved-job", true, false));
-  });
-
-  it("shows only the controls required by the selected import mode", () => {
-    render(
-      createElement(IngestionSection, {}),
-      { wrapper: createQueryWrapper() },
-    );
-
-    expect(screen.getByRole("group", { name: "가져오기 범위" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: /새 항목 전체/ })).toHaveProperty("checked", true);
-    expect(screen.queryByLabelText("최근 가져올 개수")).toBeNull();
-    expect(screen.queryByLabelText("시작 위치")).toBeNull();
-    expect(screen.queryByLabelText("가져올 개수")).toBeNull();
-
-    fireEvent.click(screen.getByRole("radio", { name: /최근 항목/ }));
-    expect(screen.getByLabelText("최근 가져올 개수")).toBeTruthy();
-    expect(screen.queryByLabelText("시작 위치")).toBeNull();
-
-    fireEvent.click(screen.getByRole("radio", { name: /위치 범위/ }));
-    expect(screen.queryByLabelText("최근 가져올 개수")).toBeNull();
-    expect(screen.getByLabelText("시작 위치")).toBeTruthy();
-    expect(screen.getByLabelText("가져올 개수")).toBeTruthy();
-  });
-
-  it("shows the safe YouTube failure classification and request ID", async () => {
-    preflightMock.mockRejectedValue(new ApiError(
-      "YouTube playlist metadata is unavailable",
-      503,
-      {
-        code: "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE",
-        fields: { youtube: "network" },
-        requestId: "request-123",
-      },
-    ));
-    render(
-      createElement(IngestionSection, {}),
-      { wrapper: createQueryWrapper() },
-    );
-    fireEvent.change(screen.getByLabelText("YouTube 플레이리스트 URL 또는 ID"), {
-      target: { value: "PL1234567890" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "가져오기 전 확인" }));
-
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
-      variant: "error",
-      description:
-        "YouTube playlist metadata 조회에 실패했습니다: network 요청 ID: request-123",
-    }));
-  });
-
-  it("reports failed-message retry errors and releases the busy state", async () => {
-    jobHookMock.mockImplementation((jobId: string | null) => ({
-      data: jobId
-        ? {
-            id: "job-1",
-            playlistTitle: "Official Covers",
-            status: "partial",
-            counts: { discovered: 1, metadataChecked: 1, eligible: 1 },
-            lastErrorCode: "youtube_failed",
-          }
-        : undefined,
-    }));
-    retryMock.mockRejectedValueOnce(new Error("network failed"));
-    render(
-      createElement(IngestionSection, {}),
-      { wrapper: createQueryWrapper() },
-    );
-    fireEvent.change(screen.getByLabelText("YouTube 플레이리스트 URL 또는 ID"), {
-      target: { value: "PL1234567890" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "가져오기 전 확인" }));
-    await screen.findByText("Official Covers");
-    fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
-    const retryButton = await screen.findByRole("button", { name: "실패 항목 재시도" });
-
-    fireEvent.click(retryButton);
-
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
-      variant: "error",
-      description: "실패 항목을 재시도하지 못했습니다.",
-    }));
-    expect(retryButton.hasAttribute("disabled")).toBe(false);
-  });
+it("keeps collection retry available for a partial job with an existing AI batch", async () => {
+  mocks.job.mockReturnValue({ data: { ...job, status: "partial", counts: { ...job.counts, permanentError: 1 }, aiBatchId: analysis.id }, refetch: vi.fn() });
+  mocks.retryCollection.mockResolvedValue({ job: { ...job, status: "partial" }, enqueued: 0 });
+  openJob();
+  expect(screen.getByText("관리자 검수 대기")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "AI 일괄 검수 시작" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "수집 실패 항목 재시도" }));
+  await waitFor(() => expect(mocks.retryCollection).toHaveBeenCalledWith(job.id));
+  expect(await screen.findByText("지금 다시 수집할 수 있는 실패 항목이 없습니다.")).toBeTruthy();
 });

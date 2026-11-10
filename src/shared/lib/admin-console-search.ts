@@ -54,9 +54,30 @@ export function useConsoleSearch() {
   return context ?? [local, update] as const;
 }
 
-/** Preserve bookmarked proposal targets when folding the old request screen into review. */
+/** Preserve bookmarked targets when folding older Play screens into review and operations. */
 export function normalizePlayAdminSearch(search: ConsoleSearch): ConsoleSearch {
-  if (search.tab !== "requests" && search.tab !== "review") return search;
-  const proposal = search.proposal ?? search.selected;
-  return { ...search, tab: "import", source: "user", view: proposal ? "proposal" : "inbox", proposal, selected: undefined };
+  if (search.tab === "channels" || search.tab === "clip-channels" || search.tab === "play-monitor") {
+    return {
+      ...search,
+      tab: "operations",
+      view: search.channel ? "channel-edit" : search.tab !== "channels" && search.category ? "channel-monitor" : "channels",
+      q: undefined,
+    };
+  }
+  if (search.view === "entities" && (!search.tab || search.tab === "catalog" || search.tab === "clips")) {
+    return { ...search, tab: "operations" };
+  }
+  if (search.tab === "automatic-review" || (search.tab === "import" && search.source === "automatic")) {
+    return { ...search, tab: "import", source: undefined, view: undefined, category: undefined, state: undefined, selected: undefined, proposal: undefined, workBatch: undefined, workQueue: undefined, workItem: undefined };
+  }
+  if (search.tab === "requests" || (search.tab === "import" && (search.source === "user" || search.proposal))) {
+    const linked = search.tab === "import" && search.source !== "user" && Boolean(search.proposal && (search.workBatch || search.category));
+    const proposal = search.proposal ?? search.selected;
+    return { ...search, tab: "review", source: undefined, view: proposal ? "proposal" : undefined, proposal,
+      category: linked ? search.category : undefined, selected: linked ? search.selected : undefined, from: linked ? "play-import" : undefined };
+  }
+  if (search.tab === "review" && search.selected && !search.proposal && !search.from) {
+    return { ...search, proposal: search.selected, selected: undefined, view: "proposal" };
+  }
+  return search;
 }

@@ -4,6 +4,7 @@ import type { OperationRunDto, XCollectionOperationItemDto } from "@contracts/sc
 import { Badge } from "@/shared/ui/badge";
 import { Card, CardContent, CardHeader } from "@/shared/ui/card";
 import { Progress } from "@/shared/ui/progress";
+import { QueryReadback } from "@/shared/ui/query-readback";
 import { useXCollectionStatus } from "../../queries/use-x-collection-status";
 import { useXReferenceHealth } from "../../queries/use-x-reference-health";
 import { formatXEligibility, formatXTime, xCollectionItemLabel, xCollectionResultText, xHydrationResultText, xPaidLookupText, xReasonLabel } from "../../model/x-collection-monitoring";
@@ -84,7 +85,7 @@ export function XCollectionBudget() {
   const health = query.data?.referenceHydration;
   const global = health?.globalBudget;
   return <Card aria-label="X 예산" className="gap-0 py-0 shadow-none">
-    <CardHeader className="px-3 py-2"><h2 className="flex flex-wrap items-center gap-2 text-sm font-semibold"><Wallet className="size-4" />X API 예산 <span className="text-xs font-normal text-muted-foreground">{health ? health.budgetDay + " UTC" : "확인 중"}</span></h2></CardHeader>
+    <CardHeader className="px-3 py-2"><h2 className="flex flex-wrap items-center gap-2 text-sm font-semibold"><Wallet className="size-4" />X API 예산 <span className="text-xs font-normal text-muted-foreground">{health ? health.budgetDay + " UTC" : query.isPending ? "확인 중" : "미확인"}</span></h2></CardHeader>
     <CardContent className="space-y-2 px-3 pb-3">
     <div className="grid gap-4 md:grid-cols-2">
       {global ? <BudgetRow title={health.sharedBudget?"양 사이트 합산 X 예산":"전체 X 예산"} used={global.usedMicros} reserved={global.reservedMicros} limit={global.limitMicros} /> : <p className="text-sm text-muted-foreground">공통 예산 정보 확인 불가 · 유료 조회 중지</p>}
@@ -94,7 +95,20 @@ export function XCollectionBudget() {
       <p className="text-xs text-muted-foreground">보강 예산은 전체에 포함 · UTC 자정 초기화</p>
       {global && health && <p className="text-[13px]">보강 가능 <strong className="tabular-nums">{money(Math.max(0, Math.min(global.limitMicros - global.usedMicros - global.reservedMicros, health.budgetLimitMicros - health.budgetUsedMicros - health.budgetReservedMicros)))}</strong></p>}
     </div>
-    {query.isError && <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">예산 상태 최신 조회 실패{health ? " · 마지막으로 조회한 값을 표시합니다." : ""}</p>}
+    <section aria-labelledby="x-reference-backlog-heading" className="space-y-2 border-t pt-2">
+      <h3 id="x-reference-backlog-heading" className="text-sm font-semibold">자동 처리 대기</h3>
+      <dl className="grid grid-cols-3 gap-2 tabular-nums">
+        {([
+          ["원문 대기", health?.pendingPosts],
+          ["작성자 대기", health?.pendingAuthors],
+          ["접근 불가", health?.terminal],
+        ] as const).map(([label, count]) => <div key={label}>
+          <dt className="text-xs text-muted-foreground">{label}</dt>
+          <dd className="mt-1 text-sm font-medium">{count === undefined ? "미확인" : `${count.toLocaleString("ko-KR")}건`}</dd>
+        </div>)}
+      </dl>
+      <QueryReadback updatedAt={query.dataUpdatedAt} fetching={query.isFetching} error={query.isError} className="my-0" />
+    </section>
     </CardContent>
   </Card>;
 }

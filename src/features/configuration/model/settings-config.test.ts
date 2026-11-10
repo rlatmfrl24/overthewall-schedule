@@ -59,14 +59,13 @@ describe("auto update interval helpers", () => {
 });
 
 describe("settings policy", () => {
-  it("Play automation pause defaults to false without a read-time write and validates explicit booleans", () => {
+  it("preserves Play automation and submission controls as read-only settings", () => {
     const { settings, writes } = normalizeAdminSettings({});
     expect(settings.otw_play_automation_paused).toBe("false");
-    expect(writes.some((write) => write.key === "otw_play_automation_paused")).toBe(false);
-    expect(parseSettingsUpdatePayload({ otw_play_automation_paused: "true" })).toEqual({
-      ok: true, updates: [{ key: "otw_play_automation_paused", value: "true" }],
-    });
-    expect(parseSettingsUpdatePayload({ otw_play_automation_paused: true }).ok).toBe(false);
+    expect(writes).not.toContainEqual(expect.objectContaining({ key: "otw_play_automation_paused" }));
+    expect(normalizeAdminSettings({ otw_play_automation_paused: "true", otw_play_submission_daily_limit: "8" }).settings)
+      .toMatchObject({ otw_play_automation_paused: "true", otw_play_submission_daily_limit: "8" });
+    expect(parseSettingsUpdatePayload({ otw_play_automation_paused: "false", otw_play_submission_daily_limit: "100" }).ok).toBe(false);
   });
   it("OTW Play 회원 제안 일일 제한을 1~100 범위로 검증한다", () => {
     expect(isOtwPlaySubmissionDailyLimitValue("1")).toBe(true);
@@ -126,14 +125,6 @@ describe("settings policy", () => {
     ).toEqual({
       ok: false,
       error: "Invalid youtube_api_daily_quota_units",
-    });
-    expect(
-      parseSettingsUpdatePayload({
-        otw_play_submission_daily_limit: "101",
-      }),
-    ).toEqual({
-      ok: false,
-      error: "Invalid otw_play_submission_daily_limit",
     });
     expect(
       parseSettingsUpdatePayload({ x_reference_preview_mode: "full" }),

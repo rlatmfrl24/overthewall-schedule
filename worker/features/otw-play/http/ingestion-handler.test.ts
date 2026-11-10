@@ -144,19 +144,20 @@ describe("OTW Play ingestion handler", () => {
   });
 
   it("lists persisted import jobs so previous playlists remain reachable", async () => {
-    const listJobs = vi.fn(async () => [{ id: "job-old", playlistTitle: "Saved" }]);
+    const listJobs = vi.fn(async () => ({ data: [{ id: "job-old", playlistTitle: "Saved" }], nextCursor: null }));
     const handler = createIngestionHandler(
       () => ({ listJobs }) as unknown as IngestionService,
     );
     const response = await handler(new Request(
-      "https://example.com/api/play/admin/imports?limit=100",
+      "https://example.com/api/play/admin/imports?limit=100&cursor=42%3Ajob-newer",
     ), env);
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       data: [{ id: "job-old", playlistTitle: "Saved" }],
+      nextCursor: null,
     });
-    expect(listJobs).toHaveBeenCalledWith(100);
+    expect(listJobs).toHaveBeenCalledWith(100, { createdAt: 42, id: "job-newer" });
   });
 
   it("returns a safe YouTube failure classification for playlist diagnostics", async () => {
@@ -340,6 +341,7 @@ describe("OTW Play ingestion handler", () => {
       "job-1",
       { candidates: [{ id: "candidate-1", expectedVersion: 2 }] },
       expect.objectContaining({ userId: "admin-1" }),
+      true,
     );
     expect(convertCandidate).toHaveBeenCalledWith(
       "candidate-1",

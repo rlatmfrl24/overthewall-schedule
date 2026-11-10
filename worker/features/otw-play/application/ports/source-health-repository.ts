@@ -59,6 +59,7 @@ export interface SourceHealthRepository {
     now: number,
     leaseUntil: number,
     limit: number,
+    actor?: SourceHealthActor,
   ): Promise<SourceHealthTarget[]>;
   readTarget(sourceId: string): Promise<SourceHealthTarget | null>;
   applyObservation(

@@ -3,6 +3,7 @@ import type { D1Migration } from "cloudflare:test";
 import { expect, it } from "vitest";
 import { D1AdminCatalogRepository } from "./d1-admin-catalog-repository";
 import { D1IngestionRepository } from "./d1-ingestion-repository";
+import { D1AiBatchRepository } from "./d1-ai-batch-repository";
 import { IngestionService } from "../application/ingestion-service";
 import { AdminCatalogService } from "../application/admin-catalog-service";
 import type { OtwPlayIngestionQueueMessage } from "../application/ports/ingestion-repository";
@@ -83,6 +84,9 @@ it("measures import and Ready/draft/publish reads at 50, 500 and 5000 rows", asy
     while (pending.length) await service.process(pending.shift()!);
     expect((await service.getJob(job.id)).counts.metadataChecked).toBe(size);
     const importCost = measured.summary();
+    const aiBatch = await new D1AiBatchRepository(measured.database).create(id(), actor.userId, id(), { importJobId: job.id }, 100);
+    expect(aiBatch.total).toBe(size);
+    await db.prepare("UPDATE music_ai_review_batch_items SET status = 'needs_selection' WHERE batch_id = ?").bind(aiBatch.id).run();
     // Identical 500-item workload at the representative size. The largest case
     // measures ingestion at 5000 and one isolated catalog mutation separately.
     const reviews = size === 5000 ? 1 : size;
@@ -99,12 +103,12 @@ it("measures import and Ready/draft/publish reads at 50, 500 and 5000 rows", asy
       } }, actor);
       if (i === 0) {
         singleSaveReads.push(measured.summary().rowsRead - before);
-        if (saved.reviewInput?.song.kind === "existing") firstSongId = saved.reviewInput.song.songId;
       }
-      const converted = await service.convertCandidate(candidateId, { expectedVersion: saved.version }, actor);
+      const { results: [converted] } = await service.convertCandidates(job.id, { candidates: [{ id: candidateId, expectedVersion: saved.version }] }, actor);
       expect(converted.outcome).toBe("created");
       const published = await catalog.transitionPerformance(converted.performanceId!, { expectedVersion: 0 }, "published", actor);
       expect(published.data.publicationStatus).toBe("published");
+      if (i === 0) firstSongId = published.data.songId;
     }
     const total = measured.summary();
     await catalog.updateSong({ id: firstSongId, expectedVersion: 0, slug: `updated-${size}`, title: `Cost song ${size} revised`,

@@ -79,7 +79,7 @@ describe("YouTube collection control flow", () => {
     expect(screen.getByRole("button", { name: "확인 대기 1 상세 보기" }).textContent).toBe("1");
     expect(screen.getAllByRole("button", { name: "대기 작업 실행" })[0].hasAttribute("disabled")).toBe(false);
   });
-  it("filters from numeric cards and keyboard-equivalent chart controls, searches, and opens full channel details", async () => {
+  it("filters from numeric cards and the state selector, searches, and opens full channel details", async () => {
     const other = { ...snapshot.channels[0], channelId: "UChealthy", names: ["정상 채널"], state: "healthy", nextCheckAt: snapshot.updatedAt + 50000, metadataPending: 0, oldestMetadataAt: null };
     status.mockResolvedValue({ ...snapshot, channels: [other, snapshot.channels[0]], summary: { ...snapshot.summary, channels: 2, states: { ...snapshot.summary.states, healthy: 1 } } });
     mount();
@@ -88,7 +88,8 @@ describe("YouTube collection control flow", () => {
     fireEvent.keyDown(screen.getByRole("combobox", { name: "채널 정렬" }), { key: "ArrowDown" });
     fireEvent.click(screen.getByRole("option", { name: "이름순" }));
     expect(within(table).getAllByRole("row")[1].textContent).toContain("정상 채널");
-    fireEvent.click(screen.getByRole("button", { name: "정상 1채널 보기" }));
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "수집 상태" }), { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: "정상" }));
     expect(table.textContent).toContain("정상 채널");
     expect(table.textContent).not.toContain("테스트 채널");
     fireEvent.click(screen.getByRole("button", { name: "확인 대기 1 상세 보기" }));
@@ -102,6 +103,19 @@ describe("YouTube collection control flow", () => {
     expect(within(detail).getByText("UCone")).toBeTruthy();
     expect(within(detail).getByText("마지막 시도")).toBeTruthy();
     expect(within(detail).getByText("공식 · 다시보기")).toBeTruthy();
+  });
+  it("keeps origin totals in the API summary without the history shortcut or chart section", async () => {
+    mount();
+    const summary = await screen.findByRole("region", { name: "수집 상태 요약" });
+    expect(screen.queryByRole("link", { name: /저장 영상 이력/ })).toBeNull();
+    expect(screen.queryByRole("region", { name: "수집 분석" })).toBeNull();
+    const toggle = within(summary).getByText("출처별 내역");
+    const details = toggle.closest("details");
+    expect(details?.open).toBe(false);
+    fireEvent.click(toggle);
+    expect(details?.open).toBe(true);
+    expect(within(details!).getByText("예약")).toBeTruthy();
+    expect(within(details!).getByText("3회 · 3 units · 실패 0회")).toBeTruthy();
   });
   it("uses source counters instead of wrapper 1/1 and exposes budget/backfill details", async () => {
     status.mockResolvedValue({ ...snapshot, recentRuns: [run] });

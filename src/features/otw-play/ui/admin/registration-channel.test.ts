@@ -7,7 +7,7 @@ describe("preserved registration navigation", () => {
     returnSearch: { tab: "catalog", kind: "broadcast", q: "검색", state: "draft" },
   };
   const registration = { pathname: "/admin/otw-play", search: visit.returnSearch };
-  const channel = { pathname: registration.pathname, search: { tab: "channels", view: "channel-edit", from: "play-registration", channel: "UCtarget" } };
+  const channel = { pathname: registration.pathname, search: { tab: "operations", view: "channel-edit", from: "play-registration", channel: "UCtarget" } };
   const preserves = preservesRegistrationVisit(visit);
   it("preserves both history directions only for the target channel and original search", () => {
     expect(preserves({ current: registration, next: channel })).toBe(true);

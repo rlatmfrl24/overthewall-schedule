@@ -71,6 +71,7 @@ AI 분석은 별도 작업·제안으로만 저장한다. 채널 승인, 후보 
 |---|---|
 | `GEMINI_API_KEY` | Worker secret. 브라우저 환경 변수로 제공하지 않음 |
 | `OTW_PLAY_AI_REVIEW_ENABLED` | `false`; 신규 실행·모델 호출 활성화 |
+| `OTW_PLAY_AI_REVIEW_PAUSED` | 기본 보류. 유료 실행이 승인된 환경에서만 `false`를 명시 |
 | `OTW_PLAY_AI_REVIEW_MODEL` | `gemini-3.8-flash` |
 | `OTW_PLAY_AI_REVIEW_DAILY_LIMIT` | `500`; 실패·재시도를 포함한 UTC 일일 호출 시도 상한이며 금액 상한이 아님 |
 

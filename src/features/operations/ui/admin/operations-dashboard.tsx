@@ -2,14 +2,15 @@ import { TabsList } from "@/shared/ui/tabs-list";
 import { Input } from "@/shared/ui/input";
 import { useConfirmation } from "@/shared/lib/confirmation";
 import { SelectField } from "@/shared/ui/select-field"
-import { useConsoleSearch } from "@/shared/lib/admin-console-search";
+import { useConsoleSearch, type ConsoleSearch } from "@/shared/lib/admin-console-search";
 import { scheduledJobTypes, scheduledJobStatuses } from "@contracts/scheduled-operations";
 import { QueryReadback } from "@/shared/ui/query-readback";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PiPulseBold as Activity, PiWarningBold as AlertTriangle, PiChartBarBold as BarChart3, PiCalendarDotsBold as CalendarClock, PiCheckCircleBold as CheckCircle2, PiCaretDownBold as ChevronDown, PiClockBold as Clock3, PiCoffeeBold as Coffee, PiDatabaseBold as DatabaseZap, PiArrowSquareOutBold as ExternalLink, PiGaugeBold as Gauge, PiHardDriveBold as HardDrive, PiClockCounterClockwiseBold as History, PiTrayBold as Inbox, PiInfoBold as Info, PiListChecksBold as ListChecks, PiSpinnerGapBold as Loader2, PiChatTextBold as MessageSquareText, PiArrowsClockwiseBold as RefreshCw, PiShieldWarningBold as ShieldAlert, PiTimerBold as TimerReset, PiYoutubeLogoBold as Youtube } from "react-icons/pi";
+import { PiPulseBold as Activity, PiWarningBold as AlertTriangle, PiChartBarBold as BarChart3, PiCalendarDotsBold as CalendarClock, PiCheckCircleBold as CheckCircle2, PiCaretDownBold as ChevronDown, PiCaretRightBold, PiClockBold as Clock3, PiCoffeeBold as Coffee, PiDatabaseBold as DatabaseZap, PiArrowSquareOutBold as ExternalLink, PiGaugeBold as Gauge, PiHardDriveBold as HardDrive, PiClockCounterClockwiseBold as History, PiTrayBold as Inbox, PiInfoBold as Info, PiListChecksBold as ListChecks, PiSpinnerGapBold as Loader2, PiChatTextBold as MessageSquareText, PiArrowsClockwiseBold as RefreshCw, PiShieldWarningBold as ShieldAlert, PiTimerBold as TimerReset, PiYoutubeLogoBold as Youtube } from "react-icons/pi";
 import type { IconType as LucideIcon } from "react-icons";
 import { AdminSectionHeader } from "@/app/admin";
+import { NoticeImageCleanupCard } from "@/features/notices";
 import { cn } from "@/shared/lib/utils";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
@@ -49,6 +50,7 @@ import type {
 } from "../../model/types";
 
 const WINDOW_HOURS = 24;
+const RUN_PAGE_SIZE = 25;
 const terminalStatuses = new Set([
   "succeeded",
   "partial",
@@ -325,15 +327,18 @@ function IssuePanel({ issues, updatedAt }: { issues: OperationsIssue[]; updatedA
               )}
             >
               <div className="flex items-start gap-2">
-                <Badge variant="outline" className={statusClass(issue.severity)}>
+                <Badge variant="outline" className={cn("shrink-0 whitespace-nowrap", statusClass(issue.severity))}>
                   {statusLabel(issue.severity)}
                 </Badge>
-                <div>
+                <div className="min-w-0 flex-1">
                   <p><span className="font-medium">원인:</span> {group.length === 1 ? issue.message : `${issue.code.startsWith("naver_") ? "네이버 카페" : "같은 원인의"} 확인 필요 · ${group.length}건`}</p>
                   {group.length > 1 && <div className="mt-1 text-xs text-muted-foreground"><p>대상별 근거 {group.length}건</p><ul className="mt-1 grid gap-x-4 gap-y-0.5 sm:grid-cols-2">{group.map((item, i) => <li key={i}>{item.message}</li>)}</ul></div>}
                   <div className="mt-1 space-y-0.5 text-xs leading-5 text-muted-foreground"><p><span className="font-medium text-foreground">영향:</span> {guidance.impact}</p>
                   <p className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">조치:</span> {guidance.action}</p></div>
-                  <a className="mt-1 inline-block text-xs font-medium underline" href={issue.code.startsWith("pending_schedule") ? "/admin/review?tab=schedule" : issue.code.startsWith("auto_") ? "/admin/collection?source=schedule" : issue.code.startsWith("x_") ? "/admin/collection?source=x" : issue.code.startsWith("naver_") ? "/admin/collection?source=naver-cafe" : issue.code.includes("guard") ? "/admin/resources" : "/admin/history?tab=runs"}>근거 확인 및 조치 →</a><span className="ml-3 break-all text-[11px] text-muted-foreground">진단 코드: {issue.code}</span>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <a className="inline-block text-xs font-medium underline underline-offset-2" href={issue.code.startsWith("pending_schedule") ? "/admin/review?tab=schedule" : issue.code.startsWith("auto_") ? "/admin/collection?source=schedule" : issue.code.startsWith("x_") ? "/admin/collection?source=x" : issue.code.startsWith("naver_") ? "/admin/collection?source=naver-cafe" : issue.code.includes("guard") ? "/admin/resources" : "/admin/history?tab=runs"}>근거 확인 및 조치 →</a>
+                    <span className="min-w-0 text-[11px] text-muted-foreground [overflow-wrap:anywhere]">진단 코드: {issue.code}</span>
+                  </div>
                 </div>
               </div>
             </li>
@@ -363,9 +368,9 @@ function QueueMetric({
     primary: "border-primary/25 bg-primary/5 text-primary",
   }[tone];
   return (
-    <div className={cn("rounded-md border px-2.5 py-2", toneClass)}>
+    <div className={cn("min-w-0 rounded-md border px-2 py-2 sm:px-2.5", toneClass)}>
       <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-        <Icon className="size-3.5" aria-hidden="true" /> {label}
+        <Icon className="hidden size-3.5 shrink-0 sm:block" aria-hidden="true" /> {label}
       </div>
       <p className="mt-1 text-lg font-semibold leading-none tabular-nums">
         {value.toLocaleString("ko-KR")}
@@ -548,28 +553,37 @@ function D1WriteGuardCard({ guard }: { guard: OperationsStatusResponse["schedule
 }
 
 function RunProgress({ run }: { run: OperationRun }) {
-  const terminal = terminalStatuses.has(run.status);
-  const neutral = isNeutralSkip(run);
+  const { total, succeeded, failed, running, queued, skipped, throttled } = run.progress;
+  if (!total) return <p className="text-xs text-muted-foreground">기록된 작업 묶음 없음</p>;
+  const processed = succeeded + failed + skipped + throttled;
+  const percent = progressValue(run);
+  const counts = ([
+    ["성공", succeeded], ["실패", failed], ["진행", running], ["대기", queued], ["건너뜀", skipped], ["제한", throttled],
+  ] as const).filter(([, count]) => count > 0);
   return (
-    <div className="min-w-48">
-      <div className="flex items-center justify-between text-xs"><span>{run.progress.total === 0 && neutral ? neutralSkipLabel(getRunReason(run)) : `${progressValue(run)}%`}</span><span>{run.progress.succeeded + run.progress.failed + run.progress.skipped + run.progress.throttled}/{run.progress.total} 작업 묶음</span></div>
-      <div role="progressbar" aria-label={`${runLabel(run.jobType)} 진행률`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressValue(run)} className="mt-1 h-2 overflow-hidden rounded-full bg-muted"><div className={cn("h-full", run.progress.failed > 0 ? "bg-destructive" : neutral ? "bg-muted-foreground/40" : terminal ? "bg-emerald-500" : "bg-amber-500")} style={{ width: `${progressValue(run)}%` }} /></div>
-      <p className="mt-1 text-xs text-muted-foreground">성공 {run.progress.succeeded} · 실패 {run.progress.failed} · 진행 {run.progress.running} · 대기 {run.progress.queued} · 건너뜀 {run.progress.skipped} · 제한 {run.progress.throttled}</p>
+    <div className="min-w-0 space-y-1">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-xs tabular-nums">
+        <span className="font-medium">{processed}/{total} 작업 묶음</span><span className="text-muted-foreground">{percent}% 처리</span>
+      </div>
+      <div role="progressbar" aria-label={`${runLabel(run.jobType)} 진행률`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-valuetext={`${total}개 중 ${processed}개 처리`} className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <div className={cn("h-full motion-safe:transition-[width]", failed > 0 || run.status === "failed" ? "bg-destructive" : run.status === "succeeded" ? "bg-emerald-500" : run.status === "skipped" ? "bg-muted-foreground/50" : "bg-amber-500")} style={{ width: `${percent}%` }} />
+      </div>
+      <p className="text-xs leading-relaxed text-muted-foreground tabular-nums">{counts.map(([label, count]) => `${label} ${count}`).join(" · ")}</p>
     </div>
   );
 }
 
 function RunDetails({ run }: { run: OperationRun }) {
-  const [search, update] = useConsoleSearch();
-  const open = search.selected === run.runId;
-  const detail = useQuery({queryKey: queryKeys.operations.run(run.runId), queryFn: () => fetchOperationRun(run.runId), enabled: open, staleTime: 30_000});
+  const detail = useQuery({queryKey: queryKeys.operations.run(run.runId), queryFn: () => fetchOperationRun(run.runId), staleTime: 30_000});
   const recorded = detail.data ?? run;
   const reason = getRunReason(recorded);
-  return <details open={open} className="whitespace-normal break-words">
-    <summary onClick={(event) => { event.preventDefault(); update({selected: open ? undefined : run.runId}, false); }} className="flex cursor-pointer list-none items-center gap-1 text-sm text-muted-foreground">상세 <ChevronDown className="size-3.5" /></summary>
-    {open && <div className="mt-2 min-w-0 space-y-2 text-xs">
-      <QueryReadback updatedAt={detail.dataUpdatedAt} fetching={detail.isFetching} error={detail.isError}/>
-      {reason && <p>사유: {reason}</p>}{recorded.lastError && <p className="text-destructive">{recorded.lastError}</p>}
+  return <div className="min-w-0 space-y-2 text-sm [overflow-wrap:anywhere]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-semibold">실행 상세</h3>
+        <QueryReadback updatedAt={detail.dataUpdatedAt} fetching={detail.isFetching} error={detail.isError} className="my-0" />
+        {detail.isError && <Button variant="outline" size="sm" className="min-h-11 md:min-h-9" onClick={() => void detail.refetch()}>상세 다시 조회</Button>}
+      </div>
+      {reason && <p>사유: {reason}</p>}{recorded.lastError && recorded.lastError.trim() !== reason && <p className="text-destructive">{recorded.lastError}</p>}
       {recorded.youtubeCollection && <div className="space-y-1"><p>채널 성공 {recorded.youtubeCollection.succeeded} / 시도 {recorded.youtubeCollection.attempted} · 실패 {recorded.youtubeCollection.failed}</p><p>메타데이터 갱신 {recorded.youtubeCollection.metadataRefreshed} · 접근 불가 {recorded.youtubeCollection.unavailableMarked}</p><p>Shorts 저장 {recorded.youtubeCollection.shortsStored} · 백필 {recorded.youtubeCollection.scanPages}페이지 · 백필 실패 {recorded.youtubeCollection.backfillFailed} · 재시도 대기 {recorded.youtubeCollection.backoffSources}{recorded.youtubeCollection.quotaBlocked ? " · 할당량 제한" : ""}</p></div>}
       {recorded.xCollection?.items.map((item) => <article key={item.itemId} className="space-y-1 rounded border p-2">
         <p className="font-semibold break-words">{item.targetKey.replace(/^handles:\d+:/, "@").replaceAll(",", " · @")} · {statusLabel(item.status)}</p>
@@ -579,29 +593,37 @@ function RunDetails({ run }: { run: OperationRun }) {
         <p>시도 {item.attempts}회 · 결과 갱신 {formatDateTime(item.updatedAt)}{item.retryPending ? ` · 재시도 대기 ${formatDateTime(item.nextRetryAt)}` : ""}</p>
       </article>)}
       {recorded.failures.map((failure) => <p key={failure.itemId} className="break-words text-destructive">{failure.phase} · {failure.code ?? "오류"}: {failure.message} (시도 {failure.attempts}회)</p>)}
-      <p className="break-all text-muted-foreground">실행 ID: {recorded.runId}</p>
-    </div>}
-  </details>;
+      <p className="text-xs text-muted-foreground">실행 ID: {recorded.runId}</p>
+    </div>;
 }
 
-function RunRow({ run }: { run: OperationRun }) {
+function RunCard({ run, open, onToggle }: { run: OperationRun; open: boolean; onToggle: () => void }) {
+  const panelId = useId();
   const terminal = terminalStatuses.has(run.status);
   const neutral = isNeutralSkip(run);
   return (
-    <TableRow className={run.status === "queued" || run.status === "running" ? "bg-amber-500/[0.03]" : undefined}>
-      <TableCell className="font-medium">{runLabel(run.jobType)}<p className="mt-1 text-xs text-muted-foreground">{run.source === "manual" ? "수동 실행" : "정기 실행"}</p></TableCell>
-      <TableCell><Badge variant="outline" className={statusClass(run.status, neutral)}>{neutral ? neutralSkipLabel(getRunReason(run)) : statusLabel(run.status)}</Badge></TableCell>
-      <TableCell><RunProgress run={run} /></TableCell>
-      <TableCell>{formatDateTime(run.startedAt ?? run.acceptedAt)}<p className="mt-1 text-xs text-muted-foreground">{terminal ? `완료 ${formatDateTime(run.finishedAt)}` : `경과 ${formatDuration(run.startedAt, null)}`}</p></TableCell>
-      <TableCell className="max-w-64"><RunDetails run={run} /></TableCell>
-    </TableRow>
-  );
-}
-
-function RunCard({ run }: { run: OperationRun }) {
-  const neutral = isNeutralSkip(run);
-  return (
-    <article className="space-y-3 rounded-lg border p-3"><div className="flex items-start justify-between gap-3"><div><h3 className="text-sm font-semibold">{runLabel(run.jobType)}</h3><p className="text-xs text-muted-foreground">{run.source === "manual" ? "수동 실행" : "정기 실행"} · {formatDateTime(run.acceptedAt)}</p></div><Badge variant="outline" className={statusClass(run.status, neutral)}>{neutral ? neutralSkipLabel(getRunReason(run)) : statusLabel(run.status)}</Badge></div><RunProgress run={run} /><RunDetails run={run} /></article>
+    <li className={cn("min-w-0", open && "bg-muted/20")}>
+      <div className="grid items-center gap-3 px-4 py-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.75fr)_auto]">
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <h3 className="text-sm font-semibold break-words">{runLabel(run.jobType)}</h3>
+            <Badge variant="outline" className={statusClass(run.status, neutral)}>{neutral ? neutralSkipLabel(getRunReason(run)) : statusLabel(run.status)}</Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">{run.source === "manual" ? "수동 실행" : "정기 실행"}</p>
+        </div>
+        <RunProgress run={run} />
+        <div className="text-xs tabular-nums">
+          <p>{run.startedAt ? "시작" : "접수"} {formatDateTime(run.startedAt ?? run.acceptedAt)}</p>
+          {run.finishedAt ? <p className="mt-1 text-muted-foreground">종료 {formatDateTime(run.finishedAt)}</p> : !terminal && run.startedAt && <p className="mt-1 text-muted-foreground">경과 {formatDuration(run.startedAt, null)}</p>}
+        </div>
+        <Button variant={open ? "secondary" : "outline"} size="sm" className="min-h-11 w-fit md:min-h-9 sm:justify-self-end" aria-expanded={open} aria-controls={panelId} aria-label={`${runLabel(run.jobType)} ${open ? "상세 닫기" : "상세 보기"}`} onClick={onToggle}>
+          {open ? "상세 닫기" : "상세 보기"}<ChevronDown aria-hidden="true" className={cn(open && "rotate-180", "motion-safe:transition-transform")} />
+        </Button>
+      </div>
+      <div id={panelId} hidden={!open} className="border-t bg-background/50 px-4 py-3">
+        {open && <RunDetails run={run} />}
+      </div>
+    </li>
   );
 }
 
@@ -633,8 +655,10 @@ function RetentionPolicyTable({ policies }: { policies: DataRetentionPolicyStatu
   return <Table><TableHeader><TableRow><TableHead>정책</TableHead><TableHead>보존</TableHead><TableHead>현재 삭제 대상</TableHead></TableRow></TableHeader><TableBody>{policies.map((policy) => <TableRow key={policy.id}><TableCell>{policy.category === "scheduled_operations" ? "정기 작업 · " : ""}{policy.label}</TableCell><TableCell>{policy.retentionDays}일</TableCell><TableCell>{policy.prunableRows.toLocaleString("ko-KR")}건</TableCell></TableRow>)}</TableBody></Table>;
 }
 
-export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog, xRestPendingSources }: { view?: "all" | "home" | "resources" | "history"; onRefresh?: () => void; referenceBacklog?: ReactNode; xRestPendingSources?: number | null } = {}) {
+export function OperationsDashboard({ view = "all", onRefresh, xRestPendingSources }: { view?: "all" | "home" | "resources" | "history"; onRefresh?: () => void; xRestPendingSources?: number | null } = {}) {
   const [search, updateSearch] = useConsoleSearch();
+  const isHome = view === "home";
+  const isHistory = view === "history";
   const jobType = scheduledJobTypes.find((type) => type === search.source);
   const runStatus = scheduledJobStatuses.find((status) => status === search.state);
   const page = search.page ?? 1;
@@ -642,13 +666,18 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog,
   const { toast } = useToast();
   const confirm = useConfirmation();
   const [retentionRunId, setRetentionRunId] = useState<string | null>(null);
-  const [runView, setRunView] = useState<"summary" | "history">(view === "history" ? "history" : "summary");
-  const statusQuery = useQuery({ queryKey: queryKeys.operations.status(WINDOW_HOURS), queryFn: () => fetchOperationsStatus(WINDOW_HOURS), staleTime: 30_000 });
-  const jobSummariesQuery = useQuery({ queryKey: queryKeys.operations.jobSummaries(), queryFn: fetchOperationJobSummaries, enabled: view !== "resources", staleTime: 60_000 });
+  const [localRunView, setLocalRunView] = useState<"summary" | "history">("summary");
+  const runView = isHistory ? search.view === "summary" ? "summary" : "history" : localRunView;
+  const setRunView = (next: "summary" | "history") => {
+    if (isHistory) updateSearch({ view: next === "summary" ? "summary" : undefined, selected: undefined }, false);
+    else setLocalRunView(next);
+  };
+  const statusQuery = useQuery({ queryKey: queryKeys.operations.status(WINDOW_HOURS), queryFn: () => fetchOperationsStatus(WINDOW_HOURS), enabled: !isHistory, staleTime: 30_000 });
+  const jobSummariesQuery = useQuery({ queryKey: queryKeys.operations.jobSummaries(), queryFn: fetchOperationJobSummaries, enabled: view !== "resources" && (!isHistory || runView === "summary"), staleTime: 60_000 });
   const d1Query = useQuery({ queryKey: queryKeys.operations.d1Observability(), queryFn: fetchD1Observability, staleTime: 5 * 60_000, enabled: view === "all" || view === "resources" });
   const runsQuery = useQuery({
     queryKey: [...queryKeys.operations.runs(), {jobType, runStatus, page, from: search.from, until: search.until}],
-    queryFn: () => fetchOperationRuns({ limit: 26, offset: (page - 1) * 25, jobType, status: runStatus, from: search.from, until: search.until }),
+    queryFn: () => fetchOperationRuns({ limit: RUN_PAGE_SIZE + 1, offset: (page - 1) * RUN_PAGE_SIZE, jobType, status: runStatus, from: search.from, until: search.until }),
     enabled: runView === "history" || retentionRunId !== null,
     refetchInterval: (query) => (query.state.data?.runs ?? []).some((run) => run.status === "queued" || run.status === "running") ? 5_000 : false,
   });
@@ -656,7 +685,7 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog,
   const invalidate = useCallback(() => Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }), queryClient.invalidateQueries({ queryKey: queryKeys.settings.all })]), [queryClient]);
   const retentionMutation = useMutation({ mutationFn: () => runDataRetentionPrune({ dryRun: false }), onSuccess: (result) => { if ("runId" in result) { setRetentionRunId(result.runId); void invalidate(); toast({ variant: "success", description: "D1 데이터 정리가 대기열에 등록되었습니다." }); } }, onError: () => toast({ variant: "error", description: "D1 데이터 정리에 실패했습니다." }) });
   useEffect(() => { const run = runsQuery.data?.runs.find((item) => item.runId === retentionRunId); if (run && terminalStatuses.has(run.status)) { setRetentionRunId(null); void invalidate(); } }, [retentionRunId, runsQuery.data, invalidate]);
-  const historyRuns = useMemo(() => [...(runsQuery.data?.runs ?? []).slice(0, 25)].sort((left, right) => Number(right.status === "queued" || right.status === "running") - Number(left.status === "queued" || left.status === "running") || right.acceptedAt - left.acceptedAt), [runsQuery.data]);
+  const historyRuns = useMemo(() => (runsQuery.data?.runs ?? []).slice(0, RUN_PAGE_SIZE).sort((left, right) => Number(right.status === "queued" || right.status === "running") - Number(left.status === "queued" || left.status === "running") || right.acceptedAt - left.acceptedAt), [runsQuery.data]);
   const data = statusQuery.data;
   if ((view === "all" || view === "home") && statusQuery.isLoading) return <div className="flex min-h-96 items-center justify-center"><Loader2 className="size-8 animate-spin text-muted-foreground" /></div>;
   if (!data && (view === "all" || view === "home")) return <div className="w-full"><AdminSectionHeader headingLevel={1} title={view === "home" ? "대시보드" : "운영 대시보드"} description="운영 상태를 불러오지 못했습니다." actions={<Button variant="outline" onClick={() => void statusQuery.refetch()}><RefreshCw />다시 시도</Button>} /></div>;
@@ -674,46 +703,52 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog,
   const autoIssues = data?.summary.issues.filter((issue) => issue.code.startsWith("auto_") || issue.code.startsWith("pending_schedule")) ?? [];
   const toneForIssues = (issues: OperationsIssue[]): StatusTone => issues.some((issue) => issue.severity === "critical") ? "critical" : issues.length > 0 ? "warning" : "success";
   const confirmPrune = async () => { const count = retentionQuery.data?.totalPrunableRows ?? 0; if (await confirm({ title: "보존 기간이 지난 데이터 삭제", description: `보존 기간이 지난 D1 데이터 ${count.toLocaleString("ko-KR")}건을 삭제합니다. 계속할까요?`, destructive: true, confirmLabel: "삭제" })) retentionMutation.mutate(); };
-  const refreshAll = () => { onRefresh?.(); void statusQuery.refetch(); if (view !== "resources") void jobSummariesQuery.refetch(); if (view === "all" || view === "resources") { void d1Query.refetch(); void retentionQuery.refetch(); } if (runView === "history") void runsQuery.refetch(); };
+  const displayedRunQuery = runView === "history" ? runsQuery : jobSummariesQuery;
+  const hasAdditionalFilters = Boolean(jobType || search.from || search.until);
+  const hasRunFilters = Boolean(runStatus || hasAdditionalFilters);
+  const applyRunFilters = (patch: Pick<ConsoleSearch, "source" | "state" | "from" | "until">) => updateSearch({ ...patch, page: 1, selected: undefined });
+  const refreshAll = () => {
+    if (isHistory) { void displayedRunQuery.refetch(); return; }
+    onRefresh?.(); void statusQuery.refetch(); if (view !== "resources") void jobSummariesQuery.refetch(); if (view === "all" || view === "resources") { void d1Query.refetch(); void retentionQuery.refetch(); } if (runView === "history") void runsQuery.refetch();
+  };
+  const refreshing = isHistory ? displayedRunQuery.isFetching : statusQuery.isFetching || (view === "resources" && (d1Query.isFetching || retentionQuery.isFetching));
 
   return (
-    <div className={cn("flex w-full flex-col", view === "resources" ? "admin-dense-panel gap-3" : "gap-6")} data-testid="operations-dashboard">
-      <AdminSectionHeader headingLevel={1} title={view === "home" ? "대시보드" : view === "history" ? "작업 실행 이력" : view === "resources" ? "사용량·한도" : "운영 대시보드"} description={view === "resources" ? undefined : `운영 상태 ${data?.window.hours ?? WINDOW_HOURS}시간 · D1 실계측 UTC 일자 기준`} actions={<>
+    <div className={cn("flex w-full min-w-0 flex-col", isHome ? "operations-home gap-4 md:gap-5" : view === "resources" ? "admin-dense-panel gap-3" : isHistory ? "gap-4" : "gap-6")} data-testid="operations-dashboard">
+      <AdminSectionHeader headingLevel={1} title={isHome ? "대시보드" : isHistory ? "작업 실행 이력" : view === "resources" ? "사용량·한도" : "운영 대시보드"} description={isHistory ? "정기·수동 작업의 처리 결과와 상세 이력을 확인합니다." : view === "resources" ? undefined : `운영 상태 ${data?.window.hours ?? WINDOW_HOURS}시간 · D1 실계측 UTC 일자 기준`} metadata={isHome && <QueryReadback updatedAt={statusQuery.dataUpdatedAt} fetching={statusQuery.isFetching} error={statusQuery.isError} className="my-0" />} actions={<>
         {view === "resources" && <QueryReadback updatedAt={statusQuery.dataUpdatedAt} fetching={statusQuery.isFetching} error={statusQuery.isError} className="my-0" />}
-        <Button variant="outline" onClick={refreshAll} disabled={statusQuery.isFetching || (view === "resources" && (d1Query.isFetching || retentionQuery.isFetching))}><RefreshCw className={cn(statusQuery.isFetching && "animate-spin")} /> 상태 새로고침</Button>
+        <Button variant="outline" className={isHistory ? "min-h-11 md:min-h-9" : undefined} onClick={refreshAll} disabled={refreshing}><RefreshCw className={cn(refreshing && "animate-spin")} aria-hidden="true" /> 상태 새로고침</Button>
       </>} />
 
-      {view !== "resources" && <QueryReadback updatedAt={statusQuery.dataUpdatedAt} fetching={statusQuery.isFetching} error={statusQuery.isError} />}
-      {data?.playAutomationPaused && <section role="status" className="rounded-lg border bg-muted/30 p-4 text-sm">
+      {view === "all" && <QueryReadback updatedAt={statusQuery.dataUpdatedAt} fetching={statusQuery.isFetching} error={statusQuery.isError} />}
+      {!isHistory && data?.playAutomationPaused && <section role="status" className="rounded-lg border bg-muted/30 p-4 text-sm">
         <p className="font-medium">Play 자동화가 일시 중지되어 있습니다.</p>
         <p className="mt-1 text-muted-foreground">채널 업로드 조회와 자동 수집·소스 점검을 중지합니다. 기존 곡과 후보 검수, 데이터 보존 정리는 계속 이용할 수 있습니다.</p>
-        <a href="/admin/otw-play?tab=play-monitor" className="mt-2 inline-block underline underline-offset-4">Play 채널 감시 설정 열기</a>
+        <a href="/admin/otw-play?tab=operations&view=channels" className="mt-2 inline-block underline underline-offset-4">Play 채널 감시 설정 열기</a>
       </section>}
       {data && (view === "all" || view === "home") ? <section className="space-y-3" aria-labelledby="attention-heading">
         <h2 id="attention-heading" className="sr-only">지금 확인할 것</h2>
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]" data-testid="operations-attention-grid"><IssuePanel issues={[...data.summary.issues, ...(xRestPendingIssue ? [xRestPendingIssue] : [])]} updatedAt={data.updatedAt} /><QueueHealthCard activeRunCount={data.scheduledOperations.activeRunCount} outboxBacklog={data.scheduledOperations.outboxBacklog} staleLeaseCount={data.scheduledOperations.staleLeaseCount} used={queue!.used} limit={queue!.limit} usedPercent={Math.max(0, Math.min(100, queue!.usedPercent))} /></div>
       </section> : null}
 
-      {data && view === "home" && <section aria-label="사람의 검토 필요" className="rounded-lg border bg-card p-3">
-        <h2 className="mb-2 font-semibold">사람의 검토 필요</h2>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          <a className="rounded border p-3 hover:bg-muted" href="/admin/review?tab=schedule">일정 승인 <strong className="float-right">{data.autoUpdate.pending.total}건</strong></a>
-          {(["automatic", "proposals", "imports"] as const).map((kind) => {
-            const entry = data.review?.entries.find((item) => item.kind === kind);
-            return <a key={kind} className="rounded border p-3 hover:bg-muted" href={`/admin/otw-play?tab=import&view=inbox&source=${kind === "automatic" ? "automatic" : kind === "proposals" ? "user" : "playlist"}`}>{kind === "automatic" ? "자동 영상 후보" : kind === "proposals" ? "사용자 제안" : "가져오기 검토"}<strong className="float-right">{entry?.status === "available" ? `${entry.count}건` : "미확인"}</strong></a>;
+      {data && isHome && <section aria-label="사람의 검토 필요" className="space-y-2.5 rounded-lg border bg-card px-3.5 py-3">
+        <h2 className="text-base font-semibold">사람의 검토 필요</h2>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {([
+            { kind: "schedule", label: "일정 승인", href: "/admin/review?tab=schedule" },
+            { kind: "proposals", label: "사용자 제안", href: "/admin/otw-play?tab=review" },
+            { kind: "imports", label: "가져오기 검토", href: "/admin/otw-play?tab=import" },
+          ] as const).map(({ kind, label, href }) => {
+            const count = kind === "schedule" ? data.autoUpdate.pending.total : data.review?.entries.find((item) => item.kind === kind && item.status === "available")?.count;
+            const countLabel = count == null ? "미확인" : `${count.toLocaleString("ko-KR")}건`;
+            return <a key={kind} className="flex min-h-11 items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring motion-safe:transition-colors" href={href} aria-label={`${label} ${countLabel}`}>
+              <span className="min-w-0 flex-1">{label}</span>
+              <strong className={cn("shrink-0 font-semibold tabular-nums", count == null && "text-muted-foreground")}>{countLabel}</strong>
+              <PiCaretRightBold className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            </a>;
           })}
-        </div><p className="mt-2 text-xs text-muted-foreground">종류별 대기량이며 후보가 중복될 수 있습니다. 검토 저장과 공개는 별도 동작입니다.</p>
+        </div><p className="text-xs leading-relaxed text-muted-foreground">종류별 대기량이며 후보가 중복될 수 있습니다. 검토 저장과 공개는 별도 동작입니다.</p>
       </section>}
-      {data && view === "home" && (
-        <section aria-label="자동 처리 대기" className="space-y-2 rounded-lg border p-3">
-          <h2 className="font-semibold">자동 처리 대기</h2>
-          <div className="space-y-3">
-            <div className="min-w-0">
-              {referenceBacklog ?? <a className="underline" href="/admin/collection?source=x">X 원문·작성자 보강 사유 확인 →</a>}
-            </div>
-          </div>
-        </section>
-      )}
       {data && (view === "all" || view === "home") ? <section className="space-y-3" aria-labelledby="collection-heading">
         <SectionHeading id="collection-heading" title="수집 상태" description="공급자별 최근 정상 점검과 실제 수집 결과를 구분합니다." />
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -737,29 +772,68 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog,
 
       {view === "all" || view === "resources" ? <section className="space-y-3" aria-labelledby="resources-heading">
         <SectionHeading id="resources-heading" title="자원 및 한도" description="Cloudflare 실계측과 내부 실행 허용 예상치를 혼동하지 않도록 분리합니다." />
-        <div className={cn("grid lg:grid-cols-3", view === "resources" ? "items-start gap-3" : "gap-4")}><D1ObservabilityCard data={d1Query.data} loading={d1Query.isLoading} />{d1WriteGuard ? <D1WriteGuardCard guard={d1WriteGuard} /> : <p role="status">실행 보호 한도 미확인</p>}</div>
+        <div className={cn("grid lg:grid-cols-3", view === "resources" ? "items-start gap-3" : "gap-4")}>
+          <D1ObservabilityCard data={d1Query.data} loading={d1Query.isLoading} />
+          <div className="min-w-0 space-y-3">
+            {d1WriteGuard ? <D1WriteGuardCard guard={d1WriteGuard} /> : <p role="status">실행 보호 한도 미확인</p>}
+            {view === "resources" && <NoticeImageCleanupCard />}
+          </div>
+        </div>
       </section> : null}
 
       {view === "all" || view === "history" ? <section id="scheduled-jobs" className="space-y-3" aria-labelledby="jobs-heading">
-        {runView === "history" && <div className="flex flex-wrap items-end gap-2">
-          <label className="text-xs">작업 종류<SelectField aria-label="작업 종류" value={search.source ?? ""} onValueChange={(value) => updateSearch({source: value, page: 1})} options={[{ value: "", label: "모든 작업" }, ...scheduledJobTypes.map((type) => ({ value: type, label: runLabel(type) }))]} /></label>
-          <label className="text-xs">결과<SelectField aria-label="결과" value={search.state ?? ""} onValueChange={(value) => updateSearch({state: value, page: 1})} options={[{ value: "", label: "모든 결과" }, ...scheduledJobStatuses.map((status) => ({ value: status, label: statusLabel(status) }))]} /></label>
-          <label className="text-xs">시작일 UTC<Input type="date" className="block h-9 rounded border bg-background px-2" value={search.from ?? ""} onChange={(e) => updateSearch({from: e.target.value, page: 1})}/></label>
-          <label className="text-xs">종료일 UTC<Input type="date" className="block h-9 rounded border bg-background px-2" value={search.until ?? ""} onChange={(e) => updateSearch({until: e.target.value, page: 1})}/></label>
-          <Button variant="outline" disabled={page === 1} onClick={() => updateSearch({page: page - 1}, false)}>이전</Button><span>{page}페이지</span><Button variant="outline" disabled={(runsQuery.data?.runs.length ?? 0) <= 25} onClick={() => updateSearch({page: page + 1}, false)}>다음</Button>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 id="jobs-heading" className={cn(isHistory ? "sr-only" : "text-lg font-semibold")}>작업 실행 기록</h2>
+          <div className="[&_button]:min-h-11 md:[&_button]:min-h-9">
+            <TabsList value={runView} onValueChange={setRunView} label="작업 이력 보기" items={[
+              { value: "history", id: "job-history-tab", panelId: "job-history-panel", label: <><History aria-hidden="true" /> 전체 이력</> },
+              { value: "summary", id: "job-summary-tab", panelId: "job-summary-panel", label: <><ListChecks aria-hidden="true" /> 작업별 최신</> },
+            ]} />
+          </div>
         </div>
-        }
-        {runView === "history" && <QueryReadback updatedAt={runsQuery.dataUpdatedAt} fetching={runsQuery.isFetching} error={runsQuery.isError}/>}
-        <SectionHeading id="jobs-heading" title="정기 작업 상태" description="기본 화면은 작업 종류별 최신 의미 있는 실행만 표시합니다." />
-        <Card>
-          <CardHeader><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><CardTitle className="text-base">예약·수동 작업</CardTitle><CardDescription className="mt-1">대상이 없는 정기 점검은 D1 쓰기 절감을 위해 run을 저장하지 않습니다.</CardDescription></div><TabsList value={runView} onValueChange={setRunView} label="작업 이력 보기" items={[
-            { value: "summary", id: "job-summary-tab", panelId: "job-summary-panel", label: <><ListChecks /> 작업별 최신</> },
-            { value: "history", id: "job-history-tab", panelId: "job-history-panel", label: <><History /> 전체 이력</> },
-          ]} /></div></CardHeader>
-          <CardContent>
-            {runView === "summary" ? <div id="job-summary-panel" role="tabpanel" aria-labelledby="job-summary-tab"><QueryReadback updatedAt={jobSummariesQuery.dataUpdatedAt} fetching={jobSummariesQuery.isFetching} error={jobSummariesQuery.isError} />{jobSummariesQuery.isLoading ? <div className="flex min-h-32 items-center justify-center"><Loader2 className="size-5 animate-spin" /></div> : <JobSummaryTable summaries={summaries} />}</div> : <div id="job-history-panel" role="tabpanel" aria-labelledby="job-history-tab"><div className="hidden overflow-x-auto xl:block"><Table><TableHeader><TableRow><TableHead>작업</TableHead><TableHead>상태</TableHead><TableHead>작업 묶음 진행률</TableHead><TableHead>시각</TableHead><TableHead>결과</TableHead></TableRow></TableHeader><TableBody>{historyRuns.map((run) => <RunRow key={run.runId} run={run} />)}{!runsQuery.isLoading && !runsQuery.isError && historyRuns.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">아직 기록된 작업이 없습니다.</TableCell></TableRow> : null}</TableBody></Table></div><div className="space-y-2 xl:hidden">{historyRuns.map((run) => <RunCard key={run.runId} run={run} />)}</div></div>}
-          </CardContent>
-        </Card>
+        <div id={`job-${runView}-panel`} role="tabpanel" aria-labelledby={`job-${runView}-tab`} className="min-w-0 space-y-3">
+          {runView === "history" && <div role="search" aria-label="작업 실행 필터" className="space-y-3 rounded-xl border bg-card p-4">
+            <div role="group" aria-label="실행 상태" className="flex flex-wrap gap-1">
+              {([undefined, ...scheduledJobStatuses]).map((status) => (
+                <Button key={status ?? "all"} size="sm" variant={runStatus === status ? "default" : "ghost"} aria-pressed={runStatus === status} className="min-h-11 md:min-h-9" onClick={() => applyRunFilters({ state: status })}>
+                  {status ? statusLabel(status) : "전체 상태"}
+                </Button>
+              ))}
+            </div>
+            <div className="relative border-t pt-1">
+              <details className="group">
+                <summary className={cn("flex min-h-11 cursor-pointer list-none items-center gap-2 text-sm font-medium md:min-h-9", hasRunFilters && "pr-24")}>
+                  <ChevronDown aria-hidden="true" className="size-4 -rotate-90 motion-safe:transition-transform group-open:rotate-0" /> 작업 종류·기간
+                  {hasAdditionalFilters && <span className="text-xs text-muted-foreground">적용 중</span>}
+                </summary>
+                <div className="grid grid-cols-2 items-end gap-2.5 pt-2 lg:grid-cols-3">
+                  <label className="col-span-2 grid min-w-0 gap-1 text-xs text-muted-foreground lg:col-span-1">작업 종류<SelectField aria-label="작업 종류" className="min-h-11 w-full text-foreground md:min-h-9" value={jobType ?? ""} onValueChange={(value) => applyRunFilters({ source: value || undefined })} options={[{ value: "", label: "모든 작업" }, ...scheduledJobTypes.map((type) => ({ value: type, label: runLabel(type) }))]} /></label>
+                  <label className="grid min-w-0 gap-1 text-xs text-muted-foreground">시작일 UTC<Input type="date" className="min-h-11 min-w-0 bg-background text-foreground md:min-h-9" max={search.until} value={search.from ?? ""} onChange={(event) => applyRunFilters({ from: event.target.value || undefined })} /></label>
+                  <label className="grid min-w-0 gap-1 text-xs text-muted-foreground">종료일 UTC<Input type="date" className="min-h-11 min-w-0 bg-background text-foreground md:min-h-9" min={search.from} value={search.until ?? ""} onChange={(event) => applyRunFilters({ until: event.target.value || undefined })} /></label>
+                </div>
+              </details>
+              {hasRunFilters && <Button variant="ghost" size="sm" className="absolute top-1 right-0 min-h-11 md:min-h-9" onClick={() => applyRunFilters({ source: undefined, state: undefined, from: undefined, until: undefined })}>필터 초기화</Button>}
+            </div>
+          </div>}
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+            <p className="text-xs text-muted-foreground">{runView === "history" ? "처리할 대상이 없는 일부 정기 점검은 실행 이력에 남지 않습니다." : "작업 종류별 최근 점검과 판정을 확인합니다."}</p>
+            <QueryReadback updatedAt={displayedRunQuery.dataUpdatedAt} fetching={displayedRunQuery.isFetching} error={displayedRunQuery.isError} className="my-0" />
+          </div>
+          {displayedRunQuery.isLoading ? <div className="flex min-h-32 items-center justify-center rounded-xl border text-sm text-muted-foreground">실행 기록을 불러오는 중…</div> : runView === "summary" ? (
+            summaries.length > 0 ? <JobSummaryTable summaries={summaries} /> : !displayedRunQuery.isError && <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">작업별 최신 점검 기록이 없습니다.</p>
+          ) : <>
+            {historyRuns.length > 0 ? <ul aria-label="작업 실행 목록" className="divide-y overflow-hidden rounded-xl border bg-card">
+              {historyRuns.map((run) => <RunCard key={run.runId} run={run} open={search.selected === run.runId} onToggle={() => updateSearch({ selected: search.selected === run.runId ? undefined : run.runId }, false)} />)}
+            </ul> : !displayedRunQuery.isError && <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">{hasRunFilters ? "선택한 조건에 맞는 실행이 없습니다. 필터를 바꾸거나 초기화해 주세요." : "아직 기록된 작업이 없습니다."}</p>}
+            {(historyRuns.length > 0 || page > 1) && <nav aria-label="실행 이력 페이지" className="flex flex-wrap items-center justify-between gap-2 px-1">
+              <span className="text-xs tabular-nums text-muted-foreground">{page}페이지 · {historyRuns.length}건 표시</span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="min-h-11 md:min-h-9" disabled={page === 1} onClick={() => updateSearch({ page: page - 1, selected: undefined }, false)}>이전</Button>
+                <Button variant="outline" size="sm" className="min-h-11 md:min-h-9" disabled={(runsQuery.data?.runs.length ?? 0) <= RUN_PAGE_SIZE} onClick={() => updateSearch({ page: page + 1, selected: undefined }, false)}>다음</Button>
+              </div>
+            </nav>}
+          </>}
+        </div>
       </section> : null}
 
       {view === "all" || view === "resources" ? <section className="space-y-3" aria-labelledby="retention-heading">

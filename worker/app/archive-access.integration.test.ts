@@ -13,7 +13,8 @@ import { commitPublicationBatch } from "../features/content-access";
 import { publicationHiddenSql } from "../features/content-access";
 import { readActiveChzzkChannels } from "../features/chzzk/infrastructure/d1-active-channels";
 import { readActiveYouTubeChannels } from "../features/youtube/infrastructure/d1-active-channels";
-import { runScheduledYouTubeFeedCollection } from "../features/youtube/infrastructure/youtube-feed";
+import { hasScheduledYouTubeFeedWork, runScheduledYouTubeFeedCollection } from "../features/youtube/infrastructure/youtube-feed";
+import type { YouTubeFeedStatusDto } from "@contracts/youtube";
 import { collectNaverCafePostsForSources } from "../features/naver-cafe/infrastructure/naver-cafe-collector";
 import { readStoredXPreview } from "../features/x-posts/infrastructure/x-reference-store";
 import { D1MemberSubmissionRepository } from "../features/otw-play/infrastructure/d1-member-submission-repository";
@@ -92,7 +93,7 @@ beforeEach(async () => {
     db.prepare("DELETE FROM member_links"),
     db.prepare("DELETE FROM content_transitions"), db.prepare("DELETE FROM content_historical_records"), db.prepare("DELETE FROM music_playlists"),
     db.prepare("DELETE FROM x_posts"), db.prepare("DELETE FROM x_post_sources"), db.prepare("DELETE FROM naver_cafe_posts"), db.prepare("DELETE FROM naver_cafe_sources"),
-    db.prepare("DELETE FROM youtube_feed_sources"), db.prepare("DELETE FROM chzzk_api_cache"),
+    db.prepare("DELETE FROM youtube_feed_sources"), db.prepare("DELETE FROM kirinuki_channels"), db.prepare("DELETE FROM chzzk_api_cache"),
     db.prepare("DELETE FROM music_channel_upload_candidate_origins"), db.prepare("DELETE FROM music_channel_upload_monitors"), db.prepare("DELETE FROM music_channel_automation_approvals"),
     db.prepare("DELETE FROM music_cover_proposals"), db.prepare("DELETE FROM music_performances"),
     db.prepare("DELETE FROM music_media_sources"), db.prepare("DELETE FROM music_channels"),
@@ -205,6 +206,53 @@ it("retains timed YouTube source/video originals without polling them after midn
   expect(await db.prepare("SELECT title FROM youtube_feed_videos WHERE source_id=1").first("title")).toBe("Retained original");
   expect(await db.prepare("SELECT last_success_at FROM youtube_feed_sources WHERE id=1").first("last_success_at")).toBeNull();
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it("scopes the YouTube collection dashboard and work to each site's active members", async () => {
+  const now = Date.parse(SITE_OPENS_AT);
+  await mockPublicationTime(now);
+  const archived = "UCcccccccccccccccccccccc";
+  const vod = "UCdddddddddddddddddddddd";
+  const kirinuki = "UCeeeeeeeeeeeeeeeeeeeeee";
+  await db.batch([
+    db.prepare("UPDATE members SET content_access='normal' WHERE uid=1"),
+    db.prepare("INSERT INTO members(uid,code,name,content_access,youtube_channel_id,is_deprecated) VALUES(3,'stored','Stored profile','admin_archive',?,0),(4,'retired','Retired profile','normal',NULL,1)").bind(archived),
+    db.prepare("INSERT INTO member_links(member_uid,type,label,url,youtube_channel_id,enabled) VALUES(2,'youtube_vod','VOD','https://youtube.com/vod',?,1),(3,'youtube_vod','Bad archived link','https://youtube.com/archive','bad',1)").bind(vod),
+    db.prepare("INSERT INTO member_links(member_uid,type,label,url,youtube_channel_id,enabled) VALUES(2,'youtube_sub','Shared profile link','https://youtube.com/shared','UCaaaaaaaaaaaaaaaaaaaaaa',1)"),
+    db.prepare("INSERT INTO kirinuki_channels(id,channel_name,channel_url,youtube_channel_id) VALUES(1,'Clips','https://youtube.com/clips',?)").bind(kirinuki),
+    db.prepare(`INSERT INTO youtube_feed_sources(id,source_kind,member_uid,youtube_channel_id,uploads_playlist_id,collection_started_at,initialization_completed_at,backfill_exhausted_at,next_check_at,created_at,updated_at)
+      VALUES(1,'official',1,'UCaaaaaaaaaaaaaaaaaaaaaa','uploads',1,1,1,0,1,1),
+      (2,'official',2,'UCbbbbbbbbbbbbbbbbbbbbbb','uploads',1,1,1,?,1,1),
+      (3,'official',3,?,'uploads',1,1,1,0,1,1),(4,'official',2,?,'uploads',1,1,1,?,1,1)`).bind(now + 60_000, archived, vod, now + 60_000),
+    db.prepare(`INSERT INTO youtube_feed_sources(id,source_kind,kirinuki_channel_id,youtube_channel_id,uploads_playlist_id,collection_started_at,initialization_completed_at,backfill_exhausted_at,next_check_at,created_at,updated_at)
+      VALUES(5,'kirinuki',1,?,'uploads',1,1,1,?,1,1)`).bind(kirinuki, now + 60_000),
+    db.prepare("INSERT INTO youtube_feed_videos(video_id,source_id,title,published_at,fetched_at) VALUES('movedvideo1',1,'Moved original',1,1),('archived123',3,'Archived original',1,1)"),
+  ]);
+
+  const otw = { ...runtime, YOUTUBE_API_KEY: "test" };
+  const luvdia = { ...otw, ...siteEnv("luvdia"), SITE_PUBLIC_ORIGIN: origin };
+  const path = "/api/youtube/feed/status";
+  const readStatus = async (site: Env) => {
+    const response = await request(path, "archive-admin", {}, site);
+    expect(response.status).toBe(200);
+    return response.json<YouTubeFeedStatusDto>();
+  };
+  const otwStatus = await readStatus(otw);
+  expect(otwStatus.channels.map(({ channelId, roles }) => [channelId, roles])).toEqual([
+    ["UCbbbbbbbbbbbbbbbbbbbbbb", ["official"]], [vod, ["vod"]], [kirinuki, ["kirinuki"]],
+  ]);
+  expect(otwStatus.summary).toMatchObject({ channels: 3, videos: 0, metadataPending: 0 });
+  expect(otwStatus.configurationIssues).toEqual([]);
+  const luvdiaStatus = await readStatus(luvdia);
+  expect(luvdiaStatus.channels.map(({ channelId }) => channelId)).toContain("UCaaaaaaaaaaaaaaaaaaaaaa");
+  expect(luvdiaStatus.summary).toMatchObject({ channels: 4, videos: 1, metadataPending: 1 });
+  expect(luvdiaStatus.configurationIssues).toEqual([]);
+
+  expect(await hasScheduledYouTubeFeedWork(otw, now)).toBe(false);
+  expect(await hasScheduledYouTubeFeedWork(luvdia, now)).toBe(true);
+  expect(await runScheduledYouTubeFeedCollection(otw, "manual")).toMatchObject({ status: "skipped", attempted: 0, metadataRefreshed: 0 });
+  expect(await db.prepare("SELECT title FROM youtube_feed_videos ORDER BY source_id").all()).toMatchObject({ results: [{ title: "Moved original" }, { title: "Archived original" }] });
+  expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url))).toEqual([`${issuer}/.well-known/jwks.json`]);
 });
 
 it("does not acknowledge or store an in-flight YouTube result that crosses midnight", async () => {
@@ -893,7 +941,7 @@ it('refuses new administrator AI collection before known metadata and after a fi
     if(!String(input).includes('googleapis.com/youtube/v3/videos')) return authFetch(input,init);
     gets++;return Response.json({items:[{id:'PPPPPPPPPP2',snippet:{title:'Selected first-seen',channelId:'UCaaaaaaaaaaaaaaaaaaaaaa',channelTitle:'Selected'},contentDetails:{duration:'PT3M'},status:{privacyStatus:'public',uploadStatus:'processed',embeddable:true}}]});
   }));
-  const aiRuntime={...runtime,YOUTUBE_API_KEY:'test-key',GEMINI_API_KEY:'test-key',OTW_PLAY_AI_REVIEW_ENABLED:'true',OTW_PLAY_AI_REVIEW_QUEUE:{send}} as unknown as Env;
+  const aiRuntime={...runtime,YOUTUBE_API_KEY:'test-key',GEMINI_API_KEY:'test-key',OTW_PLAY_AI_REVIEW_PAUSED: "false", OTW_PLAY_AI_REVIEW_ENABLED:'true',OTW_PLAY_AI_REVIEW_QUEUE:{send}} as unknown as Env;
   const start=(target:unknown,id:string)=>request('/api/play/admin/ai-reviews','archive-admin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target,range:null,idempotencyKey:id})},aiRuntime);
   const known=await start({candidateId:'youtube:PPPPPPPPPP1'},'publication-ai-known');expect(known.status,await known.clone().text()).toBe(403);expect(gets).toBe(0);
   const unknown=await start({youtubeUrl:'https://youtu.be/PPPPPPPPPP2',candidateKind:'official_video'},'publication-ai-url');expect(unknown.status,await unknown.clone().text()).toBe(403);expect(gets).toBe(1);

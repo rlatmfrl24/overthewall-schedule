@@ -1,8 +1,7 @@
 import { readPublicFeedRows } from "./public-feed-reader";
-import { publicationHiddenSql } from "../../content-access";
+import { contentRowHeldSql, publicationHiddenSql } from "../../content-access";
 import { parseSiteId } from "@contracts/site-definition";
-import { officialChannelTargetsSql } from "./official-channel-targets";
-import { contentRowHeldSql, contentRowMovedSql } from "../../content-access";
+import { officialChannelTargetsSql, youtubeFeedMemberSql, youtubeFeedSourceBlockedSql, youtubeFeedSourceMovedSql } from "./official-channel-targets";
 import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import type {
   YouTubeShortsResponseDto,
@@ -30,12 +29,12 @@ const SHORTS_REVALIDATE_MS = 15_000 as const;
 const BACKFILL_LEASE_MS = 60_000;
 const VIDEO_WRITE_CHUNK_SIZE = Math.floor(100 / 11);
 
-const sourceMovedSql = (env: Env, alias: string) =>
-  `(${contentRowMovedSql("youtube_feed_sources", alias)} OR ${publicationHiddenSql("youtube_feed_sources", alias, parseSiteId(env.SITE_ID))})`;
+const sourceBlockedSql = (env: Env, alias: string) => youtubeFeedSourceBlockedSql(parseSiteId(env.SITE_ID), alias);
 const sourceHeldSql = (env: Env, alias = "youtube_feed_sources") =>
   `(${contentRowHeldSql("youtube_feed_sources", alias)} OR ${publicationHiddenSql("youtube_feed_sources", alias, parseSiteId(env.SITE_ID))}
     OR EXISTS(SELECT 1 FROM members retained_source_member WHERE retained_source_member.uid=${alias}.member_uid
-      AND ${publicationHiddenSql("members","retained_source_member",parseSiteId(env.SITE_ID))}))`;
+      AND (retained_source_member.content_access = 'admin_archive'
+        OR ${publicationHiddenSql("members","retained_source_member",parseSiteId(env.SITE_ID))})))`;
 
 type YouTubeRequestOrigin = "demand" | "manual" | "scheduled";
 
@@ -191,7 +190,7 @@ const syncSourceRegistry = async (env: Env, timestamp: number) => {
        ON CONFLICT(youtube_channel_id, source_kind) DO UPDATE SET
          member_uid = excluded.member_uid, enabled = 1, deactivated_at = NULL,
          updated_at = excluded.updated_at
-       WHERE NOT ${sourceMovedSql(env,"youtube_feed_sources")} AND (youtube_feed_sources.member_uid IS NOT excluded.member_uid
+       WHERE NOT ${youtubeFeedSourceMovedSql(parseSiteId(env.SITE_ID), "youtube_feed_sources")} AND (youtube_feed_sources.member_uid IS NOT excluded.member_uid
           OR youtube_feed_sources.enabled != 1
           OR youtube_feed_sources.deactivated_at IS NOT NULL)`,
     )
@@ -208,7 +207,7 @@ const syncSourceRegistry = async (env: Env, timestamp: number) => {
        ON CONFLICT(youtube_channel_id, source_kind) DO UPDATE SET
          kirinuki_channel_id = excluded.kirinuki_channel_id,
          updated_at = excluded.updated_at
-       WHERE NOT ${sourceMovedSql(env,"youtube_feed_sources")} AND youtube_feed_sources.kirinuki_channel_id IS NOT
+       WHERE NOT ${youtubeFeedSourceMovedSql(parseSiteId(env.SITE_ID), "youtube_feed_sources")} AND youtube_feed_sources.kirinuki_channel_id IS NOT
          excluded.kirinuki_channel_id`,
     )
     .bind(timestamp, timestamp, timestamp, timestamp)
@@ -232,8 +231,8 @@ const readSources = async (
          backfill_frontier_published_at, backfill_exhausted_at,
          backfill_lease_until, backfill_retry_after, consecutive_failures
        FROM youtube_feed_sources
-       WHERE source_kind = ? AND enabled = 1${channelClause} AND NOT ${sourceMovedSql(env,"youtube_feed_sources")}
-         ${mainChannelsOnly ? "AND youtube_channel_id IN (SELECT youtube_channel_id FROM members WHERE is_deprecated IS NULL OR is_deprecated != 1)" : ""}
+       WHERE source_kind = ? AND enabled = 1${channelClause} AND NOT ${sourceBlockedSql(env,"youtube_feed_sources")}
+         ${mainChannelsOnly ? `AND youtube_channel_id IN (SELECT youtube_channel_id FROM members WHERE ${youtubeFeedMemberSql(parseSiteId(env.SITE_ID), "members")})` : ""}
        ORDER BY id`,
     )
     .bind(sourceKind, ...(channelIds ?? []))
@@ -257,13 +256,14 @@ const prepareMissingOfficialSources = async (
     `INSERT INTO youtube_feed_sources
       (source_kind, member_uid, youtube_channel_id, enabled,
        collection_started_at, next_check_at, created_at, updated_at)
-     SELECT 'official', uid, youtube_channel_id, 1, ?, ?, ?, ? FROM members
+     SELECT 'official', MIN(uid), youtube_channel_id, 1, ?, ?, ?, ? FROM members
      WHERE youtube_channel_id IN (SELECT value FROM json_each(?))
-       AND (is_deprecated IS NULL OR is_deprecated != 1)
+       AND ${youtubeFeedMemberSql(parseSiteId(env.SITE_ID), "members")}
+     GROUP BY youtube_channel_id
      ON CONFLICT(youtube_channel_id, source_kind) DO UPDATE SET
        member_uid = excluded.member_uid, enabled = 1, deactivated_at = NULL,
        updated_at = excluded.updated_at
-     WHERE NOT ${sourceMovedSql(env,"youtube_feed_sources")} AND (youtube_feed_sources.member_uid IS NOT excluded.member_uid
+     WHERE NOT ${youtubeFeedSourceMovedSql(parseSiteId(env.SITE_ID), "youtube_feed_sources")} AND (youtube_feed_sources.member_uid IS NOT excluded.member_uid
         OR youtube_feed_sources.enabled != 1
         OR youtube_feed_sources.deactivated_at IS NOT NULL)`,
   ).bind(timestamp, timestamp, timestamp, timestamp, JSON.stringify(missing)).run();
@@ -350,7 +350,7 @@ const persistVideoDetails = async (
     ]);
   }
   const statements: D1PreparedStatement[] = [env.otw_db.prepare(
-    `SELECT iif(EXISTS(SELECT 1 FROM youtube_feed_sources source WHERE source.id=? AND NOT ${sourceMovedSql(env, "source")}),1,json('youtube_source_no_longer_collectable'))`,
+    `SELECT iif(EXISTS(SELECT 1 FROM youtube_feed_sources source WHERE source.id=? AND NOT ${sourceBlockedSql(env, "source")}),1,json('youtube_source_no_longer_collectable'))`,
   ).bind(sourceId)];
   for (let offset = 0; offset < rows.length; offset += VIDEO_WRITE_CHUNK_SIZE) {
     const chunk = rows.slice(offset, offset + VIDEO_WRITE_CHUNK_SIZE);
@@ -359,7 +359,7 @@ const persistVideoDetails = async (
         `INSERT INTO youtube_feed_videos
          (video_id, source_id, title, description, thumbnail_url, channel_title,
           duration_seconds, view_count, is_short, published_at, fetched_at, available)
-         SELECT * FROM (VALUES ${chunk.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)").join(", ")}) WHERE NOT EXISTS (SELECT 1 FROM youtube_feed_sources source WHERE source.id = ${sourceId} AND ${sourceMovedSql(env,"source")})
+         SELECT * FROM (VALUES ${chunk.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)").join(", ")}) WHERE NOT EXISTS (SELECT 1 FROM youtube_feed_sources source WHERE source.id = ${sourceId} AND ${sourceBlockedSql(env,"source")})
          ON CONFLICT(video_id) DO UPDATE SET source_id=excluded.source_id,
           title=excluded.title, description=excluded.description,
           thumbnail_url=excluded.thumbnail_url,
@@ -437,7 +437,7 @@ const initializeSource = async (
          backfill_retry_after = NULL, last_attempt_at = ?, last_success_at = ?,
          next_check_at = ?, consecutive_failures = 0,
          last_error_code = NULL, updated_at = ?
-       WHERE id = ? AND NOT ${sourceMovedSql(env, "youtube_feed_sources")}`,
+       WHERE id = ? AND NOT ${sourceBlockedSql(env, "youtube_feed_sources")}`,
     )
     .bind(
       uploads,
@@ -522,7 +522,7 @@ const collectSource = async (env: Env, source: FeedSource, timestamp: number, or
       `UPDATE youtube_feed_sources SET last_seen_video_id = ?, sync_page_token = ?,
          sync_base_video_id = ?, sync_newest_video_id = ?, last_attempt_at = ?,
          last_success_at = ?, next_check_at = ?, consecutive_failures = 0,
-         last_error_code = NULL, updated_at = ? WHERE id = ? AND NOT ${sourceMovedSql(env, "youtube_feed_sources")}`,
+         last_error_code = NULL, updated_at = ? WHERE id = ? AND NOT ${sourceBlockedSql(env, "youtube_feed_sources")}`,
     )
     .bind(
       complete ? newest : source.last_seen_video_id,
@@ -548,7 +548,7 @@ const acquireBackfillLease = async (
     .prepare(
       `UPDATE youtube_feed_sources SET backfill_lease_until = ?, updated_at = ?
        WHERE id = ? AND backfill_exhausted_at IS NULL
-         AND NOT ${sourceMovedSql(env,"youtube_feed_sources")}
+         AND NOT ${sourceBlockedSql(env,"youtube_feed_sources")}
          AND (backfill_lease_until IS NULL OR backfill_lease_until <= ?)
          AND (backfill_retry_after IS NULL OR backfill_retry_after <= ?)
        RETURNING id`,
@@ -580,7 +580,7 @@ const recordBackfillFailure = async (
       `UPDATE youtube_feed_sources SET backfill_lease_until = NULL,
          backfill_retry_after = ?, consecutive_failures = ?,
          last_error_code = ?, last_attempt_at = ?, updated_at = ?
-       WHERE id = ? AND NOT ${sourceMovedSql(env, "youtube_feed_sources")}`,
+       WHERE id = ? AND NOT ${sourceBlockedSql(env, "youtube_feed_sources")}`,
     )
     .bind(
       timestamp + retryMs,
@@ -621,7 +621,7 @@ const scanOneBackfillPage = async (
          backfill_lease_until = NULL, backfill_retry_after = NULL,
          consecutive_failures = 0, last_error_code = NULL,
          last_attempt_at = ?, last_success_at = ?, updated_at = ?
-       WHERE id = ? AND NOT ${sourceMovedSql(env, "youtube_feed_sources")}`,
+       WHERE id = ? AND NOT ${sourceBlockedSql(env, "youtube_feed_sources")}`,
     )
     .bind(
       nextPageToken,
@@ -701,7 +701,7 @@ const refreshStaleMetadata = async (env: Env, timestamp: number, origin: YouTube
   const rows = await env.otw_db
     .prepare(
       `SELECT video.video_id, video.source_id
-       FROM (SELECT * FROM youtube_feed_sources source WHERE enabled = 1 AND NOT ${sourceMovedSql(env,"source")}) source
+       FROM (SELECT * FROM youtube_feed_sources source WHERE enabled = 1 AND NOT ${sourceBlockedSql(env,"source")}) source
        CROSS JOIN json_each((SELECT json_group_array(row_key) FROM (
          SELECT candidate.rowid AS row_key FROM youtube_feed_videos candidate INDEXED BY idx_youtube_feed_videos_available_fetched
          WHERE candidate.source_id = source.id AND candidate.available = 1 AND candidate.fetched_at <= ?
@@ -749,7 +749,7 @@ const refreshStaleMetadata = async (env: Env, timestamp: number, origin: YouTube
       await env.otw_db
         .prepare(
           `UPDATE youtube_feed_videos SET available = 0, fetched_at = ?
-           WHERE video_id = ? AND NOT EXISTS(SELECT 1 FROM youtube_feed_sources source WHERE source.id=youtube_feed_videos.source_id AND ${sourceMovedSql(env, "source")})`,
+           WHERE video_id = ? AND NOT EXISTS(SELECT 1 FROM youtube_feed_sources source WHERE source.id=youtube_feed_videos.source_id AND ${sourceBlockedSql(env, "source")})`,
         )
         .bind(timestamp, row.video_id)
         .run();
@@ -768,7 +768,7 @@ export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) =
     `SELECT
        (
          EXISTS (
-           SELECT 1 FROM youtube_feed_sources WHERE enabled = 1 AND NOT ${sourceMovedSql(env,"youtube_feed_sources")} AND (
+           SELECT 1 FROM youtube_feed_sources WHERE enabled = 1 AND NOT ${sourceBlockedSql(env,"youtube_feed_sources")} AND (
              ((next_check_at IS NULL OR next_check_at <= ?)
               AND (source_kind != 'official'
                    OR (initialization_completed_at IS NOT NULL
@@ -776,14 +776,14 @@ export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) =
                        AND (backfill_page_token IS NOT NULL OR backfill_exhausted_at IS NOT NULL))))
              OR (source_kind = 'official' AND backfill_exhausted_at IS NULL
                  AND (initialization_completed_at IS NULL OR youtube_channel_id IN (
-                   SELECT youtube_channel_id FROM members WHERE is_deprecated IS NULL OR is_deprecated != 1))
+                   SELECT youtube_channel_id FROM members WHERE ${youtubeFeedMemberSql(parseSiteId(env.SITE_ID), "members")}))
                  AND (backfill_lease_until IS NULL OR backfill_lease_until <= ?)
                  AND (backfill_retry_after IS NULL OR backfill_retry_after <= ?))
            )
          )
          OR EXISTS (
            SELECT 1 FROM youtube_feed_sources source
-           WHERE source.enabled = 1 AND NOT ${sourceMovedSql(env,"source")}
+           WHERE source.enabled = 1 AND NOT ${sourceBlockedSql(env,"source")}
              AND EXISTS (SELECT 1 FROM youtube_feed_videos video INDEXED BY idx_youtube_feed_videos_available_fetched
                WHERE video.source_id = source.id AND video.available = 1 AND video.fetched_at <= ?)
          )
@@ -792,13 +792,13 @@ export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) =
            LEFT JOIN youtube_feed_sources source
              ON source.youtube_channel_id = target.youtube_channel_id AND source.source_kind = 'official'
            WHERE (source.id IS NULL OR source.member_uid IS NOT target.member_uid
-             OR source.enabled != 1 OR source.deactivated_at IS NOT NULL) AND NOT ${sourceMovedSql(env,"source")}
+             OR source.enabled != 1 OR source.deactivated_at IS NOT NULL) AND NOT ${youtubeFeedSourceMovedSql(parseSiteId(env.SITE_ID), "source")}
          )
          OR EXISTS (
            SELECT 1 FROM kirinuki_channels channel
            LEFT JOIN youtube_feed_sources source
              ON source.youtube_channel_id = channel.youtube_channel_id AND source.source_kind = 'kirinuki'
-           WHERE (source.id IS NULL OR source.kirinuki_channel_id IS NOT channel.id) AND NOT ${sourceMovedSql(env,"source")}
+           WHERE (source.id IS NULL OR source.kirinuki_channel_id IS NOT channel.id) AND NOT ${youtubeFeedSourceMovedSql(parseSiteId(env.SITE_ID), "source")}
          )
          OR EXISTS (
            SELECT 1 FROM youtube_feed_sources source WHERE NOT ${sourceHeldSql(env,"source")} AND (
@@ -847,7 +847,7 @@ export const runScheduledYouTubeFeedCollection = async (env: Env, origin: "manua
          backfill_frontier_published_at, backfill_exhausted_at,
          backfill_lease_until, backfill_retry_after, consecutive_failures
        FROM youtube_feed_sources
-       WHERE enabled = 1 AND NOT ${sourceMovedSql(env,"youtube_feed_sources")} AND (
+       WHERE enabled = 1 AND NOT ${sourceBlockedSql(env,"youtube_feed_sources")} AND (
          next_check_at IS NULL OR next_check_at <= CASE WHEN consecutive_failures > 0 OR sync_page_token IS NOT NULL THEN ? ELSE ? END OR
          (source_kind = 'official' AND backfill_page_token IS NULL
           AND backfill_exhausted_at IS NULL)
@@ -879,7 +879,7 @@ export const runScheduledYouTubeFeedCollection = async (env: Env, origin: "manua
         .prepare(
           `UPDATE youtube_feed_sources SET last_attempt_at=?, next_check_at=?,
            consecutive_failures=consecutive_failures+1, last_error_code=?,
-           updated_at=? WHERE id=? AND NOT ${sourceMovedSql(env,"youtube_feed_sources")}`,
+           updated_at=? WHERE id=? AND NOT ${sourceBlockedSql(env,"youtube_feed_sources")}`,
         )
         .bind(
           timestamp,

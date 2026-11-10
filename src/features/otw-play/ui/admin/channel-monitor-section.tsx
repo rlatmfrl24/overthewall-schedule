@@ -32,7 +32,6 @@ import {
   useOtwPlayPreviousGenerationCandidates,
 } from "../../queries/use-admin-catalog";
 import { SingingClipReviewDialog } from "./singing-clip-review-dialog";
-import { PlayAutomationControl } from "./play-automation-control";
 
 const formatAt = (value: number | null) =>
   value === null ? "아직 확인하지 않음" : new Date(value).toLocaleString("ko-KR");
@@ -334,7 +333,6 @@ export function ChannelMonitorSection({
           </div>
         ) : null}
         {mode !== "review" && (<>
-        <PlayAutomationControl monitors={monitors} />
         <div className="grid gap-3 rounded-xl border bg-muted/20 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
           <Field>
             <FieldLabel htmlFor="new-monitor-channel-id">수집 대상 채널 ID</FieldLabel>
@@ -533,7 +531,7 @@ export function ChannelMonitorSection({
                       </div>
                     </Field>
                   </div>
-                  </>) : <a className="block border-b p-3 text-sm underline" href="/admin/otw-play?tab=clip-channels">채널 감시 설정 확인 →</a>}
+                  </>) : <a className="block border-b p-3 text-sm underline" href="/admin/otw-play?tab=operations&view=channels">채널 감시 설정 확인 →</a>}
                   {mode !== "sources" ? (<>
                   <div className="divide-y">
                     {candidatesQuery.isLoading ? (

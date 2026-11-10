@@ -17,12 +17,8 @@ import type {
   OtwPlayAdminEntityDto,
   OtwPlayAdminExpectedVersionRequest,
   OtwPlayAdminPerformanceDto,
-  OtwPlayAdminObservabilityDto,
   OtwPlayAdminProposalDto,
   OtwPlayAdminRecheckSourceRequest,
-  OtwPlayAdminReleaseCommandResponse,
-  OtwPlayAdminReleaseReadResponse,
-  OtwPlayAdminReleaseRequest,
   OtwPlayAdminRejectProposalRequest,
   OtwPlayAdminSongDto,
   OtwPlayAdminSourceHealthDto,
@@ -89,13 +85,13 @@ export const deleteOtwPlayImportHistory = (jobId: string) =>
     { method: "DELETE" },
   ).then((response) => response.data);
 
-export const fetchOtwPlayImportJobs = () =>
-  adminRequest<{ data: OtwPlayIngestionJobDto[] }>(
+export const fetchOtwPlayImportJobs = (cursor: string | null) =>
+  adminRequest<{ data: OtwPlayIngestionJobDto[]; nextCursor: string | null }>(
     withRouteSearch(
       apiRoutes.otwPlay.admin.importJobs.build(),
-      new URLSearchParams({ limit: "100" }),
+      new URLSearchParams({ limit: "25", ...(cursor ? { cursor } : {}) }),
     ),
-  ).then((response) => response.data);
+  );
 
 export const fetchOtwPlayChannelMonitors = () =>
   adminRequest<{ data: OtwPlayChannelMonitorDto[] }>(
@@ -236,24 +232,6 @@ export const fetchOtwPlayAdminSourceHealth = () =>
   adminRequest<{ data: OtwPlayAdminSourceHealthDto }>(
     apiRoutes.otwPlay.admin.sourceHealth.build(),
   ).then((response) => response.data);
-
-export const fetchOtwPlayAdminObservability = () =>
-  adminRequest<OtwPlayAdminObservabilityDto>(
-    apiRoutes.otwPlay.admin.observability.build(),
-  );
-
-export const fetchOtwPlayAdminRelease = () =>
-  adminRequest<OtwPlayAdminReleaseReadResponse>(
-    apiRoutes.otwPlay.admin.release.build(),
-  );
-
-export const updateOtwPlayAdminRelease = (
-  json: OtwPlayAdminReleaseRequest,
-) =>
-  adminRequest<OtwPlayAdminReleaseCommandResponse>(
-    apiRoutes.otwPlay.admin.release.build(),
-    { method: "PATCH", json },
-  );
 
 export const preflightOtwPlayCatalogEntry = (
   json: OtwPlayAdminCatalogEntryPreflightRequest,

@@ -131,6 +131,19 @@ beforeEach(async () => {
 });
 
 describe("D1SourceHealthRepository", () => {
+  it("allows a manual batch to claim due sources without resuming automation", async () => {
+    await db.batch([
+      insertChannel(),
+      insertSource("source-1", "dQw4w9WgXcQ"),
+      db.prepare("INSERT INTO settings (key, value) VALUES ('otw_play_automation_paused', 'true')"),
+    ]);
+    const repository = new D1SourceHealthRepository(db);
+    expect(await repository.claimDueSources(NOW, NOW + 60_000, 2)).toEqual([]);
+    expect(await repository.claimDueSources(NOW, NOW + 60_000, 2, { kind: "admin" }))
+      .toMatchObject([{ id: "source-1" }]);
+    expect(await repository.claimDueSources(NOW, NOW + 60_000, 2, { kind: "admin" })).toEqual([]);
+    expect(await db.prepare("SELECT value FROM settings WHERE key = 'otw_play_automation_paused'").first("value")).toBe("true");
+  });
   it("blocks automatic claims and late observations or retries after pause while retaining manual review", async () => {
     await db.batch([
       insertChannel(),

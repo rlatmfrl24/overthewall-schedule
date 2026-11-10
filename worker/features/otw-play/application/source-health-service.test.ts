@@ -201,7 +201,7 @@ describe("SourceHealthService", () => {
       { write },
     );
 
-    await expect(service.runScheduled()).resolves.toEqual({
+    await expect(service.runDue()).resolves.toEqual({
       claimed: 3,
       checked: 2,
       changed: 2,
@@ -214,6 +214,7 @@ describe("SourceHealthService", () => {
       NOW,
       NOW + 30 * 60_000,
       50,
+      { kind: "system" },
     );
     expect(readVideos).toHaveBeenCalledTimes(1);
     expect(readVideos).toHaveBeenCalledWith([
@@ -267,7 +268,7 @@ describe("SourceHealthService", () => {
       () => NOW,
     );
 
-    await expect(service.runScheduled()).resolves.toEqual({
+    await expect(service.runDue()).resolves.toEqual({
       claimed: 2,
       checked: 0,
       changed: 0,
@@ -304,7 +305,7 @@ describe("SourceHealthService", () => {
       { write },
     );
 
-    await expect(service.runScheduled()).resolves.toEqual({
+    await expect(service.runDue()).resolves.toEqual({
       claimed: 2,
       checked: 1,
       changed: 1,
@@ -343,7 +344,7 @@ describe("SourceHealthService", () => {
       () => NOW,
     );
 
-    await expect(service.runScheduled()).resolves.toEqual({
+    await expect(service.runDue()).resolves.toEqual({
       claimed: 2,
       checked: 0,
       changed: 0,
@@ -374,7 +375,7 @@ describe("SourceHealthService", () => {
       () => NOW,
     );
 
-    await expect(service.runScheduled()).rejects.toThrow("D1 unavailable");
+    await expect(service.runDue()).rejects.toThrow("D1 unavailable");
     expect(applyObservation).toHaveBeenCalledOnce();
   });
 });

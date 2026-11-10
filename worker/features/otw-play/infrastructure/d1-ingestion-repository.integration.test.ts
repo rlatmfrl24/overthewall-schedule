@@ -81,13 +81,15 @@ beforeEach(async () => {
   await db.batch([
     db.prepare("DELETE FROM music_cover_proposals WHERE id IN ('overlap-proposal', 'ignored-proposal')"),
     db.prepare("DELETE FROM music_ingestion_events"),
+    db.prepare("DELETE FROM music_ai_review_batch_items WHERE batch_id = 'partial-import-ai'"),
+    db.prepare("DELETE FROM music_ai_review_batches WHERE id = 'partial-import-ai'"),
     db.prepare("DELETE FROM music_ingestion_candidate_origins"),
     db.prepare("DELETE FROM music_ingestion_messages"),
     db.prepare("DELETE FROM music_ingestion_candidates"),
     db.prepare("DELETE FROM music_ingestion_jobs"),
     db.prepare("DELETE FROM music_performances WHERE id LIKE 'ingestion-workflow-%'"),
     db.prepare("DELETE FROM music_media_sources WHERE id LIKE 'ingestion-workflow-%'"),
-    db.prepare("DELETE FROM music_songs WHERE id LIKE 'ingestion-ready-%'"),
+    db.prepare("DELETE FROM music_songs WHERE id LIKE 'ingestion-ready-%' OR id LIKE 'ingestion-workflow-%'"),
     db.prepare("DELETE FROM music_entities WHERE id LIKE 'ingestion-ready-%'"),
     db.prepare("DELETE FROM music_catalog_events WHERE id LIKE 'ingestion-ready-%'"),
     db.prepare("DELETE FROM music_media_sources WHERE id LIKE 'ingestion-%'"),
@@ -119,7 +121,7 @@ beforeEach(async () => {
 });
 
 describe("D1IngestionRepository", () => {
-  it.each(["reuse", "rename", "ambiguous", "archived", "register"] as const)("reuses an alias across kinds and rejects intervening catalog changes: %s", async (scenario) => {
+  it.each(["reuse", "rename", "ambiguous", "archived", "register"] as const)("preserves standalone alias resolution and catalog fences: %s", async (scenario) => {
     const repository = new D1IngestionRepository(db);
     await db.batch([
       db.prepare("INSERT INTO music_entity_aliases (entity_id,alias,normalized_alias) VALUES ('entity-1','Review Alias','review alias')"),
@@ -130,6 +132,7 @@ describe("D1IngestionRepository", () => {
       items: [{ videoId: "AAAAAAAAAAA", position: 0, playlistItemId: "alias-ready-item" }], nextPageToken: null,
     }, NOW + 1);
     await repository.recordVideoBatch(await repository.readMessage(children[0]!.idempotencyKey), [approvedVideoObservation("AAAAAAAAAAA")], NOW + 2);
+    await db.prepare("DELETE FROM music_ingestion_candidate_origins WHERE job_id = ?").bind(job.job.id).run();
     if (scenario === "ambiguous") await db.prepare("INSERT INTO music_entities(id,entity_kind,display_name,normalized_name,slug,version,created_at,updated_at) VALUES ('ingestion-ready-namesake','group','Review Alias','review alias','ready-namesake',0,?,?)").bind(NOW,NOW).run();
     if (scenario === "archived") await db.prepare("UPDATE music_entities SET archived_at=? WHERE id='entity-1'").bind(NOW).run();
     const before = await db.prepare("SELECT status,version,review_input_json FROM music_ingestion_candidates WHERE id='youtube:AAAAAAAAAAA'").first();
@@ -310,7 +313,8 @@ describe("D1IngestionRepository", () => {
     const saved = await repository.saveCandidateReview({ candidateId: "youtube:AAAAAAAAAAA", expectedVersion: 1, actorUserId: "admin-1", eventId: "ingestion-ready-clip-review", now: NOW + 3,
       input: { ...reviewInput, song, releaseType: "broadcast", broadcast: { performedOn: null, dateEvidence: null, originalUrl: null, extent: "partial" }, startSeconds: 10, endSeconds: 60 },
       catalogMaterialization: { entityIds: {}, entityEventIds: {}, songId: "ingestion-ready-clip-song", songEventId: "ingestion-ready-clip-song-event" } });
-    expect(saved).toMatchObject({ status: "ready", candidateKind: "singing_clip", reviewInput: { song: { kind: "existing", songId: "ingestion-ready-clip-song" }, releaseType: "broadcast", startSeconds: 10, endSeconds: 60 } });
+    expect(saved).toMatchObject({ status: "ready", candidateKind: "singing_clip", reviewInput: { song, releaseType: "broadcast", startSeconds: 10, endSeconds: 60 } });
+    expect(await db.prepare("SELECT id FROM music_songs WHERE title = 'Playlist Singing'").first()).toBeNull();
     await repository.saveCandidateReview({ candidateId: "youtube:BBBBBBBBBBB", expectedVersion: 1, actorUserId: "admin-1", eventId: "ingestion-ready-clip-review-2", now: NOW + 4, input: saved.reviewInput! });
     const feed = await repository.listReviewItems({ candidateKind: "singing_clip", source: "playlist", status: "ready" });
     expect(feed.items).toHaveLength(2);
@@ -334,8 +338,15 @@ describe("D1IngestionRepository", () => {
     const service = new IngestionService(repository, youtube, { send: async () => {} }, createId, () => NOW + 20,
       new AdminCatalogService(new D1AdminCatalogRepository(db), youtube, { record: async () => {} }, createId, true, () => NOW + 20));
     const ready = await repository.listReviewItems({ status: "ready" });
-    const converted = await service.convertCandidates(created.job.id, { candidates: ready.items.map(item => ({ id: item.id, expectedVersion: item.version })) }, { userId: "admin-1", displayName: "Admin", ipAddress: null });
-    expect(converted.results.map(result => result.outcome)).toEqual(["created", "created"]);
+    const actor = { userId: "admin-1", displayName: "Admin", ipAddress: null };
+    const [first, second] = ready.items;
+    expect((await service.convertCandidates(created.job.id, { candidates: [{ id: first.id, expectedVersion: first.version }] }, actor)).results[0].outcome).toBe("created");
+    const registeredSong = await db.prepare("SELECT id FROM music_songs WHERE title = 'Playlist Singing'").first<{ id: string }>();
+    expect(registeredSong).toBeTruthy();
+    const linked = await repository.saveCandidateReview({ candidateId: second.id, expectedVersion: second.version, actorUserId: actor.userId,
+      eventId: "ingestion-ready-clip-review-reuse", now: NOW + 21,
+      input: { ...saved.reviewInput!, song: { kind: "existing", songId: registeredSong!.id } } });
+    expect((await service.convertCandidates(created.job.id, { candidates: [{ id: linked.id, expectedVersion: linked.version }] }, actor)).results[0].outcome).toBe("created");
     const persisted = await db.prepare("SELECT relation_type, release_type, publication_status, broadcast_metadata FROM music_performances WHERE id LIKE 'ingestion-workflow-%'").all<{ release_type: string; publication_status: string; broadcast_metadata: string }>();
     expect(persisted.results).toHaveLength(2);
     for (const performance of persisted.results) {
@@ -344,7 +355,10 @@ describe("D1IngestionRepository", () => {
     }
     expect((await repository.listReviewItems({ status: "ready" })).items).toEqual([]);
     const replay = await service.convertCandidates(created.job.id, { candidates: ready.items.map(item => ({ id: item.id, expectedVersion: item.version })) }, { userId: "admin-1", displayName: "Admin", ipAddress: null });
-    expect(replay.results.every(result => result.outcome !== "created")).toBe(true);
+    expect(replay.results).toMatchObject(ready.items.map(item => ({
+      candidateId: item.id,
+      outcome: item.id === first.id ? "created" : "stale",
+    })));
 
   });
 
@@ -414,7 +428,7 @@ describe("D1IngestionRepository", () => {
     expect((await fresh.listReviewItems({ jobId: rediscovered.job.id, status: "completed" })).items).toEqual([]);
   });
 
-  it("materializes a ready song and external identities for reuse by the next row", async () => {
+  it("preserves standalone song and identity materialization for reuse by the next row", async () => {
     const repository = new D1IngestionRepository(db);
     const created = await repository.createJob({
       jobId: "job-ready-materialization",
@@ -453,6 +467,7 @@ describe("D1IngestionRepository", () => {
       })),
       NOW + 1,
     );
+    await db.prepare("DELETE FROM music_ingestion_candidate_origins WHERE job_id = ?").bind(created.job.id).run();
     const artist = {
       kind: "new_external" as const,
       clientKey: "ready-artist-key",
@@ -1197,7 +1212,7 @@ describe("D1IngestionRepository", () => {
     );
     await repository.recordVideoBatch(
       await repository.readMessage(secondChildren[0]!.idempotencyKey),
-      [observation],
+      [{ ...observation, video: { ...observation.video, title: "Updated title" } }],
       NOW + 3,
     );
 
@@ -1408,7 +1423,7 @@ describe("D1IngestionRepository", () => {
       "job-rediscovery",
       "youtube:AAAAAAAAAAA",
     )).resolves.toMatchObject({
-      version: 4,
+      version: 3,
       status: "ignored",
       reviewInput: null,
     });
@@ -1505,6 +1520,7 @@ describe("D1IngestionRepository", () => {
 
   it("keeps a job partial when a playlist page completes after a sibling failed", async () => {
     const repository = new D1IngestionRepository(db);
+    const ai = new D1AiBatchRepository(db);
     const created = await repository.createJob({
       jobId: "job-1",
       actorUserId: "admin-1",
@@ -1541,6 +1557,21 @@ describe("D1IngestionRepository", () => {
       lastErrorCode: "queue_retries_exhausted",
       counts: { retryPending: 0, permanentError: 1 },
     });
+    const selection = { importJobId: created.job.id };
+    await expect(ai.create("new-ai", "admin-1", "new-ai-request", selection, NOW + 4)).rejects.toMatchObject({ code: "import_incomplete" });
+    await db.prepare(`INSERT INTO music_ai_review_batches (id,actor,request_key,selection_json,created_at)
+      VALUES ('partial-import-ai','admin-1','playlist-import:job-1',?,?)`).bind(JSON.stringify(selection), NOW + 4).run();
+    const retry = await repository.retryJob({ jobId: created.job.id, actorUserId: "admin-1", eventId: "partial-retry", now: NOW + 5 });
+    expect(retry).toHaveLength(1);
+    await repository.recordVideoBatch(await repository.readMessage(retry[0].idempotencyKey), [approvedVideoObservation("AAAAAAAAAAA")], NOW + 6);
+    expect(await repository.getJob(created.job.id)).toMatchObject({ status: "completed", aiBatchId: "partial-import-ai", aiBatchNeedsResume: true });
+    await expect(ai.create("resume-ai", "admin-1", "resume-request", selection, NOW + 7)).resolves.toMatchObject({
+      id: "partial-import-ai", total: 1, counts: { queued: 1 },
+    });
+    await expect(ai.create("duplicate-ai", "admin-1", "duplicate-request", selection, NOW + 8)).resolves.toMatchObject({
+      id: "partial-import-ai", total: 1,
+    });
+    expect((await repository.getJob(created.job.id)).aiBatchNeedsResume).toBeUndefined();
   });
 
   it("removes YouTube API data at 30 days while preserving the internal decision", async () => {
@@ -1761,3 +1792,4 @@ it("keeps pending proposals visible when the matching candidate was ignored", as
   expect((await repository.listReviewItems({ source: "user", status: "completed" })).items[0]?.id).toBe("ignored-proposal");
 
 });
+import { D1AiBatchRepository } from "./d1-ai-batch-repository";

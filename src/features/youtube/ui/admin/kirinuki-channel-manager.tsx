@@ -270,10 +270,7 @@ export function KirinukiChannelManager() {
           </Table>
         </div>
       )}
-      <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" asChild><a href="/admin/otw-play?tab=clip-channels">노래 클립 채널 관리</a></Button>
-        <Button variant="ghost" size="sm" asChild><a href="/admin/otw-play?tab=play-monitor">Play 감시 대상</a></Button>
-      </div>
+      <Button variant="outline" size="sm" asChild><a href="/admin/otw-play?tab=operations&view=channels">Play 채널 관리</a></Button>
 
       <KirinukiChannelFormDialog
         open={isDialogOpen}

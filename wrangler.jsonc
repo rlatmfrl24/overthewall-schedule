@@ -41,7 +41,7 @@
     "CLOUDFLARE_ACCOUNT_ID": "46e1801b290196fbec7cfae87710ffcf",
     "CLOUDFLARE_D1_DATABASE_ID": "133b980d-1701-427e-93fd-8c9dcca1132e",
     "OTW_PLAY_PUBLIC_ORIGIN": "https://otw-schedule.info",
-    "OTW_PLAY_AI_REVIEW_ENABLED": "true",
+    "OTW_PLAY_AI_REVIEW_ENABLED": "false",
     "OTW_PLAY_AI_REVIEW_MODEL": "gemini-3.8-flash",
     "OTW_PLAY_AI_REVIEW_DAILY_LIMIT": "500",
   },
@@ -163,7 +163,6 @@
   //   wrangler secret put CLERK_ADMIN_IDS
   //   wrangler secret put CLERK_AUTHORIZED_PARTIES
   //   wrangler secret put CLOUDFLARE_D1_TOKEN
-  //   wrangler secret put OTW_PLAY_ANALYTICS_READ_TOKEN
   //   wrangler secret put CLERK_JWKS_URL  // 선택: CLERK_ISSUER에서 자동 추론 가능
   /**
    * CHZZK 국내 전용 방송 조회를 위해 서울 인근에서 실행합니다.

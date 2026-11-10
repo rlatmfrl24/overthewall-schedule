@@ -20,7 +20,7 @@ import type {
   AdminCatalogGlobalAudit,
   AdminCatalogRepository,
 } from "./ports/admin-catalog-repository";
-import type { OtwPlayYouTubeMetadataReader } from "./ports/youtube-metadata";
+import type { OtwPlayYouTubeMetadataReader, OtwPlayYouTubeVideoMetadata } from "./ports/youtube-metadata";
 import type {VideoCatalogCommand,VideoEntryIds} from "../domain/video-catalog-command";
 import type {ChannelMutationCommand} from "../domain/channel-mutation";
 
@@ -213,6 +213,10 @@ export class AdminCatalogService {
     input: OtwPlayAdminCatalogEntryPreflightRequest,
     reader=this.youtube,
   ) {
+    return (await this.prepareCatalogEntry(input, reader)).preflight;
+  }
+
+  async prepareCatalogEntry(input: OtwPlayAdminCatalogEntryPreflightRequest, reader = this.youtube) {
     this.validateSourceSegment(input.startSeconds, input.endSeconds, null);
     const video = await this.readVerifiedVideo(input.youtubeUrl,reader);
     this.validateSourceSegment(
@@ -220,7 +224,7 @@ export class AdminCatalogService {
       input.endSeconds,
       video.durationSeconds,
     );
-    return this.repository.preflightCatalogEntry(video, input.startSeconds);
+    return { video, preflight: await this.repository.preflightCatalogEntry(video, input.startSeconds) };
   }
 
   private videoEntityIds(subjects:readonly OtwPlayAdminCatalogSubjectInput[]) {
@@ -248,8 +252,8 @@ export class AdminCatalogService {
     const execute=(actual:VideoCatalogCommand,reader:OtwPlayYouTubeMetadataReader)=>{if(actual.action!=='proposal_approve') throw new Error('Original approval command mismatch');return this.approveProposalOriginal(actual.proposalId,actual.input,actual.actor,actual,reader);};
     return execute(command,this.youtube);
   }
-  async createCatalogEntry(input:OtwPlayAdminCreateCatalogEntryRequest,actor:AdminCatalogActor,candidateConversion?:Parameters<AdminCatalogRepository['createCatalogEntry']>[0]['candidateConversion']) {
-    if(candidateConversion) return this.createCatalogEntryOriginal(input,actor,candidateConversion);
+  async createCatalogEntry(input:OtwPlayAdminCreateCatalogEntryRequest,actor:AdminCatalogActor,candidateConversion?:Parameters<AdminCatalogRepository['createCatalogEntry']>[0]['candidateConversion'], verifiedVideo?: OtwPlayYouTubeVideoMetadata) {
+    if(candidateConversion) return this.createCatalogEntryOriginal(input,actor,candidateConversion,undefined,this.youtube,verifiedVideo);
     return this.runCreateCatalogEntry({action:'catalog_create',input,actor,ids:this.videoEntryIds(input),now:this.clock()});
   }
   private async createCatalogEntryOriginal(
@@ -262,6 +266,7 @@ export class AdminCatalogService {
       eventId: string;
     },
     command?:{ids:VideoEntryIds;now:number},reader=this.youtube,
+    verifiedVideo?: OtwPlayYouTubeVideoMetadata,
   ) {
     if (input.releaseType === "broadcast") input = { ...input, relationType: "singing_clip" };
     else if (input.relationType === "singing_clip") throw new AdminCatalogServiceError("invalid_request", "Singing clips require a broadcast release");
@@ -339,7 +344,7 @@ export class AdminCatalogService {
       }
     }
 
-    const video = await this.readVerifiedVideo(input.youtubeUrl,reader);
+    const video = verifiedVideo ?? await this.readVerifiedVideo(input.youtubeUrl,reader);
     if (
       input.registrationMode === "medley_segment" &&
       video.durationSeconds === null

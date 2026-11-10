@@ -96,7 +96,7 @@ export const toScheduledBatchOutcome = (result: unknown): ScheduledJobExecutionO
 };
 
 export const toSourceHealthOutcome = (
-  result: Awaited<ReturnType<SourceHealthService["runScheduled"]>>,
+  result: Awaited<ReturnType<SourceHealthService["runDue"]>>,
 ): ScheduledJobExecutionOutcome => {
   const status = result.claimed === 0
     ? "skipped"
@@ -453,8 +453,8 @@ export class ScheduledJobExecutor {
           }),
           () => crypto.randomUUID(),
           Date.now,
-          new CloudflarePlayTelemetryWriter(this.env.OTW_PLAY_ANALYTICS),
-        ).runScheduled(2));
+          run.source === "scheduled" ? new CloudflarePlayTelemetryWriter(this.env.OTW_PLAY_ANALYTICS) : undefined,
+        ).runDue(2, { kind: run.source === "manual" ? "admin" : "system" }));
       case "channel_reconcile":
         return toScheduledBatchOutcome(
           await createOtwPlayChannelMonitorService(this.env).runDue(1),

@@ -8,9 +8,7 @@ import type { OtwPlayAdminCatalogDto, OtwPlayIngestionClassification } from "@co
 import { queryKeys } from "@/shared/query/query-keys";
 import {
   fetchOtwPlayAdminCatalog,
-  fetchOtwPlayAdminObservability,
   fetchOtwPlayAdminProposals,
-  fetchOtwPlayAdminRelease,
   fetchOtwPlayAdminSourceHealth,
   fetchOtwPlayImportJob,
   fetchOtwPlayImportJobItems,
@@ -107,20 +105,6 @@ export const useOtwPlayAdminSourceHealth = (enabled: boolean) => useQuery({
   staleTime: 15_000,
 });
 
-export const useOtwPlayAdminObservability = (enabled: boolean) => useQuery({
-  queryKey: queryKeys.otwPlay.adminObservability(),
-  queryFn: fetchOtwPlayAdminObservability,
-  enabled,
-  staleTime: 30_000,
-});
-
-export const useOtwPlayAdminRelease = (enabled: boolean) => useQuery({
-  queryKey: queryKeys.otwPlay.adminRelease(),
-  queryFn: fetchOtwPlayAdminRelease,
-  enabled,
-  staleTime: 15_000,
-});
-
 export const useOtwPlayImportJob = (jobId: string | null, enabled = true, budgetBlocked = false) => {
   const queryClient = useQueryClient();
   const previousStatus = useRef<string | null>(null);
@@ -131,8 +115,10 @@ export const useOtwPlayImportJob = (jobId: string | null, enabled = true, budget
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     refetchInterval: (currentQuery) => {
-      if (!enabled || budgetBlocked) return false;
       const job = currentQuery.state.data;
+      if (!enabled) return false;
+      if (job?.aiSharedPending && job.aiExecutionAvailable) return 5_000;
+      if (budgetBlocked) return false;
       if (job?.status !== "queued" && job?.status !== "collecting") {
         return false;
       }
@@ -158,9 +144,11 @@ export const useOtwPlayImportJob = (jobId: string | null, enabled = true, budget
   return query;
 };
 
-export const useOtwPlayImportJobs = (enabled = true) => useQuery({
+export const useOtwPlayImportJobs = (enabled = true) => useInfiniteQuery({
   queryKey: queryKeys.otwPlay.importJobs(),
-  queryFn: fetchOtwPlayImportJobs,
+  queryFn: ({ pageParam }) => fetchOtwPlayImportJobs(pageParam),
+  initialPageParam: null as string | null,
+  getNextPageParam: page => page.nextCursor,
   enabled,
   staleTime: 5_000,
 });

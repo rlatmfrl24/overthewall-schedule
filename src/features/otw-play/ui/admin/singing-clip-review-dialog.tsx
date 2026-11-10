@@ -106,6 +106,7 @@ export function SingingClipReviewDialog({
   candidate,
   candidateKind = "singing_clip",
   reviewOnly = false,
+  playlistJobId,
   presentation = "dialog",
   active = true,
   onManageChannel,
@@ -122,6 +123,7 @@ export function SingingClipReviewDialog({
   candidate: OtwPlayChannelMonitorCandidateDto | null;
   candidateKind?: "official_video" | "singing_clip";
   reviewOnly?: boolean;
+  playlistJobId?: string;
   presentation?: "dialog" | "page";
   active?: boolean;
   onManageChannel?: () => void;
@@ -333,6 +335,24 @@ export function SingingClipReviewDialog({
     });
   };
 
+  const refreshVideoMetadata = async () => {
+    if (!candidate || !reviewBaseline || saving) return;
+    setSaving(true);
+    setSaveMessage("영상 정보 확인 중…");
+    try {
+      const refreshed = await updateOtwPlayImportCandidate(candidate.candidateId, {
+        action: "refresh_metadata", expectedVersion: reviewBaseline.version,
+      });
+      setReviewBaseline({ version: refreshed.version, status: refreshed.status, reviewInput: refreshed.reviewInput });
+      await onReviewStateChanged();
+      setSaveMessage("영상 정보를 다시 확인했습니다.");
+    } catch (error) {
+      setSaveMessage(getContentWriteMessage(error) ?? (error instanceof Error ? error.message : "영상 정보를 갱신하지 못했습니다."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const save = async (next = false) => {
     if (!candidate || !canSave || !reviewBaseline) return;
     setSaving(true);
@@ -375,6 +395,7 @@ export function SingingClipReviewDialog({
         expectedVersion: reviewBaseline.version,
         expectedReviewInput: reviewBaseline.reviewInput,
         expectedReviewStatus: reviewBaseline.status,
+        ...(playlistJobId ? { playlistJobId } : {}),
         action: "save",
         input: reviewInput,
       });
@@ -385,8 +406,7 @@ export function SingingClipReviewDialog({
         status: reviewed.status,
         reviewInput: reviewed.reviewInput,
       });
-      // Ready saves materialize new songs and subjects before draft conversion.
-      // Keep these canonical references even while the form stays mounted.
+      // Preserve any canonical references returned by the review save.
       if (reviewed.reviewInput) {
         const saved = reviewed.reviewInput;
         if (saved.song.kind === "existing") setSongId(saved.song.songId);
@@ -437,6 +457,10 @@ export function SingingClipReviewDialog({
   const Description = presentation === "page" ? "p" : DialogDescription;
   const Footer = presentation === "page" ? "footer" : DialogFooter;
   const returnToList = () => { if (!saving) onOpenChange(false); };
+  const reviewGrid = fastReview
+    ? "grid items-start gap-4 @min-[42rem]/review:grid-cols-[minmax(240px,0.8fr)_minmax(0,1.2fr)]"
+    : "grid items-start gap-6 @min-[48rem]/review:grid-cols-[minmax(260px,0.7fr)_minmax(0,1.3fr)]";
+  const stickyPreview = fastReview ? "@min-[42rem]/review:sticky" : "@min-[48rem]/review:sticky";
   const publicationPreview = candidate && active && <ReviewPublicationPreview key={candidate.candidateId}
           showPlayer={!fastReview}
           videoId={candidate.videoId}
@@ -456,13 +480,13 @@ export function SingingClipReviewDialog({
           {presentation === "page" && !fastReview && <Button variant="ghost" size="sm" disabled={saving} onClick={returnToList}><ArrowLeft /> 검수 목록으로</Button>}
           <Title ref={headingRef} tabIndex={-1} className="text-xl font-semibold outline-none">{candidateKind === "singing_clip" ? "노래 클립" : "공식 영상"} 검수</Title>
           <Description className="text-sm text-muted-foreground" hidden={fastReview}>
-            {reviewOnly ? "영상과 곡·가창 정보를 확인한 뒤 검수를 저장하세요. 저장한 항목은 목록에서 일괄 임시 등록할 수 있습니다." : "승인 채널의 개별 영상을 곡과 가창자에 연결합니다. 저장 결과는 비공개 가창 임시 항목이며 자동 게시되지 않습니다."}
+            {playlistJobId ? "영상과 곡·가창 정보를 검수해 초안을 저장하세요. 카탈로그에는 목록에서 추가를 확인한 항목만 등록됩니다." : reviewOnly ? "영상과 곡·가창 정보를 확인한 뒤 검수를 저장하세요. 저장한 항목은 목록에서 일괄 임시 등록할 수 있습니다." : "승인 채널의 개별 영상을 곡과 가창자에 연결합니다. 저장 결과는 비공개 가창 임시 항목이며 자동 게시되지 않습니다."}
           </Description>
         </Header>
         {!fastReview && publicationPreview}
         {candidate ? (
-          <div className={presentation === "page" ? fastReview ? "grid items-start gap-4 md:grid-cols-[minmax(240px,0.8fr)_minmax(0,1.2fr)]" : "grid items-start gap-6 lg:grid-cols-[minmax(260px,0.7fr)_minmax(0,1.3fr)]" : "space-y-3"}>
-            <aside className={presentation === "page" ? "space-y-3 md:sticky md:top-4" : "space-y-3"}>
+          <div className={presentation === "page" ? reviewGrid : "space-y-3"}>
+            <aside className={presentation === "page" ? `min-w-0 space-y-3 top-4 ${stickyPreview}` : "space-y-3"}>
             {fastReview && active && <div className="[&_.aspect-video]:w-full [&_.aspect-video]:min-h-[200px]"><ReviewSegmentPlayer videoId={candidate.videoId} startSeconds={previewSeconds ?? parsedStart} endSeconds={parsedEnd} valid={segmentValid} thumbnailUrl={candidate.thumbnailUrl}/></div>}
             {presentation === "page" && active && !fastReview && <iframe
               className="aspect-video min-h-[200px] max-h-80 w-full rounded-lg border"
@@ -499,17 +523,20 @@ export function SingingClipReviewDialog({
               </div>
             </div>
 
-            {candidate.catalogChannelId === null && <p role="status" className="text-sm text-destructive">업로드 채널 승인이 필요합니다. 채널 설정을 확인한 뒤 검수를 저장하세요.</p>}
+            {candidate.catalogChannelId === null && candidate.availabilityStatus !== "unknown" && <p role="status" className="text-sm text-destructive">업로드 채널 승인이 필요합니다. 채널 설정을 확인한 뒤 검수를 저장하세요.</p>}
             {candidate.availabilityStatus !== "playable" && <p role="status" className="text-sm text-destructive">현재 재생 가능 여부를 확인해야 저장할 수 있습니다.</p>}
+            {candidate.availabilityStatus !== "playable" && candidate.contentAccess !== "admin_archive" &&
+              !["converted", "ignored"].includes(candidate.status) &&
+              <Button variant="outline" disabled={saving || !reviewBaseline} onClick={() => void refreshVideoMetadata()}>영상 정보 다시 확인</Button>}
             {onManageChannel && (!fastReview || candidate.catalogChannelId === null) && <Button variant="outline" disabled={saving} onClick={onManageChannel}>채널 승인·수집 설정</Button>}
             {batchDraft && <p role="status" className="text-sm">AI 초안이 저장되어 있습니다. {batchDraft.candidateVersion !== candidate.candidateVersion || batchDraft.candidateKind !== candidateKind ? "후보가 변경되어 자동 적용하지 않았습니다. 최신 내용과 비교해 주세요." : batchDraft.result.songs.length !== 1 ? "적용할 곡과 구간을 선택해 주세요." : "내용을 확인한 뒤 검수 저장을 진행하세요."} 기존 검수값·작성 중인 입력은 보존합니다.</p>}
             {batchDraftQuery.isError && <p role="alert">저장된 AI 초안을 불러오지 못했습니다. <Button variant="link" onClick={() => void batchDraftQuery.refetch()}>초안 다시 불러오기</Button></p>}
             {candidate.contentAccess === "admin_archive" && <p role="status">관리자 보관 · 읽기 전용</p>}
             <HistoricalMaterials materials={candidate.historicalMaterials ?? []}/>
-            <ReviewFieldSection fast={fastReview} title="상세 도구·AI 근거" summary={batchDraft ? "저장된 초안과 추정 근거 확인" : "필요할 때 AI 분석 또는 수동 입력"} required={Boolean(batchDraft && (batchDraft.result.songs.length!==1 || batchDraft.candidateVersion!==candidate.candidateVersion))}>
-              <AiReviewPanel compact={presentation === "dialog"} storedDraft={batchDraft} segmentEnabled={segmentEnabled} key={`${candidate.candidateId}:${candidateKind}`} target={{candidateId:candidate.candidateId}} videoId={candidate.videoId} candidateKind={candidateKind} durationSeconds={durationSeconds} initialRange={parsedEnd!==null?{startSeconds:parsedStart,endSeconds:parsedEnd}:null} form={ai} disabled={candidate.contentAccess === "admin_archive" || saving || !active || ["converted","ignored"].includes(candidate.status)} onSeek={presentation==="page"?setPreviewSeconds:undefined} />
+            {(!playlistJobId || batchDraft || fastReview && onManageChannel) && <ReviewFieldSection fast={fastReview} title="상세 도구·AI 근거" summary={batchDraft ? "저장된 초안과 추정 근거 확인" : playlistJobId ? "채널 설정" : "필요할 때 AI 분석 또는 수동 입력"} required={Boolean(batchDraft && (batchDraft.result.songs.length!==1 || batchDraft.candidateVersion!==candidate.candidateVersion))}>
+              {(!playlistJobId || batchDraft) && <AiReviewPanel draftOnly={Boolean(playlistJobId)} compact={presentation === "dialog"} storedDraft={batchDraft} segmentEnabled={segmentEnabled} key={`${candidate.candidateId}:${candidateKind}`} target={{candidateId:candidate.candidateId}} videoId={candidate.videoId} candidateKind={candidateKind} durationSeconds={durationSeconds} initialRange={parsedEnd!==null?{startSeconds:parsedStart,endSeconds:parsedEnd}:null} form={ai} disabled={candidate.contentAccess === "admin_archive" || saving || !active || ["converted","ignored"].includes(candidate.status)} onSeek={presentation==="page"?setPreviewSeconds:undefined} />}
               {fastReview && onManageChannel && candidate.catalogChannelId !== null && <Button variant="outline" disabled={saving} onClick={onManageChannel}>채널 승인·수집 설정</Button>}
-            </ReviewFieldSection>
+            </ReviewFieldSection>}
             </aside>
             <fieldset disabled={saving || candidate.contentAccess === "admin_archive"} className="min-w-0 space-y-6">
             <ReviewFieldSection fast={fastReview} title="곡 정보 수정" summary={`${(selectedExistingSong?.title ?? songTitle) || '곡 선택 필요'} · ${selectedExistingSong ? (selectedExistingSong.originalArtists ?? []).map(a=>a.displayName).join(', ') || '원곡 가수 미확인' : originalArtists.map(a=>a.label).join(', ') || '원곡 가수 미확인'}`} required={!songValid} className="grid gap-3 sm:grid-cols-2">
@@ -702,7 +729,7 @@ export function SingingClipReviewDialog({
         </div>
     </>
   );
-  if (presentation === "page") return <section ref={pageRef} aria-label={`${candidateKind === "singing_clip" ? "노래 클립" : "공식 영상"} 검수 화면`} className="otw-play-review-page space-y-5">{content}</section>;
+  if (presentation === "page") return <section ref={pageRef} aria-label={`${candidateKind === "singing_clip" ? "노래 클립" : "공식 영상"} 검수 화면`} className="otw-play-review-page @container/review space-y-5">{content}</section>;
   return <Dialog open={candidate !== null} onOpenChange={async (next) => { if (next || (!saving && await canDiscard())) onOpenChange(next); }}>
     <DialogContent onEscapeKeyDown={(event) => {
       if (event.target instanceof HTMLElement && event.target.matches('[role="combobox"][aria-expanded="true"]')) event.preventDefault();

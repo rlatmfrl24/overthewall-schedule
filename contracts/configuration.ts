@@ -117,6 +117,8 @@ export type SettingsKey = (typeof SETTINGS_KEYS)[number];
 export const READONLY_SETTINGS_KEYS = [
   "auto_update_last_run",
   "x_collection_last_run",
+  OTW_PLAY_SUBMISSION_DAILY_LIMIT_SETTING_KEY,
+  OTW_PLAY_AUTOMATION_PAUSED_SETTING_KEY,
 ] as const satisfies readonly SettingsKey[];
 
 export type ReadonlySettingsKey = (typeof READONLY_SETTINGS_KEYS)[number];
@@ -419,15 +421,13 @@ const SETTINGS_CONFIGS: readonly SettingConfig[] = [
   },
   {
     key: OTW_PLAY_SUBMISSION_DAILY_LIMIT_SETTING_KEY,
-    writable: true,
+    writable: false,
     normalize: normalizeOtwPlaySubmissionDailyLimit,
-    validate: isOtwPlaySubmissionDailyLimitValue,
   },
   {
     key: OTW_PLAY_AUTOMATION_PAUSED_SETTING_KEY,
-    writable: true,
+    writable: false,
     normalize: (value) => normalizeBoolean(value, "false"),
-    validate: isBooleanValue,
   },
   {
     key: LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY,

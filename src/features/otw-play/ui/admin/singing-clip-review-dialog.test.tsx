@@ -85,6 +85,26 @@ const reviewFixture = () => {
 };
 
 describe("SingingClipReviewDialog", () => {
+  it("refreshes expired video metadata without discarding a saved draft or an in-progress edit", async () => {
+    const { candidate, catalog, reviewInput } = reviewFixture();
+    const onReviewStateChanged = vi.fn(async () => {});
+    const props = { catalog, reviewOnly: true, onOpenChange: vi.fn(), onConverted: vi.fn(), onReviewStateChanged };
+    updateCandidateMock.mockResolvedValueOnce({ version: 4, status: "ready", reviewInput });
+    const restored = { ...candidate, status: "ready" as const };
+    const page = render(createElement(SingingClipReviewDialog, {
+      ...props, candidate: { ...restored, catalogChannelId: null, availabilityStatus: "unknown" },
+    }), { wrapper: createQueryWrapper() });
+    expect(screen.getByRole("button", { name: /검수 저장 · 등록 준비 완료/ })).toHaveProperty("disabled", true);
+    fireEvent.change(screen.getByDisplayValue("source checked"), { target: { value: "local edit" } });
+    fireEvent.click(screen.getByRole("button", { name: "영상 정보 다시 확인" }));
+    await waitFor(() => expect(onReviewStateChanged).toHaveBeenCalledOnce());
+    expect(updateCandidateMock).toHaveBeenCalledExactlyOnceWith(candidate.candidateId, { expectedVersion: 3, action: "refresh_metadata" });
+    page.rerender(createElement(SingingClipReviewDialog, { ...props, candidate: { ...restored, candidateVersion: 4 } }));
+    expect(screen.queryByRole("button", { name: "영상 정보 다시 확인" })).toBeNull();
+    expect(screen.getByDisplayValue("local edit")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /검수 저장 · 등록 준비 완료/ })).toHaveProperty("disabled", false);
+  });
+
   it("renders only the active fast review while retaining unsaved input on return",async()=>{
     const {candidate,catalog}=reviewFixture();
     const view=(active:boolean)=>createElement(SingingClipReviewDialog,{candidate,catalog,presentation:"page",fastReview:true,active,reviewOnly:true,onOpenChange:vi.fn(),onConverted:vi.fn(),onReviewStateChanged:async()=>{}});

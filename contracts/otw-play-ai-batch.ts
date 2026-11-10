@@ -2,7 +2,9 @@ import type { AiReviewKind, AiReviewResult } from "./otw-play-ai-review";
 
 export type AiBatchSelection =
   | { candidates: { id: string; version: number }[] }
+  | { importJobId: string }
   | { filters: { source: "playlist" | "automatic"; jobId?: string; candidateKind?: AiReviewKind } };
+export const playlistAiRequestKey = (jobId: string) => `playlist-import:${jobId}`;
 export type AiBatchItemStatus = "queued" | "analyzing" | "saving" | "saved" | "needs_selection" | "failed" | "changed";
 export const isAiBatchPending = (status: AiBatchItemStatus) => ["queued", "analyzing", "saving"].includes(status);
 export const aiBatchStatusLabels: Record<AiBatchItemStatus, string> = {
@@ -10,6 +12,7 @@ export const aiBatchStatusLabels: Record<AiBatchItemStatus, string> = {
 };
 export interface AiBatchSummary {
   id: string;
+  budgetWaiting?: number;
   createdAt: number;
   updatedAt: number;
   total: number;
