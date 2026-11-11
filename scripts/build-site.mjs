@@ -8,14 +8,6 @@ import { assertClerkDeploymentConfig } from "./clerk-environment.mjs";
 import { writeSiteBuildManifest } from "./site-build-manifest.mjs";
 import { writeStaticAssetManifest } from "./static-asset-manifest.mjs";
 
-const probeDependencies = stage => {
-  if (process.env.WORKERS_CI !== "1") return;
-  const result = spawnSync(process.execPath, [resolve("scripts/diagnose-build-dependencies.mjs"), stage], { stdio: "inherit" });
-  if (result.error) throw result.error;
-  if (result.status !== 0) process.exit(result.status ?? 1);
-};
-probeDependencies("after-install");
-
 const siteId = parseSiteArgument();
 const environment = loadSiteEnvironment(siteId, "production");
 const origin = resolveSiteOrigin(siteId, environment);
@@ -31,7 +23,6 @@ if (process.env.WORKERS_CI === "1") {
     const result = spawnSync("pnpm", ["run", command], { stdio: "inherit", env });
     if (result.error) throw result.error;
     if (result.status !== 0) process.exit(result.status ?? 1);
-    probeDependencies(`after-${command}`);
   }
 }
 for (const [script, ...args] of [
@@ -40,14 +31,13 @@ for (const [script, ...args] of [
   ["node_modules/tsx/dist/cli.mjs", "scripts/generate-seo-assets.ts", `--site=${siteId}`],
 ]) {
   const result = spawnSync(process.execPath, [resolve(script), ...args], { stdio: "inherit", env });
-  probeDependencies(`after-${script}-${result.status}`);
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 writeStaticAssetManifest(resolve(getSiteTarget(siteId).outputRoot,"client"));
 writeSiteBuildManifest(siteId, environment);
 console.log(`[build] Verified artifact manifest for ${siteId}.`);
-// Temporary PR #220 probe: a nonzero exit prevents the configured version upload.
+// Temporary PR #220 hold: verify the normal build without uploading a version.
 if (process.env.WORKERS_CI === "1") {
-  console.error("PR220_DIAGNOSTIC_HOLD: full build complete; upload and deployment remain blocked.");
+  console.error("PR220_DIAGNOSTIC_HOLD: uninstrumented build complete; upload and deployment remain blocked.");
   process.exit(1);
 }
