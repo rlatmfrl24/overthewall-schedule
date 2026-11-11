@@ -127,6 +127,8 @@ Cloudflare 재검증용 임시 게시 `5c03dd42`의 [빌드 `06f65faf`](https://
 
 ## 자동 복구의 engineStrict 보존
 
+이 절은 `cc753e0a`의 구현/검증이다. 중단·실패 후 재실행의 미완료 설치 우회는 다음 절에서 추가 수정했다.
+
 [후속 리뷰 P3](https://github.com/rlatmfrl24/overthewall-schedule/pull/220#issuecomment-6790875604)를 수정했다. `--force`가 엄격한 Node 호환성 검사까지 생략하므로 복구 명령에서 제거했다. 실제 pnpm11.7.0 검증 결과, 생성된 설치 상태 파일 `node_modules/.pnpm/lock.yaml`만 재생성하면 force 없이도 누락된 링크와 ESM entry를 복구할 수 있었다. 기준 파일 `pnpm-lock.yaml`과 선언된 버전/정책은 수정하지 않는다. 정상 분기는 이 설치 상태 파일에도 손대지 않는다.
 
 실패 시에만 생성된 설치 상태를 비우고 `pnpm install --frozen-lockfile --offline --config.optimistic-repeat-install=false`를1회 실행한다. 기존 engineStrict 설정을 그대로 적용해 비호환 의존성을 거절하며, false 설정과 호환 의존성의 정상 복구도 유지한다. 복구 실패·재검사 실패·시간 초과는 후속 빌드를 중단한다. 검사5초·복구120초·신규 Node 프로세스 재검사는 동일하다. 실패한 설치가 불완전한 생성 상태를 남기면 다음 정상 pnpm 진입의 설치 검증 대상이 되며, 이를 유효한 상태로 되돌리지 않는다.
@@ -138,3 +140,26 @@ Windows의 정상 `pnpm run build`와 `pnpm run build:luvdia` 모두 exit0·mani
 격리 Linux의 실제 `pnpm run deploy` → build-site/diagnostics 흐름에서 설치 실패37·재검사 실패1·초기 검사5초 시간 초과1을 주입했다. 기능의 복구 횟수는1/1/0, Vite/SEO/manifest 미도달·업로드 도달 표식0·기준 lock SHA256 동일이었다. 외부 업로드 부분만 안전한 도달 표식으로 대체하고 finally에서 복원했다. 원격 업로드나 배포를 수행한 검증은 아니다.
 
 로그는 `%TEMP%/otw-pr220-engine-policy-{red,green}.log`, `otw-pr220-engine-safe-{probe,policies,real-build,gate,normal-otw,normal-luvdia,types}.log`다. 새 전체 preflight·원격 실제 빌드는 실행하지 않았다. 정상 X 동작·12시간 주기·즉시 재개·저장 글 재조회 방지·D1 한도는 수정하지 않았으며 기존 동일 입력 증거를 재사용한다. 최종 게시는 자동 빌드 생략으로 업로드 보류를 유지하고, 향후 승인된 squash 메시지에는 생략 표식을 제외해야 한다. 병합·배포·운영 설정·원격 마이그레이션·신규 유료 호출 보류를 유지한다.
+
+## 미완료 설치의 진행 상태 보존과 재개
+
+[`cc753e0a` 재리뷰 P2](https://github.com/rlatmfrl24/overthewall-schedule/pull/220#issuecomment-6791680275)를 수정했다. 모듈 파일이 복원된 뒤 설치 후 처리가 중단되면 다음 ESM 검사만으로 설치 성공을 판단하던 문제다. 이제 생성된 설치 상태를 삭제하기 전에 `.tmp/build-dependency-repair.pending`를 동기 기록하고 flush한다. 이 표식은 pnpm이 관리하는 node_modules 밖에 있어 재설치 중에도 유지되며 Git에는 포함하지 않는다.
+
+정상 빠른 경로는 ESM 정상·진행 표식 없음·생성 설치 상태 존재를 모두 확인한다. 표식이 있거나 생성 상태가 없으면 모듈이 정상이어도 frozen/offline 설치를1회 수행한다. 따라서 이전 버전이 표식 없이 남긴 생성 상태 부재도 재검증한다. 설치0·새 프로세스 재검사0·생성 설치 상태 존재까지 확인한 뒤에만 표식을 해제한다. 설치 실패·재검사 실패·시간 초과·중단 시에는 표식을 유지하고 빌드를 중단한다. engineStrict와 기존 설치 스크립트 정책은 그대로 적용하며 force를 재도입하지 않았다.
+
+추가 회귀는 미완료 표식+정상 모듈의 재설치, 생성 상태 부재, 설치 실패/재검사 실패의 표식 유지, 생성 상태를 만들지 않은 가짜 설치 성공의 거절을 확인한다. 실제 pnpm 회귀에서는 설치 후 처리41 실패 뒤 모듈이 정상이어도 다시 후처리를 실행해41로 거절하고, 정상화하면 복구1회·표식 해제·다음 정상 실행의 재설치0회를 확인했다. 기존 코드에서8건 실패 후 최종 **Windows 영향5파일30건**, **Linux 정책/진단2파일15건**이 통과했다. 타입·변경 lint·architecture도 통과했다.
+
+격리 Linux의 실제 `pnpm run deploy` → `pnpm run build` → build-site/diagnostics 흐름에서 다음을 확인했다. 외부 업로드 명령만 안전한 표식+exit99로 대체하고 finally에서 원본을 복원했다. 아래99는 의도적인 외부 차단이며 실제 업로드나 명령 전체 성공을 뜻하지 않는다.
+
+| 상황 | 결과 |
+| --- | --- |
+| 생성 설치 상태 삭제 직후 강제 중단 | 삭제 전 진행 표식 존재, 산출물/업로드 미도달 |
+| 위 상태에서 재실행 | 복구1회·설치/재검사/manifest 완료·진행 표식 해제·외부 차단99 |
+| 모듈 복원 후 실제 Clerk 설치 후 처리 도중 SIGKILL | 진행 표식 유지·산출물/업로드 미도달 |
+| 위 상태에서 후처리가41로 실패하도록 재실행 | 후처리 재실행·복구1회·진행 표식 유지·manifest/업로드 미도달 |
+| 정상화 후 재실행 | 복구1회·설치/재검사/manifest 완료·표식 해제·외부 차단99 |
+| 완료된 상태에서 다시 정상 실행 | 복구0회·후처리 추가 실행0·manifest 완료·외부 차단99 |
+
+Windows의 OTW/LuvDia 실제 정상 build도 모두 exit0·manifest 완료·복구 메시지0·진행 표식 없음이며 기준 lock과 생성 설치 상태 SHA256이 동일했다. 실제 정책 fixture에서 strict 비호환 거절, 허용/차단 스크립트 유지, 미승인 스크립트 거절, frozen lock 불일치 거절과 기준 파일/버전 보존도 다시 통과했다. 별도 설치 실패37·재검사 실패1·초기 검사5초 시간 초과1의 실제 명령 흐름은 복구1/1/0회·표식 유지·업로드 미도달을 확인했다.
+
+로그는 `%TEMP%/otw-pr220-pending-repair-{red,green,real,policies,gate,normal-otw,normal-luvdia,types}.log`다. 새로운 전체 preflight·실제 원격 빌드는 실행하지 않았다. X 수집 코드·스키마·잠금 파일·버전·운영 설정은 동일하며, 해당 변경 없는 검증은 앞선 증거를 재사용한다. 최종 게시의 자동 빌드는 생략한다. 향후 승인된 squash 메시지에서는 생략 표식을 제외해야 하며 병합·배포·원격 마이그레이션·운영 설정·신규 유료 호출 보류를 유지한다.

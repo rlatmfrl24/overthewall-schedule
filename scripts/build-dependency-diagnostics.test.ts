@@ -16,11 +16,23 @@ it.each([
   { broken: true, mode: "--repair", repair: "success", status: 0, installs: 1 },
   { broken: true, mode: "--repair", repair: "failure", status: 37, installs: 1 },
   { broken: true, mode: "--repair", repair: "ineffective", status: 1, installs: 1 },
-])("checks and repairs dependency links: $broken $mode $repair", ({ broken, mode, repair, status, installs }) => {
+  { broken: false, mode: "--repair", repair: "success", status: 0, installs: 1, pending: true },
+  { broken: false, mode: "--repair", repair: "failure", status: 37, installs: 1, pending: true },
+  { broken: false, mode: "--repair", repair: "success", status: 0, installs: 1, missingState: true },
+  { broken: false, mode: "--repair", repair: "missing-state", status: 1, installs: 1, pending: true },
+].map(scenario => ({ pending: false, missingState: false, ...scenario })))("checks and repairs dependency links: $broken $mode $repair pending=$pending", ({ broken, mode, repair, status, installs, pending, missingState }) => {
   const prefix = resolve(tmpdir(), "otw-build-deps-");
   const root = mkdtempSync(prefix);
   try {
     writeFileSync(join(root, "package.json"), "{}");
+    writeFileSync(join(root, "pnpm-lock.yaml"), "canonical lock\n");
+    mkdirSync(join(root, "node_modules/.pnpm"), { recursive: true });
+    if (!missingState) writeFileSync(join(root, "node_modules/.pnpm/lock.yaml"), "installed\n");
+    const pendingPath = join(root, ".tmp/build-dependency-repair.pending");
+    if (pending) {
+      mkdirSync(dirname(pendingPath), { recursive: true });
+      writeFileSync(pendingPath, "pending\n");
+    }
     for (const name of ["react-router", "react-store", "store"]) {
       const dir = join(root, "node_modules/@tanstack", name);
       if (name === "store" && broken) {
@@ -40,6 +52,7 @@ it.each([
       const fs = require("node:fs");
       fs.appendFileSync("installs.jsonl", JSON.stringify(process.argv.slice(2)) + "\\n");
       if (${JSON.stringify(repair)} === "failure") process.exit(37);
+      if (${JSON.stringify(repair)} !== "missing-state") fs.writeFileSync("node_modules/.pnpm/lock.yaml", "installed\\n");
       if (${JSON.stringify(repair)} === "success") {
         fs.mkdirSync("missing-store/dist/esm", { recursive: true });
         fs.mkdirSync("missing-store/dist/cjs");
@@ -66,6 +79,8 @@ it.each([
     expect(commands).toHaveLength(installs);
     if (installs) expect(commands[0]).toEqual(["install", "--frozen-lockfile", "--offline", "--config.optimistic-repeat-install=false"]);
     if (repair === "success") expect(result.stdout).toContain('"stage":"after-offline-repair"');
+    expect(existsSync(pendingPath)).toBe(mode === "--repair" && installs > 0 && status !== 0);
+    expect(readFileSync(join(root, "pnpm-lock.yaml"), "utf8")).toBe("canonical lock\n");
     expect(readFileSync(join(root, "node_modules/@tanstack/react-store/package.json"), "utf8")).toBe(before);
   } finally {
     assert(root.startsWith(prefix) && dirname(root) === resolve(tmpdir()), "Unexpected fixture path");

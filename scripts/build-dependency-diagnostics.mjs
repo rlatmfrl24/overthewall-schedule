@@ -1,20 +1,24 @@
-import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
 if (process.argv.includes("--repair")) {
+  const pendingPath = resolve(".tmp/build-dependency-repair.pending");
+  const installedLockfile = resolve("node_modules/.pnpm/lock.yaml");
   const check = stage => spawnSync(process.execPath, [process.argv[1], stage, "--check"],
     { stdio: "inherit", timeout: 5_000, killSignal: "SIGKILL" });
   const initial = check("before-vite");
-  if (initial.status === 0) process.exit(0);
-  if (initial.error || initial.status !== 1) throw initial.error ?? new Error("Dependency check was interrupted");
+  if (initial.status === 0 && !existsSync(pendingPath) && existsSync(installedLockfile)) process.exit(0);
+  if (initial.error || (initial.status !== 0 && initial.status !== 1)) throw initial.error ?? new Error("Dependency check was interrupted");
   const pnpm = process.env.npm_execpath && realpathSync(process.env.npm_execpath);
   if (!pnpm || !/[/\\]pnpm\.[cm]?js$/.test(pnpm)) throw new Error("Dependency repair requires pnpm run build");
-  console.warn("[build] Dependency check failed; repairing the frozen installation once from the local store.");
+  console.warn("[build] Dependency repair required; repairing the frozen installation once from the local store.");
+  mkdirSync(dirname(pendingPath), { recursive: true });
+  writeFileSync(pendingPath, "pending\n", { flush: true });
   // Refresh generated install state; --force would bypass engineStrict.
-  rmSync(resolve("node_modules/.pnpm/lock.yaml"), { force: true });
+  rmSync(installedLockfile, { force: true });
   const repair = spawnSync(process.execPath, [pnpm, "install", "--frozen-lockfile", "--offline", "--config.optimistic-repeat-install=false"],
     { stdio: "inherit", timeout: 120_000, killSignal: "SIGKILL" });
   if (repair.error) throw repair.error;
@@ -22,7 +26,10 @@ if (process.argv.includes("--repair")) {
   // Use a fresh process so failed ESM imports cannot remain cached after relinking.
   const verified = check("after-offline-repair");
   if (verified.error) throw verified.error;
-  process.exit(verified.status ?? 1);
+  if (verified.status !== 0) process.exit(verified.status ?? 1);
+  if (!existsSync(installedLockfile)) throw new Error("Installation state missing after dependency repair");
+  rmSync(pendingPath, { force: true });
+  process.exit(0);
 }
 
 console.log("BUILD_DEPENDENCIES", JSON.stringify({ stage: process.argv[2], node: process.version, platform: process.platform,
