@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-console.log("BUILD_DEPENDENCIES", JSON.stringify({ node: process.version, platform: process.platform,
+console.log("BUILD_DEPENDENCIES", JSON.stringify({ stage: process.argv[2], node: process.version, platform: process.platform,
   build: process.env.WORKERS_CI_BUILD_UUID, commit: process.env.WORKERS_CI_COMMIT_SHA }));
 let parent = resolve("package.json");
 for (const name of ["@tanstack/react-router", "@tanstack/react-store", "@tanstack/store"]) {
