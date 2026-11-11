@@ -106,3 +106,15 @@ GitHub 자동 리뷰는 추가 P2 1건을 제시했다. 인용 원문/작성자 
 새 회귀2건은 실제 패키지 파일과 끊어진 링크에서 상태 기록·비밀값 비노출·입력 파일 보존을 확인했다. 누락된 기능에서2건 실패 후 구현·검증을 통과했다. CJS는 환경의 `NODE_PATH`로 다른 설치를 찾을 수 있어 ESM의 `ERR_MODULE_NOT_FOUND`도 함께 기록해야 함을 확인했다. 실제 격리 Linux 빌드 진입점에 Vite 실패42를 주입해 진단 이후에도42를 반환하고 후속 단계가 실행되지 않음을 확인했다. 영향4파일17건·타입·변경 lint·architecture를 통과했다. 마지막 코드의 정상 로컬 build에서도 진단 출력·선행 로딩·강제 중단 없이 artifact 완료와 exit0을 확인했다. 이전 원격 전체 gate와 합성한 검증이며 마지막 전체 preflight 재실행은 아니다.
 
 마지막 정리·증거 게시에는 Cloudflare가 지원하는 `[skip ci]`를 사용해 업로드로 이어지는 새 자동 빌드를 막는다. [Cloudflare의 skip 지원 확인](https://github.com/cloudflare/workers-sdk/discussions/13216) 저장소의 squash 기본 메시지는 `COMMIT_MESSAGES`이므로 향후 승인된 병합의 메시지에는 이 생략 표식을 포함하지 않아야 한다. 운영/빌드 설정·캐시 삭제·인증 권한·원격 마이그레이션·병합·배포·신규 유료 호출은 변경하지 않았다. 정상 X 동작·12시간 주기·즉시 재개·저장 글 재조회 방지·D1 50회 정책도 변경하지 않았다.
+
+## Cloudflare 모듈 연결의 자동 복구 보완
+
+사용자의 후속 재발 방지 요청으로 앞 절의 진단 전용 코드를 보완했다. `1d34ac06`의 Cloudflare `4818f0ab`는 dashboard에서 건너뛰기로 재확인했다. 과거 `294ca6ca` 컨테이너의 정확한 손상 원인은 여전히 미확정이다.
+
+격리 Linux의 실제 pnpm 설치에서 `react-store → store` 링크를 제거했다. 일반 `install --frozen-lockfile --offline`, 여기에 `--force`만 추가한 경우, `optimisticRepeatInstall=false`만 추가한 경우 모두 exit0이지만 링크를 복구하지 못했다. 설치된 pnpm11.7.0의 `installDeps`는 `optimisticRepeatInstall`이 활성화된 경우 설치 상태 판단으로 조기 반환한다. 두 옵션을 **함께** 적용하면 다시 연결하고 다운로드0·잠금 파일 동일 상태를 유지했다. 이는 자동 복구 명령의 검증 결과이며 과거 Cloudflare 오류 원인의 확정은 아니다.
+
+실제 `pnpm run build`는 Vite 직전에 별도 Node 프로세스로 router/store의 ESM 연결을 검사한다. 정상이면 재설치하지 않는다. 검사 실패에만 `pnpm install --frozen-lockfile --offline --force --config.optimistic-repeat-install=false`를1회 실행하고 새 프로세스로 재확인한다. 실패한 ESM import의 프로세스 캐시를 재사용하지 않는다. 검사 각5초·복구120초 제한이며 복구 실패/재검사 실패 시 빌드와 후속 업로드를 중단한다. Vite의 일반 소스 오류에는 재설치나 빌드 재시도를 하지 않으며 원래 실패 코드를 유지한다. 버전·잠금 파일·허용된 설치 스크립트 정책은 바꾸지 않는다. [pnpm의 frozen/offline 설치 계약](https://pnpm.io/cli/install)
+
+회귀는 기존 진단 테스트에 검사·정상 무설치·복구 성공·설치 실패37·복구 무효의 종료/횟수를 추가했다. 누락된 동작에서4건 실패를 확인한 뒤 영향4파일22건과 타입·변경 lint·architecture가 통과했다. 정상 Windows의 `pnpm run build`는 재설치 없이 exit0·manifest 완료였다. 격리 Linux의 실제 링크와 ESM entry를 함께 제거한 `pnpm run build`도 복구1회·다운로드0·잠금 파일 동일·복구된 entry 바이트 동일·최종 manifest 완료와 exit0을 확인했다(50.28초). 첫 검증 도구는 재설치 대상 내부에 보관한 백업이 사라져 검증 후 정리에 실패했으며 백업을 외부로 옮긴 뒤 같은 실제 흐름을 다시 통과했다. 제품 코드 실패와 구분한다.
+
+Cloudflare 재검증용 임시 게시에는 artifact 완료 직후 `PR220_PREVENTION_HOLD`/exit1을 둔다. 후속 버전 업로드를 차단하며 외부 CI 성공으로 보고하지 않는다. 배포·설정 변경·캐시 삭제·원격 마이그레이션·유료 호출은 보류한다.
