@@ -62,3 +62,17 @@ RSS·공식 혼합과 독립 실행 10개의 실패 경로를 추가 재현하�
 이번 수정에서 스키마·마이그레이션·운영 설정은 변경하지 않았다. 기존 미커밋 기능·마이그레이션과 앱 DB를 보존했다. 공개 운영 효과·실제 청구액·원격 마이그레이션·배포·릴리스 preflight는 검증하지 않았다. 제품 변경은 로컬 상태이며 기존 운영 반영 보류를 유지한다.
 
 최종 집계: **Standards 0건, Spec 0건.** 이는 위 기능·경합·비용 범위의 현재 검토 결과이며 모든 가능한 오류가 없다는 보장은 아니다.
+
+## PR #220 게시 검증과 GitHub 리뷰 보완
+
+후속 `pr-ready` 승인으로 [PR #220](https://github.com/rlatmfrl24/overthewall-schedule/pull/220)을 게시했다. `8e75ed9cad05f9bc16af6d897c0a97253b97eba6`에서 Node 24.20.0·pnpm 11.7.0으로 공식 `pnpm preflight`가 전체 통과했다. Vitest 414파일 3939건, agent 동기화 테스트10건, 전체 타입·lint·architecture, production build, 격리된 `.wrangler/x-review-20261111-final`의 로컬 D1 doctor, mirror 검사를 포함했다. 기존 앱 DB는 변경하지 않았다.
+
+GitHub 자동 리뷰는 추가 P2 1건을 제시했다. 인용 원문/작성자 조회가 정산 전 중단되면 결과 없는 `running` 영수증을 계속 기다려 로컬 복구 기록의 30일 만료 전 재개하지 못했다. 실제 정산 UPDATE 오류로 두 요청 모두 재현했고, 10분 뒤 만료를 기대하는 assertion 2건이 수정 전 실패했다.
+
+수정 커밋은 `17ffee03725760eaf79bc0e4e0d196c309ab2bd0`이다. 기존 영수증 SELECT에서 마지막 갱신 시각을 함께 읽는다. 요청이 10분 이상 미정산이면 현재 관계 임대와 요청 ID 검사를 거쳐 로컬 복구 표식만 해제한다. 최근 진행 중인 요청은 중복 호출하지 않으며, 완료 응답은 나이와 무관하게 재사용한다. 원래 요청과 미정산 예산 예약은 변경·환급하지 않는다. 후속 요청은 기존 예산 승인과 재시도 대기를 지키며 예산을 늘리지 않는다. 추가 D1 호출이나 새 스키마는 필요 없다.
+
+수정 후 원문·작성자의 만료 경계/예산 보존과 병행 작성자 요청 3건이 통과했다. 정상 수동 재시도 → control Queue → background Queue에서도 작성자 보강·12시간 확인점·D1 50회 이내·저장 원문 신규 조회 없음이 통과했다. 로컬 표식 제거 시 원래 미정산 원장 행과 예산이 완전히 동일함을 재조회했다.
+
+최종 검증은 합성이다. 영향 47파일 실행은 기존 redaction 표본의 ID를 새 회귀에서도 재사용해 fixture 1건이 실패했고 937건이 통과했다. 새 표본을 독립 ID로 수정한 뒤 해당 hydration·Queue 2파일을 99/99 재실행했다. 최종 영향 범위는 **47파일 939건 통과**다. 나머지 전체 테스트의 동일 입력 증거를 합치면 Vitest 3942건에 해당하지만 최종 전체 명령 재실행을 의미하지 않는다. 최종 타입·전체 lint·architecture·build도 통과했고 변경되지 않은 D1 doctor·mirror·agent 검사 증거를 재사용한다.
+
+로그는 `%TEMP%/otw-x-pr-ready-preflight.log`, `otw-pr220-stale-quote-{red,green}.log`, `otw-pr220-author-control-recovery.log`, `otw-pr220-review-fixed-affected.log`, `otw-pr220-final-hydration-queue.log`, `otw-pr220-review-fixed-checks.log`, `otw-pr220-final-type-lint.log`에 보존했다. 새 코드에 대한 GitHub 리뷰 답변·해결과 최종 head 확인은 PR 원장에 기록한다. 원격 DB·운영 설정·병합·배포·신규 유료 호출 보류는 유지한다.
