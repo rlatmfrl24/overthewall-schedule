@@ -38,7 +38,7 @@ describe("XCollectionRuns", () => {
     value.collection = { ...value.collection!, provider: "fxembed", scope: "regular", pendingSources: 1 };
     value.referenceHydration = null;
     show(run([value]));
-    expect(screen.getByRole("button", { name: /전체 결과/ }).textContent).toContain("다음 페이지 대기");
+    expect(screen.getByRole("button", { name: /전체 결과/ }).textContent).toContain("이어 수집 대기");
     fireEvent.click(screen.getByRole("button", { name: /전체 결과/ }));
     expect(screen.getByText("FxEmbed · 정기")).toBeTruthy();
     expect(screen.getAllByText("FxEmbed 실행 · 유료 호출 기록 미확인")).toHaveLength(2);

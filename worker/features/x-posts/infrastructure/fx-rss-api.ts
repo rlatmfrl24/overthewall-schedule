@@ -41,7 +41,13 @@ export function parseFxRssFeed(xml: string, targetHandle: string): FxRssPage {
 export async function fetchFxRssFeed(handle: string): Promise<FxRssPage> {
   const target = parseFxHandle(handle);
   try {
-    const response = await fetch(`https://fxtwitter.com/${target}/feed.xml?count=100&with_replies=true`, { headers: { Accept: "application/rss+xml", "User-Agent": "OTWSchedule/1.0 (+https://otw-schedule.info)" }, redirect: "manual", signal: AbortSignal.timeout(15_000) });
+    const request = () => fetch(`https://fxtwitter.com/${target}/feed.xml?count=100&with_replies=true`, { headers: { Accept: "application/rss+xml", "User-Agent": "OTWSchedule/1.0 (+https://otw-schedule.info)" }, redirect: "manual", signal: AbortSignal.timeout(15_000) });
+    let response = await request();
+    // FxRSS can return a transient, non-cacheable 404 for an existing public account.
+    if(response.status===404){
+      await response.body?.cancel().catch(()=>undefined);
+      response=await request();
+    }
     if (!response.ok) throw new FxApiError(`fx_http_${response.status}`);
     if (!response.body) return invalid();
     const reader = response.body.getReader(), decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });

@@ -1,0 +1,77 @@
+:root {
+  color-scheme: light;
+  --paper: #f7f6f0;
+  --surface: #fffef9;
+  --ink: #172821;
+  --muted: #455a50;
+  --line: #ced9d1;
+  --accent: #14604d;
+  --accent-soft: #e3efe8;
+  --warm: #f4eadb;
+  font: 16px/1.65 "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { width: min(100% - 3rem, 73rem); margin: 0 auto; padding: 3rem 0 3.5rem; }
+header { border-top: .3rem solid var(--accent); padding-top: 1.25rem; }
+h1, h2, h3 { line-height: 1.28; letter-spacing: -.035em; }
+h1 { font-size: clamp(1.95rem, 4vw, 3.3rem); margin: .25rem 0 .8rem; }
+h2 { font-size: clamp(1.3rem, 2.5vw, 1.8rem); margin: 0 0 .9rem; }
+h3 { font-size: 1.1rem; margin: 0 0 .4rem; }
+p { margin: 0 0 .75rem; }
+a { color: var(--accent); text-underline-offset: .2em; }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+code { background: var(--accent-soft); padding: .06rem .2rem; border-radius: .2rem; overflow-wrap: anywhere; }
+section { margin-top: 2rem; }
+header > p { max-width: 60rem; }
+.subtitle, .source { color: var(--muted); }
+.source { margin-top: .55rem; font-size: .9rem; }
+.scope { background: var(--warm); border-left: .25rem solid #936225; padding: .7rem 1rem; }
+.table-wrap { border: 1px solid var(--line); background: var(--surface); }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; text-align: left; font-size: .94rem; }
+th, td { vertical-align: top; padding: .75rem .9rem; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+thead th { background: var(--accent-soft); }
+thead th:first-child { width: 15%; }
+thead th:last-child { width: 27%; }
+tbody th { color: var(--accent); }
+tbody tr:last-child > * { border-bottom: 0; }
+.flow { list-style: none; margin: .7rem 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; }
+.flow li, details { background: var(--surface); border: 1px solid var(--line); padding: .85rem 1rem; }
+.flow p, details p:last-child { margin: 0; }
+details + details { margin-top: .5rem; }
+summary { cursor: pointer; font-weight: 650; }
+details[open] > p { margin-top: .65rem; }
+footer { border-top: 1px solid var(--line); margin-top: 2rem; padding-top: .85rem; }
+dt { font-weight: 750; margin-top: .95rem; }
+dd { margin: .25rem 0 .65rem; }
+
+@media (max-width: 44rem) {
+  main { width: min(100% - 1.4rem, 73rem); padding-top: 1.4rem; }
+  .flow { grid-template-columns: 1fr; }
+  table, tbody, tbody tr, tbody th, td { display: block; }
+  thead { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; }
+  tbody th { background: var(--accent-soft); padding-block: .5rem; }
+  tbody td { border: 0; padding-block: .4rem; }
+  tbody td:last-child { padding-bottom: .9rem; }
+  td::before { display: block; color: var(--muted); font-size: .78rem; font-weight: 700; }
+  td:nth-of-type(1)::before { content: "이전"; }
+  td:nth-of-type(2)::before { content: "현재 로컬"; }
+  td:nth-of-type(3)::before { content: "기대 효과와 근거"; }
+}
+
+@media print {
+  :root { background: white; font-size: 10pt; }
+  main { width: auto; padding: 0; }
+  table { display: table; }
+  thead { display: table-header-group; position: static; width: auto; height: auto; clip-path: none; }
+  tbody { display: table-row-group; }
+  tbody tr { display: table-row; }
+  tbody th, td { display: table-cell; }
+  td::before { display: none; }
+  th, td { padding: .42rem .5rem; }
+  tr, .flow, details { break-inside: avoid; }
+  h2 { break-after: avoid; }
+}

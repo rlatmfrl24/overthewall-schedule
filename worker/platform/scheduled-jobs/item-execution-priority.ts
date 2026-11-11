@@ -11,4 +11,6 @@ export const executionPriorityReadySql = (item: string) => `(NOT COALESCE(${hasE
   WHERE prior.run_id=${item}.run_id AND prior.status IN ('queued','running') AND prior.id<>${item}.id
     AND ${hasExecutionPrioritySql("prior")}
     AND ((prior.status='running' AND prior.lease_until>?)
-      OR (prior.status='queued' AND prior.available_at<=? AND ${rank("prior")}<${rank(item)}))))`;
+      OR (prior.status='queued' AND MAX(prior.available_at, COALESCE((SELECT delivery.available_at
+        FROM scheduled_outbox delivery WHERE delivery.item_id=prior.id AND delivery.event_type='execute'
+          AND delivery.status='failed'), prior.available_at))<=? AND ${rank("prior")}<${rank(item)}))))`;

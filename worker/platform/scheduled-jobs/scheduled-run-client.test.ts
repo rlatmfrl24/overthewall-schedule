@@ -5,16 +5,19 @@ const mocks = vi.hoisted(() => ({
   createRun: vi.fn(),
   markRunFailed: vi.fn(),
   markRunThrottled: vi.fn(),
+  completeUnplannedRun: vi.fn(),
   reserveQueueOperations: vi.fn(),
   retryRun: vi.fn(),
   readRunDto: vi.fn(),
 }));
 
-vi.mock("./d1-scheduled-job-repository", () => ({
+vi.mock("./d1-scheduled-job-repository", async importOriginal => ({
+  ...await importOriginal<typeof import("./d1-scheduled-job-repository")>(),
   D1ScheduledJobRepository: class {
     createRun = mocks.createRun;
     markRunFailed = mocks.markRunFailed;
     markRunThrottled = mocks.markRunThrottled;
+    completeUnplannedRun = mocks.completeUnplannedRun;
     reserveQueueOperations = mocks.reserveQueueOperations;
     retryRun = mocks.retryRun;
     readRunDto = mocks.readRunDto;
@@ -50,9 +53,11 @@ describe("ScheduledRunClient", () => {
       client.createManualRun("naver_cafe_collection", { actorId: "admin" }),
     ).rejects.toThrow("down");
 
-    expect(mocks.markRunFailed).toHaveBeenCalledWith(
+    expect(mocks.completeUnplannedRun).toHaveBeenCalledWith(
       run.id,
+      "failed",
       "control_queue_send_failed:down",
+      0,
     );
   });
 
@@ -88,6 +93,7 @@ describe("ScheduledRunClient", () => {
   );
 
   it("retry는 queued outbox를 drain할 control message를 다시 보낸다", async () => {
+    mocks.retryRun.mockResolvedValueOnce({kind:"accepted",run:{...run,summary_json:'{"controlGeneration":2}'}});
     const send = vi.fn().mockResolvedValue(undefined);
     const client = new ScheduledRunClient({
       otw_db: {} as D1Database,
@@ -103,6 +109,7 @@ describe("ScheduledRunClient", () => {
       schemaVersion: 1,
       messageType: "scheduled_job_control",
       runId: run.id,
+      deliveryGeneration:2,
     }, { contentType: "json" });
   });
 

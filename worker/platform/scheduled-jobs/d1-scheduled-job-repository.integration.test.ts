@@ -6,7 +6,7 @@ import {
   SCHEDULED_JOB_LEASE_MS,
   SCHEDULED_QUEUE_DELIVERY_RECOVERY_MS,
 } from "./job-policy";
-import { D1ScheduledJobRepository } from "./d1-scheduled-job-repository";
+import { D1ScheduledJobRepository, type ScheduledJobItemRecord } from "./d1-scheduled-job-repository";
 
 type TestEnv = Env & {
   SCHEDULED_OPERATIONS_MIGRATIONS: D1Migration[];
@@ -37,6 +37,146 @@ beforeEach(async () => {
 });
 
 describe("D1 scheduled job state machine", () => {
+  it.each([false, true])("batches ten reconciliation failures with snapshot fencing and atomic rollback=%s", async rejectWrite => {
+    const repo = createRepository();
+    const items: ScheduledJobItemRecord[] = [];
+    for (let i = 0; i < 10; i++) {
+      const run = await repo.createRun({ jobType: "x_collection", source: "manual", idempotencyKey: `cohort-failure-${i}` });
+      const [id] = await repo.addItems(run.id, [{ targetKey: "one", phase: "collect", lane: "x" }]);
+      await repo.completeItem((await repo.claimItem(id))!, { status: i === 9 ? "failed" : "succeeded" }, true);
+      items.push((await repo.readItem(id))!);
+    }
+    expect(await repo.retryRun(items[9].run_id)).toMatchObject({ kind: "accepted" });
+    const beforeRuns = await Promise.all(items.map(item => repo.readRun(item.run_id)));
+    const beforeItems = await repo.readItems(items.map(item => item.id));
+    const beforeOutbox = (await db.prepare("SELECT * FROM scheduled_outbox ORDER BY id").all()).results;
+    const error = "post_completion_reconciliation_dead_letter:lost_commit_response";
+    if (rejectWrite) await db.exec(`CREATE TRIGGER reject_cohort_failure BEFORE UPDATE ON scheduled_job_runs WHEN OLD.id='${items[1].run_id}' AND NEW.last_error='${error}' BEGIN SELECT RAISE(ABORT,'cohort write unavailable'); END;`);
+    const meter = meterD1(db, 1), measured = new D1ScheduledJobRepository(meter.db, () => timestamp);
+    try {
+      const failure = measured.markReconciliationsFailed([...items, items[0]], error);
+      if (rejectWrite) await expect(failure).rejects.toThrow("cohort write unavailable");
+      else await failure;
+    } finally {
+      if (rejectWrite) await db.exec("DROP TRIGGER reject_cohort_failure;");
+    }
+    expect(meter.bindingCalls).toBe(1);
+    expect(meter.calls[0].statements).toBe(30);
+    expect(meter.quotaDenials).toBe(0);
+    expect(await repo.readItems(items.map(item => item.id))).toEqual(beforeItems);
+    const afterRuns = await Promise.all(items.map(item => repo.readRun(item.run_id)));
+    if (rejectWrite) {
+      expect(afterRuns).toEqual(beforeRuns);
+      expect((await db.prepare("SELECT * FROM scheduled_outbox ORDER BY id").all()).results).toEqual(beforeOutbox);
+    } else {
+      expect(afterRuns.slice(0, 9)).toEqual(expect.arrayContaining(items.slice(0, 9).map(item => expect.objectContaining({ id: item.run_id, status: "failed", last_error: error }))));
+      expect(afterRuns[9]).toEqual(beforeRuns[9]);
+      expect((await db.prepare("SELECT * FROM scheduled_outbox WHERE run_id=? ORDER BY id").bind(items[9].run_id).all()).results).toEqual(beforeOutbox.filter(row => row.run_id === items[9].run_id));
+    }
+  });
+
+  it.each(["x_collection", "youtube_feed_collection"] as const)("does not refresh a retried %s run from an older completion", async jobType => {
+    const repo = createRepository();
+    const run = await repo.createRun({ jobType, source: "manual", idempotencyKey: `refresh-fence-${jobType}` });
+    const [id] = await repo.addItems(run.id, [{ targetKey: "one", phase: "collect", lane: "x" }]);
+    await repo.completeItem((await repo.claimItem(id))!, { status: "failed" }, true);
+    const previous = (await repo.readItem(id))!;
+    expect(await repo.retryRun(run.id)).toMatchObject({ kind: "accepted" });
+    const current = await repo.readRun(run.id);
+    const meter = meterD1(db), measured = new D1ScheduledJobRepository(meter.db, () => timestamp);
+    await measured.refreshRun(run.id, [previous]);
+    expect(await repo.readRun(run.id)).toEqual(current);
+    await measured.refreshRuns([run.id], [previous]);
+    expect(await repo.readRun(run.id)).toEqual(current);
+    expect(meter.summary().rowsWritten).toBe(0);
+    await measured.refreshRun(run.id, [(await repo.readItem(id))!]);
+    expect((await repo.readRun(run.id))?.status).toBe("running");
+  });
+
+  it.each(["control", "items"] as const)("atomically fences a successful outbox claim by its %s snapshot", async fenceKind => {
+    const repo = createRepository();
+    const run = await repo.createRun({ jobType: "x_collection", source: "manual", idempotencyKey: `dispatch-fence-${fenceKind}` });
+    const [id] = await repo.addItems(run.id, [{ targetKey: "one", phase: "collect", lane: "x" }]);
+    await repo.completeItem((await repo.claimItem(id))!, { status: "failed" }, true);
+    const previous = (await repo.readItem(id))!;
+    expect(await repo.retryRun(run.id)).toMatchObject({ kind: "accepted" });
+    const current = (await repo.readItem(id))!;
+    const meter = meterD1(db, 2), measured = new D1ScheduledJobRepository(meter.db, () => timestamp);
+    expect(await measured.claimPendingOutbox(run.id, 8, fenceKind === "control" ? { controlGeneration: 0 } : { items: [previous] })).toEqual([]);
+    expect(meter.bindingCalls).toBe(1);
+    expect(meter.summary().rowsWritten).toBe(0);
+    expect(await measured.claimPendingOutbox(run.id, 8, { controlGeneration: 1, items: [current] })).toMatchObject([{ item_id: id, delivery_generation: 1, control_generation: 1 }]);
+    expect(meter.bindingCalls).toBe(2);
+    expect(meter.quotaDenials).toBe(0);
+  });
+
+  it("does not apply an old dispatch denial to a retried run with an active sibling", async () => {
+    timestamp = Date.UTC(2026, 7, 31, 23, 59, 59);
+    const repo = createRepository();
+    const run = await repo.createRun({ jobType: "x_collection", source: "manual", idempotencyKey: "active-sibling-denial" });
+    const [active, retryable] = await repo.addItems(run.id, ["active", "retryable"].map(targetKey => ({ targetKey, phase: "collect", lane: "x" as const })));
+    const claims = await repo.claimPendingOutbox(run.id);
+    const denied = claims.find(claim => claim.item_id === active)!;
+    await repo.reserveQueueOperations("x", 5000);
+    expect(await repo.reserveDispatchBudgets([{ lane: "x", estimate: { rowsRead: 1, rowsWritten: 1 } }])).toEqual([false]);
+    await repo.claimItem(active);
+    await repo.markRunThrottled(run.id, "daily_queue_budget_100pct", 0);
+    timestamp += 2_000;
+    expect(await repo.retryRun(run.id)).toMatchObject({ kind: "accepted" });
+    expect(await repo.getBackgroundUsagePercent()).toBe(0);
+    const beforeRun = await repo.readRun(run.id);
+    const beforeItems = await repo.readItems([active, retryable]);
+    const beforeOutbox = (await db.prepare("SELECT * FROM scheduled_outbox WHERE run_id=? ORDER BY id").bind(run.id).all()).results;
+    expect(beforeItems.find(item => item.id === active)?.status).toBe("running");
+    expect(JSON.parse(beforeItems.find(item => item.id === active)!.continuation_json ?? "{}").deliveryGeneration ?? 0).toBe(0);
+    expect(JSON.parse(beforeItems.find(item => item.id === retryable)!.continuation_json!).deliveryGeneration).toBe(1);
+    const meter = meterD1(db, 1);
+    await new D1ScheduledJobRepository(meter.db, () => timestamp).markOutboxResults([], denied);
+    expect(await repo.readRun(run.id)).toEqual(beforeRun);
+    expect(await repo.readItems([active, retryable])).toEqual(beforeItems);
+    expect((await db.prepare("SELECT * FROM scheduled_outbox WHERE run_id=? ORDER BY id").bind(run.id).all()).results).toEqual(beforeOutbox);
+    expect(meter.bindingCalls).toBe(1);
+    expect(meter.summary().rowsWritten).toBe(0);
+    const [currentClaim] = await repo.claimPendingOutbox(run.id);
+    expect(currentClaim).toMatchObject({ item_id: retryable, delivery_generation: 1, control_generation: 1 });
+    await repo.reserveQueueOperations("x", 5000);
+    expect(await repo.reserveDispatchBudgets([{ lane: "x", estimate: { rowsRead: 1, rowsWritten: 1 } }])).toEqual([false]);
+    await repo.markOutboxResults([], currentClaim);
+    expect((await repo.readRun(run.id))?.status).toBe("throttled");
+    expect((await repo.readItem(active))?.status).toBe("running");
+    expect((await repo.readItem(retryable))?.status).toBe("throttled");
+  });
+
+  it.each([
+    { used: 4747, expected: "reserved", after: 4750 },
+    { used: 4998, expected: "denied", after: 4998 },
+  ])("atomically admits the current control retry: $expected", async ({ used, expected, after }) => {
+    const repo = createRepository();
+    const run = await repo.createRun({ jobType: "x_collection", source: "manual", idempotencyKey: "control-retry-budget" });
+    await repo.reserveQueueOperations("control", used);
+    const meter = meterD1(db, 1);
+    const measured = new D1ScheduledJobRepository(meter.db, () => timestamp);
+    expect(await measured.reserveControlRetry(run.id, 0)).toBe(expected);
+    expect(meter.bindingCalls).toBe(1);
+    expect(await db.prepare("SELECT used FROM scheduled_usage_daily WHERE resource='queue_operations'").first("used")).toBe(after);
+  });
+
+  it("does not reserve quota for superseded or closed control retries", async () => {
+    const repo = createRepository();
+    const run = await repo.createRun({ jobType: "x_collection", source: "manual", idempotencyKey: "stale-control-retry" });
+    await repo.completeUnplannedRun(run.id, "failed", "first control failed");
+    expect(await repo.retryRun(run.id)).toMatchObject({ kind: "accepted" });
+    const measured = new D1ScheduledJobRepository(meterD1(db).db, () => timestamp);
+    expect(await measured.reserveControlRetry(run.id, 0)).toBe("stale");
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM scheduled_usage_daily").first("n")).toBe(0);
+    await repo.reserveQueueOperations("control", 4747);
+    expect(await measured.reserveControlRetry(run.id, 0)).toBe("stale");
+    await repo.completeUnplannedRun(run.id, "failed", "current control failed", 1);
+    expect(await measured.reserveControlRetry(run.id, 1)).toBe("stale");
+    expect(await measured.reserveControlRetry("missing", 0)).toBe("stale");
+    expect(await db.prepare("SELECT used FROM scheduled_usage_daily WHERE resource='queue_operations'").first("used")).toBe(4747);
+  });
+
   it.each([
     {name:'missing ledger',used:null,reserved:0,limit:5000,allowed:true},
     {name:'exact remaining budget',used:4997,reserved:0,limit:5000,allowed:true},
@@ -63,6 +203,51 @@ describe("D1 scheduled job state machine", () => {
     expect(await db.prepare("SELECT used,reserved FROM scheduled_usage_daily WHERE lane='all' AND resource='queue_operations'").first()).toEqual({used:allowed?(used??0)+3:used,reserved});
     expect(await db.prepare("SELECT count(*) n FROM scheduled_outbox WHERE run_id=? AND status IN ('pending','failed','dispatching')").bind(run.id).first('n')).toBe(allowed?4:0);
     expect(await db.prepare("SELECT reconciled_at FROM scheduled_outbox WHERE item_id=? AND event_type='reconcile'").bind(done).first('reconciled_at')).toBeNull();
+  });
+
+  it.each([0, 5000])("fences stale reconciliation writes after manual retry even when queue usage is %s", async used => {
+    const repo=createRepository(), run=await repo.createRun({jobType:"x_collection",source:"manual",idempotencyKey:`reconciliation-generation-${used}`});
+    const [done, failed]=await repo.addItems(run.id,["done","failed"].map(targetKey=>({targetKey,phase:"collect",lane:"x" as const})));
+    const completed=(await repo.claimItem(done))!, unsuccessful=(await repo.claimItem(failed))!;
+    await repo.completeItem(completed,{status:"succeeded"});
+    await repo.completeItem(unsuccessful,{status:"failed"});
+    const oldDone=(await repo.readItem(done))!, oldFailed=(await repo.readItem(failed))!;
+    expect(await repo.retryRun(run.id)).toMatchObject({kind:"accepted"});
+    const beforeRun=await repo.readRun(run.id), beforeItems=await repo.readItems([done,failed]);
+    expect(beforeItems.every(item=>JSON.parse(item.continuation_json!).deliveryGeneration===1)).toBe(true);
+    await db.prepare("INSERT INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES('2026-08-31','all','queue_operations',?,0,5000,0)").bind(used).run();
+    const beforeOutbox=(await db.prepare("SELECT * FROM scheduled_outbox WHERE run_id=? ORDER BY id").bind(run.id).all()).results;
+    const meter=meterD1(db,3), measured=new D1ScheduledJobRepository(meter.db,()=>timestamp);
+    expect(await measured.reserveReconciliationRetry(run.id,"post_completion_reconciliation_failed:stale",[oldDone])).toBe(false);
+    await measured.markRunFailed(run.id,"post_completion_reconciliation_dead_letter:stale",true,[oldFailed]);
+    await measured.acknowledgeReconciliation(oldDone);
+    expect(meter.bindingCalls).toBe(3);
+    expect(meter.summary().rowsWritten).toBe(0);
+    expect(await repo.readRun(run.id)).toEqual(beforeRun);
+    expect(await repo.readItems([done,failed])).toEqual(beforeItems);
+    expect((await db.prepare("SELECT * FROM scheduled_outbox WHERE run_id=? ORDER BY id").bind(run.id).all()).results).toEqual(beforeOutbox);
+    expect(await db.prepare("SELECT used FROM scheduled_usage_daily WHERE resource='queue_operations'").first("used")).toBe(used);
+  });
+
+  it.each(["failed","throttled"] as const)("completes only an unplanned control run as %s",async status=>{
+    const repo=createRepository(),run=await repo.createRun({jobType:"x_collection",source:"manual",idempotencyKey:`control-${status}`});
+    await repo.completeUnplannedRun(run.id,status,"control_failure");
+    expect(await repo.readRun(run.id)).toMatchObject({status,last_error:"control_failure"});
+    expect(await repo.retryRun(run.id)).toMatchObject({kind:"accepted"});
+    const retried=await repo.readRun(run.id);
+    await repo.skipRun(run.id,"old plan",0);
+    await repo.markRunThrottled(run.id,"old budget",0);
+    await repo.completeUnplannedRun(run.id,status,"old control",0);
+    expect(await repo.addItems(run.id,[{targetKey:"obsolete",phase:"collect",lane:"x"}],undefined,0)).toEqual([]);
+    expect(await repo.readRun(run.id)).toEqual(retried);
+    expect(await repo.hasItems(run.id)).toBe(false);
+    await repo.updateRunSummary(run.id,{provider:"fixture"});
+    expect(JSON.parse((await repo.readRun(run.id))!.summary_json!)).toEqual({provider:"fixture",controlGeneration:1});
+    expect((await repo.readRunDto(run.id))?.summary).toEqual({provider:"fixture"});
+    await repo.addItems(run.id,[{targetKey:"one",phase:"collect",lane:"x"}]);
+    const before=await repo.readRun(run.id);
+    await repo.completeUnplannedRun(run.id,status,"old_control_failure");
+    expect(await repo.readRun(run.id)).toEqual(before);
   });
 
   it("fences delayed cohort send results to their own outbox claim",async()=>{
@@ -128,6 +313,25 @@ describe("D1 scheduled job state machine", () => {
     const otherRun = await repo.createRun({ jobType: "x_collection", source: "scheduled", idempotencyKey: "other-rank" });
     const [other] = await repo.addItems(otherRun.id, [{ targetKey: "other", lane: "x", phase: "collect", continuation: { executionPriority: { deadlineAt: 2, lastAttemptAt: 0, key: "other" } } }]);
     expect(await repo.claimItem(other)).not.toBeNull();
+  });
+
+  it("dispatches the ready peer while a higher-priority send is backed off", async () => {
+    const repo = createRepository();
+    const run = await repo.createRun({ jobType: "x_collection", source: "scheduled", idempotencyKey: "send-backoff-rank" });
+    const [high, low] = await repo.addItems(run.id, [0, 1].map(rank => ({
+      targetKey: String(rank), lane: "x" as const, phase: "collect",
+      continuation: { executionPriority: { deadlineAt: rank, lastAttemptAt: 0, key: String(rank) } },
+    })));
+    const [first] = await repo.claimPendingOutbox(run.id);
+    expect(first.item_id).toBe(high);
+    await repo.markOutboxResults([{ id: first.id, leaseToken: first.lease_token!, error: "queue unavailable" }]);
+    expect((await repo.claimPendingOutbox(run.id)).map(row => row.item_id)).toEqual([low]);
+    const claimed = await repo.claimItem(low);
+    expect(claimed?.id).toBe(low);
+    await repo.completeItem(claimed!, { status: "succeeded" });
+    expect(await repo.claimPendingOutbox(run.id)).toHaveLength(0);
+    const retry = new D1ScheduledJobRepository(db, () => timestamp + 60_000);
+    expect((await retry.claimPendingOutbox(run.id)).map(row => row.item_id)).toEqual([high]);
   });
 
   it("bounds priority admission reads to active items as retained history grows", async () => {
@@ -352,7 +556,7 @@ describe("D1 scheduled job state machine", () => {
     expect(measurements.filter((row) => row.operation === "scoped-claim")).toHaveLength(1);
     expect(measurements.filter((row) => row.operation === "global-claim")).toHaveLength(1);
     expect(measurements.filter((row) => row.operation === "recovery-probe")).toHaveLength(4);
-    expect(measurements.filter((row) => row.operation === "recovery")).toHaveLength(4);
+    expect(measurements.filter((row) => row.operation === "recovery")).toHaveLength(5);
     expect(measurements.some((row) => row.rowsRead > 0)).toBe(true);
     for (const measurement of measurements) {
       expect(measurement.rowsRead, measurement.operation).toBeLessThanOrEqual(10);

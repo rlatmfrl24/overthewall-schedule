@@ -57,12 +57,13 @@ async function startRun(source:"manual"|"scheduled"="scheduled"){
  const item=(await db.prepare("SELECT id FROM scheduled_job_items WHERE run_id=? AND phase='scan'").bind(run.id).first<{id:string}>())!;
  return {run,scan:item.id};
 }
-async function deliver(id:string){
+async function deliver(id:string, delivery?:ScheduledJobQueueMessage){
  const item=(await repo.readItem(id))!;const ack=vi.fn(),retry=vi.fn();
- await handleScheduledJobQueue({queue:"otw-ops-background",messages:[{body:{schemaVersion:1,messageType:"scheduled_job_item",runId:item.run_id,itemId:id,phase:item.phase},ack,retry}]} as unknown as MessageBatch<unknown>,runtime);
+ const body=delivery ?? [...sent].reverse().find(message=>message.itemId===id) ?? {schemaVersion:1,messageType:"scheduled_job_item",runId:item.run_id,itemId:id,phase:item.phase};
+ await handleScheduledJobQueue({queue:"otw-ops-background",messages:[{body,ack,retry}]} as unknown as MessageBatch<unknown>,runtime);
  expect(ack).toHaveBeenCalledOnce();expect(retry).not.toHaveBeenCalled();
 }
-async function drain(){let count=0;while(sent.length){if(++count>12)throw new Error("Unexpected review delivery loop");await deliver(sent.shift()!.itemId);}}
+async function drain(){let count=0;while(sent.length){if(++count>12)throw new Error("Unexpected review delivery loop");const body=sent.shift()!;await deliver(body.itemId,body);}}
 it("skips a dispatched scheduled scan after automation is disabled",async()=>{
  const {run,scan}=await startRun();sent=[];
  await db.batch(["auto_update_enabled","scheduled_v2_schedule_auto_update_enabled"].map(key=>db.prepare("UPDATE settings SET value='false' WHERE key=?").bind(key)));
@@ -137,7 +138,7 @@ describe.each(["manual","scheduled"] as const)("%s retry through control Queue",
   expect(sent).toHaveLength(1);
   expect(sent[0].itemId).toBe(owned.scan);
   expect(await db.prepare("SELECT count(*) n FROM scheduled_outbox WHERE run_id=? AND event_type='execute' AND status='pending'").bind(owned.run.id).first("n")).toBe(1);
-  sent=[];await deliver(owned.scan);
+  const body=sent[0];sent=[];await deliver(owned.scan,body);
   matches=(await db.prepare("SELECT id FROM scheduled_job_items WHERE run_id=? AND phase='match' AND status='queued'").bind(owned.run.id).all<{id:string}>()).results;
   expect(matches).toHaveLength(1);
  });

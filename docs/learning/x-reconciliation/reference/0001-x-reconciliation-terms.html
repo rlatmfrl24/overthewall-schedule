@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>공식 X 대조 빠른 참조</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>공식 X 대조 빠른 참조</h1>
+    <p><a href="../lessons/0001-x-reconciliation-diff.html">변경표와 예시로 돌아가기</a></p>
+  </header>
+  <section aria-labelledby="terms-title">
+    <h2 id="terms-title">운영에서 확인할 용어</h2>
+    <dl>
+      <dt>공식 확인점</dt><dd>모든 조회 구간을 확인한 뒤 저장하는 기준 ID입니다. 실행 중에는 어디까지 처리했는지 별도로 기록합니다.</dd>
+      <dt>정기 주기와 큐 재개</dt><dd>정기 주기는 한 차례 대조가 완료된 뒤 12시간입니다. 큐 재개는 이미 시작한 대조를 이어서 처리합니다.</dd>
+      <dt>메시지 회차</dt><dd>같은 작업의 이전 메시지와 새 메시지를 구분하는 번호입니다. 작업을 맡을 수 있는 시간이 끝나 복구하면 회차를 올립니다.</dd>
+      <dt>응답 재사용</dt><dd>같은 요청의 저장된 X 응답을 다시 적용하는 복구입니다. 진행 기록 저장 실패와 응답 자체의 유실을 구분해 판단합니다.</dd>
+      <dt>작성자 캐시 적중</dt><dd>인용 원문의 작성자 정보를 유효한 로컬 저장본에서 찾은 경우입니다. 이 경우에만 한 실행에서 인용 두 건까지 적용합니다.</dd>
+      <dt>X 요청 수와 게시글 읽기 비용</dt><dd>요청 수는 X에 보낸 왕복 횟수입니다. 읽기 비용을 계산할 때는 응답으로 받은 유료 리소스 수를 봅니다. <a href="https://docs.x.com/x-api/getting-started/pricing#credit-consumption-details">X 가격 정책</a></dd>
+      <dt>Worker 실행당 D1 호출</dt><dd>D1 사용량은 각 Worker 실행을 기준으로 봅니다. 무료 한도는 50회이고 <code>db.batch()</code>는 그 한도에서 한 번으로 집계됩니다. <a href="https://developers.cloudflare.com/d1/platform/limits/">D1 한도</a></dd>
+    </dl>
+  </section>
+  <footer><p><a href="../lessons/0002-x-reconciliation-safe-resume.html">후속 수업 · 재개와 인용 보강</a></p></footer>
+</main>
+</body>
+</html>

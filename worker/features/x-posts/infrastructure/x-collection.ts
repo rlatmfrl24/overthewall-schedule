@@ -1,4 +1,4 @@
-import { X_HYBRID_REGULAR_INTERVAL_MS, type XCollectionScope } from "@contracts/x-collection";
+import { X_HYBRID_REGULAR_INTERVAL_MS, type XCollectionScope, type XNewlyStoredPost } from "@contracts/x-collection";
 import { getHiddenMemberCodes } from "@contracts/site-publication";
 import { unavailableXApiGateway } from "@contracts/x-activity";
 import { publicationHiddenSql } from "../../content-access";
@@ -12,7 +12,7 @@ import { members, settings, type XPostSource } from "@db/schema";
 import { inArray, sql } from "drizzle-orm";
 import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import { getDb, type DbInstance } from "../../../platform/db";
-import { getSetting, updateSetting } from "../../../platform/http-helpers";
+import { updateSetting } from "../../../platform/http-helpers";
 import type { Env } from "../../../platform/types";
 import {
   collectXPostsForHandles,
@@ -28,6 +28,8 @@ import {
 } from "./x-history";
 import { hydrateXReferences } from "./x-reference-hydration";
 import { getOfficialAccountDecision } from "../domain/x-collection-policy";
+import { hasXCollectionD1Room } from "./rss-d1-budget";
+import { readXTimelineGapRequest } from "./x-timeline-gaps";
 
 const X_COLLECTION_INTERVAL_SETTING_KEY = "x_collection_interval_hours";
 const X_COLLECTION_LAST_RUN_SETTING_KEY = "x_collection_last_run";
@@ -62,6 +64,8 @@ export type XCollectionRunResult = Omit<
   scope?: XCollectionScope;
   success: boolean;
   pendingSources?: number;
+  newlyStoredPosts?: XNewlyStoredPost[];
+  resumeRegularOrigin?: number;
   recentCheck?: import("@contracts/x-collection").FxRecentCheck;
   error: string | null;
   updatedAt: string;
@@ -114,16 +118,24 @@ export type XEffectiveCollectionPolicy = {
   referencePreviewMode: "cached_author" | "post_only" | "link_only";
 };
 
-export const resolveXEffectiveCollectionPolicy = async (
+const readXCollectionPolicySettings = async (env: Env) => {
+  const { results } = await env.otw_db.prepare(`SELECT key,value FROM settings WHERE key IN (
+    'x_cost_optimizer_enabled','x_collection_interval_hours','x_reference_preview_mode','x_api_backoff_until',
+    'x_collection_primary_source','x_collection_hybrid_activated_at','x_collection_hybrid_policy','x_collection_enabled')`)
+    .all<{ key: string; value: string }>();
+  return new Map(results.map(row => [row.key, row.value]));
+};
+
+const resolveXEffectiveCollectionPolicy = async (
   env: Env,
+  values: Map<string, string>,
   currentTime = Date.now(),
 ): Promise<XEffectiveCollectionPolicy> => {
-  const db = getDb(env);
-  const optimizerEnabled = (await getSetting(db, "x_cost_optimizer_enabled")) === "true";
+  const optimizerEnabled = values.get("x_cost_optimizer_enabled") === "true";
   const configuredHours = parseXCollectionIntervalHours(
-    await getSetting(db, X_COLLECTION_INTERVAL_SETTING_KEY),
+    values.get(X_COLLECTION_INTERVAL_SETTING_KEY),
   );
-  const previewModeValue = await getSetting(db, "x_reference_preview_mode");
+  const previewModeValue = values.get("x_reference_preview_mode");
   const referencePreviewMode = previewModeValue === "post_only" || previewModeValue === "link_only"
     ? previewModeValue
     : "cached_author";
@@ -139,7 +151,7 @@ export const resolveXEffectiveCollectionPolicy = async (
   }
 
   const backoffUntil = Number.parseInt(
-    (await getSetting(db, "x_api_backoff_until")) ?? "0",
+    values.get("x_api_backoff_until") ?? "0",
     10,
   );
   const earlyFallbackReason = getXUsageFallbackReason([], backoffUntil, currentTime);
@@ -254,7 +266,7 @@ export const readActiveXHandles = async (db: DbInstance, siteId: SiteId = "otw")
   normalizeXCollectionHandles((await readXCollectionMembers(db, siteId)).map(member => member.handle));
 
 const normalizeCollectionResult = (
-  result: XCollectionServiceResult & Partial<XCollectionObservability> & { pendingSources?: number },
+  result: XCollectionServiceResult & Partial<XCollectionObservability> & Pick<XCollectionRunResult, "pendingSources" | "resumeRegularOrigin">,
   updatedAtMs: number,
 ): XCollectionRunResult => ({
   ...result,
@@ -271,25 +283,30 @@ export const runXCollectionForHandles = async (
   pendingOnly = false,
   recoveryAnchorAt?: number,
   scope?: XCollectionScope,
+  options?: { resumeRegularOrigin?: number; replayOnly?: boolean },
 ): Promise<XCollectionRunResult> => {
-  if (getHiddenMemberCodes(parseSiteId(env.SITE_ID), Date.now()).length) {
+  if (handles.length && getHiddenMemberCodes(parseSiteId(env.SITE_ID), Date.now()).length) {
     const allowed = new Set(await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID)));
     handles = handles.filter(handle => allowed.has(handle.toLowerCase()));
   }
-  const policy = await resolveXEffectiveCollectionPolicy(env);
-  const hybrid = scope !== undefined && (await getSetting(getDb(env), "x_collection_primary_source")) === "fxembed";
+  const values = handles.length ? await readXCollectionPolicySettings(env) : new Map<string, string>();
+  const policy = await resolveXEffectiveCollectionPolicy(env, values);
+  const hybrid = scope !== undefined && values.get("x_collection_primary_source") === "fxembed";
   const startedAt = Date.now();
-  const activatedAt = Number(hybrid ? await getSetting(getDb(env), "x_collection_hybrid_activated_at") : null);
-  const independent = hybrid && Number.isFinite(activatedAt) && activatedAt > 0 && await getSetting(getDb(env), "x_collection_hybrid_policy") === "rss_v1";
+  const activatedAt = Number(values.get("x_collection_hybrid_activated_at"));
+  const independent = hybrid && Number.isFinite(activatedAt) && activatedAt > 0 && values.get("x_collection_hybrid_policy") === "rss_v1";
   if (hybrid) policy.effectiveIntervalMinutes = scope === "fallback" ? 120 : independent ? X_HYBRID_REGULAR_INTERVAL_MS / 60_000 : 1440;
   const lease = await claimXSourceLeases(env, handles, Date.now());
   try {
-    let claimed = lease.claimed;
+    let claimed = !independent && (options?.replayOnly || options?.resumeRegularOrigin !== undefined) ? [] : lease.claimed;
+    let regularSweep = false;
+    let regularOrigin: number | undefined;
+    let timelineReplay: ReturnType<typeof readXTimelineGapRequest>;
     if (!independent && claimed.length) {
       // A legacy run supersedes old hybrid completion proof, never its actual pagination cursor.
-      await env.otw_db.prepare(`UPDATE x_post_sources SET sync_origin_scope=NULL,sync_origin_started_at=NULL,sync_timeline_completed_at=NULL
+      await env.otw_db.prepare(`UPDATE x_post_sources SET sync_origin_scope=NULL,sync_origin_started_at=NULL,sync_timeline_completed_at=NULL,sync_gap_state=NULL
         WHERE handle IN (SELECT value FROM json_each(?)) AND lease_token=? AND lease_until>?
-        AND (sync_origin_scope IS NOT NULL OR sync_origin_started_at IS NOT NULL OR sync_timeline_completed_at IS NOT NULL)`)
+        AND (sync_origin_scope IS NOT NULL OR sync_origin_started_at IS NOT NULL OR sync_timeline_completed_at IS NOT NULL OR sync_gap_state IS NOT NULL)`)
         .bind(JSON.stringify(claimed),lease.token,Date.now()).run();
     }
     if (independent && claimed.length) {
@@ -297,21 +314,33 @@ export const runXCollectionForHandles = async (
         LEFT JOIN x_fx_sources fx ON fx.handle=source.handle WHERE source.handle IN (SELECT value FROM json_each(?))`)
         .bind(JSON.stringify(claimed)).all<XPostSource & { fallback_active: number }>();
       const eligible: string[] = [];
-      const enabled = await getSetting(getDb(env), "x_collection_enabled") !== "false";
+      const enabled = values.get("x_collection_enabled") !== "false";
       for (const row of rows.results) {
+        const immediate = options?.resumeRegularOrigin !== undefined;
+        if (immediate && (row.sync_origin_scope !== "regular" || row.sync_origin_started_at !== options.resumeRegularOrigin || row.last_error_code)) continue;
+        const replay = options?.replayOnly && row.sync_origin_scope === "regular" ? readXTimelineGapRequest(row.sync_gap_state, row.user_id) : undefined;
+        if (options?.replayOnly && !replay) continue;
         const pending = Boolean(row.sync_pagination_token || row.sync_origin_scope || row.sync_timeline_completed_at != null);
         const decision = getOfficialAccountDecision({ now: Date.now(), activatedAt, regularCompletedAt: row.regular_completed_at,
           completedAt: row.last_completed_at, pending, originScope: row.sync_origin_scope as XCollectionScope | null,
-          fallbackActive: Boolean(row.fallback_active), backoffUntil: pending || row.last_error_code ? row.next_check_at : null });
+          fallbackActive: Boolean(row.fallback_active), backoffUntil: !immediate && (pending || row.last_error_code) ? row.next_check_at : null });
         if (!enabled || row.deactivated_at != null || !decision.scope || (scope !== decision.scope && decision.scope !== "pending")) continue;
         const origin = await env.otw_db.prepare(`UPDATE x_post_sources SET sync_origin_scope=COALESCE(sync_origin_scope,?),
           sync_origin_started_at=COALESCE(sync_origin_started_at,?),sync_timeline_completed_at=CASE WHEN sync_origin_scope IS NULL THEN NULL ELSE sync_timeline_completed_at END
-          WHERE handle=? AND lease_token=? AND lease_until>? AND NOT (${publicationHiddenSql("x_post_sources","x_post_sources",parseSiteId(env.SITE_ID))}) RETURNING handle`)
-          .bind(decision.originScope, Date.now(), row.handle, lease.token, Date.now()).first<{ handle: string }>();
-        if (origin) eligible.push(row.handle);
+          WHERE handle=? AND lease_token=? AND lease_until>? AND NOT (${publicationHiddenSql("x_post_sources","x_post_sources",parseSiteId(env.SITE_ID))}) RETURNING sync_origin_started_at`)
+          .bind(decision.originScope, Date.now(), row.handle, lease.token, Date.now()).first<{ sync_origin_started_at: number }>();
+        if (origin) {
+          eligible.push(row.handle);
+          if (decision.originScope === "regular") {
+            regularSweep = true;
+            regularOrigin = origin.sync_origin_started_at;
+          }
+          timelineReplay = replay;
+        }
       }
       claimed = eligible;
     }
+    if (options?.replayOnly && (!independent || claimed.length !== 1 || !timelineReplay)) claimed = [];
     if (hybrid && !independent && scope === "regular" && source === "scheduled" && claimed.length) {
       const baseline = Number(await env.otw_db.prepare("SELECT value FROM settings WHERE key='x_collection_last_run'").first("value") ?? 0);
       const finished = await env.otw_db.prepare("SELECT handle FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND regular_completed_at>?")
@@ -325,16 +354,21 @@ export const runXCollectionForHandles = async (
       const activeHandles = new Set(active.results.map(row => row.handle));
       claimed = claimed.filter(handle => activeHandles.has(handle));
     }
-    if (pendingOnly && claimed.length) {
-      const pending = await env.otw_db.prepare(`SELECT handle FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND (sync_pagination_token IS NOT NULL ${independent ? "OR sync_origin_scope IS NOT NULL OR sync_timeline_completed_at IS NOT NULL" : ""})`)
+    if (pendingOnly && !independent && claimed.length) {
+      const pending = await env.otw_db.prepare(`SELECT handle FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_pagination_token IS NOT NULL`)
         .bind(JSON.stringify(claimed)).all<{handle:string}>();
       const pendingHandles = new Set(pending.results.map(row => row.handle));
       claimed = claimed.filter(handle => pendingHandles.has(handle));
     }
-    if (claimed.length) {
-      await backfillXPostFactsFromStoredPosts(env.otw_db,parseSiteId(env.SITE_ID),100);
-      await backfillXPostReferencesFromStoredPosts(env.otw_db,parseSiteId(env.SITE_ID),100);
-    }
+    const repairStoredPosts = async () => {
+      const repairLimit = regularSweep && !hasXCollectionD1Room(env.otw_db, 50) ? 1 : 100;
+      await backfillXPostFactsFromStoredPosts(env.otw_db,parseSiteId(env.SITE_ID),repairLimit);
+      await backfillXPostReferencesFromStoredPosts(env.otw_db,parseSiteId(env.SITE_ID),repairLimit);
+    };
+    if (claimed.length && !regularSweep) await repairStoredPosts();
+    let deferOfficialCompletion = false;
+    let cleanProgress = false;
+    const boundedReferences = regularSweep && !hasXCollectionD1Room(env.otw_db, 50);
     const result = await collectXPostsForHandles(claimed, {
       gateway: env.X_API_GATEWAY ?? unavailableXApiGateway,
       bearerToken: env.X_BEARER_TOKEN,
@@ -347,23 +381,44 @@ export const runXCollectionForHandles = async (
       source,
       scheduledFor: source === "scheduled" ? scheduledFor : undefined,
       recoveryAnchorAt,
+      timelineReplay,
       optimizerEnabled: policy.optimizerEnabled,
       scheduledEligibilityConfirmed: hybrid,
       officialSyncLeaseToken: lease.token,
       ...(independent ? { officialSyncOriginScope: scope } : {}),
       effectiveIntervalMinutes: policy.effectiveIntervalMinutes,
       coalescedHandles: lease.coalesced,
-      afterTimeline: (tracker) => hydrateXReferences({ db: env.otw_db,siteId:parseSiteId(env.SITE_ID), handles: claimed,
-        bearerToken: env.X_BEARER_TOKEN ?? "shared-gateway", mode: policy.referencePreviewMode, tracker }),
+      afterTimeline: async (tracker) => {
+        cleanProgress = Boolean(tracker.gapProgress);
+        if (tracker.gapSweep === "pending" || (boundedReferences && !hasXCollectionD1Room(env.otw_db, 23)) ||
+          (options?.replayOnly && policy.referencePreviewMode !== "link_only")) {
+          deferOfficialCompletion = true;
+          return;
+        }
+        const repairFirst = regularSweep && (!boundedReferences || hasXCollectionD1Room(env.otw_db, 44));
+        if (repairFirst) await repairStoredPosts();
+        const mode = policy.referencePreviewMode;
+        // The preview read is shared. Reserve room for each target's claim and writes, plus run and outbox updates.
+        const maxRows = boundedReferences ? (mode === "link_only" ? [44, 40, 36, 32, 28].filter(calls => hasXCollectionD1Room(env.otw_db, calls)).length
+          : Number(hasXCollectionD1Room(env.otw_db, 37))) : undefined;
+        const { remainingDue, retrySelection, ...hydration } = await hydrateXReferences({ db: env.otw_db,siteId:parseSiteId(env.SITE_ID), handles: claimed,
+          bearerToken: env.X_BEARER_TOKEN ?? "shared-gateway", mode, tracker, maxRows });
+        if (remainingDue || (boundedReferences && !hasXCollectionD1Room(env.otw_db, 19))) {
+          deferOfficialCompletion = true;
+          cleanProgress ||= Boolean(retrySelection) || hydration.hydrated + hydration.authorsResolved + hydration.deferred + hydration.terminal > 0 && !hydration.failed;
+        }
+        if (regularSweep && !repairFirst && !remainingDue && hasXCollectionD1Room(env.otw_db, 24)) await repairStoredPosts();
+        return hydration;
+      },
     });
-    if (independent && claimed.length) {
+    if (independent && claimed.length && !deferOfficialCompletion) {
       const completedAt = Date.now();
       await env.otw_db.prepare(`UPDATE x_post_sources SET last_completed_at=?,
         regular_completed_at=CASE WHEN sync_origin_scope='regular' THEN ? ELSE regular_completed_at END,
         next_check_at=?+CASE WHEN sync_origin_scope='fallback' THEN 7200000 ELSE 43200000 END,
         sync_origin_scope=NULL,sync_origin_started_at=NULL,sync_timeline_completed_at=NULL
         WHERE handle IN (SELECT value FROM json_each(?)) AND lease_token=? AND lease_until>?
-        AND sync_timeline_completed_at IS NOT NULL AND sync_pagination_token IS NULL AND last_error IS NULL AND deactivated_at IS NULL
+        AND sync_timeline_completed_at IS NOT NULL AND sync_pagination_token IS NULL AND sync_gap_state IS NULL AND last_error IS NULL AND deactivated_at IS NULL
         AND NOT (${publicationHiddenSql("x_post_sources","x_post_sources",parseSiteId(env.SITE_ID))})
         AND NOT EXISTS(SELECT 1 FROM x_posts p JOIN x_post_references r ON r.source_post_id=p.id
           WHERE p.handle=x_post_sources.handle AND r.updated_at>=x_post_sources.sync_origin_started_at
@@ -381,6 +436,8 @@ export const runXCollectionForHandles = async (
     return normalizeCollectionResult({
       ...result,
       pendingSources:Number(pendingSources??0),
+      ...(cleanProgress && pendingSources && result.status === "success" && claimed.length === 1 && !options?.replayOnly && regularOrigin !== undefined &&
+        !("referenceHydration" in result && result.referenceHydration?.failed) ? { resumeRegularOrigin: regularOrigin } : {}),
       effectiveIntervalMinutes: policy.effectiveIntervalMinutes,
       fallbackReason: policy.fallbackReason,
       coalescedHandles: lease.coalesced,

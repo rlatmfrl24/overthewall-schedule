@@ -30,8 +30,18 @@ for (const [script, ...args] of [
   ["node_modules/vite/bin/vite.js", "build"],
   ["node_modules/tsx/dist/cli.mjs", "scripts/generate-seo-assets.ts", `--site=${siteId}`],
 ]) {
+  if (script === "node_modules/vite/bin/vite.js") {
+    const dependencies = spawnSync(process.execPath, [resolve("scripts/build-dependency-diagnostics.mjs"), "--repair"], { stdio: "inherit", env });
+    if (dependencies.error) throw dependencies.error;
+    if (dependencies.status !== 0) process.exit(dependencies.status ?? 1);
+  }
   const result = spawnSync(process.execPath, [resolve(script), ...args], { stdio: "inherit", env });
-  if (result.status !== 0) process.exit(result.status ?? 1);
+  if (result.status !== 0) {
+    if (script === "node_modules/vite/bin/vite.js") {
+      spawnSync(process.execPath, [resolve("scripts/build-dependency-diagnostics.mjs"), "after-vite-failure"], { stdio: "inherit", env, timeout: 5_000, killSignal: "SIGKILL" });
+    }
+    process.exit(result.status ?? 1);
+  }
 }
 writeStaticAssetManifest(resolve(getSiteTarget(siteId).outputRoot,"client"));
 writeSiteBuildManifest(siteId, environment);

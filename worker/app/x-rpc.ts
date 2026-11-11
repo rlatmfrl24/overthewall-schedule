@@ -21,6 +21,10 @@ export class XActivityCoordinatorRpc extends WorkerEntrypoint<Env> {
     if (this.env.SITE_ID !== "otw") throw new Error("x_activity_wrong_coordinator");
     return buildXGateway(this.env, "luvdia").readReceipt!(input);
   }
+  async receiptsForLuvdia(inputs: XApiGatewayReceiptRequest[]) {
+    if (this.env.SITE_ID !== "otw") throw new Error("x_activity_wrong_coordinator");
+    return buildXGateway(this.env, "luvdia").readReceipts!(inputs);
+  }
   async redactForLuvdia(postId:string){
     if(this.env.SITE_ID!=="otw")throw new Error("x_activity_wrong_coordinator");
     await buildXGateway(this.env,"luvdia").redactPost(postId);

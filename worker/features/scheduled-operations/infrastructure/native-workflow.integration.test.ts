@@ -281,7 +281,7 @@ it.each([false,true])("collects Fx and official regular items through native Cro
     ...[["scheduled_v2_x_collection_enabled", "true"], ["x_collection_enabled", "true"], ["x_collection_primary_source", "fxembed"], ["x_collection_interval_hours", "24"], ["x_collection_daily_budget_cents", "100"], ["x_cost_optimizer_enabled", "true"], ["x_reference_preview_mode", "link_only"], ["x_collection_last_run", String(slot - 25 * 3_600_000)]].map(([key, value]) => db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)").bind(key, value)),
     db.prepare("DELETE FROM settings WHERE key IN ('x_collection_cadence_state','x_api_backoff_until')"),
     db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('x_collection_hybrid_policy','rss_v1'),('x_collection_hybrid_activated_at','1')"),
-    db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at,initialization_completed_at) VALUES('native_collect','1000000000001','native_collect','100',0,0,1,1)"),
+    db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at,initialization_completed_at) VALUES('native_collect','1000000000001','native_collect','160',0,0,1,1)"),
     db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES('x:user:v1:native_collect','user',?,?,?)").bind(JSON.stringify({ user: { id: "1000000000001", username: "native_collect" } }), started, started + 86400000),
   ]);
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => bindings.NATIVE_WORKFLOW_PROVIDER.fetch(input, init));
@@ -344,13 +344,14 @@ it("preserves regular origin across budget exhaustion while a due peer completes
     await tick(slot);
     const firstCalls = await (await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/calls")).json<string[]>();
     expect(firstCalls.find(call => call.includes("/tweets"))).toContain("/1000000000001/tweets");
-    expect(await db.prepare("SELECT sync_pagination_token,sync_origin_scope,regular_completed_at FROM x_post_sources WHERE handle='native_collect'").first()).toEqual({ sync_pagination_token: "native-page-2", sync_origin_scope: "regular", regular_completed_at: slot - 13 * hour });
+    expect(await db.prepare("SELECT json_extract(sync_gap_state,'$.page.token') AS page_token,last_seen_post_id,sync_origin_scope,regular_completed_at FROM x_post_sources WHERE handle='native_collect'").first()).toEqual({ page_token: "native-page-2", last_seen_post_id: "100", sync_origin_scope: "regular", regular_completed_at: slot - 13 * hour });
     expect(await db.prepare("SELECT count(*) n FROM scheduled_job_items WHERE json_extract(continuation_json,'$.provider')='x_api' AND json_extract(continuation_json,'$.scope')='regular'").first("n")).toBe(2);
     const incurred = await db.prepare("SELECT used,reserved FROM x_shared_budgets WHERE day=?").bind(day).first();
     expect(Number(incurred?.used)).toBeGreaterThan(0);
-    const checkpoint = await db.prepare("SELECT sync_pagination_token,sync_base_post_id,sync_newest_post_id,sync_origin_scope,collection_started_at FROM x_post_sources WHERE handle='native_collect'").first();
+    const readCheckpoint = () => db.prepare("SELECT sync_gap_state,last_seen_post_id,sync_origin_scope,collection_started_at FROM x_post_sources WHERE handle='native_collect'").first();
+    const checkpoint = await readCheckpoint();
     await tick(slot + 30 * 60_000);
-    expect(await db.prepare("SELECT sync_pagination_token,sync_base_post_id,sync_newest_post_id,sync_origin_scope,collection_started_at FROM x_post_sources WHERE handle='native_collect'").first()).toEqual(checkpoint);
+    expect(await readCheckpoint()).toEqual(checkpoint);
     expect(await db.prepare("SELECT used,reserved FROM x_shared_budgets WHERE day=?").bind(day).first()).toEqual(incurred);
     // Release only the fixture's pre-existing reservation; incurred request cost remains.
     expect((await db.prepare("UPDATE x_shared_budgets SET reserved=reserved-875000 WHERE day=? AND reserved=875000").bind(day).run()).meta.changes).toBe(1);
@@ -358,10 +359,11 @@ it("preserves regular origin across budget exhaustion while a due peer completes
     await db.prepare("UPDATE x_post_sources SET next_check_at=CASE WHEN handle='native_collect' THEN ? ELSE 0 END").bind(started + 3 * hour).run();
     await tick(slot + hour);
     expect(await db.prepare("SELECT regular_completed_at FROM x_post_sources WHERE handle='native_peer'").first<number>("regular_completed_at")).toBeGreaterThan(slot - 12 * hour);
-    expect(await db.prepare("SELECT sync_pagination_token,sync_base_post_id,sync_newest_post_id,sync_origin_scope,collection_started_at FROM x_post_sources WHERE handle='native_collect'").first()).toEqual(checkpoint);
+    expect(await readCheckpoint()).toEqual(checkpoint);
     await db.prepare("UPDATE x_post_sources SET next_check_at=0 WHERE handle='native_collect'").run();
     await tick(slot + 90 * 60_000);
-    expect(await db.prepare("SELECT sync_pagination_token,sync_origin_scope,last_seen_post_id FROM x_post_sources WHERE handle='native_collect'").first()).toEqual({ sync_pagination_token: null, sync_origin_scope: null, last_seen_post_id: "200" });
+    expect(await db.prepare("SELECT sync_gap_state,sync_origin_scope,last_seen_post_id FROM x_post_sources WHERE handle='native_collect'").first()).toEqual({ sync_gap_state: null, sync_origin_scope: null, last_seen_post_id: "200" });
+    expect(await db.prepare("SELECT id FROM x_posts WHERE id='190'").first("id")).toBe("190");
     expect(await db.prepare("SELECT regular_completed_at FROM x_post_sources WHERE handle='native_collect'").first<number>("regular_completed_at")).toBeGreaterThan(slot - 13 * hour);
     const calls = await (await bindings.NATIVE_WORKFLOW_PROVIDER.fetch("https://fixture.invalid/calls")).json<string[]>();
     expect(calls.filter(call => call.includes("/1000000000001/tweets"))).toHaveLength(2);

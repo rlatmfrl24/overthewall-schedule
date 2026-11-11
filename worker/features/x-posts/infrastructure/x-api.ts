@@ -21,6 +21,8 @@ import { commitStoredPosts } from "./x-post-writer";
 import { prepareXReferenceRedaction } from "./x-reference-redaction";
 import { fxRssWriteFenceSql, type FxRssWriteFence } from "./fx-rss-write-fence";
 import { reserveXReferenceBudget, XReferenceBudgetError } from "./x-reference-budget";
+import { readXTimelineGapBoundary, isXTimelineGapPayload, readXTimelineGapBatch, writeXTimelineGapCheckpoint, xTimelineGapRequestId, xTimelineTokenFingerprint, X_TIMELINE_GAP_BATCH_SIZE, X_TIMELINE_GAP_MAX_PAGES, type XTimelineGapCheckpoint } from "./x-timeline-gaps";
+import { hasXCollectionD1Room } from "./rss-d1-budget";
 
 export type XApiUser = {
   id: string;
@@ -87,7 +89,8 @@ type XUserTimelineResponse = {
   includes?: {
     media?: XTimelineMedia[];
   };
-  meta?: { next_token?: string };
+  meta?: { next_token?: string; result_count?: number };
+  errors?: unknown[];
 };
 
 type XTweetLookupPost = XTimelinePost & {
@@ -154,6 +157,7 @@ type CachedXPostsWriteEntry = CachedXPostsEntry & {
   postsStored: number;
   newlyStoredPosts?: XNewlyStoredPost[];
   storageError: string | null;
+  providerError?: ReturnType<typeof describeXError>;
 };
 
 type XStoredPostRow = {
@@ -241,9 +245,13 @@ export type XApiUsageTracker = {
   source?: string | null;
   forceRefreshPath?: string | null;
   purpose?: "collection" | "reference_preview";
+  gapSweep?: "pending" | "complete";
+  gapProgress?: boolean;
+  timelineReplay?: NonNullable<XTimelineGapCheckpoint["request"]>;
 };
 
 type CollectXPostsOptions = {
+  timelineReplay?: XApiUsageTracker["timelineReplay"];
   officialSyncOriginScope?: XCollectionScope;
   officialSyncLeaseToken?: string;
   scheduledEligibilityConfirmed?: boolean;
@@ -259,7 +267,7 @@ type CollectXPostsOptions = {
   optimizerEnabled?: boolean;
   effectiveIntervalMinutes?: number;
   coalescedHandles?: number;
-  afterTimeline?: (tracker: XApiUsageTracker) => Promise<import("@contracts/x-posts").XReferenceHydrationResultDto>;
+  afterTimeline?: (tracker: XApiUsageTracker) => Promise<import("@contracts/x-posts").XReferenceHydrationResultDto | undefined>;
 };
 
 type XApiResponseWithResources = {
@@ -275,6 +283,7 @@ export class XApiError extends Error {
   code: string | null;
   sourceStatus: number | null;
   detail: string | null;
+  retryGatewayRequest: boolean;
   diagnostics: Array<{
     handle?: string;
     error: string | null;
@@ -289,6 +298,7 @@ export class XApiError extends Error {
       code?: string | null;
       sourceStatus?: number | null;
       detail?: string | null;
+      retryGatewayRequest?: boolean;
       diagnostics?: Array<{
         handle?: string;
         error: string | null;
@@ -303,6 +313,7 @@ export class XApiError extends Error {
     this.code = options.code ?? null;
     this.sourceStatus = options.sourceStatus ?? null;
     this.detail = options.detail ?? null;
+    this.retryGatewayRequest = options.retryGatewayRequest ?? false;
     this.diagnostics = options.diagnostics ?? [];
   }
 }
@@ -625,6 +636,7 @@ const reserveXApiBudget = async (
   estimatedCostMicros: number,
   usageTracker?: XApiUsageTracker,
   admissionFence?: XApiAdmissionFence,
+  combineAdmission = false,
 ) => {
   if (!cacheDb || estimatedCostMicros <= 0) {
     if (admissionFence) throw new XApiError("RSS site admission unavailable", 503, { code: "budget_unavailable" });
@@ -632,7 +644,7 @@ const reserveXApiBudget = async (
   }
 
   let usedMicros: number | null, budgetMicros: number;
-  if (admissionFence) {
+  if (admissionFence || combineAdmission) {
     const [usage, settings] = await cacheDb.batch!([
       cacheDb.prepare("SELECT COALESCE(SUM(estimated_cost_micros),0) total FROM x_api_usage_events WHERE created_at>=?").bind(startOfUtcDay()),
       cacheDb.prepare("SELECT key,value FROM settings WHERE key IN ('x_collection_daily_budget_cents','x_api_backoff_until')"),
@@ -973,6 +985,7 @@ export const requestXApi = async <T>(
     requestId?: string;
     backoffDb?: XCacheDb;
     admissionFence?: XApiAdmissionFence;
+    combineAdmission?: boolean;
   } = {},
 ): Promise<T> => {
   let settleBudgetReservation: XApiBudgetSettlement = noopXApiBudgetSettlement;
@@ -987,7 +1000,8 @@ export const requestXApi = async <T>(
     throw new XApiError("RSS site admission unavailable", 503, { code: "budget_unavailable" });
   }
   if (options.operation) {
-    if (!options.admissionFence) await assertXApiNotBackedOff(options.backoffDb ?? options.cacheDb);
+    const combineAdmission = Boolean(options.combineAdmission && options.cacheDb?.batch);
+    if (!options.admissionFence && !combineAdmission) await assertXApiNotBackedOff(options.backoffDb ?? options.cacheDb);
     reservedCostMicros = options.estimatedCostMicros ?? estimateXApiRequestCostMicros(
       options.operation,
       path,
@@ -999,6 +1013,7 @@ export const requestXApi = async <T>(
       reservedCostMicros,
       options.usageTracker,
       options.admissionFence,
+      combineAdmission,
     );
   }
   } catch (error) {
@@ -1014,12 +1029,19 @@ export const requestXApi = async <T>(
       actualUsedMicros = result.costMicros;
       requestDispatched = result.dispatched;
       responseStatus = result.status;
+      const invalidGap = result.ok && options.operation === "timeline" && options.requestId?.includes(":gap:") && !isXTimelineGapPayload(result.body);
       if (result.dispatched && !result.cached) {
         usageRecorded = true;
         await writeXApiUsageEvent(options.cacheDb, options.operation, path, result.status,
-          result.ok ? result.body as XApiResponseWithResources : null, options.usageTracker, result.costMicros, result.costMicros);
+          result.ok && !invalidGap ? result.body as XApiResponseWithResources : null, options.usageTracker, result.costMicros, result.costMicros);
       }
-      if (!result.ok) throw new XApiError(result.error ?? "shared_x_api_failed", result.status, { code: result.error, sourceStatus: result.dispatched ? result.status : undefined });
+      if (invalidGap) throw new XApiError("Invalid or incomplete X timeline range", 502, { code: "invalid_x_gap_response" });
+      if (!result.ok) throw new XApiError(result.error ?? "shared_x_api_failed", result.status, {
+        code: result.error,
+        sourceStatus: result.dispatched ? result.status : undefined,
+        retryGatewayRequest: result.cached || result.dispatched || result.error === "budget_exceeded" || result.error === "rate_limited" ||
+          result.error === "x_gateway_result_redacted" || result.error === "x_gateway_result_unknown",
+      });
       return result.body as T;
     }
     requestDispatched = true;
@@ -1052,12 +1074,13 @@ export const requestXApi = async <T>(
       const body = await response.text().catch(() => "");
       const fallback = `X API request failed with status ${response.status}`;
       const detail = summarizeXApiErrorBody(body, fallback);
+      const invalidPageToken = response.status === 400 && path.includes("&pagination_token=") && /(?:pagination|next)[_ -]?token/i.test(body);
       throw new XApiError(
         fallback,
         response.status,
         {
           code:
-            response.status === 429
+            invalidPageToken ? "invalid_x_pagination_token" : response.status === 429
               ? "rate_limited"
               : `x_api_${response.status}`,
           sourceStatus: response.status,
@@ -1478,6 +1501,8 @@ const writeXSyncContinuation = async (
     basePostId: string | null;
     newestPostId: string | null;
     completedPostId: string | null;
+    gap?: XTimelineGapCheckpoint | null;
+    collectionStartedAt?: number;
   },
   effectiveIntervalMs = X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS,
   siteId: SiteId = "otw",
@@ -1488,7 +1513,8 @@ const writeXSyncContinuation = async (
   const official = officialSync?.officialSyncOriginScope !== undefined;
   const fenced = official || officialSync?.officialSyncLeaseToken !== undefined;
   const checkedAt = now();
-  const cadenceAnchorAt = state.nextToken ? checkedAt : collectionCadenceAnchor(scheduledFor, checkedAt);
+  const pending = Boolean(state.nextToken || state.gap);
+  const cadenceAnchorAt = pending ? checkedAt : collectionCadenceAnchor(scheduledFor, checkedAt);
   // Cursor, continuation and success timestamps form one durable acknowledgement.
   // A failed statement leaves the previous range intact for infrastructure retry.
     const acknowledgement = await cacheDb
@@ -1496,19 +1522,19 @@ const writeXSyncContinuation = async (
         `WITH incoming(handle,user_id,username,last_seen_post_id,last_checked_at,cadence_anchor_at,
            updated_at,last_error,collection_started_at,initialization_completed_at,
            last_attempt_at,last_success_at,next_check_at,consecutive_failures,last_error_code,last_completed_at,
-           sync_pagination_token,sync_base_post_id,sync_newest_post_id) AS
-         (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?))
+           sync_pagination_token,sync_base_post_id,sync_newest_post_id,sync_gap_state) AS
+         (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?))
          INSERT INTO x_post_sources (
            handle, user_id, username, last_seen_post_id, last_checked_at, cadence_anchor_at,
            updated_at, last_error, collection_started_at,
            initialization_completed_at, last_attempt_at, last_success_at,
            next_check_at, consecutive_failures, last_error_code, last_completed_at,
-           sync_pagination_token, sync_base_post_id, sync_newest_post_id
+           sync_pagination_token, sync_base_post_id, sync_newest_post_id, sync_gap_state
          )
          SELECT iif(${publicationHiddenSql("x_post_sources", "incoming", siteId)},json('site_member_cutover'),handle),
            user_id,username,last_seen_post_id,last_checked_at,cadence_anchor_at,updated_at,last_error,
            collection_started_at,initialization_completed_at,last_attempt_at,last_success_at,
-           next_check_at,consecutive_failures,last_error_code,last_completed_at,sync_pagination_token,sync_base_post_id,sync_newest_post_id
+           next_check_at,consecutive_failures,last_error_code,last_completed_at,sync_pagination_token,sync_base_post_id,sync_newest_post_id,sync_gap_state
          FROM incoming WHERE 1
          ${fenced ? "AND EXISTS(SELECT 1 FROM x_post_sources locked WHERE locked.handle=incoming.handle AND locked.lease_token=? AND locked.lease_until>?)" : ""}
          ON CONFLICT(handle) DO UPDATE SET
@@ -1518,6 +1544,7 @@ const writeXSyncContinuation = async (
            sync_pagination_token = excluded.sync_pagination_token,
            sync_base_post_id = excluded.sync_base_post_id,
            sync_newest_post_id = excluded.sync_newest_post_id,
+           sync_gap_state = excluded.sync_gap_state,
            last_checked_at = excluded.last_checked_at,
            cadence_anchor_at = excluded.cadence_anchor_at,
            collection_started_at = COALESCE(x_post_sources.collection_started_at, excluded.collection_started_at),
@@ -1525,7 +1552,7 @@ const writeXSyncContinuation = async (
            last_attempt_at = excluded.last_attempt_at,
            last_success_at = excluded.last_success_at,
            last_completed_at = ${official ? "x_post_sources.last_completed_at" : "CASE WHEN excluded.sync_pagination_token IS NULL THEN excluded.last_success_at ELSE x_post_sources.last_completed_at END"},
-           ${official ? "sync_timeline_completed_at = CASE WHEN excluded.sync_pagination_token IS NULL THEN excluded.last_success_at ELSE NULL END," : ""}
+           ${official ? "sync_timeline_completed_at = CASE WHEN excluded.sync_pagination_token IS NULL AND excluded.sync_gap_state IS NULL THEN excluded.last_success_at ELSE NULL END," : ""}
            next_check_at = excluded.next_check_at,
            consecutive_failures = 0,
            last_error_code = NULL,
@@ -1536,20 +1563,21 @@ const writeXSyncContinuation = async (
         normalizeHandle(handle),
         user.id,
         user.username,
-        state.nextToken ? state.basePostId : state.completedPostId,
+        pending ? state.basePostId : state.completedPostId,
         checkedAt,
         cadenceAnchorAt,
         checkedAt,
         null,
+        state.collectionStartedAt ?? checkedAt,
         checkedAt,
         checkedAt,
         checkedAt,
-        checkedAt,
-        state.nextToken || official ? checkedAt + X_COLLECTION_CONTINUATION_CHECK_INTERVAL_MS : cadenceAnchorAt + effectiveIntervalMs,
-        state.nextToken || official ? null : checkedAt,
+        pending || official ? checkedAt + X_COLLECTION_CONTINUATION_CHECK_INTERVAL_MS : cadenceAnchorAt + effectiveIntervalMs,
+        pending || official ? null : checkedAt,
         state.nextToken,
         state.nextToken ? state.basePostId : null,
         state.nextToken ? state.newestPostId : null,
+        state.gap ? JSON.stringify(state.gap) : null,
         ...(fenced ? [officialSync?.officialSyncLeaseToken ?? "", checkedAt] : []),
       )
       .run();
@@ -1565,7 +1593,7 @@ const writeStoredPostSourceError = async (
   if (!cacheDb || !lastError) return;
 
   const checkedAt = now();
-  const retryAt = checkedAt + (lastError === "budget_exceeded" ? X_COLLECTION_CONTINUATION_CHECK_INTERVAL_MS : lastError === "rate_limited"
+  const retryAt = checkedAt + (["budget_exceeded", "invalid_x_pagination_token", "x_gateway_request_in_progress", "x_gateway_result_unknown"].includes(lastError) ? X_COLLECTION_CONTINUATION_CHECK_INTERVAL_MS : lastError === "rate_limited"
     ? X_COLLECTION_RATE_LIMIT_BACKOFF_MS
     : X_COLLECTION_ERROR_BACKOFF_MS);
   try {
@@ -2091,7 +2119,7 @@ const fetchXPostsForUser = async (
   newlyStoredPosts?: XNewlyStoredPost[];
   storageError: string | null;
 }> => {
-  const stored = await readStoredPosts(
+  const stored = forceRefresh && staleFallback && "syncPaginationToken" in staleFallback ? staleFallback as StoredXPostsEntry : await readStoredPosts(
     handle,
     maxResults,
     richXLinkPreviewEnabled,
@@ -2116,7 +2144,7 @@ const fetchXPostsForUser = async (
     maxResults,
     richXLinkPreviewEnabled,
   );
-  const cached = await getCachedPosts(
+  const cached = forceRefresh && staleFallback ? null : await getCachedPosts(
     handle,
     maxResults,
     richXLinkPreviewEnabled,
@@ -2125,12 +2153,6 @@ const fetchXPostsForUser = async (
   const requestedLimit = stored?.syncPaginationToken
     ? continuationMaxResults
     : maxResults;
-  let collectionLimit = requestedLimit;
-  if (forceRefresh && usageTracker?.gateway && cacheDb) {
-    const shared = await usageTracker.gateway.readBudget();
-    const site = await readSiteXBudget(cacheDb);
-    collectionLimit = getXTimelinePageSize(requestedLimit,shared.remaining,(await readDailyBudgetMicros(cacheDb))-site.used-site.reserved);
-  }
 
   if (!forceRefresh && cached && isCacheFresh(cached)) {
     return {
@@ -2149,8 +2171,10 @@ const fetchXPostsForUser = async (
       const entry = await inFlight;
       return {
         posts: entry.posts,
-        error: null,
-        stale: false,
+        error: entry.providerError?.error ?? null,
+        errorStatus: entry.providerError?.errorStatus,
+        errorDetail: entry.providerError?.errorDetail,
+        stale: Boolean(entry.providerError && activeFallback),
         postsStored: entry.postsStored,
         newlyStoredPosts: [],
         storageError: entry.storageError,
@@ -2169,47 +2193,203 @@ const fetchXPostsForUser = async (
     }
   }
 
-  const params = new URLSearchParams({
-    max_results: String(collectionLimit),
-    exclude: "retweets",
-    "tweet.fields":
-      "created_at,public_metrics,attachments,entities,referenced_tweets,conversation_id,in_reply_to_user_id,note_tweet",
-    expansions: "attachments.media_keys",
-    "media.fields": "url,preview_image_url,type,width,height,alt_text",
-  });
   const syncToken = stored?.syncPaginationToken ?? null;
   const sinceId = syncToken
     ? stored?.syncBasePostId ?? null
     : stored?.lastSeenPostId ?? null;
-  if (syncToken) params.set("pagination_token", syncToken);
-  if (sinceId) {
-    params.set("since_id", sinceId);
-  } else if (!sinceId) {
-    const collectionStartedAt = stored?.collectionStartedAt ?? now();
-    params.set("start_time", new Date(collectionStartedAt).toISOString());
-  }
-
-  const request = (async () => {
+  const fetchPage = async (limit: number, since: string | null, start: string, until: string | null, token: string | null, gap?: XTimelineGapCheckpoint) => {
+    let collectionLimit = limit;
+    if (forceRefresh && usageTracker?.gateway && cacheDb && !gap) {
+      const shared = await usageTracker.gateway.readBudget();
+      const site = await readSiteXBudget(cacheDb);
+      collectionLimit = getXTimelinePageSize(limit, shared.remaining, (await readDailyBudgetMicros(cacheDb)) - site.used - site.reserved);
+    }
+    const params = new URLSearchParams({
+      max_results: String(collectionLimit),
+      exclude: "retweets",
+      "tweet.fields": "created_at,public_metrics,attachments,entities,referenced_tweets,conversation_id,in_reply_to_user_id,note_tweet",
+      expansions: "attachments.media_keys",
+      "media.fields": "url,preview_image_url,type,width,height,alt_text",
+    });
+    if (token) params.set("pagination_token", token);
+    if (since) params.set("since_id", since);
+    else params.set("start_time", start);
+    if (until) params.set("until_id", until);
+    const path = gap?.request?.path ?? `/users/${user.id}/tweets?${params}`;
+    const requestId = gap ? await xTimelineGapRequestId(siteId, normalizeHandle(handle), gap.startedAt, path, gap.attempt) : undefined;
+    if (gap?.request) {
+      const saved = new URLSearchParams(path.slice(path.indexOf("?") + 1));
+      if (!path.startsWith(`/users/${user.id}/tweets?`) || requestId !== gap.request.id ||
+        saved.get("since_id") !== since || saved.get("until_id") !== until || saved.get("pagination_token") !== token ||
+        (!since && saved.get("start_time") !== start)) {
+        throw new XApiError("X timeline request identity changed", 409, { code: "x_gateway_identity_conflict" });
+      }
+    }
+    if (usageTracker?.timelineReplay) {
+      const replay = usageTracker.timelineReplay;
+      if (replay.id !== requestId || replay.path !== path) throw new XApiError("X timeline response unavailable for replay", 429, { code: "budget_exceeded" });
+      const receipt = await usageTracker.gateway?.readReceipt?.({ id: replay.id, path, operation: "timeline", includeTimelineBody: true });
+      if (!receipt?.found || receipt.status !== "complete" || receipt.ok !== true || receipt.timelineBody === undefined) {
+        throw new XApiError("X timeline response unavailable for replay", 429, { code: "budget_exceeded" });
+      }
+      return { response: receipt.timelineBody as XUserTimelineResponse, collectionLimit };
+    }
+    if (gap && requestId && !gap.request) {
+      const saved = cacheDb && usageTracker?.officialSyncLeaseToken && await writeXTimelineGapCheckpoint(cacheDb, normalizeHandle(handle), usageTracker.officialSyncLeaseToken, now(), siteId, {
+        ...gap, request: { id: requestId, path, until },
+      }).catch(() => false);
+      if (!saved) throw new XApiError("X timeline request checkpoint unavailable", 503, { code: "budget_unavailable" });
+      if (saved === "boundary_changed") throw new XApiError("X timeline storage boundary changed",409,{code:"x_gap_boundary_changed"});
+    }
     const response = await requestXApi<XUserTimelineResponse>(
-      `/users/${user.id}/tweets?${params}`,
+      path,
       bearerToken,
       {
         cacheDb,
         operation: "timeline",
         usageTracker,
+        combineAdmission: Boolean(gap),
+        requestId,
       },
     );
-    const collectionStartedAt = stored?.collectionStartedAt ?? now();
+    return { response, collectionLimit };
+  };
+  const normalizePage = async (response: XUserTimelineResponse, since: string | null, collectionStartedAt: number) => {
     const normalizedPosts = normalizeXTimelineResponse(response, user.username);
     // Only a genuinely new background source receives the activation cutoff.
     // Existing cursors and legacy on-demand reads keep their established
     // incremental/response semantics.
-    const eligiblePosts = forceRefresh && !sinceId
+    const eligiblePosts = forceRefresh && !since
       ? normalizedPosts.filter(
           (post) => new Date(post.createdAt).getTime() >= collectionStartedAt,
         )
       : normalizedPosts;
-    const posts = await enrichXPostsWithLinkPreviews(inferMissingXQuoteReferences(eligiblePosts));
+    return enrichXPostsWithLinkPreviews(inferMissingXQuoteReferences(eligiblePosts));
+  };
+  const assertRangeResponse = (response: XUserTimelineResponse, after: string | null, until: string | null, previousToken: string | null) => {
+    if (!isXTimelineGapPayload(response)) throw new XApiError("Invalid or incomplete X timeline range", 502, { code: "invalid_x_gap_response" });
+    const token = response.meta?.next_token;
+    if (token && token === previousToken) throw new XApiError("X returned the same timeline token", 502, { code: "invalid_x_pagination_token" });
+    if ((response.data ?? []).some(post => (after !== null && BigInt(post.id) <= BigInt(after)) || (until !== null && BigInt(post.id) >= BigInt(until)))) {
+      throw new XApiError("Invalid or incomplete X timeline range", 502, { code: "invalid_x_gap_response" });
+    }
+  };
+
+  const request = (async () => {
+    const gapBatch = cacheDb && usageTracker?.officialSyncOriginScope !== undefined && usageTracker.officialSyncLeaseToken
+      ? await readXTimelineGapBatch(cacheDb, normalizeHandle(handle), user.id, usageTracker.officialSyncLeaseToken, now()) : null;
+    if (gapBatch && cacheDb && usageTracker?.officialSyncLeaseToken) {
+      const alreadyPending = usageTracker.gapSweep === "pending";
+      usageTracker.gapSweep = "pending";
+      const { base, bounds, startTime } = gapBatch;
+      const { startedAt, recovery } = gapBatch.checkpoint;
+      let boundsRevision = gapBatch.checkpoint.boundsRevision;
+      let { after, page, attempt, request: savedRequest } = gapBatch.checkpoint;
+      const newlyStoredPosts: XNewlyStoredPost[] = [];
+      const entry: CachedXPostsWriteEntry = {
+        fetchedAt: now(), expiresAt: now() + X_POSTS_CACHE_POLICY.freshTtlMs, userId: user.id,
+        posts: activeFallback?.posts ?? [], postsStored: 0, newlyStoredPosts, storageError: null,
+      };
+      for (let index = 0; index < X_TIMELINE_GAP_BATCH_SIZE; index++) {
+        // Leave room for one page, its durable acknowledgement and Queue reconciliation.
+        if (cacheDb && !hasXCollectionD1Room(cacheDb, 24)) break;
+        const until = savedRequest ? savedRequest.until : page ? page.until : bounds.shift() ?? null;
+        let response: XUserTimelineResponse;
+        let posts: XPostItem[];
+        let requestRevision = savedRequest ? boundsRevision ?? 0 : gapBatch.revision;
+        const seenTokens = page?.seenTokens ?? [];
+        try {
+          const boundary = index > 0 || page || savedRequest ? await readXTimelineGapBoundary(cacheDb, normalizeHandle(handle), user.id,
+            after, until, page || savedRequest ? boundsRevision ?? 0 : gapBatch.revision, page?.storedIds) : null;
+          if (!savedRequest && boundary) requestRevision = boundary.revision;
+          if (boundary?.changed || (page || savedRequest) && boundsRevision === undefined) {
+            const receipt = savedRequest ? await usageTracker.gateway?.readReceipt?.({ ...savedRequest, operation: "timeline" }) : undefined;
+            if (savedRequest && !receipt) throw new XApiError("X receipt unavailable", 503, { code: "budget_unavailable" });
+            if (!savedRequest || receipt?.found === false) {
+              const saved = await writeXTimelineGapCheckpoint(cacheDb, normalizeHandle(handle), usageTracker.officialSyncLeaseToken, now(), siteId, {
+                startedAt, base, after, page: null, attempt: crypto.randomUUID(),
+                recovery: { until: recovery ? recovery.until : until },
+              });
+              if (!saved) throw new XApiError("X boundary checkpoint unavailable", 503, { code: "budget_unavailable" });
+              usageTracker.gapProgress = true;
+              break;
+            }
+          }
+          if (!hasXCollectionD1Room(cacheDb, 23)) break;
+          const emptyRange = !page && after !== null && until !== null && BigInt(until) - BigInt(after) === 1n;
+          response = emptyRange ? { data: [] } : (await fetchPage(5, after, startTime, until, page?.token ?? null, {
+            startedAt, boundsRevision: requestRevision, recovery, base, after, page, attempt, request: savedRequest,
+          })).response;
+          assertRangeResponse(response, after, until, page?.token ?? null);
+          const token = response.meta?.next_token;
+          if (token) {
+            const fingerprint = await xTimelineTokenFingerprint(token);
+            if (seenTokens.includes(fingerprint) || seenTokens.length >= X_TIMELINE_GAP_MAX_PAGES) {
+              throw new XApiError("X timeline pagination did not advance", 502, { code: "invalid_x_pagination_token" });
+            }
+            seenTokens.push(fingerprint);
+          }
+          posts = await normalizePage(response, after, Date.parse(startTime));
+        } catch (error) {
+          if(error instanceof XApiError && error.code==="x_gap_boundary_changed"){
+            usageTracker.gapProgress=true;
+            break;
+          }
+          entry.providerError = describeXError(error);
+          if (error instanceof XApiError && (error.retryGatewayRequest || error.code === "invalid_x_gap_response" || error.code === "invalid_x_pagination_token" || error.code === "x_gateway_identity_conflict")) {
+            const expired = error.code === "invalid_x_pagination_token";
+            const changed = error.code === "x_gateway_identity_conflict" && !usageTracker.timelineReplay;
+            try {
+              if (changed || error.code !== "x_gateway_identity_conflict") {
+                await writeXTimelineGapCheckpoint(cacheDb, normalizeHandle(handle), usageTracker.officialSyncLeaseToken, now(), siteId, {
+                  startedAt, base, boundsRevision, after: changed ? base : after, page: expired || changed ? null : page, attempt: crypto.randomUUID(),
+                  recovery: changed ? { until: null }
+                    : expired ? { until: recovery ? recovery.until : until } : recovery,
+                });
+              }
+            } catch {
+              entry.storageError = "x_post_storage_failed";
+            }
+          }
+          break;
+        }
+        const storedAt = now();
+        const write = await writeStoredPosts(cacheDb, handle, user, posts, storedAt, siteId, post => xTimelineWriteContext(response, post.id));
+        if (!write.ok) { entry.storageError = "x_post_storage_failed"; break; }
+        entry.posts = mergeXPosts(posts, entry.posts).slice(0, maxResults);
+        entry.postsStored += write.count;
+        newlyStoredPosts.push(...posts.filter(post => write.insertedIds.includes(post.id)).map(post => ({ id: post.id, createdAt: post.createdAt, storedAt })));
+        const newest: string | null = [page?.newest, after, ...posts.map(post => post.id)].reduce<string | null>((max, id) =>
+          id && (max === null || BigInt(id) > BigInt(max)) ? id : max, null);
+        const token = response.meta?.next_token;
+        const recoveryComplete = !token && recovery !== undefined && until === recovery.until;
+        const checkpoint: XTimelineGapCheckpoint | null = token ? { startedAt, boundsRevision: requestRevision, recovery, base, after, page: { until, token, newest, seenTokens, storedIds: posts.map(post => post.id) }, attempt }
+          : until === null ? null : { startedAt, boundsRevision, recovery: recoveryComplete ? undefined : recovery, base, after: until, page: null };
+        try {
+          await writeXSyncContinuation(cacheDb, handle, user, {
+            nextToken: null, basePostId: base, newestPostId: null, completedPostId: newest, gap: checkpoint,
+            collectionStartedAt: Date.parse(startTime),
+          }, effectiveIntervalMs, siteId, scheduledFor, usageTracker);
+        } catch (error) {
+          console.warn("Failed to acknowledge stored X timeline range", error);
+          entry.storageError = "x_post_storage_failed";
+          break;
+        }
+        usageTracker.gapProgress = true;
+        if (!checkpoint) {
+          if (!alreadyPending) usageTracker.gapSweep = "complete";
+          break;
+        }
+        if (usageTracker.timelineReplay || recoveryComplete) break;
+        ({ after, page, attempt, request: savedRequest } = checkpoint);
+        boundsRevision = checkpoint.boundsRevision;
+      }
+      return entry;
+    }
+
+    const collectionStartedAt = stored?.collectionStartedAt ?? now();
+    const { response, collectionLimit } = await fetchPage(requestedLimit, sinceId, new Date(collectionStartedAt).toISOString(), null, syncToken);
+    const posts = await normalizePage(response, sinceId, collectionStartedAt);
     const newPosts = posts.slice(0, collectionLimit);
     const mergedPostsForResponse = mergeXPosts(newPosts, stored?.posts ?? activeFallback?.posts ?? []).slice(0, collectionLimit);
     const responsePosts = mergedPostsForResponse.slice(0, maxResults);
@@ -2255,8 +2435,10 @@ const fetchXPostsForUser = async (
     const entry = await request;
     return {
       posts: entry.posts,
-      error: null,
-      stale: false,
+      error: entry.providerError?.error ?? null,
+      errorStatus: entry.providerError?.errorStatus,
+      errorDetail: entry.providerError?.errorDetail,
+      stale: Boolean(entry.providerError && activeFallback),
       postsStored: entry.postsStored,
       newlyStoredPosts: entry.newlyStoredPosts,
       storageError: entry.storageError,
@@ -2521,7 +2703,9 @@ export const fetchXPostsForHandles = async (
   let usersByHandle: Map<string, XApiUser | null> | null = null;
 
   try {
-    usersByHandle = await fetchXUsersByHandles(
+    const replay = activeUsageTracker.timelineReplay;
+    const replayUserId = replay?.path.split("/")[2];
+    usersByHandle = replay ? new Map(handlesToRefresh.map(handle => [handle, replayUserId ? { id: replayUserId, username: handle } : null])) : await fetchXUsersByHandles(
       handlesToRefresh,
       token,
       cacheDb,
@@ -2825,6 +3009,7 @@ export const collectXPostsForHandles = async (
   const tracker: XApiUsageTracker = {
     officialSyncOriginScope: options.officialSyncOriginScope,
     officialSyncLeaseToken: options.officialSyncLeaseToken,
+    timelineReplay: options.timelineReplay,
     gateway: options.gateway,
     recoveryAnchorAt: options.recoveryAnchorAt,
     apiCalls: 0,
@@ -2915,7 +3100,7 @@ export const collectXPostsForHandles = async (
 
     let timelineAlreadyCompleted = false;
     if (options.officialSyncOriginScope !== undefined && cacheDb && handlesToRefresh.length) {
-      const completed = await cacheDb.prepare("SELECT handle FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_timeline_completed_at IS NOT NULL AND sync_pagination_token IS NULL")
+      const completed = await cacheDb.prepare("SELECT handle FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?)) AND sync_timeline_completed_at IS NOT NULL AND sync_pagination_token IS NULL AND sync_gap_state IS NULL")
         .bind(JSON.stringify(handlesToRefresh)).all<{ handle: string }>();
       const done = new Set(completed.results.map(row => row.handle));
       timelineAlreadyCompleted = done.size > 0;

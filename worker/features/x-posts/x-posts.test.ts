@@ -226,6 +226,16 @@ const makeCacheDb = (
               return null as T | null;
             },
             async all<T>() {
+              if (sql.startsWith("WITH requested AS") && sql.includes("cache.value AS cached")) {
+                const ids = JSON.parse(String(args[0])) as string[];
+                return { results: ids.map(id => {
+                  const post = posts.get(id);
+                  const cache = store.get(`x:linked-post:v1:${id}`);
+                  return { id, value: post?.value ?? null, user_id: post?.user_id ?? null,
+                    hidden: Boolean(post && post.hidden_at !== null),
+                    cached: cache && Number(cache.expires_at) > Number(args[1]) ? cache.value : null, url_twitter: null };
+                }) as T[] };
+              }
               if (sql.startsWith("SELECT json_group_array")) {
                 const incoming = sql.includes("WITH incoming") ? JSON.parse(String(args[0])) as XPostItem[] : [];
                 const versions = [...incoming, ...incoming.flatMap(post => posts.has(post.id) ? [JSON.parse(posts.get(post.id)!.value) as XPostItem] : [])];

@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { xRequestExpiryDaySql } from "../x-request-retention.ts";
 import {
   integer,
   numeric,
@@ -775,6 +776,7 @@ export const xPosts = sqliteTable(
     value: text().notNull(),
     created_at: text("created_at").notNull(),
     first_seen_at: integer("first_seen_at").notNull().default(0),
+    insert_revision: integer("insert_revision").notNull().default(0),
     fetched_at: integer("fetched_at").notNull(),
     hidden_at: integer("hidden_at"),
     hidden_reason: text("hidden_reason"),
@@ -786,6 +788,8 @@ export const xPosts = sqliteTable(
   (table) => [
     check("x_posts_content_access_check", sql`content_access IN ('normal', 'admin_archive')`),
     index("idx_x_posts_handle_created_at").on(table.handle, table.created_at),
+    index("idx_x_posts_handle_ordered_id").on(table.handle, sql`(length(${table.id}) + 10) || ${table.id}`),
+    index("idx_x_posts_handle_insert_revision").on(table.handle, table.insert_revision),
     index("idx_x_posts_first_seen_handle").on(table.first_seen_at, table.handle)
       .where(sql`content_access = 'normal'`),
     index("idx_x_posts_handle_hidden_created").on(
@@ -806,6 +810,7 @@ export type NewXStoredPost = typeof xPosts.$inferInsert;
 // X 게시글 소스별 증분 수집 상태
 export const xPostSources = sqliteTable("x_post_sources", {
   handle: text().primaryKey(),
+  insert_revision: integer("insert_revision").notNull().default(0),
   user_id: text("user_id"),
   username: text(),
   collection_started_at: integer("collection_started_at"),
@@ -815,6 +820,7 @@ export const xPostSources = sqliteTable("x_post_sources", {
   sync_pagination_token: text("sync_pagination_token"),
   sync_base_post_id: text("sync_base_post_id"),
   sync_newest_post_id: text("sync_newest_post_id"),
+  sync_gap_state: text("sync_gap_state"),
   sync_origin_scope: text("sync_origin_scope"),
   sync_origin_started_at: integer("sync_origin_started_at"),
   sync_timeline_completed_at: integer("sync_timeline_completed_at"),
@@ -930,7 +936,8 @@ export const xSharedRequests = sqliteTable("x_shared_requests", {
   day: text().notNull(),
   created_at: integer("created_at").notNull(),
   updated_at: integer("updated_at").notNull(),
-}, table => [index("idx_x_shared_requests_day").on(table.day, table.status)]);
+}, table => [index("idx_x_shared_requests_day").on(table.day, table.status),
+  index("idx_x_shared_requests_expiry").on(sql.raw(xRequestExpiryDaySql)).where(sql`${table.status} != 'running'`)]);
 
 export const xActivityCoordinator = sqliteTable("x_activity_coordinator", {
   id: integer().primaryKey(),

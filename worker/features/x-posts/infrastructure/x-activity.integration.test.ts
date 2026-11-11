@@ -2,7 +2,8 @@ import {applyD1Migrations,env,type D1Migration} from "cloudflare:test";
 import {beforeEach,afterEach,describe,it,expect,vi} from "vitest";
 import {D1XActivityCoordinator} from "./x-activity-coordinator";
 import {D1XActivitySite} from "./x-activity-site";
-import {D1SharedXBudget,D1SharedXApiGateway,readSiteXBudget} from "./x-shared-budget";
+import {D1SharedXBudget,D1SharedXApiGateway,readSiteXBudget,prepareXReceiptCleanup} from "./x-shared-budget";
+import { meterD1 } from "../../../test-support/d1-meter";
 import {parseXActivityEvent} from "../domain/x-activity";
 import {redactStoredXPosts,clearXServiceCachesForTests} from "./x-api";
 import {runXCollectionForHandles} from "./x-collection";
@@ -68,6 +69,42 @@ beforeEach(async()=>{
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();vi.useRealTimers();});
 
 describe("XAA multi-site collection and common money boundary",()=>{
+  it("keeps quote replies through their recovery lifetime without scanning retained history", async () => {
+    const timestamp = Date.parse("2026-11-11T12:00:00Z"), day = 86_400_000;
+    const insert = (id: string, age: number, status = "complete") => db.prepare(`INSERT INTO x_shared_requests
+      (id,site,operation,path,status,claim_token,estimate,cost,result,day,created_at,updated_at)
+      VALUES(?,'otw','user_lookup','/users?ids=1',?,'fixture',10000,0,'{}',?,?,?)`)
+      .bind(id, status, new Date(timestamp - age * day).toISOString().slice(0, 10), timestamp - age * day, timestamp - age * day);
+    await db.batch([insert("otw:quote:day30", 30), insert("otw:quote:day31", 31), insert("ordinary-day2", 2),
+      insert("ordinary-day1", 1), insert("otw:quote:running", 60, "running")]);
+    await db.prepare(`WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<5000)
+      INSERT INTO x_shared_requests(id,site,operation,path,status,claim_token,estimate,cost,result,day,created_at,updated_at)
+      SELECT 'otw:quote:retained-'||x,'otw','user_lookup','/users?ids=1','complete','fixture',10000,0,'{}',?,1,1 FROM n`)
+      .bind(new Date(timestamp - 5 * day).toISOString().slice(0, 10)).run();
+    const meter = meterD1(db, 1);
+    await prepareXReceiptCleanup(meter.db, timestamp).run();
+    expect(await db.prepare("SELECT COUNT(*) n FROM x_shared_requests").first("n")).toBe(5003);
+    expect(await db.prepare("SELECT id FROM x_shared_requests WHERE id='otw:quote:day31' OR id='ordinary-day2'").all()).toMatchObject({ results: [] });
+    expect(meter.summary().rowsRead).toBeLessThan(30);
+    console.log("X_RECEIPT_RETENTION_PROFILE", meter.summary());
+  });
+
+  it("returns a quote receipt body only to its owning site and suppresses it after redaction", async () => {
+    const own = gateway("otw");
+    const request = { id: `otw:quote:${crypto.randomUUID()}`, operation: "tweet_lookup" as const, path: `/tweets?ids=${postId}` };
+    expect(await own.execute(request)).toMatchObject({ ok: true });
+    const receipt = { ...request, includeReferenceResult: true as const };
+    expect(await own.readReceipt(receipt)).toMatchObject({ found: true, referenceResult: { body: { data: [{ id: postId }] } } });
+    expect(await gateway("luvdia").readReceipt(receipt)).toEqual({ found: false });
+    expect(await own.readReceipt({ ...receipt, path: `/tweets?ids=${baseId}` })).toEqual({ found: false });
+    expect(await own.readReceipt(request)).not.toHaveProperty("referenceResult");
+    await own.redactPost(postId);
+    const erased = await own.readReceipt(receipt);
+    expect(erased).toMatchObject({ found: true, status: "redacted" });
+    expect(erased).not.toHaveProperty("referenceResult");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("switches to Fx only after owned remote subscriptions stop, preserving peer subscriptions, hook and history",async()=>{
     const control=coordinator();await control.start("otw");await control.start("luvdia");
     const pending=body(await tag(),{attachments:{media_keys:["missing"]}});

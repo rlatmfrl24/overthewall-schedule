@@ -6,13 +6,16 @@ import { getXCollectionScheduleDecision, readActiveXHandles, readXCollectionBudg
 import { getOfficialAccountDecision } from "../domain/x-collection-policy";
 import type { ScheduledExecutionPriority } from "@contracts/scheduled-operations";
 import { parseFxRssContinuation } from "../application/fx-rss-collection";
+import { readXTimelineGapRequest } from "./x-timeline-gaps";
 
 interface OfficialAccountSource {
   handle: string;
+  user_id: string | null;
   sync_pagination_token: string | null;
   sync_origin_scope: XCollectionScope | null;
   sync_origin_started_at: number | null;
   sync_timeline_completed_at: number | null;
+  sync_gap_state: string | null;
   last_completed_at: number | null;
   regular_completed_at: number | null;
   last_attempt_at: number | null;
@@ -28,12 +31,12 @@ function decideOfficialSource(source: OfficialAccountSource | undefined, fallbac
     backoffUntil: pending || source?.last_error_code ? source?.next_check_at ?? null : null });
 }
 
-export type HybridCollectionTarget = { provider: XCollectionProvider; scope: XCollectionScope; handles: string[]; hybrid: true; executionPriority?: ScheduledExecutionPriority };
+export type HybridCollectionTarget = { provider: XCollectionProvider; scope: XCollectionScope; handles: string[]; hybrid: true; executionPriority?: ScheduledExecutionPriority; replayOnly?: true };
 export async function readHybridXCollectionTargets(env: Env, timestamp: number): Promise<HybridCollectionTarget[]> {
   const handles = await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID));
   if (!handles.length) return [];
   const [sources, fx, settings] = await env.otw_db.batch([
-    env.otw_db.prepare("SELECT handle,sync_pagination_token,sync_origin_scope,sync_origin_started_at,sync_timeline_completed_at,last_completed_at,regular_completed_at,last_attempt_at,next_check_at,last_error_code,deactivated_at FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?))").bind(JSON.stringify(handles)),
+    env.otw_db.prepare("SELECT handle,user_id,sync_pagination_token,sync_origin_scope,sync_origin_started_at,sync_timeline_completed_at,sync_gap_state,last_completed_at,regular_completed_at,last_attempt_at,next_check_at,last_error_code,deactivated_at FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?))").bind(JSON.stringify(handles)),
     env.otw_db.prepare("SELECT f.handle,f.cadence_anchor_at,f.last_attempt_at,f.fallback_active,i.continuation_json rss_continuation FROM x_fx_sources f LEFT JOIN scheduled_job_items i ON i.id=f.rss_pending_item_id WHERE f.handle IN (SELECT value FROM json_each(?))").bind(JSON.stringify(handles)),
     env.otw_db.prepare("SELECT key,value FROM settings WHERE key IN ('x_collection_last_run','x_collection_cadence_state','x_api_backoff_until','x_collection_hybrid_policy','x_collection_hybrid_activated_at')"),
   ]);
@@ -54,8 +57,12 @@ export async function readHybridXCollectionTargets(env: Env, timestamp: number):
     const due = handles.flatMap(handle => {
       const source = official.get(handle);
       if (source?.deactivated_at != null) return [];
-      if (!paidTimelineReady && source?.sync_timeline_completed_at == null) return [];
       const account = decideOfficialSource(source, Boolean(primary.get(handle)?.fallback_active), activatedAt, timestamp);
+      if (!account.scope) return [];
+      const needsReplay = !paidTimelineReady && source?.sync_timeline_completed_at == null;
+      const request = needsReplay && account.scope === "pending" && account.originScope === "regular"
+        ? readXTimelineGapRequest(source?.sync_gap_state ?? null, source?.user_id) : undefined;
+      if (needsReplay && !request) return [];
       let rssDeadline = Infinity;
       try {
         const snapshot = primary.get(handle)?.rss_continuation;
@@ -64,10 +71,28 @@ export async function readHybridXCollectionTargets(env: Env, timestamp: number):
       const executionPriority = { deadlineAt: Math.min((source?.regular_completed_at ?? activatedAt) + 24 * 3_600_000,
         source?.sync_origin_started_at != null ? source.sync_origin_started_at + 24 * 3_600_000 : Infinity, rssDeadline),
         lastAttemptAt: source?.last_attempt_at ?? 0, key: `${handle}:0-timeline` };
-      return account.scope ? [{ handle, account, executionPriority }] : [];
+      return [{ handle, scope: account.scope, executionPriority, request }];
     }).sort((a, b) => a.executionPriority.deadlineAt - b.executionPriority.deadlineAt
       || a.executionPriority.lastAttemptAt - b.executionPriority.lastAttemptAt || a.handle.localeCompare(b.handle));
-    for (const { handle, account, executionPriority } of due) result.push({ provider: "x_api", scope: account.scope!, handles: [handle], hybrid: true, executionPriority });
+    const replay = due.flatMap(item => item.request ? [{ handle: item.handle, id: item.request.id, path: item.request.path, operation: "timeline" as const }] : []);
+    const ready = new Set<string>();
+    for (let offset = 0; offset < replay.length; offset += 100) {
+      const batch = replay.slice(offset, offset + 100);
+      try {
+        const receipts = await env.X_API_GATEWAY?.readReceipts?.(batch.map(({id,path,operation}) => ({id,path,operation})));
+        if (!receipts) break;
+        receipts.forEach((receipt, index) => {
+          if (receipt.found && receipt.status === "complete" && receipt.ok === true && batch[index]) ready.add(batch[index].handle);
+        });
+      } catch (error) {
+        console.warn("[x-collection] response replay planning deferred", error);
+        break;
+      }
+    }
+    for (const { handle, scope, executionPriority, request } of due) {
+      if (request && !ready.has(handle)) continue;
+      result.push({ provider: "x_api", scope, handles: [handle], hybrid: true, executionPriority, ...(request ? { replayOnly: true } : {}) });
+    }
     return result;
   }
   if (!paidTimelineReady) return result;
@@ -87,13 +112,13 @@ export async function readHybridXCollectionTargets(env: Env, timestamp: number):
   return result;
 }
 
-export async function isHybridRegularCollectionComplete(env: Env) {
-  const handles = await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID));
+export async function isHybridRegularCollectionComplete(env: Env, activeHandles?: string[]) {
+  const handles = activeHandles ?? await readActiveXHandles(getDb(env), parseSiteId(env.SITE_ID));
   if (!handles.length) return false;
-  const baseline = Number(await env.otw_db.prepare("SELECT value FROM settings WHERE key='x_collection_last_run'").first("value") ?? 0);
   const completed = await env.otw_db.prepare(`SELECT COUNT(*) AS count FROM x_post_sources WHERE handle IN (SELECT value FROM json_each(?))
-    AND regular_completed_at>? AND sync_pagination_token IS NULL AND sync_origin_scope IS NULL
+    AND regular_completed_at>COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key='x_collection_last_run'),0)
+    AND sync_pagination_token IS NULL AND sync_origin_scope IS NULL
     AND sync_timeline_completed_at IS NULL AND last_error IS NULL AND deactivated_at IS NULL`)
-    .bind(JSON.stringify(handles), baseline).first<number>("count");
+    .bind(JSON.stringify(handles)).first<number>("count");
   return completed === handles.length;
 }
