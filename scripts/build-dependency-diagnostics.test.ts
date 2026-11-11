@@ -50,8 +50,9 @@ it.each([
       }
     `);
     const before = readFileSync(join(root, "node_modules/@tanstack/react-store/package.json"), "utf8");
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "npm_execpath"));
     const result = spawnSync(process.execPath, [script, "test", mode], { cwd: root, encoding: "utf8", timeout: 10_000,
-      env: { ...process.env, npm_execpath: installer, BUILD_PRIVATE_TOKEN: "must-not-appear-in-logs" } });
+      env: { ...env, npm_execpath: installer, BUILD_PRIVATE_TOKEN: "must-not-appear-in-logs" } });
     expect(result.status, result.stdout + result.stderr).toBe(status);
     expect(result.stdout).toContain('"name":"@tanstack/store"');
     expect(result.stdout).not.toContain("must-not-appear-in-logs");
@@ -63,7 +64,7 @@ it.each([
     const commands = installs ? readFileSync(join(root, "installs.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
     expect(existsSync(join(root, "installs.jsonl"))).toBe(installs > 0);
     expect(commands).toHaveLength(installs);
-    if (installs) expect(commands[0]).toEqual(["install", "--frozen-lockfile", "--offline", "--force", "--config.optimistic-repeat-install=false"]);
+    if (installs) expect(commands[0]).toEqual(["install", "--frozen-lockfile", "--offline", "--config.optimistic-repeat-install=false"]);
     if (repair === "success") expect(result.stdout).toContain('"stage":"after-offline-repair"');
     expect(readFileSync(join(root, "node_modules/@tanstack/react-store/package.json"), "utf8")).toBe(before);
   } finally {

@@ -109,6 +109,8 @@ GitHub 자동 리뷰는 추가 P2 1건을 제시했다. 인용 원문/작성자 
 
 ## Cloudflare 모듈 연결의 자동 복구 보완
 
+이 절은 `5d20a1f7` 당시 구현과 원격 증거다. 자동 복구 명령은 다음 절의 engineStrict 보존 수정으로 대체했다.
+
 사용자의 후속 재발 방지 요청으로 앞 절의 진단 전용 코드를 보완했다. `1d34ac06`의 Cloudflare `4818f0ab`는 dashboard에서 건너뛰기로 재확인했다. 과거 `294ca6ca` 컨테이너의 정확한 손상 원인은 여전히 미확정이다.
 
 격리 Linux의 실제 pnpm 설치에서 `react-store → store` 링크를 제거했다. 일반 `install --frozen-lockfile --offline`, 여기에 `--force`만 추가한 경우, `optimisticRepeatInstall=false`만 추가한 경우 모두 exit0이지만 링크를 복구하지 못했다. 설치된 pnpm11.7.0의 `installDeps`는 `optimisticRepeatInstall`이 활성화된 경우 설치 상태 판단으로 조기 반환한다. 두 옵션을 **함께** 적용하면 다시 연결하고 다운로드0·잠금 파일 동일 상태를 유지했다. 이는 자동 복구 명령의 검증 결과이며 과거 Cloudflare 오류 원인의 확정은 아니다.
@@ -122,3 +124,17 @@ GitHub 자동 리뷰는 추가 P2 1건을 제시했다. 인용 원문/작성자 
 Cloudflare 재검증용 임시 게시 `5c03dd42`의 [빌드 `06f65faf`](https://dash.cloudflare.com/46e1801b290196fbec7cfae87710ffcf/workers/services/view/overthewall-schedule/production/builds/06f65faf-901d-40e0-a5dd-9a50488847e7)에서 **415파일3946건 통과·플랫폼 조건3건 생략**, agent10건·mirror·연결 검사·Worker/client bundle·SEO·manifest까지 완료했다. 전체 테스트329.99초, client bundle7.87초였다. `[build] Verified artifact manifest for otw.` 뒤 임시 `PR220_PREVENTION_HOLD`/exit1로 후속 버전 업로드를 차단했다. 외부 check FAIL은 이 의도된 중단 결과이며 전체 명령 exit0이나 외부 CI PASS로 보고하지 않는다.
 
 최종 소스에서는 임시 중단을 제거하고 자동 실행 생략으로 게시한다. 원격 검증과의 실행 코드 차이는 이 마지막 차단 분기 제거뿐이다. 잠금 파일·설치 버전·빌드/운영 설정·캐시·원격 DB는 바꾸지 않았다. 실제 연결 손상에 대한 자동 복구는 로컬 Linux의 정상 빌드 진입점에서 검증했고, Cloudflare에서는 손상을 강제로 만들지 않았다. 과거 오류의 정확한 원인이나 모든 모듈 오류의 영구 방지를 보장하지 않는다. 전체 preflight 재실행이 아닌 이번 원격 gate와 기존 변경 없는 로컬 D1 doctor 증거의 합성 검증이다. 배포·설정 변경·캐시 삭제·원격 마이그레이션·유료 호출 보류를 유지한다.
+
+## 자동 복구의 engineStrict 보존
+
+[후속 리뷰 P3](https://github.com/rlatmfrl24/overthewall-schedule/pull/220#issuecomment-6790875604)를 수정했다. `--force`가 엄격한 Node 호환성 검사까지 생략하므로 복구 명령에서 제거했다. 실제 pnpm11.7.0 검증 결과, 생성된 설치 상태 파일 `node_modules/.pnpm/lock.yaml`만 재생성하면 force 없이도 누락된 링크와 ESM entry를 복구할 수 있었다. 기준 파일 `pnpm-lock.yaml`과 선언된 버전/정책은 수정하지 않는다. 정상 분기는 이 설치 상태 파일에도 손대지 않는다.
+
+실패 시에만 생성된 설치 상태를 비우고 `pnpm install --frozen-lockfile --offline --config.optimistic-repeat-install=false`를1회 실행한다. 기존 engineStrict 설정을 그대로 적용해 비호환 의존성을 거절하며, false 설정과 호환 의존성의 정상 복구도 유지한다. 복구 실패·재검사 실패·시간 초과는 후속 빌드를 중단한다. 검사5초·복구120초·신규 Node 프로세스 재검사는 동일하다. 실패한 설치가 불완전한 생성 상태를 남기면 다음 정상 pnpm 진입의 설치 검증 대상이 되며, 이를 유효한 상태로 되돌리지 않는다.
+
+실제 pnpm 회귀3건을 추가해 strict true/비호환은 exit1과 `ERR_PNPM_UNSUPPORTED_ENGINE`, strict false/비호환과 strict true/호환은 복구1회와 exit0을 확인했다. 각 경우 package/workspace/기준 lock 파일과 설치 버전이 유지됐다. 정상 분기의 무설치도 확인했다. 기존 코드에서4건 실패를 확인한 뒤 최종 **Windows 영향5파일25건 PASS**, **Linux 정책/진단2파일10건 PASS**다. 실제 pnpm 경로를 상속하기 위해 `pnpm run test:unit <파일>` 또는 `pnpm test`로 실행한다. Windows의 대소문자가 다른 npm_execpath 중복 키 때문에 모의 설치기가 실제 설치기로 바뀌는 fixture 오류도 정리했다. 타입·변경 lint·architecture 검사는 통과했다.
+
+Windows의 정상 `pnpm run build`와 `pnpm run build:luvdia` 모두 exit0·manifest 완료이며 복구 메시지0회다. 기준 lock뿐 아니라 생성된 설치 상태 파일도 전후 SHA256이 동일했다. Linux 실제 설치에서 링크와 ESM entry를 함께 제거한 `pnpm run build`는 force 없이 복구1회·다운로드0·기준 lock/복구 entry 바이트 동일·manifest 완료와 exit0을 확인했다(52.3초). 정상화한 fixture에서 허용 설치 스크립트는 유지되고 차단 스크립트는 미실행, 미승인 스크립트는 `ERR_PNPM_IGNORED_BUILDS`/exit1이었다. 기준 lock 불일치도 다시 쓰지 않고 거절했다.
+
+격리 Linux의 실제 `pnpm run deploy` → build-site/diagnostics 흐름에서 설치 실패37·재검사 실패1·초기 검사5초 시간 초과1을 주입했다. 기능의 복구 횟수는1/1/0, Vite/SEO/manifest 미도달·업로드 도달 표식0·기준 lock SHA256 동일이었다. 외부 업로드 부분만 안전한 도달 표식으로 대체하고 finally에서 복원했다. 원격 업로드나 배포를 수행한 검증은 아니다.
+
+로그는 `%TEMP%/otw-pr220-engine-policy-{red,green}.log`, `otw-pr220-engine-safe-{probe,policies,real-build,gate,normal-otw,normal-luvdia,types}.log`다. 새 전체 preflight·원격 실제 빌드는 실행하지 않았다. 정상 X 동작·12시간 주기·즉시 재개·저장 글 재조회 방지·D1 한도는 수정하지 않았으며 기존 동일 입력 증거를 재사용한다. 최종 게시는 자동 빌드 생략으로 업로드 보류를 유지하고, 향후 승인된 squash 메시지에는 생략 표식을 제외해야 한다. 병합·배포·운영 설정·원격 마이그레이션·신규 유료 호출 보류를 유지한다.

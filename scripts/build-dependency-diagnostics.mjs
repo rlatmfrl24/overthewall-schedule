@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,8 +13,9 @@ if (process.argv.includes("--repair")) {
   const pnpm = process.env.npm_execpath && realpathSync(process.env.npm_execpath);
   if (!pnpm || !/[/\\]pnpm\.[cm]?js$/.test(pnpm)) throw new Error("Dependency repair requires pnpm run build");
   console.warn("[build] Dependency check failed; repairing the frozen installation once from the local store.");
-  // pnpm 11 can skip relinking even with --force when optimisticRepeatInstall is enabled.
-  const repair = spawnSync(process.execPath, [pnpm, "install", "--frozen-lockfile", "--offline", "--force", "--config.optimistic-repeat-install=false"],
+  // Refresh generated install state; --force would bypass engineStrict.
+  rmSync(resolve("node_modules/.pnpm/lock.yaml"), { force: true });
+  const repair = spawnSync(process.execPath, [pnpm, "install", "--frozen-lockfile", "--offline", "--config.optimistic-repeat-install=false"],
     { stdio: "inherit", timeout: 120_000, killSignal: "SIGKILL" });
   if (repair.error) throw repair.error;
   if (repair.status !== 0) process.exit(repair.status ?? 1);
