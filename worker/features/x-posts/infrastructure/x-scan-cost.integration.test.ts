@@ -74,7 +74,7 @@ async function completedHistory() {
   }
 }
 
-describe("X maintenance reads scale with pending work", { timeout: 15_000 }, () => {
+describe("X maintenance reads scale with pending work", { timeout: 60_000 }, () => {
   it("seeds only incomplete repairs when upgrading populated history", async () => {
     const legacy = testEnv.transition_target_db;
     const repairMigrations = testEnv.X_REFERENCE_MIGRATIONS.filter(({ name }) => /^(0137_|0138_)/.test(name));

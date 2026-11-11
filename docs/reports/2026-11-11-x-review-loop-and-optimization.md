@@ -76,3 +76,11 @@ GitHub 자동 리뷰는 추가 P2 1건을 제시했다. 인용 원문/작성자 
 최종 검증은 합성이다. 영향 47파일 실행은 기존 redaction 표본의 ID를 새 회귀에서도 재사용해 fixture 1건이 실패했고 937건이 통과했다. 새 표본을 독립 ID로 수정한 뒤 해당 hydration·Queue 2파일을 99/99 재실행했다. 최종 영향 범위는 **47파일 939건 통과**다. 나머지 전체 테스트의 동일 입력 증거를 합치면 Vitest 3942건에 해당하지만 최종 전체 명령 재실행을 의미하지 않는다. 최종 타입·전체 lint·architecture·build도 통과했고 변경되지 않은 D1 doctor·mirror·agent 검사 증거를 재사용한다.
 
 로그는 `%TEMP%/otw-x-pr-ready-preflight.log`, `otw-pr220-stale-quote-{red,green}.log`, `otw-pr220-author-control-recovery.log`, `otw-pr220-review-fixed-affected.log`, `otw-pr220-final-hydration-queue.log`, `otw-pr220-review-fixed-checks.log`, `otw-pr220-final-type-lint.log`에 보존했다. 새 코드에 대한 GitHub 리뷰 답변·해결과 최종 head 확인은 PR 원장에 기록한다. 원격 DB·운영 설정·병합·배포·신규 유료 호출 보류는 유지한다.
+
+## Cloudflare 빌드 실패 재확인과 테스트 제한 시간 보완
+
+`342dc5a31f8d81fee405f2817fd0cce4542c26bc`의 [Cloudflare 빌드](https://dash.cloudflare.com/46e1801b290196fbec7cfae87710ffcf/workers/services/view/overthewall-schedule/production/builds/95bc3c5e-bb7b-4248-b92e-978fa887ba22)는 완료·실패였다. `WORKERS_CI=1`의 기존 build 단계에 포함된 전체 테스트에서 412파일이 통과하고 2파일의 9건이 시간 초과했다. `x-hybrid.integration.test.ts`의 긴 Queue 시나리오 5건은 기본 5초, `x-scan-cost.integration.test.ts`의 완료 이력 시나리오 4건은 15초를 초과했다. 검증값 불일치나 업로드 단계의 실패는 아니며 `wrangler versions upload`는 실행되지 않았다.
+
+동일한 두 파일은 변경 전 로컬에서 66/66 통과했다(21.93초). 긴 Queue 시나리오 네 선언에만 제한 시간 30초를 지정하고 이력 검사 suite를 60초로 조정했다. 실행 횟수·실제 D1·데이터 규모·모든 assertion을 유지하며 제품 코드·전역 테스트 설정·빌드 보호 검사는 변경하지 않았다. 변경 후 같은 66건이 23.96초에 통과했고 기존 공식 보완 4건도 별도 4/4 통과했다. 인용20건 Queue33/D1최대46, 만료 혼합20건 Queue16/D1최대49, 첫·마지막 ACK 실패 최대50/49를 확인했다. 타입 검사·변경 파일 lint·diff 검사도 통과했다.
+
+로그는 `%TEMP%/otw-pr220-build-timeout-{baseline,fixed,supplemental,types,lint}.log`다. 나머지 preflight 구성 요소는 동일 입력의 앞선 통과 증거를 재사용하며 전체 명령 재통과로 보고하지 않는다. 기존 P2는 해결됐고 새 미해결 리뷰는 없었다. 자동 리뷰 요약은 이전 head에 대한 결과이므로 최신 코드의 PASS로 간주하지 않는다. 새 head의 Cloudflare 검사 결과는 PR 원장으로 확인하며 로컬 통과만으로 원격 성공을 단정하지 않는다. 재빌드 버튼·수동 배포·원격 마이그레이션·운영 설정 변경·신규 유료 호출은 수행하지 않았다.

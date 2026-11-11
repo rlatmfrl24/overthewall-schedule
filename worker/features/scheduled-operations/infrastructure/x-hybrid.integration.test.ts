@@ -52,7 +52,7 @@ async function deliverOfficialQueueItem(body: unknown, send: ReturnType<typeof v
   return meter.bindingCalls;
 }
 
-it("schedules, resumes and completes a bounded official gap sweep", async () => {
+it("schedules, resumes and completes a bounded official gap sweep", { timeout: 30_000 }, async () => {
   await db.batch([
     db.prepare("INSERT INTO settings(key,value) VALUES('x_collection_hybrid_policy','rss_v1'),('x_collection_hybrid_activated_at',?)").bind(String(time - 12 * hour)),
     db.prepare("UPDATE x_post_sources SET regular_completed_at=? WHERE handle='member_b'").bind(time),
@@ -112,7 +112,7 @@ it("schedules, resumes and completes a bounded official gap sweep", async () => 
 });
 
 it.each([["link_only", 0], ["link_only", 10], ["cached_author", 0]] as const)(
-  "continues a regular timeline and 20 waiting quotes under the D1 cap (%s, %s cached bodies)", async (mode, cachedBodies) => {
+  "continues a regular timeline and 20 waiting quotes under the D1 cap (%s, %s cached bodies)", { timeout: 30_000 }, async (mode, cachedBodies) => {
   const quoteCount = 20;
   await db.batch([
     db.prepare("INSERT INTO settings(key,value) VALUES('x_collection_hybrid_policy','rss_v1'),('x_collection_hybrid_activated_at',?)").bind(String(time - 12 * hour)),
@@ -632,7 +632,7 @@ it("recovers an abandoned author lookup through manual control and ordinary Queu
   expect(await db.prepare("SELECT regular_completed_at,next_check_at FROM x_post_sources WHERE handle='member_a'").first()).toEqual({ regular_completed_at: time, next_check_at: time + 12 * hour });
 });
 
-it("records every continuation within the D1 cap for 20 mixed author quotes with expired bodies", async () => {
+it("records every continuation within the D1 cap for 20 mixed author quotes with expired bodies", { timeout: 30_000 }, async () => {
   const authors = Array.from({ length: 20 }, (_, index) => String(9000 + index));
   const warm = new Set(authors.filter((_, index) => index % 4 >= 2));
   const { repo, deliveries } = await seedPendingQuoteAuthors(["member_a"], authors, warm, true);
@@ -662,7 +662,7 @@ it("records every continuation within the D1 cap for 20 mixed author quotes with
   console.log("X_EXPIRED_QUOTE_QUEUE_PROFILE", { slices: calls.length, maxBindingCalls: Math.max(...calls), userLookups: requested.length });
 });
 
-it.each([0,15])("keeps mixed expired quote resumes within D1 50 when ACK fails at slice %s",async failAt=>{
+it.each([0,15])("keeps mixed expired quote resumes within D1 50 when ACK fails at slice %s",{timeout:30_000},async failAt=>{
   const authors=Array.from({length:20},(_,index)=>String(9000+index));
   const {repo,deliveries}=await seedPendingQuoteAuthors(["member_a"],authors,new Set(authors.filter((_,index)=>index%4>=2)),true);
   const initial=deliveries.get("member_a")!,pending:unknown[]=[initial],calls:number[]=[];
