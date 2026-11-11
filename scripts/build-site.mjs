@@ -46,7 +46,3 @@ for (const [script, ...args] of [
 writeStaticAssetManifest(resolve(getSiteTarget(siteId).outputRoot,"client"));
 writeSiteBuildManifest(siteId, environment);
 console.log(`[build] Verified artifact manifest for ${siteId}.`);
-if (process.env.WORKERS_CI === "1") {
-  console.error("PR220_PREVENTION_HOLD: build verified; version upload remains on hold");
-  process.exit(1);
-}

@@ -117,4 +117,8 @@ GitHub 자동 리뷰는 추가 P2 1건을 제시했다. 인용 원문/작성자 
 
 회귀는 기존 진단 테스트에 검사·정상 무설치·복구 성공·설치 실패37·복구 무효의 종료/횟수를 추가했다. 누락된 동작에서4건 실패를 확인한 뒤 영향4파일22건과 타입·변경 lint·architecture가 통과했다. 정상 Windows의 `pnpm run build`는 재설치 없이 exit0·manifest 완료였다. 격리 Linux의 실제 링크와 ESM entry를 함께 제거한 `pnpm run build`도 복구1회·다운로드0·잠금 파일 동일·복구된 entry 바이트 동일·최종 manifest 완료와 exit0을 확인했다(50.28초). 첫 검증 도구는 재설치 대상 내부에 보관한 백업이 사라져 검증 후 정리에 실패했으며 백업을 외부로 옮긴 뒤 같은 실제 흐름을 다시 통과했다. 제품 코드 실패와 구분한다.
 
-Cloudflare 재검증용 임시 게시에는 artifact 완료 직후 `PR220_PREVENTION_HOLD`/exit1을 둔다. 후속 버전 업로드를 차단하며 외부 CI 성공으로 보고하지 않는다. 배포·설정 변경·캐시 삭제·원격 마이그레이션·유료 호출은 보류한다.
+정상 LuvDia의 `pnpm run build:luvdia`도 재설치 없이 exit0·manifest 완료였다. 정상 연결 검사만의 로컬 측정은350ms이며 상한이나 성능 보장값은 아니다. 실제 Linux 빌드의 Vite에 exit42를 주입한 경우 복구를 시도하지 않고 실패 후 진단을 기록한 뒤42를 유지하며 SEO/manifest에 도달하지 않았다. 제품·잠금 파일·X 수집 코드와 검증 한도는 동일하다.
+
+Cloudflare 재검증용 임시 게시 `5c03dd42`의 [빌드 `06f65faf`](https://dash.cloudflare.com/46e1801b290196fbec7cfae87710ffcf/workers/services/view/overthewall-schedule/production/builds/06f65faf-901d-40e0-a5dd-9a50488847e7)에서 **415파일3946건 통과·플랫폼 조건3건 생략**, agent10건·mirror·연결 검사·Worker/client bundle·SEO·manifest까지 완료했다. 전체 테스트329.99초, client bundle7.87초였다. `[build] Verified artifact manifest for otw.` 뒤 임시 `PR220_PREVENTION_HOLD`/exit1로 후속 버전 업로드를 차단했다. 외부 check FAIL은 이 의도된 중단 결과이며 전체 명령 exit0이나 외부 CI PASS로 보고하지 않는다.
+
+최종 소스에서는 임시 중단을 제거하고 자동 실행 생략으로 게시한다. 원격 검증과의 실행 코드 차이는 이 마지막 차단 분기 제거뿐이다. 잠금 파일·설치 버전·빌드/운영 설정·캐시·원격 DB는 바꾸지 않았다. 실제 연결 손상에 대한 자동 복구는 로컬 Linux의 정상 빌드 진입점에서 검증했고, Cloudflare에서는 손상을 강제로 만들지 않았다. 과거 오류의 정확한 원인이나 모든 모듈 오류의 영구 방지를 보장하지 않는다. 전체 preflight 재실행이 아닌 이번 원격 gate와 기존 변경 없는 로컬 D1 doctor 증거의 합성 검증이다. 배포·설정 변경·캐시 삭제·원격 마이그레이션·유료 호출 보류를 유지한다.
