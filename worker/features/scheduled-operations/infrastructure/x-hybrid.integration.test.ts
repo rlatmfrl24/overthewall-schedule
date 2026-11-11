@@ -591,6 +591,47 @@ it("reuses a settled author response across different quotes before the first qu
   expect(await db.prepare("SELECT COUNT(*) n FROM x_shared_requests WHERE operation='user_lookup' AND status='complete'").first("n")).toBe(1);
 });
 
+it("recovers an abandoned author lookup through manual control and ordinary Queue delivery", async () => {
+  const { repo, deliveries } = await seedPendingQuoteAuthors(["member_a"], ["9000"], new Set(), true);
+  const initial = deliveries.get("member_a")!;
+  const lookup = { id: `otw:quote:${crypto.randomUUID()}`, operation: "user_lookup" as const,
+    path: "/users?ids=9000&user.fields=name%2Cusername%2Cprofile_image_url%2Cprotected", startedAt: time };
+  const upstream = vi.fn(() => Response.json({ data: [{ id: "9000", username: "recovered_author" }] }));
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = new URL(String(input));
+    if (url.hostname === "api.cloudflare.com") return Response.json({ data: { viewer: { accounts: [{ usage: [{ sum: { rowsRead: 0 } }] }] } } });
+    expect(url.pathname).toBe("/2/users");
+    return upstream();
+  }));
+  await db.exec("CREATE TRIGGER stop_author_settlement BEFORE UPDATE OF status ON x_shared_requests WHEN NEW.status='complete' AND NEW.operation='user_lookup' BEGIN SELECT RAISE(ABORT,'author settlement interrupted'); END;");
+  try { expect(await runtime().X_API_GATEWAY.execute(lookup)).toMatchObject({ ok: false, error: "shared_budget_unavailable" }); }
+  finally { await db.exec("DROP TRIGGER stop_author_settlement;"); }
+  await db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES('x:quote-author-lookup:v1:otw:9000','quote_lookup',?,?,?)")
+    .bind(JSON.stringify(lookup), time, time + 24 * hour).run();
+  time += 10 * 60_000;
+  const send = vi.fn().mockResolvedValue(undefined);
+  await deliverOfficialQueueItem(initial, send);
+  expect((await repo.readItem(initial.itemId))?.status).toBe("failed");
+  expect(upstream).toHaveBeenCalledOnce();
+  const nextAttempt = await db.prepare("SELECT author_next_attempt_at FROM x_post_references WHERE author_id='9000'").first<number>("author_next_attempt_at");
+  time = nextAttempt! + 1;
+  const controlSend = vi.fn().mockResolvedValue(undefined);
+  const environment = { ...runtime(), ...siteEnv(), OTW_OPS_CONTROL_QUEUE: { send: controlSend } as unknown as Queue<unknown>,
+    OTW_OPS_BACKGROUND_QUEUE: { send } as unknown as Queue<unknown> };
+  await new ScheduledRunClient(environment).retryRun(initial.runId);
+  const controlMeter = meterD1(db, 50), ack = vi.fn();
+  await handleWorkerQueue({ queue: "otw-ops-control", messages: [{ body: controlSend.mock.calls[0][0], ack, retry: vi.fn() }] } as unknown as MessageBatch<unknown>, { ...environment, otw_db: controlMeter.db });
+  expect(controlMeter.quotaDenials).toBe(0);
+  expect(ack).toHaveBeenCalledOnce();
+  for (let index = 0; index < send.mock.calls.length && index < 5; index++) await deliverOfficialQueueItem(send.mock.calls[index][0], send);
+  expect((await repo.readItem(initial.itemId))?.status).toBe("succeeded");
+  expect(upstream).toHaveBeenCalledTimes(2);
+  expect(await db.prepare("SELECT author_state FROM x_post_references WHERE author_id='9000'").first("author_state")).toBe("resolved");
+  expect(await runtime().X_API_GATEWAY.readBudget()).toMatchObject({ reserved: 10000, used: 10000 });
+  expect(await db.prepare("SELECT status FROM x_shared_requests WHERE id=?").bind(lookup.id).first("status")).toBe("running");
+  expect(await db.prepare("SELECT regular_completed_at,next_check_at FROM x_post_sources WHERE handle='member_a'").first()).toEqual({ regular_completed_at: time, next_check_at: time + 12 * hour });
+});
+
 it("records every continuation within the D1 cap for 20 mixed author quotes with expired bodies", async () => {
   const authors = Array.from({ length: 20 }, (_, index) => String(9000 + index));
   const warm = new Set(authors.filter((_, index) => index % 4 >= 2));

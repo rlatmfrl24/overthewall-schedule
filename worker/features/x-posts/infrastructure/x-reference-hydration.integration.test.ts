@@ -1140,6 +1140,49 @@ describe("X durable reference hydration", () => {
     expect(await claimXReferenceTarget(db, "10", "second",'otw')).toBe(true);
   });
 
+  it.each(["tweet_lookup", "user_lookup"] as const)("recovers an abandoned %s without releasing its uncertain reservation", async operation => {
+    let timestamp = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => timestamp);
+    await seed("90101", "90010");
+    const hydrate = () => hydrateXReferences({ db, siteId: "otw", handles: ["member"], bearerToken: "test",
+      mode: operation === "tweet_lookup" ? "post_only" : "cached_author", tracker: { ...tracker(), gateway: testEnv.X_API_GATEWAY } });
+    vi.mocked(fetch).mockImplementation(async input => new URL(String(input)).pathname === "/2/tweets"
+      ? json({ data: [{ id: "90010", text: "parent", ...(operation === "user_lookup" ? { author_id: "90020" } : {}) }] })
+      : json({ data: [{ id: "90020", username: "parent_author" }] }));
+    await db.exec(`CREATE TRIGGER interrupt_quote_settlement BEFORE UPDATE OF status ON x_shared_requests WHEN NEW.status='complete' AND NEW.operation='${operation}' BEGIN SELECT RAISE(ABORT,'settlement interrupted'); END;`);
+    try { expect(await hydrate()).toMatchObject({ failed: 1, errorCode: "shared_budget_unavailable" }); }
+    finally { await db.exec("DROP TRIGGER interrupt_quote_settlement;"); }
+    const original = await db.prepare("SELECT * FROM x_shared_requests WHERE operation=? AND status='running'").bind(operation).first<{ id: string }>();
+    expect(original).not.toBeNull();
+    const originalBudget = await testEnv.X_API_GATEWAY!.readBudget();
+    expect(originalBudget.reserved).toBeGreaterThan(0);
+    const key = operation === "tweet_lookup" ? "x:quote-lookup:v1:90010" : "x:quote-author-lookup:v1:otw:90020";
+    const count = operation === "tweet_lookup" ? 1 : 2;
+    const due = () => db.prepare("UPDATE x_post_references SET next_attempt_at=0,author_next_attempt_at=0").run();
+    timestamp += 10 * 60_000 - 1;
+    await due();
+    expect(await hydrate()).toMatchObject({ failed: 1, errorCode: "x_gateway_request_in_progress" });
+    expect(fetch).toHaveBeenCalledTimes(count);
+    expect(await db.prepare("SELECT key FROM x_api_cache WHERE key=?").bind(key).first("key")).toBe(key);
+    timestamp++;
+    await due();
+    expect(await hydrate()).toMatchObject({ failed: 1, errorCode: "x_gateway_quote_claim_expired" });
+    expect(await db.prepare("SELECT key FROM x_api_cache WHERE key=?").bind(key).first("key")).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(count);
+    expect(await db.prepare("SELECT * FROM x_shared_requests WHERE id=?").bind(original!.id).first()).toEqual(original);
+    expect(await testEnv.X_API_GATEWAY!.readBudget()).toEqual(originalBudget);
+    await due();
+    expect(await hydrate()).toMatchObject({ failed: 0 });
+    expect(fetch).toHaveBeenCalledTimes(count + 1);
+    expect((await getPost("90101")).quote?.post?.text).toBe("parent");
+    if (operation === "user_lookup") {
+      expect((await getPost("90101")).quote?.post?.username).toBe("parent_author");
+      expect(vi.mocked(fetch).mock.calls.filter(([input]) => new URL(String(input)).pathname === "/2/tweets")).toHaveLength(1);
+    }
+    expect(await testEnv.X_API_GATEWAY!.readBudget()).toMatchObject({ reserved: originalBudget.reserved,
+      used: originalBudget.used + (operation === "tweet_lookup" ? 5000 : 10000) });
+  });
+
   it("shares the same author request across concurrent quotes with different originals", async () => {
     await seed("101", "10", "member");
     await seed("102", "11", "other");

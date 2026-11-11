@@ -8,7 +8,7 @@ import { isXTimelineGapPayload } from "./x-timeline-gaps";
 export interface XBudgetSnapshot { day: string; used: number; reserved: number }
 export interface XSharedBudget extends XBudgetSnapshot { limit: number; remaining: number; seeded: boolean }
 const DAY = 86_400_000;
-const GAP_REQUEST_RECOVERY_MS = 10 * 60_000;
+const REQUEST_RECOVERY_MS = 10 * 60_000;
 const failure = (error: string, status = 503): XApiGatewayResult => ({ ok: false, status, error, costMicros: 0, cached: false, dispatched: false });
 const utcDay = () => new Date(Date.now()).toISOString().slice(0,10);
 
@@ -79,14 +79,18 @@ export class D1SharedXApiGateway implements XApiGateway {
     const includeBody = input.includeTimelineBody === true && input.operation === "timeline" && input.id.startsWith(`${this.site}:gap:`);
     const includeReference = input.includeReferenceResult === true && input.id.startsWith(`${this.site}:quote:`) &&
       (input.operation === "tweet_lookup" && input.path.startsWith("/tweets?ids=") || input.operation === "user_lookup" && input.path.startsWith("/users?ids="));
-    const row = await this.db.prepare(`SELECT day,status,CASE WHEN json_valid(result) THEN json_extract(result,'$.ok') END ok,
+    const row = await this.db.prepare(`SELECT day,status,updated_at,CASE WHEN json_valid(result) THEN json_extract(result,'$.ok') END ok,
       CASE WHEN ? AND status='complete' AND json_valid(result) AND NOT EXISTS (
         SELECT 1 FROM json_each(post_ids) ids JOIN x_activity_cache_redactions hidden ON hidden.post_id=ids.value
       ) THEN CASE WHEN ? THEN result ELSE json_quote(json_extract(result,'$.body')) END END AS body
       FROM x_shared_requests WHERE id=? AND site=? AND operation=? AND path=?`)
-      .bind(includeBody || includeReference ? 1 : 0, includeReference ? 1 : 0, input.id, this.site, input.operation, input.path).first<{ day: string; status: string; ok: number | null; body: string | null }>();
+      .bind(includeBody || includeReference ? 1 : 0, includeReference ? 1 : 0, input.id, this.site, input.operation, input.path).first<{ day: string; status: string; updated_at: number; ok: number | null; body: string | null }>();
+    // Expire only the local recovery claim; uncertain provider charges stay reserved in the ledger.
+    const referenceResult = row?.body && includeReference ? JSON.parse(row.body) as XApiGatewayResult
+      : row && includeReference && ["running", "redacting"].includes(row.status) && Date.now() - row.updated_at >= REQUEST_RECOVERY_MS
+        ? failure("x_gateway_quote_claim_expired") : undefined;
     return row ? { found: true, day: row.day, status: row.status, ok: row.ok === 1 ? true : row.ok === 0 ? false : null,
-      ...(row.body && includeReference ? { referenceResult: JSON.parse(row.body) as XApiGatewayResult }
+      ...(referenceResult ? { referenceResult }
         : row.body && row.ok === 1 ? { timelineBody: JSON.parse(row.body) as unknown } : {}) } : { found: false };
   }
 
@@ -170,7 +174,7 @@ export class D1SharedXApiGateway implements XApiGateway {
         if (claim.result) return { ...JSON.parse(claim.result) as XApiGatewayResult, cached: true, costMicros: 0, dispatched: false };
         if(claim.status==="redacted")return failure("x_gateway_result_redacted",410);
         if (gapRequest &&
-          (claim.status === "running" || claim.status === "redacting") && timestamp - claim.updated_at >= GAP_REQUEST_RECOVERY_MS) {
+          (claim.status === "running" || claim.status === "redacting") && timestamp - claim.updated_at >= REQUEST_RECOVERY_MS) {
           return failure("x_gateway_result_unknown");
         }
         return failure(claim.status === "blocked" ? "budget_exceeded" : "x_gateway_request_in_progress", claim.status === "blocked" ? 429 : 503);
