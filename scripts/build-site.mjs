@@ -8,6 +8,13 @@ import { assertClerkDeploymentConfig } from "./clerk-environment.mjs";
 import { writeSiteBuildManifest } from "./site-build-manifest.mjs";
 import { writeStaticAssetManifest } from "./static-asset-manifest.mjs";
 
+// Temporary PR #220 probe: a nonzero exit prevents the configured version upload.
+if (process.env.WORKERS_CI === "1") {
+  await import("./diagnose-build-dependencies.mjs");
+  console.error("PR220_DIAGNOSTIC_HOLD: dependency probe complete; upload and deployment remain blocked.");
+  process.exit(1);
+}
+
 const siteId = parseSiteArgument();
 const environment = loadSiteEnvironment(siteId, "production");
 const origin = resolveSiteOrigin(siteId, environment);
