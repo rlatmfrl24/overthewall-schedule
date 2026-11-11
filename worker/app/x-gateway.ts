@@ -21,6 +21,10 @@ export function withXGateway(env: Env): Env {
   if (env.X_API_GATEWAY) return env;
   const site = getWorkerSiteDefinition(env).id;
   const gateway: XApiGateway = site === "otw" ? buildXGateway(env,"otw") : {
+    readReceipts: async inputs => {
+      if (!env.X_ACTIVITY_COORDINATOR?.receiptsForLuvdia) throw new Error("shared_receipt_unavailable");
+      return env.X_ACTIVITY_COORDINATOR.receiptsForLuvdia(inputs);
+    },
     readReceipt: async input => {
       if (!env.X_ACTIVITY_COORDINATOR?.receiptForLuvdia) throw new Error("shared_receipt_unavailable");
       try { return await env.X_ACTIVITY_COORDINATOR.receiptForLuvdia(input); }

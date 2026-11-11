@@ -185,8 +185,8 @@ describe("scheduled job physical queue mapping", () => {
     expect(createRun).not.toHaveBeenCalled();
     expect(addItems).toHaveBeenCalledWith(existing.id, [
       expect.objectContaining({ targetKey: "handle:member" }),
-    ]);
-    expect(dispatchRun).toHaveBeenCalledWith(existing.id);
+    ],undefined,0);
+    expect(dispatchRun).toHaveBeenCalledWith(existing.id, { controlGeneration: 0 });
   });
 
   it("closes a resumed queued run when recalculation finds no targets", async () => {
@@ -226,6 +226,7 @@ describe("scheduled job physical queue mapping", () => {
     expect(skipRun).toHaveBeenCalledWith(
       existing.id,
       "no_targets_after_resume",
+      0,
     );
     expect(result).toBe(closed);
   });
@@ -239,5 +240,5 @@ it("resumes queued retry items without replanning the original scheduled cadence
  const plan=vi.spyOn(ScheduledJobPlanner.prototype,"plan");
  const dispatch=vi.spyOn(ScheduledJobCoordinator.prototype,"dispatchRun").mockResolvedValue({claimed:1,dispatched:1,failed:0});
  expect(await new ScheduledJobCoordinator({otw_db:{}} as Env).planManualRun(run.id)).toBe(run);
- expect(plan).not.toHaveBeenCalled();expect(dispatch).toHaveBeenCalledWith(run.id);
+ expect(plan).not.toHaveBeenCalled();expect(dispatch).toHaveBeenCalledWith(run.id, { controlGeneration: 0 });
 });

@@ -105,40 +105,45 @@ export function sanitizeXReferences(post: XPostDto, archivedIds: ReadonlySet<str
   };
 }
 
-// Used by both public reads and background hydration. No writes or provider calls.
-export async function readStoredXPreview(
+export async function readStoredXPreviews(
   db: DB,
-  id: string,
+  ids: string[],
   timestamp = Date.now(),
   siteId: SiteId = "luvdia",
-): Promise<StoredXPreview | "hidden" | null> {
-  if (await isXReferenceHidden(db, id, siteId)) return "hidden";
-  const row = await db
-    .prepare(
-      `SELECT value, user_id, hidden_at, content_removed_at FROM x_posts WHERE id=?`,
-    )
-    .bind(id)
-    .first<{
-      value: string;
-      user_id: string | null;
-      hidden_at: number | null;
-      content_removed_at: number | null;
-    }>();
-  if (row && (row.hidden_at != null || row.content_removed_at != null))
-    return "hidden";
-  if (row) {
-    const post = parseXPreview(row.value);
-    if (post?.id === id) {
-      return (await filterArchivedXReferences(db, [post], siteId)).length ? storedXPreview(post, row.user_id) : "hidden";
-    }
+) {
+  const previews = new Map<string, StoredXPreview | "hidden" | null>();
+  if (!ids.length) return previews;
+  const { results } = await db.prepare(`WITH requested AS (SELECT value AS id FROM json_each(?)),
+    candidates AS MATERIALIZED (
+      SELECT requested.id,p.value,p.user_id,cache.value AS cached,
+        (p.id IS NOT NULL AND (p.hidden_at IS NOT NULL OR p.content_removed_at IS NOT NULL OR p.content_access='admin_archive'
+          OR ${publicationHiddenSql("x_posts", "p", siteId)}))
+        OR EXISTS(SELECT 1 FROM x_post_facts f WHERE f.post_id=requested.id
+          AND (f.content_access='admin_archive' OR ${publicationHiddenSql("x_post_facts", "f", siteId)}))
+        OR EXISTS(SELECT 1 FROM x_post_references r WHERE r.referenced_post_id=requested.id AND r.resolution_state='terminal') AS hidden
+      FROM requested LEFT JOIN x_posts p ON p.id=requested.id
+      LEFT JOIN x_api_cache cache ON cache.key='x:linked-post:v1:'||requested.id AND cache.expires_at>?
+    ) SELECT id,value,user_id,cached,hidden,NULL AS url_twitter FROM candidates
+    UNION ALL SELECT NULL,NULL,NULL,NULL,1,url_twitter FROM members
+    WHERE url_twitter IS NOT NULL AND (content_access='admin_archive' OR ${publicationHiddenSql("members", "members", siteId)})
+      AND EXISTS(SELECT 1 FROM candidates WHERE hidden=0 AND (value IS NOT NULL OR cached IS NOT NULL))`)
+    .bind(JSON.stringify([...new Set(ids)]), timestamp)
+    .all<{id: string | null; value: string | null; user_id: string | null; cached: string | null; hidden: number; url_twitter: string | null}>();
+  const hiddenHandles = new Set(results.flatMap(row => row.url_twitter ? [extractXHandle(row.url_twitter)?.toLowerCase() ?? null] : []));
+  for (const row of results) {
+    if (row.id === null) continue;
+    const post = row.value ? parseXPreview(row.value) : null;
+    const preview = row.hidden ? "hidden" : post?.id === row.id
+      ? hiddenHandles.has(post.username.toLowerCase()) ? "hidden" : storedXPreview(post, row.user_id)
+      : row.cached ? parseCachedXPreview(row.cached, row.id, hiddenHandles) : null;
+    previews.set(row.id, preview);
   }
-  const cache = await db
-    .prepare(`SELECT value FROM x_api_cache WHERE key=? AND expires_at>?`)
-    .bind(linkedPostKey(id), timestamp)
-    .first<{ value: string }>();
-  if (!cache) return null;
-  const members = await db.prepare(`SELECT url_twitter FROM members WHERE content_access='admin_archive' OR ${publicationHiddenSql("members", "members", siteId)}`).bind().all<{url_twitter:string|null}>();
-  return parseCachedXPreview(cache.value, id, new Set(members.results.map(row => extractXHandle(row.url_twitter)?.toLowerCase() ?? null)));
+  return previews;
+}
+
+// Public reads and background hydration use the same visibility rules.
+export async function readStoredXPreview(db: DB, id: string, timestamp = Date.now(), siteId: SiteId = "luvdia") {
+  return (await readStoredXPreviews(db, [id], timestamp, siteId)).get(id) ?? null;
 }
 
 export function parseCachedXPreview(value: string, id: string, hiddenHandles: ReadonlySet<string | null>): StoredXPreview | "hidden" | null {

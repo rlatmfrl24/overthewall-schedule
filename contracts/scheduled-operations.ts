@@ -153,12 +153,14 @@ export type ScheduledJobQueueMessage = {
   runId: string;
   itemId: string;
   phase: string;
+  deliveryGeneration?: number;
 };
 
 export type ScheduledControlQueueMessage = {
   schemaVersion: 1;
   messageType: "scheduled_job_control";
   runId: string;
+  deliveryGeneration?: number;
 };
 
 export type ScheduledOperationsWorkflowParams = {
@@ -187,7 +189,9 @@ export const isScheduledJobQueueMessage = (
     record.messageType === "scheduled_job_item" &&
     typeof record.runId === "string" &&
     typeof record.itemId === "string" &&
-    typeof record.phase === "string";
+    typeof record.phase === "string" &&
+    (record.deliveryGeneration === undefined || typeof record.deliveryGeneration === "number" &&
+      Number.isSafeInteger(record.deliveryGeneration) && record.deliveryGeneration >= 0);
 };
 
 export const isScheduledControlQueueMessage = (
@@ -197,5 +201,7 @@ export const isScheduledControlQueueMessage = (
   const record = value as Record<string, unknown>;
   return record.schemaVersion === 1 &&
     record.messageType === "scheduled_job_control" &&
-    typeof record.runId === "string";
+    typeof record.runId === "string" &&
+    (record.deliveryGeneration === undefined || typeof record.deliveryGeneration === "number" &&
+      Number.isSafeInteger(record.deliveryGeneration) && record.deliveryGeneration >= 0);
 };

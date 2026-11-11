@@ -1140,6 +1140,59 @@ describe("X durable reference hydration", () => {
     expect(await claimXReferenceTarget(db, "10", "second",'otw')).toBe(true);
   });
 
+  it("shares the same author request across concurrent quotes with different originals", async () => {
+    await seed("101", "10", "member");
+    await seed("102", "11", "other");
+    for (const [source, target] of [["101", "10"], ["102", "11"]]) {
+      const post = { ...body(target), username: "i", name: null, profileImageUrl: null };
+      await db.batch([
+        db.prepare("UPDATE x_posts SET value=json_set(value,'$.quote.post',json(?)) WHERE id=?").bind(JSON.stringify(post), source),
+        db.prepare("UPDATE x_post_references SET resolution_state='hydrated',author_state='pending',author_id='9001',author_next_attempt_at=0 WHERE source_post_id=?").bind(source),
+        db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES(?,'linked_post',?,?,?)")
+          .bind(linkedPostKey(target), JSON.stringify({ post, authorId: "9001" }), Date.now(), Date.now() + 60_000),
+      ]);
+    }
+    let started!: () => void, release!: () => void;
+    const active = new Promise<void>(resolve => { started = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    vi.mocked(fetch).mockImplementation(async input => {
+      const url = new URL(String(input));
+      expect(url.pathname).toBe("/2/users");
+      expect(url.searchParams.get("ids")).toBe("9001");
+      started();
+      await gate;
+      return json({ data: [{ id: "9001", username: "shared_author" }] });
+    });
+    const hydrate = (handle: string) => hydrateXReferences({ db, siteId: "otw", handles: [handle], bearerToken: "test",
+      mode: "cached_author", tracker: { ...tracker(), gateway: testEnv.X_API_GATEWAY } });
+    const first = hydrate("member");
+    try {
+      await active;
+      expect(await hydrate("other")).toMatchObject({ failed: 1, errorCode: "x_gateway_request_in_progress" });
+      expect(fetch).toHaveBeenCalledOnce();
+    } finally { release(); await first; }
+    expect((await getPost("101")).quote?.post?.username).toBe("shared_author");
+    await db.prepare("UPDATE x_post_references SET author_next_attempt_at=0 WHERE source_post_id='102'").run();
+    await hydrate("other");
+    expect((await getPost("102")).quote?.post?.username).toBe("shared_author");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("defers only the selected quote when other rows reference the same original", async () => {
+    await seed("101", "10");
+    await seed("102", "10");
+    await seed("103", "10", "other");
+    const result = await hydrateXReferences({ db, siteId: "otw", handles: ["member"],
+      bearerToken: "test", mode: "link_only", tracker: tracker(), maxRows: 1 });
+    expect(result).toMatchObject({ scanned: 1, deferred: 1, remainingDue: true });
+    expect((await db.prepare("SELECT source_post_id,last_error_code,lease_token FROM x_post_references ORDER BY source_post_id").all()).results).toEqual([
+      { source_post_id: "101", last_error_code: "preview_disabled", lease_token: null },
+      { source_post_id: "102", last_error_code: null, lease_token: null },
+      { source_post_id: "103", last_error_code: null, lease_token: null },
+    ]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("does not revive a post redacted while the provider request is running", async () => {
     await seed();
     vi.mocked(fetch).mockImplementationOnce(async () => {

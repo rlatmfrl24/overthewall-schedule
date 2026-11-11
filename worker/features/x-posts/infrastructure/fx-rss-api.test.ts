@@ -16,6 +16,25 @@ it("preserves raw counts when a valid 200 feed shrinks from 100 to 35", async ()
   expect((await fetchFxRssFeed("member")).rawCount).toBe(100);
   expect((await fetchFxRssFeed("member")).rawCount).toBe(35);
 });
+it("retries an intermittent RSS 404 once at the same URL",async()=>{
+  const fetchMock=vi.fn().mockResolvedValueOnce(new Response(null,{status:404})).mockResolvedValueOnce(new Response(feed(item("123"))));
+  vi.stubGlobal("fetch",fetchMock);
+  expect(await fetchFxRssFeed("member")).toMatchObject({rawCount:1,entries:[{id:"123",handle:"member"}]});
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock.mock.calls[0][0]).toBe(fetchMock.mock.calls[1][0]);
+  expect(fetchMock.mock.calls[1][1]).toMatchObject({redirect:"manual",headers:{Accept:"application/rss+xml"}});
+});
+it("preserves a persistent RSS 404 after one retry",async()=>{
+  const fetchMock=vi.fn().mockResolvedValueOnce(new Response(null,{status:404})).mockResolvedValueOnce(new Response(null,{status:404})).mockResolvedValueOnce(new Response(feed(item("123"))));
+  vi.stubGlobal("fetch",fetchMock);
+  await expect(fetchFxRssFeed("member")).rejects.toMatchObject({code:"fx_http_404"});
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+it.each([302,401,429,500])("does not retry a non-404 RSS response (%s)",async status=>{
+  const fetchMock=vi.fn().mockResolvedValue(new Response(null,{status}));vi.stubGlobal("fetch",fetchMock);
+  await expect(fetchFxRssFeed("member")).rejects.toMatchObject({code:`fx_http_${status}`});
+  expect(fetchMock).toHaveBeenCalledOnce();
+});
 it.each([
   ["Tue, 03 Nov 2026 00:00:00 GMT", "2026-11-03T00:00:00Z"],
   ["Thu, 29 Feb 2024 23:59:59 GMT", "2024-02-29T23:59:59Z"],

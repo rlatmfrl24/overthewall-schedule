@@ -67,6 +67,11 @@ export type NewScheduledItem = {
   continuation?: Record<string, unknown> | null;
 };
 
+export type ScheduledDispatchFence = {
+  controlGeneration?: number;
+  items?: ScheduledJobItemRecord[];
+};
+
 const parseJsonRecord = (value: string | null) => {
   if (!value) return null;
   try {
@@ -77,6 +82,11 @@ const parseJsonRecord = (value: string | null) => {
   } catch {
     return null;
   }
+};
+
+export const getScheduledControlGeneration = (summary: string | null | undefined) => {
+  const value=parseJsonRecord(summary ?? null)?.controlGeneration;
+  return typeof value==="number" && Number.isSafeInteger(value) && value>=0 ? value : 0;
 };
 
 const toProgress = (rows: Array<{ status: string; count: number | string }>) => {
@@ -229,7 +239,10 @@ const toRunDto = (
   run: ScheduledJobRunRecord,
   progress: OperationRunProgressDto,
   failures: OperationRunFailureDto[],
-): OperationRunDto => ({
+): OperationRunDto => {
+  const summary=parseJsonRecord(run.summary_json);
+  if(summary)delete summary.controlGeneration;
+  return {
   runId: run.id,
   jobType: run.job_type,
   source: run.source,
@@ -241,9 +254,10 @@ const toRunDto = (
   finishedAt: run.finished_at,
   progress,
   failures,
-  summary: parseJsonRecord(run.summary_json),
+  summary: summary && Object.keys(summary).length ? summary : null,
   lastError: run.last_error,
-});
+  };
+};
 
 // Keep both the eligibility probe and atomic claim on unresolved deliveries.
 // Inline-acknowledged reconcile rows need never be sent; they also must not
@@ -265,6 +279,17 @@ export const autoUpdatePhaseReadySql = (item: string, run: string) => `(
     AND (${item}.phase<>'finalize' OR NOT EXISTS(SELECT 1 FROM scheduled_job_items WHERE run_id=${run}.id AND phase='match')
       OR COALESCE(json_extract(${run}.summary_json,'$.autoUpdatePhases.match'),0)<>-1)
   ))`;
+
+const deliveryGenerationSql = (table: string) =>
+  `COALESCE(CASE WHEN json_valid(${table}.continuation_json) THEN json_extract(${table}.continuation_json,'$.deliveryGeneration') END,0)`;
+const controlGenerationSql=`COALESCE(CASE WHEN json_valid(summary_json) THEN json_extract(summary_json,'$.controlGeneration') END,0)`;
+
+const reconciliationFence = (items: ScheduledJobItemRecord[]) => ({
+  sql: items.length ? `NOT EXISTS (SELECT 1 FROM json_each(?) snapshot LEFT JOIN scheduled_job_items current
+    ON current.id=json_extract(snapshot.value,'$.id') WHERE current.id IS NULL
+    OR current.continuation_json IS NOT json_extract(snapshot.value,'$.continuation'))` : "1",
+  bindings: items.length ? [JSON.stringify(items.map(item => ({ id: item.id, continuation: item.continuation_json ?? null })))] : [],
+});
 
 const pendingOutboxSelection = (scopedToRun: boolean) => `
   SELECT o.id
@@ -389,7 +414,7 @@ export class D1ScheduledJobRepository {
     return Boolean(row?.advanced);
   }
 
-  async addItems(runId: string, items: NewScheduledItem[], afterPhase?: "scan" | "match") {
+  async addItems(runId: string, items: NewScheduledItem[], afterPhase?: "scan" | "match", controlGeneration?:number) {
     if (items.length === 0) return [];
     const now = this.clock();
     const records = items.map((item) => ({
@@ -397,6 +422,9 @@ export class D1ScheduledJobRepository {
       id: this.createId(),
     }));
     const statements: D1PreparedStatement[] = [];
+    if(controlGeneration!==undefined)statements.push(this.db.prepare(`SELECT CASE WHEN EXISTS(
+      SELECT 1 FROM scheduled_job_runs WHERE id=? AND ${controlGenerationSql}=?) THEN 1
+      ELSE json_extract('[]','scheduled_control_superseded') END`).bind(runId,controlGeneration));
     if (afterPhase) {
       statements.push(this.db.prepare(`SELECT iif(
         NOT (${autoUpdatePhaseAdvancedSql(afterPhase)})
@@ -485,24 +513,26 @@ export class D1ScheduledJobRepository {
     try {
       await this.db.batch(statements);
     } catch (error) {
+      if(controlGeneration!==undefined && error instanceof Error && error.message.includes("scheduled_control_superseded"))return [];
       if (afterPhase && await this.hasAdvancedPhase(runId, afterPhase)) return [];
       throw error;
     }
     return records.map((item) => item.id);
   }
 
-  async skipRun(runId: string, reason = "no_targets") {
+  async skipRun(runId: string, reason = "no_targets", generation?:number) {
     const now = this.clock();
     await this.db.prepare(
       `UPDATE scheduled_job_runs
        SET status = 'skipped', finished_at = ?, updated_at = ?,
            summary_json = ?
-       WHERE id = ? AND status = 'queued'`,
-    ).bind(now, now, JSON.stringify({ reason }), runId).run();
+       WHERE id = ? AND status = 'queued' AND (? IS NULL OR ${controlGenerationSql}=?)`,
+    ).bind(now, now, JSON.stringify({ reason }), runId,generation ?? null,generation ?? null).run();
   }
 
-  async claimPendingOutbox(runId?: string, limit = 25) {
+  async claimPendingOutbox(runId?: string, limit = 25, expected?: ScheduledDispatchFence) {
     const leaseToken = this.createId();
+    const fence = reconciliationFence(expected?.items ?? []);
     // Stale D1 statistics can select a full scan for the outer UPDATE even
     // when its candidate subquery uses the status index. Keep the atomic
     // claim bounded by the selected IDs using the existing primary key.
@@ -510,52 +540,40 @@ export class D1ScheduledJobRepository {
       `UPDATE scheduled_outbox INDEXED BY sqlite_autoindex_scheduled_outbox_1
        SET status = 'dispatching', attempts = attempts + 1,
            lease_token = ?, lease_until = ?, updated_at = ?
-       WHERE id IN (${pendingOutboxSelection(Boolean(runId))})
+       WHERE id IN (${pendingOutboxSelection(Boolean(runId))}) AND (${fence.sql})
+         ${expected?.controlGeneration === undefined ? "" : `AND EXISTS(SELECT 1 FROM scheduled_job_runs
+           WHERE id=scheduled_outbox.run_id AND ${controlGenerationSql}=?)`}
        RETURNING id, run_id, item_id, lane, lease_token,
          (SELECT phase FROM scheduled_job_items WHERE id = item_id) AS phase,
+         (SELECT ${deliveryGenerationSql("scheduled_job_items")} FROM scheduled_job_items WHERE id = item_id) AS delivery_generation,
+         (SELECT ${controlGenerationSql} FROM scheduled_job_runs WHERE id = run_id) AS control_generation,
          (SELECT job_type FROM scheduled_job_runs WHERE id = run_id) AS job_type`,
     );
     const now = this.clock();
-    const result = runId
-      ? await statement.bind(
-          leaseToken,
-          now + SCHEDULED_JOB_LEASE_MS,
-          now,
-          runId,
-          now,
-          now,
-          now,
-          now,
-          now,
-          limit,
-        ).all<{
-          id: string;
-          run_id: string;
-          item_id: string;
-          lane: ScheduledLane;
-          phase: string;
-          lease_token: string;
-          job_type: ScheduledJobType;
-        }>()
-      : await statement.bind(
-          leaseToken,
-          now + SCHEDULED_JOB_LEASE_MS,
-          now,
-          now,
-          now,
-          now,
-          now,
-          now,
-          limit,
-        ).all<{
-          id: string;
-          run_id: string;
-          item_id: string;
-          lane: ScheduledLane;
-          phase: string;
-          lease_token: string;
-          job_type: ScheduledJobType;
-        }>();
+    const result = await statement.bind(
+      leaseToken,
+      now + SCHEDULED_JOB_LEASE_MS,
+      now,
+      ...(runId ? [runId] : []),
+      now,
+      now,
+      now,
+      now,
+      now,
+      limit,
+      ...fence.bindings,
+      ...(expected?.controlGeneration === undefined ? [] : [expected.controlGeneration]),
+    ).all<{
+      id: string;
+      run_id: string;
+      item_id: string;
+      lane: ScheduledLane;
+      phase: string;
+      delivery_generation: number;
+      control_generation: number;
+      lease_token: string;
+      job_type: ScheduledJobType;
+    }>();
     return result.results;
   }
 
@@ -600,14 +618,36 @@ export class D1ScheduledJobRepository {
       queueDeliveryCutoff,
       limit,
     );
+    const [redispatched, rebuilt, recoveredLeases] = await this.db.batch([
+      redispatchExpiredDeliveries,
+      rebuildMissingDeliveries,
+      ...this.prepareExpiredLeaseRecovery(now, limit),
+    ]);
+    return Number(redispatched.meta.changes ?? 0) +
+      Number(rebuilt.meta.changes ?? 0) +
+      Number(recoveredLeases.meta.changes ?? 0);
+  }
+
+  async recoverExpiredDelivery(itemId: string, generation: number) {
+    const [recovered] = await this.db.batch(this.prepareExpiredLeaseRecovery(this.clock(), 1, { itemId, generation }));
+    return Boolean(recovered.meta.changes);
+  }
+
+  private prepareExpiredLeaseRecovery(now: number, limit: number, delivery?: { itemId: string; generation: number }) {
+    const recoveryToken = this.createId();
     const update = this.db.prepare(
       `UPDATE scheduled_job_items
        SET status = 'queued', available_at = ?,
            last_error_code = 'stale_lease_recovered',
            last_error = 'Execution lease expired before completion',
+           continuation_json = json_set(CASE WHEN json_valid(continuation_json) THEN
+             CASE WHEN json_type(continuation_json)='object' THEN continuation_json ELSE '{}' END ELSE '{}' END,
+             '$.deliveryGeneration', ${deliveryGenerationSql("scheduled_job_items")} + 1, '$.deliveryRecovery', ?),
            lease_token = NULL, lease_until = NULL, updated_at = ?
-       WHERE id IN (${expiredLeaseSelection})`,
-    ).bind(now, now, now, limit);
+       WHERE ${delivery
+        ? `id = ? AND status = 'running' AND lease_until < ? AND ${deliveryGenerationSql("scheduled_job_items")} = ?`
+        : `id IN (${expiredLeaseSelection})`}`,
+    ).bind(now, recoveryToken, now, ...(delivery ? [delivery.itemId, now, delivery.generation] : [now, limit]));
     const rebuildOutbox = this.db.prepare(
       `INSERT INTO scheduled_outbox (
          id, run_id, item_id, lane, event_type, status, attempts,
@@ -615,24 +655,20 @@ export class D1ScheduledJobRepository {
        ) SELECT lower(hex(randomblob(16))), run_id, id, lane, 'execute',
                 'pending', 0, ?, ?, ?
          FROM scheduled_job_items
-         WHERE status = 'queued'
-           AND last_error_code = 'stale_lease_recovered'
-           AND updated_at = ?
+         WHERE changes() > 0 AND status = 'queued'
+           AND CASE WHEN json_valid(continuation_json) THEN json_extract(continuation_json,'$.deliveryRecovery') END = ?
+           ${delivery ? "AND id=?" : ""}
        ON CONFLICT(item_id, event_type) DO UPDATE SET
          status = 'pending', attempts = 0,
          available_at = excluded.available_at, last_error = NULL,
          lease_token = NULL, lease_until = NULL,
          updated_at = excluded.updated_at`,
-    ).bind(now, now, now, now);
-    const [redispatched, rebuilt, recoveredLeases] = await this.db.batch([
-      redispatchExpiredDeliveries,
-      rebuildMissingDeliveries,
-      update,
-      rebuildOutbox,
-    ]);
-    return Number(redispatched.meta.changes ?? 0) +
-      Number(rebuilt.meta.changes ?? 0) +
-      Number(recoveredLeases.meta.changes ?? 0);
+    ).bind(now, now, now, recoveryToken, ...(delivery ? [delivery.itemId] : []));
+    const clearRecoveryToken = this.db.prepare(`UPDATE scheduled_job_items SET continuation_json=json_remove(continuation_json,'$.deliveryRecovery')
+      WHERE changes()>0 AND status='queued' AND CASE WHEN json_valid(continuation_json) THEN json_extract(continuation_json,'$.deliveryRecovery') END=?
+        ${delivery ? "AND id=?" : ""}`)
+      .bind(recoveryToken, ...(delivery ? [delivery.itemId] : []));
+    return [update, rebuildOutbox, clearRecoveryToken];
   }
 
   async markOutboxDispatched(outboxId: string) {
@@ -643,10 +679,10 @@ export class D1ScheduledJobRepository {
     await this.markOutboxResults([{id:outboxId,error}]);
   }
 
-  async markOutboxResults(outcomes: Array<{id:string;error:string|null;leaseToken?:string}>, throttledRun?: string) {
-    if (!outcomes.length && !throttledRun) return;
+  async markOutboxResults(outcomes: Array<{id:string;error:string|null;leaseToken?:string}>, denied?: {id:string;run_id:string;lease_token:string;delivery_generation:number;control_generation:number}) {
+    if (!outcomes.length && !denied) return;
     const now = this.clock();
-    await this.db.batch([...(throttledRun ? this.prepareRunThrottled(throttledRun,"daily_background_budget_exhausted") : []),...outcomes.map(outcome=>outcome.error===null ? this.db.prepare(`UPDATE scheduled_outbox
+    await this.db.batch([...(denied ? this.prepareRunThrottled(denied.run_id,"daily_background_budget_exhausted",denied) : []),...outcomes.map(outcome=>outcome.error===null ? this.db.prepare(`UPDATE scheduled_outbox
       SET status='dispatched',dispatched_at=?,updated_at=?,available_at=CASE WHEN event_type='reconcile' AND reconciled_at IS NULL THEN ? ELSE available_at END,
       lease_token=NULL,lease_until=NULL WHERE id=? AND status='dispatching' AND (? IS NULL OR lease_token=?)`).bind(now,now,now+SCHEDULED_QUEUE_DELIVERY_RECOVERY_MS,outcome.id,outcome.leaseToken ?? null,outcome.leaseToken ?? null)
       : this.db.prepare(`UPDATE scheduled_outbox SET status='failed',attempts=attempts+1,last_error=?,available_at=?,updated_at=?,lease_token=NULL,lease_until=NULL WHERE id=? AND (? IS NULL OR (status='dispatching' AND lease_token=?))`)
@@ -660,29 +696,41 @@ export class D1ScheduledJobRepository {
     return await this.prepareQueueOperations(day, amount, now).first() !== null;
   }
 
-  async reserveReconciliationRetry(runId: string, error: string) {
+  async reserveControlRetry(runId: string, expectedGeneration: number) {
+    const now = this.clock(), day = new Date(now).toISOString().slice(0, 10);
+    const [reservation, current] = await this.db.batch([
+      this.prepareQueueOperations(day, 3, now, [], { runId, generation: expectedGeneration }),
+      this.db.prepare(`SELECT 1 FROM scheduled_job_runs
+        WHERE id=? AND status='queued' AND ${controlGenerationSql}=?`).bind(runId, expectedGeneration),
+    ]);
+    return reservation.results.length ? "reserved" as const : current.results.length ? "denied" as const : "stale" as const;
+  }
+
+  async reserveReconciliationRetry(runId: string, error: string, expectedItems: ScheduledJobItemRecord[] = []) {
     const now = this.clock(), day = new Date(now).toISOString().slice(0, 10);
     // Test denial before reservation, under the same transaction. Successful admission
     // leaves the run/items/outbox untouched; denial retains the existing recoverable failure.
     const results = await this.db.batch([
-      ...this.prepareRunFailed(runId, error, true, now, day),
-      this.prepareQueueOperations(day, 3, now),
+      ...this.prepareRunFailed(runId, error, true, now, day, expectedItems),
+      this.prepareQueueOperations(day, 3, now, expectedItems),
     ]);
     return results[results.length - 1].results.length > 0;
   }
 
-  private prepareQueueOperations(day: string, amount: number, now: number) {
+  private prepareQueueOperations(day: string, amount: number, now: number, expectedItems: ScheduledJobItemRecord[] = [], control?: { runId: string; generation: number }) {
+    const fence = reconciliationFence(expectedItems);
     return this.db.prepare(
       `INSERT INTO scheduled_usage_daily (
          day, lane, resource, reserved, used, limit_value, updated_at
-       ) VALUES (?, ?, 'queue_operations', 0, ?, ?, ?)
+       ) SELECT ?, ?, 'queue_operations', 0, ?, ?, ? WHERE ${fence.sql}
+         ${control ? `AND EXISTS(SELECT 1 FROM scheduled_job_runs WHERE id=? AND status='queued' AND ${controlGenerationSql}=?)` : ""}
        ON CONFLICT(day, lane, resource) DO UPDATE SET
          used = scheduled_usage_daily.used + excluded.used,
          updated_at = excluded.updated_at
        WHERE scheduled_usage_daily.used + scheduled_usage_daily.reserved + excluded.used
          <= scheduled_usage_daily.limit_value
        RETURNING used`,
-    ).bind(day, "all", amount, SCHEDULED_QUEUE_DAILY_TARGET, now);
+    ).bind(day, "all", amount, SCHEDULED_QUEUE_DAILY_TARGET, now, ...fence.bindings, ...(control ? [control.runId, control.generation] : []));
   }
 
   async reserveDispatchBudget(lane: ScheduledLane, estimate: { rowsRead: number; rowsWritten: number }) {
@@ -765,7 +813,7 @@ export class D1ScheduledJobRepository {
     return Math.min(100, Number(row?.usedPercent ?? 0));
   }
 
-  async claimItem(itemId: string) {
+  async claimItem(itemId: string, deliveryGeneration?: number) {
     const now = this.clock();
     const leaseToken = this.createId();
     return this.db.prepare(
@@ -774,7 +822,8 @@ export class D1ScheduledJobRepository {
            lease_token = ?, lease_until = ?, started_at = COALESCE(started_at, ?),
            updated_at = ?
        WHERE id = ?
-         AND (status = 'queued' OR (status = 'running' AND lease_until < ?))
+         AND (? IS NULL OR ${deliveryGenerationSql("scheduled_job_items")} = ?)
+         AND (status = 'queued' OR (? IS NULL AND status = 'running' AND lease_until < ?))
          AND (NOT COALESCE(${hasExecutionPrioritySql("scheduled_job_items")},0) OR (available_at<=?
            AND EXISTS(SELECT 1 FROM scheduled_job_runs current WHERE current.id=scheduled_job_items.run_id AND current.status IN ('queued','running'))))
          AND ${executionPriorityReadySql("scheduled_job_items")}
@@ -790,6 +839,9 @@ export class D1ScheduledJobRepository {
       now,
       now,
       itemId,
+      deliveryGeneration ?? null,
+      deliveryGeneration ?? null,
+      deliveryGeneration ?? null,
       now,
       now,
       now,
@@ -797,13 +849,14 @@ export class D1ScheduledJobRepository {
     ).first<ScheduledJobItemRecord>();
   }
 
-  async rearmDeferredPriorityItem(itemId: string) {
+  async rearmDeferredPriorityItem(itemId: string, deliveryGeneration?: number) {
     const now = this.clock();
     const result = await this.db.prepare(`UPDATE scheduled_outbox SET status='pending',available_at=MAX(?,(SELECT available_at FROM scheduled_job_items WHERE id=?)),
       dispatched_at=NULL,lease_token=NULL,lease_until=NULL,updated_at=?
       WHERE item_id=? AND event_type='execute' AND EXISTS(SELECT 1 FROM scheduled_job_items i JOIN scheduled_job_runs r ON r.id=i.run_id
-        WHERE i.id=? AND i.status='queued' AND r.status IN ('queued','running') AND ${hasExecutionPrioritySql("i")})`)
-      .bind(now,itemId,now,itemId,itemId).run();
+        WHERE i.id=? AND i.status='queued' AND r.status IN ('queued','running') AND ${hasExecutionPrioritySql("i")}
+          AND (? IS NULL OR ${deliveryGenerationSql("i")} = ?))`)
+      .bind(now,itemId,now,itemId,itemId,deliveryGeneration ?? null,deliveryGeneration ?? null).run();
     return Number(result.meta.changes ?? 0) > 0;
   }
 
@@ -824,7 +877,11 @@ export class D1ScheduledJobRepository {
   async checkpointItemContinuation(item: ScheduledJobItemRecord, continuation: Record<string, unknown>, result: unknown,
     commit?: (statement: D1PreparedStatement) => Promise<boolean>): Promise<boolean> {
     if (!item.lease_token) return false;
-    const now = this.clock(), snapshot = JSON.stringify(continuation), evidence = JSON.stringify(result);
+    let generation = 0;
+    try { generation = JSON.parse(item.continuation_json ?? "null")?.deliveryGeneration ?? 0; }
+    catch { /* A checkpoint can replace a malformed legacy snapshot. */ }
+    const now = this.clock(), evidence = JSON.stringify(result);
+    const snapshot = JSON.stringify(generation ? { ...continuation, deliveryGeneration: generation } : continuation);
     const statement = this.db.prepare(`UPDATE scheduled_job_items SET continuation_json=?,result_json=?,updated_at=?
       WHERE id=? AND status='running' AND lease_token=? AND lease_until>? AND continuation_json IS ? AND result_json IS ?`)
       .bind(snapshot, evidence, now, item.id, item.lease_token, now, item.continuation_json, item.result_json);
@@ -834,6 +891,26 @@ export class D1ScheduledJobRepository {
     item.result_json = evidence;
     item.updated_at = now;
     return true;
+  }
+
+  async continueItem(item: ScheduledJobItemRecord, continuation: Record<string, unknown>, result: unknown) {
+    if (!item.lease_token) return false;
+    const now = this.clock();
+    const [updated] = await this.db.batch([
+      this.db.prepare(`UPDATE scheduled_job_items SET status='queued', attempts=0, available_at=?, updated_at=?,
+        continuation_json=json_set(?, '$.deliveryGeneration', ${deliveryGenerationSql("scheduled_job_items")} + 1),
+        result_json=?, last_error_code=NULL, last_error=NULL, lease_token=NULL, lease_until=NULL
+        WHERE id=? AND status='running' AND lease_token=? AND lease_until>?`)
+        .bind(now, now, JSON.stringify(continuation), JSON.stringify(result), item.id, item.lease_token, now),
+      this.db.prepare(`INSERT INTO scheduled_outbox(id,run_id,item_id,lane,event_type,status,attempts,available_at,created_at,updated_at)
+        SELECT ?,run_id,id,lane,'execute','pending',0,?,?,? FROM scheduled_job_items WHERE id=? AND changes()=1
+        ON CONFLICT(item_id,event_type) DO UPDATE SET status='pending', attempts=0, available_at=excluded.available_at,
+          dispatched_at=NULL, lease_token=NULL, lease_until=NULL, last_error=NULL, updated_at=excluded.updated_at`)
+        .bind(`execute:${item.id}`, now, now, now, item.id),
+      this.db.prepare(`UPDATE scheduled_job_runs SET status='running',started_at=COALESCE(started_at,?),updated_at=?
+        WHERE id=? AND status='queued' AND changes()=1`).bind(now, now, item.run_id),
+    ]);
+    return Boolean(updated.meta.changes);
   }
 
   async completeItem(
@@ -886,16 +963,17 @@ export class D1ScheduledJobRepository {
     return this.db.prepare(`UPDATE scheduled_outbox SET reconciled_at=?,lease_token=NULL,lease_until=NULL,updated_at=?
       WHERE item_id=? AND event_type='reconcile' AND reconciled_at IS NULL AND EXISTS(SELECT 1 FROM scheduled_job_items i
         WHERE i.id=scheduled_outbox.item_id AND i.status=? AND i.status IN ('succeeded','partial','failed','skipped','throttled')
-          AND i.attempts=? AND i.updated_at=? AND i.result_json IS ?)`)
-      .bind(this.clock(),this.clock(),item.id,item.status,item.attempts,item.updated_at,item.result_json);
+          AND i.attempts=? AND i.updated_at=? AND i.result_json IS ? AND i.continuation_json IS ?)`)
+      .bind(this.clock(),this.clock(),item.id,item.status,item.attempts,item.updated_at,item.result_json,item.continuation_json);
   }
   async acknowledgeReconciliation(item:ScheduledJobItemRecord) {
     await this.acknowledgeReconciliations([item]);
   }
   async acknowledgeReconciliations(items:ScheduledJobItemRecord[]) {
     const runs=[...new Set(items.map(item=>item.run_id))];
-    const results=await this.db.batch([...items.map(item=>this.prepareReconciliationAcknowledgement(item)),...runs.map(id=>this.prepareSimpleRunRefresh(id))]);
-    for(const [index,id] of runs.entries())if(!results[items.length+index].results.length)await this.refreshRun(id);
+    const results=await this.db.batch([...items.map(item=>this.prepareReconciliationAcknowledgement(item)),...runs.map(id=>this.prepareSimpleRunRefresh(id,items.filter(item=>item.run_id===id)))]);
+    for(const [index,id] of runs.entries())if(!results[items.length+index].results.length &&
+      items.some((item,itemIndex)=>item.run_id===id && results[itemIndex].meta.changes>0))await this.refreshRun(id);
   }
 
   async releaseItemForRetry(
@@ -922,7 +1000,7 @@ export class D1ScheduledJobRepository {
     return Number(result.meta.changes ?? 0) > 0;
   }
 
-  async markItemDeadLetter(itemId: string, error = "queue_retries_exhausted", knownItem?: ScheduledJobItemRecord) {
+  async markItemDeadLetter(itemId: string, error = "queue_retries_exhausted", knownItem?: ScheduledJobItemRecord, deliveryGeneration?: number) {
     const now = this.clock();
     const item = knownItem ?? await this.db.prepare(
       `SELECT id, run_id, target_key, phase, lane, status, attempts,
@@ -935,14 +1013,16 @@ export class D1ScheduledJobRepository {
       `UPDATE scheduled_job_items SET status = 'failed',
          last_error_code = 'queue_retries_exhausted', last_error = ?,
          finished_at = ?, updated_at = ?, lease_token = NULL,
-         lease_until = NULL WHERE id = ? AND status IN ('queued', 'running')`,
-    ).bind(error, now, now, itemId),this.reconciliationStatement(itemId,now)]);
+         lease_until = NULL WHERE id = ? AND status IN ('queued', 'running')
+         AND (? IS NULL OR ${deliveryGenerationSql("scheduled_job_items")} = ?)`,
+    ).bind(error, now, now, itemId, deliveryGeneration ?? null, deliveryGeneration ?? null),this.reconciliationStatement(itemId,now)]);
     if (Number(result.meta.changes ?? 0) === 0) return;
     await this.refreshRun(item.run_id);
   }
 
-  private prepareSimpleRunRefresh(runId: string) {
+  private prepareSimpleRunRefresh(runId: string, expectedItems: ScheduledJobItemRecord[] = []) {
     const now = this.clock();
+    const fence = reconciliationFence(expectedItems);
     return this.db.prepare(`WITH counts AS (
       SELECT COUNT(*) total,COALESCE(SUM(status IN ('queued','running')),0) active,
         COALESCE(SUM(status='partial'),0) partial,COALESCE(SUM(status IN ('succeeded','partial')),0) succeeded,
@@ -955,17 +1035,18 @@ export class D1ScheduledJobRepository {
       started_at=COALESCE(started_at,?),finished_at=CASE WHEN (SELECT total>0 AND active=0 FROM counts) THEN COALESCE(finished_at,?) ELSE NULL END,
       total_items=(SELECT total FROM counts),completed_items=(SELECT total-active FROM counts),failed_items=(SELECT failed FROM counts),
       skipped_items=(SELECT skipped+throttled FROM counts),updated_at=?
-      WHERE id=? AND job_type<>'youtube_feed_collection' RETURNING id`).bind(runId,now,now,now,runId);
+      WHERE id=? AND job_type<>'youtube_feed_collection' AND (${fence.sql}) RETURNING id`).bind(runId,now,now,now,runId,...fence.bindings);
   }
 
-  async refreshRuns(runIds:string[]) {
-    const results=await this.db.batch(runIds.map(id=>this.prepareSimpleRunRefresh(id)));
-    for(const [index,id] of runIds.entries())if(!results[index].results.length)await this.refreshRun(id);
+  async refreshRuns(runIds:string[], expectedItems: ScheduledJobItemRecord[] = []) {
+    const results=await this.db.batch(runIds.map(id=>this.prepareSimpleRunRefresh(id, expectedItems.filter(item => item.run_id === id))));
+    for(const [index,id] of runIds.entries())if(!results[index].results.length)await this.refreshRun(id, expectedItems.filter(item => item.run_id === id));
   }
 
-  async refreshRun(runId: string) {
-    if (await this.prepareSimpleRunRefresh(runId).first()) return;
+  async refreshRun(runId: string, expectedItems: ScheduledJobItemRecord[] = []) {
+    if (await this.prepareSimpleRunRefresh(runId, expectedItems).first()) return;
     const now = this.clock();
+    const fence = reconciliationFence(expectedItems);
     const [rows, runRows, partialResult] = await this.db.batch([
       this.db.prepare(`SELECT status, COUNT(*) AS count FROM scheduled_job_items WHERE run_id = ? GROUP BY status`).bind(runId),
       this.db.prepare("SELECT * FROM scheduled_job_runs WHERE id=?").bind(runId),
@@ -1008,7 +1089,7 @@ export class D1ScheduledJobRepository {
        SET status = ?, started_at = COALESCE(started_at, ?),
            finished_at = CASE WHEN ? IS NULL THEN NULL ELSE COALESCE(finished_at,?) END, total_items = ?, completed_items = ?,
            failed_items = ?, skipped_items = ?, updated_at = ?
-       WHERE id = ?`,
+       WHERE id = ? AND (${fence.sql})`,
     ).bind(
       status,
       now,
@@ -1020,30 +1101,45 @@ export class D1ScheduledJobRepository {
       effectiveProgress.skipped + effectiveProgress.throttled,
       now,
       runId,
+      ...fence.bindings,
     ).run();
   }
 
-  async markRunThrottled(runId: string, reason: string) {
-    await this.db.batch(this.prepareRunThrottled(runId,reason));
+  async markRunThrottled(runId: string, reason: string, generation?:number) {
+    await this.db.batch(this.prepareRunThrottled(runId,reason,undefined,generation));
   }
 
-  private prepareRunThrottled(runId: string, reason: string) {
+  async completeUnplannedRun(runId:string,status:"failed"|"throttled",error:string,generation=0){
+    const now=this.clock();
+    await this.db.prepare(`UPDATE scheduled_job_runs SET status=?,last_error=?,finished_at=?,updated_at=?
+      WHERE id=? AND status IN ('queued','running') AND ${controlGenerationSql}=?
+      AND NOT EXISTS(SELECT 1 FROM scheduled_job_items WHERE run_id=?)`)
+      .bind(status,error,now,now,runId,generation,runId).run();
+  }
+
+  private prepareRunThrottled(runId: string, reason: string, claim?: {id:string;lease_token:string;delivery_generation:number;control_generation:number}, generation?:number) {
     const now = this.clock();
+    const condition=claim ? `EXISTS(SELECT 1 FROM scheduled_outbox o JOIN scheduled_job_items i ON i.id=o.item_id
+      WHERE o.id=? AND o.run_id=? AND o.status='dispatching' AND o.lease_token=? AND o.lease_until>?
+      AND ${deliveryGenerationSql("i")}=?) AND EXISTS(
+        SELECT 1 FROM scheduled_job_runs WHERE id=? AND ${controlGenerationSql}=?)` : generation===undefined ? "1" : `EXISTS(
+        SELECT 1 FROM scheduled_job_runs WHERE id=? AND ${controlGenerationSql}=?)`;
+    const bindings=claim ? [claim.id,runId,claim.lease_token,now,claim.delivery_generation,runId,claim.control_generation] : generation===undefined ? [] : [runId,generation];
     return [
       this.db.prepare(
         `UPDATE scheduled_job_items SET status = 'throttled',
            last_error_code = 'admission_throttled', last_error = ?,
            finished_at = ?, updated_at = ?
-         WHERE run_id = ? AND status = 'queued'`,
-      ).bind(reason, now, now, runId),
+         WHERE run_id = ? AND status = 'queued' AND (${condition})`,
+      ).bind(reason, now, now, runId,...bindings),
       this.db.prepare(
         `UPDATE scheduled_outbox SET status = 'failed', last_error = ?,
-           updated_at = ? WHERE run_id = ? AND status IN ('pending', 'failed')`,
-      ).bind(reason, now, runId),
+           updated_at = ? WHERE run_id = ? AND status IN ('pending', 'failed') AND (${condition})`,
+      ).bind(reason, now, runId,...bindings),
       this.db.prepare(
         `UPDATE scheduled_job_runs SET status = 'throttled', last_error = ?,
-           finished_at = ?, updated_at = ? WHERE id = ?`,
-      ).bind(reason, now, now, runId),
+           finished_at = ?, updated_at = ? WHERE id = ? AND (${condition})`,
+      ).bind(reason, now, now, runId,...bindings),
     ];
   }
 
@@ -1051,16 +1147,25 @@ export class D1ScheduledJobRepository {
     runId: string,
     error: string,
     allowTerminalStatus = false,
+    expectedItems: ScheduledJobItemRecord[] = [],
   ) {
-    await this.db.batch(this.prepareRunFailed(runId, error, allowTerminalStatus, this.clock()));
+    await this.db.batch(this.prepareRunFailed(runId, error, allowTerminalStatus, this.clock(), undefined, expectedItems));
   }
 
-  private prepareRunFailed(runId: string, error: string, allowTerminalStatus: boolean, now: number, deniedQueueDay?: string) {
-    const condition = deniedQueueDay === undefined ? "1" : `EXISTS (
+  async markReconciliationsFailed(items: ScheduledJobItemRecord[], error: string) {
+    if (!items.length) return;
+    const now = this.clock();
+    await this.db.batch([...new Set(items.map(item => item.run_id))].flatMap(runId =>
+      this.prepareRunFailed(runId, error, true, now, undefined, items.filter(item => item.run_id === runId))));
+  }
+
+  private prepareRunFailed(runId: string, error: string, allowTerminalStatus: boolean, now: number, deniedQueueDay?: string, expectedItems: ScheduledJobItemRecord[] = []) {
+    const fence = reconciliationFence(expectedItems);
+    const condition = `${fence.sql} AND (${deniedQueueDay === undefined ? "1" : `EXISTS (
       SELECT 1 FROM scheduled_usage_daily WHERE day=? AND lane='all' AND resource='queue_operations'
         AND used + reserved + 3 > limit_value
-    )`;
-    const conditionBindings = deniedQueueDay === undefined ? [] : [deniedQueueDay];
+    )`})`;
+    const conditionBindings = [...fence.bindings, ...(deniedQueueDay === undefined ? [] : [deniedQueueDay])];
     return [
       this.db.prepare(
         `UPDATE scheduled_job_items SET status = 'failed',
@@ -1109,10 +1214,11 @@ export class D1ScheduledJobRepository {
     });
   }
 
-  async updateRunSummary(runId: string, summary: Record<string, unknown>) {
+  async updateRunSummary(runId: string, summary: Record<string, unknown>, generation?:number) {
     await this.db.prepare(
-      `UPDATE scheduled_job_runs SET summary_json = ?, updated_at = ? WHERE id = ?`,
-    ).bind(JSON.stringify(summary), this.clock(), runId).run();
+      `UPDATE scheduled_job_runs SET summary_json = CASE WHEN ${controlGenerationSql}>0
+        THEN json_set(?,'$.controlGeneration',${controlGenerationSql}) ELSE ? END, updated_at = ? WHERE id = ? AND (? IS NULL OR ${controlGenerationSql}=?)`,
+    ).bind(JSON.stringify(summary),JSON.stringify(summary),this.clock(),runId,generation ?? null,generation ?? null).run();
   }
 
   async readRunFinalizations(runIds: string[]) {
@@ -1149,8 +1255,8 @@ export class D1ScheduledJobRepository {
       partialIds === '[]' ? Promise.resolve({results:[]}) : this.db.prepare(`SELECT ${columns} FROM scheduled_job_items i WHERE i.run_id IN (SELECT value FROM json_each(?)) AND i.status='partial'`)
         .bind(partialIds).all<PartialItemEvidenceRow & {run_id:string}>(),
       xIds === '[]' ? Promise.resolve({results:[]}) : this.db.prepare(`SELECT i.run_id,i.id,i.target_key,i.status,i.attempts,i.updated_at,i.last_error_code,i.last_error,i.result_json,
-        EXISTS(SELECT 1 FROM scheduled_outbox o WHERE o.item_id=i.id AND i.attempts>0 AND ${unresolvedOutboxSql}) AS retry_pending,
-        (SELECT MIN(o.available_at) FROM scheduled_outbox o WHERE o.item_id=i.id AND i.attempts>0 AND ${unresolvedOutboxSql}) AS next_retry_at
+        EXISTS(SELECT 1 FROM scheduled_outbox o WHERE o.item_id=i.id AND (i.attempts>0 OR o.event_type='execute' AND o.status='failed') AND ${unresolvedOutboxSql}) AS retry_pending,
+        (SELECT MIN(o.available_at) FROM scheduled_outbox o WHERE o.item_id=i.id AND (i.attempts>0 OR o.event_type='execute' AND o.status='failed') AND ${unresolvedOutboxSql}) AS next_retry_at
         FROM scheduled_job_items i WHERE i.run_id IN (SELECT value FROM json_each(?)) AND i.phase='collect' ORDER BY i.run_id,i.target_key,i.id`)
         .bind(xIds).all<XCollectionItemEvidence & {run_id:string}>(),
       youtubeIds === '[]' ? Promise.resolve({results:[]}) : this.db.prepare(`SELECT i.run_id,i.result_json FROM json_each(?) requested CROSS JOIN scheduled_job_items i
@@ -1424,6 +1530,11 @@ export class D1ScheduledJobRepository {
     }
     const now = this.clock();
     await this.db.batch([
+      this.db.prepare(`UPDATE scheduled_job_items SET continuation_json=json_set(
+        CASE WHEN json_valid(continuation_json) THEN CASE WHEN json_type(continuation_json)='object' THEN continuation_json ELSE '{}' END ELSE '{}' END,
+        '$.deliveryGeneration', ${deliveryGenerationSql("scheduled_job_items")}+1)
+        WHERE run_id=? AND status IN ('succeeded','partial','failed','skipped','throttled')
+        AND EXISTS(SELECT 1 FROM scheduled_job_runs WHERE id=? AND status IN ('failed','partial','throttled'))`).bind(runId, runId),
       this.db.prepare(`UPDATE scheduled_job_runs SET summary_json=CASE
         WHEN EXISTS(SELECT 1 FROM scheduled_job_items WHERE run_id=? AND phase='scan' AND status IN ('failed','partial','throttled'))
           THEN json_set(COALESCE(summary_json,'{}'),'$.autoUpdatePhases.scan',-1,'$.autoUpdatePhases.match',-1)
@@ -1492,7 +1603,9 @@ export class D1ScheduledJobRepository {
       ).bind(now, now, now, runId),
       this.db.prepare(
         `UPDATE scheduled_job_runs SET status = 'queued', finished_at = NULL,
-           last_error = NULL, updated_at = ? WHERE id = ?
+           last_error = NULL, updated_at = ?, summary_json=json_set(
+             CASE WHEN json_valid(summary_json) THEN CASE WHEN json_type(summary_json)='object' THEN summary_json ELSE '{}' END ELSE '{}' END,
+             '$.controlGeneration',${controlGenerationSql}+1) WHERE id = ?
            AND status IN ('failed', 'partial', 'throttled')`,
       ).bind(now, runId),
     ]);

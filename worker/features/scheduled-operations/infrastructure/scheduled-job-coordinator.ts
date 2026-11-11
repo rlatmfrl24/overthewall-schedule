@@ -16,7 +16,9 @@ import {
 } from "../../../platform/scheduled-jobs";
 import {
   D1ScheduledJobRepository,
+  getScheduledControlGeneration,
   type ScheduledJobItemRecord,
+  type ScheduledDispatchFence,
 } from "../../../platform/scheduled-jobs";
 import { ScheduledJobPlanner } from "./scheduled-job-planner";
 
@@ -86,7 +88,7 @@ export class ScheduledJobCoordinator {
     );
     if (plannedItems.length === 0) {
       if (!existingRun) return null;
-      await this.repository.skipRun(existingRun.id, "no_targets_after_resume");
+      await this.repository.skipRun(existingRun.id, "no_targets_after_resume",getScheduledControlGeneration(existingRun.summary_json));
       return this.repository.readRun(existingRun.id);
     }
 
@@ -102,7 +104,7 @@ export class ScheduledJobCoordinator {
       `SELECT value FROM settings WHERE key = ?`,
     ).bind(`scheduled_v2_${jobType}_enabled`).first<{ value: string | null }>();
     if (rollout?.value !== "true") {
-      await this.repository.skipRun(run.id, "v2_rollout_disabled");
+      await this.repository.skipRun(run.id, "v2_rollout_disabled",getScheduledControlGeneration(run.summary_json));
       return this.repository.readRun(run.id);
     }
     const usagePercent = await this.repository.getBackgroundUsagePercent();
@@ -110,53 +112,57 @@ export class ScheduledJobCoordinator {
       await this.repository.markRunThrottled(
         run.id,
         `daily_queue_budget_${Math.floor(usagePercent)}pct`,
+        getScheduledControlGeneration(run.summary_json),
       );
       return this.repository.readRun(run.id);
     }
     await this.planner.addPlannedItems(run, plannedItems);
-    await this.dispatchRun(run.id);
+    await this.dispatchRun(run.id, { controlGeneration: getScheduledControlGeneration(run.summary_json) });
     return this.repository.readRun(run.id);
   }
 
-  async planManualRun(runId: string) {
+  async planManualRun(runId: string, generation?: number) {
 
     const run = await this.repository.readRun(runId);
     if (!run || run.status !== "queued") return run;
+    if(generation!==undefined && getScheduledControlGeneration(run.summary_json)!==generation)return run;
     const usagePercent = await this.repository.getBackgroundUsagePercent();
     if (shouldThrottleAtUsage(run.job_type, usagePercent)) {
       await this.repository.markRunThrottled(
         run.id,
         `daily_queue_budget_${Math.floor(usagePercent)}pct`,
+        getScheduledControlGeneration(run.summary_json),
       );
       return this.repository.readRun(run.id);
     }
     if (!await this.repository.hasItems(run.id)) {
       const itemIds = await this.planner.plan(run);
       if (itemIds.length === 0) {
-        await this.repository.skipRun(run.id);
+        await this.repository.skipRun(run.id,"no_targets",getScheduledControlGeneration(run.summary_json));
         return this.repository.readRun(run.id);
       }
     }
-    await this.dispatchRun(run.id);
+    await this.dispatchRun(run.id, { controlGeneration: getScheduledControlGeneration(run.summary_json) });
     return this.repository.readRun(run.id);
   }
 
-  async dispatchRun(runId: string) {
-    return this.dispatchPending(SCHEDULED_DISPATCH_BATCH_SIZE, runId);
+  async dispatchRun(runId: string, expected?: ScheduledDispatchFence) {
+    return this.dispatchPending(SCHEDULED_DISPATCH_BATCH_SIZE, runId, expected);
   }
 
   async dispatchPending(
     limit = SCHEDULED_DISPATCH_BATCH_SIZE,
     runId?: string,
+    expected?: ScheduledDispatchFence,
   ) {
 
-    const outbox = await this.repository.claimPendingOutbox(runId, limit);
+    const outbox = await this.repository.claimPendingOutbox(runId, limit, expected);
     let dispatched = 0, failed = 0;
     const available = outbox.filter(record=>getScheduledLaneQueue(this.env,record.lane));
     const reservations = await this.repository.reserveDispatchBudgets(available.map(record=>({lane:record.lane,estimate:getEstimatedD1RowsPerItem(record.job_type)})));
     const admission = new Map(available.map((record,index)=>[record.id,reservations[index]]));
     const outcomes: Array<{id:string;error:string|null;leaseToken:string}> = [];
-    let throttledRun: string | undefined;
+    let denied: typeof outbox[number] | undefined;
     try {
       for (const record of outbox) {
         const queue = getScheduledLaneQueue(this.env,record.lane);
@@ -164,10 +170,11 @@ export class ScheduledJobCoordinator {
           outcomes.push({id:record.id,leaseToken:record.lease_token,error:`queue_unavailable:${record.lane}`}); failed++; continue;
         }
         if (!admission.get(record.id)) {
-          throttledRun = record.run_id;
+          denied = record;
           break;
         }
-        const message: ScheduledJobQueueMessage = {schemaVersion:1,messageType:"scheduled_job_item",runId:record.run_id,itemId:record.item_id,phase:record.phase};
+        const message: ScheduledJobQueueMessage = {schemaVersion:1,messageType:"scheduled_job_item",runId:record.run_id,itemId:record.item_id,phase:record.phase,
+          ...(record.delivery_generation ? {deliveryGeneration:record.delivery_generation} : {})};
         try {
           await queue.send(message,{contentType:"json"});
           outcomes.push({id:record.id,leaseToken:record.lease_token,error:null}); dispatched++;
@@ -175,7 +182,7 @@ export class ScheduledJobCoordinator {
           outcomes.push({id:record.id,leaseToken:record.lease_token,error:error instanceof Error?error.message:String(error)}); failed++;
         }
       }
-    } finally { await this.repository.markOutboxResults(outcomes,throttledRun); }
+    } finally { await this.repository.markOutboxResults(outcomes,denied); }
     return { claimed: outbox.length, dispatched, failed };
   }
 

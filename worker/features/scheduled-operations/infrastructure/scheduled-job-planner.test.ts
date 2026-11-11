@@ -226,6 +226,7 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     expect(repository.addItems).toHaveBeenCalledWith(
       "run:x_collection:scheduled",
       [],
+      undefined,0,
     );
   });
 
@@ -247,6 +248,7 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     expect(repository.addItems).toHaveBeenCalledWith(
       "run:x_collection:manual",
       [expect.objectContaining({ lane: "x", phase: "collect" })],
+      undefined,0,
     );
   });
 
@@ -259,10 +261,10 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     const planner = new ScheduledJobPlanner(env, repository as never), run = makeRun("x_collection", "scheduled", timestamp);
     if (entry === "plan") await planner.plan(run);
     else await planner.addPlannedItems(run, await planner.planScheduled("x_collection", timestamp));
-    expect(repository.updateRunSummary).toHaveBeenCalledExactlyOnceWith(run.id, { xCollectionScope: "pending" });
+    expect(repository.updateRunSummary).toHaveBeenCalledExactlyOnceWith(run.id, { xCollectionScope: "pending" },0);
     expect(repository.addItems).toHaveBeenCalledWith(run.id, [expect.objectContaining({
       continuation: { handles: ["member_a"], provider: "x_api", scope: "pending", recoveryOnly: true, recoveryAnchorAt: anchorAt },
-    })]);
+    })],undefined,0);
   });
 
   it("plans a pending-only manual run for active handles with continuation cursors only", async () => {
@@ -275,7 +277,7 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     const repository={addItems:vi.fn(async (_id:string,items:NewScheduledItem[])=>items)};
     const run={...makeRun("x_collection","manual",1),summary_json:JSON.stringify({xCollectionScope:"pending"})};
     await new ScheduledJobPlanner(env,repository as never).plan(run);
-    expect(repository.addItems).toHaveBeenCalledWith(run.id,[expect.objectContaining({continuation:{handles:["member_b"],provider:"x_api",scope:"pending"}})]);
+    expect(repository.addItems).toHaveBeenCalledWith(run.id,[expect.objectContaining({continuation:{handles:["member_b"],provider:"x_api",scope:"pending"}})],undefined,0);
   });
 
   it("scheduled auto-update는 configured interval 이전에 channel scan을 만들지 않는다", async () => {
@@ -294,6 +296,7 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     expect(repository.addItems).toHaveBeenCalledWith(
       "run:schedule_auto_update:scheduled",
       [],
+      undefined,0,
     );
     expect(
       prepare.mock.calls.some(([sql]) => String(sql).includes("FROM members")),

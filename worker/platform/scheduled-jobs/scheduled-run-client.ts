@@ -7,7 +7,9 @@ import type {
 import type { Env } from "../types";
 import {
   D1ScheduledJobRepository,
+  getScheduledControlGeneration,
   type ScheduledJobActor,
+  type ScheduledJobRunRecord,
 } from "./d1-scheduled-job-repository";
 
 const makeStatusUrl = (runId: string) =>
@@ -22,20 +24,25 @@ export class ScheduledRunClient {
     this.repository = new D1ScheduledJobRepository(env.otw_db);
   }
 
-  private async enqueueControl(runId: string) {
+  private async enqueueControl(run: ScheduledJobRunRecord) {
+    const runId=run.id,generation=getScheduledControlGeneration(run.summary_json);
     const queue = this.env.OTW_OPS_CONTROL_QUEUE;
     if (!queue) {
-      await this.repository.markRunFailed(
+      await this.repository.completeUnplannedRun(
         runId,
+        "failed",
         "scheduled_control_queue_unavailable",
+        generation,
       );
       throw new Error("scheduled_control_queue_unavailable");
     }
     const reserved = await this.repository.reserveQueueOperations("control");
     if (!reserved) {
-      await this.repository.markRunThrottled(
+      await this.repository.completeUnplannedRun(
         runId,
+        "throttled",
         "scheduled_queue_daily_budget_exhausted",
+        generation,
       );
       throw new Error("scheduled_queue_daily_budget_exhausted");
     }
@@ -43,12 +50,13 @@ export class ScheduledRunClient {
       schemaVersion: 1,
       messageType: "scheduled_job_control",
       runId,
+      ...(generation ? {deliveryGeneration:generation} : {}),
     };
     try {
       await queue.send(message, { contentType: "json" });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await this.repository.markRunFailed(runId, `control_queue_send_failed:${message}`);
+      await this.repository.completeUnplannedRun(runId,"failed",`control_queue_send_failed:${message}`,generation);
       throw error;
     }
   }
@@ -86,7 +94,7 @@ export class ScheduledRunClient {
       }
     }
     if (acceptedRun.status === "queued") {
-      await this.enqueueControl(run.id);
+      await this.enqueueControl(acceptedRun);
     }
     return {
       runId: acceptedRun.id,
@@ -124,7 +132,7 @@ export class ScheduledRunClient {
   async retryRun(runId: string) {
     const outcome = await this.repository.retryRun(runId);
     if (outcome.kind !== "accepted") return outcome;
-    await this.enqueueControl(runId);
+    await this.enqueueControl(outcome.run);
     return {
       kind: "accepted" as const,
       run: await this.repository.readRunDto(runId),

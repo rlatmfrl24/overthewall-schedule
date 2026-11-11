@@ -33,6 +33,7 @@ export interface Env {
   X_ACTIVITY_COORDINATOR?: {
     gatewayForLuvdia(input: XApiGatewayRequest): Promise<XApiGatewayResult>;
     receiptForLuvdia?(input: XApiGatewayReceiptRequest): Promise<XApiGatewayReceipt>;
+    receiptsForLuvdia?(inputs: XApiGatewayReceiptRequest[]): Promise<XApiGatewayReceipt[]>;
     budgetForLuvdia(): Promise<XSharedBudgetState>;
     redactForLuvdia(postId:string): Promise<void>;
     protocol(): Promise<{ version: number; site: string }>;

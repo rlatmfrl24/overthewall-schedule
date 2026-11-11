@@ -28,7 +28,7 @@ import { getDb } from "../../../platform/db";
 import { collectionCadenceAnchor } from "../../../platform/collection-cadence";
 import type { Env } from "../../../platform/types";
 import { extractChzzkChannelId } from "../../../platform/http-helpers";
-import { getLaneForJob } from "../../../platform/scheduled-jobs";
+import { getLaneForJob, getScheduledControlGeneration } from "../../../platform/scheduled-jobs";
 import type {
   D1ScheduledJobRepository,
   NewScheduledItem,
@@ -338,9 +338,9 @@ export class ScheduledJobPlanner {
 
   async addPlannedItems(run: ScheduledJobRunRecord, items: NewScheduledItem[]) {
     if (run.job_type === "x_collection" && items.some(item=>item.continuation?.recoveryOnly)) {
-      await this.repository.updateRunSummary(run.id, { xCollectionScope: "pending" });
+      await this.repository.updateRunSummary(run.id, { xCollectionScope: "pending" },getScheduledControlGeneration(run.summary_json));
     }
-    return this.repository.addItems(run.id, items);
+    return this.repository.addItems(run.id, items,undefined,getScheduledControlGeneration(run.summary_json));
   }
 }
 import { isOtwPlayAiExecutionAvailable } from "../../../platform/otw-play-ai-policy";

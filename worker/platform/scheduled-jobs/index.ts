@@ -1,10 +1,11 @@
 export { ScheduledRunClient } from "./scheduled-run-client";
-export { D1ScheduledJobRepository, autoUpdatePhaseReadySql } from "./d1-scheduled-job-repository";
+export { D1ScheduledJobRepository, autoUpdatePhaseReadySql, getScheduledControlGeneration } from "./d1-scheduled-job-repository";
 export type {
   NewScheduledItem,
   ScheduledJobActor,
   ScheduledJobItemRecord,
   ScheduledJobRunRecord,
+  ScheduledDispatchFence,
 } from "./d1-scheduled-job-repository";
 export {
   getEstimatedD1RowsPerItem,

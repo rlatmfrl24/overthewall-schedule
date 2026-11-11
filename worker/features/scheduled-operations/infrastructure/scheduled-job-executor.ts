@@ -21,7 +21,7 @@ import {
   scanAndPersistRecentChzzkObservations,
   type AutoUpdateResult,
 } from "../../schedules";
-import { runXCollectionForHandles, runFxCollectionForHandles, isHybridRegularCollectionComplete, recordXCollectionCompletion, parseFxRssContinuation, hydrateXReplyPreviews } from "../../x-posts";
+import { runXCollectionForHandles, runFxCollectionForHandles, isHybridRegularCollectionComplete, readActiveXHandles, recordXCollectionCompletion, parseFxRssContinuation, hydrateXReplyPreviews } from "../../x-posts";
 import { runFxRssCollectionItem } from "../../../app/x-rss-collection";
 import { runScheduledYouTubeFeedCollection } from "../../youtube";
 import { getDb } from "../../../platform/db";
@@ -47,6 +47,7 @@ export type ScheduledJobExecutionOutcome = {
   retryAt?: number | null;
   errorCode?: string | null;
   error?: string | null;
+  nextContinuation?: Record<string, unknown>;
 };
 
 const succeeded = (result: unknown): ScheduledJobExecutionOutcome => ({
@@ -124,6 +125,26 @@ export const toSourceHealthOutcome = (
   };
 };
 
+type ReferenceHydration = NonNullable<Awaited<ReturnType<typeof runXCollectionForHandles>>["referenceHydration"]>;
+
+const combineReferenceHydration = (previous?: ReferenceHydration, current?: ReferenceHydration): ReferenceHydration | undefined => {
+  if (!previous || !current) return current ?? previous;
+  const retryAt = previous.retryAt === null ? current.retryAt : current.retryAt === null ? previous.retryAt : Math.min(previous.retryAt, current.retryAt);
+  return {
+    ...current,
+    status: previous.failed || current.failed ? "failed" : previous.deferred || current.deferred ? "deferred" : "complete",
+    scanned: previous.scanned + current.scanned,
+    hydrated: previous.hydrated + current.hydrated,
+    authorsResolved: previous.authorsResolved + current.authorsResolved,
+    deferred: previous.deferred + current.deferred,
+    failed: previous.failed + current.failed,
+    terminal: previous.terminal + current.terminal,
+    coalesced: previous.coalesced + current.coalesced,
+    retryAt,
+    errorCode: current.errorCode ?? previous.errorCode,
+  };
+};
+
 export const toXCollectionOutcome = (
   result: Awaited<ReturnType<typeof runXCollectionForHandles>>,
 ): ScheduledJobExecutionOutcome => {
@@ -132,7 +153,7 @@ export const toXCollectionOutcome = (
       errorCode: result.referenceHydration.errorCode, error: "X 원문 보강 재시도 대기" };
   }
   if(result.coalescedHandles) return {status:"partial",result,errorCode:"x_source_lease_busy",error:"X 계정 수집 경합 재시도 대기"};
-  if(result.pendingSources)return {status:"partial",result,errorCode:result.error??"x_collection_continuation_pending",error:"X 누락 수집 다음 페이지 대기"};
+  if(result.pendingSources)return {status:"partial",result,errorCode:result.error??"x_collection_continuation_pending",error:"X 누락 수집 재개 대기"};
   if (result.status === "success") return succeeded(result);
   const error = result.error ?? `x_collection_${result.status}`;
   return {
@@ -331,13 +352,31 @@ export class ScheduledJobExecutor {
         const provider = continuation.provider === "fxembed" ? "fxembed" : "x_api";
         const pending = continuation.scope === "pending" || continuation.recoveryOnly === true || run.source === "manual" && typeof run.summary_json === "string" && JSON.parse(run.summary_json)?.xCollectionScope === "pending";
         const scope = pending ? "pending" : continuation.scope === "fallback" ? "fallback" : "regular";
+        const resumeRegularOrigin = typeof continuation.resumeRegularOrigin === "number" ? continuation.resumeRegularOrigin : undefined;
         const result = provider === "fxembed"
           ? await runFxCollectionForHandles(this.env, handles, run.source, run.scheduled_for)
           : await runXCollectionForHandles(this.env, handles, run.source, run.scheduled_for, pending && (run.source === "manual" || continuation.hybrid === true),
             typeof continuation.recoveryAnchorAt === "number" ? continuation.recoveryAnchorAt : undefined,
-            continuation.hybrid === true ? scope : undefined);
+            continuation.hybrid === true ? scope : undefined, { resumeRegularOrigin, replayOnly: continuation.replayOnly === true });
         if (result.coalescedHandles && item.attempts < 3) throw new Error("x_source_lease_busy");
-        return toXCollectionOutcome({...result,provider,scope,mode:"timeline",paidApiCalls:provider === "fxembed" ? 0 : result.apiCalls});
+        const { resumeRegularOrigin: nextOrigin, ...current } = result;
+        const previous = resumeRegularOrigin === undefined ? {} : parseContinuation({ continuation_json: item.result_json }) as Partial<typeof current>;
+        const combined = resumeRegularOrigin === undefined ? current : {
+          ...current,
+          apiCalls: (previous.apiCalls ?? 0) + current.apiCalls,
+          estimatedCostMicros: (previous.estimatedCostMicros ?? 0) + current.estimatedCostMicros,
+          uniqueResources: (previous.uniqueResources ?? 0) + (current.uniqueResources ?? 0),
+          previewDeferred: (previous.previewDeferred ?? 0) + (current.previewDeferred ?? 0),
+          postsStored: (previous.postsStored ?? 0) + current.postsStored,
+          postsReturned: Math.max(previous.postsReturned ?? 0, current.postsReturned),
+          refreshedHandles: Math.max(previous.refreshedHandles ?? 0, current.refreshedHandles),
+          newlyStoredPosts: [...(previous.newlyStoredPosts ?? []), ...(current.newlyStoredPosts ?? [])],
+          referenceHydration: combineReferenceHydration(previous.referenceHydration, current.referenceHydration),
+        };
+        const outcome = toXCollectionOutcome({...combined,provider,scope,mode:"timeline",paidApiCalls:provider === "fxembed" ? 0 : combined.apiCalls});
+        return run.source === "scheduled" && provider === "x_api" && nextOrigin !== undefined
+          ? { ...outcome, nextContinuation: { ...continuation, resumeRegularOrigin: nextOrigin } }
+          : outcome;
       }
       case "naver_cafe_collection": {
         const sourceIds = new Set(getNumberArray(continuation.sourceIds));
@@ -550,10 +589,13 @@ export class ScheduledJobExecutor {
   async finalizeLegacyState(runId: string) { await this.finalizeLegacyStates([runId]); }
 
   async finalizeLegacyStates(runIds: string[]) {
-    for(const snapshot of await this.repository.readRunFinalizations(runIds)) await this.finalizeRunState(snapshot);
+    let handles: Promise<string[]> | undefined;
+    const regularComplete = async () => isHybridRegularCollectionComplete(this.env,
+      await (handles ??= readActiveXHandles(getDb(this.env), parseSiteId(this.env.SITE_ID))));
+    for(const snapshot of await this.repository.readRunFinalizations(runIds)) await this.finalizeRunState(snapshot, regularComplete);
   }
 
-  private async finalizeRunState({run,items}: Awaited<ReturnType<D1ScheduledJobRepository['readRunFinalizations']>>[number]) {
+  private async finalizeRunState({run,items}: Awaited<ReturnType<D1ScheduledJobRepository['readRunFinalizations']>>[number], regularComplete: () => Promise<boolean>) {
     const runId=run.id;
     if (!run || !["succeeded", "partial", "failed", "skipped", "throttled"].includes(run.status)) {
       return;
@@ -566,7 +608,7 @@ export class ScheduledJobExecutor {
       });
       if (!regular.length) return;
       const hybrid = regular.some(item => parseContinuation(item).hybrid === true);
-      if (hybrid && (!regular.every(item => ["succeeded","skipped"].includes(item.status)) || !await isHybridRegularCollectionComplete(this.env))) return;
+      if (hybrid && (!regular.every(item => ["succeeded","skipped"].includes(item.status)) || !await regularComplete())) return;
       await recordXCollectionCompletion(this.env, { completedAt: Number(completedAt), source: run.source,
         scheduledFor: run.scheduled_for, successful: hybrid || run.status === "succeeded" });
     } else if (run.job_type === "naver_cafe_collection") {

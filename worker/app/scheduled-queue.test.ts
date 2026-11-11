@@ -4,13 +4,16 @@ import type { Env } from "../platform/types";
 
 const mocks = vi.hoisted(() => ({
   claimItem: vi.fn(),
+  readItems: vi.fn(),
   readItem: vi.fn(),
   rearmDeferredPriorityItem: vi.fn(),
   completeItem: vi.fn(),
   releaseItemForRetry: vi.fn(),
   reserveQueueOperations: vi.fn(),
+  reserveControlRetry: vi.fn(),
   reserveReconciliationRetry: vi.fn(),
   markRunFailed: vi.fn(),
+  completeUnplannedRun: vi.fn(),
   markItemDeadLetter: vi.fn(),
   refreshRun: vi.fn(),
   acknowledgeReconciliation: vi.fn(),
@@ -26,6 +29,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../platform/scheduled-jobs", () => ({
   D1ScheduledJobRepository: class {
     claimItem = mocks.claimItem;
+    readItems = mocks.readItems;
     readItem = mocks.readItem;
     rearmDeferredPriorityItem = mocks.rearmDeferredPriorityItem;
     completeItem = mocks.completeItem;
@@ -34,6 +38,7 @@ vi.mock("../platform/scheduled-jobs", () => ({
     reserveQueueOperations = mocks.reserveQueueOperations;
     reserveReconciliationRetry = mocks.reserveReconciliationRetry;
     markRunFailed = mocks.markRunFailed;
+    completeUnplannedRun = mocks.completeUnplannedRun;
     markItemDeadLetter = mocks.markItemDeadLetter;
     refreshRun = mocks.refreshRun;
     acknowledgeReconciliation = mocks.acknowledgeReconciliation;
@@ -42,7 +47,7 @@ vi.mock("../platform/scheduled-jobs", () => ({
 
 vi.mock("../features/scheduled-operations", () => ({
   ScheduledJobCoordinator: class {
-    repository = {reserveQueueOperations:mocks.reserveQueueOperations,markRunThrottled:mocks.markRunThrottled};
+    repository = {reserveControlRetry:mocks.reserveControlRetry,reserveQueueOperations:mocks.reserveQueueOperations,markRunThrottled:mocks.markRunThrottled,completeUnplannedRun:mocks.completeUnplannedRun};
     planManualRun = mocks.planManualRun;
     advanceRun = mocks.advanceRun;
     dispatchRun = mocks.dispatchRun;
@@ -64,7 +69,7 @@ describe("scheduled job queue", () => {
     const message = { body: { schemaVersion: 1, messageType: "scheduled_job_item", runId: "ranked", itemId: "low", phase: "collect" }, ack: vi.fn(), retry: vi.fn() };
     await handleScheduledJobQueue({ queue: "background", messages: [message] } as unknown as MessageBatch<unknown>, { ...siteEnv() } as Env);
     expect(mocks.execute).not.toHaveBeenCalled();
-    expect(mocks.rearmDeferredPriorityItem).toHaveBeenCalledWith("low");
+    expect(mocks.rearmDeferredPriorityItem).toHaveBeenCalledWith("low", 0);
     expect(mocks.dispatchRun).toHaveBeenCalledWith("ranked");
     expect(mocks.rearmDeferredPriorityItem.mock.invocationCallOrder[0]).toBeLessThan(message.ack.mock.invocationCallOrder[0]);
     expect(message.ack).toHaveBeenCalledOnce();
@@ -92,6 +97,7 @@ describe("scheduled job queue", () => {
     });
     mocks.releaseItemForRetry.mockResolvedValue(true);
     mocks.reserveQueueOperations.mockResolvedValue(true);
+    mocks.reserveControlRetry.mockResolvedValue("reserved");
     mocks.reserveReconciliationRetry.mockResolvedValue(true);
     mocks.advanceRun.mockResolvedValue(false);
     mocks.dispatchRun.mockResolvedValue({ dispatched: 1 });
@@ -101,13 +107,14 @@ describe("scheduled job queue", () => {
 
   it.each([true,false])("preserves control planning failure admission: %s",async reserved=>{
     mocks.planManualRun.mockRejectedValue(new Error('planning failed'));
-    mocks.reserveQueueOperations.mockResolvedValue(reserved);
+    mocks.reserveControlRetry.mockResolvedValue(reserved ? "reserved" : "denied");
     const message={body:{schemaVersion:1,messageType:'scheduled_job_control',runId:'control-run'},ack:vi.fn(),retry:vi.fn()};
     await handleScheduledControlQueue({queue:'otw-ops-control',messages:[message]} as unknown as MessageBatch<unknown>,siteEnv() as Env);
-    expect(mocks.reserveQueueOperations).toHaveBeenCalledWith('control');
+    expect(mocks.reserveControlRetry).toHaveBeenCalledWith('control-run', 0);
+    expect(mocks.reserveQueueOperations).not.toHaveBeenCalled();
     expect(mocks.reserveReconciliationRetry).not.toHaveBeenCalled();
     if(reserved){expect(message.retry).toHaveBeenCalledWith({delaySeconds:60});expect(message.ack).not.toHaveBeenCalled();expect(mocks.markRunThrottled).not.toHaveBeenCalled();}
-    else {expect(mocks.markRunThrottled).toHaveBeenCalledWith('control-run','daily_queue_budget_exhausted_during_retry');expect(message.ack).toHaveBeenCalledOnce();expect(message.retry).not.toHaveBeenCalled();}
+    else {expect(mocks.completeUnplannedRun).toHaveBeenCalledWith('control-run','throttled','daily_queue_budget_exhausted_during_retry',0);expect(message.ack).toHaveBeenCalledOnce();expect(message.retry).not.toHaveBeenCalled();}
   });
 
   it.each([true,false])("preserves nonterminal non-RSS execution failure admission: %s",async reserved=>{
@@ -124,15 +131,29 @@ describe("scheduled job queue", () => {
   });
 
   it("marks LuvDia scheduled item/control dead letters before acknowledging", async () => {
-    mocks.readItem.mockResolvedValue(null);
+    const queued = { id: "item", run_id: "run", status: "queued" };
+    mocks.readItem.mockResolvedValue(queued);
     const item = { body: { schemaVersion: 1, messageType: "scheduled_job_item", runId: "run", itemId: "item", phase: "collect" }, ack: vi.fn() };
     const control = { body: { schemaVersion: 1, messageType: "scheduled_job_control", runId: "run" }, ack: vi.fn() };
     await handleScheduledJobQueue({ queue: "luvdia-dead-letter", messages: [item, control] } as unknown as MessageBatch<unknown>, siteEnv("luvdia") as Env);
-    expect(mocks.markItemDeadLetter).toHaveBeenCalledWith("item");
+    expect(mocks.markItemDeadLetter).toHaveBeenCalledWith("item", undefined, queued, 0);
     expect(mocks.markItemDeadLetter).toHaveBeenCalledBefore(item.ack);
-    expect(mocks.markRunFailed).toHaveBeenCalledWith("run", "control_queue_retries_exhausted");
-    expect(mocks.markRunFailed).toHaveBeenCalledBefore(control.ack);
+    expect(mocks.completeUnplannedRun).toHaveBeenCalledWith("run", "failed", "control_queue_retries_exhausted",0);
+    expect(mocks.completeUnplannedRun).toHaveBeenCalledBefore(control.ack);
     expect(mocks.claimItem).not.toHaveBeenCalled();
+  });
+
+  it("ignores a late execution error after a newer generation completed", async () => {
+    mocks.claimItem.mockResolvedValue({ id: "item-1", run_id: "run-1", phase: "collect", lane: "x", status: "running", attempts: 1 });
+    mocks.execute.mockRejectedValue(new Error("old execution failed"));
+    mocks.readItem.mockResolvedValue({ id: "item-1", run_id: "run-1", status: "succeeded", continuation_json: '{"deliveryGeneration":1}' });
+    const message = { body: { schemaVersion: 1, messageType: "scheduled_job_item", runId: "run-1", itemId: "item-1", phase: "collect" }, ack: vi.fn(), retry: vi.fn() };
+    await handleScheduledJobQueue({ queue: "otw-ops-background", messages: [message] } as unknown as MessageBatch<unknown>, siteEnv() as Env);
+    expect(message.ack).toHaveBeenCalledOnce();
+    expect(message.retry).not.toHaveBeenCalled();
+    expect(mocks.reserveReconciliationRetry).not.toHaveBeenCalled();
+    expect(mocks.dispatchRun).not.toHaveBeenCalled();
+    expect(mocks.markRunFailed).not.toHaveBeenCalled();
   });
 
   it("성공한 item마다 다음 pending outbox를 dispatch한다", async () => {
@@ -151,7 +172,7 @@ describe("scheduled job queue", () => {
       }],
     } as unknown as MessageBatch<unknown>, siteEnv() as Env);
 
-    expect(mocks.dispatchRun).toHaveBeenCalledWith("run-1");
+    expect(mocks.dispatchRun).toHaveBeenCalledWith("run-1", { items: [expect.objectContaining({ id: "item-1" })] });
     expect(mocks.acknowledgeReconciliation.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.enrichCompletedXReplies.mock.invocationCallOrder[0],
     );
@@ -186,7 +207,7 @@ describe("scheduled job queue", () => {
     expect(mocks.advanceRun).toHaveBeenCalledWith(
       expect.objectContaining({ status: "partial" }),
     );
-    expect(mocks.dispatchRun).toHaveBeenCalledWith("run-1");
+    expect(mocks.dispatchRun).toHaveBeenCalledWith("run-1", { items: [expect.objectContaining({ id: "item-1" })] });
     expect(ack).toHaveBeenCalledOnce();
   });
 
@@ -290,9 +311,9 @@ describe("scheduled job queue", () => {
     expect(mocks.advanceRun).toHaveBeenCalledWith(
       expect.objectContaining({ id: "item-1", status: "succeeded" }),
     );
-    expect(mocks.dispatchRun).toHaveBeenCalledWith("run-1");
+    expect(mocks.dispatchRun).toHaveBeenCalledWith("run-1", { items: [expect.objectContaining({ id: "item-1" })] });
     expect(mocks.finalizeLegacyState).toHaveBeenCalledWith("run-1");
-    expect(mocks.refreshRun).toHaveBeenCalledWith("run-1");
+    expect(mocks.refreshRun).toHaveBeenCalledWith("run-1", [expect.objectContaining({ id: "item-1" })]);
     expect(mocks.refreshRun.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.finalizeLegacyState.mock.invocationCallOrder[0],
     );
@@ -323,7 +344,7 @@ describe("scheduled job queue", () => {
     expect(retry).toHaveBeenCalledWith({ delaySeconds: 60 });
     expect(ack).not.toHaveBeenCalled();
     expect(mocks.releaseItemForRetry).not.toHaveBeenCalled();
-    expect(mocks.reserveReconciliationRetry).toHaveBeenCalledWith("run-1", "post_completion_reconciliation_failed:temporary d1 failure");
+    expect(mocks.reserveReconciliationRetry).toHaveBeenCalledWith("run-1", "post_completion_reconciliation_failed:temporary d1 failure", [expect.objectContaining({ id: "item-1" })]);
   });
 
   it("후속 조정 retry 예산이 소진되면 terminal run을 복구 가능한 실패로 표시한다", async () => {
@@ -351,6 +372,7 @@ describe("scheduled job queue", () => {
     expect(mocks.reserveReconciliationRetry).toHaveBeenCalledWith(
       "run-1",
       "post_completion_reconciliation_failed:temporary d1 failure",
+      [expect.objectContaining({ id: "item-1" })],
     );
     expect(mocks.markRunFailed).not.toHaveBeenCalled();
     expect(retry).not.toHaveBeenCalled();
@@ -384,9 +406,9 @@ describe("scheduled job queue", () => {
     } as unknown as MessageBatch<unknown>, siteEnv() as Env);
 
     expect(mocks.execute).not.toHaveBeenCalled();
-    expect(mocks.dispatchRun).toHaveBeenCalledWith("run-1");
+    expect(mocks.dispatchRun).toHaveBeenCalledWith("run-1", { items: [expect.objectContaining({ id: "item-1" })] });
     expect(mocks.finalizeLegacyState).toHaveBeenCalledWith("run-1");
-    expect(mocks.refreshRun).toHaveBeenCalledWith("run-1");
+    expect(mocks.refreshRun).toHaveBeenCalledWith("run-1", [expect.objectContaining({ id: "item-1" })]);
     expect(mocks.markItemDeadLetter).not.toHaveBeenCalled();
     expect(ack).toHaveBeenCalledOnce();
   });

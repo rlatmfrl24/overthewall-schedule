@@ -1,13 +1,21 @@
 import type { SiteId } from "@contracts/site-definition";
+import { xRequestExpiryDaySql } from "../../../../db/x-request-retention";
 import type { XApiGateway, XApiGatewayReceipt, XApiGatewayReceiptRequest, XApiGatewayRequest, XApiGatewayResult } from "@contracts/x-activity";
 import { xActivityMediaReady } from "../domain/x-activity";
 import { estimateXSharedApiReservationMicros, requestXApi, XApiError, type XApiUsageTracker, type XTweetLookupResponse } from "./x-api";
+import { isXTimelineGapPayload } from "./x-timeline-gaps";
 
 export interface XBudgetSnapshot { day: string; used: number; reserved: number }
 export interface XSharedBudget extends XBudgetSnapshot { limit: number; remaining: number; seeded: boolean }
 const DAY = 86_400_000;
+const GAP_REQUEST_RECOVERY_MS = 10 * 60_000;
 const failure = (error: string, status = 503): XApiGatewayResult => ({ ok: false, status, error, costMicros: 0, cached: false, dispatched: false });
 const utcDay = () => new Date(Date.now()).toISOString().slice(0,10);
+
+export const prepareXReceiptCleanup = (db: D1Database, timestamp = Date.now()) => db.prepare(`DELETE FROM x_shared_requests
+  WHERE id IN (SELECT id FROM x_shared_requests WHERE status != 'running' AND ${xRequestExpiryDaySql} <= julianday(?)
+    ORDER BY ${xRequestExpiryDaySql} LIMIT 100)`)
+  .bind(new Date(timestamp).toISOString().slice(0, 10));
 
 export { readSiteXBudget } from "./x-api";
 
@@ -68,10 +76,34 @@ export class D1SharedXApiGateway implements XApiGateway {
 
   async readReceipt(input: XApiGatewayReceiptRequest): Promise<XApiGatewayReceipt> {
     if (!input || typeof input.id !== "string" || !/^[A-Za-z0-9_:-]{1,256}$/.test(input.id) || typeof input.path !== "string" || input.path.length > 16_000 || !["user_lookup", "timeline", "tweet_lookup"].includes(input.operation)) throw new Error("invalid_x_gateway_receipt");
-    const row = await this.db.prepare(`SELECT day,status,CASE WHEN json_valid(result) THEN json_extract(result,'$.ok') END ok
+    const includeBody = input.includeTimelineBody === true && input.operation === "timeline" && input.id.startsWith(`${this.site}:gap:`);
+    const includeReference = input.includeReferenceResult === true && input.id.startsWith(`${this.site}:quote:`) &&
+      (input.operation === "tweet_lookup" && input.path.startsWith("/tweets?ids=") || input.operation === "user_lookup" && input.path.startsWith("/users?ids="));
+    const row = await this.db.prepare(`SELECT day,status,CASE WHEN json_valid(result) THEN json_extract(result,'$.ok') END ok,
+      CASE WHEN ? AND status='complete' AND json_valid(result) AND NOT EXISTS (
+        SELECT 1 FROM json_each(post_ids) ids JOIN x_activity_cache_redactions hidden ON hidden.post_id=ids.value
+      ) THEN CASE WHEN ? THEN result ELSE json_quote(json_extract(result,'$.body')) END END AS body
       FROM x_shared_requests WHERE id=? AND site=? AND operation=? AND path=?`)
-      .bind(input.id, this.site, input.operation, input.path).first<{ day: string; status: string; ok: number | null }>();
-    return row ? { found: true, day: row.day, status: row.status, ok: row.ok === 1 ? true : row.ok === 0 ? false : null } : { found: false };
+      .bind(includeBody || includeReference ? 1 : 0, includeReference ? 1 : 0, input.id, this.site, input.operation, input.path).first<{ day: string; status: string; ok: number | null; body: string | null }>();
+    return row ? { found: true, day: row.day, status: row.status, ok: row.ok === 1 ? true : row.ok === 0 ? false : null,
+      ...(row.body && includeReference ? { referenceResult: JSON.parse(row.body) as XApiGatewayResult }
+        : row.body && row.ok === 1 ? { timelineBody: JSON.parse(row.body) as unknown } : {}) } : { found: false };
+  }
+
+  async readReceipts(inputs: XApiGatewayReceiptRequest[]): Promise<XApiGatewayReceipt[]> {
+    if (!Array.isArray(inputs) || inputs.length > 100 || inputs.some(input => !input || input.includeTimelineBody || input.includeReferenceResult ||
+      input.operation !== "timeline" || typeof input.id !== "string" || !/^(otw|luvdia):gap:[a-f0-9]{64}$/.test(input.id) ||
+      typeof input.path !== "string" || input.path.length > 16_000 || !/^\/users\/[1-9]\d{0,24}\/tweets\?/.test(input.path))) {
+      throw new Error("invalid_x_gateway_receipt_batch");
+    }
+    const { results } = await this.db.prepare(`SELECT request.day,request.status,
+      CASE WHEN json_valid(request.result) AND NOT EXISTS(SELECT 1 FROM json_each(request.post_ids) ids
+        JOIN x_activity_cache_redactions hidden ON hidden.post_id=ids.value) THEN json_extract(request.result,'$.ok') END AS ok
+      FROM json_each(?) input LEFT JOIN x_shared_requests request
+      ON request.id=json_extract(input.value,'$.id') AND request.path=json_extract(input.value,'$.path')
+        AND request.site=? AND request.operation='timeline' ORDER BY input.key`)
+      .bind(JSON.stringify(inputs), this.site).all<{ day: string | null; status: string; ok: number | null }>();
+    return results.map(row => row.day ? { found: true, day: row.day, status: row.status, ok: row.ok === null ? null : row.ok === 1 } : { found: false });
   }
 
   async redactPost(postId:string){
@@ -94,6 +126,7 @@ export class D1SharedXApiGateway implements XApiGateway {
     const expected = /^\/users\/by\?/.test(input.path) || /^\/users\?/.test(input.path) ? "user_lookup"
       : /^\/tweets\?/.test(input.path) ? "tweet_lookup" : /^\/users\/[1-9]\d{0,24}\/tweets\?/.test(input.path) ? "timeline" : null;
     if (expected !== input.operation) return failure("invalid_x_gateway_request",400);
+    const gapRequest = input.operation === "timeline" && input.id.startsWith(`${this.site}:gap:`);
     try {
       if (!this.token || !await this.admitD1()) return failure("shared_budget_unavailable");
       let budget = await new D1SharedXBudget(this.db).ensureDay();
@@ -129,13 +162,17 @@ export class D1SharedXApiGateway implements XApiGateway {
           AND EXISTS(SELECT 1 FROM x_shared_requests WHERE id=? AND claim_token=? AND status='new')`).bind(estimate,timestamp,day,estimate,input.id,token),
         this.db.prepare(`UPDATE x_shared_requests SET status=CASE WHEN changes()=1 THEN 'running' ELSE 'blocked' END
           WHERE id=? AND claim_token=? AND status='new'`).bind(input.id,token),
-        this.db.prepare("SELECT claim_token,status,path,operation,result FROM x_shared_requests WHERE id=?").bind(input.id),
+        this.db.prepare("SELECT claim_token,status,path,operation,result,updated_at FROM x_shared_requests WHERE id=?").bind(input.id),
       ]);
-      const claim = claimResults[3].results[0] as { claim_token: string; status: string; path: string; operation: string; result: string | null } | undefined;
+      const claim = claimResults[3].results[0] as { claim_token: string; status: string; path: string; operation: string; result: string | null; updated_at: number } | undefined;
       if (!claim || claim.path !== input.path || claim.operation !== input.operation) return failure("x_gateway_identity_conflict",409);
       if (claim.claim_token !== token) {
         if (claim.result) return { ...JSON.parse(claim.result) as XApiGatewayResult, cached: true, costMicros: 0, dispatched: false };
         if(claim.status==="redacted")return failure("x_gateway_result_redacted",410);
+        if (gapRequest &&
+          (claim.status === "running" || claim.status === "redacting") && timestamp - claim.updated_at >= GAP_REQUEST_RECOVERY_MS) {
+          return failure("x_gateway_result_unknown");
+        }
         return failure(claim.status === "blocked" ? "budget_exceeded" : "x_gateway_request_in_progress", claim.status === "blocked" ? 429 : 503);
       }
       if (claim.status !== "running") return failure("budget_exceeded",429);
@@ -145,6 +182,7 @@ export class D1SharedXApiGateway implements XApiGateway {
       try {
         const body = await requestXApi<unknown>(input.path,this.token,{ operation: input.operation, estimatedCostMicros: estimate,
           usageTracker: tracker, backoffDb: this.db });
+        if (gapRequest && !isXTimelineGapPayload(body)) throw new XApiError("Invalid or incomplete X timeline range", 502, { code: "invalid_x_gap_response" });
         result = { ok: true, status: 200, body, costMicros: tracker.estimatedCostMicros, cached: false, dispatched: tracker.apiCalls > 0 };
       } catch (error) {
         result = { ok: false, status: error instanceof XApiError ? error.status : 503,

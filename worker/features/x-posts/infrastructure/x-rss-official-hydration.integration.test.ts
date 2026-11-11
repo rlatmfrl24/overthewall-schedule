@@ -75,12 +75,43 @@ beforeEach(async () => {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input));
     if (url.pathname === "/2/tweets") return Response.json({ data: url.searchParams.get("ids")!.split(",").map(id => ({ id, author_id: "101", text: `official ${id}`, created_at: new Date(now - 90_000).toISOString() })), includes: { users: [{ id: "101", username: "member", protected: false }] } });
-    if (url.pathname === "/2/users/101/tweets") return Response.json({ data: [{ id: "299", author_id: "101", text: "unknown to free", created_at: new Date(now - 30_000).toISOString() }] });
+    if (url.pathname === "/2/users/101/tweets") {
+      const since=url.searchParams.get("since_id"), until=url.searchParams.get("until_id");
+      return Response.json({ data: (!since || BigInt(since)<299n) && (!until || BigInt(until)>299n)
+        ? [{ id: "299", author_id: "101", text: "unknown to free", created_at: new Date(now - 30_000).toISOString() }] : [] });
+    }
     if (url.pathname === "/2/users/by") return Response.json({ data: [{ id: "101", username: "member", protected: false }] });
     throw new Error(`unexpected upstream ${url}`);
   }));
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+it.each([false,true])("keeps RSS 404 retry bounded through the complete Queue entry (persistent=%s)",async persistent=>{
+  freeProvider(["201","202","203","204","205"]);
+  const provider=vi.mocked(fetch).getMockImplementation()!;
+  let feeds=0;
+  vi.mocked(fetch).mockImplementation(async(input,init)=>{
+    if(new URL(String(input)).pathname.endsWith("feed.xml")){
+      feeds++;
+      if(persistent || feeds===1)return new Response(null,{status:404});
+    }
+    return provider(input,init);
+  });
+  const before=await clocks(),entry=await create({...state([]),phase:"fetch"});
+  const saved=await runMeasuredQueuedEntry(entry,`rss_404_${persistent?"persistent":"recovered"}`);
+  expect(feeds).toBe(2);
+  expect(await clocks()).toEqual(before);
+  expect(saved.result.paidApiCalls).toBe(0);
+  if(persistent){
+    expect(saved.result).toMatchObject({status:"failed",error:"fx_http_404",postsStored:0});
+    expect(saved.state).toMatchObject({phase:"fetch",candidates:[]});
+    expect(saved.state.nextAttemptAt).toBeGreaterThan(now);
+    expect((await entry.repo.readItem(entry.item.id))?.status).toBe("partial");
+  }else{
+    expect(saved.result).toMatchObject({postsStored:5,freeApiCalls:5,pendingSources:0});
+    expect((await entry.repo.readItem(entry.item.id))?.status).toBe("succeeded");
+  }
+});
 
 it("known_lookup_is_not_timeline_completion", async () => {
   const entry = await create(), before = await clocks();
@@ -102,7 +133,9 @@ it("official_timeline_discovers_unknown_free_id", async () => {
   expect((await runFxRssCollectionItem(runtime, scan.item, scan.input, scan.repo)).stats).toMatchObject({ freeApiCalls: 2, paidApiCalls: 0, postsStored: 2 });
   const freeDiscoveredIds = (await stored()).results.map(row => row.id);
   await db.prepare("UPDATE x_post_sources SET regular_completed_at=1,last_completed_at=1").run();
-  const result = await runXCollectionForHandles(runtime, ["member"], "manual", undefined, false, undefined, "regular");
+  const initial = await runXCollectionForHandles(runtime, ["member"], "manual", undefined, false, undefined, "regular");
+  expect(initial).toMatchObject({pendingSources:1,resumeRegularOrigin:expect.any(Number)});
+  const result = await runXCollectionForHandles(runtime, ["member"], "manual", undefined, true, undefined, "pending", {resumeRegularOrigin:initial.resumeRegularOrigin});
   expect(result.status).toBe("success");
   expect(new Set(freeDiscoveredIds).has("299")).toBe(false);
   expect((await stored()).results.map(row => row.id)).toContain("299");

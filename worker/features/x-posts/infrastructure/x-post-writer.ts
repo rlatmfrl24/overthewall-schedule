@@ -1,5 +1,5 @@
 import { connectReplyFromSnapshot } from "./x-reply-reference";
-import { noteRssD1Conflict, rssD1RetryHasRoom } from "./rss-d1-budget";
+import { hasXCollectionD1Room, noteRssD1Conflict, rssD1RetryHasRoom } from "./rss-d1-budget";
 import type { SiteId } from "@contracts/site-definition";
 import type { XPostItem } from "../../../platform/types";
 import { publicationHiddenSql } from "../../content-access";
@@ -204,12 +204,16 @@ export async function commitStoredPosts(
           const index = statements.length;
           statements.push(row ? db.prepare(`UPDATE x_posts SET value=?,source_authority=?,content_hash=NULL,revision=revision+1,fetched_at=? WHERE id=? AND revision=? AND value=? AND hidden_at IS NULL AND content_removed_at IS NULL AND content_access='normal' AND NOT (${publicationHiddenSql("x_posts", "x_posts", siteId)}) AND (${fence.sql})`)
             .bind(value, authority, fetchedAt, post.id, row.revision, row.value, ...fence.bindings)
-            : db.prepare(`INSERT INTO x_posts(id,handle,user_id,username,value,created_at,first_seen_at,fetched_at,source_authority,content_hash,revision)
-              SELECT ?,?,?,?,?,?,?,?,?,NULL,1 FROM (SELECT ? handle) incoming WHERE NOT (${publicationHiddenSql("x_post_sources", "incoming", siteId)}) AND (${fence.sql}) ON CONFLICT(id) DO NOTHING`)
+            : db.prepare(`INSERT INTO x_posts(id,handle,user_id,username,value,created_at,first_seen_at,fetched_at,source_authority,content_hash,revision,insert_revision)
+              SELECT ?,?,?,?,?,?,?,?,?,NULL,1,COALESCE((SELECT insert_revision+1 FROM x_post_sources WHERE handle=incoming.handle),0) FROM (SELECT ? handle) incoming WHERE NOT (${publicationHiddenSql("x_post_sources", "incoming", siteId)}) AND (${fence.sql}) ON CONFLICT(id) DO NOTHING`)
               .bind(post.id, handle, user.id, post.username, value, post.createdAt, fetchedAt, fetchedAt, authority, handle, ...fence.bindings));
           // changes() belongs to this root DML, never a competitor's identical value.
           statements.push(assertion(db, "changes()=1"));
-          if (!row) inserts.push({ id: post.id, index });
+          if (!row) {
+            inserts.push({ id: post.id, index });
+            // The counter and new root commit together, independently of the fetch timestamp.
+            statements.push(db.prepare("UPDATE x_post_sources SET insert_revision=insert_revision+1 WHERE handle=?").bind(handle));
+          }
         } else statements.push(assertion(db, "EXISTS(SELECT 1 FROM x_posts WHERE id=? AND revision=? AND value=? AND source_authority=? AND content_hash IS NULL)", [post.id, revision, value, authority]));
         if (member && settings.get("x_history_analytics_enabled") === "true" && Number.isFinite(Date.parse(post.createdAt))) {
           statements.push(prepareXPostFact(db, member, post, fetchedAt, siteId, rssFence), assertion(db, "changes()=1", [], "post_fact_write_failed"));
@@ -230,6 +234,8 @@ export async function commitStoredPosts(
         // Two retry calls plus twelve for checkpoint, release, outbox and a failed final ACK retry.
         if (!rssD1RetryHasRoom(db,14)) throw new Error("rss_d1_retry_budget");
       }
+      // Official retries must also leave room for the source lease and Queue bookkeeping.
+      if (!rssFence && !hasXCollectionD1Room(db, 24)) throw new Error("x_d1_retry_budget");
       if (attempt === 3) throw new Error("post_revision_conflict");
     }
   }

@@ -17,13 +17,14 @@ export interface XApiGatewayResult {
   dispatched: boolean;
 }
 export interface XSharedBudgetState {day:string;used:number;reserved:number;limit:number;remaining:number;seeded:boolean}
-export type XApiGatewayReceiptRequest = Pick<XApiGatewayRequest, "id" | "operation" | "path">;
-export type XApiGatewayReceipt = { found: false } | { found: true; day: string; status: string; ok: boolean | null };
+export type XApiGatewayReceiptRequest = Pick<XApiGatewayRequest, "id" | "operation" | "path"> & { includeTimelineBody?: true; includeReferenceResult?: true };
+export type XApiGatewayReceipt = { found: false } | { found: true; day: string; status: string; ok: boolean | null; timelineBody?: unknown; referenceResult?: XApiGatewayResult };
 export interface XApiGateway {
   execute(request: XApiGatewayRequest): Promise<XApiGatewayResult>;
   readBudget(): Promise<XSharedBudgetState>;
   redactPost(postId:string): Promise<void>;
   readReceipt?(request: XApiGatewayReceiptRequest): Promise<XApiGatewayReceipt>;
+  readReceipts?(requests: XApiGatewayReceiptRequest[]): Promise<XApiGatewayReceipt[]>;
 }
 
 export const unavailableXApiGateway: XApiGateway = {

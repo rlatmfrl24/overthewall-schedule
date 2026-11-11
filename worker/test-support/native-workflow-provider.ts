@@ -31,9 +31,16 @@ export default {
     }
     if (request.method === "GET" && url.origin === "https://api.x.com") {
       if (url.pathname === "/2/users/by") return Response.json({ data: [{ id: "1000000000001", username: "native_collect" }] });
-      if (url.pathname === "/2/users/1000000000001/tweets") return Response.json({
-        data: [{ id: "200", text: "Native collection", created_at: new Date().toISOString() }], meta: { newest_id: "200", ...(scenario === "account-budget" && !url.searchParams.has("pagination_token") ? { next_token: "native-page-2" } : {}) },
-      });
+      if (url.pathname === "/2/users/1000000000001/tweets") {
+        const token = url.searchParams.get("pagination_token");
+        const id = token === "native-page-2" ? "190" : "200";
+        const since = url.searchParams.get("since_id"), until = url.searchParams.get("until_id");
+        if ((since && BigInt(id) <= BigInt(since)) || (until && BigInt(id) >= BigInt(until))) return Response.json({ meta: { result_count: 0 } });
+        return Response.json({
+          data: [{ id, text: "Native collection", created_at: new Date().toISOString() }],
+          meta: { newest_id: id, ...(scenario === "account-budget" && !token ? { next_token: "native-page-2" } : {}) },
+        });
+      }
       if (url.pathname === "/2/users/1000000000002/tweets") return Response.json({ data: [{ id: "300", text: "Independent peer", created_at: new Date().toISOString() }] });
     }
     if (request.method === "GET" && url.origin === "https://apis.naver.com" && url.pathname === "/cafe-web/cafe-boardlist-api/v1/cafes/98765432/menus/1/articles") {

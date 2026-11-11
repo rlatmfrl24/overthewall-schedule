@@ -293,7 +293,7 @@ return defineConfig({
               ...accessMigrations(["members", "youtube_feed_videos", "content_transitions"]), ...efficiencyIndexes("youtube_feed_"), ...efficiencyIndexes("scheduled_"),
               ...efficiencyIndexes("members"), ...efficiencyIndexes("member_links")],
             X_REFERENCE_MIGRATIONS: [...migrations.filter(({ name }) =>
-              /^(0000_|0011_|0023_|0025_|0026_|0038_|0068_|0071_|0072_|0075_|0077_|0078_|0079_|0083_|0084_|0137_|0138_|0152_|0153_|0154_|0155_|0156_|0159_|0160_|0161_|0162_|0163_|0164_|0165_)/.test(name)
+              /^(0000_|0011_|0023_|0025_|0026_|0038_|0068_|0071_|0072_|0075_|0077_|0078_|0079_|0083_|0084_|0137_|0138_|0152_|0153_|0154_|0155_|0156_|0159_|0160_|0161_|0162_|0163_|0164_|0165_|0169_|0170_)/.test(name)
             ).map(migration => migration.name.startsWith("0038_") ? { ...migration, queries: migration.queries.filter(query => query.includes("admin_audit_logs")) } : /^(0071_|0072_)/.test(migration.name)
               ? { ...migration, queries: migration.queries.filter(query => /^\s*ALTER TABLE `x_/.test(query)) }
               : migration), ...accessMigrations(["members", "x_posts", "x_post_facts"]), ...efficiencyIndexes("x_")],

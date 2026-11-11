@@ -23,15 +23,18 @@ const previewEventPredicate = `(json_extract(detail, '$.purpose') = 'reference_p
 export async function readXReferenceBudget(db: DB, timestamp = Date.now()) {
   const day = new Date(timestamp).toISOString().slice(0, 10);
   const start = Date.parse(`${day}T00:00:00Z`);
-  const settings = await db
+  const snapshot = await db
     .prepare(
-      `SELECT key, value FROM settings WHERE key IN
-    ('x_collection_daily_budget_cents', 'x_reference_preview_daily_budget_cents')`,
+      `SELECT key, value, NULL AS used, NULL AS reserved FROM settings
+       WHERE key IN ('x_collection_daily_budget_cents', 'x_reference_preview_daily_budget_cents')
+       UNION ALL SELECT resource, NULL, used, reserved FROM scheduled_usage_daily
+       WHERE day = ? AND lane = 'all' AND resource IN (?, ?)`,
     )
-    .all<{ key: string; value: string }>();
-  const values = new Map(settings.results.map((row) => [row.key, row.value]));
+    .bind(day, GLOBAL_RESOURCE, X_PREVIEW_RESOURCE)
+    .all<{ key: string; value: string | null; used: number | null; reserved: number | null }>();
+  const rows = new Map(snapshot.results.map(row => [row.key, row]));
   const parse = (key: string, fallback: number) => {
-    const value = values.get(key);
+    const value = rows.get(key)?.value;
     const number = value == null ? fallback : Number(value);
     if (!Number.isInteger(number) || number < 0)
       throw new XReferenceBudgetError("budget_unavailable");
@@ -45,19 +48,10 @@ export async function readXReferenceBudget(db: DB, timestamp = Date.now()) {
     globalLimit,
     parse("x_reference_preview_daily_budget_cents", 10),
   );
-  const rows = await db
-    .prepare(
-      `SELECT resource, used, reserved FROM scheduled_usage_daily
-    WHERE day = ? AND lane = 'all' AND resource IN (?, ?)`,
-    )
-    .bind(day, GLOBAL_RESOURCE, X_PREVIEW_RESOURCE)
-    .all<{ resource: string; used: number; reserved: number }>();
-  const ledger = new Map(rows.results.map((row) => [row.resource, row]));
   // Only reconstruct a missing ledger; never rescan history on every admitted call.
-  const missingGlobal = !ledger.has(GLOBAL_RESOURCE);
-  const missingPreview = !ledger.has(X_PREVIEW_RESOURCE);
+  const global = rows.get(GLOBAL_RESOURCE), preview = rows.get(X_PREVIEW_RESOURCE);
   const legacy =
-    missingGlobal || missingPreview
+    !global || !preview
       ? await db
           .prepare(
             `SELECT COALESCE(SUM(estimated_cost_micros), 0) AS total,
@@ -68,13 +62,13 @@ export async function readXReferenceBudget(db: DB, timestamp = Date.now()) {
           .first<{ total: number; preview: number }>()
       : null;
   const globalUsed = Number(
-    ledger.get(GLOBAL_RESOURCE)?.used ?? legacy?.total ?? 0,
+    global?.used ?? legacy?.total ?? 0,
   );
   const previewUsed = Number(
-    ledger.get(X_PREVIEW_RESOURCE)?.used ?? legacy?.preview ?? 0,
+    preview?.used ?? legacy?.preview ?? 0,
   );
-  const globalReserved = Number(ledger.get(GLOBAL_RESOURCE)?.reserved ?? 0);
-  const previewReserved = Number(ledger.get(X_PREVIEW_RESOURCE)?.reserved ?? 0);
+  const globalReserved = Number(global?.reserved ?? 0);
+  const previewReserved = Number(preview?.reserved ?? 0);
   return {
     day,
     globalLimit,

@@ -24,7 +24,8 @@ export const xReasonLabel = (code: string | null | undefined) => {
     backoff: "공급자 재시도 대기",
     collection_disabled: "게시물 수집 중지",
     all_handles_cooldown: "계정 수집 주기 대기",
-    x_collection_continuation_pending: "다음 페이지를 이어서 수집할 예정입니다.",
+    x_collection_continuation_pending: "남은 구간 또는 페이지를 이어서 확인합니다.",
+    invalid_x_gap_response: "공식 X 응답이 불완전해 같은 구간을 다시 확인합니다.",
     missing_bearer_token: "X 인증 설정 확인 필요",
   };
   return labels[code] ?? `조회 오류 (${code})`;
@@ -32,7 +33,7 @@ export const xReasonLabel = (code: string | null | undefined) => {
 
 export function xCollectionItemLabel(result: NonNullable<XCollectionOperationItemDto["collection"]>) {
   if (result.mode === "rss_candidates" && result.pendingSources) return "RSS 후보 확인 대기";
-  if (result.status === "success" && result.pendingSources) return "다음 페이지 대기";
+  if (result.status === "success" && result.pendingSources) return "이어 수집 대기";
   if (result.status === "success") return "성공";
   const progressed = result.postsStored > 0 || result.refreshedHandles > 0;
   if (result.status === "skipped") return progressed ? "일부 수집 후 대기" : "건너뜀";
@@ -44,7 +45,7 @@ function xCollectionStatusText(run: OperationRunDto | null | undefined, items: X
   const incomplete = items.some((item) => item.status === "queued" || item.status === "running") || results.length !== items.length;
   if (incomplete) return "진행 중 또는 일부 결과 미확인";
   if (results.some((result) => result.status === "failed")) return "실패 포함";
-  if (results.some(result => result.pendingSources)) return results.some(result => result.mode === "rss_candidates" && result.pendingSources) ? "일부 수집 · RSS 후보 확인 대기" : "일부 수집 · 다음 페이지 대기";
+  if (results.some(result => result.pendingSources)) return results.some(result => result.mode === "rss_candidates" && result.pendingSources) ? "일부 수집 · RSS 후보 확인 대기" : "일부 수집 · 이어 수집 대기";
   if (results.every((result) => result.status === "skipped")) {
     return results.some((result) => result.postsStored > 0 || result.refreshedHandles > 0) ? "일부 수집 후 대기" : "건너뜀";
   }

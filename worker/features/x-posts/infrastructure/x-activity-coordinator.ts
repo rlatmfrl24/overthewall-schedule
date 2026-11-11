@@ -3,7 +3,7 @@ import type { SiteId } from "@contracts/site-definition";
 import type { XActivitySitePort, XActivitySiteSnapshot, XActivityStatusDto, XApiGateway, XActivityControlFence, XActivitySiteControlPort, XActivityDeliveryRequest } from "@contracts/x-activity";
 import { XActivityError } from "../application/x-activity-service";
 import { parseXActivityEvent } from "../domain/x-activity";
-import { D1SharedXBudget } from "./x-shared-budget";
+import { D1SharedXBudget, prepareXReceiptCleanup } from "./x-shared-budget";
 
 interface Subscription { subscription_id: string; event_type: string; filter: { user_id?: string }; tag?: string; webhook_id?: string; expires_at?: string }
 interface Owned { user_id: string; tag: string; subscription_id: string | null; webhook_id: string | null; expires_at: number | null; status: string; last_error: string | null }
@@ -363,7 +363,7 @@ export class D1XActivityCoordinator {
     const pending=await this.db.prepare("SELECT event_id FROM x_activity_dispatch WHERE (otw_status='pending' OR luvdia_status='pending') AND lease_until<=? AND next_attempt_at<=? ORDER BY next_attempt_at LIMIT 20").bind(Date.now(),Date.now()).all<{event_id:string}>();
     for(const row of pending.results){await this.assertOwner(token);await this.options.dispatch(row.event_id);}
     await this.write(token,
-      this.db.prepare("DELETE FROM x_shared_requests WHERE id IN (SELECT id FROM x_shared_requests WHERE day<? AND status!='running' LIMIT 100)").bind(new Date(Date.now()-DAY).toISOString().slice(0,10)),
+      prepareXReceiptCleanup(this.db),
       this.db.prepare("DELETE FROM x_activity_dispatch WHERE event_id IN (SELECT event_id FROM x_activity_dispatch WHERE received_at<? ORDER BY received_at LIMIT 100)").bind(Date.now()-30*DAY),
     );
   }
