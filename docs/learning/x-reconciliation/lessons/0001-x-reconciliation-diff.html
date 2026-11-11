@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>공식 X 12시간 대조 변경표</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>공식 X 12시간 대조 변경표</h1>
+    <p class="subtitle">저장 글은 조회 범위에서 빼고, 남은 구간은 기존 큐에서 이어갑니다. 마지막 공식 완료 시점부터 다음 정기 대조까지의 간격은 12시간입니다.</p>
+    <p class="scope"><strong>비교 기준</strong> 운영 기준은 <code>236fd349</code>의 코드입니다. ‘직전 로컬’은 ID 구간 조회를 구현하고 큐를 개선하기 전 버전입니다. ‘현재 로컬’은 재개 및 D1 보완까지 검증한 미배포 작업본입니다.</p>
+  </header>
+
+  <section aria-labelledby="diff-title">
+    <h2 id="diff-title">기능별 Diff</h2>
+    <div class="table-wrap" role="region" aria-label="공식 대조 변경 전후 비교표" tabindex="0">
+      <table role="table">
+        <thead><tr><th scope="col">항목</th><th scope="col">이전</th><th scope="col">현재 로컬</th><th scope="col">기대 효과와 근거</th></tr></thead>
+        <tbody>
+          <tr>
+            <th scope="row">X 조회 범위</th>
+            <td><strong>운영 기준.</strong> 마지막 공식 확인 ID 이후의 사용자 타임라인을 읽습니다. 그 사이 FxEmbed로 저장한 글도 X가 반환할 수 있었습니다.</td>
+            <td>저장된 ID를 경계로 잡아 <code>since_id</code>와 <code>until_id</code> 사이의 글을 요청합니다. 최신 저장 ID 뒤쪽도 확인합니다.</td>
+            <td>이미 저장된 경계 글의 반환을 줄입니다. 조회를 쪼개므로 X 요청 수는 늘 수 있습니다. 같은 33개 글 표본의 게시글 읽기 비용은 조건부 계산상 <strong>$0.165 → $0.005</strong>입니다.</td>
+          </tr>
+          <tr>
+            <th scope="row">정상 구간 재개</th>
+            <td><strong>직전 로컬.</strong> 한 번에 최대 두 페이지를 처리한 뒤 다음 30분 Cron에서 이어갔습니다.</td>
+            <td>최대 두 페이지를 처리하고 진행을 저장한 뒤 기존 큐에 같은 작업의 다음 실행을 등록합니다. 전송에 실패하면 저장된 전송 기록에서 다시 보냅니다.</td>
+            <td>33구간 표본에서 요청 수는 <strong>33 → 33회</strong>였습니다. 이전에 시뮬레이션한 30분 슬롯 대기 16회가 빠졌습니다. 현재 운영 완료 시간은 미측정입니다.</td>
+          </tr>
+          <tr>
+            <th scope="row">중단 후 응답 재사용</th>
+            <td><strong>직전 로컬.</strong> 공유 게이트웨이에 응답이 남아 있어도 신규 호출 예산이나 백오프 때문에 재개가 제외될 수 있었습니다.</td>
+            <td>X 요청 전에 ID와 경로를 저장합니다. 이미 정산된 응답은 동일 요청과 사이트를 확인한 뒤 읽기 전용으로 재생합니다.</td>
+            <td>예산 부족과 백오프를 동시에 걸어도 로컬 재개에서 <strong>추가 X 요청 0회</strong>로 완료했습니다. 응답이 유실되거나 정리된 경우에는 재조회가 필요할 수 있습니다.</td>
+          </tr>
+          <tr>
+            <th scope="row">만료 토큰·잘못된 응답</th>
+            <td><strong>직전 로컬.</strong> 구형 페이지 토큰이 만료되면 같은 토큰을 반복할 수 있었습니다. 잘못된 성공 응답이 저장되면 다음 재개도 실패했습니다.</td>
+            <td>만료 시 저장된 ID를 이용해 미완료 범위를 다시 잡습니다. 반복 토큰과 잘못된 응답을 감지해 정상 진행으로 처리하지 않습니다.</td>
+            <td>같은 오류를 반복하며 멈추는 경우를 줄입니다. 로컬에서 구형 토큰 복구와 공급자 응답 정상화 이후의 재개를 확인했습니다.</td>
+          </tr>
+          <tr>
+            <th scope="row">인용 보강과 D1</th>
+            <td><strong>직전 로컬.</strong> 인용 대기 20건 재현에서 한 번에 처리하려다 D1 50회 한도에 걸렸습니다. 한도 없는 별도 실행은 144회를 사용했습니다.</td>
+            <td>정산과 큐 마감에 필요한 D1 여유를 남기고, 인용 처리를 여러 실행으로 나눕니다.</td>
+            <td>링크 전용의 인용 대기 20건은 <strong>12회 실행, 실행당 최대 45회</strong>였습니다. 작성자 보강 2건 표본은 전송 실패 복구를 포함해 최대 50회였습니다.</td>
+          </tr>
+          <tr>
+            <th scope="row">공식 확인점과 주기</th>
+            <td><strong>직전 로컬.</strong> 구간 진행은 따로 기록하고 전체 범위가 끝난 뒤 공식 확인점을 옮겼습니다. 정기 주기는 완료 후 12시간이었습니다.</td>
+            <td>마지막 조회 구간을 저장하면 확인 ID를 갱신합니다. 대조의 마무리 처리가 끝나면 완료 시각을 기록하고, 그 시각부터 다음 12시간을 셉니다.</td>
+            <td>미완료 범위를 건너뛰지 않습니다. 이전에 공식 API가 보완했던 <strong>4건 모두</strong> 로컬에서 다시 찾아 D1에 저장했습니다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="source">비용 예시는 저장 글 32건과 누락 1건의 표본에 게시글당 $0.005를 적용했습니다. 이전 방식이 33건을 모두 반환한다는 가정이며, 실제 청구액은 미측정입니다. <a href="https://docs.x.com/x-api/getting-started/pricing#credit-consumption-details">X 읽기 요금</a> · <a href="../../../reports/2026-11-11-x-reconciliation-algorithm-research.md">직전 조사 기록</a> · <a href="../../../../worker/features/scheduled-operations/infrastructure/x-hybrid.integration.test.ts#L49">현재 큐 테스트</a> · <a href="../../../../worker/features/x-posts/infrastructure/x-hybrid-policy.integration.test.ts#L46">보완 4건 테스트</a></p>
+  </section>
+
+  <section aria-labelledby="flow-title">
+    <h2 id="flow-title">예시로 따라가기</h2>
+    <p>공식 확인점이 100이고 110·120은 저장돼 있으며, X에만 115가 있다고 가정합니다.</p>
+    <ol class="flow">
+      <li><h3>경계 사이 조회</h3><p>100과 110 사이를 확인한 뒤 110과 120 사이에서 115를 찾습니다. 경계인 110·120은 X 응답에 포함되지 않습니다.</p></li>
+      <li><h3>저장 후 이어서 실행</h3><p>115와 진행 상태를 저장합니다. 같은 큐 작업이 다음 실행에서 120 뒤쪽을 확인합니다.</p></li>
+      <li><h3>공식 대조 완료</h3><p>더 확인할 구간이 없으면 공식 확인점을 갱신합니다. 정기 대조의 12시간은 완료 시각부터 셉니다.</p></li>
+    </ol>
+    <p class="source"><a href="https://docs.x.com/x-api/posts/timelines/introduction#time-based-filtering">먼저 읽을 자료 · X 공식 타임라인의 ID 경계</a> · <a href="../reference/0001-x-reconciliation-terms.html">운영 용어와 단위 빠른 참조</a></p>
+  </section>
+
+  <section aria-labelledby="practice-title">
+    <h2 id="practice-title">30초 자가 점검</h2>
+    <details>
+      <summary>33개 구간의 X 요청 수가 같았는데 왜 대기 시간이 줄었을까요?</summary>
+      <p>조회할 구간과 요청 횟수는 그대로입니다. 같은 작업의 다음 실행을 바로 큐에 넣으면서 30분 Cron 슬롯을 기다리는 시간이 빠졌습니다.</p>
+    </details>
+    <details>
+      <summary>X 응답은 저장됐고 사이트 진행 기록만 실패했습니다. 지금 신규 호출 예산이 없어도 무엇을 할 수 있을까요?</summary>
+      <p>동일 요청의 저장 응답을 재생해 게시글과 진행 상태를 마무리할 수 있습니다. 공유 응답이 남아 있고 사이트와 요청 경로가 일치해야 합니다.</p>
+    </details>
+  </section>
+
+  <footer>
+    <p><a href="0002-x-reconciliation-safe-resume.html">다음 수업 · 재개 안전장치와 인용 20건 비교</a></p>
+    <p><strong>검증 범위.</strong> 로컬 관련 테스트 807건 통과. 운영 설정·배포는 보류 중이며 신규 유료 호출은 0회였습니다.</p>
+    <p>표에서 더 자세히 보고 싶은 행이 있다면 Codex에 행 제목을 알려주세요. 그 변경의 코드와 검증 사례를 함께 따라갈 수 있습니다.</p>
+  </footer>
+</main>
+</body>
+</html>

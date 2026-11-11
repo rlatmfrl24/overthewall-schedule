@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>공식 X 대조 · 재개와 인용 보강</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>공식 X 대조가 멈췄을 때</h1>
+    <p><strong>2분 읽기.</strong> 아래 세 가지에서 이전 동작과 새 동작을 한 줄씩 비교해 보세요.</p>
+    <p class="scope">동일 작성자의 인용 20건을 처리한 로컬 표본에서 <strong>큐 실행 42회 → 33회</strong>, <strong>한 번의 실행에서 D1 최대 48회</strong>였습니다.</p>
+  </header>
+
+  <section aria-labelledby="diff-title">
+    <h2 id="diff-title">무엇을 고쳤나요?</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">상황</th><th scope="col">이전</th><th scope="col">현재 로컬</th><th scope="col">기대 효과와 근거</th></tr></thead>
+        <tbody>
+          <tr>
+            <th scope="row">1. 이전 메시지가 늦게 도착</th>
+            <td>작업을 맡을 수 있는 시간이 끝나 새 실행이 시작돼도, 두 메시지의 회차가 같았습니다.</td>
+            <td>복구할 때 회차를 올립니다. 예를 들어 새 실행이 2회차라면 뒤늦게 온 1회차 실패 메시지는 건너뜁니다.</td>
+            <td>새 실행이 계속 진행됩니다. <a href="../../../../worker/features/scheduled-operations/infrastructure/x-hybrid.integration.test.ts#L190">임대 만료 검증</a></td>
+          </tr>
+          <tr>
+            <th scope="row">2. X 응답을 받은 뒤 저장 실패</th>
+            <td>인용 원문이나 작성자 정보를 저장하다 실패하면, 재시도에서 X에 같은 정보를 다시 요청할 수 있었습니다.</td>
+            <td>호출 전에 요청 ID를 저장합니다. 재개하면 같은 ID로 정산된 응답을 찾아 로컬 저장을 마칩니다.</td>
+            <td>신규 호출 예산을 0으로 설정한 로컬 검증에서도 두 종류의 응답을 재사용했습니다. <a href="../../../../worker/features/scheduled-operations/infrastructure/x-hybrid.integration.test.ts#L211">저장 실패 검증</a></td>
+          </tr>
+          <tr>
+            <th scope="row">3. 작성자 정보가 이미 캐시에 있음</th>
+            <td>이미 저장된 작성자 정보를 붙일 때도 인용을 한 건씩 처리했습니다.</td>
+            <td>작성자 정보가 캐시에 있는 인용만 두 건씩 적용합니다. 새로 조회해야 하는 인용은 한 건씩 처리합니다.</td>
+            <td>동일 작성자 표본에서 큐 실행이 9회 줄었습니다. D1은 한 번의 실행에서 50회 이내였습니다. <a href="../../../../worker/features/scheduled-operations/infrastructure/x-hybrid.integration.test.ts#L114">20건 검증</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="source">큐 실행 수는 작업을 시작한 횟수입니다. X 요청 수는 X에 실제로 조회한 횟수입니다. <a href="../reference/0001-x-reconciliation-terms.html">용어와 단위 빠른 참조</a></p>
+  </section>
+
+  <section aria-labelledby="practice-title">
+    <h2 id="practice-title">30초 확인</h2>
+    <p>답을 먼저 떠올린 뒤 각 줄을 눌러 확인하세요.</p>
+    <details>
+      <summary>2회차 작업이 진행 중인데 1회차 실패 메시지가 도착했습니다. 무엇을 할까요?</summary>
+      <p>1회차 메시지를 건너뜁니다. 회차가 일치하는 메시지만 현재 작업의 상태를 바꿀 수 있습니다.</p>
+    </details>
+    <details>
+      <summary>인용 응답은 정산됐고 로컬 저장만 실패했습니다. 무엇을 다시 실행할까요?</summary>
+      <p>같은 요청 ID로 정산된 응답을 읽고, 로컬 저장을 다시 실행합니다.</p>
+    </details>
+  </section>
+
+  <footer>
+    <p>12시간 정기 주기, 진행 중인 구간의 즉시 재개, 저장 글 재조회 방지를 확인했습니다. 과거 보완 글도 <strong>4건 모두</strong> 로컬에서 찾았습니다. 운영 설정과 배포는 보류 중이며 신규 유료 X 호출은 0회입니다. <a href="../../../../worker/features/x-posts/infrastructure/x-hybrid-policy.integration.test.ts#L53">과거 보완 검증</a></p>
+    <p class="source"><a href="0001-x-reconciliation-diff.html">이전 수업 · 12시간 대조 변경표</a> · <a href="https://developers.cloudflare.com/queues/reference/delivery-guarantees/">공식 문서 · 큐 메시지의 중복 전달</a> · <a href="https://developers.cloudflare.com/d1/platform/limits/#batch-limits">공식 문서 · D1 실행당 한도</a></p>
+    <p>헷갈리는 사례가 있으면 Codex에 위 질문 한 줄을 붙여 넣으세요.</p>
+  </footer>
+</main>
+</body>
+</html>
