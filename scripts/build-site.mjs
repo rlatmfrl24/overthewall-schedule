@@ -31,13 +31,13 @@ for (const [script, ...args] of [
   ["node_modules/tsx/dist/cli.mjs", "scripts/generate-seo-assets.ts", `--site=${siteId}`],
 ]) {
   const result = spawnSync(process.execPath, [resolve(script), ...args], { stdio: "inherit", env });
-  if (result.status !== 0) process.exit(result.status ?? 1);
+  if (result.status !== 0) {
+    if (script === "node_modules/vite/bin/vite.js") {
+      spawnSync(process.execPath, [resolve("scripts/build-dependency-diagnostics.mjs"), "after-vite-failure"], { stdio: "inherit", env, timeout: 5_000, killSignal: "SIGKILL" });
+    }
+    process.exit(result.status ?? 1);
+  }
 }
 writeStaticAssetManifest(resolve(getSiteTarget(siteId).outputRoot,"client"));
 writeSiteBuildManifest(siteId, environment);
 console.log(`[build] Verified artifact manifest for ${siteId}.`);
-// Temporary PR #220 hold: verify the normal build without uploading a version.
-if (process.env.WORKERS_CI === "1") {
-  console.error("PR220_DIAGNOSTIC_HOLD: uninstrumented build complete; upload and deployment remain blocked.");
-  process.exit(1);
-}

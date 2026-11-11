@@ -84,3 +84,25 @@ GitHub 자동 리뷰는 추가 P2 1건을 제시했다. 인용 원문/작성자 
 동일한 두 파일은 변경 전 로컬에서 66/66 통과했다(21.93초). 긴 Queue 시나리오 네 선언에만 제한 시간 30초를 지정하고 이력 검사 suite를 60초로 조정했다. 실행 횟수·실제 D1·데이터 규모·모든 assertion을 유지하며 제품 코드·전역 테스트 설정·빌드 보호 검사는 변경하지 않았다. 변경 후 같은 66건이 23.96초에 통과했고 기존 공식 보완 4건도 별도 4/4 통과했다. 인용20건 Queue33/D1최대46, 만료 혼합20건 Queue16/D1최대49, 첫·마지막 ACK 실패 최대50/49를 확인했다. 타입 검사·변경 파일 lint·diff 검사도 통과했다.
 
 로그는 `%TEMP%/otw-pr220-build-timeout-{baseline,fixed,supplemental,types,lint}.log`다. 나머지 preflight 구성 요소는 동일 입력의 앞선 통과 증거를 재사용하며 전체 명령 재통과로 보고하지 않는다. 기존 P2는 해결됐고 새 미해결 리뷰는 없었다. 자동 리뷰 요약은 이전 head에 대한 결과이므로 최신 코드의 PASS로 간주하지 않는다. 새 head의 Cloudflare 검사 결과는 PR 원장으로 확인하며 로컬 통과만으로 원격 성공을 단정하지 않는다. 재빌드 버튼·수동 배포·원격 마이그레이션·운영 설정 변경·신규 유료 호출은 수행하지 않았다.
+
+## Cloudflare 전용 모듈 오류 원격 진단
+
+`294ca6ca`의 빌드 `206453cd-e0d2-4eee-9751-d6690e1c5e19`는 전체414파일3939건·플랫폼 조건3건 생략과 agent10건이 통과한 뒤 client bundle의 `@tanstack/store` 해석에서 실패했다. Worker bundle은 통과했고 업로드는 시작되지 않았다. 동일 소스의 새 Windows·Linux 설치 빌드와 Linux의 `CI=1 WORKERS_CI=1 pnpm run build`는 모두 통과했다. 로컬 통과만으로 원격 오류가 해결됐다고 보고하지 않았다.
+
+추가 원격 진단에서 확인한 내용은 다음과 같다.
+
+- dashboard의 빌드 캐시는 비활성이었고 실패 실행과 후속 실행 모두 `reused 0 / downloaded 608 / added 609`의 새 설치였다. 캐시 복원 문제로 단정할 근거가 없다.
+- 잠금 파일에 `react-store 0.9.3 → store 0.9.3` 의존성이 이미 존재한다. 두 등록본의 무결성과 ESM entry를 확인했다.
+- 임시 `33097a97`의 빌드 `a3451826-ee19-4ec0-9ff0-fb0ef61103d8`에서 실제 설치 직후 세 패키지의 심볼릭 링크·물리 경로·CJS/ESM entry와 ESM import를 확인했다. 모두 정상이었고 진단 종료의 강제 exit1로 업로드를 차단했다.
+- 임시 `7d3c150e`의 [빌드 `bafb0783`](https://dash.cloudflare.com/46e1801b290196fbec7cfae87710ffcf/workers/services/view/overthewall-schedule/production/builds/bafb0783-14be-4f00-82a5-833b6ac920d4)는 설치·각 검사·전체 테스트·TypeScript·Vite·SEO 단계 뒤마다 별도 Node 프로세스로 같은 연결을 확인했다. 연결과 로딩은 계속 정상이었으며 전체414파일3939건·플랫폼 조건3건 생략, agent10건, mirror, Worker/client build, SEO와 artifact manifest까지 완료했다. 전체 테스트는519.14초, Worker/client bundle은4.52/15.95초였다.
+- 마지막 `[build] Verified artifact manifest for otw.` 뒤 `PR220_DIAGNOSTIC_HOLD`로 exit1을 반환해 버전 업로드와 배포는 실행하지 않았다. 따라서 외부 check의 FAIL은 의도된 중단이며 전체 build 명령 exit0 또는 외부 CI PASS로 보고하지 않는다. 이 명령에는 D1 doctor가 포함되지 않는다.
+
+진단의 선행 로딩 영향을 배제하기 위해 `a5e334b8`의 [빌드 `2a3a7eb9`](https://dash.cloudflare.com/46e1801b290196fbec7cfae87710ffcf/workers/services/view/overthewall-schedule/production/builds/2a3a7eb9-261d-4445-8677-3b4db004b7e8)도 실행했다. 진단 파일과 모든 probe 호출을 제거하고 `294ca6ca`의 원래 build 본문과 마지막 업로드 차단만 사용했다. 이 정상 경로에서도414파일3939건·플랫폼 조건3건 생략과 agent10건이 통과했고 전체 테스트348.94초, Worker/client build2.52/8.74초와 SEO·manifest까지 완료됐다. 이후 `PR220_DIAGNOSTIC_HOLD: uninstrumented build complete`로 업로드 전에 중단했다. 정상 원격 빌드가 모듈 선행 로딩에 의존하지 않음을 확인했다.
+
+이번 새 설치의 Cloudflare에서는 원래 오류가 재현되지 않았다. 당시 실행의 파일시스템이 보존되지 않아 정확한 원인은 미확정이다. 지속적인 선언 누락·캐시 복원·테스트 후 링크 손상을 확인하지 못했으므로 버전 교체·직접 의존성 추가·Vite 별칭·설치 재시도 우회는 추가하지 않는다. 이번 정상 실행을 영구적인 재발 방지 증거로 일반화하지 않는다.
+
+확인된 보완점은 실패한 컨테이너의 실제 연결 상태를 나중에 확인할 수 없다는 점이다. 최종 코드는 **Vite 실패 뒤에만** 별도 Node 프로세스로 세 패키지의 링크·물리 경로·파일 존재 여부와 CJS/ESM 결과를 기록한다. 정상 빌드에서는 모듈을 선행 로딩하지 않으며, 진단은5초 제한이고 원래 실패 종료 코드를 그대로 유지한다. 환경 변수 전체나 비밀값은 출력하지 않는다. 임시 선행 진단과 강제 실패 분기는 모두 제거했다.
+
+새 회귀2건은 실제 패키지 파일과 끊어진 링크에서 상태 기록·비밀값 비노출·입력 파일 보존을 확인했다. 누락된 기능에서2건 실패 후 구현·검증을 통과했다. CJS는 환경의 `NODE_PATH`로 다른 설치를 찾을 수 있어 ESM의 `ERR_MODULE_NOT_FOUND`도 함께 기록해야 함을 확인했다. 실제 격리 Linux 빌드 진입점에 Vite 실패42를 주입해 진단 이후에도42를 반환하고 후속 단계가 실행되지 않음을 확인했다. 영향4파일17건·타입·변경 lint·architecture를 통과했다. 마지막 코드의 정상 로컬 build에서도 진단 출력·선행 로딩·강제 중단 없이 artifact 완료와 exit0을 확인했다. 이전 원격 전체 gate와 합성한 검증이며 마지막 전체 preflight 재실행은 아니다.
+
+마지막 정리·증거 게시에는 Cloudflare가 지원하는 `[skip ci]`를 사용해 업로드로 이어지는 새 자동 빌드를 막는다. [Cloudflare의 skip 지원 확인](https://github.com/cloudflare/workers-sdk/discussions/13216) 저장소의 squash 기본 메시지는 `COMMIT_MESSAGES`이므로 향후 승인된 병합의 메시지에는 이 생략 표식을 포함하지 않아야 한다. 운영/빌드 설정·캐시 삭제·인증 권한·원격 마이그레이션·병합·배포·신규 유료 호출은 변경하지 않았다. 정상 X 동작·12시간 주기·즉시 재개·저장 글 재조회 방지·D1 50회 정책도 변경하지 않았다.
