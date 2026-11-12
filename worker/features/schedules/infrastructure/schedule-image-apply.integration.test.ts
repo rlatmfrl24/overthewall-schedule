@@ -77,3 +77,50 @@ it("keeps original LuvDia stopped-member policy in the transaction", async () =>
   await luvdia.applyImageGroup(input, { ...actor, isAdmin: true });
   expect(await db.prepare("SELECT COUNT(*) AS n FROM schedules").first("n")).toBe(1);
 });
+it.each([false,true])("preserves every selected update target regardless of add/edit order (reverse=%s)",async reverse=>{
+  const inserted=await db.prepare("INSERT INTO schedules(member_uid,date,status,title) VALUES(1,'2026-11-12','휴방','기존 휴방') RETURNING id").first<{id:number}>();
+  const changes:ScheduleImageChange[]=[change("추가 방송"),{...change("기존 일정 수정 방송"),id:inserted!.id,startTime:"22:00"}];
+  const input=await group("2026-11-12",reverse?changes.reverse():changes);
+  // The selected target is updated, not deleted as a side effect of another row.
+  expect(input.confirmedDeletedIds).toEqual([]);
+  const result=await repository.applyImageGroup(input,actor);
+  expect(result.state).toBe("applied");
+  expect((await db.prepare("SELECT id,title FROM schedules ORDER BY title").all()).results).toEqual([
+    {id:inserted!.id,title:"기존 일정 수정 방송"},{id:result.scheduleIds.find(id=>id!==inserted!.id),title:"추가 방송"},
+  ]);
+  expect(await db.prepare("SELECT COUNT(*) AS n FROM update_logs WHERE action='delete'").first("n")).toBe(0);
+});
+it("rolls back instead of issuing an applied receipt when a selected update silently affects zero rows",async()=>{
+  await repository.applyImageGroup(await group(),actor);
+  const original=(await repository.imageContext(1,"2026-11-12",actor)).schedules[0];
+  const input=await group("2026-11-12",[{...change("고친 제목"),id:original.id}]);
+  await db.prepare("CREATE TRIGGER image_test_ignore_update BEFORE UPDATE ON schedules BEGIN SELECT RAISE(IGNORE); END").run();
+  try{await expect(repository.applyImageGroup(input,actor)).rejects.toThrow();}
+  finally{await db.prepare("DROP TRIGGER image_test_ignore_update").run();}
+  expect(await db.prepare("SELECT title FROM schedules WHERE id=?").bind(original.id).first("title")).toBe("방송");
+  expect(await repository.imageResult(input.operationId,actor)).toBeNull();
+  expect(await db.prepare("SELECT COUNT(*) AS n FROM update_logs WHERE action='update'").first("n")).toBe(0);
+});
+it("returns the real D1 receipt committed between the initial replay read and context validation",async()=>{
+  const input=await group();let interleaved=false;
+  const interleavedDb={prepare(sql:string){
+    const statement=db.prepare(sql);
+    if(!sql.startsWith("SELECT result_json"))return statement;
+    return {bind(...values:unknown[]){const bound=statement.bind(...values);return {first:async()=>{
+      const first=await bound.first();
+      if(!interleaved){interleaved=true;await repository.applyImageGroup(input,actor);}
+      return first;
+    }};}};
+  },batch:db.batch.bind(db)} as unknown as D1Database;
+  const retried=await new D1ScheduleWriteRepository(interleavedDb,"otw").applyImageGroup(input,actor);
+  expect(retried).toEqual(await repository.imageResult(input.operationId,actor));
+  expect(await db.prepare("SELECT COUNT(*) AS n FROM schedules").first("n")).toBe(1);
+  expect(await db.prepare("SELECT COUNT(*) AS n FROM update_logs").first("n")).toBe(1);
+});
+it("supports a new broadcast that replaces an explicitly edited target's old values",async()=>{
+  await repository.applyImageGroup(await group(),actor);
+  const existing=(await repository.imageContext(1,"2026-11-12",actor)).schedules[0];
+  const input=await group("2026-11-12",[change(),{...change("다른 방송으로 수정"),id:existing.id,startTime:"22:00"}]);
+  await repository.applyImageGroup(input,actor);
+  expect((await db.prepare("SELECT title FROM schedules ORDER BY title").all()).results).toEqual([{title:"다른 방송으로 수정"},{title:"방송"}]);
+});

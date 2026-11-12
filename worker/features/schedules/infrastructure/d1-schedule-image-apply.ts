@@ -36,8 +36,8 @@ export async function imageContext(db: D1Database, site: string, memberUid: numb
   return { schedules, expected };
 }
 export async function applyImageGroup(db: D1Database, site: string, value: ApplyScheduleImageGroup, actor: ScheduleActor,
-  prepare: (input: ScheduleWriteInput) => D1PreparedStatement[],
-  conflicts: (input: ScheduleWriteInput) => { sql: string; bindings: unknown[] },
+  prepare: (input: ScheduleWriteInput, retainedIds: number[]) => D1PreparedStatement[],
+  conflicts: (input: ScheduleWriteInput, retainedIds: number[]) => { sql: string; bindings: unknown[] },
   batch: (statements: D1PreparedStatement[], input: ScheduleWriteInput) => Promise<unknown>,
 ): Promise<ScheduleImageReceipt> {
   const group = parseScheduleImageGroup(value);
@@ -54,29 +54,36 @@ export async function applyImageGroup(db: D1Database, site: string, value: Apply
     return found;
   };
   const previous = await replay(); if (previous) return previous;
-  const context = await imageContext(db, site, group.memberUid, group.date, actor);
-  if (context.expected !== group.expected) throw new ScheduleImageError("기존 일정이 변경되었습니다. 다시 비교해주세요.", 409);
   const inputs = group.changes.map(c => ({ id: c.id, memberUid: group.memberUid, date: group.date, startTime: c.startTime, title: c.title, status: c.status }));
-  const deleted = new Set<number>();
-  for (const input of inputs) {
-    if (input.id !== null && !context.schedules.some(s => s.id === input.id)) throw new ScheduleImageError("수정할 기존 일정을 다시 선택해주세요.", 409);
-    if (input.id === null && context.schedules.some(s => s.status === input.status && s.start_time === input.startTime && (s.title ?? "") === (input.title ?? ""))) throw new ScheduleImageError("이미 같은 일정이 있습니다. 중복 항목을 제외해주세요.", 409);
-    const p = conflicts(input);
-    for (const row of (await db.prepare(`SELECT id FROM schedules WHERE ${p.sql}`).bind(...p.bindings).all<{id:number}>()).results) deleted.add(row.id);
-  }
-  if (JSON.stringify([...deleted].sort((a,b) => a-b)) !== JSON.stringify(group.confirmedDeletedIds)) throw new ScheduleImageError("삭제될 기존 일정 전체를 확인해주세요.", 409);
+  const retainedIds = inputs.flatMap(input => input.id === null ? [] : [input.id]);
   const expiresAt = Math.max(now, issued) + SCHEDULE_IMAGE_LIMITS.receiptMs;
   const access = () => db.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM members WHERE uid=? AND content_access='normal') AND NOT EXISTS(SELECT 1 FROM schedules WHERE member_uid=? AND date=? AND content_access<>'normal') THEN 1 ELSE json_extract('[]','schedule_image_access') END`).bind(group.memberUid, group.memberUid, group.date);
   try {
+    const context = await imageContext(db, site, group.memberUid, group.date, actor);
+    if (context.expected !== group.expected) throw new ScheduleImageError("기존 일정이 변경되었습니다. 다시 비교해주세요.", 409);
+    for (const input of inputs) {
+      if (input.id !== null && !context.schedules.some(s => s.id === input.id)) throw new ScheduleImageError("수정할 기존 일정을 다시 선택해주세요.", 409);
+      if (input.id === null && context.schedules.some(s => !retainedIds.includes(s.id) && s.status === input.status && s.start_time === input.startTime && (s.title ?? "") === (input.title ?? ""))) throw new ScheduleImageError("이미 같은 일정이 있습니다. 중복 항목을 제외해주세요.", 409);
+    }
+    // Multi-row groups are all broadcasts; their protected conflict set is identical.
+    const p = conflicts(inputs[0], retainedIds);
+    const deleted = (await db.prepare(`SELECT id FROM schedules WHERE ${p.sql} ORDER BY id`).bind(...p.bindings).all<{id:number}>()).results.map(row => row.id);
+    if (JSON.stringify(deleted) !== JSON.stringify(group.confirmedDeletedIds)) throw new ScheduleImageError("삭제될 기존 일정 전체를 확인해주세요.", 409);
     await batch([
       db.prepare(`SELECT CASE WHEN (${IMAGE_SNAPSHOT_SQL})=? THEN 1 ELSE json_extract('[]','schedule_image_conflict') END`).bind(group.memberUid, group.date, group.expected),
-      access(), ...inputs.flatMap(prepare), access(),
+      access(), ...inputs.flatMap(input => prepare(input, retainedIds)),
+      ...inputs.map(input => db.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM schedules
+        WHERE member_uid=? AND date=? AND status=? AND start_time IS ? AND title IS ? AND (? IS NULL OR id=?))
+        THEN 1 ELSE json_extract('[]','schedule_image_incomplete') END`)
+        .bind(input.memberUid, input.date, input.status, input.startTime, input.title, input.id, input.id)),
+      access(),
       db.prepare(`INSERT INTO schedule_image_results(site_id,actor_id,operation_id,request_hash,result_json,expires_at)
         VALUES(?,?,?,?,json_object('operationId',?,'state','applied','scheduleIds',(SELECT json_group_array(id) FROM schedules WHERE member_uid=? AND date=?),'expiresAt',?),?)`)
         .bind(site, actorId, group.operationId, hash, group.operationId, group.memberUid, group.date, expiresAt, expiresAt),
     ], inputs[0]);
   } catch (error) {
     const committed = await replay(); if (committed) return committed;
+    if (error instanceof ScheduleImageError) throw error;
     if (!(error instanceof Error) || !/SQLITE_|JSON path|schedule_member_policy/.test(error.message)) throw new ScheduleImageError("저장 결과를 확인 중입니다. 같은 요청의 결과를 다시 조회해주세요.", 502);
     throw new ScheduleImageError("이 묶음은 반영되지 않았습니다. 권한과 최신 일정을 다시 확인해주세요.", 409);
   }

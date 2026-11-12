@@ -100,3 +100,21 @@ it("keeps excluded rows editable after another row on the same day is applied",a
   await waitFor(()=>expect(mocks.apply).toHaveBeenCalledOnce());
   await waitFor(()=>expect((screen.getByLabelText("제목 2") as HTMLInputElement).closest("fieldset")?.disabled).toBe(false));
 });
+it("allows a 409 review row to move dates and apply with a fresh context",async()=>{
+  mocks.apply.mockRejectedValueOnce(new ApiError("기존 일정 변경",409));
+  mount();await read();fireEvent.click(screen.getByRole("button",{name:"선택 일정 적용"}));await screen.findByText(/적용 실패/);
+  fireEvent.change(screen.getByLabelText("날짜 1"),{target:{value:"2026-11-13"}});
+  await waitFor(()=>expect(screen.getByRole("button",{name:"선택 일정 적용"}).hasAttribute("disabled")).toBe(false));
+  fireEvent.click(screen.getByRole("button",{name:"선택 일정 적용"}));
+  await waitFor(()=>expect(mocks.apply).toHaveBeenCalledTimes(2));
+  expect(mocks.apply.mock.calls[1][0].date).toBe("2026-11-13");expect(mocks.read).toHaveBeenCalledOnce();
+});
+it("allows a 403 review row to change members and apply without rereading the image",async()=>{
+  mocks.apply.mockRejectedValueOnce(new ApiError("권한 변경",403));
+  mount();await read();fireEvent.click(screen.getByRole("button",{name:"선택 일정 적용"}));await screen.findByText(/적용 실패/);
+  fireEvent.change(screen.getByLabelText("멤버 1"),{target:{value:"2"}});
+  await waitFor(()=>expect(screen.getByRole("button",{name:"선택 일정 적용"}).hasAttribute("disabled")).toBe(false));
+  fireEvent.click(screen.getByRole("button",{name:"선택 일정 적용"}));
+  await waitFor(()=>expect(mocks.apply).toHaveBeenCalledTimes(2));
+  expect(mocks.apply.mock.calls[1][0].memberUid).toBe(2);expect(mocks.read).toHaveBeenCalledOnce();
+});

@@ -91,7 +91,21 @@ export function ScheduleImageImportDialog({members,initialDate,onOpenChange,isAd
     const result=await queries[index].refetch();
     if(!result.isError)setRecords(old=>old.filter(s=>keyOf(s.request)!==groupKey || s.state!=="review"));
   };
-  const update=(id:string,change:Partial<EditableImageRow>)=>setRows(old=>old.map(r=>r.clientId===id?{...r,...change}:r));
+  const releaseMovedReview=(ids:Set<string>)=>setRecords(old=>old.filter(s=>s.state!=="review" || !s.request.changes.some(c=>ids.has(c.clientId))));
+  const update=(id:string,change:Partial<EditableImageRow>)=>{
+    const identityChanged=change.date!==undefined && rows.find(r=>r.clientId===id)?.date!==change.date;
+    if(identityChanged)releaseMovedReview(new Set([id]));
+    setRows(old=>old.map(r=>r.clientId===id?{...r,...change,...(identityChanged?{choice:null}:{})}:r));
+  };
+  const changeMember=(id:string,uid:number|null)=>{
+    const locked=new Set(records.filter(s=>s.state==="applied"||s.state==="unknown").flatMap(s=>s.request.changes.map(c=>c.clientId)));
+    const editable=rows.filter(r=>!locked.has(r.clientId));
+    const mapped=mapImageMember(editable,id,uid);
+    const moved=new Set(mapped.filter(r=>rows.find(old=>old.clientId===r.clientId)?.memberUid!==r.memberUid).map(r=>r.clientId));
+    releaseMovedReview(moved);
+    const byId=new Map(mapped.map(r=>[r.clientId,moved.has(r.clientId)?{...r,choice:null}:r]));
+    setRows(old=>old.map(r=>byId.get(r.clientId)??r));
+  };
   const addRow=()=>setRows(old=>old.length>=100?old:[...old,{clientId:crypto.randomUUID(),sourceMemberName:null,memberUid:null,date:null,sourceDate:null,weekday:null,startTime:null,sourceTime:null,dateShiftDays:0,needsWeekConfirmation:false,timeState:"unreadable",status:"방송",title:null,needsReview:[],selected:true,choice:null}]);
   const deletionRows=pending?.flatMap(g=>contexts.get(keyOf(g))?.schedules.filter(s=>g.confirmedDeletedIds.includes(s.id)).map(s=>`${members.find(m=>m.uid===g.memberUid)?.name??"멤버"} ${g.date} · ${s.status} ${s.start_time??""} ${s.title??""}`)??[])??[];
   return <Dialog open onOpenChange={open=>{if(!open)void close();}}><DialogContent closeLabel="닫기" className="max-h-[92dvh] overflow-y-auto sm:max-w-6xl">
@@ -111,7 +125,7 @@ export function ScheduleImageImportDialog({members,initialDate,onOpenChange,isAd
         <div className="min-w-0 space-y-3">
           {rows.some(r=>r.needsWeekConfirmation) && <div className="space-y-2 rounded-lg border border-border p-3"><label className="block text-sm">기준 주 후보<Input type="date" aria-label="기준 주 후보" value={week} disabled={busy||reading} onChange={e=>setWeek(e.target.value)}/></label><Button variant="outline" disabled={busy||reading} onClick={()=>setRows(old=>confirmImageWeek(old,week))}>기준 주 확인·일괄 보정</Button><p className="text-xs text-muted-foreground">화면에서 보던 주는 후보입니다. 확인하면 요일을 날짜로 바꾸며 자정 이후 표기도 반영합니다.</p></div>}
           {warnings.map((w,i)=><p key={i} className="text-sm text-muted-foreground">{w}</p>)}
-          {rows.map((row,index)=>{const record=records.find(s=>s.request.changes.some(c=>c.clientId===row.clientId) || s.state==="unknown" && keyOf(s.request)===keyOf(row));return <ScheduleImageEditorRow key={row.clientId} row={row} index={index} members={members} isAdmin={isAdmin} context={contexts.get(keyOf(row))} duplicate={inspection.duplicates.has(row.clientId)} unresolved={inspection.unresolved.has(row.clientId)} locked={busy||reading||record?.state==="applied"||record?.state==="unknown"} onChange={change=>update(row.clientId,change)} onMember={uid=>setRows(old=>{const locked=new Set(records.filter(s=>s.state==="applied"||s.state==="unknown").flatMap(s=>s.request.changes.map(c=>c.clientId)));const mapped=new Map(mapImageMember(old.filter(r=>!locked.has(r.clientId)),row.clientId,uid).map(r=>[r.clientId,r]));return old.map(r=>mapped.get(r.clientId)??r);})}/>;})}
+          {rows.map((row,index)=>{const record=records.find(s=>s.request.changes.some(c=>c.clientId===row.clientId) || s.state==="unknown" && keyOf(s.request)===keyOf(row));return <ScheduleImageEditorRow key={row.clientId} row={row} index={index} members={members} isAdmin={isAdmin} context={contexts.get(keyOf(row))} duplicate={inspection.duplicates.has(row.clientId)} unresolved={inspection.unresolved.has(row.clientId)} locked={busy||reading||record?.state==="applied"||record?.state==="unknown"} onChange={change=>update(row.clientId,change)} onMember={uid=>changeMember(row.clientId,uid)}/>;})}
           {rows.length>0 && <Button variant="outline" disabled={busy||reading||rows.length>=100} onClick={addRow}>빠진 일정 추가</Button>}
           {requested.map((r,i)=>queries[i].isError?<div key={keyOf(r)} className="text-sm text-destructive">기존 일정 비교 실패: {errorText(queries[i].error)} <Button variant="outline" disabled={busy||reading} onClick={()=>void compareAgain(keyOf(r))}>다시 비교</Button></div>:null)}
         </div>

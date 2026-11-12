@@ -34,3 +34,15 @@ it("allows_excluding_unresolved_rows_without_resolving_them and explicit_undecid
 it("blocks_mutually_exclusive_draft_rows_until_resolved", () => {
   expect(()=>buildImageGroups([row(),row({clientId:"2",status:"휴방"})],contexts)).toThrow("충돌");
 });
+it("does not preview deletion of an explicit update target in an add-plus-edit broadcast group",()=>{
+  const existing={...context,schedules:[{id:10,member_uid:1,date:"2026-11-12",start_time:null,status:"휴방" as const,title:"휴방",created_at:null}]};
+  const map=new Map([["1:2026-11-12",existing]]);
+  const groups=buildImageGroups([row({choice:"add"}),row({clientId:"2",choice:"edit:10",startTime:"22:00",title:"수정 방송"})],map);
+  expect(groups[0].changes).toHaveLength(2);expect(groups[0].confirmedDeletedIds).toEqual([]);
+});
+it("reevaluates exact duplicates against the selected final state of edited targets",()=>{
+  const existing={...context,schedules:[{id:10,member_uid:1,date:"2026-11-12",start_time:"21:00",status:"방송" as const,title:null,created_at:null}]};
+  const map=new Map([["1:2026-11-12",existing]]);
+  const rows=[row({choice:"add"}),row({clientId:"2",choice:"edit:10",startTime:"22:00",title:"수정 방송"})];
+  expect(buildImageGroups(rows,map)[0].changes).toHaveLength(2);
+});

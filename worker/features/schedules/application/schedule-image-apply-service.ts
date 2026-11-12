@@ -19,7 +19,10 @@ export class ScheduleImageApplyService {
     // Return an already committed result even if write permission has since changed.
     const result = await this.writer.imageResult(group.operationId, actor);
     if (!result) for (const c of group.changes) {
-      if (!await authorizeScheduleWrite(this.policy, { operation: "save", actor, input: { id:c.id, memberUid:group.memberUid, date:group.date, startTime:c.startTime, title:c.title, status:c.status } })) throw new ScheduleImageError("일정 저장 권한이 필요합니다.", 403);
+      if (!await authorizeScheduleWrite(this.policy, { operation: "save", actor, input: { id:c.id, memberUid:group.memberUid, date:group.date, startTime:c.startTime, title:c.title, status:c.status } })) {
+        if (await this.writer.imageResult(group.operationId, actor)) return this.writer.applyImageGroup(group, actor);
+        throw new ScheduleImageError("일정 저장 권한이 필요합니다.", 403);
+      }
     }
     return this.writer.applyImageGroup(group, actor);
   }

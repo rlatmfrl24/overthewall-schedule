@@ -54,9 +54,9 @@ const createLogStatement = (
       input.title,
     );
 
-const conflictPredicate = (input: ScheduleWriteInput) => {
-  const common = "member_uid = ? AND date = ?";
-  const commonBindings: unknown[] = [input.memberUid, input.date];
+const conflictPredicate = (input: ScheduleWriteInput, retainedIds: number[] = []) => {
+  const common = `member_uid = ? AND date = ?${retainedIds.length ? " AND id NOT IN (SELECT value FROM json_each(?))" : ""}`;
+  const commonBindings: unknown[] = [input.memberUid, input.date, ...(retainedIds.length ? [JSON.stringify(retainedIds)] : [])];
 
   if (input.status === "미정") {
     return { sql: common, bindings: commonBindings };
@@ -89,8 +89,8 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
     return (await this.db.batch([...guards, ...statements, ...guards])).slice(guards.length, guards.length + statements.length);
   }
 
-  private prepareSave(input: ScheduleWriteInput, actor: ScheduleActor): D1PreparedStatement[] {
-    const predicate = conflictPredicate(input);
+  private prepareSave(input: ScheduleWriteInput, actor: ScheduleActor, retainedIds: number[] = []): D1PreparedStatement[] {
+    const predicate = conflictPredicate(input, retainedIds);
     const statements: D1PreparedStatement[] = [
       this.db
         .prepare(`SELECT id FROM schedules WHERE ${predicate.sql} ORDER BY id`)
@@ -196,7 +196,7 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
   }
   applyImageGroup(group: ApplyScheduleImageGroup, actor: ScheduleActor) {
     return applyImageGroup(this.db, this.siteId, group, actor,
-      input => this.prepareSave(input, actor), conflictPredicate,
+      (input, retainedIds) => this.prepareSave(input, actor, retainedIds), conflictPredicate,
       (statements, input) => this.batch(statements, input, actor));
   }
 
