@@ -46,3 +46,6 @@ export {parseScheduleCommand} from "./domain/schedule-command";
 
 export {D1CollectorWriter,D1LiveScheduleWriter,D1ChzzkScanWriter} from "./infrastructure/publication-writers";
 export { ScheduledAutoUpdateBlocked, type ScheduledAutoUpdateItem } from "./infrastructure/scheduled-auto-update-guard";
+
+export { ScheduleImageApplyService } from "./application/schedule-image-apply-service";
+export { createScheduleImageApplyHandler } from "./http/schedule-image-apply-handler";

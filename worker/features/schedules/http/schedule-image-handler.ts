@@ -1,3 +1,4 @@
+import { readImageImportBody } from "./image-import-body";
 import type { Env } from "../../../platform/types";
 import { authenticateRequest } from "../../../platform/auth";
 import { SCHEDULE_IMAGE_LIMITS as limits } from "../../../../contracts/schedule-image-import";
@@ -8,19 +9,7 @@ import { readScheduleImage, ScheduleImageError } from "../application/read-sched
 type Dependencies = { reader: ScheduleImageReader; budget: ScheduleImageBudget; members: () => Promise<ImageScheduleMember[]> };
 const failure = (message: string, status: number) => Response.json({ error: { code: "SCHEDULE_IMAGE_ERROR", message } }, { status, headers: { "Cache-Control": "no-store" } });
 async function readImage(request: Request) {
-  const reader = request.body?.getReader();
-  if (!reader) throw new ScheduleImageError("일정표 이미지 1장을 선택해주세요.");
-  const chunks: Uint8Array[] = []; let size = 0;
-  try {
-    while (true) {
-      const chunk = await reader.read(); if (chunk.done) break;
-      size += chunk.value.length;
-      if (size > limits.bytes + 100_000) { await reader.cancel(); throw new ScheduleImageError("이미지는 10MB 이하로 올려주세요."); }
-      chunks.push(chunk.value);
-    }
-  } finally { reader.releaseLock(); }
-  const body = new Uint8Array(size); let offset = 0;
-  for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.length; }
+  const body = await readImageImportBody(request, limits.bytes + 100_000);
   let form: FormData;
   try { form = await new Response(body, { headers: { "Content-Type": request.headers.get("Content-Type") ?? "" } }).formData(); }
   catch { throw new ScheduleImageError("이미지 업로드 형식을 확인해주세요."); }
