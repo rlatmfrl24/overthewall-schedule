@@ -7,6 +7,7 @@ import type { ScheduledOperationsWorkflowParams } from "@contracts/scheduled-ope
 import type { XActivityDeliveryRequest, XActivitySiteControlRequest, XApiGateway, XApiGatewayReceipt, XApiGatewayReceiptRequest, XApiGatewayRequest, XApiGatewayResult, XActivitySitePort, XActivityStatusDto, XActivityControlResult, XSharedBudgetState } from "@contracts/x-activity";
 
 export interface Env {
+  SCHEDULE_IMAGE_OPENAI_API_KEY?: string;
   SITE_PUBLICATION_HOLD?: string;
   SITE_ID?: string;
   SITE_D1_DATABASE_NAME?: string;

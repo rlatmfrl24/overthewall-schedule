@@ -297,6 +297,7 @@ return defineConfig({
             ).map(migration => migration.name.startsWith("0038_") ? { ...migration, queries: migration.queries.filter(query => query.includes("admin_audit_logs")) } : /^(0071_|0072_)/.test(migration.name)
               ? { ...migration, queries: migration.queries.filter(query => /^\s*ALTER TABLE `x_/.test(query)) }
               : migration), ...accessMigrations(["members", "x_posts", "x_post_facts"]), ...efficiencyIndexes("x_")],
+            IMAGE_IMPORT_MIGRATIONS: migrations.filter(migration => migration.queries.some(query => query.startsWith("CREATE TABLE `schedule_image_reads`"))),
             OTW_PLAY_CHANNEL_SEPARATION_MIGRATIONS: migrations.filter(({ name }) => name === "0017_short_satana.sql"),
             OTW_PLAY_CATALOG_MIGRATIONS: otwPlayCatalogMigrations,
             OTW_PLAY_PROPOSAL_SEARCH_MIGRATIONS:
