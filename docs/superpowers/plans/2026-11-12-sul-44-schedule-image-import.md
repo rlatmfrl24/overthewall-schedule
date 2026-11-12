@@ -1,8 +1,8 @@
 # SUL-44 Schedule Image Import Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
-**Goal:** 이미지 일정표를 Luna로 읽고 사용자가 편집·선택한 내용을 정상 일정 저장 경로로 반영한다. 현재 산출물은 문서이며 제품 구현은 보류한다.
+**Goal:** 이미지 일정표를 Luna로 읽고 사용자가 편집·선택한 내용을 정상 일정 저장 경로로 반영한다. 별도 사용자 재개 지시로 코드와 로컬 검증을 진행하며 실제 모델 실측·운영 적용은 보류한다.
 
 **Architecture:** 기존 `schedules` 기능 안에 이미지 인식과 편집 초안을 둔다. Worker가 Luna를 호출하고, 검증된 초안을 프런트엔드로 반환한다. 적용은 기존 권한·사이트 정책·충돌·감사·중복 방지 경계를 보존하는 일정 저장 경로를 거친다.
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 실제 구현은 하지 말고 문서만 작성한다. 재개에는 별도 사용자 지시가 필요하다.
+- 사용자 재개 지시에 따라 구현·로컬 검증·로컬 커밋을 진행한다. 유료 실험·원격 변경·게시·병합·배포는 보류한다.
 - Node.js >=24.20.0 <25, pnpm@11.7.0과 기존 React·Worker·D1 구조를 따른다.
 - 기본 모델은 gpt-6-luna이며 claude-haiku-5-5는 비교 후보로만 둔다.
 - AI 이미지 인식은 OTW·LuvDia 모두 로그인 사용자에게 제공한다.
@@ -41,7 +41,7 @@
 
 ## 실행 상태와 계획의 한계
 
-작성 기준: 2026-11-12, 로컬 `a9ed7abd`. Task 0의 정책 기록만 완료했으며 나머지 체크박스는 **향후 작업**이다. 테스트 명령과 예시는 이번에 실행한 결과가 아니다.
+작성 기준: 2026-11-12, 로컬 `a9ed7abd`. Task 0~3의 구현과 로컬 검증을 수행했다. 각 실행 증거는 개발 기록과 전용 ledger를 따른다. Task 4의 실제 모델 실측은 자료·실행 준비를 기다리며 미완료다.
 
 **Task 0 완료 전에는 Task 1~4를 실행하지 않는다.** D1~D7의 제품 정책·초기 설정·품질/속도 기준·일회성 비교 범위와 예산은 모두 확정했다. 실제 구현·유료 실험 실행은 계속 보류한다. 아래 파일·함수 이름은 인계를 위한 설계자 제안이며 사용자 확정 정책으로 취급하지 않는다. Task 0에서 확정 규칙에 맞는 인터페이스·저장 경계·파일 목록과 검증 절차를 상세화한 뒤 실행 가능한 계획으로 다시 검토한다. 설계 확정으로 미완료 준비나 별도 재개 지시를 대체하지 않는다.
 
@@ -71,26 +71,7 @@
 
 아래는 인식과 UI 간 이름을 맞추는 후보 계약이다. 확정된 D2 보정·D5 업로드/보관·D6 비용/실행 한도를 반영하여 Task 0에서 고정한다. 기준 주 확인 상태와 자정 이후 변환의 원문·날짜 변경 표시, 초과/응답 잘림을 전달할 계약도 이때 고정한다. 아직 소스에 존재하지 않는다.
 
-```ts
-type ScheduleImageReviewField = "member" | "date" | "time" | "status" | "title";
-type ScheduleImageDraftRow = {
-  clientId: string;
-  memberUid: number | null;
-  sourceMemberName: string | null;
-  date: string | null;
-  startTime: string | null;
-  timeState: "specified" | "undecided" | "unreadable";
-  status: "방송" | "휴방" | "게릴라" | null;
-  title: string | null;
-  needsReview: ScheduleImageReviewField[];
-};
-type ScheduleImageDraft = {
-  rows: ScheduleImageDraftRow[];
-  warnings: string[];
-  model: "gpt-6-luna";
-  usage: { inputTokens: number | null; outputTokens: number | null };
-};
-```
+확정 계약은 [이미지 입력 DTO](../../../contracts/schedule-image-import.ts)와 [서버 reader/budget port](../../../worker/features/schedules/application/ports/schedule-image-reader.ts)를 따른다. 원문 날짜/시간·요일·날짜 이동·기준 주 확인 상태와 비용 사용량을 보존한다.
 
 `memberUid`는 공급자가 정한 권위 있는 ID가 아니다. 실제 사이트 멤버 목록과 검증한 값만 채운다. `date`는 기존 저장 계약에 맞는 실제 날짜이며, 인식하지 못한 값은 `null`과 `needsReview`로 보존한다. 사용자가 확정하지 않은 추측을 실제 값으로 승격하지 않는다.
 
@@ -103,12 +84,12 @@ type ScheduleImageDraft = {
 확정 기록: D1은 **OTW·LuvDia 모두 적용, 로그인 사용자에게 AI 인식 제공**이다. D2는 **현재 표시 주의 후보 확인 후 날짜 일괄 보정, 같은 이름의 멤버 일괄 연결, 한국 시간의 자정 이후 변환과 원문 표시, 시간 미정과 인식 실패 구분, 빈칸을 휴방이나 임의 제목으로 채우지 않기, 미확인 행 제외 후 나머지 선택 적용**으로 확정했다. D3는 **완전 중복 제외, 기존 유지 기본값, 수정 대상 지정 또는 새 일정 추가의 명시적 선택, 여러 방송 보존, 부수 삭제 추가 확인, 초안 내부 충돌 해결, 동시 변경 재비교**로 확정했다. D4는 **같은 멤버·날짜 묶음의 전부 성공/취소, 독립 묶음의 성공 보존, 실패 묶음만 재시도, 결과 확인 중 구분과 중복 저장 방지, 권한·충돌 재확인, 조회만 재시도, 편집 보존과 모델 재호출 금지**로 확정했다. D5는 **1장·PNG/JPG/WEBP·10MB 이하·최대 100건, 원본/초안의 편집창 내 임시 유지, 결과 확인 최소 기록 24시간·만료 재실행 금지, OpenAI 전송 안내**로 확정했다. D6는 **사이트별 월 $0.50·각 사이트 계정당 하루 10회/동시 1건, Luna Standard·추론 none, 입력 50,000/출력 12,000토큰·업로드 후 분석 20초, 자동 재시도/모델 전환 없음, 최대 비용 선예약·실사용 정산, 한도 후 AI 인식만 중단**으로 확정했다. D7은 **실제 이미지 30장(멤버표 12장·통합표 12장·어려운 사례 6장), 핵심 항목이 모두 맞는 일정 95% 이상(누락/추가 포함), 편집 가능 중앙값 멤버표 5초/통합표 10초 및 전체 요청 95%가 20초 내 완료, 전체 작업 시간 중앙값 직접 입력 대비 50% 이상 단축, 저장/재조회 100% 일치·의도하지 않은 삭제/덮어쓰기/중복 0건, Luna·Haiku 각 1회·총 60회 또는 별도 $0.50 중 먼저 도달하면 종료**로 확정했다. 기준과 예산의 확정이며 별도 구현·유료 실험 재개 지시는 아직 없다.
 
 - [x] D1~D7 각각의 선택 결과와 근거를 설계에 기록했다. 월 비용 예상·운영 월 한도·일회성 비교 예산과 실제 실험 결과를 구분했다. 제품 작업이나 유료 호출은 수행하지 않았다.
-- [ ] D3·D4에 맞는 적용 요청/결과와 동시성·중복 방지 인터페이스를 기존 저장 경계와 함께 확정한다. 기존 `save`를 단순 반복하는 것으로 안전성이 충족됐다고 가정하지 않는다.
-- [ ] D1·D5·D6에 따라 유료 호출 인가·취소/만료·이미지 전달·비용 예약/정산의 정확한 소유 파일과 저장소를 확정한다. 새 DB가 필요하면 생성형 마이그레이션 절차를 계획에 포함한다.
-- [ ] 확정된 D5를 계약과 미래 회귀에 고정한다: 이미지 1장·PNG/JPG/WEBP·10,000,000바이트 이하·최대 100건, 편집창 종료/새로고침 시 원본·초안 폐기, 미적용 편집 닫기 확인, 원본/전체 응답 영구 보관 금지, 결과 확인 최소 기록 24시간·만료 재실행 금지, OpenAI 전송 안내다.
-- [ ] 확정된 D6를 호출·비용 예약 경계와 미래 회귀에 고정한다: 한국 시간의 사이트별 월 $0.50, 각 사이트 계정당 하루 10회/동시 1건, Standard·추론 none, 입력 50,000/출력 12,000토큰, 업로드 후 분석 20초, 자동 재시도 0회/모델 전환 없음, 최대 비용 선예약/실사용 정산·불명 비용 유지, 한도 후 AI만 차단이다. 별도 구현 재개 지시는 아직 없다.
-- [ ] 확정된 D7의 표본 구분·정답 대조·행 단위 정확도(누락/추가 포함)·속도·전체 작업 시간·저장/재조회 일치 측정 절차를 Task 4에 연결한다. 30장·모델별 1회·총 60회 또는 별도 $0.50 중 먼저 도달하면 종료하고 예산 부족 범위는 미검증으로 기록한다. 기준 확정을 실험 실행 승인으로 바꾸지 않는다.
-- [ ] 후보 계약과 아래 테스트의 정책별 기대값을 확정하고 설계 검토를 받는다. 실행 방법과 구현 재개 승인을 따로 기록한다.
+- [x] D3·D4에 맞는 적용 요청/결과와 동시성·중복 방지 인터페이스를 기존 저장 경계와 함께 확정한다. 기존 `save`를 단순 반복하는 것으로 안전성이 충족됐다고 가정하지 않는다.
+- [x] D1·D5·D6에 따라 유료 호출 인가·취소/만료·이미지 전달·비용 예약/정산의 정확한 소유 파일과 저장소를 확정한다. 새 DB가 필요하면 생성형 마이그레이션 절차를 계획에 포함한다.
+- [x] 확정된 D5를 계약과 미래 회귀에 고정한다: 이미지 1장·PNG/JPG/WEBP·10,000,000바이트 이하·최대 100건, 편집창 종료/새로고침 시 원본·초안 폐기, 미적용 편집 닫기 확인, 원본/전체 응답 영구 보관 금지, 결과 확인 최소 기록 24시간·만료 재실행 금지, OpenAI 전송 안내다.
+- [x] 확정된 D6를 호출·비용 예약 경계와 미래 회귀에 고정한다: 한국 시간의 사이트별 월 $0.50, 각 사이트 계정당 하루 10회/동시 1건, Standard·추론 none, 입력 50,000/출력 12,000토큰, 업로드 후 분석 20초, 자동 재시도 0회/모델 전환 없음, 최대 비용 선예약/실사용 정산·불명 비용 유지, 한도 후 AI만 차단이다. 별도 구현 재개 지시는 아직 없다.
+- [x] 확정된 D7의 표본 구분·정답 대조·행 단위 정확도(누락/추가 포함)·속도·전체 작업 시간·저장/재조회 일치 측정 절차를 Task 4에 연결한다. 30장·모델별 1회·총 60회 또는 별도 $0.50 중 먼저 도달하면 종료하고 예산 부족 범위는 미검증으로 기록한다. 기준 확정을 실험 실행 승인으로 바꾸지 않는다.
+- [x] 후보 계약과 아래 테스트의 정책별 기대값을 확정하고 설계 검토를 받는다. 실행 방법과 구현 재개 승인을 따로 기록한다.
 
 Check: D1~D7 정책 기록은 완료했다. 저장/비용 경계의 정확한 계약·파일·검증 절차 고정과 재개 지시가 남아 있어 Task 0 전체를 완료한 것으로 처리하지 않는다.
 
@@ -116,30 +97,30 @@ Check: D1~D7 정책 기록은 완료했다. 저장/비용 경계의 정확한 �
 
 **Files:** 위 책임 지도의 인식 계약·도메인·reader port/adapter·application·handler·조립·정확 경로와 public export. Test: 각 소유 파일 옆의 `*.test.ts`, `worker/app/routes.test.ts`, `worker/app/route-registry.test.ts`. 실제 비용 한도 동시성 저장 검사는 Task 0에서 확정한 소유 경계의 integration test로 둔다.
 
-**Interfaces:** Consumes: Task 0 정책과 실제 사이트 멤버 목록. Produces: `readScheduleImage(file: File, signal?: AbortSignal): Promise<ScheduleImageDraft>`인 프런트엔드 API와 `parseScheduleImageResult(value: unknown): ScheduleImageDraft | null`인 도메인 parser. Worker의 `ScheduleImageReader.read(image: {bytes: Uint8Array; mediaType: string}, signal: AbortSignal): Promise<ScheduleImageDraft>`는 승인된 결과 계약을 따른다.
+**Interfaces:** Consumes: Task 0 정책과 실제 사이트 멤버 목록. Produces: `readScheduleImage(file: File, signal?: AbortSignal): Promise<ScheduleImageDraft>`인 프런트엔드 API와 `parseScheduleImageResult(value: unknown): ScheduleImageDraft | null`인 도메인 parser. Worker reader는 실제 사이트 멤버를 포함한 `ScheduleImageInput`을 받아 `count(image, signal): Promise<number>`와 `read(image, signal): Promise<{draft: ScheduleImageDraft | null; usage: ImageReadUsage | null}>`를 제공한다. 잘린 응답도 사용량을 정산하기 위해 결과와 사용량을 구분한다.
 
-- [ ] 실패 테스트 `preserves_unreadable_time_without_delete_status`, `rejects_unknown_member_and_invalid_calendar_date`, `does_not_write_schedules_during_analysis`, `denies_unapproved_paid_request_before_provider_call`, `enforces_approved_budget_under_concurrency`, `does_not_auto_switch_model_on_timeout`를 작성한다. 예: `expect(result.rows[0]).toMatchObject({ startTime: null, timeState: "unreadable", needsReview: ["time"] })`; 양 사이트 모두 비로그인 요청의 reader 호출 수와 일정 쓰기 수는 0이며 로그인 사용자의 AI 진입을 허용한다. 기존 비로그인 수동 저장 회귀도 보존한다.
-- [ ] D2 회귀 `normalizes_explicit_25_hour_to_next_kst_date`, `preserves_missing_title_without_inventing_holiday`, `keeps_ambiguous_midnight_expression_for_review`를 추가한다. `2026-11-12 25:00`은 `2026-11-13 01:00`으로 정규화하되 원문·날짜 변경 표시를 보존하고, 빈 제목/빈 칸에서 휴방·제목을 만들어내지 않음을 검증한다.
-- [ ] D5 회귀 `rejects_multiple_unsupported_or_oversized_images_before_inference`, `does_not_accept_truncated_or_more_than_100_rows_as_complete`를 추가한다. 10,000,001바이트나 2장 요청에서 reader 호출은 0이며, 응답 잘림/101건은 첫 100건만 정상 결과로 반환하지 않는다. 원본 이미지·전체 모델 응답이 영구 저장소나 일반 로그에 남지 않음을 소유 경계에서 확인한다.
-- [ ] D6 회귀 `reserves_site_budget_atomically_before_inference`, `counts_manual_retries_and_limits_ten_daily_one_active_per_account`, `retains_uncertain_cost_after_timeout`, `uses_standard_none_and_enforces_50000_input_12000_output_20000ms`, `keeps_prepared_draft_usable_after_ai_budget_exhaustion`를 추가한다. 잔여 예산보다 최대 비용 예약이 크면 인식 호출은 0이며 동시 예약 합계는 사이트별 $0.50를 넘지 않아야 한다. 비용 불명과 저장 영수증 만료로 월 한도가 복구되지 않으며, 모델 자동 재시도/전환과 편집/적용에 따른 재호출은 0이어야 한다.
-- [ ] `pnpm exec vitest run worker/features/schedules/domain/schedule-image-result.test.ts worker/features/schedules/http/schedule-image-handler.test.ts`로 실패를 확인한다. 초기에는 파일/구현 미존재가 원인이며, 이후에는 해당 계약 위반이 실패 원인이어야 한다.
-- [ ] 승인된 형식·크기·인가·상한을 호출 전에 검사하고 Luna 한 번으로 초안을 반환한다. provider schema와 앱 parser를 모두 적용한다. 필수 원본 정보가 모호하면 확인 항목을 보존하고 실제 일정에 쓰지 않는다. 공급자 key·이미지·원문 응답을 일반 로그에 남기지 않는다.
-- [ ] 같은 집중 테스트와 `pnpm typecheck:test`, `pnpm architecture:check`를 통과한다. 실제 계정의 인식률·응답 시간 검증은 Task 4의 승인된 실험으로 남긴다.
-- [ ] 승인된 작업 파일만 명시적으로 stage하여 구현 커밋을 만든다. 현재 문서 작성 중 이 단계는 실행하지 않는다.
+- [x] 실패 테스트 `preserves_unreadable_time_without_delete_status`, `rejects_unknown_member_and_invalid_calendar_date`, `does_not_write_schedules_during_analysis`, `denies_unapproved_paid_request_before_provider_call`, `enforces_approved_budget_under_concurrency`, `does_not_auto_switch_model_on_timeout`를 작성한다. 예: `expect(result.rows[0]).toMatchObject({ startTime: null, timeState: "unreadable", needsReview: ["time"] })`; 양 사이트 모두 비로그인 요청의 reader 호출 수와 일정 쓰기 수는 0이며 로그인 사용자의 AI 진입을 허용한다. 기존 비로그인 수동 저장 회귀도 보존한다.
+- [x] D2 회귀 `normalizes_explicit_25_hour_to_next_kst_date`, `preserves_missing_title_without_inventing_holiday`, `keeps_ambiguous_midnight_expression_for_review`를 추가한다. `2026-11-12 25:00`은 `2026-11-13 01:00`으로 정규화하되 원문·날짜 변경 표시를 보존하고, 빈 제목/빈 칸에서 휴방·제목을 만들어내지 않음을 검증한다.
+- [x] D5 회귀 `rejects_multiple_unsupported_or_oversized_images_before_inference`, `does_not_accept_truncated_or_more_than_100_rows_as_complete`를 추가한다. 10,000,001바이트나 2장 요청에서 reader 호출은 0이며, 응답 잘림/101건은 첫 100건만 정상 결과로 반환하지 않는다. 원본 이미지·전체 모델 응답이 영구 저장소나 일반 로그에 남지 않음을 소유 경계에서 확인한다.
+- [x] D6 회귀 `reserves_site_budget_atomically_before_inference`, `counts_manual_retries_and_limits_ten_daily_one_active_per_account`, `retains_uncertain_cost_after_timeout`, `uses_standard_none_and_enforces_50000_input_12000_output_20000ms`, `keeps_prepared_draft_usable_after_ai_budget_exhaustion`를 추가한다. 잔여 예산보다 최대 비용 예약이 크면 인식 호출은 0이며 동시 예약 합계는 사이트별 $0.50를 넘지 않아야 한다. 비용 불명과 저장 영수증 만료로 월 한도가 복구되지 않으며, 모델 자동 재시도/전환과 편집/적용에 따른 재호출은 0이어야 한다.
+- [x] `pnpm exec vitest run worker/features/schedules/domain/schedule-image-result.test.ts worker/features/schedules/http/schedule-image-handler.test.ts`로 실패를 확인한다. 초기에는 파일/구현 미존재가 원인이며, 이후에는 해당 계약 위반이 실패 원인이어야 한다.
+- [x] 승인된 형식·크기·인가·상한을 호출 전에 검사하고 Luna 한 번으로 초안을 반환한다. provider schema와 앱 parser를 모두 적용한다. 필수 원본 정보가 모호하면 확인 항목을 보존하고 실제 일정에 쓰지 않는다. 공급자 key·이미지·원문 응답을 일반 로그에 남기지 않는다.
+- [x] 같은 집중 테스트와 `pnpm typecheck:test`, `pnpm architecture:check`를 통과한다. 실제 계정의 인식률·응답 시간 검증은 Task 4의 승인된 실험으로 남긴다.
+- [x] 승인된 작업 파일만 명시적으로 stage하여 구현 커밋을 만든다. 현재 문서 작성 중 이 단계는 실행하지 않는다.
 
 ### Task 2: 정상 추가 버튼에서 업로드·원본 대조·빠른 편집
 
 **Files:** 후보 프런트엔드 API·draft model·menu/dialog·public export, `src/features/schedule-board/ui/daily/daily-schedule.tsx`, `src/features/schedule-board/ui/weekly/weekly-schedule.tsx`, `src/features/schedule-board/ui/weekly/components/weekly-header.tsx`. Test: `src/features/schedules/ui/schedule-image-import-dialog.test.tsx`, 해당 일간/주간 소비자 테스트.
 
-**Interfaces:** Consumes: Task 1 `readScheduleImage`와 `ScheduleImageDraft`. Produces: `ScheduleImageImportDialog({open, onOpenChange, members, initialDate, onApply})`; `onApply` 요청/반환 타입은 Task 0에서 확정한 D3·D4 계약을 직접 사용한다. 기능 간 접근은 public export를 통한다.
+**Interfaces:** Consumes: Task 1 `readScheduleImage`와 `ScheduleImageDraft`. Produces: `ScheduleAddMenu({members, initialDate, onManual, isAdmin})`와 `ScheduleImageImportDialog({onOpenChange, members, initialDate, isAdmin})`. 메뉴가 조건부 mount/종료 폐기를 소유하고, 편집창은 기능 내부의 실제 적용 use-case/API를 사용한다. 기능 간 접근은 public export를 통한다.
 
-- [ ] 실패 테스트 `opens_import_from_daily_and_weekly_add_menu`, `keeps_manual_entry_available`, `editing_does_not_repeat_model_call`, `blocks_unresolved_member_or_date`, `explicit_undecided_time_keeps_broadcast_status`, `ignores_response_from_replaced_or_cancelled_image`, `excluded_rows_never_reach_apply`를 작성한다. 핵심 검증은 `expect(readScheduleImage).toHaveBeenCalledTimes(1)`과 확인되지 않은 행이 적용 요청에 없다는 것이다.
-- [ ] D2 회귀 `requires_confirmation_before_using_displayed_week`, `maps_same_unresolved_name_once_for_all_matching_rows`, `allows_excluding_unresolved_rows_without_resolving_them`를 추가한다. 확인 전 기준 주를 저장값으로 사용하지 않고, 같은 이름만 일괄 연결하며, 제외한 미확인 행 때문에 나머지 확정 행의 선택 적용을 막지 않음을 검증한다.
-- [ ] D5 회귀 `confirms_unsaved_close_and_clears_image_and_draft`, `shows_external_image_transfer_notice_before_reading`를 추가한다. 편집창 종료 전 확인과 확정 종료 시 정리, 폐기된 초안이 재개 시 복원되지 않는 동작, 인식 전 OpenAI 전송 안내를 검증한다. 브라우저 정상 새로고침 뒤 원본·초안이 남지 않음도 확인한다.
-- [ ] `pnpm exec vitest run src/features/schedules/ui/schedule-image-import-dialog.test.tsx` 및 변경한 진입점 소비자 테스트로 실패를 확인한다.
-- [ ] 기존 shared UI·FormData API 지원을 사용해 입력 선택·원본 비교·직접 편집·선택·검증·명시적 적용을 연결한다. 컴포넌트 외형을 테스트가 고정하지 않게 한다. 모델 요청 결과가 교체된 이미지나 사용자의 편집을 덮어쓰지 않게 한다.
-- [ ] 집중 테스트와 `pnpm typecheck:test`, `pnpm architecture:check`를 통과하고 실제 앱에서 키보드·좁은 화면의 정상 진입을 확인한다. Task 3 연결 전에는 저장 기능 완료로 보고하지 않는다.
-- [ ] 승인된 작업 파일만 명시적으로 stage하여 구현 커밋을 만든다.
+- [x] 실패 테스트 `opens_import_from_daily_and_weekly_add_menu`, `keeps_manual_entry_available`, `editing_does_not_repeat_model_call`, `blocks_unresolved_member_or_date`, `explicit_undecided_time_keeps_broadcast_status`, `ignores_response_from_replaced_or_cancelled_image`, `excluded_rows_never_reach_apply`를 작성한다. 핵심 검증은 `expect(readScheduleImage).toHaveBeenCalledTimes(1)`과 확인되지 않은 행이 적용 요청에 없다는 것이다.
+- [x] D2 회귀 `requires_confirmation_before_using_displayed_week`, `maps_same_unresolved_name_once_for_all_matching_rows`, `allows_excluding_unresolved_rows_without_resolving_them`를 추가한다. 확인 전 기준 주를 저장값으로 사용하지 않고, 같은 이름만 일괄 연결하며, 제외한 미확인 행 때문에 나머지 확정 행의 선택 적용을 막지 않음을 검증한다.
+- [x] D5 회귀 `confirms_unsaved_close_and_clears_image_and_draft`, `shows_external_image_transfer_notice_before_reading`를 추가한다. 편집창 종료 전 확인과 확정 종료 시 정리, 폐기된 초안이 재개 시 복원되지 않는 동작, 인식 전 OpenAI 전송 안내를 검증한다. 브라우저 정상 새로고침 뒤 원본·초안이 남지 않음도 확인한다.
+- [x] `pnpm exec vitest run src/features/schedules/ui/schedule-image-import-dialog.test.tsx` 및 변경한 진입점 소비자 테스트로 실패를 확인한다.
+- [x] 기존 shared UI·FormData API 지원을 사용해 입력 선택·원본 비교·직접 편집·선택·검증·명시적 적용을 연결한다. 컴포넌트 외형을 테스트가 고정하지 않게 한다. 모델 요청 결과가 교체된 이미지나 사용자의 편집을 덮어쓰지 않게 한다.
+- [x] 집중 테스트와 `pnpm typecheck:test`, `pnpm architecture:check`를 통과하고 실제 앱에서 키보드·좁은 화면의 정상 진입을 확인한다. Task 3 연결 전에는 저장 기능 완료로 보고하지 않는다.
+- [x] 승인된 작업 파일만 명시적으로 stage하여 구현 커밋을 만든다.
 
 ### Task 3: 선택 적용·충돌 확인·실제 저장·재조회
 
@@ -147,14 +128,14 @@ Check: D1~D7 정책 기록은 완료했다. 저장/비용 경계의 정확한 �
 
 **Interfaces:** Consumes: 사용자가 확정한 선택 행, 비교한 기존 일정 상태, 실제 인증 actor/site, 같은 멤버·날짜 묶음의 확정 원자성. Produces: 묶음별 적용 완료·실패·결과 확인 중·적용 제외와 별도의 재조회 상태. 결과 확인 최소 기록은 24시간이며 만료 요청의 자동 재실행은 금지한다. 최종 함수 시그니처·API 경로·저장소·만료 검증은 Task 0에서 고정한다. 이 계약이 비어 있으면 Task 3는 실행 불가다.
 
-- [ ] 실패 테스트 `unknown_time_never_invokes_delete_conflicts`, `requires_confirmation_of_exclusive_status_deletions`, `rejects_changed_target_without_silent_overwrite`, `replay_after_lost_response_does_not_duplicate_write`, `reports_approved_atomic_or_partial_outcome`, `refresh_failure_retries_only_reads`를 작성한다. 삭제 예상 ID와 실제 삭제 ID, actor/site 경계, 승인된 원자성의 실패 후 DB 상태를 직접 단언한다.
-- [ ] D4 회귀 `rolls_back_entire_member_date_group_and_preserves_other_groups`, `keeps_unknown_commit_in_confirming_state`, `retries_failed_groups_without_reapplying_success_or_calling_model`를 추가한다. 한 묶음의 중간 실패에서 삭제·수정·생성이 모두 복원되고 다른 묶음의 성공은 남아야 한다. 응답 유실은 실패로 단정하지 않으며 동일 요청 결과를 재사용하고, 성공 묶음과 모델의 실행 횟수는 재시도 때문에 늘지 않아야 한다.
-- [ ] D5 회귀 `scopes_saved_results_to_actor_and_site_for_24_hours`, `rejects_expired_replay_instead_of_treating_it_as_new_write`를 추가한다. 결과 확인 기록은 원본 이미지/미적용 초안을 보관하지 않고, 만료 여부를 검증하지 않은 새 저장 경로로 빠지지 않아야 한다. 기존 감사 기록의 수명은 바꾸지 않는다.
-- [ ] D3 회귀 `excludes_exact_duplicates_against_saved_and_draft_rows`, `requires_explicit_existing_target_or_new_schedule_choice`, `preserves_other_broadcasts_on_same_date`, `blocks_mutually_exclusive_draft_rows_until_resolved`를 추가한다. 멤버·날짜·상태·시간·제목의 완전 일치만 중복 제외하며, 기본 유지에서 쓰기 0건, 지정하지 않은 기존 일정 수정 0건, 확인하지 않은 삭제 0건을 검증한다.
-- [ ] `pnpm exec vitest run src/features/schedules/use-cases/apply-schedule-image-draft.test.ts`와 `pnpm exec vitest run --config vitest.all.config.ts --project=worker-integration worker/features/schedules/infrastructure/schedule-image-apply.integration.test.ts`로 실패를 확인한다. D1 테스트는 승인된 정책에 맞는 실제 저장/충돌 경계를 통과해야 한다.
-- [ ] 정상 저장 orchestration을 사용해 인가·부수 삭제·동시성·중복 방지·감사를 보존한다. 기존 service를 직접 호출하며 HTTP 인가를 생략하거나 신규 SQL로 같은 정책을 복제하지 않는다. 저장 성공 후 조회 실패는 저장 재실행과 분리한다.
-- [ ] 집중 단위/D1 검사와 `pnpm typecheck:test`, `pnpm architecture:check`를 통과한다. 실제 선택 적용 후 서버 일정/일정표 재조회로 제목·시간·상태·기존 일정 영향과 화면 표시를 확인한다.
-- [ ] 승인된 작업 파일만 명시적으로 stage하여 구현 커밋을 만든다.
+- [x] 실패 테스트 `unknown_time_never_invokes_delete_conflicts`, `requires_confirmation_of_exclusive_status_deletions`, `rejects_changed_target_without_silent_overwrite`, `replay_after_lost_response_does_not_duplicate_write`, `reports_approved_atomic_or_partial_outcome`, `refresh_failure_retries_only_reads`를 작성한다. 삭제 예상 ID와 실제 삭제 ID, actor/site 경계, 승인된 원자성의 실패 후 DB 상태를 직접 단언한다.
+- [x] D4 회귀 `rolls_back_entire_member_date_group_and_preserves_other_groups`, `keeps_unknown_commit_in_confirming_state`, `retries_failed_groups_without_reapplying_success_or_calling_model`를 추가한다. 한 묶음의 중간 실패에서 삭제·수정·생성이 모두 복원되고 다른 묶음의 성공은 남아야 한다. 응답 유실은 실패로 단정하지 않으며 동일 요청 결과를 재사용하고, 성공 묶음과 모델의 실행 횟수는 재시도 때문에 늘지 않아야 한다.
+- [x] D5 회귀 `scopes_saved_results_to_actor_and_site_for_24_hours`, `rejects_expired_replay_instead_of_treating_it_as_new_write`를 추가한다. 결과 확인 기록은 원본 이미지/미적용 초안을 보관하지 않고, 만료 여부를 검증하지 않은 새 저장 경로로 빠지지 않아야 한다. 기존 감사 기록의 수명은 바꾸지 않는다.
+- [x] D3 회귀 `excludes_exact_duplicates_against_saved_and_draft_rows`, `requires_explicit_existing_target_or_new_schedule_choice`, `preserves_other_broadcasts_on_same_date`, `blocks_mutually_exclusive_draft_rows_until_resolved`를 추가한다. 멤버·날짜·상태·시간·제목의 완전 일치만 중복 제외하며, 기본 유지에서 쓰기 0건, 지정하지 않은 기존 일정 수정 0건, 확인하지 않은 삭제 0건을 검증한다.
+- [x] `pnpm exec vitest run src/features/schedules/use-cases/apply-schedule-image-draft.test.ts`와 `pnpm exec vitest run --config vitest.all.config.ts --project=worker-integration worker/features/schedules/infrastructure/schedule-image-apply.integration.test.ts`로 실패를 확인한다. D1 테스트는 승인된 정책에 맞는 실제 저장/충돌 경계를 통과해야 한다.
+- [x] 정상 저장 orchestration을 사용해 인가·부수 삭제·동시성·중복 방지·감사를 보존한다. 기존 service를 직접 호출하며 HTTP 인가를 생략하거나 신규 SQL로 같은 정책을 복제하지 않는다. 저장 성공 후 조회 실패는 저장 재실행과 분리한다.
+- [x] 집중 단위/D1 검사와 `pnpm typecheck:test`, `pnpm architecture:check`를 통과한다. 실제 선택 적용 후 서버 일정/일정표 재조회로 제목·시간·상태·기존 일정 영향과 화면 표시를 확인한다.
+- [x] 승인된 작업 파일만 명시적으로 stage하여 구현 커밋을 만든다.
 
 ### Task 4: 실제 일정표 검증과 사용량·품질 판정
 
@@ -178,4 +159,4 @@ Check: D1~D7 정책 기록은 완료했다. 저장/비용 경계의 정확한 �
 - Review Focus 다섯 항목을 Task 1~3의 실패 테스트에 연결했다.
 - 제품 구현 코드·의존성·스키마를 생성하지 않았다. 미래 테스트 명령은 실행 결과가 아니다.
 
-현재 인계 상태는 **D1~D7 설계 정책 확정, 구현 준비 계획 상세화 필요, 실제 구현·유료 실험 보류**다. 정책 기록 외 체크박스 진행과 실제 실험은 별도 재개 지시 뒤에 한다.
+현재 구현 기록은 [개발 기록](../../reports/2026-11-12-sul-44-image-import-implementation.md)을 따른다. 구현·로컬 검증을 재개했으며 Task 4의 실제 모델 실측과 운영 적용은 보류한다. 과거 문서 단계의 중단 문구는 이 실행 지시보다 우선하지 않는다.

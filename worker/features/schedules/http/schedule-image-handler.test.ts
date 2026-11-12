@@ -3,7 +3,7 @@ import { createScheduleImageHandler } from "./schedule-image-handler";
 import type { Env } from "../../../platform/types";
 const auth = vi.hoisted(() => ({ loggedIn: false }));
 vi.mock("../../../platform/auth", () => ({ authenticateRequest: vi.fn(async () => auth.loggedIn ? { ok: true, user: { id: "viewer" } } : { ok: false, response: new Response("Login required", { status: 401 }) }) }));
-afterEach(() => { auth.loggedIn = false; });
+afterEach(() => { auth.loggedIn = false; vi.restoreAllMocks(); });
 const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 function request(files = [new File([png], "schedule.png", { type: "image/png" })]) {
   const body = new FormData(); for (const file of files) body.append("image", file);
@@ -30,4 +30,19 @@ it("does_not_write_schedules_during_analysis", async () => {
     budget: { reserve: async () => "id", start: async () => {}, settle: async () => {}, releaseUnstarted: async () => {}, finishUnknown: async () => {} }, members: async () => [] }));
   const response = await handler(request(), { otw_db: db } as unknown as Env);
   expect(response.status).toBe(200); expect(db.prepare).not.toHaveBeenCalled();
+});
+it("enforces the 20 second deadline even while a non-cancellable database read is pending",async()=>{
+  auth.loggedIn=true;const deadline=new AbortController();
+  const timeout=vi.spyOn(AbortSignal,"timeout").mockReturnValueOnce(deadline.signal);
+  let release:()=>void=()=>{};
+  const members=vi.fn(()=>new Promise<[]>(done=>{release=()=>done([]);}));
+  const reserve=vi.fn(),reader={count:vi.fn(),read:vi.fn()};
+  const handler=createScheduleImageHandler(()=>({reader,budget:{reserve,start:vi.fn(),settle:vi.fn(),releaseUnstarted:vi.fn(),finishUnknown:vi.fn()},members}));
+  const response=handler(request(),{} as Env);
+  await vi.waitFor(()=>expect(members).toHaveBeenCalled());deadline.abort();
+  const first=await Promise.race([response,new Promise<null>(done=>setTimeout(()=>done(null),100))]);
+  release();
+  expect(timeout.mock.calls[0][0]).toBeLessThanOrEqual(20000);
+  expect(timeout.mock.calls[0][0]).toBeGreaterThan(19000);
+  expect(first?.status).toBe(504);expect(reserve).not.toHaveBeenCalled();expect(reader.read).not.toHaveBeenCalled();
 });

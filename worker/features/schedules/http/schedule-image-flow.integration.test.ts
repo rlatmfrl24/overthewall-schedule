@@ -17,13 +17,13 @@ async function request(path: string, user?: string, body?: unknown, site: "otw" 
     const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5",pair.privateKey,new TextEncoder().encode(payload));
     headers.set("Authorization",`Bearer ${payload}.${encode(new Uint8Array(signature))}`);
   }
-  if (body) headers.set("Content-Type","application/json");
-  return (await workerRouteRegistry.dispatch(new Request(origin+path,{method:body?"POST":"GET",headers,body:body?JSON.stringify(body):undefined}),runtime))!;
+  if (body && !(body instanceof FormData)) headers.set("Content-Type","application/json");
+  return (await workerRouteRegistry.dispatch(new Request(origin+path,{method:body?"POST":"GET",headers,body:body instanceof FormData?body:body?JSON.stringify(body):undefined}),runtime))!;
 }
 beforeAll(async () => {
   await applyD1Migrations(db,(env as unknown as {IMAGE_IMPORT_WRITE_MIGRATIONS:D1Migration[]}).IMAGE_IMPORT_WRITE_MIGRATIONS);
   pair=await crypto.subtle.generateKey({name:"RSASSA-PKCS1-v1_5",modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:"SHA-256"},true,["sign","verify"]) as CryptoKeyPair;
-  jwk=await crypto.subtle.exportKey("jwk",pair.publicKey);
+  jwk=await crypto.subtle.exportKey("jwk",pair.publicKey) as JsonWebKey;
 });
 beforeEach(async () => {
   clearAuthCachesForTests();
@@ -35,6 +35,12 @@ beforeEach(async () => {
   await db.prepare("INSERT INTO members(uid,code,name,is_deprecated) VALUES(1,'on_haru','온하루',0)").run();
 });
 afterEach(() => {vi.unstubAllGlobals();vi.restoreAllMocks();});
+it("reports missing image-model configuration before any cost reservation or provider call",async()=>{
+  const body=new FormData();body.append("image",new File([new Uint8Array([137,80,78,71,13,10,26,10])],"image.png",{type:"image/png"}));
+  const result=await request("/api/schedules/image-import/analyze","user",body);
+  expect(result.status).toBe(503);
+  expect(await db.prepare("SELECT COUNT(*) AS n FROM schedule_image_reads").first("n")).toBe(0);
+});
 it.each(["otw","luvdia"] as const)("real JWT context/apply/result route on %s preserves manual anonymous entry",async site=>{
   expect((await request("/api/schedules/image-import/context?memberUid=1&date=2026-11-12",undefined,undefined,site)).status).toBe(401);
   const context=await request("/api/schedules/image-import/context?memberUid=1&date=2026-11-12","user",undefined,site);

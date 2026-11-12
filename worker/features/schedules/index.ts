@@ -1,4 +1,5 @@
 export { ManualAutoUpdateService } from "./application/manual-auto-update-service";
+export { ScheduleImageError } from "./application/read-schedule-image";
 export { createScheduleImageHandler } from "./http/schedule-image-handler";
 export { D1ScheduleImageBudget } from "./infrastructure/d1-schedule-image-budget";
 export { LunaScheduleImageReader } from "./infrastructure/luna-schedule-image-reader";

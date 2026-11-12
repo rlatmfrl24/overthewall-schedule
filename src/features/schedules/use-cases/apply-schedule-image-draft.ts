@@ -13,7 +13,7 @@ export async function applyScheduleImageDraft(groups: ImageApplyState[], depende
     if (group.state === "applied" || group.state === "review") continue;
     try {
       const receipt = await dependencies.apply(group.request);
-      results[i] = { ...group, state:"applied", receipt }; applied = true;
+      results[i] = { ...group, state:"applied", receipt, message:undefined }; applied = true;
     } catch (error) {
       const needsReview = error instanceof ApiError && error.status >= 400 && error.status < 500;
       results[i] = { ...group, state: needsReview ? "review" : "unknown",

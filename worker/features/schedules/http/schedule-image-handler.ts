@@ -10,6 +10,7 @@ type Dependencies = { reader: ScheduleImageReader; budget: ScheduleImageBudget; 
 const failure = (message: string, status: number) => Response.json({ error: { code: "SCHEDULE_IMAGE_ERROR", message } }, { status, headers: { "Cache-Control": "no-store" } });
 async function readImage(request: Request) {
   const body = await readImageImportBody(request, limits.bytes + 100_000);
+  const uploadedAt = Date.now();
   let form: FormData;
   try { form = await new Response(body, { headers: { "Content-Type": request.headers.get("Content-Type") ?? "" } }).formData(); }
   catch { throw new ScheduleImageError("이미지 업로드 형식을 확인해주세요."); }
@@ -21,18 +22,33 @@ async function readImage(request: Request) {
     : file.type === "image/jpeg" ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
       : new TextDecoder().decode(bytes.slice(0,4)) === "RIFF" && new TextDecoder().decode(bytes.slice(8,12)) === "WEBP";
   if (!magic) throw new ScheduleImageError("이미지 파일 형식을 확인해주세요.");
-  return { bytes, mediaType: file.type };
+  return { bytes, mediaType: file.type, uploadedAt };
 }
-export const createScheduleImageHandler = (resolve: (env: Env) => Dependencies) => async (request: Request, env: Env): Promise<Response> => {
+export const createScheduleImageHandler = (resolve: (env: Env) => Dependencies) => async (request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> => {
   const auth = await authenticateRequest(request, env);
   if (!auth.ok) return auth.response;
   try {
-    const image = await readImage(request);
-    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(limits.timeoutMs)]);
+    const { uploadedAt, ...image } = await readImage(request);
+    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(Math.max(0, limits.timeoutMs - (Date.now() - uploadedAt)))]);
     const deps = resolve(env);
-    const members = await deps.members();
-    const result = await readScheduleImage(deps.reader, deps.budget, { ...image, members }, auth.user.id, signal);
-    return Response.json(result, { headers: { "Cache-Control": "no-store" } });
+    const analysis = (async () => {
+      const members = await deps.members(); signal.throwIfAborted();
+      return readScheduleImage(deps.reader, deps.budget, { ...image, members }, auth.user.id, signal);
+    })();
+    let onAbort = () => {};
+    const deadline = new Promise<never>((_, reject) => {
+      onAbort = () => reject(new ScheduleImageError("인식 시간이 초과되었거나 취소되었습니다. 자동 재시도하지 않으며 이미 보낸 요청의 비용은 발생할 수 있습니다.", 504));
+      signal.addEventListener("abort", onAbort, { once: true });
+      if (signal.aborted) onAbort();
+    });
+    try {
+      const result = await Promise.race([analysis, deadline]);
+      return Response.json(result, { headers: { "Cache-Control": "no-store" } });
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+      // D1 cannot be cancelled. Let reservation cleanup finish without extending the UI deadline.
+      ctx?.waitUntil(analysis.then(() => {}, () => {}));
+    }
   } catch (error) {
     if (error instanceof ScheduleImageError) return failure(error.message, error.status);
     // Never pass provider error bodies, image bytes or the model's raw output to the global logger.

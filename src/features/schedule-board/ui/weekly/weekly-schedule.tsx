@@ -54,6 +54,8 @@ export const WeeklySchedule = ({ isAdmin = false }: { isAdmin?: boolean }) => {
       <div className="flex flex-col h-full container mx-auto">
         {/* Header Control Section */}
         <WeeklyHeader
+          members={editorMembers}
+          isAdmin={isAdmin}
           currentDate={currentDate}
           onPrevWeek={prevWeek}
           onNextWeek={nextWeek}

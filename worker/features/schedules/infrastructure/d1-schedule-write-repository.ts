@@ -1,6 +1,7 @@
 import type { ApplyScheduleImageGroup } from "../../../../contracts/schedule-image-import";
 import { imageContext, imageResult, applyImageGroup } from "./d1-schedule-image-apply";
 import type { SaveScheduleResult } from "../../../../contracts/schedules";
+import { NON_BROADCAST_SCHEDULE_STATUSES } from "../../../../contracts/schedules";
 import type {
   ScheduleActor,
   ScheduleWriteInput,
@@ -66,7 +67,7 @@ const conflictPredicate = (input: ScheduleWriteInput) => {
 
   if (input.status === "방송") {
     return {
-      sql: `${withoutCurrent} AND status IN ('휴방', '게릴라', '미정')`,
+      sql: `${withoutCurrent} AND status IN (${NON_BROADCAST_SCHEDULE_STATUSES.map(status => `'${status}'`).join(", ")})`,
       bindings,
     };
   }
