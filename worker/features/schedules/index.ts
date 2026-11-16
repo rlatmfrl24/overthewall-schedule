@@ -1,4 +1,9 @@
 export { ManualAutoUpdateService } from "./application/manual-auto-update-service";
+export { ScheduleImageError } from "./application/read-schedule-image";
+export { createScheduleImageHandler } from "./http/schedule-image-handler";
+export { D1ScheduleImageBudget } from "./infrastructure/d1-schedule-image-budget";
+export { readScheduleImageMembers } from "./infrastructure/d1-schedule-image-members";
+export { FlashLiteScheduleImageReader } from "./infrastructure/flash-lite-schedule-image-reader";
 export { PendingScheduleQueryService } from "./application/pending-schedule-query-service";
 export { PendingScheduleService } from "./application/pending-schedule-service";
 export { ScheduleService } from "./application/schedule-service";
@@ -43,3 +48,6 @@ export {parseScheduleCommand} from "./domain/schedule-command";
 
 export {D1CollectorWriter,D1LiveScheduleWriter,D1ChzzkScanWriter} from "./infrastructure/publication-writers";
 export { ScheduledAutoUpdateBlocked, type ScheduledAutoUpdateItem } from "./infrastructure/scheduled-auto-update-guard";
+
+export { ScheduleImageApplyService } from "./application/schedule-image-apply-service";
+export { createScheduleImageApplyHandler } from "./http/schedule-image-apply-handler";

@@ -1,3 +1,4 @@
+import { handleScheduleImageAnalyze, handleScheduleImageApply } from "./schedule-image-import";
 import {createOtwPlayMemberSubmissionService} from "./member-submissions";
 import { createMultiviewChannelHandler } from "../features/multiview";
 import { createMultiviewServiceForEnv } from "./multiview";
@@ -1021,6 +1022,19 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     path: apiRoutes.scheduleBoard.read.pattern,
     methods: methods(get(PUBLIC_NO_STORE)),
     handler: handleScheduleBoard,
+  },
+  { id: "schedules.imageContext", owner: "schedules", path: apiRoutes.schedules.imageContext.pattern,
+    methods: methods(get({ auth: "member-policy", cache: "no-store", successStatus: 200 })), handler: handleScheduleImageApply },
+  { id: "schedules.imageApply", owner: "schedules", path: apiRoutes.schedules.imageApply.pattern,
+    methods: methods(post({ auth: "member-policy", cache: "no-store", successStatus: 200 })), handler: handleScheduleImageApply },
+  { id: "schedules.imageResult", owner: "schedules", path: apiRoutes.schedules.imageResult.pattern,
+    methods: methods(get({ auth: "member-policy", cache: "no-store", successStatus: 200 })), handler: handleScheduleImageApply },
+  {
+    id: "schedules.image-analyze",
+    owner: "schedules",
+    path: apiRoutes.schedules.imageAnalyze.pattern,
+    methods: methods(post({ auth: "member-policy", cache: "no-store", successStatus: 200 })),
+    handler: handleScheduleImageAnalyze,
   },
   {
     id: "schedules.collection",

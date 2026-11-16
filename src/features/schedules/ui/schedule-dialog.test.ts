@@ -115,6 +115,17 @@ describe("ScheduleDialog", () => {
     );
   });
 
+  it("이미지에서 저장한 여러 줄 제목을 정상 재편집과 제출에서도 보존한다", async () => {
+    const title = "문 스위퍼즈\nw. 합방 멤버";
+    const { onSubmit } = renderDialog({ schedule: { ...schedule, title } });
+    const input = await screen.findByLabelText("제목") as HTMLTextAreaElement;
+    expect(input.value).toBe(title);
+    fireEvent.change(input, { target: { value: `${title}\n추가 설명` } });
+    fireEvent.click(screen.getByRole("button", { name: "수정 저장" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ id: schedule.id, title: `${title}\n추가 설명` }));
+  });
+
   it("빠른 시간 선택지를 낮/저녁 시간대에 맞게 표시한다", () => {
     renderDialog();
 

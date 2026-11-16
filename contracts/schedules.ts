@@ -1,4 +1,5 @@
 export type ScheduleStatus = "방송" | "휴방" | "게릴라" | "미정";
+export const NON_BROADCAST_SCHEDULE_STATUSES = ["휴방", "게릴라", "미정"] as const;
 
 export interface ScheduleDto {
   content_access?: "normal" | "admin_archive";

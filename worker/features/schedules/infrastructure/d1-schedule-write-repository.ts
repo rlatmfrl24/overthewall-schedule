@@ -1,4 +1,7 @@
+import type { ApplyScheduleImageGroup } from "../../../../contracts/schedule-image-import";
+import { imageContext, imageResult, applyImageGroup } from "./d1-schedule-image-apply";
 import type { SaveScheduleResult } from "../../../../contracts/schedules";
+import { NON_BROADCAST_SCHEDULE_STATUSES } from "../../../../contracts/schedules";
 import type {
   ScheduleActor,
   ScheduleWriteInput,
@@ -51,9 +54,9 @@ const createLogStatement = (
       input.title,
     );
 
-const conflictPredicate = (input: ScheduleWriteInput) => {
-  const common = "member_uid = ? AND date = ?";
-  const commonBindings: unknown[] = [input.memberUid, input.date];
+const conflictPredicate = (input: ScheduleWriteInput, retainedIds: number[] = []) => {
+  const common = `member_uid = ? AND date = ?${retainedIds.length ? " AND id NOT IN (SELECT value FROM json_each(?))" : ""}`;
+  const commonBindings: unknown[] = [input.memberUid, input.date, ...(retainedIds.length ? [JSON.stringify(retainedIds)] : [])];
 
   if (input.status === "미정") {
     return { sql: common, bindings: commonBindings };
@@ -64,7 +67,7 @@ const conflictPredicate = (input: ScheduleWriteInput) => {
 
   if (input.status === "방송") {
     return {
-      sql: `${withoutCurrent} AND status IN ('휴방', '게릴라', '미정')`,
+      sql: `${withoutCurrent} AND status IN (${NON_BROADCAST_SCHEDULE_STATUSES.map(status => `'${status}'`).join(", ")})`,
       bindings,
     };
   }
@@ -86,11 +89,8 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
     return (await this.db.batch([...guards, ...statements, ...guards])).slice(guards.length, guards.length + statements.length);
   }
 
-  async saveWithConflictResolution(
-    input: ScheduleWriteInput,
-    actor: ScheduleActor,
-  ): Promise<SaveScheduleResult> {
-    const predicate = conflictPredicate(input);
+  private prepareSave(input: ScheduleWriteInput, actor: ScheduleActor, retainedIds: number[] = []): D1PreparedStatement[] {
+    const predicate = conflictPredicate(input, retainedIds);
     const statements: D1PreparedStatement[] = [
       this.db
         .prepare(`SELECT id FROM schedules WHERE ${predicate.sql} ORDER BY id`)
@@ -118,14 +118,7 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
     ];
 
     if (input.status === "미정") {
-      const results = await this.batch(statements, input, actor);
-
-      return {
-        success: true,
-        action: "delete_conflicts",
-        scheduleId: null,
-        deletedIds: results[0].results.map((row) => (row as ScheduleIdRow).id),
-      };
+      return statements;
     }
 
     if (input.id !== null) {
@@ -165,14 +158,7 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
           ),
       );
 
-      const results = await this.batch(statements, input, actor);
-
-      return {
-        success: true,
-        action: "update",
-        scheduleId: input.id,
-        deletedIds: results[0].results.map((row) => (row as ScheduleIdRow).id),
-      };
+      return statements;
     }
 
     statements.push(
@@ -191,17 +177,27 @@ export class D1ScheduleWriteRepository implements ScheduleWriteRepository {
       createLogStatement(this.db, input, actor),
     );
 
-    const results = await this.batch(statements, input, actor);
+    return statements;
+  }
 
-    const insertResult = results[3];
-    const scheduleId = Number(insertResult.meta.last_row_id);
+  async saveWithConflictResolution(input: ScheduleWriteInput, actor: ScheduleActor): Promise<SaveScheduleResult> {
+    const results = await this.batch(this.prepareSave(input, actor), input, actor);
+    const scheduleId = input.status === "미정" ? null : input.id ?? Number(results[3].meta.last_row_id);
+    return { success:true, action: input.status === "미정" ? "delete_conflicts" : input.id !== null ? "update" : "create",
+      scheduleId: scheduleId !== null && Number.isSafeInteger(scheduleId) ? scheduleId : null,
+      deletedIds: results[0].results.map(row => (row as ScheduleIdRow).id) };
+  }
 
-    return {
-      success: true,
-      action: "create",
-      scheduleId: Number.isSafeInteger(scheduleId) ? scheduleId : null,
-      deletedIds: results[0].results.map((row) => (row as ScheduleIdRow).id),
-    };
+  imageContext(memberUid: number, date: string, actor: ScheduleActor) {
+    return imageContext(this.db, this.siteId, memberUid, date, actor);
+  }
+  imageResult(operationId: string, actor: ScheduleActor) {
+    return imageResult(this.db, this.siteId, operationId, actor);
+  }
+  applyImageGroup(group: ApplyScheduleImageGroup, actor: ScheduleActor) {
+    return applyImageGroup(this.db, this.siteId, group, actor,
+      (input, retainedIds) => this.prepareSave(input, actor, retainedIds), conflictPredicate,
+      (statements, input) => this.batch(statements, input, actor));
   }
 
   async create(input: ScheduleWriteInput, actor: ScheduleActor): Promise<void> {

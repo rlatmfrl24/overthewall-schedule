@@ -47,3 +47,5 @@ export {
   roundTimeToNearestScheduleHour,
 } from "./model/pending-time";
 export { ScheduleDialog } from "./ui/schedule-dialog";
+
+export { ScheduleAddMenu } from "./ui/schedule-add-menu";

@@ -8,6 +8,13 @@ import { RightsPage } from "./rights-page";
 afterEach(() => cleanup());
 
 describe("RightsPage", () => {
+  it("makes image recognition terms and provider policies available outside the editor", () => {
+    render(<RightsPage />);
+    expect(screen.getByRole("heading",{name:"AI 이미지 인식 이용약관"}).id).toBe("schedule-image-terms");
+    expect(screen.getByText(/원본 이미지와 확대 이미지/)).toBeTruthy();
+    expect(screen.getByRole("link",{name:"OpenRouter 데이터 처리 정책"}).getAttribute("href")).toBe("https://openrouter.ai/docs/guides/privacy/provider-logging");
+    expect(screen.getByRole("link",{name:"Google Gemini API 약관"}).getAttribute("href")).toBe("https://aistudio.google.com/docs/terms");
+  });
   it("shows the current web rights notice without the removed extension policy", () => {
     render(<RightsPage />);
 

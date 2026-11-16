@@ -308,6 +308,10 @@ export const apiRoutes = {
     read: staticRoute("/api/schedule-board"),
   },
   schedules: {
+    imageAnalyze: staticRoute("/api/schedules/image-import/analyze"),
+    imageContext: staticRoute("/api/schedules/image-import/context"),
+    imageApply: staticRoute("/api/schedules/image-import/apply"),
+    imageResult: staticRoute("/api/schedules/image-import/result"),
     collection: staticRoute("/api/schedules"),
     save: staticRoute("/api/schedules/save"),
     updateLogs: staticRoute("/api/settings/logs"),

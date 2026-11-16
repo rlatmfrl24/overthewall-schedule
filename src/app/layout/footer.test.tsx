@@ -10,15 +10,17 @@ import { Footer } from "./footer";
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
     to,
+    hash,
     children,
     ...props
   }: {
     to: string;
+    hash?: string;
     children?: ReactNode;
     className?: string;
     "aria-label"?: string;
   }) => (
-    <a href={to} {...props}>
+    <a href={`${to}${hash?`#${hash}`:""}`} {...props}>
       {children}
     </a>
   ),
@@ -27,6 +29,10 @@ vi.mock("@tanstack/react-router", () => ({
 afterEach(() => cleanup());
 
 describe("Footer", () => {
+  it("links directly to the image recognition terms", () => {
+    render(<Footer />);
+    expect(screen.getByRole("link",{name:"이용약관"}).getAttribute("href")).toBe("/rights#schedule-image-terms");
+  });
   it("keeps the rights notice reachable from the public footer", () => {
     render(<Footer />);
 

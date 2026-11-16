@@ -16,6 +16,8 @@ import type { ScheduleDto } from "@contracts/schedules";
 import { createQueryWrapper } from "@/test/query-client";
 import { DailySchedule } from "./daily-schedule";
 
+vi.mock("@clerk/clerk-react", async original => ({...await original<typeof import("@clerk/clerk-react")>(), useAuth:()=>({isSignedIn:false,userId:null})}));
+
 const useScheduleBoardMock = vi.hoisted(() => vi.fn());
 const fetchLiveStatusesMock = vi.hoisted(() => vi.fn());
 const fetchLiveStatusDiagnosticsMock = vi.hoisted(() => vi.fn());

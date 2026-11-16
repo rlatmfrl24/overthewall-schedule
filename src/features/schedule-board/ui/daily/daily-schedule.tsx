@@ -9,6 +9,7 @@ import {
 import {
   deleteSchedule,
   ScheduleDialog,
+  ScheduleAddMenu,
   type ScheduleItem,
   type ScheduleStatus,
 } from "@/features/schedules";
@@ -26,7 +27,6 @@ import { RecoveryPet } from "./recovery-pet";
 import { format, addDays, subDays, isSameDay } from "date-fns";
 import {
   CalendarDays,
-  Plus,
   Copy,
   List,
   Download,
@@ -596,19 +596,10 @@ export const DailySchedule = ({
                   </>}
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Button
-                variant="default"
-                className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full h-9 px-3 sm:h-10 sm:px-4"
-                aria-label="스케쥴 추가"
-                onClick={() => {
-                  setEditingSchedule(null);
-                  setInitialMemberUid(null);
-                  setIsEditDialogOpen(true);
-                }}
-              >
-                <Plus className="h-4 w-4" />
-                <span className="hidden sm:inline">스케쥴 추가</span>
-              </Button>
+              <ScheduleAddMenu members={editorMembers.data ?? members} initialDate={currentDate} isAdmin={isAdmin} onManual={() => {
+                setEditingSchedule(null); setInitialMemberUid(null); setIsEditDialogOpen(true);
+              }}/>
+
               <DateNavigation previousLabel="이전 날짜로 이동" nextLabel="다음 날짜로 이동" todayLabel="오늘로 이동" compactTodayLabel="오늘"
                 isCurrent={isSameDay(currentDate, new Date())} onPrevious={handlePrevDay} onNext={handleNextDay} onToday={handleToday} />
             </div>

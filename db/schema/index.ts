@@ -12,6 +12,24 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+export const scheduleImageReads = sqliteTable("schedule_image_reads", {
+  id: text().primaryKey(), site_id: text().notNull(), actor_id: text().notNull(),
+  month: text().notNull(), day: text().notNull(), active_until: integer().notNull(),
+  started: integer().notNull().default(0), reserved_nano_usd: integer().notNull(),
+  cost_nano_usd: integer(), input_tokens: integer(), output_tokens: integer(),
+}, table => [
+  index("idx_schedule_image_reads_month").on(table.site_id, table.month),
+  index("idx_schedule_image_reads_actor_day").on(table.site_id, table.actor_id, table.day),
+  check("schedule_image_reads_cost", sql`${table.reserved_nano_usd} >= 0 AND (${table.cost_nano_usd} IS NULL OR ${table.cost_nano_usd} >= 0) AND ${table.started} IN (0,1)`),
+]);
+export const scheduleImageResults = sqliteTable("schedule_image_results", {
+  site_id: text().notNull(), actor_id: text().notNull(), operation_id: text().notNull(),
+  request_hash: text().notNull(), result_json: text().notNull(), expires_at: integer().notNull(),
+}, table => [
+  primaryKey({ columns: [table.site_id, table.actor_id, table.operation_id] }),
+  index("idx_schedule_image_results_expiry").on(table.expires_at),
+]);
+
 export const multiviewChannels = sqliteTable("multiview_channels", {
   owner_user_id: text().notNull(),
   channel_id: text().notNull(),

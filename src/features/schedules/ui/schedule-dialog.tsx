@@ -46,6 +46,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Calendar } from "@/shared/ui/calendar";
 import { Input } from "@/shared/ui/input";
+import { Textarea } from "@/shared/ui/textarea";
 import {getContentWriteMessage} from "@/shared/api/client";
 
 type ScheduleSubmitData = {
@@ -422,7 +423,7 @@ export const ScheduleDialog = ({
                   value={memberUid.toString()}
                   onValueChange={(value) => setMemberUid(Number(value))}
                 >
-                  <SelectTrigger className="h-11 sm:h-9" id="schedule-member" aria-required="true" aria-invalid={hasMemberError} aria-describedby={hasMemberError ? "schedule-member-error" : memberUid === "" ? "schedule-member-hint" : undefined}>
+                  <SelectTrigger className="w-full min-w-0 data-[size=default]:h-11 sm:data-[size=default]:h-9" id="schedule-member" aria-required="true" aria-invalid={hasMemberError} aria-describedby={hasMemberError ? "schedule-member-error" : memberUid === "" ? "schedule-member-hint" : undefined}>
                     <SelectValue placeholder="멤버 선택" />
                   </SelectTrigger>
                   <SelectContent>
@@ -500,9 +501,8 @@ export const ScheduleDialog = ({
             </Field>
             <Field className="gap-2">
               <FieldLabel htmlFor="schedule-title">제목</FieldLabel>
-              <Input
+              <Textarea
                 id="schedule-title"
-                className="h-11 sm:h-9"
                 disabled={isBusy}
                 value={title}
                 placeholder="방송 내용을 입력해주세요"
@@ -577,7 +577,7 @@ export const ScheduleDialog = ({
                 <Button type="submit" variant="outline" disabled={!canSubmit}>다시 조회하고 저장</Button>
               </div>
             )}
-            <DialogFooter className="sticky -bottom-4 flex-col gap-2 bg-background pt-2 sm:-bottom-5 sm:flex-row sm:items-center sm:justify-end">
+            <DialogFooter className="sticky -bottom-4 flex-col gap-3 bg-background pt-2 sm:-bottom-5 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
               {isEditMode && onDelete ? (
                 <Button
                   type="button"
@@ -586,7 +586,7 @@ export const ScheduleDialog = ({
                   disabled={isBusy || !canEdit}
                   onClick={handleDelete}
                 >
-                  <Trash2 className="mr-2 h-4 w-4" />
+                  <Trash2 className="size-4" />
                   스케쥴 삭제
                 </Button>
               ) : null}
