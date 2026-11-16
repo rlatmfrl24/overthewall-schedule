@@ -142,6 +142,7 @@ INSERT INTO settings (
   ('x_collection_enabled', 'false'),
   ('x_collection_daily_budget_cents', '100'),
   ('x_collection_interval_hours', '6'),
+  ('youtube_api_daily_quota_units', '1000'),
   ('otw_play_submission_daily_limit', '5');
 
 INSERT INTO naver_cafe_sources (
