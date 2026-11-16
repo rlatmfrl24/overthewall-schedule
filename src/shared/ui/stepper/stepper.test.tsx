@@ -3,6 +3,7 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Stepper, { Step } from './Stepper';
+import { AnimationProvider } from '../animation-provider';
 
 vi.mock('motion/react', async (importOriginal) => ({
   ...await importOriginal<typeof import('motion/react')>(),
@@ -18,6 +19,12 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const contents = [<Step key="1">Video content</Step>, <Step key="2">Song content</Step>, <Step key="3">Singer content</Step>, <Step key="4">Review content</Step>];
 
 describe('React Bits Stepper', () => {
+  it('supports the owning flow label and honors the OS motion preference by default', () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
+    const { container } = render(<AnimationProvider><Stepper stepNavigationLabel="스케쥴 추가 단계">{contents}</Stepper></AnimationProvider>);
+    expect(screen.getByRole('navigation', { name: '스케쥴 추가 단계' })).toBeTruthy();
+    expect(container.querySelector('.react-bits-stepper')?.getAttribute('data-reduced-motion')).toBe('true');
+  });
   it('plays the original slide when explicitly enabled despite the OS preference, including external backward navigation', async () => {
     const { rerender } = render(<Stepper currentStep={1} reducedMotion="never">{contents}</Stepper>);
     rerender(<Stepper currentStep={3} reducedMotion="never">{contents}</Stepper>);

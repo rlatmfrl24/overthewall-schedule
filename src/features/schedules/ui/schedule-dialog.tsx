@@ -47,6 +47,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Calendar } from "@/shared/ui/calendar";
 import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
+import Stepper, { Step } from "@/shared/ui/stepper/Stepper";
 import {getContentWriteMessage} from "@/shared/api/client";
 
 type ScheduleSubmitData = {
@@ -122,6 +123,8 @@ export const ScheduleDialog = ({
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = controlledOpen ?? internalOpen;
   const setIsOpen = setControlledOpen ?? setInternalOpen;
+  const [step, setStep] = useState(1);
+  const stepHeading = useRef<HTMLHeadingElement>(null);
 
   const [memberUid, setMemberUid] = useState<number | "">("");
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
@@ -254,6 +257,7 @@ export const ScheduleDialog = ({
       setTitle("");
     }
     if (isOpen) {
+      setStep(1);
       const baseTime = schedule?.start_time ? parseTimeValue(schedule.start_time.slice(0, 5)) ?? DEFAULT_TIME : DEFAULT_TIME;
       setFormBaseline(JSON.stringify([
         schedule?.member_uid ?? (initialMemberUid || ""),
@@ -271,6 +275,13 @@ export const ScheduleDialog = ({
       setIsImpactChecking(false);
     }
   }, [schedule, isOpen, initialDate, initialMemberUid]);
+
+  useEffect(() => {
+    if (isOpen && !isEditMode) {
+      stepHeading.current?.focus();
+      stepHeading.current?.scrollIntoView?.({ block: "nearest" });
+    }
+  }, [step, isOpen, isEditMode]);
 
   const createSubmitData = (): ScheduleSubmitData | null => {
     if (memberUid === "") return null;
@@ -316,8 +327,7 @@ export const ScheduleDialog = ({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async () => {
     if (isBusy || !canEdit) return;
 
     setHasAttemptedSubmit(true);
@@ -387,6 +397,22 @@ export const ScheduleDialog = ({
     setIsOpen(nextOpen);
   };
 
+  const changeStep = (next: number) => {
+    if (isBusy) return;
+    if (next > step) {
+      setHasAttemptedSubmit(true);
+      if (!canSubmit) return;
+    }
+    setFormError("");
+    setIsCalendarOpen(false);
+    setStep(next);
+  };
+  const handleFormSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!isEditMode && step < 3) changeStep(step + 1);
+    else void handleSubmit();
+  };
+
   const impactStatus = pendingSubmitData?.status;
   const impactMemberName =
     members.find((member) => member.uid === pendingSubmitData?.member_uid)?.name ||
@@ -403,209 +429,249 @@ export const ScheduleDialog = ({
         ? "수정 저장"
         : "스케쥴 추가";
 
+  const policyNotice = isPolicyException && (
+    <p role="status" className="text-sm text-muted-foreground">{isAdmin
+      ? "운영 종료 이후 예외 일정으로 공개됩니다."
+      : "운영 종료 이후 일정은 관리자만 변경할 수 있습니다."}</p>
+  );
+  const basicFields = (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <Field className="gap-2">
+        <FieldLabel htmlFor="schedule-member">멤버</FieldLabel>
+        <Select
+          disabled={isBusy}
+          value={memberUid.toString()}
+          onValueChange={(value) => setMemberUid(Number(value))}
+        >
+          <SelectTrigger className="w-full min-w-0 data-[size=default]:h-11 sm:data-[size=default]:h-9" id="schedule-member" aria-required="true" aria-invalid={hasMemberError} aria-describedby={hasMemberError ? "schedule-member-error" : memberUid === "" ? "schedule-member-hint" : undefined}>
+            <SelectValue placeholder="멤버 선택" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {availableMembers.map((member) => (
+                <SelectItem
+                  key={member.uid}
+                  value={member.uid.toString()}
+                >
+                  {member.oshi_mark && <span aria-hidden="true">{member.oshi_mark} </span>}{member.name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        {memberUid === "" && <FieldDescription className="text-xs" id="schedule-member-hint">멤버를 선택하면 스케쥴을 추가할 수 있어요.</FieldDescription>}
+        <FieldError id="schedule-member-error">{hasMemberError ? "멤버를 선택해주세요." : null}</FieldError>
+      </Field>
+      <Field className="gap-2">
+        <FieldLabel htmlFor="date">날짜</FieldLabel>
+        <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              id="date"
+              disabled={isBusy}
+              className={cn(
+                "h-11 w-full justify-between text-left font-normal sm:h-9",
+                !date && "text-muted-foreground"
+              )}
+            >
+              {date ? date.toLocaleDateString() : "날짜 선택"}
+              <ChevronDownIcon className="h-4 w-4 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-auto overflow-hidden p-0"
+            align="start"
+          >
+            <Calendar
+              mode="single"
+              selected={date}
+              captionLayout="dropdown"
+              onSelect={(date) => {
+                if (!date) return;
+                setDate(date);
+                setIsCalendarOpen(false);
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+      </Field>
+    </div>
+  );
+  const contentFields = (
+    <>
+      <Field className="gap-2">
+        <FieldLabel>상태</FieldLabel>
+        <div
+          role="group"
+          aria-label="스케쥴 상태"
+          className="grid w-full grid-cols-3 gap-2"
+        >
+          {STATUS_OPTIONS.map((option) => (
+            <Button
+              key={option}
+              type="button"
+              disabled={isBusy}
+              variant={status === option ? "default" : "outline"}
+              aria-pressed={status === option}
+              className="h-11 justify-center sm:h-9"
+              onClick={() => handleStatusChange(option)}
+            >
+              {option}
+            </Button>
+          ))}
+        </div>
+      </Field>
+      <Field className="gap-2">
+        <FieldLabel htmlFor="schedule-title">제목</FieldLabel>
+        <Textarea
+          id="schedule-title"
+          disabled={isBusy}
+          value={title}
+          placeholder="방송 내용을 입력해주세요"
+          onChange={(e) => setTitle(e.target.value)}
+        />
+      </Field>
+      {status === "방송" && (
+        <Field className="gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <FieldLabel>시간</FieldLabel>
+            <div className="flex min-h-8 items-center gap-2">
+            <Checkbox
+              id="time-undecided"
+              disabled={isBusy}
+              checked={isTimeUndecided}
+              onCheckedChange={(checked) => {
+                const undecided = checked === true;
+                setIsTimeUndecided(undecided);
+                if (undecided) {
+                  setLastDecidedTime({ hour: startHour, minute: startMinute });
+                } else {
+                  applyTime(lastDecidedTime.hour, lastDecidedTime.minute);
+                }
+              }}
+            />
+            <label htmlFor="time-undecided" className="cursor-pointer text-sm">시간 미정</label>
+            </div>
+          </div>
+          {isTimeUndecided ? (
+            <FieldDescription className="text-xs">아직 정해지지 않았어요. 시간 없이 등록할 수 있어요.</FieldDescription>
+          ) : (
+            <div className="space-y-2">
+              <label htmlFor="schedule-time" className="sr-only">방송 시작 시간</label>
+              <Input id="schedule-time" className="h-11 sm:h-9" type="time" disabled={isBusy}
+                value={currentTimeValue}
+                onChange={(e) => {
+                  const parsed = parseTimeValue(e.target.value);
+                  if (parsed) applyTime(parsed.hour, parsed.minute);
+                }} />
+            </div>
+          )}
+          <div className="hidden sm:block">
+            <p className="text-xs font-medium text-muted-foreground">빠른 시간 선택</p>
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              {QUICK_TIME_PRESET_GROUPS.map((group) => (
+                <div key={group.label} className="space-y-2">
+                  <p className="text-xs font-semibold text-muted-foreground">{group.label}</p>
+                  <div className="grid grid-cols-4 gap-2">
+                    {group.times.map((preset) => (
+                      <Button key={preset} type="button" size="sm"
+                        className="w-full justify-center px-1"
+                        variant={!isTimeUndecided && preset === currentTimeValue ? "default" : "outline"}
+                        aria-pressed={!isTimeUndecided && preset === currentTimeValue}
+                        disabled={isBusy}
+                        onClick={() => {
+                          const parsed = parseTimeValue(preset);
+                          if (!parsed) return;
+                          setIsTimeUndecided(false);
+                          applyTime(parsed.hour, parsed.minute);
+                        }}>{preset}</Button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Field>
+      )}
+    </>
+  );
+  const errorNotice = formError && (
+    <div role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive space-y-2">
+      <p>{formError}</p>
+      <Button type="submit" variant="outline" disabled={!canSubmit}>다시 조회하고 저장</Button>
+    </div>
+  );
+  const editFooter = (
+    <DialogFooter className="sticky -bottom-4 flex-col gap-3 bg-background pt-2 sm:-bottom-5 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
+      {isEditMode && onDelete ? (
+        <Button
+          type="button"
+          variant="destructive"
+          className="h-11 sm:mr-auto sm:h-9"
+          disabled={isBusy || !canEdit}
+          onClick={handleDelete}
+        >
+          <Trash2 className="size-4" />
+          스케쥴 삭제
+        </Button>
+      ) : null}
+      <div className="flex w-full gap-2 sm:w-auto sm:justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          className="h-11 flex-1 sm:h-9 sm:flex-none"
+          disabled={isBusy}
+          onClick={() => handleDialogOpenChange(false)}
+        >
+          취소
+        </Button>
+        <Button type="submit" className="h-11 flex-[2] sm:h-9 sm:flex-none" disabled={!canSubmit}>
+          {submitLabel}
+        </Button>
+      </div>
+    </DialogFooter>
+  );
+
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
-      <DialogContent closeLabel="닫기" className="max-h-[calc(100dvh-2rem)] gap-4 overflow-y-auto p-4 sm:max-w-xl sm:p-5">
+      <DialogContent closeLabel="닫기" className={cn("overflow-y-auto", isEditMode ? "max-h-[calc(100dvh-2rem)] gap-4 p-4 sm:max-w-xl sm:p-5" : "w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] gap-3 p-3 sm:max-w-2xl sm:p-4")}>
         <DialogHeader className="text-left pr-6">
           <DialogTitle>{isEditMode ? "스케쥴 수정" : "스케쥴 추가"}</DialogTitle>
           <DialogDescription className="sr-only">{dialogDescription}</DialogDescription>
         </DialogHeader>
-        <form onSubmit={(e) => void handleSubmit(e)} aria-busy={isBusy}>
-          <FieldGroup className="gap-4">
-            {isPolicyException && <p role="status" className="text-sm text-muted-foreground">{isAdmin
-              ? "운영 종료 이후 예외 일정으로 공개됩니다."
-              : "운영 종료 이후 일정은 관리자만 변경할 수 있습니다."}</p>}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field className="gap-2">
-                <FieldLabel htmlFor="schedule-member">멤버</FieldLabel>
-                <Select
-                  disabled={isBusy}
-                  value={memberUid.toString()}
-                  onValueChange={(value) => setMemberUid(Number(value))}
-                >
-                  <SelectTrigger className="w-full min-w-0 data-[size=default]:h-11 sm:data-[size=default]:h-9" id="schedule-member" aria-required="true" aria-invalid={hasMemberError} aria-describedby={hasMemberError ? "schedule-member-error" : memberUid === "" ? "schedule-member-hint" : undefined}>
-                    <SelectValue placeholder="멤버 선택" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {availableMembers.map((member) => (
-                        <SelectItem
-                          key={member.uid}
-                          value={member.uid.toString()}
-                        >
-                          {member.oshi_mark && <span aria-hidden="true">{member.oshi_mark} </span>}{member.name}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                {memberUid === "" && <FieldDescription className="text-xs" id="schedule-member-hint">멤버를 선택하면 스케쥴을 추가할 수 있어요.</FieldDescription>}
-                <FieldError id="schedule-member-error">{hasMemberError ? "멤버를 선택해주세요." : null}</FieldError>
-              </Field>
-              <Field className="gap-2">
-                <FieldLabel htmlFor="date">날짜</FieldLabel>
-                <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      id="date"
-                      disabled={isBusy}
-                      className={cn(
-                        "h-11 w-full justify-between text-left font-normal sm:h-9",
-                        !date && "text-muted-foreground"
-                      )}
-                    >
-                      {date ? date.toLocaleDateString() : "날짜 선택"}
-                      <ChevronDownIcon className="h-4 w-4 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    className="w-auto overflow-hidden p-0"
-                    align="start"
-                  >
-                    <Calendar
-                      mode="single"
-                      selected={date}
-                      captionLayout="dropdown"
-                      onSelect={(date) => {
-                        if (!date) return;
-                        setDate(date);
-                        setIsCalendarOpen(false);
-                      }}
-                    />
-                  </PopoverContent>
-                </Popover>
-              </Field>
-            </div>
-            <Field className="gap-2">
-              <FieldLabel>상태</FieldLabel>
-              <div
-                role="group"
-                aria-label="스케쥴 상태"
-                className="grid w-full grid-cols-3 gap-2"
-              >
-                {STATUS_OPTIONS.map((option) => (
-                  <Button
-                    key={option}
-                    type="button"
-                    disabled={isBusy}
-                    variant={status === option ? "default" : "outline"}
-                    aria-pressed={status === option}
-                    className="h-11 justify-center sm:h-9"
-                    onClick={() => handleStatusChange(option)}
-                  >
-                    {option}
-                  </Button>
-                ))}
-              </div>
-            </Field>
-            <Field className="gap-2">
-              <FieldLabel htmlFor="schedule-title">제목</FieldLabel>
-              <Textarea
-                id="schedule-title"
-                disabled={isBusy}
-                value={title}
-                placeholder="방송 내용을 입력해주세요"
-                onChange={(e) => setTitle(e.target.value)}
-              />
-            </Field>
-            {status === "방송" && (
-              <Field className="gap-2">
-                <div className="flex items-center justify-between gap-3">
-                  <FieldLabel>시간</FieldLabel>
-                  <div className="flex min-h-8 items-center gap-2">
-                  <Checkbox
-                    id="time-undecided"
-                    disabled={isBusy}
-                    checked={isTimeUndecided}
-                    onCheckedChange={(checked) => {
-                      const undecided = checked === true;
-                      setIsTimeUndecided(undecided);
-                      if (undecided) {
-                        setLastDecidedTime({ hour: startHour, minute: startMinute });
-                      } else {
-                        applyTime(lastDecidedTime.hour, lastDecidedTime.minute);
-                      }
-                    }}
-                  />
-                  <label htmlFor="time-undecided" className="cursor-pointer text-sm">시간 미정</label>
-                  </div>
-                </div>
-                {isTimeUndecided ? (
-                  <FieldDescription className="text-xs">아직 정해지지 않았어요. 시간 없이 등록할 수 있어요.</FieldDescription>
-                ) : (
-                  <div className="space-y-2">
-                    <label htmlFor="schedule-time" className="sr-only">방송 시작 시간</label>
-                    <Input id="schedule-time" className="h-11 sm:h-9" type="time" disabled={isBusy}
-                      value={currentTimeValue}
-                      onChange={(e) => {
-                        const parsed = parseTimeValue(e.target.value);
-                        if (parsed) applyTime(parsed.hour, parsed.minute);
-                      }} />
-                  </div>
-                )}
-                <div className="hidden sm:block">
-                  <p className="text-xs font-medium text-muted-foreground">빠른 시간 선택</p>
-                  <div className="mt-2 grid grid-cols-2 gap-3">
-                    {QUICK_TIME_PRESET_GROUPS.map((group) => (
-                      <div key={group.label} className="space-y-2">
-                        <p className="text-xs font-semibold text-muted-foreground">{group.label}</p>
-                        <div className="grid grid-cols-4 gap-2">
-                          {group.times.map((preset) => (
-                            <Button key={preset} type="button" size="sm"
-                              className="w-full justify-center px-1"
-                              variant={!isTimeUndecided && preset === currentTimeValue ? "default" : "outline"}
-                              aria-pressed={!isTimeUndecided && preset === currentTimeValue}
-                              disabled={isBusy}
-                              onClick={() => {
-                                const parsed = parseTimeValue(preset);
-                                if (!parsed) return;
-                                setIsTimeUndecided(false);
-                                applyTime(parsed.hour, parsed.minute);
-                              }}>{preset}</Button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </Field>
-            )}
-            {formError && (
-              <div role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive space-y-2">
-                <p>{formError}</p>
-                <Button type="submit" variant="outline" disabled={!canSubmit}>다시 조회하고 저장</Button>
-              </div>
-            )}
-            <DialogFooter className="sticky -bottom-4 flex-col gap-3 bg-background pt-2 sm:-bottom-5 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
-              {isEditMode && onDelete ? (
-                <Button
-                  type="button"
-                  variant="destructive"
-                  className="h-11 sm:mr-auto sm:h-9"
-                  disabled={isBusy || !canEdit}
-                  onClick={handleDelete}
-                >
-                  <Trash2 className="size-4" />
-                  스케쥴 삭제
-                </Button>
-              ) : null}
-              <div className="flex w-full gap-2 sm:w-auto sm:justify-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11 flex-1 sm:h-9 sm:flex-none"
-                  disabled={isBusy}
-                  onClick={() => handleDialogOpenChange(false)}
-                >
-                  취소
-                </Button>
-                <Button type="submit" className="h-11 flex-[2] sm:h-9 sm:flex-none" disabled={!canSubmit}>
-                  {submitLabel}
-                </Button>
-              </div>
-            </DialogFooter>
-          </FieldGroup>
+        {policyNotice}
+        <form onSubmit={handleFormSubmit} aria-busy={isBusy}>
+          {isEditMode ? <FieldGroup className="gap-4">{basicFields}{contentFields}{errorNotice}{editFooter}</FieldGroup> :
+            <Stepper currentStep={step} onStepChange={changeStep} onFinalStepCompleted={() => void handleSubmit()}
+              stepNavigationLabel="스케쥴 추가 단계" stepLabels={["기본 정보", "일정 내용", "저장 확인"]}
+              allowStepClick={next => next <= step} disableStepIndicators={isBusy}
+              backButtonText="이전" nextButtonText={step === 1 ? "일정 내용 입력" : "저장 내용 확인"}
+              completeButtonText={submitLabel} backButtonProps={{ disabled: isBusy }} nextButtonProps={{ disabled: !canSubmit }}
+              footerClassName="sticky -bottom-3 z-10 -mx-3 -mb-3 border-t border-border bg-background px-3 pb-3 sm:-bottom-4 sm:-mx-4 sm:-mb-4 sm:px-4 sm:pb-4"
+              footerContent={errorNotice ? <div className="mb-3">{errorNotice}</div> : undefined}
+            >
+              <Step>
+                <h3 ref={stepHeading} tabIndex={-1} className="mb-3 text-base font-semibold outline-none">기본 정보</h3>
+                {basicFields}
+              </Step>
+              <Step>
+                <h3 ref={stepHeading} tabIndex={-1} className="mb-3 text-base font-semibold outline-none">일정 내용</h3>
+                <FieldGroup className="gap-4">{contentFields}</FieldGroup>
+              </Step>
+              <Step>
+                <h3 ref={stepHeading} tabIndex={-1} className="mb-3 text-base font-semibold outline-none">저장 확인</h3>
+                <section aria-label="저장할 일정" className="rounded-lg border border-border p-3">
+                  <dl className="grid gap-4 sm:grid-cols-2">
+                    <div><dt className="text-xs text-muted-foreground">멤버</dt><dd className="mt-1 text-sm font-medium">{selectedMember?.name ?? ("UID " + memberUid)}</dd></div>
+                    <div><dt className="text-xs text-muted-foreground">날짜</dt><dd className="mt-1 text-sm font-medium">{format(date, "yyyy-MM-dd")}</dd></div>
+                    <div><dt className="text-xs text-muted-foreground">상태</dt><dd className="mt-1 text-sm font-medium">{status}</dd></div>
+                    {status === "방송" && <div><dt className="text-xs text-muted-foreground">시간</dt><dd className="mt-1 text-sm font-medium">{isTimeUndecided ? "시간 미정" : currentTimeValue}</dd></div>}
+                    <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">제목</dt><dd className="mt-1 whitespace-pre-wrap break-words text-sm">{title.trim() ? title : "제목 없음"}</dd></div>
+                  </dl>
+                </section>
+              </Step>
+            </Stepper>}
         </form>
       </DialogContent>
 

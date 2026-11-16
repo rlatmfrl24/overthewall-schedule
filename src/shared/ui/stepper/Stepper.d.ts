@@ -20,6 +20,7 @@ export interface StepperProps extends Omit<HTMLAttributes<HTMLDivElement>, 'chil
   completeButtonText?: ReactNode;
   footerContent?: ReactNode;
   stepLabels?: readonly string[];
+  stepNavigationLabel?: string;
   allowStepClick?: (step: number) => boolean;
   disableStepIndicators?: boolean;
   renderStepIndicator?: (props: { step: number; currentStep: number; onStepClick: (step: number) => void }) => ReactNode;

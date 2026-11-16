@@ -24,6 +24,7 @@ export default function Stepper({
   nextButtonText = 'Continue',
   completeButtonText = 'Complete',
   stepLabels = [],
+  stepNavigationLabel = '제안 단계',
   allowStepClick = () => true,
   className = '',
   footerContent,
@@ -79,7 +80,7 @@ export default function Stepper({
       <div
         className={`step-circle-container ${stepCircleContainerClassName}`}
       >
-        <nav aria-label="제안 단계" className={`step-indicator-row ${stepContainerClassName}`}>
+        <nav aria-label={stepNavigationLabel} className={`step-indicator-row ${stepContainerClassName}`}>
           {stepsArray.map((_, index) => {
             const stepNumber = index + 1;
             const isNotLastStep = index < totalSteps - 1;
