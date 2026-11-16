@@ -27,6 +27,13 @@ it("requires_explicit_existing_target_or_new_schedule_choice", () => {
   expect(buildImageGroups([row({choice:"edit:10"})],map)[0].changes[0].id).toBe(10);
   expect(buildImageGroups([row({choice:"add"})],map)[0].changes[0].id).toBeNull();
 });
+it.each([null,"keep"] as const)("does not let an excluded keep row suppress an explicit addition (choice=%s)",choice=>{
+  const existing={...context,schedules:[{id:10,member_uid:1,date:"2026-11-12",start_time:"20:00",status:"방송" as const,title:"기존 방송",created_at:null}]};
+  const map=new Map([["1:2026-11-12",existing]]);
+  const rows=[row({choice,title:"새 방송"}),row({clientId:"2",choice:"add",title:"새 방송"})];
+  expect(inspectImageRows(rows,map).duplicates.has("2")).toBe(false);
+  expect(buildImageGroups(rows,map)[0]?.changes).toMatchObject([{clientId:"2",id:null,title:"새 방송"}]);
+});
 it("allows_excluding_unresolved_rows_without_resolving_them and explicit_undecided_time_keeps_broadcast_status", () => {
   const groups=buildImageGroups([row({startTime:null,timeState:"undecided"}),row({clientId:"2",memberUid:null,selected:false})],contexts);
   expect(groups[0].changes).toMatchObject([{status:"방송",startTime:null}]);

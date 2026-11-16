@@ -341,6 +341,17 @@ it("returns after saving selected rows without submitting excluded rows on the s
   expect(mocks.apply).toHaveBeenCalledOnce();
   expect(mocks.apply.mock.calls[0][0].changes.map((change:{clientId:string})=>change.clientId)).toEqual(["1"]);
 });
+it("applies an explicit new event when an identical earlier row keeps the existing schedule",async()=>{
+  mocks.read.mockResolvedValue({...draft,rows:[draft.rows[0],{...draft.rows[0],clientId:"2"}]});
+  mocks.context.mockResolvedValue({expected:"existing",schedules:[{id:10,member_uid:1,date:"2026-11-12",start_time:"20:00",status:"방송",title:"기존 방송",created_at:null}]});
+  const view=mount();await read();await screen.findByLabelText("기존 일정 처리 2");
+  await chooseOption("기존 일정 처리 2","새 일정으로 추가");
+  expect(screen.getByLabelText("적용 선택 2").hasAttribute("disabled")).toBe(false);
+  fireEvent.click(screen.getByRole("button",{name:"선택 일정 적용"}));
+  await waitFor(()=>expect(view.onOpenChange).toHaveBeenCalledWith(false));
+  expect(mocks.apply).toHaveBeenCalledOnce();
+  expect(mocks.apply.mock.calls[0][0].changes).toMatchObject([{clientId:"2",id:null,title:"원문 제목"}]);
+});
 it("does not move any row in an unknown save group when changing the week",async()=>{
   mocks.read.mockResolvedValue({...draft,rows:[draft.rows[0],{...draft.rows[0],clientId:"2",title:"제외한 행",startTime:"22:00"},{...draft.rows[0],clientId:"3",date:"2026-11-13",weekday:5}]});
   mocks.apply.mockRejectedValueOnce(new Error("response lost"));

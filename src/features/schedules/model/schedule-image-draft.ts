@@ -16,9 +16,11 @@ export function inspectImageRows(rows:EditableImageRow[],contexts:Map<string,Sch
   for (const row of rows) {
     if (!complete(row)) {unresolved.add(row.clientId);continue;}
     const key=JSON.stringify([row.memberUid,row.date,row.status,row.startTime,row.title??""]);
-    const existing=contexts.get(imageGroupKey(row))?.schedules.some(s=>!changedTargets.has(`${imageGroupKey(row)}:${s.id}`) && s.status===row.status && s.start_time===row.startTime && (s.title??"")===(row.title??""));
+    const context=contexts.get(imageGroupKey(row));
+    const choice=row.choice ?? (context?.schedules.length?"keep":"add");
+    const existing=context?.schedules.some(s=>!changedTargets.has(`${imageGroupKey(row)}:${s.id}`) && s.status===row.status && s.start_time===row.startTime && (s.title??"")===(row.title??""));
     if(existing || seen.has(key)) duplicates.add(row.clientId);
-    if(row.selected)seen.add(key);
+    if(row.selected && choice!=="keep")seen.add(key);
   }
   return {duplicates,unresolved};
 }
