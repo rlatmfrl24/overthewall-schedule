@@ -43,7 +43,7 @@ const renderDialog = (
     schedule?: ScheduleItem | null;
     onDelete?: (id: number) => void | Promise<void>;
     onSubmit?: () => Promise<void>;
-    startStep?: 1 | 2;
+    startStep?: 1 | 2 | 3;
   } = {},
 ) => {
   const onSubmit = vi.fn(options.onSubmit);
@@ -65,45 +65,77 @@ const renderDialog = (
 
   if (!options.schedule && options.startStep !== 1) {
     fireEvent.click(screen.getByRole("button", { name: "일정 내용 입력" }));
+    if(options.startStep===3)fireEvent.click(screen.getByRole("button",{name:"방송 시간 입력"}));
   }
   return { onSubmit, onDelete, onOpenChange };
 };
 
 const saveNewSchedule = async () => {
+  const timeStep=screen.queryByRole("button",{name:"방송 시간 입력"});
+  if(timeStep)fireEvent.click(timeStep);
   const review=screen.queryByRole("button",{name:"저장 내용 확인"});
   if(review)fireEvent.click(review);
   fireEvent.click(await screen.findByRole("button",{name:"스케쥴 추가"}));
 };
 
 describe("ScheduleDialog", () => {
-  it("직접 추가를 세 화면으로 나누고 최종 확인 전에는 조회하거나 저장하지 않는다", async () => {
+  it("직접 추가를 네 화면으로 나누고 최종 확인 전에는 조회하거나 저장하지 않는다", async () => {
     const {onSubmit}=renderDialog({startStep:1});
     expect(screen.getByRole("navigation",{name:"스케쥴 추가 단계"})).toBeTruthy();
     expect(screen.getByRole("button",{name:"1. 기본 정보"}).getAttribute("aria-current")).toBe("step");
+    expect(screen.getByRole("button",{name:"4. 저장 확인"})).toBeTruthy();
+    expect(screen.queryByRole("heading",{name:"기본 정보"})).toBeNull();
+    expect(screen.queryByText("멤버를 선택하면 스케쥴을 추가할 수 있어요.")).toBeNull();
     expect(screen.queryByRole("textbox",{name:"제목"})).toBeNull();
     fireEvent.click(screen.getByRole("button",{name:"일정 내용 입력"}));
     fireEvent.change(await screen.findByLabelText("제목"),{target:{value:"단계 왕복 초안"}});
+    expect(screen.queryByRole("checkbox",{name:"시간 미정"})).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"방송 시간 입력"}));
+    expect(screen.queryByRole("textbox",{name:"제목"})).toBeNull();
     fireEvent.click(screen.getByRole("button",{name:"22:00"}));
     fireEvent.click(screen.getByRole("button",{name:"저장 내용 확인"}));
     const summary=await screen.findByRole("region",{name:"저장할 일정"});
+    await waitFor(()=>expect(document.activeElement).toBe(screen.getByRole("group",{name:"저장 확인"})));
     expect(within(summary).getByText("단계 왕복 초안")).toBeTruthy();
     expect(within(summary).getByText("22:00")).toBeTruthy();
+    const card=within(summary).getByRole("article",{name:"일정 미리보기"});
+    expect(within(card).getByText("단계 왕복 초안")).toBeTruthy();
+    expect(within(card).getByText("22:00")).toBeTruthy();
+    expect(within(card).queryByText(member.name)).toBeNull();
     expect(fetchSchedulesMock).not.toHaveBeenCalled();expect(onSubmit).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button",{name:"2. 일정 내용"}));
     expect((await screen.findByRole("textbox",{name:"제목"}) as HTMLTextAreaElement).value).toBe("단계 왕복 초안");
+    fireEvent.click(screen.getByRole("button",{name:"방송 시간 입력"}));
     expect((screen.getByLabelText("방송 시작 시간") as HTMLInputElement).value).toBe("22:00");
     fireEvent.click(screen.getByRole("button",{name:"1. 기본 정보"}));
     expect(await screen.findByRole("combobox",{name:/멤버/})).toBeTruthy();
     fireEvent.click(screen.getByRole("button",{name:"일정 내용 입력"}));
-    fireEvent.click(screen.getByRole("button",{name:"저장 내용 확인"}));
     await saveNewSchedule();
     await waitFor(()=>expect(onSubmit).toHaveBeenCalledOnce());
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({title:"단계 왕복 초안",start_time:"22:00",member_uid:member.uid}));
+  });
+  it.each(["휴방","게릴라"])("%s도 시간 단계를 유지하고 해당 없음을 표시한다",async status=>{
+    const {onSubmit}=renderDialog();
+    fireEvent.click(screen.getByRole("button",{name:status}));
+    fireEvent.click(screen.getByRole("button",{name:"방송 시간 입력"}));
+    expect(screen.getByRole("button",{name:"3. 방송 시간"}).getAttribute("aria-current")).toBe("step");
+    expect(screen.getByText("해당 없음")).toBeTruthy();
+    expect(screen.queryByRole("checkbox",{name:"시간 미정"})).toBeNull();
+    expect(screen.queryByLabelText("방송 시작 시간")).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"저장 내용 확인"}));
+    expect(screen.getByRole("button",{name:"4. 저장 확인"}).getAttribute("aria-current")).toBe("step");
+    expect(onSubmit).not.toHaveBeenCalled();expect(fetchSchedulesMock).not.toHaveBeenCalled();
   });
   it("기본 정보에서 Enter를 눌러도 최종 저장을 실행하지 않는다",()=>{
     const {onSubmit}=renderDialog({startStep:1});
     fireEvent.submit(screen.getByRole("combobox",{name:/멤버/}).closest("form")!);
     expect(screen.getByRole("button",{name:"2. 일정 내용"}).getAttribute("aria-current")).toBe("step");
+    expect(onSubmit).not.toHaveBeenCalled();expect(fetchSchedulesMock).not.toHaveBeenCalled();
+  });
+  it("시간 입력에서 Enter를 눌러도 확인 화면으로만 이동한다",()=>{
+    const {onSubmit}=renderDialog({startStep:3});
+    fireEvent.submit(screen.getByRole("checkbox",{name:"시간 미정"}).closest("form")!);
+    expect(screen.getByRole("button",{name:"4. 저장 확인"}).getAttribute("aria-current")).toBe("step");
     expect(onSubmit).not.toHaveBeenCalled();expect(fetchSchedulesMock).not.toHaveBeenCalled();
   });
   it("멤버가 없으면 기본 정보 단계에서 Enter 진행과 저장을 차단한다",()=>{
@@ -160,7 +192,7 @@ describe("ScheduleDialog", () => {
   });
 
   it("신규 스케쥴은 시간 미정으로 시작하고 시간 없이 저장한다", async () => {
-    const { onSubmit } = renderDialog();
+    const { onSubmit } = renderDialog({startStep:3});
 
     const timeUndecided = await screen.findByRole("checkbox", {
       name: "시간 미정",
@@ -194,7 +226,7 @@ describe("ScheduleDialog", () => {
   });
 
   it("빠른 시간 선택지를 낮/저녁 시간대에 맞게 표시한다", () => {
-    renderDialog();
+    renderDialog({startStep:3});
 
     const dayGroup = screen.getByText("낮 시간대").closest("div");
     const eveningGroup = screen.getByText("저녁 시간대").closest("div");
@@ -207,7 +239,7 @@ describe("ScheduleDialog", () => {
   });
 
   it("빠른 시간 선택 시 시간 미정을 해제하고 선택한 시간으로 저장한다", async () => {
-    const { onSubmit } = renderDialog();
+    const { onSubmit } = renderDialog({startStep:3});
 
     fireEvent.click(screen.getByRole("button", { name: "22:00" }));
 
@@ -231,14 +263,18 @@ describe("ScheduleDialog", () => {
   it.each(["휴방", "게릴라"])("방송 초안을 %s 왕복 후에도 복원한다", async (status) => {
     const { onSubmit } = renderDialog();
     fireEvent.change(screen.getByLabelText(/제목/), { target: { value: "보존할 방송" } });
+    fireEvent.click(screen.getByRole("button",{name:"방송 시간 입력"}));
     fireEvent.click(screen.getByRole("checkbox", { name: "시간 미정" }));
     fireEvent.change(screen.getByLabelText("방송 시작 시간"), { target: { value: "19:30" } });
+    fireEvent.click(screen.getByRole("button",{name:"2. 일정 내용"}));
     fireEvent.click(screen.getByRole("button", { name: status }));
     fireEvent.change(screen.getByLabelText(/제목/), { target: { value: "별도 상태 초안" } });
     fireEvent.click(screen.getByRole("button", { name: "방송" }));
     expect(screen.getByDisplayValue("보존할 방송")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button",{name:"방송 시간 입력"}));
     expect(screen.getByDisplayValue("19:30")).toBeTruthy();
     expect(screen.getByRole("checkbox", { name: "시간 미정" }).getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(screen.getByRole("button",{name:"2. 일정 내용"}));
     fireEvent.click(screen.getByRole("button", { name: status }));
     expect(screen.getByDisplayValue("별도 상태 초안")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "방송" }));

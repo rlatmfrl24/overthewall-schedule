@@ -7,6 +7,8 @@ import { motion, AnimatePresence, MotionConfig, useIsPresent } from 'motion/reac
 import './Stepper.css';
 import { useAnimations } from '../animation-provider';
 
+const stepEase = [0.23, 1, 0.32, 1];
+
 export default function Stepper({
   children,
   initialStep = 1,
@@ -151,13 +153,14 @@ export default function Stepper({
 function StepContentWrapper({ isCompleted, currentStep, direction, children, className, reducedMotion }) {
   const [parentHeight, setParentHeight] = useState(0);
 
+  // Focus must not horizontally scroll the viewport while a step slides in.
   return (
     <motion.div
       className={className}
       initial={false}
-      style={{ position: 'relative', overflow: 'hidden' }}
+      style={{ position: 'relative', overflow: 'clip' }}
       animate={{ height: isCompleted ? 0 : parentHeight }}
-      transition={reducedMotion ? { duration: 0 } : { type: 'spring', duration: 0.4 }}
+      transition={{ type: 'tween', duration: reducedMotion ? 0 : 0.24, ease: stepEase }}
     >
       <AnimatePresence initial={false} mode="sync" custom={direction}>
         {!isCompleted && (
@@ -194,7 +197,7 @@ function SlideTransition({ children, direction, onHeightReady, reducedMotion }) 
       initial="enter"
       animate="center"
       exit="exit"
-      transition={{ duration: reducedMotion ? 0 : 0.4 }}
+      transition={{ type: 'tween', duration: reducedMotion ? 0 : 0.24, ease: stepEase }}
       style={{ position: 'absolute', left: 0, right: 0, top: 0 }}
     >
       {children}
@@ -204,7 +207,7 @@ function SlideTransition({ children, direction, onHeightReady, reducedMotion }) 
 
 const stepVariants = {
   enter: dir => ({
-    x: dir >= 0 ? '-100%' : '100%',
+    x: dir >= 0 ? '100%' : '-100%',
     opacity: 0
   }),
   center: {
@@ -212,7 +215,7 @@ const stepVariants = {
     opacity: 1
   },
   exit: dir => ({
-    x: dir >= 0 ? '50%' : '-50%',
+    x: dir >= 0 ? '-50%' : '50%',
     opacity: 0
   })
 };
@@ -237,7 +240,7 @@ function StepIndicator({ step, currentStep, onClickStep, disableStepIndicators, 
           active: { scale: 1.08 },
           complete: { scale: 1 }
         }}
-        transition={{ duration: enabled ? 0.3 : 0 }}
+        transition={{ type: 'tween', duration: enabled ? 0.2 : 0, ease: stepEase }}
         className="step-indicator-inner"
       >
         {status === 'complete' ? (
@@ -267,7 +270,7 @@ function StepConnector({ isComplete }) {
         variants={lineVariants}
         initial={false}
         animate={isComplete ? 'complete' : 'incomplete'}
-        transition={{ duration: enabled ? 0.4 : 0 }}
+        transition={{ type: 'tween', duration: enabled ? 0.2 : 0, ease: stepEase }}
       />
     </div>
   );
@@ -280,7 +283,7 @@ function CheckIcon(props) {
       <motion.path
         initial={{ pathLength: 0 }}
         animate={{ pathLength: 1 }}
-        transition={{ delay: enabled ? 0.1 : 0, type: 'tween', ease: 'easeOut', duration: enabled ? 0.3 : 0 }}
+        transition={{ type: 'tween', duration: enabled ? 0.2 : 0, ease: stepEase }}
         strokeLinecap="round"
         strokeLinejoin="round"
         d="M5 13l4 4L19 7"

@@ -25,15 +25,15 @@ describe('React Bits Stepper', () => {
     expect(screen.getByRole('navigation', { name: '스케쥴 추가 단계' })).toBeTruthy();
     expect(container.querySelector('.react-bits-stepper')?.getAttribute('data-reduced-motion')).toBe('true');
   });
-  it('plays the original slide when explicitly enabled despite the OS preference, including external backward navigation', async () => {
+  it('enters from the right when moving forward and from the left when moving backward', async () => {
     const { rerender } = render(<Stepper currentStep={1} reducedMotion="never">{contents}</Stepper>);
     rerender(<Stepper currentStep={3} reducedMotion="never">{contents}</Stepper>);
     const incoming = screen.getByText('Singer content').parentElement!;
-    expect(incoming.style.transform).toBe('translateX(-100%)');
+    expect(incoming.style.transform).toBe('translateX(100%)');
     await waitFor(() => expect(incoming.style.opacity).toBe('1'));
     rerender(<Stepper currentStep={2} reducedMotion="never">{contents}</Stepper>);
     const returning = screen.getByText('Song content').parentElement!;
-    expect(returning.style.transform).toBe('translateX(100%)');
+    expect(returning.style.transform).toBe('translateX(-100%)');
     await waitFor(() => expect(returning.style.opacity).toBe('1'));
   });
 

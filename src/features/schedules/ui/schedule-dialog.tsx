@@ -48,6 +48,7 @@ import { Calendar } from "@/shared/ui/calendar";
 import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
 import Stepper, { Step } from "@/shared/ui/stepper/Stepper";
+import { SchedulePreviewCard } from "./schedule-preview-card";
 import {getContentWriteMessage} from "@/shared/api/client";
 
 type ScheduleSubmitData = {
@@ -124,7 +125,7 @@ export const ScheduleDialog = ({
   const isOpen = controlledOpen ?? internalOpen;
   const setIsOpen = setControlledOpen ?? setInternalOpen;
   const [step, setStep] = useState(1);
-  const stepHeading = useRef<HTMLHeadingElement>(null);
+  const stepContent = useRef<HTMLDivElement>(null);
 
   const [memberUid, setMemberUid] = useState<number | "">("");
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
@@ -278,8 +279,8 @@ export const ScheduleDialog = ({
 
   useEffect(() => {
     if (isOpen && !isEditMode) {
-      stepHeading.current?.focus();
-      stepHeading.current?.scrollIntoView?.({ block: "nearest" });
+      stepContent.current?.focus();
+      stepContent.current?.scrollIntoView?.({ block: "nearest" });
     }
   }, [step, isOpen, isEditMode]);
 
@@ -409,7 +410,7 @@ export const ScheduleDialog = ({
   };
   const handleFormSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!isEditMode && step < 3) changeStep(step + 1);
+    if (!isEditMode && step < 4) changeStep(step + 1);
     else void handleSubmit();
   };
 
@@ -443,7 +444,7 @@ export const ScheduleDialog = ({
           value={memberUid.toString()}
           onValueChange={(value) => setMemberUid(Number(value))}
         >
-          <SelectTrigger className="w-full min-w-0 data-[size=default]:h-11 sm:data-[size=default]:h-9" id="schedule-member" aria-required="true" aria-invalid={hasMemberError} aria-describedby={hasMemberError ? "schedule-member-error" : memberUid === "" ? "schedule-member-hint" : undefined}>
+          <SelectTrigger className="w-full min-w-0 data-[size=default]:h-11 sm:data-[size=default]:h-9" id="schedule-member" aria-required="true" aria-invalid={hasMemberError} aria-describedby={hasMemberError ? "schedule-member-error" : undefined}>
             <SelectValue placeholder="멤버 선택" />
           </SelectTrigger>
           <SelectContent>
@@ -459,7 +460,6 @@ export const ScheduleDialog = ({
             </SelectGroup>
           </SelectContent>
         </Select>
-        {memberUid === "" && <FieldDescription className="text-xs" id="schedule-member-hint">멤버를 선택하면 스케쥴을 추가할 수 있어요.</FieldDescription>}
         <FieldError id="schedule-member-error">{hasMemberError ? "멤버를 선택해주세요." : null}</FieldError>
       </Field>
       <Field className="gap-2">
@@ -532,7 +532,9 @@ export const ScheduleDialog = ({
           onChange={(e) => setTitle(e.target.value)}
         />
       </Field>
-      {status === "방송" && (
+    </>
+  );
+  const timeFields = status === "방송" ? (
         <Field className="gap-2">
           <div className="flex items-center justify-between gap-3">
             <FieldLabel>시간</FieldLabel>
@@ -593,9 +595,7 @@ export const ScheduleDialog = ({
             </div>
           </div>
         </Field>
-      )}
-    </>
-  );
+  ) : !isEditMode ? <Field className="gap-2"><FieldLabel>방송 시간</FieldLabel><p className="rounded-md border border-border bg-muted/40 px-3 py-3 text-sm text-muted-foreground">해당 없음</p></Field> : null;
   const errorNotice = formError && (
     <div role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive space-y-2">
       <p>{formError}</p>
@@ -642,34 +642,34 @@ export const ScheduleDialog = ({
         </DialogHeader>
         {policyNotice}
         <form onSubmit={handleFormSubmit} aria-busy={isBusy}>
-          {isEditMode ? <FieldGroup className="gap-4">{basicFields}{contentFields}{errorNotice}{editFooter}</FieldGroup> :
+          {isEditMode ? <FieldGroup className="gap-4">{basicFields}{contentFields}{timeFields}{errorNotice}{editFooter}</FieldGroup> :
             <Stepper currentStep={step} onStepChange={changeStep} onFinalStepCompleted={() => void handleSubmit()}
-              stepNavigationLabel="스케쥴 추가 단계" stepLabels={["기본 정보", "일정 내용", "저장 확인"]}
+              stepNavigationLabel="스케쥴 추가 단계" stepLabels={["기본 정보", "일정 내용", "방송 시간", "저장 확인"]}
               allowStepClick={next => next <= step} disableStepIndicators={isBusy}
-              backButtonText="이전" nextButtonText={step === 1 ? "일정 내용 입력" : "저장 내용 확인"}
+              backButtonText="이전" nextButtonText={step === 1 ? "일정 내용 입력" : step === 2 ? "방송 시간 입력" : "저장 내용 확인"}
               completeButtonText={submitLabel} backButtonProps={{ disabled: isBusy }} nextButtonProps={{ disabled: !canSubmit }}
               footerClassName="sticky -bottom-3 z-10 -mx-3 -mb-3 border-t border-border bg-background px-3 pb-3 sm:-bottom-4 sm:-mx-4 sm:-mb-4 sm:px-4 sm:pb-4"
               footerContent={errorNotice ? <div className="mb-3">{errorNotice}</div> : undefined}
             >
               <Step>
-                <h3 ref={stepHeading} tabIndex={-1} className="mb-3 text-base font-semibold outline-none">기본 정보</h3>
-                {basicFields}
+                <div ref={stepContent} tabIndex={-1} role="group" aria-label="기본 정보" className="pb-6 outline-none">{basicFields}</div>
               </Step>
               <Step>
-                <h3 ref={stepHeading} tabIndex={-1} className="mb-3 text-base font-semibold outline-none">일정 내용</h3>
-                <FieldGroup className="gap-4">{contentFields}</FieldGroup>
+                <div ref={stepContent} tabIndex={-1} role="group" aria-label="일정 내용" className="pb-6 outline-none"><FieldGroup className="gap-4">{contentFields}</FieldGroup></div>
               </Step>
               <Step>
-                <h3 ref={stepHeading} tabIndex={-1} className="mb-3 text-base font-semibold outline-none">저장 확인</h3>
-                <section aria-label="저장할 일정" className="rounded-lg border border-border p-3">
-                  <dl className="grid gap-4 sm:grid-cols-2">
+                <div ref={stepContent} tabIndex={-1} role="group" aria-label="방송 시간" className="pb-6 outline-none">{timeFields}</div>
+              </Step>
+              <Step>
+                <div ref={stepContent} tabIndex={-1} role="group" aria-label="저장 확인" className="pb-6 outline-none">
+                <section aria-label="저장할 일정" className="space-y-4">
+                  <dl className="grid grid-cols-2 gap-4">
                     <div><dt className="text-xs text-muted-foreground">멤버</dt><dd className="mt-1 text-sm font-medium">{selectedMember?.name ?? ("UID " + memberUid)}</dd></div>
                     <div><dt className="text-xs text-muted-foreground">날짜</dt><dd className="mt-1 text-sm font-medium">{format(date, "yyyy-MM-dd")}</dd></div>
-                    <div><dt className="text-xs text-muted-foreground">상태</dt><dd className="mt-1 text-sm font-medium">{status}</dd></div>
-                    {status === "방송" && <div><dt className="text-xs text-muted-foreground">시간</dt><dd className="mt-1 text-sm font-medium">{isTimeUndecided ? "시간 미정" : currentTimeValue}</dd></div>}
-                    <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">제목</dt><dd className="mt-1 whitespace-pre-wrap break-words text-sm">{title.trim() ? title : "제목 없음"}</dd></div>
                   </dl>
+                  <SchedulePreviewCard status={status} title={title} startTime={isTimeUndecided ? null : currentTimeValue} mainColor={selectedMember?.main_color} />
                 </section>
+                </div>
               </Step>
             </Stepper>}
         </form>

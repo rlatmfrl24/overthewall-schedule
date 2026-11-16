@@ -20,6 +20,7 @@ import type { ScheduleImageFocus } from "../api/schedule-image-details";
 import { buildImageGroups, confirmImageWeek, imageGroupKey, inspectImageRows, mapImageMember, type EditableImageRow } from "../model/schedule-image-draft";
 import { applyScheduleImageDraft, confirmScheduleImageResult, type ImageApplyState } from "../use-cases/apply-schedule-image-draft";
 import { ScheduleImageEditorRow } from "./schedule-image-editor-row";
+import { SchedulePreviewCard } from "./schedule-preview-card";
 
 const errorText = (error:unknown) => error instanceof Error?error.message:"처리하지 못했습니다. 다시 확인해주세요.";
 const keyOf = (r:{memberUid:number|null;date:string|null}) => imageGroupKey(r);
@@ -38,12 +39,12 @@ export function ScheduleImageImportDialog({members,initialDate,onOpenChange,isAd
   const controller=useRef<AbortController|null>(null),saving=useRef(false);
   const draftRevision=useRef(0),submittedRevision=useRef<number|null>(null);
   const fileInput=useRef<HTMLInputElement>(null);
-  const stepHeading=useRef<HTMLHeadingElement>(null);
+  const stepContent=useRef<HTMLElement>(null);
   const doneIds=new Set(records.filter(s=>s.state==="applied").flatMap(s=>s.request.changes.map(c=>c.clientId)));
   const canDiscard=useUnsavedChanges(rows.some(r=>r.selected && !doneIds.has(r.clientId)));
   useEffect(()=>()=>{controller.current?.abort();controller.current=null;},[]);
   useEffect(()=>()=>{if(source)URL.revokeObjectURL(source.url);},[source]);
-  useEffect(()=>{stepHeading.current?.focus();stepHeading.current?.scrollIntoView({block:"nearest"});},[step]);
+  useEffect(()=>{stepContent.current?.focus();stepContent.current?.scrollIntoView({block:"nearest"});},[step]);
   const requested=[...new Map(rows.filter(r=>r.memberUid!==null && r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date) && !r.needsWeekConfirmation).map(r=>[keyOf(r),{memberUid:r.memberUid!,date:r.date!}])).values()];
   const queries=useQueries({queries:requested.map(r=>({queryKey:["schedule-image-context",site.id,userId,version,r.memberUid,r.date],queryFn:()=>fetchImageContext(r.memberUid,r.date),enabled:Boolean(isSignedIn),staleTime:Infinity,gcTime:0,retry:false,refetchOnWindowFocus:false,refetchOnReconnect:false}))});
   const contexts=new Map<string,ScheduleImageContext>();requested.forEach((r,i)=>{if(queries[i].data && !queries[i].isError)contexts.set(keyOf(r),queries[i].data!);});
@@ -192,8 +193,7 @@ export function ScheduleImageImportDialog({members,initialDate,onOpenChange,isAd
       footerContent={<>{error&&<p role="alert" className="mb-3 text-sm text-destructive">{error}</p>}{refresh==="failed"&&<div className="mb-3 text-sm">저장은 완료했지만 일정표를 새로 불러오지 못했습니다. <Button variant="outline" disabled={busy||reading} onClick={()=>void retryRefresh()}>일정표 조회만 재시도</Button></div>}{step>1&&<p className="mb-3 text-xs text-muted-foreground">선택 {rows.filter(r=>r.selected&&!inspection.duplicates.has(r.clientId)&&!doneIds.has(r.clientId)).length}건 · 중복 {inspection.duplicates.size}건 · 확인 필요 {inspection.unresolved.size}건 제외</p>}</>}
     >
       <Step>
-        <h3 ref={stepHeading} tabIndex={-1} className="mb-3 text-base font-semibold outline-none">이미지 준비</h3>
-        <section role="group" aria-label="일정표 이미지 첨부" className="min-w-0 space-y-2 lg:sticky lg:top-0" onDragOver={e=>e.preventDefault()} onDrop={e=>e.preventDefault()} onPaste={e=>{const files=[...e.clipboardData.files];if(files.length && !busy){e.preventDefault();void pick(files);}}}>
+        <section ref={stepContent} tabIndex={-1} role="group" aria-label="일정표 이미지 첨부" className="min-w-0 space-y-2 pb-6 outline-none" onDragOver={e=>e.preventDefault()} onDrop={e=>e.preventDefault()} onPaste={e=>{const files=[...e.clipboardData.files];if(files.length && !busy){e.preventDefault();void pick(files);}}}>
           <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-sm font-medium">일정표 이미지</span><Button variant="outline" size="sm" disabled={busy} onClick={()=>fileInput.current?.click()}>{source?"이미지 바꾸기":"이미지 선택"}</Button></div>
           <Input ref={fileInput} className="hidden" type="file" aria-label="일정표 이미지" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={e=>{const files=[...(e.target.files??[])];if(files.length)void pick(files);e.target.value="";}}/>
           <div role="group" aria-label="이미지 드롭 영역" className="min-w-0 space-y-2 rounded-xl border-3 border-dashed border-foreground/40 bg-muted/15 p-3" onDrop={e=>{e.preventDefault();e.stopPropagation();if(!busy)void pick([...e.dataTransfer.files]);}}>
@@ -211,8 +211,7 @@ export function ScheduleImageImportDialog({members,initialDate,onOpenChange,isAd
         </section>
       </Step>
       <Step>
-        <h3 ref={stepHeading} tabIndex={-1} className="mb-3 text-base font-semibold outline-none">일정 편집</h3>
-        <div className="grid min-w-0 items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+        <section ref={stepContent} tabIndex={-1} role="group" aria-label="일정 편집" className="grid min-w-0 items-start gap-3 pb-6 outline-none lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
           {source&&<section role="group" aria-label="원본 일정표" className="min-w-0 space-y-2 lg:sticky lg:top-0"><a href={source.url} target="_blank" rel="noreferrer" aria-label="첨부 이미지 크게 보기" className="block overflow-hidden rounded-lg"><img src={source.url} alt="첨부한 일정표" className="max-h-[55dvh] w-full object-contain"/></a><p className="truncate text-xs text-muted-foreground" title={source.file.name}>{source.file.name}</p></section>}
         <div className="min-w-0 space-y-2">
           {warnings.length>0 && <details className="rounded-lg border border-border p-3 text-xs text-muted-foreground"><summary className="cursor-pointer">인식 확인 사항 {warnings.length}건</summary>{warnings.map((w,i)=><p key={i} className="mt-2">{w}</p>)}</details>}
@@ -220,16 +219,15 @@ export function ScheduleImageImportDialog({members,initialDate,onOpenChange,isAd
           {rows.length>0 && <Button variant="outline" disabled={busy||reading||rows.length>=100} onClick={addRow}>빠진 일정 추가</Button>}
           {requested.map((r,i)=>queries[i].isError?<div key={keyOf(r)} className="text-sm text-destructive">기존 일정 비교 실패: {errorText(queries[i].error)} <Button variant="outline" disabled={busy||reading} onClick={()=>void compareAgain(keyOf(r))}>다시 비교</Button></div>:null)}
         </div>
-        </div>
+        </section>
       </Step>
       <Step>
-        <h3 ref={stepHeading} tabIndex={-1} className="mb-3 text-base font-semibold outline-none">적용 확인</h3>
-        <div className="space-y-3">
+        <section ref={stepContent} tabIndex={-1} role="group" aria-label="적용 확인" className="space-y-4 pb-6 outline-none">
           {reviewGroups.map(group=>{
             const saved=records.find(record=>record.request.operationId===group.operationId);
-            return <section key={group.operationId} className="space-y-2 rounded-lg border border-border p-3">
+            return <section key={group.operationId} className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-semibold">{members.find(m=>m.uid===group.memberUid)?.name} · {group.date}</h4>{saved&&<span className="text-xs text-muted-foreground">{saved.state==="ready"?"적용 중":saved.state==="applied"?"저장됨":saved.state==="unknown"?"결과 확인 필요":"다시 확인 필요"}</span>}</div>
-              <ul className="space-y-2">{group.changes.map(change=><li key={change.clientId} className="text-sm"><p className="text-xs text-muted-foreground">{change.id===null?"새 일정":"기존 일정 수정"} · {change.status}{change.status==="방송"?` · ${change.startTime??"시간 미정"}`:""}</p><p className="whitespace-pre-wrap break-words">{change.title||change.status}</p></li>)}</ul>
+              <ul className="space-y-3">{group.changes.map(change=><li key={change.clientId} className="space-y-1.5"><p className="text-xs text-muted-foreground">{change.id===null?"새 일정":"기존 일정 수정"}</p><SchedulePreviewCard status={change.status} title={change.title} startTime={change.startTime} mainColor={members.find(m=>m.uid===group.memberUid)?.main_color}/></li>)}</ul>
               {group.confirmedDeletedIds.length>0&&<p className="text-xs text-destructive">기존 일정 {group.confirmedDeletedIds.length}건이 삭제됩니다.</p>}
             </section>;
           })}
@@ -240,7 +238,7 @@ export function ScheduleImageImportDialog({members,initialDate,onOpenChange,isAd
         {state.state==="unknown"&&<div className="mt-2 flex flex-wrap gap-2"><Button variant="outline" disabled={busy||reading} onClick={()=>void confirmResult(state)}>결과 확인</Button><Button variant="outline" disabled={busy||reading} onClick={()=>void run([state])}>같은 요청 재시도</Button></div>}
         {state.state==="review"&&<Button variant="outline" disabled={busy||reading} onClick={()=>void compareAgain(keyOf(state.request))}>기존 일정 다시 비교</Button>}
       </div>)}</div>
-        </div>
+        </section>
       </Step>
     </Stepper>
     <ConfirmActionDialog open={pending!==null} onOpenChange={open=>{if(!open)setPending(null);}} title="기존 일정 삭제 영향 확인" description={<span className="space-y-2"><span className="block">선택한 변경으로 다음 기존 일정이 삭제됩니다. 내용을 확인한 뒤 적용해주세요.</span><span className="block">{deletionRows.map((text,i)=><span className="block" key={i}>{text}</span>)}</span></span>} confirmLabel="삭제 영향을 확인하고 적용" destructive onConfirm={()=>{const groups=pending;setPending(null);if(groups)void run(groups.map(request=>({request,state:"ready"})));}}/>

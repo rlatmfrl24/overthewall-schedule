@@ -40,7 +40,7 @@ async function edit() {
   const target=continuation??screen.getByRole("button",{name:"2. 일정 편집"});
   await waitFor(()=>expect(target.hasAttribute("disabled")).toBe(false));
   fireEvent.click(target);
-  await screen.findByRole("heading",{name:"일정 편집"});
+  await screen.findByRole("group",{name:"일정 편집"});
 }
 async function review() {
   if(screen.getByRole("button",{name:"3. 적용 확인"}).getAttribute("aria-current")==="step")return;
@@ -101,7 +101,7 @@ it("separates preparation, editing, and confirmation while preserving edits on b
   expect(screen.queryByRole("button",{name:"선택 일정 적용"})).toBeNull();
   fireEvent.change(screen.getByLabelText("제목 1"),{target:{value:"단계 이동 중 보존할 제목"}});
   fireEvent.click(screen.getByRole("button",{name:"적용 내용 확인"}));
-  await screen.findByRole("heading",{name:"적용 확인"});
+  await screen.findByRole("group",{name:"적용 확인"});
   expect(within(screen.getByRole("list")).getByText("단계 이동 중 보존할 제목")).toBeTruthy();
   expect(mocks.apply).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button",{name:"2. 일정 편집"}));
@@ -259,7 +259,7 @@ it("keeps a failed group's draft after comparing again and recovering a failed r
   await waitFor(()=>expect(retry.hasAttribute("disabled")).toBe(false));
   fireEvent.click(screen.getByRole("button",{name:"기존 일정 다시 비교"}));
   await waitFor(()=>expect(screen.queryByRole("button",{name:"기존 일정 다시 비교"})).toBeNull());
-  await screen.findByRole("heading",{name:"일정 편집"});
+  await screen.findByRole("group",{name:"일정 편집"});
   await review();fireEvent.click(screen.getByRole("button",{name:"일정표 조회만 재시도"}));
   await waitFor(()=>expect(screen.queryByRole("button",{name:"일정표 조회만 재시도"})).toBeNull());
   expect(view.onOpenChange).not.toHaveBeenCalled();
