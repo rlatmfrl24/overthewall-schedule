@@ -2,13 +2,23 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
-**Goal:** 이미지 일정표를 Luna로 읽고 사용자가 편집·선택한 내용을 정상 일정 저장 경로로 반영한다. 별도 사용자 재개 지시로 코드와 로컬 검증을 진행하며 실제 모델 실측·운영 적용은 보류한다.
+**Goal:** 이미지 일정표를 Flash-Lite minimal로 읽고 사용자가 편집·선택한 내용을 정상 일정 저장 경로로 반영한다. 후속 승인으로 기본 모델 전환과 단일 이미지 실제 로컬 검증을 완료했으며 전체30장 D7·운영 적용은 미검증이다.
 
-**Architecture:** 기존 `schedules` 기능 안에 이미지 인식과 편집 초안을 둔다. Worker가 Luna를 호출하고, 검증된 초안을 프런트엔드로 반환한다. 적용은 기존 권한·사이트 정책·충돌·감사·중복 방지 경계를 보존하는 일정 저장 경로를 거친다.
+**Architecture:** 기존 `schedules` 기능 안에 이미지 인식과 편집 초안을 둔다. Worker가 Google 입력량 사전 계산과 OpenRouter→Google AI Studio 고정 경로의 Flash-Lite minimal 생성을 수행하고 검증된 초안을 반환한다. 적용은 기존 권한·사이트 정책·충돌·감사·중복 방지 경계를 보존하는 일정 저장 경로를 거친다.
 
 **Tech Stack:** Node.js 24 LTS, pnpm 11.7.0, React 19, TypeScript, TanStack Query, 기존 shared UI, Cloudflare Worker/D1, 공급자 HTTP API. 추가 SDK·OCR 서버·Queue/Cron을 전제하지 않는다.
 
 **Spec:** [2026-11-12-sul-44-schedule-image-import-design.md](../specs/2026-11-12-sul-44-schedule-image-import-design.md)
+
+**카드·적용 완료 후속 수정(2026-11-16):** 날짜·상태→제목→멤버/날짜/시간으로 카드 위계를 정리하고 모바일 한 열 입력과 하단 적용 버튼을 제공한다. 정상 저장·재조회가 끝나면 성공 로그 없이 일정표로 복귀한다. 부분 실패·결과 불명·조회 실패는 기존 복구를 유지하며 조회 재시도 중에는 새 편집을 잠근다. 실제 저장·기존 데이터 보존 근거는 [현재 작업](../../current-work.md)을 따른다.
+
+**입력 화면 후속 수정:** 첨부·미리보기 통합, 현재 사이트 멤버 후보 자동 연결, 표시 주 자동 채움과 주 일괄 변경, 방송 상태 구분과 원본 텍스트 정리를 적용했다. 아래 별도 기준 주 확인 단계는 사용자 최신 요청으로 대체된다. 검증 범위와 남은 한계는 [현재 작업](../../current-work.md)을 따른다.
+
+**2026-11-16 후속 결정:** 정식 추가 전에는 하루 인식 횟수를 제한하지 않는다. 월 예산·동시성·시간·토큰 경계는 유지하며 실제 11번째 요청은 [현재 작업](../../current-work.md)에 기록한다. 아래 하루10회는 이전 계획의 이력이다.
+
+**최신 전처리:** 후속 승인으로 원본+겹치는 확대 영역4개를 단일 Flash-Lite 요청에 보낸다. 전체/좌/우/상/하 영역 선택, 최대2배·2048px/PNG500KB, 모든 이미지 입력량 계산, 제목/부제 분리와 여러 줄 편집을 적용했다. [같은 이미지 실제 검증·정답 정정·남은 한계](../../reports/2026-11-12-sul-44-image-import-implementation.md#일정-영역-확대분할과-제목부제-분리-검증)를 따른다. 기존 비용·인증·저장 경계와 D7 기준은 유지하며 새 일정 적용이나 운영 DB 변경은 없다.
+
+**후속 승인·실행:** 사용자가 모델 비교 후 Flash-Lite minimal 기본 전환·기존 한도 유지·실제 로컬 업로드→편집→선택 적용→재조회를 승인했고 완료했다. 아래 Luna/OpenAI·유료 실행 보류는 초기 작업의 이력이다. 현재 기본/전송 대상/단가·예약 변경은 [후속 구현 기록](../../reports/2026-11-12-sul-44-image-import-implementation.md#flash-lite-minimal-기본-전환과-실제-로컬-검증-후속-승인)이 소유한다. 월$0.50·하루10회·20초·50K/12K·자동 재시도/전환 없음과 D7 합격 기준은 유지한다. Task4 전체30장·실제 멤버 귀속·사용자 작업시간·운영 적용은 미완료다. 운영 DB·게시·배포는 수행하지 않는다.
 
 ## Global Constraints
 
@@ -56,7 +66,7 @@
 | `contracts/schedule-image-import.ts` | 모델에서 읽은 초안과 확인 필요 항목의 wire DTO. 저장 명령은 기존 `contracts/schedules.ts`와 승인된 D3·D4 계약을 따른다. |
 | `worker/features/schedules/domain/schedule-image-result.ts` | 외부 모델 결과 검증. 멤버·날짜·시간 미정을 기존 삭제 상태와 구분한다. |
 | `worker/features/schedules/application/ports/schedule-image-reader.ts` | 이미지 bytes와 정형 결과를 주고받는 공급자 포트. 런타임·HTTP·D1을 import하지 않는다. |
-| `worker/features/schedules/infrastructure/luna-schedule-image-reader.ts` | Luna HTTP 호출·정형 출력·사용량·오류 변환. D7의 Haiku 비교는 별도 실행 재개 지시 후에만 준비하며 운영 자동 전환 경로로 만들지 않는다. |
+| `worker/features/schedules/infrastructure/flash-lite-schedule-image-reader.ts` | 후속 승인한 Flash-Lite minimal HTTP 호출·정형 출력·사용량·오류 변환과 Google 입력량 사전 계산. 자동 전환 경로는 없다. |
 | `worker/features/schedules/application/read-schedule-image.ts`, `http/schedule-image-handler.ts` | 승인된 유료 호출 인가·한도·검증과 초안 생성. 일정 쓰기 없음. |
 | `worker/app/schedule-image-import.ts`, `worker/platform/types.ts` | 서버 키와 실제 어댑터 조립. 비밀값은 문서·프런트엔드·로그에 넣지 않는다. |
 | `contracts/api-routes.ts`, `worker/app/routes.ts`, `worker/features/schedules/index.ts` | 후보 `POST /api/schedules/image-import/analyze`와 public export를 정확하게 등록. 양 사이트 모두 서버가 로그인 여부를 확인한 뒤 AI 호출을 허용한다. 기존 수동 저장 인가를 바꾸지 않는다. |

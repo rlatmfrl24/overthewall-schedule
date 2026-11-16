@@ -1,7 +1,8 @@
-import type { ScheduleImageDraft } from "../../../../../contracts/schedule-image-import";
+import type { ScheduleImageDraft, ScheduleImageDetailRegion } from "../../../../../contracts/schedule-image-import";
 import type { ImageScheduleMember } from "../../domain/schedule-image-result";
-export type ScheduleImageInput = { bytes: Uint8Array; mediaType: string; members: ImageScheduleMember[] };
-export type ImageReadUsage = { inputTokens: number; outputTokens: number };
+export type ScheduleImageInput = { bytes: Uint8Array; mediaType: string; members: ImageScheduleMember[];
+  details?: { region: ScheduleImageDetailRegion; bytes: Uint8Array; mediaType: string }[] };
+export type ImageReadUsage = { inputTokens: number; outputTokens: number; costNanoUsd?: number };
 export interface ScheduleImageReader {
   count(image: ScheduleImageInput, signal: AbortSignal): Promise<number>;
   read(image: ScheduleImageInput, signal: AbortSignal): Promise<{ draft: ScheduleImageDraft | null; usage: ImageReadUsage | null }>;

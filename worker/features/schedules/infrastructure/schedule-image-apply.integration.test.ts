@@ -16,7 +16,7 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   await db.batch(["schedule_image_results", "update_logs", "schedules", "members"].map(table => db.prepare(`DELETE FROM ${table}`)));
-  await db.prepare("INSERT INTO members(uid,code,name) VALUES(1,'bing_hayu','빙하유')").run();
+  await db.prepare("INSERT INTO members(uid,code,name) VALUES(1,'on_haru','온하루')").run();
 });
 it("unknown_time_never_invokes_delete_conflicts and preserves_other_broadcasts_on_same_date", async () => {
   await repository.applyImageGroup(await group(), actor);
@@ -71,11 +71,25 @@ it("scopes_saved_results_to_actor_and_site_for_24_hours and rejects_expired_repl
 });
 it("keeps original LuvDia stopped-member policy in the transaction", async () => {
   const input = await group("2026-11-16");
+  await db.prepare("UPDATE members SET code='bing_hayu' WHERE uid=1").run();
   const luvdia = new D1ScheduleWriteRepository(db, "luvdia");
   await expect(luvdia.applyImageGroup(input, actor)).rejects.toThrow();
   expect(await db.prepare("SELECT COUNT(*) AS n FROM schedules").first("n")).toBe(0);
   await luvdia.applyImageGroup(input, { ...actor, isAdmin: true });
   expect(await db.prepare("SELECT COUNT(*) AS n FROM schedules").first("n")).toBe(1);
+});
+it("rolls back when a member becomes hidden after context validation and before the write batch",async()=>{
+  await repository.applyImageGroup(await group(),actor);
+  const original=(await repository.imageContext(1,"2026-11-12",actor)).schedules[0];
+  const input=await group("2026-11-12",[{...change("노출되면 안 되는 수정"),id:original.id}]);
+  const interleavedDb={prepare:db.prepare.bind(db),async batch(statements:D1PreparedStatement[]){
+    await db.prepare("UPDATE members SET code='bing_hayu' WHERE uid=1").run();
+    return db.batch(statements);
+  }} as unknown as D1Database;
+  await expect(new D1ScheduleWriteRepository(interleavedDb,"otw").applyImageGroup(input,actor)).rejects.toMatchObject({status:409});
+  expect(await db.prepare("SELECT title FROM schedules WHERE id=?").bind(original.id).first("title")).toBe("방송");
+  expect(await repository.imageResult(input.operationId,actor)).toBeNull();
+  expect(await db.prepare("SELECT COUNT(*) AS n FROM update_logs").first("n")).toBe(1);
 });
 it.each([false,true])("preserves every selected update target regardless of add/edit order (reverse=%s)",async reverse=>{
   const inserted=await db.prepare("INSERT INTO schedules(member_uid,date,status,title) VALUES(1,'2026-11-12','휴방','기존 휴방') RETURNING id").first<{id:number}>();

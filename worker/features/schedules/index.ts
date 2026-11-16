@@ -2,7 +2,8 @@ export { ManualAutoUpdateService } from "./application/manual-auto-update-servic
 export { ScheduleImageError } from "./application/read-schedule-image";
 export { createScheduleImageHandler } from "./http/schedule-image-handler";
 export { D1ScheduleImageBudget } from "./infrastructure/d1-schedule-image-budget";
-export { LunaScheduleImageReader } from "./infrastructure/luna-schedule-image-reader";
+export { readScheduleImageMembers } from "./infrastructure/d1-schedule-image-members";
+export { FlashLiteScheduleImageReader } from "./infrastructure/flash-lite-schedule-image-reader";
 export { PendingScheduleQueryService } from "./application/pending-schedule-query-service";
 export { PendingScheduleService } from "./application/pending-schedule-service";
 export { ScheduleService } from "./application/schedule-service";

@@ -1,28 +1,40 @@
 import { readImageImportBody } from "./image-import-body";
 import type { Env } from "../../../platform/types";
 import { authenticateRequest } from "../../../platform/auth";
-import { SCHEDULE_IMAGE_LIMITS as limits } from "../../../../contracts/schedule-image-import";
+import { SCHEDULE_IMAGE_LIMITS as limits, SCHEDULE_IMAGE_DETAIL_REGIONS } from "../../../../contracts/schedule-image-import";
 import type { ScheduleImageBudget, ScheduleImageReader } from "../application/ports/schedule-image-reader";
 import type { ImageScheduleMember } from "../domain/schedule-image-result";
 import { readScheduleImage, ScheduleImageError } from "../application/read-schedule-image";
 
 type Dependencies = { reader: ScheduleImageReader; budget: ScheduleImageBudget; members: () => Promise<ImageScheduleMember[]> };
 const failure = (message: string, status: number) => Response.json({ error: { code: "SCHEDULE_IMAGE_ERROR", message } }, { status, headers: { "Cache-Control": "no-store" } });
-async function readImage(request: Request) {
-  const body = await readImageImportBody(request, limits.bytes + 100_000);
-  const uploadedAt = Date.now();
-  let form: FormData;
-  try { form = await new Response(body, { headers: { "Content-Type": request.headers.get("Content-Type") ?? "" } }).formData(); }
-  catch { throw new ScheduleImageError("이미지 업로드 형식을 확인해주세요."); }
-  const entries = [...form.entries()]; const file = entries[0]?.[1];
-  if (entries.length !== 1 || entries[0]?.[0] !== "image" || typeof file === "string" || !file ||
-    file.size === 0 || file.size > limits.bytes || !["image/png", "image/jpeg", "image/webp"].includes(file.type)) throw new ScheduleImageError("PNG·JPG·WEBP 이미지 1장, 10MB 이하만 지원합니다.");
+async function imageBytes(file: File | string | undefined, maxBytes: number) {
+  if (typeof file === "string" || !file || file.size === 0 || file.size > maxBytes || !["image/png", "image/jpeg", "image/webp"].includes(file.type)) throw new ScheduleImageError("PNG·JPG·WEBP 원본 1장(10MB 이하)과 허용된 확대 영역만 지원합니다.");
   const bytes = new Uint8Array(await file.arrayBuffer());
   const magic = file.type === "image/png" ? [137,80,78,71,13,10,26,10].every((v,i) => bytes[i] === v)
     : file.type === "image/jpeg" ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
       : new TextDecoder().decode(bytes.slice(0,4)) === "RIFF" && new TextDecoder().decode(bytes.slice(8,12)) === "WEBP";
   if (!magic) throw new ScheduleImageError("이미지 파일 형식을 확인해주세요.");
-  return { bytes, mediaType: file.type, uploadedAt };
+  return { bytes, mediaType: file.type };
+}
+async function readImage(request: Request) {
+  const body = await readImageImportBody(request, limits.bytes + limits.detailBytes * SCHEDULE_IMAGE_DETAIL_REGIONS.length + 100_000);
+  const uploadedAt = Date.now();
+  let form: FormData;
+  try { form = await new Response(body, { headers: { "Content-Type": request.headers.get("Content-Type") ?? "" } }).formData(); }
+  catch { throw new ScheduleImageError("이미지 업로드 형식을 확인해주세요."); }
+  const originals = form.getAll("image"), views = form.getAll("detail");
+  if (originals.length !== 1 || [...form.keys()].some(key => key !== "image" && key !== "detail") ||
+    views.length !== 0 && views.length !== SCHEDULE_IMAGE_DETAIL_REGIONS.length) throw new ScheduleImageError("원본 1장과 확대 영역 묶음을 확인해주세요.");
+  const original = await imageBytes(originals[0], limits.bytes);
+  const regions = new Set<string>();
+  const details = [];
+  for (const view of views) {
+    const region = typeof view !== "string" && SCHEDULE_IMAGE_DETAIL_REGIONS.find(r => view.name === `${r}.png`);
+    if (!region || regions.has(region) || typeof view === "string" || view.type !== "image/png") throw new ScheduleImageError("확대 영역 묶음을 확인해주세요.");
+    regions.add(region); details.push({ region, ...await imageBytes(view, limits.detailBytes) });
+  }
+  return { ...original, ...(details.length ? { details } : {}), uploadedAt };
 }
 export const createScheduleImageHandler = (resolve: (env: Env) => Dependencies) => async (request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> => {
   const auth = await authenticateRequest(request, env);

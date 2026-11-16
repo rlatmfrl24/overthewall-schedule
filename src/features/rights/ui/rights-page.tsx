@@ -31,7 +31,7 @@ export function RightsPage() {
           </p>
         </div>
         <p className="text-xs text-muted-foreground">
-          최종 업데이트: 2026년 8월 19일
+          최종 업데이트: 2026년 11월 16일
         </p>
       </section>
 
@@ -66,6 +66,32 @@ export function RightsPage() {
             이용하려면 해당 권리자의 허락, 적용 라이선스와 플랫폼 약관을
             확인해야 합니다.
           </p>
+        </div>
+      </RightsSection>
+
+      <RightsSection id="schedule-image-terms" title="AI 이미지 인식 이용약관">
+        <div className="space-y-3 text-sm leading-7 text-muted-foreground sm:text-base">
+          <p>
+            로그인 사용자가 ‘일정표 읽기’를 실행하면 일정 초안을 만들기 위해
+            원본 이미지와 확대 이미지, 공개된 멤버 후보 정보 및 인식 지시가
+            OpenRouter와 Google로 전송됩니다. 입력량 확인에도 Google API를 사용합니다.
+          </p>
+          <p>
+            본인이 업로드할 권한이 있는 일정표를 사용하고, 민감한 개인정보나
+            비공개 자료가 포함된 이미지는 올리지 마세요. 인식 결과에는 오류가
+            있을 수 있으므로 원본과 비교해 수정한 뒤 적용해야 합니다.
+            사용자가 적용하기 전에는 일정표에 자동으로 저장하지 않습니다.
+          </p>
+          <p>
+            서비스는 원본 이미지와 미적용 초안을 편집창에서만 유지하며 별도
+            파일로 보관하지 않습니다. 적용한 일정은 일정표에 저장되고,
+            저장 결과 확인용 최소 기록은 24시간 동안 조회할 수 있습니다.
+            외부 공급자의 처리·보관 범위는 아래 정책과 이용 조건을 따릅니다.
+          </p>
+          <ul className="list-disc space-y-1 pl-5">
+            <li><a className={linkClassName} href="https://openrouter.ai/docs/guides/privacy/provider-logging" target="_blank" rel="noopener noreferrer">OpenRouter 데이터 처리 정책</a></li>
+            <li><a className={linkClassName} href="https://aistudio.google.com/docs/terms" target="_blank" rel="noopener noreferrer">Google Gemini API 약관</a></li>
+          </ul>
         </div>
       </RightsSection>
 

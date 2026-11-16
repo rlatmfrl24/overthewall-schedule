@@ -40,6 +40,13 @@ export const Footer = () => {
           </a>
           <Link
             to="/rights"
+            hash="schedule-image-terms"
+            className={footerLinkClassName}
+          >
+            이용약관
+          </Link>
+          <Link
+            to="/rights"
             className="inline-flex h-5 items-center text-[10px] leading-none text-muted-foreground/60 transition-colors hover:text-foreground sm:text-xs"
             aria-label="저작권 및 권리 안내"
           >

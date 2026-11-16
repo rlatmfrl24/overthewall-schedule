@@ -30,7 +30,15 @@ describe("public site content", () => {
   it("serves static rights without reading historical access revisions", async () => {
     const { reader, service } = setup();
     vi.mocked(reader.readAccessRevision).mockRejectedValue(new Error('No content data needed'));
-    expect((await service.read('/rights'))?.sections[0].id).toBe('rights');
+    const content=await service.read('/rights');
+    expect(content?.sections[0].id).toBe('rights');
+    expect(content?.sections.find(section=>section.id==="schedule-image-terms")).toMatchObject({
+      title:"AI 이미지 인식 이용약관",
+      items:expect.arrayContaining([
+        expect.objectContaining({title:"OpenRouter 데이터 처리 정책",url:"https://openrouter.ai/docs/guides/privacy/provider-logging"}),
+        expect.objectContaining({title:"Google Gemini API 약관",url:"https://aistudio.google.com/docs/terms"}),
+      ]),
+    });
     expect(reader.readAccessRevision).not.toHaveBeenCalled();
   });
   it("종료 이후 예외 일정이 있는 날짜만 주간 공개 콘텐츠에 포함한다", async () => {

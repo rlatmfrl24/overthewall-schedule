@@ -81,6 +81,12 @@ export class SiteContentService {
         { title: `${this.site.serviceName}은 비공식 팬 운영 서비스입니다.`, text: this.site.id === "otw" ? "오버더월·소속사·외부 플랫폼의 공식 서비스가 아닙니다." : "방송인·소속사·외부 플랫폼의 공식 서비스가 아닙니다." },
         { title: "제3자 콘텐츠의 권리는 원 권리자에게 있습니다.", text: "링크·임베드 제공이 복제·재배포 허락을 뜻하지 않습니다." },
         { title: "권리 침해 및 정정 요청", text: "대상 URL, 권리 관계, 원하는 조치와 회신 연락처를 이메일로 보내 주세요.", url: this.site.contactEmail ? `mailto:${this.site.contactEmail}` : undefined },
+      ]), section("schedule-image-terms", "AI 이미지 인식 이용약관", [
+        { title: "이미지 인식과 외부 전송", text: "로그인 사용자가 일정표 읽기를 실행하면 원본·확대 이미지, 공개 멤버 후보와 인식 지시가 OpenRouter·Google로 전송됩니다. 입력량 확인에도 Google API를 사용합니다." },
+        { title: "업로드와 결과 확인", text: "업로드 권한이 있는 일정표를 사용하고 민감한 개인정보나 비공개 자료는 올리지 마세요. 인식 결과를 원본과 대조하고 수정한 뒤 적용하며 적용 전에는 일정표에 자동 저장하지 않습니다." },
+        { title: "보관 범위", text: "원본 이미지와 미적용 초안은 편집창에서만 유지하며 별도 파일로 보관하지 않습니다. 적용 일정은 저장되고 결과 확인용 최소 기록은24시간 동안 조회할 수 있습니다. 외부 공급자의 처리·보관 범위는 해당 정책과 이용 조건을 따릅니다." },
+        { title: "OpenRouter 데이터 처리 정책", url: "https://openrouter.ai/docs/guides/privacy/provider-logging" },
+        { title: "Google Gemini API 약관", url: "https://aistudio.google.com/docs/terms" },
       ])];
     } else if (path === "/play" || path.startsWith("/play/songs/")) {
       const state = await this.seoReader.readPlayState();

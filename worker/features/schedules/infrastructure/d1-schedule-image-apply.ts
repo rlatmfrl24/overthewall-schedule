@@ -5,6 +5,8 @@ import type { ScheduleActor, ScheduleWriteInput } from "../domain/schedule";
 import { parseScheduleImageGroup } from "../domain/schedule-image-command";
 import { ScheduleImageError } from "../application/read-schedule-image";
 import { scheduleWriteRestriction } from "./public-schedule-write-policy";
+import type { SiteId } from "@contracts/site-definition";
+import { publicationHiddenSql } from "../../content-access";
 
 export const IMAGE_SNAPSHOT_SQL = `SELECT json_group_array(json_array(id,status,start_time,title,content_access)) FROM
   (SELECT id,status,start_time,title,content_access FROM schedules WHERE member_uid=? AND date=? ORDER BY id)`;
@@ -25,9 +27,9 @@ export async function imageResult(db: D1Database, site: string, id: string, acto
   if (result || issued + SCHEDULE_IMAGE_LIMITS.receiptMs < Date.now()) throw new ScheduleImageError("적용 결과 확인 기간이 지났습니다. 기존 일정을 다시 비교해주세요.", 410);
   return null;
 }
-export async function imageContext(db: D1Database, site: string, memberUid: number, date: string, actor: ScheduleActor): Promise<ScheduleImageContext> {
+export async function imageContext(db: D1Database, site: SiteId, memberUid: number, date: string, actor: ScheduleActor): Promise<ScheduleImageContext> {
   scope(actor);
-  const member = await db.prepare("SELECT uid FROM members WHERE uid=? AND content_access='normal'").bind(memberUid).first();
+  const member = await db.prepare(`SELECT uid FROM members WHERE uid=? AND content_access='normal' AND NOT (${publicationHiddenSql("members","members",site)})`).bind(memberUid).first();
   if (!member) throw new ScheduleImageError("이 멤버의 일정에 접근할 수 없습니다.", 403);
   if (site === "luvdia" && !actor.isAdmin && await scheduleWriteRestriction(db, { memberUid, date, id: null, status: "방송", startTime: null, title: null }).first<number>("restricted")) throw new ScheduleImageError("이 멤버·날짜의 일정은 관리자만 수정할 수 있습니다.", 403);
   const schedules = (await db.prepare("SELECT * FROM schedules WHERE member_uid=? AND date=? ORDER BY id").bind(memberUid, date).all<ScheduleDto>()).results;
@@ -35,7 +37,7 @@ export async function imageContext(db: D1Database, site: string, memberUid: numb
   const expected = JSON.stringify(schedules.map(s => [s.id, s.status, s.start_time, s.title, s.content_access]));
   return { schedules, expected };
 }
-export async function applyImageGroup(db: D1Database, site: string, value: ApplyScheduleImageGroup, actor: ScheduleActor,
+export async function applyImageGroup(db: D1Database, site: SiteId, value: ApplyScheduleImageGroup, actor: ScheduleActor,
   prepare: (input: ScheduleWriteInput, retainedIds: number[]) => D1PreparedStatement[],
   conflicts: (input: ScheduleWriteInput, retainedIds: number[]) => { sql: string; bindings: unknown[] },
   batch: (statements: D1PreparedStatement[], input: ScheduleWriteInput) => Promise<unknown>,
@@ -57,7 +59,7 @@ export async function applyImageGroup(db: D1Database, site: string, value: Apply
   const inputs = group.changes.map(c => ({ id: c.id, memberUid: group.memberUid, date: group.date, startTime: c.startTime, title: c.title, status: c.status }));
   const retainedIds = inputs.flatMap(input => input.id === null ? [] : [input.id]);
   const expiresAt = Math.max(now, issued) + SCHEDULE_IMAGE_LIMITS.receiptMs;
-  const access = () => db.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM members WHERE uid=? AND content_access='normal') AND NOT EXISTS(SELECT 1 FROM schedules WHERE member_uid=? AND date=? AND content_access<>'normal') THEN 1 ELSE json_extract('[]','schedule_image_access') END`).bind(group.memberUid, group.memberUid, group.date);
+  const access = () => db.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM members WHERE uid=? AND content_access='normal' AND NOT (${publicationHiddenSql("members","members",site)})) AND NOT EXISTS(SELECT 1 FROM schedules WHERE member_uid=? AND date=? AND content_access<>'normal') THEN 1 ELSE json_extract('[]','schedule_image_access') END`).bind(group.memberUid, group.memberUid, group.date);
   try {
     const context = await imageContext(db, site, group.memberUid, group.date, actor);
     if (context.expected !== group.expected) throw new ScheduleImageError("기존 일정이 변경되었습니다. 다시 비교해주세요.", 409);

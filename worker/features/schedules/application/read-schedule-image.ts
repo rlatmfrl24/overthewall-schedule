@@ -7,7 +7,7 @@ export class ScheduleImageError extends Error {
 }
 export async function readScheduleImage(reader: ScheduleImageReader, budget: ScheduleImageBudget, image: ScheduleImageInput, actorId: string, signal: AbortSignal) {
   const reservation = await budget.reserve(actorId, Date.now());
-  if (!reservation) throw new ScheduleImageError("인식 한도에 도달했거나 다른 인식이 진행 중입니다. 직접 입력과 이미 읽은 일정의 편집·적용은 계속할 수 있습니다.", 429);
+  if (!reservation) throw new ScheduleImageError("월 인식 예산이 부족하거나 다른 인식이 진행 중입니다. 직접 입력과 이미 읽은 일정의 편집·적용은 계속할 수 있습니다.", 429);
   let started = false;
   let settled = false;
   try {

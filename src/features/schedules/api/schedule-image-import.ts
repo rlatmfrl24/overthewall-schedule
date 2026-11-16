@@ -1,8 +1,11 @@
 import { apiRoutes, withRouteSearch } from "@contracts/api-routes";
 import type { ApplyScheduleImageGroup, ScheduleImageContext, ScheduleImageDraft, ScheduleImageReceipt } from "@contracts/schedule-image-import";
 import { apiFetch } from "@/shared/api/client";
-export function readScheduleImage(file: File, signal?: AbortSignal) {
+import { createScheduleImageDetails, type ScheduleImageFocus } from "./schedule-image-details";
+export async function readScheduleImage(file: File, signal?: AbortSignal, focus: ScheduleImageFocus = "all") {
   const body = new FormData(); body.append("image",file);
+  for (const detail of await createScheduleImageDetails(file, signal, focus)) body.append("detail", detail);
+  signal?.throwIfAborted();
   return apiFetch<ScheduleImageDraft>(apiRoutes.schedules.imageAnalyze.build(),{method:"POST",body,signal,auth:"required"});
 }
 export const fetchImageContext = (memberUid:number,date:string) => apiFetch<ScheduleImageContext>(
