@@ -52,7 +52,7 @@ export function ScheduleImageImportDialog({members,initialDate,onOpenChange,isAd
   const pick=async(files:File[])=>{
     if(files.length!==1 || !["image/png","image/jpeg","image/webp"].includes(files[0]?.type) || files[0].size===0 || files[0].size>SCHEDULE_IMAGE_LIMITS.bytes){setError("PNG·JPG·WEBP 이미지 1장, 10MB 이하를 선택해주세요.");return;}
     if(rows.length && !await canDiscard())return;
-    controller.current?.abort();controller.current=null;setReading(false);setRows([]);setRecords([]);setReviewGroups([]);setRefresh("ready");setWarnings([]);setError("");setFocus("all");setSource({file:files[0],url:URL.createObjectURL(files[0])});
+    controller.current?.abort();controller.current=null;setReading(false);setRows([]);setRecords([]);setReviewGroups([]);setWarnings([]);setError("");setFocus("all");setSource({file:files[0],url:URL.createObjectURL(files[0])});
   };
   const read=async()=>{
     if(!source || controller.current || saving.current || !isSignedIn)return;
@@ -62,7 +62,7 @@ export function ScheduleImageImportDialog({members,initialDate,onOpenChange,isAd
       const draft=await readScheduleImage(source.file,current.signal,focus);
       if(controller.current!==current || current.signal.aborted)return;
       if(!draft.rows.length){setError("이미지에서 일정을 찾지 못했습니다. 일정 영역을 확인하고 다시 읽어주세요.");return;}
-      setRows(confirmImageWeek(draft.rows.map(r=>({...r,selected:true,choice:null})),week));setWarnings(draft.warnings);setRecords([]);setReviewGroups([]);setRefresh("ready");setVersion(crypto.randomUUID());setStep(2);
+      setRows(confirmImageWeek(draft.rows.map(r=>({...r,selected:true,choice:null})),week));setWarnings(draft.warnings);setRecords([]);setReviewGroups([]);setVersion(crypto.randomUUID());setStep(2);
     }catch(e){if(controller.current===current && !current.signal.aborted)setError(errorText(e));}
     finally{if(controller.current===current){controller.current=null;setReading(false);}}
   };
@@ -94,7 +94,7 @@ export function ScheduleImageImportDialog({members,initialDate,onOpenChange,isAd
       await refreshContexts(result.groups);if(result.refresh==="failed")setRefresh("failed");
     }finally{saving.current=false;setBusy(false);}
   };
-  const hasRecovery=refresh==="failed"||records.some(s=>s.state==="unknown"||s.state==="review");
+  const hasRecovery=records.length>0&&(refresh==="failed"||records.some(s=>s.state==="unknown"||s.state==="review"));
   const review=()=>{
     let groups:ApplyScheduleImageGroup[]=[];
     try{
@@ -189,7 +189,7 @@ export function ScheduleImageImportDialog({members,initialDate,onOpenChange,isAd
       backButtonProps={{disabled:busy||reading}}
       nextButtonProps={{disabled:busy||reading||(step===1&&!source)||(step===2&&!hasRecovery&&queries.some(q=>q.isFetching))||(step===3&&!pendingReviewGroups.length)}}
       footerClassName="sticky -bottom-3 z-10 -mx-3 -mb-3 border-t border-border bg-background px-3 pb-3 sm:-bottom-4 sm:-mx-4 sm:-mb-4 sm:px-4 sm:pb-4"
-      footerContent={<>{error&&<p role="alert" className="mb-3 text-sm text-destructive">{error}</p>}{step>1&&<p className="mb-3 text-xs text-muted-foreground">선택 {rows.filter(r=>r.selected&&!inspection.duplicates.has(r.clientId)&&!doneIds.has(r.clientId)).length}건 · 중복 {inspection.duplicates.size}건 · 확인 필요 {inspection.unresolved.size}건 제외</p>}</>}
+      footerContent={<>{error&&<p role="alert" className="mb-3 text-sm text-destructive">{error}</p>}{refresh==="failed"&&<div className="mb-3 text-sm">저장은 완료했지만 일정표를 새로 불러오지 못했습니다. <Button variant="outline" disabled={busy||reading} onClick={()=>void retryRefresh()}>일정표 조회만 재시도</Button></div>}{step>1&&<p className="mb-3 text-xs text-muted-foreground">선택 {rows.filter(r=>r.selected&&!inspection.duplicates.has(r.clientId)&&!doneIds.has(r.clientId)).length}건 · 중복 {inspection.duplicates.size}건 · 확인 필요 {inspection.unresolved.size}건 제외</p>}</>}
     >
       <Step>
         <h3 ref={stepHeading} tabIndex={-1} className="mb-3 text-base font-semibold outline-none">이미지 준비</h3>
@@ -240,7 +240,6 @@ export function ScheduleImageImportDialog({members,initialDate,onOpenChange,isAd
         {state.state==="unknown"&&<div className="mt-2 flex flex-wrap gap-2"><Button variant="outline" disabled={busy||reading} onClick={()=>void confirmResult(state)}>결과 확인</Button><Button variant="outline" disabled={busy||reading} onClick={()=>void run([state])}>같은 요청 재시도</Button></div>}
         {state.state==="review"&&<Button variant="outline" disabled={busy||reading} onClick={()=>void compareAgain(keyOf(state.request))}>기존 일정 다시 비교</Button>}
       </div>)}</div>
-      {refresh==="failed"&&<div className="text-sm">저장은 완료했지만 일정표를 새로 불러오지 못했습니다. <Button variant="outline" disabled={busy||reading} onClick={()=>void retryRefresh()}>일정표 조회만 재시도</Button></div>}
         </div>
       </Step>
     </Stepper>

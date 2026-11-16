@@ -179,7 +179,7 @@ it("returns after retrying a failed refresh without writing the schedule twice",
   fireEvent.click(screen.getByRole("button",{name:"일정표 조회만 재시도"}));
   await waitFor(()=>expect(view.onOpenChange).toHaveBeenCalledWith(false));expect(mocks.apply).toHaveBeenCalledOnce();
 });
-it.each(["replace","reread"])("clears an earlier refresh failure when starting a new draft: %s",async action=>{
+it.each(["replace","reread"])("blocks empty new drafts while preserving earlier refresh recovery: %s",async action=>{
   const view=mount();await read();
   vi.spyOn(view.client,"invalidateQueries").mockRejectedValueOnce(new Error("offline"));
   await applySelection();
@@ -195,7 +195,10 @@ it.each(["replace","reread"])("clears an earlier refresh failure when starting a
   await review();
   expect(screen.getByRole("button",{name:"2. 일정 편집"}).getAttribute("aria-current")).toBe("step");
   expect(screen.getByRole("alert").textContent).toContain("적용할 확정 일정을 선택해주세요");
-  expect(screen.queryByRole("button",{name:"일정표 조회만 재시도"})).toBeNull();
+  fireEvent.click(screen.getByRole("button",{name:"일정표 조회만 재시도"}));
+  await waitFor(()=>expect(screen.queryByRole("button",{name:"일정표 조회만 재시도"})).toBeNull());
+  expect(screen.getByRole("button",{name:"2. 일정 편집"}).getAttribute("aria-current")).toBe("step");
+  expect(view.onOpenChange).not.toHaveBeenCalled();
   expect(mocks.apply).toHaveBeenCalledOnce();expect(mocks.read).toHaveBeenCalledTimes(2);
 });
 it.each(["new row","edited excluded row"])("preserves %s added before refresh recovery and allows it to be applied",async kind=>{
