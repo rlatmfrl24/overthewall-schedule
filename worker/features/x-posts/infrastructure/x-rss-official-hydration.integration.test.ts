@@ -59,8 +59,8 @@ const freeProvider = (ids: string[], relations = false) => vi.mocked(fetch).mock
 });
 
 beforeEach(async () => {
-  // Retry advances must not depend on the CI job's wall-clock UTC boundary.
-  now = Date.parse("2026-11-17T12:00:00Z"); sequence = 0;
+  // Keep the simulated clock ahead of SQLite's real clock and away from midnight.
+  now = Math.floor(Date.now() / 86_400_000) * 86_400_000 + 36 * 60 * 60_000; sequence = 0;
   vi.spyOn(Date, "now").mockImplementation(() => now);
   clearXServiceCachesForTests();
   await applyD1Migrations(db, bindings.X_REFERENCE_MIGRATIONS);

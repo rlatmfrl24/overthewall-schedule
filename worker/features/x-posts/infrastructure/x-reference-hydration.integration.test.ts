@@ -107,8 +107,8 @@ const json = (value: unknown) =>
   });
 
 beforeEach(async () => {
-  // Lease-expiry advances stay within a day; rollover cases supply their own boundary.
-  vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-17T12:00:00Z"));
+  // Keep the simulated clock ahead of SQLite's real clock and away from midnight.
+  vi.spyOn(Date, "now").mockReturnValue(Math.floor(Date.now() / 86_400_000) * 86_400_000 + 36 * 60 * 60_000);
   await applyD1Migrations(db, testEnv.X_REFERENCE_MIGRATIONS);
   for (const table of [
     "x_post_references",
