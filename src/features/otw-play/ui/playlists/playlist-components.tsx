@@ -52,7 +52,7 @@ export function DefaultPlaylistCard({ playlist }: { playlist: PlayDefaultPlaylis
       <div className="playlist-art" data-playlist-hero={`/play/playlists/defaults/${encodeURIComponent(playlist.id)}`} data-hero-kind="card"><PlaylistArtwork imageUrl={playlist.imageUrl} loading="lazy" /></div>
       <div className="playlist-card-copy">
         <span className="playlist-card-kicker">{member ? "멤버 가창곡" : "OTW PLAY COLLECTION"}</span>
-        <div className="playlist-card-title"><h3 data-playlist-hero-title>{title}</h3><p>{playlist.description}</p></div>
+        <div className="playlist-card-title"><h3>{title}</h3><p>{playlist.description}</p></div>
         <div className="playlist-card-footer"><span>{playlist.songCount}곡</span>
           <strong><span className="sr-only">목록 보기</span><ArrowUpRight aria-hidden="true" className="size-5" /></strong></div>
       </div>

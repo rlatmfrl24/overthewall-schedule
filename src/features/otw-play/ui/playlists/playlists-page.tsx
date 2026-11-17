@@ -18,7 +18,7 @@ export function OtwPlayPlaylistsPage() {
         mine.data.data.length ? <div className="playlist-grid">{mine.data.data.map(playlist => <Link className="playlist-saved-card playlist-card-main" key={playlist.id} to="/play/playlists/$playlistId" params={{ playlistId: playlist.id }}>
           <div className="playlist-art" data-playlist-hero={`/play/playlists/${encodeURIComponent(playlist.id)}`} data-hero-kind="card"><PlaylistArtwork imageUrl={playlist.imageUrl} loading="lazy" /></div>
           <div className="playlist-card-copy"><span className="playlist-card-kicker">MY PLAYLIST</span>
-            <div className="playlist-card-title"><h3 data-playlist-hero-title>{playlist.title}</h3><p className="line-clamp-2">{playlist.description || "나만의 노래 모음"}</p></div>
+            <div className="playlist-card-title"><h3>{playlist.title}</h3><p className="line-clamp-2">{playlist.description || "나만의 노래 모음"}</p></div>
             <div className="playlist-card-footer"><span>가창 {playlist.itemCount}개 · 비공개</span><span>목록 보기</span></div></div></Link>)}</div> : <p className="playlist-empty">아직 저장한 플레이리스트가 없습니다.</p>}
     </section>
   </div>;
