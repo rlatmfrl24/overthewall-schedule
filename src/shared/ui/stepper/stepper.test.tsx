@@ -3,6 +3,7 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Stepper, { Step } from './Stepper';
+import { AnimationProvider } from '../animation-provider';
 
 vi.mock('motion/react', async (importOriginal) => ({
   ...await importOriginal<typeof import('motion/react')>(),
@@ -18,15 +19,21 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const contents = [<Step key="1">Video content</Step>, <Step key="2">Song content</Step>, <Step key="3">Singer content</Step>, <Step key="4">Review content</Step>];
 
 describe('React Bits Stepper', () => {
-  it('plays the original slide when explicitly enabled despite the OS preference, including external backward navigation', async () => {
+  it('supports the owning flow label and honors the OS motion preference by default', () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
+    const { container } = render(<AnimationProvider><Stepper stepNavigationLabel="스케쥴 추가 단계">{contents}</Stepper></AnimationProvider>);
+    expect(screen.getByRole('navigation', { name: '스케쥴 추가 단계' })).toBeTruthy();
+    expect(container.querySelector('.react-bits-stepper')?.getAttribute('data-reduced-motion')).toBe('true');
+  });
+  it('enters from the right when moving forward and from the left when moving backward', async () => {
     const { rerender } = render(<Stepper currentStep={1} reducedMotion="never">{contents}</Stepper>);
     rerender(<Stepper currentStep={3} reducedMotion="never">{contents}</Stepper>);
     const incoming = screen.getByText('Singer content').parentElement!;
-    expect(incoming.style.transform).toBe('translateX(-100%)');
+    expect(incoming.style.transform).toBe('translateX(100%)');
     await waitFor(() => expect(incoming.style.opacity).toBe('1'));
     rerender(<Stepper currentStep={2} reducedMotion="never">{contents}</Stepper>);
     const returning = screen.getByText('Song content').parentElement!;
-    expect(returning.style.transform).toBe('translateX(100%)');
+    expect(returning.style.transform).toBe('translateX(-100%)');
     await waitFor(() => expect(returning.style.opacity).toBe('1'));
   });
 

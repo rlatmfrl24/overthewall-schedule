@@ -49,6 +49,7 @@ const provider=async(input:RequestInfo|URL,init?:RequestInit)=>{
 };
 
 beforeEach(async()=>{
+  vi.spyOn(Date,"now").mockReturnValue(Date.parse("2026-11-17T12:00:00Z"));
   clearXServiceCachesForTests();
   remote=[];hooks=[];queued.length=0;failUser=null;timelinePage=0;
   for(const database of [db,peer]){
@@ -733,7 +734,8 @@ describe("XAA multi-site collection and common money boundary",()=>{
       if(new URL(String(input)).pathname==="/2/tweets"){requested();return new Promise<Response>(resolve=>{release=resolve;});}
       return provider(input,init);
     });vi.stubGlobal("fetch",fetches);
-    const first=local("otw").process(id);await started;
+    const first=local("otw").process(id);
+    await Promise.race([started,first.then(()=>{throw new Error("First site completed before requesting media");})]);
     await local("luvdia").process(id);
     expect(await peer.prepare("SELECT lookup_attempts FROM x_activity_inbox").first("lookup_attempts")).toBe(0);
     release(await provider("https://api.x.com/2/tweets"));await first;

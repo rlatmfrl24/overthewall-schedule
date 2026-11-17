@@ -5,7 +5,7 @@
 .react-bits-stepper .step-indicator { display: flex; flex-direction: column; align-items: center; gap: .5rem; min-width: 2.75rem; min-height: 2.75rem; border-radius: .5rem; color: var(--muted-foreground); cursor: pointer; }
 .react-bits-stepper .step-indicator:disabled { cursor: default; }
 .react-bits-stepper .step-indicator-inner { display: flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 50%; background: var(--muted); font-weight: 600; }
-.react-bits-stepper[data-reduced-motion="false"] .step-indicator-inner { transition: background-color .3s, color .3s !important; }
+.react-bits-stepper[data-reduced-motion="false"] .step-indicator-inner { transition: background-color .2s cubic-bezier(0.23, 1, 0.32, 1), color .2s cubic-bezier(0.23, 1, 0.32, 1) !important; }
 .react-bits-stepper .step-indicator[data-status="active"] { color: var(--primary); font-weight: 600; }
 .react-bits-stepper .step-indicator[data-status="active"] .step-indicator-inner,
 .react-bits-stepper .step-indicator[data-status="complete"] .step-indicator-inner { background: var(--primary); color: var(--primary-foreground); }

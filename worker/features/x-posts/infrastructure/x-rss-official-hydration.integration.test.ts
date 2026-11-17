@@ -59,7 +59,8 @@ const freeProvider = (ids: string[], relations = false) => vi.mocked(fetch).mock
 });
 
 beforeEach(async () => {
-  now = Date.now(); sequence = 0;
+  // Retry advances must not depend on the CI job's wall-clock UTC boundary.
+  now = Date.parse("2026-11-17T12:00:00Z"); sequence = 0;
   vi.spyOn(Date, "now").mockImplementation(() => now);
   clearXServiceCachesForTests();
   await applyD1Migrations(db, bindings.X_REFERENCE_MIGRATIONS);

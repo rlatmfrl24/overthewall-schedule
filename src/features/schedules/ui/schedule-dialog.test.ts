@@ -2,7 +2,7 @@ import { createMemberFixture } from "@/test/member-fixtures";
 // @vitest-environment jsdom
 import { UnsavedChangesContext } from "@/shared/lib/unsaved-changes";
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Member } from "@/features/members";
 import type { ScheduleItem } from "../model/schedule";
@@ -43,15 +43,17 @@ const renderDialog = (
     schedule?: ScheduleItem | null;
     onDelete?: (id: number) => void | Promise<void>;
     onSubmit?: () => Promise<void>;
+    startStep?: 1 | 2 | 3;
   } = {},
 ) => {
   const onSubmit = vi.fn(options.onSubmit);
   const onDelete = options.onDelete ?? vi.fn();
+  const onOpenChange = vi.fn();
 
   render(
     React.createElement(ScheduleDialog, {
       open: true,
-      onOpenChange: vi.fn(),
+      onOpenChange,
       onSubmit,
       members: [member],
       initialDate: new Date("2026-06-23T00:00:00+09:00"),
@@ -61,19 +63,116 @@ const renderDialog = (
     }),
   );
 
-  return { onSubmit, onDelete };
+  if (!options.schedule && options.startStep !== 1) {
+    fireEvent.click(screen.getByRole("button", { name: "일정 내용 입력" }));
+    if(options.startStep===3)fireEvent.click(screen.getByRole("button",{name:"방송 시간 입력"}));
+  }
+  return { onSubmit, onDelete, onOpenChange };
+};
+
+const saveNewSchedule = async () => {
+  const timeStep=screen.queryByRole("button",{name:"방송 시간 입력"});
+  if(timeStep)fireEvent.click(timeStep);
+  const review=screen.queryByRole("button",{name:"저장 내용 확인"});
+  if(review)fireEvent.click(review);
+  fireEvent.click(await screen.findByRole("button",{name:"스케쥴 추가"}));
 };
 
 describe("ScheduleDialog", () => {
+  it("직접 추가를 네 화면으로 나누고 최종 확인 전에는 조회하거나 저장하지 않는다", async () => {
+    const {onSubmit}=renderDialog({startStep:1});
+    expect(screen.getByRole("navigation",{name:"스케쥴 추가 단계"})).toBeTruthy();
+    expect(screen.getByRole("button",{name:"1. 기본 정보"}).getAttribute("aria-current")).toBe("step");
+    expect(screen.getByRole("button",{name:"4. 저장 확인"})).toBeTruthy();
+    expect(screen.queryByRole("heading",{name:"기본 정보"})).toBeNull();
+    expect(screen.queryByText("멤버를 선택하면 스케쥴을 추가할 수 있어요.")).toBeNull();
+    expect(screen.queryByRole("textbox",{name:"제목"})).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"일정 내용 입력"}));
+    fireEvent.change(await screen.findByLabelText("제목"),{target:{value:"단계 왕복 초안"}});
+    expect(screen.queryByRole("checkbox",{name:"시간 미정"})).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"방송 시간 입력"}));
+    expect(screen.queryByRole("textbox",{name:"제목"})).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"22:00"}));
+    fireEvent.click(screen.getByRole("button",{name:"저장 내용 확인"}));
+    const summary=await screen.findByRole("region",{name:"저장할 일정"});
+    await waitFor(()=>expect(document.activeElement).toBe(screen.getByRole("group",{name:"저장 확인"})));
+    expect(within(summary).getByText("단계 왕복 초안")).toBeTruthy();
+    expect(within(summary).getByText("22:00")).toBeTruthy();
+    const card=within(summary).getByRole("article",{name:"일정 미리보기"});
+    expect(within(card).getByText("단계 왕복 초안")).toBeTruthy();
+    expect(within(card).getByText("22:00")).toBeTruthy();
+    expect(within(card).queryByText(member.name)).toBeNull();
+    expect(fetchSchedulesMock).not.toHaveBeenCalled();expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button",{name:"2. 일정 내용"}));
+    expect((await screen.findByRole("textbox",{name:"제목"}) as HTMLTextAreaElement).value).toBe("단계 왕복 초안");
+    fireEvent.click(screen.getByRole("button",{name:"방송 시간 입력"}));
+    expect((screen.getByLabelText("방송 시작 시간") as HTMLInputElement).value).toBe("22:00");
+    fireEvent.click(screen.getByRole("button",{name:"1. 기본 정보"}));
+    expect(await screen.findByRole("combobox",{name:/멤버/})).toBeTruthy();
+    fireEvent.click(screen.getByRole("button",{name:"일정 내용 입력"}));
+    await saveNewSchedule();
+    await waitFor(()=>expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({title:"단계 왕복 초안",start_time:"22:00",member_uid:member.uid}));
+  });
+  it.each(["휴방","게릴라"])("%s도 시간 단계를 유지하고 해당 없음을 표시한다",async status=>{
+    const {onSubmit}=renderDialog();
+    fireEvent.click(screen.getByRole("button",{name:status}));
+    fireEvent.click(screen.getByRole("button",{name:"방송 시간 입력"}));
+    expect(screen.getByRole("button",{name:"3. 방송 시간"}).getAttribute("aria-current")).toBe("step");
+    expect(screen.getByText("해당 없음")).toBeTruthy();
+    expect(screen.queryByRole("checkbox",{name:"시간 미정"})).toBeNull();
+    expect(screen.queryByLabelText("방송 시작 시간")).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"저장 내용 확인"}));
+    expect(screen.getByRole("button",{name:"4. 저장 확인"}).getAttribute("aria-current")).toBe("step");
+    expect(onSubmit).not.toHaveBeenCalled();expect(fetchSchedulesMock).not.toHaveBeenCalled();
+  });
+  it("기본 정보에서 Enter를 눌러도 최종 저장을 실행하지 않는다",()=>{
+    const {onSubmit}=renderDialog({startStep:1});
+    fireEvent.submit(screen.getByRole("combobox",{name:/멤버/}).closest("form")!);
+    expect(screen.getByRole("button",{name:"2. 일정 내용"}).getAttribute("aria-current")).toBe("step");
+    expect(onSubmit).not.toHaveBeenCalled();expect(fetchSchedulesMock).not.toHaveBeenCalled();
+  });
+  it("시간 입력에서 Enter를 눌러도 확인 화면으로만 이동한다",()=>{
+    const {onSubmit}=renderDialog({startStep:3});
+    fireEvent.submit(screen.getByRole("checkbox",{name:"시간 미정"}).closest("form")!);
+    expect(screen.getByRole("button",{name:"4. 저장 확인"}).getAttribute("aria-current")).toBe("step");
+    expect(onSubmit).not.toHaveBeenCalled();expect(fetchSchedulesMock).not.toHaveBeenCalled();
+  });
+  it("멤버가 없으면 기본 정보 단계에서 Enter 진행과 저장을 차단한다",()=>{
+    const onSubmit=vi.fn();
+    render(React.createElement(ScheduleDialog,{open:true,onSubmit,members:[member]}));
+    const selector=screen.getByRole("combobox",{name:/멤버/});
+    fireEvent.submit(selector.closest("form")!);
+    expect(selector.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByText("멤버를 선택해주세요.")).toBeTruthy();
+    expect(screen.getByRole("button",{name:"1. 기본 정보"}).getAttribute("aria-current")).toBe("step");
+    expect(onSubmit).not.toHaveBeenCalled();expect(fetchSchedulesMock).not.toHaveBeenCalled();
+  });
+  it("저장 중에는 단계 이동과 닫기를 막고 실패 후에도 확인한 초안을 보존한다",async()=>{
+    let rejectSave:(error:Error)=>void=()=>{};
+    const view=renderDialog({onSubmit:()=>new Promise((_,reject)=>{rejectSave=reject;})});
+    fireEvent.change(screen.getByLabelText("제목"),{target:{value:"저장 대기 중인 초안"}});
+    await saveNewSchedule();
+    await waitFor(()=>expect(view.onSubmit).toHaveBeenCalledOnce());
+    expect(screen.getByRole("button",{name:"1. 기본 정보"}).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button",{name:"2. 일정 내용"}).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button",{name:"닫기"}));
+    expect(view.onOpenChange).not.toHaveBeenCalled();
+    rejectSave(new Error("offline"));
+    await screen.findByRole("alert");
+    expect(within(screen.getByRole("region",{name:"저장할 일정"})).getByText("저장 대기 중인 초안")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button",{name:"2. 일정 내용"}));
+    expect((await screen.findByRole("textbox",{name:"제목"}) as HTMLTextAreaElement).value).toBe("저장 대기 중인 초안");
+  });
   it("종료 이후 일반 입력을 막고 관리자에게 공개 예외 안내를 제공한다", () => {
     const props = { open: true, onSubmit: vi.fn(), members: [{ ...member, code: "bing_hayu" }],
       initialMemberUid: member.uid, initialDate: new Date("2026-11-16T12:00:00+09:00") };
     const view = render(React.createElement(ScheduleDialog, props));
     expect(screen.getByText("운영 종료 이후 일정은 관리자만 변경할 수 있습니다.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "스케쥴 추가" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "일정 내용 입력" }).hasAttribute("disabled")).toBe(true);
     view.rerender(React.createElement(ScheduleDialog, { ...props, isAdmin: true }));
     expect(screen.getByText("운영 종료 이후 예외 일정으로 공개됩니다.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "스케쥴 추가" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "일정 내용 입력" }).hasAttribute("disabled")).toBe(false);
   });
   beforeEach(() => { fetchSchedulesMock.mockReset().mockResolvedValue([]); });
   beforeAll(() => {
@@ -93,7 +192,7 @@ describe("ScheduleDialog", () => {
   });
 
   it("신규 스케쥴은 시간 미정으로 시작하고 시간 없이 저장한다", async () => {
-    const { onSubmit } = renderDialog();
+    const { onSubmit } = renderDialog({startStep:3});
 
     const timeUndecided = await screen.findByRole("checkbox", {
       name: "시간 미정",
@@ -103,7 +202,7 @@ describe("ScheduleDialog", () => {
     expect(timeUndecided.getAttribute("aria-checked")).toBe("true");
     expect(screen.getByText(/아직 정해지지 않았어요/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "스케쥴 추가" }));
+    await saveNewSchedule();
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit).toHaveBeenCalledWith(
@@ -127,7 +226,7 @@ describe("ScheduleDialog", () => {
   });
 
   it("빠른 시간 선택지를 낮/저녁 시간대에 맞게 표시한다", () => {
-    renderDialog();
+    renderDialog({startStep:3});
 
     const dayGroup = screen.getByText("낮 시간대").closest("div");
     const eveningGroup = screen.getByText("저녁 시간대").closest("div");
@@ -140,7 +239,7 @@ describe("ScheduleDialog", () => {
   });
 
   it("빠른 시간 선택 시 시간 미정을 해제하고 선택한 시간으로 저장한다", async () => {
-    const { onSubmit } = renderDialog();
+    const { onSubmit } = renderDialog({startStep:3});
 
     fireEvent.click(screen.getByRole("button", { name: "22:00" }));
 
@@ -150,7 +249,7 @@ describe("ScheduleDialog", () => {
     expect(timeUndecided.getAttribute("aria-checked")).toBe("false");
     expect(timeInput.disabled).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: "스케쥴 추가" }));
+    await saveNewSchedule();
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit).toHaveBeenCalledWith(
@@ -164,30 +263,34 @@ describe("ScheduleDialog", () => {
   it.each(["휴방", "게릴라"])("방송 초안을 %s 왕복 후에도 복원한다", async (status) => {
     const { onSubmit } = renderDialog();
     fireEvent.change(screen.getByLabelText(/제목/), { target: { value: "보존할 방송" } });
+    fireEvent.click(screen.getByRole("button",{name:"방송 시간 입력"}));
     fireEvent.click(screen.getByRole("checkbox", { name: "시간 미정" }));
     fireEvent.change(screen.getByLabelText("방송 시작 시간"), { target: { value: "19:30" } });
+    fireEvent.click(screen.getByRole("button",{name:"2. 일정 내용"}));
     fireEvent.click(screen.getByRole("button", { name: status }));
     fireEvent.change(screen.getByLabelText(/제목/), { target: { value: "별도 상태 초안" } });
     fireEvent.click(screen.getByRole("button", { name: "방송" }));
     expect(screen.getByDisplayValue("보존할 방송")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button",{name:"방송 시간 입력"}));
     expect(screen.getByDisplayValue("19:30")).toBeTruthy();
     expect(screen.getByRole("checkbox", { name: "시간 미정" }).getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(screen.getByRole("button",{name:"2. 일정 내용"}));
     fireEvent.click(screen.getByRole("button", { name: status }));
     expect(screen.getByDisplayValue("별도 상태 초안")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "방송" }));
-    fireEvent.click(screen.getByRole("button", { name: "스케쥴 추가" }));
+    await saveNewSchedule();
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ title: "보존할 방송", start_time: "19:30" })));
   });
 
   it("멤버 선택값에 오시마크를 표시한다", () => {
-    renderDialog();
+    renderDialog({startStep:1});
     expect(screen.getByRole("combobox", { name: /멤버/ }).textContent).toContain("🌙");
   });
 
   it("휴방의 삭제 대상이 없으면 삭제 대신 저장으로 확인한다", async () => {
     const { onSubmit } = renderDialog();
     fireEvent.click(screen.getByRole("button", { name: "휴방" }));
-    fireEvent.click(screen.getByRole("button", { name: "스케쥴 추가" }));
+    await saveNewSchedule();
     expect(await screen.findByText(/기존 일정 변경 없음/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "삭제 후 저장" })).toBeNull();
     expect(onSubmit).not.toHaveBeenCalled();
@@ -217,10 +320,10 @@ describe("ScheduleDialog", () => {
     fetchSchedulesMock.mockRejectedValueOnce(new Error("offline"));
     const { onSubmit } = renderDialog();
     fireEvent.change(screen.getByLabelText(/제목/), { target: { value: "유지할 입력" } });
-    fireEvent.click(screen.getByRole("button", { name: "스케쥴 추가" }));
+    await saveNewSchedule();
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("영향을 확인하지 못했습니다"));
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByDisplayValue("유지할 입력")).toBeTruthy();
+    expect(within(screen.getByRole("region",{name:"저장할 일정"})).getByText("유지할 입력")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "다시 조회하고 저장" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(fetchSchedulesMock).toHaveBeenCalledTimes(2);
@@ -229,9 +332,9 @@ describe("ScheduleDialog", () => {
   it("저장 실패 시 폼에서 재시도를 안내하고 초안을 유지한다", async () => {
     const { onSubmit } = renderDialog({ onSubmit: async () => { throw new Error("offline"); } });
     fireEvent.change(screen.getByLabelText(/제목/), { target: { value: "재시도할 입력" } });
-    fireEvent.click(screen.getByRole("button", { name: "스케쥴 추가" }));
+    await saveNewSchedule();
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("저장하지 못했습니다"));
-    expect(screen.getByDisplayValue("재시도할 입력")).toBeTruthy();
+    expect(within(screen.getByRole("region",{name:"저장할 일정"})).getByText("재시도할 입력")).toBeTruthy();
     expect(onSubmit).toHaveBeenCalledOnce();
   });
 
@@ -242,9 +345,9 @@ describe("ScheduleDialog", () => {
   ])("%s 응답을 저장 성공으로 표시하지 않고 실제 후속 조치를 안내한다",async(code,message)=>{
     const {onSubmit}=renderDialog({onSubmit:async()=>{throw new ApiError(message,409,{code});}});
     fireEvent.change(screen.getByLabelText(/제목/),{target:{value:"보존할 이전 사이트 초안"}});
-    fireEvent.click(screen.getByRole("button",{name:"스케쥴 추가"}));
+    await saveNewSchedule();
     expect(await screen.findByRole("alert")).toHaveProperty("textContent",expect.stringContaining(message));
-    expect(screen.getByDisplayValue("보존할 이전 사이트 초안")).toBeTruthy();
+    expect(within(screen.getByRole("region",{name:"저장할 일정"})).getByText("보존할 이전 사이트 초안")).toBeTruthy();
     expect(onSubmit).toHaveBeenCalledOnce();
   });
 

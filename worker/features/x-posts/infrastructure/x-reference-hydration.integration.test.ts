@@ -107,6 +107,8 @@ const json = (value: unknown) =>
   });
 
 beforeEach(async () => {
+  // Lease-expiry advances stay within a day; rollover cases supply their own boundary.
+  vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-17T12:00:00Z"));
   await applyD1Migrations(db, testEnv.X_REFERENCE_MIGRATIONS);
   for (const table of [
     "x_post_references",
