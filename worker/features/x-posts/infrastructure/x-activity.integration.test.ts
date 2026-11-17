@@ -49,7 +49,8 @@ const provider=async(input:RequestInfo|URL,init?:RequestInit)=>{
 };
 
 beforeEach(async()=>{
-  vi.spyOn(Date,"now").mockReturnValue(Date.parse("2026-11-17T12:00:00Z"));
+  // Keep the simulated clock ahead of SQLite's real clock and away from midnight.
+  vi.spyOn(Date,"now").mockReturnValue(Math.floor(Date.now()/86_400_000)*86_400_000+36*60*60_000);
   clearXServiceCachesForTests();
   remote=[];hooks=[];queued.length=0;failUser=null;timelinePage=0;
   for(const database of [db,peer]){
@@ -553,11 +554,11 @@ describe("XAA multi-site collection and common money boundary",()=>{
   it.each([true,false])("previews REST first-page reservations from the real policy without spending or writing (optimizer=%s)",async(optimized)=>{
     await db.prepare("UPDATE settings SET value=? WHERE key='x_cost_optimizer_enabled'").bind(String(optimized)).run();
     await db.prepare("UPDATE x_shared_budgets SET used=360000,reserved=20000").run();
-    await db.prepare("INSERT INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES(?,'all','x_api_cost_micros',600000,50000,1000000,0)").bind(new Date().toISOString().slice(0,10)).run();
+    await db.prepare("INSERT INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES(?,'all','x_api_cost_micros',600000,50000,1000000,0)").bind(new Date(Date.now()).toISOString().slice(0,10)).run();
     const before=await db.prepare("SELECT * FROM x_shared_budgets").all();
     const siteBefore=await db.prepare("SELECT * FROM scheduled_usage_daily").all();
     const result=await coordinator().status("otw");
-    expect(result.recovery).toMatchObject({budget:{day:new Date().toISOString().slice(0,10),targetCount:1,pageSize:optimized?5:24,
+    expect(result.recovery).toMatchObject({budget:{day:new Date(Date.now()).toISOString().slice(0,10),targetCount:1,pageSize:optimized?5:24,
       perPageMicros:optimized?125000:600000,firstPagesMicros:optimized?135000:610000,siteFirstPagesMicros:optimized?60000:250000,identityMicros:10000,
       siteLimitMicros:1000000,sharedRemainingMicros:620000,siteRemainingMicros:350000,availableMicros:350000}});
     expect((await db.prepare("SELECT * FROM x_shared_budgets").all()).results).toEqual(before.results);
@@ -568,7 +569,7 @@ describe("XAA multi-site collection and common money boundary",()=>{
   it("includes missing identity lookups and honors a lower site protection limit",async()=>{
     await db.prepare("UPDATE x_post_sources SET user_id=NULL").run();
     await db.prepare("UPDATE settings SET value='10' WHERE key='x_collection_daily_budget_cents'").run();
-    await db.prepare("INSERT INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES(?,'all','x_api_cost_micros',80000,10000,100000,0)").bind(new Date().toISOString().slice(0,10)).run();
+    await db.prepare("INSERT INTO scheduled_usage_daily(day,lane,resource,used,reserved,limit_value,updated_at) VALUES(?,'all','x_api_cost_micros',80000,10000,100000,0)").bind(new Date(Date.now()).toISOString().slice(0,10)).run();
     expect((await coordinator().status("otw")).recovery).toMatchObject({budget:{identityMicros:10000,firstPagesMicros:135000,siteFirstPagesMicros:60000,siteLimitMicros:100000,availableMicros:10000}});
     expect(fetch).not.toHaveBeenCalled();
   });
