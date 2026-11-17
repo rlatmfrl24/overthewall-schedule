@@ -2,7 +2,11 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createPlaylistHeroTransition } from "./playlist-hero-transition";
 
-const { animate } = vi.hoisted(() => ({ animate: vi.fn(() => ({ cancel: vi.fn() })) }));
+const { animate, revert } = vi.hoisted(() => {
+  const cancel = vi.fn();
+  const revert = vi.fn();
+  return { animate: vi.fn<(target: Element, options: Record<string, unknown>) => { cancel: () => void; revert: () => void }>(() => ({ cancel, revert })), revert };
+});
 vi.mock("animejs/waapi", () => ({ waapi: { animate } }));
 const detail = "/play/playlists/defaults/cover";
 let root: HTMLDivElement;
@@ -15,16 +19,16 @@ function artwork(kind: "card" | "detail", key = detail) {
   node.dataset.heroKind = kind;
   node.innerHTML = '<img src="/cover.jpg" alt="" />';
   node.getBoundingClientRect = () => kind === "card" ? rect(100, 200, 320, 320) : rect(20, 80, 208, 208);
-  const wrapper = document.createElement("div");
+  const wrapper = document.createElement(kind === "card" ? "a" : "header");
   wrapper.className = kind === "card" ? "playlist-card-main" : "playlist-detail-heading";
+  if (wrapper instanceof HTMLAnchorElement) wrapper.href = key;
   const title = document.createElement(kind === "card" ? "h3" : "h1");
-  title.dataset.playlistHeroTitle = "";
   title.textContent = "함께 듣는 긴 플레이리스트 제목";
-  title.style.fontSize = kind === "card" ? "48px" : "24px";
-  title.style.textWrap = "balance";
-  title.getBoundingClientRect = () => kind === "card" ? rect(124, 360, 272, 104) : rect(260, 100, 480, 28);
   wrapper.append(node, title);
-  root.replaceChildren(wrapper);
+  const strip = document.createElement("div");
+  strip.className = "playlist-discovery-grid";
+  strip.append(wrapper);
+  root.replaceChildren(strip);
   return node;
 }
 async function commit() {
@@ -44,6 +48,7 @@ beforeEach(() => {
   document.body.append(root);
   controller = createPlaylistHeroTransition(root, true);
 });
+
 afterEach(() => {
   controller.dispose();
   document.body.replaceChildren();
@@ -53,49 +58,41 @@ afterEach(() => {
   Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
 });
 
-it("bridges a delayed route commit, restores the image and returns to the saved scroll position", async () => {
+it("reveals the destination without flying or duplicating artwork and titles, and restores both scroll axes", async () => {
   const source = artwork("card");
-  const sourceTitle = root.querySelector<HTMLElement>("[data-playlist-hero-title]")!;
   root.scrollTop = 420;
-  controller.navigate("/play/playlists", detail);
-  expect(source.style.visibility).toBe("hidden");
-  expect(sourceTitle.style.opacity).toBe("0");
-  expect(document.querySelector(".playlist-hero-title")?.textContent).toBe(sourceTitle.textContent);
-  expect(document.querySelector('.playlist-hero-flight')?.getAttribute("data-direction")).toBe("open");
-  // A query loading state does not discard the outgoing artwork.
+  root.querySelector(".playlist-discovery-grid")!.scrollLeft = 180;
+  controller.navigate("/play", detail);
+  expect(source.style.visibility).toBe("");
+  expect(root.querySelector("h3")!.style.opacity).toBe("");
+  expect(document.querySelector(".playlist-hero-layer")).toBeNull();
   root.replaceChildren(document.createElement("p"));
   await commit();
   expect(animate).not.toHaveBeenCalled();
   const target = artwork("detail");
-  const targetTitle = root.querySelector<HTMLElement>("[data-playlist-hero-title]")!;
   await commit();
   expect(root.scrollTop).toBe(0);
-  expect(target.style.visibility).toBe("hidden");
-  expect(targetTitle.style.opacity).toBe("0");
-  expect(animate).toHaveBeenCalledWith(expect.any(HTMLElement), expect.objectContaining({
-    transform: ["translate(0px, 0px) scale(1)", "translate(136px, -260px) scale(0.5)"], opacity: [1, 0], duration: 360,
-  }));
-  expect(animate).toHaveBeenCalledWith(expect.any(HTMLElement), expect.objectContaining({ translateX: -80, translateY: -120, width: 208, height: 208 }));
-  const call = vi.mocked(animate).mock.calls.at(-1) as unknown as [Element, { onComplete: () => void }];
-  call[1].onComplete();
   expect(target.style.visibility).toBe("");
-  expect(targetTitle.style.opacity).toBe("");
-  expect(sourceTitle.style.opacity).toBe("");
-  expect(document.querySelector(".playlist-hero-layer")).toBeNull();
-  controller.navigate(detail, "/play/playlists");
+  expect(animate).toHaveBeenCalledWith(target.parentElement, expect.objectContaining({
+    transform: ["translateY(4px)", "translateY(0px)"], opacity: [0.72, 1],
+    duration: 180, ease: "cubic-bezier(0.23, 1, 0.32, 1)",
+  }));
+  controller.navigate(detail, "/play");
   const card = artwork("card");
   await commit();
   expect(root.scrollTop).toBe(420);
-  expect(card.style.visibility).toBe("hidden");
-  expect(animate).toHaveBeenCalledWith(expect.any(HTMLElement), expect.objectContaining({
-    transform: ["translate(0px, 0px) scale(1)", "translate(-136px, 260px) scale(2)"], opacity: [1, 0],
+  expect(root.querySelector(".playlist-discovery-grid")!.scrollLeft).toBe(180);
+  expect(document.activeElement).toBe(card.parentElement);
+  expect(animate).toHaveBeenLastCalledWith(card.parentElement, expect.objectContaining({
+    transform: ["translateY(2px)", "translateY(0px)"], opacity: [0.72, 1], duration: 140,
   }));
-  expect(document.querySelector('.playlist-hero-flight')?.getAttribute("data-direction")).toBe("close");
 });
 
-it("keeps navigation and scroll restoration when motion is disabled", async () => {
+it.each(["disabled", "keyboard", "unsupported"])("keeps navigation, focus and scroll restoration with %s motion", async mode => {
   controller.dispose();
-  controller = createPlaylistHeroTransition(root, false);
+  controller = createPlaylistHeroTransition(root, mode !== "disabled");
+  if (mode === "keyboard") root.dataset.playInput = "keyboard";
+  if (mode === "unsupported") Reflect.deleteProperty(HTMLElement.prototype, "animate");
   artwork("card");
   root.scrollTop = 300;
   controller.navigate("/play/playlists", detail);
@@ -103,38 +100,70 @@ it("keeps navigation and scroll restoration when motion is disabled", async () =
   await commit();
   expect(root.scrollTop).toBe(0);
   controller.navigate(detail, "/play/playlists");
-  artwork("card");
+  const card = artwork("card");
   await commit();
   expect(root.scrollTop).toBe(300);
+  expect(document.activeElement).toBe(card.parentElement);
   expect(animate).not.toHaveBeenCalled();
-  expect(document.querySelector(".playlist-hero-layer")).toBeNull();
-  expect(root.querySelector<HTMLElement>("[data-playlist-hero-title]")?.style.opacity).toBe("");
 });
 
-it.each(["resize", "wheel", "timeout", "navigation", "unmount"])("cleans up visibility and the transient layer on %s", async reason => {
-  const source = artwork("card");
+it.each(["resize", "wheel", "touchmove", "navigation", "unmount"])("cancels an active reveal on %s without leaving hidden content", async reason => {
+  artwork("card");
   controller.navigate("/play/playlists", detail);
+  const target = artwork("detail");
+  await commit();
+  expect(animate).toHaveBeenCalledTimes(1);
   if (reason === "resize") window.dispatchEvent(new Event("resize"));
-  if (reason === "wheel") root.dispatchEvent(new Event("wheel"));
-  if (reason === "timeout") await vi.advanceTimersByTimeAsync(1200);
+  if (reason === "wheel" || reason === "touchmove") root.dispatchEvent(new Event(reason));
   if (reason === "navigation") controller.navigate(detail, "/play/songs");
   if (reason === "unmount") controller.dispose();
-  expect(source.style.visibility).toBe("");
-  expect(document.querySelector(".playlist-hero-layer")).toBeNull();
+  expect(revert).toHaveBeenCalledTimes(1);
+  expect(target.style.visibility).toBe("");
+  expect(root.querySelector("h1")!.style.opacity).toBe("");
 });
 
-it("does not animate editor routes or another playlist's image", () => {
+it.each(["completion", "wheel"])("restores the destination's original inline styles on %s", async reason => {
+  artwork("card");
+  controller.navigate("/play/playlists", detail);
+  const content = artwork("detail").parentElement!;
+  content.style.opacity = "0.95";
+  content.style.transform = "translateX(1px)";
+  animate.mockImplementationOnce(() => ({
+    // Anime.js cancel commits the current frame; revert restores the original styles.
+    cancel: () => { content.style.opacity = "0.84"; content.style.transform = "translateY(2px)"; },
+    revert: () => { content.style.opacity = "0.95"; content.style.transform = "translateX(1px)"; },
+  }));
+  await commit();
+  if (reason === "completion") (animate.mock.calls.at(-1)![1].onComplete as () => void)();
+  else root.dispatchEvent(new Event("wheel"));
+  expect(content.style.opacity).toBe("0.95");
+  expect(content.style.transform).toBe("translateX(1px)");
+});
+
+it("stops observing a delayed destination after timeout", async () => {
+  artwork("card");
+  controller.navigate("/play/playlists", detail);
+  await vi.advanceTimersByTimeAsync(1200);
+  artwork("detail");
+  await commit();
+  expect(animate).not.toHaveBeenCalled();
+});
+
+it("does not animate editor routes or another playlist", async () => {
   artwork("card");
   controller.navigate("/play/playlists", "/play/playlists/new");
   controller.navigate("/play/playlists", "/play/playlists/another");
-  expect(document.querySelector(".playlist-hero-layer")).toBeNull();
+  artwork("detail");
+  await commit();
+  expect(animate).not.toHaveBeenCalled();
 });
 
-it("supports personal playlist identity without confusing it with a default playlist", async () => {
+it("supports personal playlists and placeholders without depending on a loaded image", async () => {
   const key = "/play/playlists/my-playlist";
-  artwork("card", key);
+  artwork("card", key).replaceChildren();
   controller.navigate("/play/playlists", key);
-  artwork("detail", key);
+  const target = artwork("detail", key);
+  target.replaceChildren();
   await commit();
-  expect(animate).toHaveBeenCalledTimes(5);
+  expect(animate).toHaveBeenCalledWith(target.parentElement, expect.objectContaining({ duration: 180 }));
 });

@@ -130,12 +130,3 @@ html[data-animations="disabled"] { .playlist-art img { transition: none; } }
 .playlist-add-spinner { color: var(--foreground); }
 .playlist-add-title { margin-top: 4px; color: var(--muted-foreground); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
 .playlist-add-message { font-size: 14px; line-height: 1.6; word-break: keep-all; overflow-wrap: anywhere; }
-
-
-/* A pointer-transparent image layer joins collection and detail artwork across routes. */
-.playlist-hero-layer { position: fixed; z-index: 45; overflow: hidden; pointer-events: none; }
-.playlist-hero-flight { position: absolute; overflow: hidden; pointer-events: none; }
-.playlist-hero-flight > img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.playlist-hero-flight > div { position: absolute; inset: 0; background: #000; }
-
-.playlist-hero-title { position: absolute; margin: 0; padding: 0; transform-origin: top left; pointer-events: none; }
