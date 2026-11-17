@@ -8,6 +8,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MemberDto } from "@contracts/members";
@@ -22,6 +23,11 @@ const useScheduleBoardMock = vi.hoisted(() => vi.fn());
 const fetchLiveStatusesMock = vi.hoisted(() => vi.fn());
 const fetchLiveStatusDiagnosticsMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
+const testSite = vi.hoisted(() => ({ id: "otw" }));
+vi.mock("@/shared/config/site", async (original) => {
+  const actual = await original<typeof import("@/shared/config/site")>();
+  return { ...actual, site: { ...actual.site, get id() { return testSite.id; } } };
+});
 vi.mock('@/shared/ui/toast',()=>({useToast:()=>({toast:vi.fn()})}));
 
 vi.mock("../../queries/use-schedule-board", () => ({
@@ -134,12 +140,56 @@ describe("DailySchedule", () => {
   });
 
   beforeEach(() => {
+    testSite.id = "otw";
     setBoardState();
     setLiveStatus("OPEN");
     fetchLiveStatusDiagnosticsMock.mockResolvedValue({
       items: [],
       channelToMembers: {},
     });
+  });
+
+  it("러브다이아는 멤버를 한 번씩 표시하고 헤더 링크와 하루의 모든 일정을 제공한다", async () => {
+    testSite.id = "luvdia";
+    const board = makeBoard();
+    board.members = [
+      { ...member, url_youtube: "https://www.youtube.com/@member", url_twitter: "https://x.com/member" },
+      createMemberFixture({ uid: 27, code: "another-member", name: "두 번째 멤버" }),
+    ];
+    board.schedules = Array.from({ length: 3 }, (_, index) => ({
+      ...makeSchedule(), id: index + 1, title: `오늘의 방송 ${index + 1}`,
+    }));
+    setBoardState(board);
+    render(createElement(DailySchedule), { wrapper: createQueryWrapper() });
+    const card = await screen.findByRole("article", { name: `${member.name} 스케쥴` });
+    expect(screen.getAllByRole("heading", { name: member.name })).toHaveLength(1);
+    expect(card.querySelector("header")?.contains(within(card).getByRole("heading", { name: member.name }))).toBe(true);
+    expect(within(card).getByRole("link", { name: `${member.name} YouTube` }).getAttribute("href")).toBe(board.members[0].url_youtube);
+    expect(within(card).getByRole("link", { name: `${member.name} X` }).getAttribute("href")).toBe(board.members[0].url_twitter);
+    for (const schedule of board.schedules) expect(within(card).getByText(schedule.title!)).toBeTruthy();
+    expect(screen.getByRole("article", { name: "두 번째 멤버 스케쥴" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "시간순 보기 전환" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "스케쥴 복사 옵션" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "이전 날짜로 이동" })).toBeTruthy();
+  });
+
+  it("러브다이아에서도 방송 카드의 일정 클릭은 기존 편집 흐름으로 진입한다", async () => {
+    testSite.id = "luvdia";
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(createElement(DailySchedule), { wrapper: createQueryWrapper() });
+    const card = await screen.findByRole("article", { name: `${member.name} 스케쥴` });
+    await within(card).findByLabelText("LIVE, 321명 시청중");
+    fireEvent.click(within(card).getByRole("button", { name: /정규 방송/ }));
+    expect(await screen.findByRole("heading", { name: "스케쥴 수정" })).toBeTruthy();
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it("러브다이아는 로딩 중에도 두 멤버 분량의 자리를 제공한다", () => {
+    testSite.id = "luvdia";
+    setBoardState();
+    useScheduleBoardMock.mockReturnValue({ ...useScheduleBoardMock(), members: [], schedules: [], loading: true, hasLoaded: false });
+    render(createElement(DailySchedule), { wrapper: createQueryWrapper() });
+    expect(screen.getAllByRole("article", { name: "멤버 일정 불러오는 중" })).toHaveLength(2);
   });
 
   afterEach(() => {

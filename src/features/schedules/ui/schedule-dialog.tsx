@@ -160,7 +160,9 @@ export const ScheduleDialog = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isImpactChecking, setIsImpactChecking] = useState(false);
 
-  const isEditMode = Boolean(schedule);
+  // Keep the form layout stable while Radix plays the closing animation.
+  const [isEditMode, setIsEditMode] = useState(Boolean(schedule));
+  if (isOpen && isEditMode !== Boolean(schedule)) setIsEditMode(Boolean(schedule));
   const isBusy = isSubmitting || isImpactChecking;
   const hasMemberError = hasAttemptedSubmit && memberUid === "";
   const isExclusiveStatus = (nextStatus: ScheduleStatus) =>

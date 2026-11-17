@@ -1,0 +1,96 @@
+.luvdia-daily-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.luvdia-member-card {
+  container: luvdia-member / inline-size;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--card);
+  box-shadow: 0 2px 4px rgb(0 0 0 / 0.02);
+}
+
+.luvdia-member-card.is-live { cursor: pointer; }
+
+.luvdia-member-header {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) 80px;
+  align-items: center;
+  gap: 16px;
+  min-height: 120px;
+  padding: 16px 20px;
+  color: var(--member-text, var(--foreground));
+  background: var(--member-main, var(--muted));
+}
+
+.luvdia-member-avatar-slot { position: relative; }
+.luvdia-member-avatar { display: block; width: 88px; height: 88px; border: 3px solid white; border-radius: 50%; object-fit: cover; }
+.luvdia-member-identity { display: grid; grid-template-rows: 34px 16px; gap: 6px; min-width: 0; }
+.luvdia-member-identity h2 { margin: 0; font-size: 28px; font-weight: 850; line-height: 1.2; letter-spacing: -0.65px; white-space: nowrap; }
+.luvdia-member-status { font-size: 11px; line-height: 1.4; opacity: 0.8; }
+.luvdia-member-links { display: grid; gap: 8px; min-width: 0; }
+.luvdia-member-socials { display: flex; gap: 8px; }
+.luvdia-member-socials a { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1px solid rgb(255 255 255 / 0.6); border-radius: 50%; background: rgb(255 255 255 / 0.55); }
+.luvdia-member-socials img { width: 17px; height: 17px; object-fit: contain; }
+.luvdia-member-profile { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 6px 8px; border: 1px solid rgb(255 255 255 / 0.5); border-radius: 20px; color: var(--member-text); background: rgb(255 255 255 / 0.5); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.luvdia-member-profile svg { width: 13px; height: 13px; }
+.luvdia-member-links a:hover { background: rgb(255 255 255 / 0.8); }
+.luvdia-member-card a:focus-visible { outline: 3px solid var(--ring); outline-offset: 4px; }
+
+/* Keep the expanded viewer count inside compact cards. */
+.luvdia-member-live { position: absolute; bottom: -8px; left: 50%; display: flex; align-items: center; gap: 5px; min-height: 24px; padding: 0 9px; transform: translateX(max(-50%, -44px)); border: 2px solid white; border-radius: 16px; color: white; background: #c92342; font-size: 10px; font-weight: 750; white-space: nowrap; }
+.luvdia-live-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.luvdia-live-viewers { max-width: 0; overflow: hidden; opacity: 0; transform: translateX(4px); transition: max-width 200ms ease, opacity 200ms ease, transform 200ms ease; }
+.luvdia-member-card:hover .luvdia-live-viewers,
+.luvdia-member-card:focus-within .luvdia-live-viewers { max-width: 100px; opacity: 1; transform: translateX(0); }
+
+@media (prefers-reduced-motion: reduce) {
+  .luvdia-live-viewers { transition: none; }
+}
+
+.luvdia-member-body { display: flex; flex: 1; flex-direction: column; min-width: 0; padding: 20px; background: color-mix(in srgb, var(--member-sub, var(--muted)) 15%, var(--card)); }
+.dark .luvdia-member-body { background: color-mix(in srgb, var(--member-sub, var(--muted)) 10%, var(--card)); }
+.luvdia-member-schedules { display: grid; flex: 1; align-content: start; gap: 12px; }
+.luvdia-member-card [data-schedule-card] { min-height: 0; gap: 10px; padding: 16px 18px; }
+.luvdia-member-card [data-schedule-time] { gap: 6px; height: auto; padding: 0; border: 0; background: transparent; box-shadow: none; font-size: 22px; font-weight: 700; line-height: 1; }
+.luvdia-member-card [data-schedule-time] svg { width: 16px; height: 16px; }
+.luvdia-member-card [data-schedule-title] { display: block; -webkit-line-clamp: unset; font-size: 20px; font-weight: 750; line-height: 1.45; letter-spacing: -0.45px; overflow-wrap: anywhere; }
+.luvdia-member-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 118px; padding: 16px; border: 1px dashed var(--border); border-radius: 13px; color: var(--muted-foreground); background: color-mix(in srgb, var(--card) 60%, transparent); font-size: 14px; }
+.luvdia-member-empty button { font-size: 12px; }
+.luvdia-member-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.luvdia-member-watch { display: flex; flex: 1; align-items: center; justify-content: center; gap: 9px; min-width: 0; min-height: 44px; border: 1px solid var(--border); border-radius: 12px; color: var(--foreground); background: color-mix(in srgb, var(--card) 72%, transparent); font-size: 13px; font-weight: 700; }
+.luvdia-member-watch.is-live { border-color: #20282a; color: #f9fafb; background: #20282a; }
+.luvdia-member-watch img { width: 19px; height: 19px; object-fit: contain; }
+.luvdia-member-watch svg { width: 14px; height: 14px; }
+.luvdia-member-add { width: 44px; height: 44px; border-radius: 12px; }
+.luvdia-member-skeleton .luvdia-member-header { background: var(--muted); }
+
+@container luvdia-member (max-width: 380px) {
+  .luvdia-member-header { grid-template-columns: 64px minmax(0, 1fr) 68px; gap: 12px; min-height: 104px; padding: 16px; }
+  .luvdia-member-avatar { width: 64px; height: 64px; }
+  .luvdia-member-identity h2 { font-size: 24px; }
+  .luvdia-member-socials { gap: 6px; }
+  .luvdia-member-socials a { width: 31px; height: 31px; }
+}
+
+@media (max-width: 639px) {
+  .luvdia-daily-grid { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .luvdia-member-header { grid-template-columns: 64px minmax(0, 1fr) 96px; gap: 12px; min-height: 128px; padding: 16px; }
+  .luvdia-member-avatar { width: 64px; height: 64px; }
+  .luvdia-member-identity { grid-template-rows: 29px 16px; gap: 5px; }
+  .luvdia-member-identity h2 { font-size: 24px; }
+  .luvdia-member-socials { gap: 8px; }
+  .luvdia-member-socials a { width: 44px; height: 44px; }
+  .luvdia-member-profile { min-height: 44px; font-size: 12px; }
+  .luvdia-member-body { padding: 16px; }
+  .luvdia-member-card [data-schedule-card] { padding: 14px 15px; }
+  .luvdia-member-card [data-schedule-time] { font-size: 20px; }
+  .luvdia-member-card [data-schedule-title] { font-size: 18px; }
+  .luvdia-member-watch { font-size: 12px; }
+}
