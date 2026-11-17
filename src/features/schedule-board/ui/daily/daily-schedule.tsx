@@ -23,6 +23,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CardMember } from "./card-member";
 import { CardMemberCompact } from "./card-member-compact";
 import { CardMemberSkeleton } from "./card-member-skeleton";
+import { LuvDiaMemberCard, LuvDiaMemberCardSkeleton } from "./luvdia-member-card";
 import { RecoveryPet } from "./recovery-pet";
 import { format, addDays, subDays, isSameDay } from "date-fns";
 import {
@@ -755,12 +756,29 @@ export const DailySchedule = ({
           {viewMode === "grid" ? (
             <div
               aria-label="Daily Schedule Grid"
-              className="grid gap-4 sm:gap-6 w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
+              className={cn("grid gap-4 sm:gap-6 w-full", site.id === "luvdia" ? "luvdia-daily-grid" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5")}
             >
               {!isDailyScheduleLoading && members.length > 0 ? (
                 members.map((member) => {
                   const memberSchedules =
                     schedulesByMemberUid.get(member.uid) ?? [];
+
+                  if (site.id === "luvdia") return (
+                    <LuvDiaMemberCard
+                      key={member.uid}
+                      member={member}
+                      schedules={memberSchedules}
+                      isToday={isToday}
+                      liveStatus={isToday && !liveStatusQuery.isError ? liveStatuses[member.uid] : undefined}
+                      isLiveStatusPending={liveStatusEnabled && liveStatusQuery.isPending}
+                      onScheduleClick={handleScheduleClick}
+                      onAddSchedule={memberUid => {
+                        setEditingSchedule(null);
+                        setInitialMemberUid(memberUid);
+                        setIsEditDialogOpen(true);
+                      }}
+                    />
+                  );
 
                   return (
                     <div key={member.uid} className="h-full">
@@ -795,8 +813,8 @@ export const DailySchedule = ({
                 })
               ) : (
                 <>
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <CardMemberSkeleton key={i} />
+                  {Array.from({ length: site.id === "luvdia" ? 2 : 5 }).map((_, i) => (
+                    site.id === "luvdia" ? <LuvDiaMemberCardSkeleton key={i} /> : <CardMemberSkeleton key={i} />
                   ))}
                 </>
               )}

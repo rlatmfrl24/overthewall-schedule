@@ -79,6 +79,30 @@ const saveNewSchedule = async () => {
 };
 
 describe("ScheduleDialog", () => {
+  it("닫는 동안 편집 화면을 유지하고 다음 진입에서만 추가/편집 모드를 전환한다", () => {
+    const exitStyle = document.createElement("style");
+    exitStyle.textContent = '[data-slot="dialog-content"][data-state="open"] { animation-name: dialog-enter; } [data-slot="dialog-content"][data-state="closed"] { animation-name: dialog-exit; }';
+    document.head.append(exitStyle);
+    const props = { onSubmit: vi.fn(), members: [member], onOpenChange: vi.fn() };
+    const view = render(React.createElement(ScheduleDialog, { ...props, open: true, schedule }));
+    try {
+      view.rerender(React.createElement(ScheduleDialog, { ...props, open: false, schedule: null }));
+      const closing = document.querySelector('[data-slot="dialog-content"][data-state="closed"]');
+      expect(closing).toBeTruthy();
+      expect(within(closing as HTMLElement).getByRole("heading", { name: "스케쥴 수정", hidden: true })).toBeTruthy();
+      expect(within(closing as HTMLElement).getByDisplayValue(schedule.title!)).toBeTruthy();
+      expect(within(closing as HTMLElement).queryByRole("navigation", { name: "스케쥴 추가 단계", hidden: true })).toBeNull();
+      view.rerender(React.createElement(ScheduleDialog, { ...props, open: true, schedule: null }));
+      expect(screen.getByRole("heading", { name: "스케쥴 추가" })).toBeTruthy();
+      view.rerender(React.createElement(ScheduleDialog, { ...props, open: true, schedule: { ...schedule, title: "다른 일정" } }));
+      expect(screen.getByRole("heading", { name: "스케쥴 수정" })).toBeTruthy();
+      expect(screen.getByDisplayValue("다른 일정")).toBeTruthy();
+    } finally {
+      cleanup();
+      exitStyle.remove();
+    }
+  });
+
   it("직접 추가를 네 화면으로 나누고 최종 확인 전에는 조회하거나 저장하지 않는다", async () => {
     const {onSubmit}=renderDialog({startStep:1});
     expect(screen.getByRole("navigation",{name:"스케쥴 추가 단계"})).toBeTruthy();
