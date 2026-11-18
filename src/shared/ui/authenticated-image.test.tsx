@@ -1,11 +1,22 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import React from "react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AuthenticatedImage } from "./authenticated-image";
 import { ContentSessionContext } from "@/shared/hooks/content-session";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+const objectUrlDescriptors = ["createObjectURL", "revokeObjectURL"].map(key => [key, Object.getOwnPropertyDescriptor(URL, key)] as const);
+let clerkDescriptor: PropertyDescriptor | undefined;
+beforeEach(() => { clerkDescriptor = Object.getOwnPropertyDescriptor(window, "Clerk"); });
+afterEach(() => {
+  cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks();
+  for (const [key, descriptor] of objectUrlDescriptors) {
+    if (descriptor) Object.defineProperty(URL, key, descriptor);
+    else Reflect.deleteProperty(URL, key);
+  }
+  if (clerkDescriptor) Object.defineProperty(window, "Clerk", clerkDescriptor);
+  else Reflect.deleteProperty(window, "Clerk");
+});
 it("uses the own login for normal workspace images without requesting admin archive access",async()=>{
   vi.stubGlobal("window",Object.assign(window,{Clerk:{session:{getToken:async()=>"own-user-session"}}}));
   let counter=0;URL.createObjectURL=()=>`blob:workspace-${++counter}`;const revoke=vi.fn();URL.revokeObjectURL=revoke;
@@ -153,12 +164,14 @@ it("keeps simultaneous reference permissions isolated within one session", async
 
 it("retries failed bytes for a new consumer without an old consumer releasing its request", async () => {
   vi.stubGlobal("window", Object.assign(window, { Clerk: { session: { getToken: async () => "token" } } }));
-  const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response("Failed", { status: 500 })).mockResolvedValueOnce(new Response(new Uint8Array([1])));
+  let fail!: (response: Response) => void;
+  const failedRequest = new Promise<Response>(resolve => { fail = resolve; });
+  const fetcher = vi.fn<typeof fetch>().mockReturnValueOnce(failedRequest).mockResolvedValueOnce(new Response(new Uint8Array([1])));
   vi.stubGlobal("fetch", fetcher);
   URL.createObjectURL = () => "blob:retry"; const revoke = vi.fn(); URL.revokeObjectURL = revoke;
   const image = (key: string) => <AuthenticatedImage key={key} protectedImage={false} src="/profile/bing_hayu.webp" alt={key} />;
   const view = render(<ContentSessionContext.Provider value="session">{image("failed")}</ContentSessionContext.Provider>);
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  await act(async () => fail(new Response("Failed", { status: 500 })));
   expect(view.getByAltText("failed").getAttribute("src")).toBeNull();
   view.rerender(<ContentSessionContext.Provider value="session">{image("failed")}{image("retry")}</ContentSessionContext.Provider>);
   await waitFor(() => expect(view.getByAltText("retry").getAttribute("src")).toBe("blob:retry"));

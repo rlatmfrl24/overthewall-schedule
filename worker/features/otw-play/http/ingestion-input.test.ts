@@ -10,10 +10,19 @@ import {
 } from "./ingestion-input";
 
 describe("OTW Play ingestion input", () => {
-  it("accepts explicit singing imports and rejects invalid kinds and unversioned corrections", () => {
+  it("accepts an explicit singing clip import", () => {
     expect(parseCreatePlaylistImport({ playlistUrl: "PL1234567890", mode: "all_new", candidateKind: "singing_clip", idempotencyKey: "request_1234" })).toMatchObject({ ok: true, value: { candidateKind: "singing_clip" } });
+  });
+
+  it("rejects an unsupported playlist candidate kind", () => {
     expect(parsePlaylistPreflight({ playlistUrl: "PL1234567890", mode: "all_new", candidateKind: "broadcast" }).ok).toBe(false);
+  });
+
+  it("accepts a versioned candidate kind correction", () => {
     expect(parseUpdateIngestionCandidate({ action: "change_kind", candidateKind: "singing_clip", expectedVersion: 3 })).toMatchObject({ ok: true });
+  });
+
+  it("rejects a candidate kind correction without a version", () => {
     expect(parseUpdateIngestionCandidate({ action: "change_kind", candidateKind: "singing_clip" }).ok).toBe(false);
   });
 
@@ -34,17 +43,23 @@ describe("OTW Play ingestion input", () => {
     });
   });
 
-  it("rejects unknown fields, implicit all-new limits, and invalid keys", () => {
+  it("rejects unknown playlist preflight fields", () => {
     expect(parsePlaylistPreflight({
       playlistUrl: "PL1234567890",
       mode: "all_new",
       unexpected: true,
     })).toEqual({ ok: false, fields: { body: "invalid_shape" } });
+  });
+
+  it("rejects a recent limit in all-new playlist preflight", () => {
     expect(parsePlaylistPreflight({
       playlistUrl: "PL1234567890",
       mode: "all_new",
       recentLimit: 50,
     })).toEqual({ ok: false, fields: { body: "invalid_playlist_import" } });
+  });
+
+  it("rejects a short playlist import idempotency key", () => {
     expect(parseCreatePlaylistImport({
       playlistUrl: "PL1234567890",
       mode: "all_new",
@@ -52,7 +67,7 @@ describe("OTW Play ingestion input", () => {
     })).toEqual({ ok: false, fields: { idempotencyKey: "invalid" } });
   });
 
-  it("accepts explicit all-new ranges and rejects partial or oversized ranges", () => {
+  it("accepts an explicit all-new range at the upper offset", () => {
     expect(parsePlaylistPreflight({
       playlistUrl: "PL1234567890",
       mode: "all_new",
@@ -67,11 +82,17 @@ describe("OTW Play ingestion input", () => {
         rangeLimit: 1,
       },
     });
+  });
+
+  it("rejects an all-new range with no limit", () => {
     expect(parsePlaylistPreflight({
       playlistUrl: "PL1234567890",
       mode: "all_new",
       rangeStart: 5_000,
     })).toEqual({ ok: false, fields: { body: "invalid_playlist_import" } });
+  });
+
+  it("rejects an all-new range above the size limit", () => {
     expect(parsePlaylistPreflight({
       playlistUrl: "PL1234567890",
       mode: "all_new",
@@ -80,8 +101,7 @@ describe("OTW Play ingestion input", () => {
     })).toEqual({ ok: false, fields: { body: "invalid_playlist_import" } });
   });
 
-  it("strictly validates candidate review, conversion, and retry commands", () => {
-    const review = {
+  const createCandidateReview = () => ({
       song: { kind: "existing", songId: "song-1" },
       participants: [{
         subject: { kind: "entity", entityId: "entity-1" },
@@ -93,8 +113,11 @@ describe("OTW Play ingestion input", () => {
       participationType: "solo",
       performanceTags: ["방송 클립"],
       internalNote: null,
-    };
-    expect(parseUpdateIngestionCandidate({
+    });
+
+it("accepts a versioned candidate review", () => {
+const review = createCandidateReview();
+expect(parseUpdateIngestionCandidate({
       expectedVersion: 1,
       expectedReviewInput: null,
       expectedReviewStatus: "needs_input",
@@ -110,7 +133,11 @@ describe("OTW Play ingestion input", () => {
         input: review,
       },
     });
-    expect(parseUpdateIngestionCandidate({
+});
+
+it("rejects malformed expected review input", () => {
+const review = createCandidateReview();
+expect(parseUpdateIngestionCandidate({
       expectedVersion: 1,
       expectedReviewInput: { invalid: true },
       expectedReviewStatus: "needs_input",
@@ -120,7 +147,11 @@ describe("OTW Play ingestion input", () => {
       ok: false,
       fields: { expectedReviewInput: "invalid_review_input" },
     });
-    expect(parseUpdateIngestionCandidate({
+});
+
+it("rejects an unknown expected review status", () => {
+const review = createCandidateReview();
+expect(parseUpdateIngestionCandidate({
       expectedVersion: 1,
       expectedReviewInput: null,
       expectedReviewStatus: "invalid",
@@ -130,12 +161,18 @@ describe("OTW Play ingestion input", () => {
       ok: false,
       fields: { expectedReviewStatus: "invalid" },
     });
-    expect(parseUpdateIngestionCandidate({
+});
+
+it("rejects unknown ignore fields", () => {
+expect(parseUpdateIngestionCandidate({
       expectedVersion: 1,
       action: "ignore",
       unexpected: true,
     })).toEqual({ ok: false, fields: { body: "invalid_shape" } });
-    expect(parseUpdateIngestionCandidate({
+});
+
+it("accepts member channel ownership", () => {
+expect(parseUpdateIngestionCandidate({
       expectedVersion: 2,
       action: "approve_channel",
       channel: {
@@ -155,7 +192,10 @@ describe("OTW Play ingestion input", () => {
         },
       },
     });
-    expect(parseUpdateIngestionCandidate({
+});
+
+it("rejects external channel approval without an owner", () => {
+expect(parseUpdateIngestionCandidate({
       expectedVersion: 2,
       action: "approve_channel",
       channel: {
@@ -165,7 +205,10 @@ describe("OTW Play ingestion input", () => {
         externalApprovalConfirmed: true,
       },
     })).toEqual({ ok: false, fields: { channel: "invalid" } });
-    expect(parseUpdateIngestionCandidate({
+});
+
+it("accepts site-owned official channel approval", () => {
+expect(parseUpdateIngestionCandidate({
       expectedVersion: 2,
       action: "approve_channel",
       channel: {
@@ -185,7 +228,10 @@ describe("OTW Play ingestion input", () => {
         },
       },
     });
-    expect(parseUpdateIngestionCandidate({
+});
+
+it("requires explicit external project channel confirmation", () => {
+expect(parseUpdateIngestionCandidate({
       expectedVersion: 2,
       action: "approve_channel",
       channel: {
@@ -195,36 +241,57 @@ describe("OTW Play ingestion input", () => {
         externalApprovalConfirmed: false,
       },
     })).toEqual({ ok: false, fields: { channel: "invalid" } });
-    expect(parseConvertIngestionCandidates({
+});
+
+it("rejects duplicate batch conversion candidates", () => {
+expect(parseConvertIngestionCandidates({
       candidates: [
         { id: "candidate-1", expectedVersion: 1 },
         { id: "candidate-1", expectedVersion: 1 },
       ],
     })).toEqual({ ok: false, fields: { candidates: "invalid" } });
-    expect(parseConvertIngestionCandidate({ expectedVersion: 3 })).toEqual({
+});
+
+it("accepts a versioned single conversion", () => {
+expect(parseConvertIngestionCandidate({ expectedVersion: 3 })).toEqual({
       ok: true,
       value: { expectedVersion: 3 },
     });
-    expect(parseConvertIngestionCandidate({ expectedVersion: 3, force: true })).toEqual({
+});
+
+it("rejects unrecognized single-conversion fields", () => {
+expect(parseConvertIngestionCandidate({ expectedVersion: 3, force: true })).toEqual({
       ok: false,
       fields: { body: "invalid_shape" },
     });
-    expect(parseIgnoreIngestionCandidates({
+});
+
+it("accepts a versioned ignore batch", () => {
+expect(parseIgnoreIngestionCandidates({
       candidates: [{ id: "candidate-1", expectedVersion: 1 }],
     })).toEqual({
       ok: true,
       value: { candidates: [{ id: "candidate-1", expectedVersion: 1 }] },
     });
-    expect(parseIgnoreIngestionCandidates({
+});
+
+it("rejects duplicate ignore candidates with different versions", () => {
+expect(parseIgnoreIngestionCandidates({
       candidates: [
         { id: "candidate-1", expectedVersion: 1 },
         { id: "candidate-1", expectedVersion: 2 },
       ],
     })).toEqual({ ok: false, fields: { candidates: "invalid" } });
-    expect(parseRetryIngestionJob({})).toEqual({ ok: true, value: {} });
-    expect(parseRetryIngestionJob({ force: true })).toEqual({
+});
+
+it("accepts an empty retry command", () => {
+expect(parseRetryIngestionJob({})).toEqual({ ok: true, value: {} });
+});
+
+it("rejects forcing a retry through an unknown field", () => {
+expect(parseRetryIngestionJob({ force: true })).toEqual({
       ok: false,
       fields: { body: "empty_object_required" },
     });
-  });
+});
 });

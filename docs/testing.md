@@ -7,9 +7,10 @@ Node 버전은 `.node-version`, pnpm 버전은 `package.json#packageManager`를 
 
 | 명령 | 범위 |
 | --- | --- |
-| `pnpm test` | 단위·Worker 통합 프로젝트 실행 후 agent 동기화 Node 테스트 실행. 앞 단계 실패 시 뒤 단계는 실행하지 않음 |
+| `pnpm test` | 단위·Worker 통합 프로젝트 실행 후 `test:node` 실행. 앞 단계 실패 시 뒤 단계는 실행하지 않음 |
 | `pnpm test:unit` | `src`, `worker`, `scripts`, `contracts`의 단위 테스트. `*.integration.test.ts` 제외 |
 | `pnpm test:worker-integration` | `worker/**/*.integration.test.ts`, workerd와 격리된 D1 |
+| `pnpm test:node` | agent 동기화와 점검용 Worker의 Node 테스트 두 파일 실행 |
 | `node --test scripts/sync-agent-to-cursor.test.mjs` | canonical agent 파일·mirror·참조·휴대성 회귀만 실행 |
 | `pnpm test:coverage` | 별도 진단: 전체 프로젝트 실행과 합산 Istanbul 커버리지, 백분율 강제 없음 |
 | `pnpm typecheck:test` | 프런트 테스트·Worker·Vite/Vitest 설정 타입 검사 |
@@ -79,6 +80,12 @@ UI·queries·player·HTTP 어댑터 등의 테스트도 실행하지만 해당 �
   기대값을 제품 로직에서 생성하거나 전역 공유 가변 상태를 만들지 않는다.
 - 장식용 CSS 클래스와 전체 구현 객체의 복사본은 검증 대상으로 삼지 않는다.
   접근성·사용자에게 보이는 상태·명시된 데이터 및 운영 비용 계약은 유지한다.
+- [2026-11-18 전수 정리 기록](reports/2026-11-18-test-suite-stability.md)은 현재 파일별
+  검증 목적·실행 경계·정리 판단과 변경 전후 실행 증거를 기록한다.
+- 여러 API나 독립적인 입력 오류를 하나의 긴 사례에 이어 붙이지 않는다. 기능 소유 위치에서
+  독립 사례로 검증하고, 저장·승인·재전달 등 연결 자체가 계약인 흐름은 통합 검증으로 유지한다.
+- 경과 시간이 아닌 완료 조건을 기다린다. 동시성은 직접 제어하는 Promise로 증명하고,
+  자동 재시도 부재처럼 일정 시간 동안의 동작은 fake timer로 검증한다.
 
 - 테스트는 해당 capability 코드 옆에 둔다. Worker 단위 테스트는 `.test.ts`,
   실제 D1 실행은 `.integration.test.ts`로 구분한다.
@@ -89,6 +96,8 @@ UI·queries·player·HTTP 어댑터 등의 테스트도 실행하지만 해당 �
   개별 테스트의 선행 조건이며, 일부 migration 테스트를 전체 migration chain 검증으로 간주하지 않는다.
 - `clearAllMocks`는 호출 기록만 지운다. 테스트마다 달라지는 응답/일회성 실패는
   `resetAllMocks` 후 기본 응답을 설정하고, 전역 stub과 spy는 종료 시 복원한다.
+- 실행 설정은 전역 테스트 함수를 제공하지 않는다. `vi`·`it`·`expect` 등은 명시적으로
+  import하며, 테스트 타입 설정도 같은 조건으로 import 누락을 검사한다.
 - jsdom이 구현하지 않는 스크롤 같은 브라우저 기능은 필요한 테스트에서만 stub한다.
   라우터 이동·미저장 확인 등 검증 대상 흐름은 실제 컴포넌트를 사용한다.
 - 입력 한도는 실제 숫자의 서버 경계 테스트를 유지한다. UI 분기 검증은 작은 한도를

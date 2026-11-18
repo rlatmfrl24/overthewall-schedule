@@ -418,18 +418,20 @@ describe("AutoUpdateSettingsManager", () => {
   });
 
   it("수집 상태 조회 실패는 표시하고 자동 재조회 없이 수동 새로고침으로 복구한다", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const client = createTestQueryClient();
     client.setDefaultOptions({queries:{retry:1,retryDelay:0,gcTime:Infinity}});
     fetchScheduleOperationsStatusMock.mockRejectedValueOnce(new Error("D1 unavailable"));
     render(createElement(AutoUpdateSettingsManager), {wrapper:({children})=>createElement(QueryClientProvider,{client,children})});
-    expect(await screen.findByRole("alert")).toBeTruthy();
-    await new Promise(resolve=>setTimeout(resolve,40));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(screen.getByRole("alert")).toBeTruthy();
     expect(fetchScheduleOperationsStatusMock).toHaveBeenCalledTimes(1);
     const refresh = screen.getByRole("button",{name:"상태 새로고침"});
-    await waitFor(()=>expect(refresh).toHaveProperty("disabled",false));
-    fireEvent.click(refresh);
-    await waitFor(()=>expect(screen.queryByRole("alert")).toBeNull());
+    expect(refresh).toHaveProperty("disabled", false);
+    await act(async () => { fireEvent.click(refresh); await vi.advanceTimersByTimeAsync(1000); });
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(fetchScheduleOperationsStatusMock).toHaveBeenCalledTimes(2);
+    client.clear();
   });
 
   it("거부 제외는 공통 설정/상태와 선택한 목록만 읽고 숨긴 후보를 조회하지 않는다", async () => {
@@ -523,14 +525,14 @@ describe("AutoUpdateSettingsManager", () => {
   });
 
   it.each(["succeeded", "partial"])("%s 수집 종료 뒤 상태와 후보를 한 번만 갱신한다", async status => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const finished = {runId:"schedule-run",status,progress:{succeeded:1,total:2,failed:status==="partial"?1:0,queued:0}};
     useOperationRunMock.mockImplementation(accepted => ({data:accepted?finished:null,isLoading:false}));
     const view = render(createElement<{activeTab:"review"}>(AutoUpdateSettingsManager, {activeTab:"review"}), {wrapper:createQueryWrapper()});
-    const run = await screen.findByRole("button", {name:"지금 수집"});
-    await waitFor(() => expect(run).toHaveProperty("disabled", false));
-    fireEvent.click(run);
-    await waitFor(() => expect(fetchPendingSchedulesMock.mock.calls.length).toBeGreaterThan(1));
-    await new Promise(resolve => setTimeout(resolve, 40));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    const run = screen.getByRole("button", {name:"지금 수집"});
+    expect(run).toHaveProperty("disabled", false);
+    await act(async () => { fireEvent.click(run); await vi.advanceTimersByTimeAsync(1000); });
     expect(screen.getByText(status, {exact:true})).toBeTruthy();
     view.unmount();
     expect(fetchSettingsMock).toHaveBeenCalledTimes(2);
@@ -585,6 +587,9 @@ describe("AutoUpdateSettingsManager", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   const holidayPending = (overrides = {}) => makePendingSchedule({

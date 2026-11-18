@@ -1836,48 +1836,43 @@ describe("D1AdminCatalogRepository", () => {
     );
   });
 
-  it("rolls back the integrated entry when its event fails and rejects a stale preflight revision", async () => {
+  it.each([
+    {
+      failure: "event", performanceId: "atomic-performance", eventId: "duplicate-event", sourceId: "atomic-source", code: "validation_failed"
+    },
+    {
+      failure: "projection", performanceId: "read-model-failure", eventId: "read-model-failure-event", sourceId: "read-model-failure-source", code: "validation_failed"
+    },
+    {
+      failure: "stale revision", performanceId: "stale-performance", eventId: "fresh-event", sourceId: "stale-source", code: "stale_write"
+    }
+  ] as const)("rolls back the integrated entry on $failure", async ({ failure, performanceId, eventId, sourceId, code }) => {
     const repository = new D1AdminCatalogRepository(db);
     const singer = await createEntity(repository, "Atomic Singer");
     const artist = await createEntity(repository, "Atomic Artist", "organization");
-    const pending = await repository.createChannel(
-      {
-        externalChannelId: `UC${"R".repeat(22)}`,
-        displayName: "Atomic Channel",
-        channelRole: "member_music",
-        entityIds: [singer.data.id],
-      },
-      actor,
-      { channelId: id("channel"), eventId: id("event") },
-      NOW,
-    );
-    const channel = await repository.updateChannel(
-      {
-        ...pending.data,
-        expectedVersion: pending.data.version,
-        verificationStatus: "approved",
-        active: true,
-      },
-      actor,
-      id("event"),
-      NOW + 1,
-    );
-    const song = await repository.createSong(
-      {
-        slug: "atomic-song",
-        title: "Atomic Song",
-        isOtwOriginal: false,
-        originalReleaseDate: null,
-        originalReleasePrecision: "unknown",
-        aliases: [],
-        originalArtists: [
-          { entityId: artist.data.id, creditOrder: 0, isPrimary: true },
-        ],
-      },
-      actor,
-      { songId: id("song"), eventId: id("event") },
-      NOW + 2,
-    );
+    const pending = await repository.createChannel({
+      externalChannelId: `UC${"R".repeat(22)}`,
+      displayName: "Atomic Channel",
+      channelRole: "member_music",
+      entityIds: [singer.data.id],
+    }, actor, { channelId: id("channel"), eventId: id("event") }, NOW);
+    const channel = await repository.updateChannel({
+      ...pending.data,
+      expectedVersion: pending.data.version,
+      verificationStatus: "approved",
+      active: true,
+    }, actor, id("event"), NOW + 1);
+    const song = await repository.createSong({
+      slug: "atomic-song",
+      title: "Atomic Song",
+      isOtwOriginal: false,
+      originalReleaseDate: null,
+      originalReleasePrecision: "unknown",
+      aliases: [],
+      originalArtists: [
+        { entityId: artist.data.id, creditOrder: 0, isPrimary: true },
+      ],
+    }, actor, { songId: id("song"), eventId: id("event") }, NOW + 2);
     const video = {
       videoId: "zYxWvUtSr_2",
       channelId: channel.data.externalChannelId,
@@ -1918,84 +1913,43 @@ describe("D1AdminCatalogRepository", () => {
         channelEventId: id("unused-event"),
         songId: id("unused-song"),
         songEventId: id("unused-event"),
-        performanceId: "atomic-performance",
-        performanceEventId: "duplicate-event",
-        sourceId: "atomic-source",
+        performanceId,
+        performanceEventId: eventId,
+        sourceId,
       },
     };
-    await db
-      .prepare(
-        `INSERT INTO music_catalog_events
-        (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, created_at)
-        VALUES ('duplicate-event', 'test', 'test', 'test.created', 'admin', ?, ?)`,
-      )
-      .bind(actor.userId, NOW)
-      .run();
-    const before = await repository.readCatalog();
-    await expect(repository.createCatalogEntry(base)).rejects.toMatchObject({
-      code: "validation_failed",
-    });
-    const afterFailure = await repository.readCatalog();
-    expect(afterFailure.revision).toBe(before.revision);
-    expect(afterFailure.performances).toEqual(before.performances);
-    expect(
+    if (failure === "event") {
       await db
-        .prepare("SELECT id FROM music_media_sources WHERE id = 'atomic-source'")
-        .first(),
-    ).toBeNull();
-
-    await db
-      .prepare(
-        `CREATE TRIGGER fail_catalog_sort_key_projection
-        BEFORE INSERT ON music_public_performance_sort_keys
-        WHEN NEW.performance_id = 'read-model-failure'
-        BEGIN SELECT RAISE(ABORT, 'forced read model failure'); END`,
-      )
-      .run();
-    try {
-      await expect(
-        repository.createCatalogEntry({
-          ...base,
-          ids: {
-            ...base.ids,
-            performanceEventId: "read-model-failure-event",
-            performanceId: "read-model-failure",
-            sourceId: "read-model-failure-source",
-          },
-        }),
-      ).rejects.toMatchObject({ code: "validation_failed" });
-    } finally {
-      await db.prepare("DROP TRIGGER fail_catalog_sort_key_projection").run();
+        .prepare(`INSERT INTO music_catalog_events
+      (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, created_at)
+      VALUES ('duplicate-event', 'test', 'test', 'test.created', 'admin', ?, ?)`)
+        .bind(actor.userId, NOW)
+        .run();
     }
-    const afterProjectionFailure = await repository.readCatalog();
-    expect(afterProjectionFailure.revision).toBe(before.revision);
-    expect(afterProjectionFailure.performances).toEqual(before.performances);
-    expect(
-      await db
-        .prepare(
-          "SELECT id FROM music_media_sources WHERE id = 'read-model-failure-source'",
-        )
-        .first(),
-    ).toBeNull();
-
-    await expect(
-      repository.createCatalogEntry({
+    if (failure === "projection") {
+      await db.prepare(`CREATE TRIGGER fail_catalog_sort_key_projection
+      BEFORE INSERT ON music_public_performance_sort_keys
+      WHEN NEW.performance_id = 'read-model-failure'
+      BEGIN SELECT RAISE(ABORT, 'forced read model failure'); END`).run();
+    }
+    const before = await repository.readCatalog();
+    try {
+      await expect(repository.createCatalogEntry({
         ...base,
         input: {
           ...base.input,
-          expectedCatalogRevision: preflight.catalogRevision - 1,
+          expectedCatalogRevision: preflight.catalogRevision - (failure === "stale revision" ? 1 : 0),
         },
-        ids: {
-          ...base.ids,
-          performanceEventId: "fresh-event",
-          performanceId: "stale-performance",
-          sourceId: "stale-source",
-        },
-      }),
-    ).rejects.toMatchObject({ code: "stale_write" });
-    const afterStale = await repository.readCatalog();
-    expect(afterStale.revision).toBe(before.revision);
-    expect(afterStale.performances).toEqual(before.performances);
+      })).rejects.toMatchObject({ code });
+    }
+    finally {
+      if (failure === "projection")
+        await db.prepare("DROP TRIGGER fail_catalog_sort_key_projection").run();
+    }
+    const after = await repository.readCatalog();
+    expect(after.revision).toBe(before.revision);
+    expect(after.performances).toEqual(before.performances);
+    expect(await db.prepare("SELECT id FROM music_media_sources WHERE id = ?").bind(sourceId).first()).toBeNull();
   });
 
   it("allows an unknown channel to save only a draft and blocks it after revocation", async () => {

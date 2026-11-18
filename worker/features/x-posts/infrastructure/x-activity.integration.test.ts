@@ -482,9 +482,14 @@ describe("XAA multi-site collection and common money boundary",()=>{
     for(const [handle,id] of [["member",userId],["second",peerUserId]])await db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES(?,'user',?,?,?)")
       .bind(`x:user:v1:${handle}`,JSON.stringify({user:{id,username:handle}}),Date.now(),Date.now()+86400000).run();
     let active=0,peak=0;
-    const calls=vi.fn(async()=>{active++;peak=Math.max(peak,active);await new Promise(resolve=>setTimeout(resolve,10));active--;return json({data:[]});});
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const calls=vi.fn(async()=>{active++;peak=Math.max(peak,active);await pending;active--;return json({data:[]});});
     vi.stubGlobal("fetch",calls);
-    const result=await runXCollectionForHandles({...env,SITE_ID:"otw",X_BEARER_TOKEN:"test",X_API_GATEWAY:gateway("otw")} as never,["member","second"],"manual");
+    const running=runXCollectionForHandles({...env,SITE_ID:"otw",X_BEARER_TOKEN:"test",X_API_GATEWAY:gateway("otw")} as never,["member","second"],"manual");
+    try { await vi.waitFor(() => expect(active).toBe(1)); expect(calls).toHaveBeenCalledOnce(); }
+    finally { release(); }
+    const result=await running;
     expect(result).toMatchObject({success:true,refreshedHandles:2});
     expect(calls).toHaveBeenCalledTimes(2);expect(peak).toBe(1);
     expect(await new D1SharedXBudget(db).read()).toMatchObject({used:250000,reserved:0});

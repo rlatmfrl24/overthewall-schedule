@@ -2,7 +2,7 @@
 import { UnsavedChangesContext } from "@/shared/lib/unsaved-changes";
 import { createElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Member } from "@/features/members";
 import { NoticeFormDialog } from "./notice-form-dialog";
 import { NOTICE_THUMBNAIL_ACCEPT, NOTICE_THUMBNAIL_MAX_BYTES } from "../../model/notice-thumbnails";
@@ -11,6 +11,8 @@ import { ApiError } from "@/shared/api/client";
 
 const uploadNoticeThumbnailMock = vi.hoisted(() => vi.fn());
 const deleteNoticeThumbnailMock = vi.hoisted(() => vi.fn());
+const objectUrlDescriptors = ["createObjectURL", "revokeObjectURL"].map(key => [key, Object.getOwnPropertyDescriptor(URL, key)] as const);
+let clerkDescriptor: PropertyDescriptor | undefined;
 
 vi.mock("../../api/notices", () => ({
   deleteNoticeThumbnail: deleteNoticeThumbnailMock,
@@ -37,7 +39,7 @@ describe("NoticeFormDialog", () => {
     expect(await screen.findByText(`실제 ${code} 안내`)).toBeTruthy();
     expect((screen.getByLabelText("내용") as HTMLTextAreaElement).value).toBe("유지할 공지 내용");
   });
-  beforeAll(() => {
+  beforeEach(() => {
     class ResizeObserverMock {
       observe() {}
       unobserve() {}
@@ -47,6 +49,7 @@ describe("NoticeFormDialog", () => {
   });
 
   beforeEach(() => {
+    clerkDescriptor = Object.getOwnPropertyDescriptor(window, "Clerk");
     Object.assign(window, { Clerk: { session: { getToken: async () => "test-session" } } });
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(new Uint8Array([1, 2, 3])));
     URL.createObjectURL = () => "blob:notice-preview";
@@ -59,9 +62,15 @@ describe("NoticeFormDialog", () => {
 
   afterEach(() => {
     cleanup();
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     vi.restoreAllMocks();
-    Reflect.deleteProperty(window, "Clerk");
+    vi.unstubAllGlobals();
+    for (const [key, descriptor] of objectUrlDescriptors) {
+      if (descriptor) Object.defineProperty(URL, key, descriptor);
+      else Reflect.deleteProperty(URL, key);
+    }
+    if (clerkDescriptor) Object.defineProperty(window, "Clerk", clerkDescriptor);
+    else Reflect.deleteProperty(window, "Clerk");
   });
 
   it("shows multi-link, multi-image, and related-member controls", () => {
