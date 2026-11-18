@@ -212,7 +212,7 @@ describe("OTW Play admin input", () => {
         const command = createCatalogCommand();
         expect(parseCreateCatalogEntry({ ...command, relationType, releaseType: "broadcast", publicationTarget: "draft" })).toMatchObject({ ok: true, value: { relationType: "singing_clip", releaseType: "broadcast" } });
     });
-    it("accepts a complete MVP song and rejects missing original artists", () => {
+  it("accepts a complete song with a primary original artist", () => {
     expect(
       parseCreateSong({
         slug: "song-slug",
@@ -226,34 +226,32 @@ describe("OTW Play admin input", () => {
         ],
       }),
     ).toMatchObject({ ok: true });
+  });
+
+  it.each([
+    { condition: "no original artists", slug: "song-slug", title: "곡 제목", originalArtists: [] },
+    {
+      condition: "no primary original artist",
+      slug: "song-without-primary",
+      title: "주 가수 없는 곡",
+      originalArtists: [{ entityId: "artist-1", creditOrder: 0, isPrimary: false }],
+    },
+  ])("rejects a song with $condition", ({ slug, title, originalArtists }) => {
     expect(
       parseCreateSong({
-        slug: "song-slug",
-        title: "곡 제목",
+        slug,
+        title,
         isOtwOriginal: false,
         originalReleaseDate: null,
         originalReleasePrecision: "unknown",
         aliases: [],
-        originalArtists: [],
-      }),
-    ).toEqual({ ok: false, fields: { body: "invalid_song" } });
-    expect(
-      parseCreateSong({
-        slug: "song-without-primary",
-        title: "주 가수 없는 곡",
-        isOtwOriginal: false,
-        originalReleaseDate: null,
-        originalReleasePrecision: "unknown",
-        aliases: [],
-        originalArtists: [
-          { entityId: "artist-1", creditOrder: 0, isPrimary: false },
-        ],
+        originalArtists,
       }),
     ).toEqual({ ok: false, fields: { body: "invalid_song" } });
   });
 
-  it("parses original artist subjects for the integrated song edit", () => {
-    const input = {
+  describe("song correction", () => {
+    const makeInput = () => ({
       id: "song-1",
       expectedVersion: 2,
       slug: "song-slug",
@@ -274,35 +272,47 @@ describe("OTW Play admin input", () => {
           isPrimary: true,
         },
       ],
-    };
-    const parsed = parseUpdateSong(input);
-    expect(parsed).toMatchObject({
-      ok: true,
-      value: {
-        originalArtists: [
-          { subject: { kind: "new_external", displayName: "새 원곡 가수" } },
-        ],
-      },
     });
-    if (!parsed.ok) throw new Error("Expected the song update to parse");
-    expect(parsed.value).not.toHaveProperty("tags");
-    expect(parseUpdateSong({ ...input, tags: [] })).toMatchObject({
-      ok: true,
-      value: { tags: [] },
+
+    it("parses an external original artist and leaves omitted tags unset", () => {
+      const input = makeInput();
+      const parsed = parseUpdateSong(input);
+      expect(parsed).toMatchObject({
+        ok: true,
+        value: {
+          originalArtists: [
+            { subject: { kind: "new_external", displayName: "새 원곡 가수" } },
+          ],
+        },
+      });
+      if (!parsed.ok) throw new Error("Expected the song update to parse");
+      expect(parsed.value).not.toHaveProperty("tags");
     });
-    expect(
-      parseUpdateSong({
-        ...input,
-        originalArtists: [
-          input.originalArtists[0],
-          { ...input.originalArtists[0], isPrimary: false },
-        ],
-      }),
-    ).toEqual({ ok: false, fields: { body: "invalid_song" } });
+
+    it("preserves explicit tag clearing", () => {
+      const input = makeInput();
+      expect(parseUpdateSong({ ...input, tags: [] })).toMatchObject({
+        ok: true,
+        value: { tags: [] },
+      });
+    });
+
+    it("rejects duplicate original artist subjects", () => {
+      const input = makeInput();
+      expect(
+        parseUpdateSong({
+          ...input,
+          originalArtists: [
+            input.originalArtists[0],
+            { ...input.originalArtists[0], isPrimary: false },
+          ],
+        }),
+      ).toEqual({ ok: false, fields: { body: "invalid_song" } });
+    });
   });
 
-  it("keeps classification axes separate and binds broadcast to kirinuki sources", () => {
-    const base = {
+  describe("performance source classification", () => {
+    const makeInput = () => ({
       songId: "song-1",
       relationType: "cover",
       releaseType: "official_video",
@@ -323,31 +333,51 @@ describe("OTW Play admin input", () => {
         startSeconds: 0,
         sourceRole: "official",
       },
-    };
-    expect(parseCreatePerformance(base)).toMatchObject({ ok: true });
-    expect(
-      parseCreatePerformance({ ...base, releaseType: "broadcast" }),
-    ).toMatchObject({ ok: false });
-    expect(
-      parseCreatePerformance({
-        ...base,
-        releaseType: "broadcast",
-        source: { ...base.source, sourceRole: "kirinuki" },
-      }),
-    ).toMatchObject({ ok: true });
-    expect(
-      parseCreatePerformance({
-        ...base,
-        source: { ...base.source, sourceRole: "kirinuki" },
-      }),
-    ).toMatchObject({ ok: false });
-    expect(
-      parseCreatePerformance({ ...base, participationType: "published" }),
-    ).toMatchObject({ ok: false });
+    });
+
+    it("accepts an official video with an official source", () => {
+      const base = makeInput();
+      expect(parseCreatePerformance(base)).toMatchObject({ ok: true });
+    });
+
+    it("rejects a broadcast with an official source", () => {
+      const base = makeInput();
+      expect(
+        parseCreatePerformance({ ...base, releaseType: "broadcast" }),
+      ).toMatchObject({ ok: false });
+    });
+
+    it("accepts a broadcast with a clip source", () => {
+      const base = makeInput();
+      expect(
+        parseCreatePerformance({
+          ...base,
+          releaseType: "broadcast",
+          source: { ...base.source, sourceRole: "kirinuki" },
+        }),
+      ).toMatchObject({ ok: true });
+    });
+
+    it("rejects an official video with a clip source", () => {
+      const base = makeInput();
+      expect(
+        parseCreatePerformance({
+          ...base,
+          source: { ...base.source, sourceRole: "kirinuki" },
+        }),
+      ).toMatchObject({ ok: false });
+    });
+
+    it("rejects publication status as a participation type", () => {
+      const base = makeInput();
+      expect(
+        parseCreatePerformance({ ...base, participationType: "published" }),
+      ).toMatchObject({ ok: false });
+    });
   });
 
-  it("parses a full performance correction with subject-based participants", () => {
-    const input = {
+  describe("performance correction", () => {
+    const makeInput = () => ({
       id: "performance-1",
       expectedVersion: 3,
       songId: "song-2",
@@ -384,58 +414,81 @@ describe("OTW Play admin input", () => {
         endSeconds: 170,
         sourceRole: "alternate",
       },
-    };
-    expect(parseUpdatePerformance(input)).toMatchObject({
-      ok: true,
-      value: {
-        songId: "song-2",
-        tags: ["라이브", "듀엣 버전"],
-        participants: [
-          { subject: { kind: "member", memberUid: 1 } },
-          {
-            subject: {
-              kind: "new_external",
-              clientKey: "guest-chip",
-            },
-          },
-        ],
-        sources: [{ sourceRole: "alternate", priority: 0, isPrimary: true }],
-      },
     });
-    expect(
-      parseUpdatePerformance({
-        ...input,
-        participants: [input.participants[0], input.participants[0]],
-      }),
-    ).toEqual({ ok: false, fields: { body: "invalid_performance" } });
+
+    it("parses the corrected song, tags, participants and primary source", () => {
+      const input = makeInput();
+      expect(parseUpdatePerformance(input)).toMatchObject({
+        ok: true,
+        value: {
+          songId: "song-2",
+          tags: ["라이브", "듀엣 버전"],
+          participants: [
+            { subject: { kind: "member", memberUid: 1 } },
+            {
+              subject: {
+                kind: "new_external",
+                clientKey: "guest-chip",
+              },
+            },
+          ],
+          sources: [{ sourceRole: "alternate", priority: 0, isPrimary: true }],
+        },
+      });
+    });
+
+    it("rejects duplicate participant subjects", () => {
+      const input = makeInput();
+      expect(
+        parseUpdatePerformance({
+          ...input,
+          participants: [input.participants[0], input.participants[0]],
+        }),
+      ).toEqual({ ok: false, fields: { body: "invalid_performance" } });
+    });
   });
 
-  it("requires exact YouTube channel IDs and prevents active unapproved channels", () => {
-    const base = {
+  describe("YouTube channel input", () => {
+    const makeInput = () => ({
       externalChannelId: `UC${"A".repeat(22)}`,
       displayName: "Official",
       channelRole: "member_music",
       entityIds: [],
-    };
-    expect(parseCreateChannel(base)).toMatchObject({ ok: true });
-    expect(
-      parseCreateChannel({ ...base, externalChannelId: "not-youtube" }),
-    ).toMatchObject({ ok: false });
-    expect(
-      parseUpdateChannel({
-        ...base,
-        id: "channel-1",
-        expectedVersion: 0,
-        verificationStatus: "pending",
-        active: true,
-      }),
-    ).toMatchObject({ ok: false });
+    });
+
+    it("accepts a valid external channel ID", () => {
+      const base = makeInput();
+      expect(parseCreateChannel(base)).toMatchObject({ ok: true });
+    });
+
+    it("rejects a malformed external channel ID", () => {
+      const base = makeInput();
+      expect(
+        parseCreateChannel({ ...base, externalChannelId: "not-youtube" }),
+      ).toMatchObject({ ok: false });
+    });
+
+    it("rejects enabling an unapproved channel", () => {
+      const base = makeInput();
+      expect(
+        parseUpdateChannel({
+          ...base,
+          id: "channel-1",
+          expectedVersion: 0,
+          verificationStatus: "pending",
+          active: true,
+        }),
+      ).toMatchObject({ ok: false });
+    });
   });
 
-  it("requires a non-empty internal rejection code", () => {
+  it("accepts an internal proposal rejection code", () => {
     expect(
       parseRejectProposal({ expectedVersion: 0, resultCode: "duplicate" }),
     ).toMatchObject({ ok: true });
+  });
+
+  it("rejects a blank internal proposal rejection code", () => {
     expect(
       parseRejectProposal({ expectedVersion: 0, resultCode: " " }),
     ).toMatchObject({ ok: false });
@@ -472,10 +525,36 @@ describe("OTW Play admin input", () => {
     });
     if (parsed.ok) expect(parsed.value).not.toHaveProperty("youtubeUrl");
   });
-  it("accepts bounded clip approval while keeping direct clip registration in draft", () => {
-    const input = { expectedVersion: 0, expectedCatalogRevision: 1, song: { kind: "existing", songId: "song-1" }, participants: [{ subject: { kind: "entity", entityId: "entity-1" }, participantRole: "vocal", creditOrder: 0, creditNameSnapshot: "Singer" }], channel: { kind: "existing", channelId: "channel-1" }, releaseType: "broadcast", participationType: "solo", singingCreditConfirmed: true, publish: true, startSeconds: 1, endSeconds: 120, broadcast: { performedOn: null, dateEvidence: null, originalUrl: null, extent: "partial" } };
-    expect(parseApproveProposal(input)).toMatchObject({ ok: true, value: { releaseType: "broadcast", startSeconds: 1, endSeconds: 120, broadcast: input.broadcast } });
-    expect(parseApproveProposal({ ...input, endSeconds: 0 }).ok).toBe(false);
+  describe("clip proposal approval", () => {
+    const makeInput = () => ({
+      expectedVersion: 0,
+      expectedCatalogRevision: 1,
+      song: { kind: "existing", songId: "song-1" },
+      participants: [{
+        subject: { kind: "entity", entityId: "entity-1" },
+        participantRole: "vocal",
+        creditOrder: 0,
+        creditNameSnapshot: "Singer",
+      }],
+      channel: { kind: "existing", channelId: "channel-1" },
+      releaseType: "broadcast",
+      participationType: "solo",
+      singingCreditConfirmed: true,
+      publish: true,
+      startSeconds: 1,
+      endSeconds: 120,
+      broadcast: { performedOn: null, dateEvidence: null, originalUrl: null, extent: "partial" },
+    });
+
+    it("accepts a bounded clip segment with broadcast metadata", () => {
+      const input = makeInput();
+      expect(parseApproveProposal(input)).toMatchObject({ ok: true, value: { releaseType: "broadcast", startSeconds: 1, endSeconds: 120, broadcast: input.broadcast } });
+    });
+
+    it("rejects a clip segment ending before its start", () => {
+      const input = makeInput();
+      expect(parseApproveProposal({ ...input, endSeconds: 0 }).ok).toBe(false);
+    });
   });
 
 });

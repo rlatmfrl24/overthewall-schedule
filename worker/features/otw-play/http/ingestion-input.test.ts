@@ -10,10 +10,19 @@ import {
 } from "./ingestion-input";
 
 describe("OTW Play ingestion input", () => {
-  it("accepts explicit singing imports and rejects invalid kinds and unversioned corrections", () => {
+  it("accepts an explicit singing clip import", () => {
     expect(parseCreatePlaylistImport({ playlistUrl: "PL1234567890", mode: "all_new", candidateKind: "singing_clip", idempotencyKey: "request_1234" })).toMatchObject({ ok: true, value: { candidateKind: "singing_clip" } });
+  });
+
+  it("rejects an unsupported playlist candidate kind", () => {
     expect(parsePlaylistPreflight({ playlistUrl: "PL1234567890", mode: "all_new", candidateKind: "broadcast" }).ok).toBe(false);
+  });
+
+  it("accepts a versioned candidate kind correction", () => {
     expect(parseUpdateIngestionCandidate({ action: "change_kind", candidateKind: "singing_clip", expectedVersion: 3 })).toMatchObject({ ok: true });
+  });
+
+  it("rejects a candidate kind correction without a version", () => {
     expect(parseUpdateIngestionCandidate({ action: "change_kind", candidateKind: "singing_clip" }).ok).toBe(false);
   });
 
@@ -34,17 +43,23 @@ describe("OTW Play ingestion input", () => {
     });
   });
 
-  it("rejects unknown fields, implicit all-new limits, and invalid keys", () => {
+  it("rejects unknown playlist preflight fields", () => {
     expect(parsePlaylistPreflight({
       playlistUrl: "PL1234567890",
       mode: "all_new",
       unexpected: true,
     })).toEqual({ ok: false, fields: { body: "invalid_shape" } });
+  });
+
+  it("rejects a recent limit in all-new playlist preflight", () => {
     expect(parsePlaylistPreflight({
       playlistUrl: "PL1234567890",
       mode: "all_new",
       recentLimit: 50,
     })).toEqual({ ok: false, fields: { body: "invalid_playlist_import" } });
+  });
+
+  it("rejects a short playlist import idempotency key", () => {
     expect(parseCreatePlaylistImport({
       playlistUrl: "PL1234567890",
       mode: "all_new",
@@ -52,7 +67,7 @@ describe("OTW Play ingestion input", () => {
     })).toEqual({ ok: false, fields: { idempotencyKey: "invalid" } });
   });
 
-  it("accepts explicit all-new ranges and rejects partial or oversized ranges", () => {
+  it("accepts an explicit all-new range at the upper offset", () => {
     expect(parsePlaylistPreflight({
       playlistUrl: "PL1234567890",
       mode: "all_new",
@@ -67,11 +82,17 @@ describe("OTW Play ingestion input", () => {
         rangeLimit: 1,
       },
     });
+  });
+
+  it("rejects an all-new range with no limit", () => {
     expect(parsePlaylistPreflight({
       playlistUrl: "PL1234567890",
       mode: "all_new",
       rangeStart: 5_000,
     })).toEqual({ ok: false, fields: { body: "invalid_playlist_import" } });
+  });
+
+  it("rejects an all-new range above the size limit", () => {
     expect(parsePlaylistPreflight({
       playlistUrl: "PL1234567890",
       mode: "all_new",
