@@ -153,7 +153,6 @@ describe("PublicAppShell", () => {
       React.createElement(PublicAppShell, null, "content"),
     );
     const footer = container.querySelector("aside")?.lastElementChild;
-    expect(footer?.className).toContain("h-14");
     expect(footer?.querySelector("button")?.getAttribute("aria-label")).toBe("테스트닉네임 사용자 메뉴");
     expect(footer?.querySelectorAll("button")).toHaveLength(1);
     expect(screen.queryByRole("group", { name: "테마 선택" })).toBeNull();

@@ -78,16 +78,21 @@ it("retires a historic traversal and follows the current head continuation withi
 it("finishes a bounded four-page check through the normal writer without moving the official cursor", async () => {
   const postedAt = Date.now();
   let active = 0, peak = 0;
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
   const fetchMock = vi.fn().mockImplementation(async (url: string) => {
     active++; peak = Math.max(peak, active);
-    await new Promise(resolve => setTimeout(resolve, 5));
+    await pending;
     active--;
     const cursor = new URL(url).searchParams.get("cursor");
     return cursor === null ? page("124", "p2", postedAt) : cursor === "p2" ? page("123", "p3", postedAt) : cursor === "p3" ? page("122", "p4", postedAt) : page("121", "p5", postedAt);
   });
   vi.stubGlobal("fetch", fetchMock);
   const before = await db.prepare("SELECT last_seen_post_id,sync_pagination_token,last_success_at,last_completed_at FROM x_post_sources").first();
-  const result = await runFxCollectionForHandles(runtime, ["member"], "scheduled");
+  const running = runFxCollectionForHandles(runtime, ["member"], "scheduled");
+  try { await vi.waitFor(() => expect(active).toBe(1)); }
+  finally { release(); }
+  const result = await running;
   expect(result).toMatchObject({ provider: "fxembed", postsStored: 4, pendingSources: 0, success: true, recentCheck: { lookbackHours: 48, maxPages: 4, limitedSources: 1 } });
   expect(fetchMock).toHaveBeenCalledTimes(4);
   expect(peak).toBe(1);

@@ -8,42 +8,11 @@ import { IngestionService } from "../application/ingestion-service";
 import { AdminCatalogService } from "../application/admin-catalog-service";
 import type { OtwPlayIngestionQueueMessage } from "../application/ports/ingestion-repository";
 import type { OtwPlayYouTubeIngestionReader } from "../application/ports/youtube-metadata";
+import { meterD1 } from "../../../test-support/d1-meter";
 
 // Real workerd D1 metadata, including reads performed by writes. Seeding and
-// EXPLAIN are outside the meter; no mock D1 responses or estimated row counts.
+// fixture writes are outside the meter; no mock D1 responses or estimated row counts.
 const db = env.otw_db;
-function meter(database: D1Database) {
-  const entries: Array<{ sql: string; rowsRead: number; rowsWritten: number }> = [];
-  const originals = new WeakMap<object, { statement: D1PreparedStatement; sql: string; args: unknown[] }>();
-  const plans = new Map<string, unknown[]>();
-  const record = (sql: string, result: D1Result) => entries.push({ sql, rowsRead: result.meta.rows_read, rowsWritten: result.meta.rows_written });
-  const wrap = (statement: D1PreparedStatement, sql: string, args: unknown[] = []): D1PreparedStatement => {
-    if (!plans.has(sql)) plans.set(sql, args);
-    const proxy = new Proxy(statement, { get(target, property) {
-      if (property === "bind") return (...values: unknown[]) => wrap(target.bind(...values), sql, values);
-      if (property === "all" || property === "run" || property === "first") return async (column?: string) => {
-        const result = await target.all(); record(sql, result);
-        if (property !== "first") return result;
-        const row = result.results[0]; return column ? row?.[column] ?? null : row ?? null;
-      };
-      const value = Reflect.get(target, property); return typeof value === "function" ? value.bind(target) : value;
-    } });
-    originals.set(proxy, { statement, sql, args });
-    if (args.length) plans.set(sql, args);
-    return proxy;
-  };
-  const measured = new Proxy(database, { get(target, property) {
-    if (property === "prepare") return (sql: string) => wrap(target.prepare(sql), sql);
-    if (property === "batch") return async (statements: D1PreparedStatement[]) => {
-      const source = statements.map(statement => originals.get(statement)!);
-      const results = await target.batch(source.map(item => item.statement));
-      results.forEach((result, index) => record(source[index].sql, result)); return results;
-    };
-    const value = Reflect.get(target, property); return typeof value === "function" ? value.bind(target) : value;
-  } });
-  return { database: measured, entries, plans,
-    summary: () => ({ sqlCount: entries.length, rowsRead: entries.reduce((n, r) => n + r.rowsRead, 0), rowsWritten: entries.reduce((n, r) => n + r.rowsWritten, 0) }) };
-}
 
 it("measures import and Ready/draft/publish reads at 50, 500 and 5000 rows", async () => {
   await applyD1Migrations(db, (env as Env & { OTW_PLAY_INGESTION_MIGRATIONS: D1Migration[] }).OTW_PLAY_INGESTION_MIGRATIONS);
@@ -59,9 +28,9 @@ it("measures import and Ready/draft/publish reads at 50, 500 and 5000 rows", asy
     await db.prepare(`WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n < ?)
       INSERT OR IGNORE INTO music_songs (id, slug, title, normalized_title, is_otw_original, original_release_precision, version, created_at, updated_at)
       SELECT 'background-'||n, 'background-'||n, 'Background '||n, 'background '||n, 1, 'unknown', 0, 1, 1 FROM seq`).bind(size).run();
-    const measured = meter(db);
-    const catalogRepo = new D1AdminCatalogRepository(measured.database);
-    const repo = new D1IngestionRepository(measured.database);
+    const measured = meterD1(db);
+    const catalogRepo = new D1AdminCatalogRepository(measured.db);
+    const repo = new D1IngestionRepository(measured.db);
     let sequence = 0;
     const id = () => `cost-${size}-${++sequence}`;
     const video = (videoId: string) => ({ videoId, channelId, channelTitle: "Cost channel", title: `Video ${videoId}`, thumbnailUrl: null,
@@ -84,7 +53,7 @@ it("measures import and Ready/draft/publish reads at 50, 500 and 5000 rows", asy
     while (pending.length) await service.process(pending.shift()!);
     expect((await service.getJob(job.id)).counts.metadataChecked).toBe(size);
     const importCost = measured.summary();
-    const aiBatch = await new D1AiBatchRepository(measured.database).create(id(), actor.userId, id(), { importJobId: job.id }, 100);
+    const aiBatch = await new D1AiBatchRepository(measured.db).create(id(), actor.userId, id(), { importJobId: job.id }, 100);
     expect(aiBatch.total).toBe(size);
     await db.prepare("UPDATE music_ai_review_batch_items SET status = 'needs_selection' WHERE batch_id = ?").bind(aiBatch.id).run();
     // Identical 500-item workload at the representative size. The largest case
@@ -116,13 +85,6 @@ it("measures import and Ready/draft/publish reads at 50, 500 and 5000 rows", asy
       originalArtists: [{ subject: { kind: "entity", entityId: "cost-artist" }, creditOrder: 0, isPrimary: true }] }, actor);
     singleUpdateReads.push(measured.summary().rowsRead - total.rowsRead);
     console.log("PLAY_READ_COST", JSON.stringify({ size, reviews, importCost, total, singleReadyRowsRead: singleSaveReads.at(-1), singleSongUpdateRowsRead: singleUpdateReads.at(-1) }));
-    if (size === 500) {
-      const explanations = [];
-      for (const [sql, args] of measured.plans) {
-        explanations.push({ sql, plan: (await db.prepare(`EXPLAIN QUERY PLAN ${sql}`).bind(...args).all()).results });
-      }
-      console.log("PLAY_READ_PLANS", JSON.stringify(explanations));
-    }
   }
   expect(singleSaveReads[2]).toBeLessThan(singleSaveReads[0] * 2);
   expect(singleUpdateReads[2]).toBeLessThan(singleUpdateReads[0] * 2);

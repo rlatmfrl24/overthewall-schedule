@@ -1,215 +1,218 @@
 import { describe, expect, it } from "vitest";
-import {
-  parseCatalogEntryPreflight,
-  parseCreateCatalogEntry,
-  parseCreateChannel,
-  parseApproveProposal,
-  parseCreatePerformance,
-  parseCreateSong,
-  parseRejectProposal,
-  parseUpdateChannel,
-  parseUpdatePerformance,
-  parseUpdateSong,
-} from "./admin-catalog-input";
-
+import { parseCatalogEntryPreflight, parseCreateCatalogEntry, parseCreateChannel, parseApproveProposal, parseCreatePerformance, parseCreateSong, parseRejectProposal, parseUpdateChannel, parseUpdatePerformance, parseUpdateSong, } from "./admin-catalog-input";
 describe("OTW Play admin input", () => {
-  it("parses the workflow-first preflight and integrated catalog command", () => {
-    expect(
-      parseCatalogEntryPreflight({
+    const createCatalogCommand = () => ({
+        expectedCatalogRevision: 7,
         youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
         startSeconds: 0,
-        endSeconds: 180,
-      }),
-    ).toMatchObject({ ok: true, value: { endSeconds: 180 } });
-    expect(
-      parseCatalogEntryPreflight({
-        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
-        startSeconds: 20,
-        endSeconds: 20,
-      }),
-    ).toEqual({ ok: false, fields: { endSeconds: "invalid_segment" } });
-    expect(
-      parseCatalogEntryPreflight({
-        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
-        startSeconds: -1,
-      }),
-    ).toEqual({ ok: false, fields: { startSeconds: "invalid_segment" } });
-    expect(
-      parseCatalogEntryPreflight({
-        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
-        startSeconds: 0.5,
-      }),
-    ).toEqual({ ok: false, fields: { startSeconds: "invalid_segment" } });
-    const command = {
-      expectedCatalogRevision: 7,
-      youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
-      startSeconds: 0,
-      song: {
-        kind: "create",
-        title: "새 곡",
-        isOtwOriginal: false,
-        originalReleaseDate: null,
-        originalReleasePrecision: "unknown",
-        tags: ["K-POP", "보컬로이드"],
-        aliases: [],
-        originalArtists: [
-          {
-            subject: {
-              kind: "new_external",
-              clientKey: "artist-chip",
-              displayName: "원곡 가수",
-              entityKind: "person",
-            },
-            creditOrder: 0,
-            isPrimary: true,
-          },
-        ],
-      },
-      participants: [
-        {
-          subject: { kind: "member", memberUid: 1 },
-          participantRole: "vocal",
-          creditOrder: 0,
-        },
-      ],
-      channel: {
-        kind: "recognized_member",
-        memberUid: 1,
-        channelRole: "member_music",
-      },
-      relationType: "cover",
-      releaseType: "official_video",
-      participationType: "solo",
-      performanceTags: ["어쿠스틱", "2026 버전"],
-      publicationTarget: "published",
-    };
-    expect(parseCreateCatalogEntry(command)).toMatchObject({
-      ok: true,
-      value: {
-        registrationMode: "standard",
-        song: { kind: "create", tags: ["K-POP", "보컬로이드"] },
-        participants: [{ subject: { kind: "member", memberUid: 1 } }],
-        performanceTags: ["어쿠스틱", "2026 버전"],
-      },
-    });
-    for (const relationType of ["original", "cover", "singing_clip"]) {
-      expect(parseCreateCatalogEntry({ ...command, relationType, releaseType: "broadcast", publicationTarget: "draft" }))
-        .toMatchObject({ ok: true, value: { relationType: "singing_clip", releaseType: "broadcast" } });
-    }
-    expect(parseCreateCatalogEntry({ ...command, relationType: "singing_clip" })).toMatchObject({ ok: false });
-    const fromVideo = parseCreateCatalogEntry({
-      ...command,
-      song: { kind: "from_video", title: "client-supplied title" },
-      relationType: "original",
-    });
-    expect(fromVideo).toMatchObject({
-      ok: true,
-      value: { song: { kind: "from_video" } },
-    });
-    if (fromVideo.ok) {
-      expect(fromVideo.value.song).toEqual({ kind: "from_video" });
-    }
-    expect(
-      parseCreateCatalogEntry({
-        ...command,
-        song: { kind: "from_video" },
-        relationType: "cover",
-      }),
-    ).toMatchObject({ ok: false });
-    expect(
-      parseCreateCatalogEntry({
-        ...command,
-        endSeconds: 120,
-        registrationMode: "medley_segment",
-        publicationTarget: "draft",
-      }),
-    ).toMatchObject({
-      ok: true,
-      value: {
-        endSeconds: 120,
-        registrationMode: "medley_segment",
-        relationType: "cover",
-        publicationTarget: "draft",
-      },
-    });
-    expect(
-      parseCreateCatalogEntry({
-        ...command,
-        endSeconds: 120,
-        registrationMode: "medley_segment",
-      }),
-    ).toEqual({
-      ok: false,
-      fields: { publicationTarget: "draft_required" },
-    });
-    expect(
-      parseCreateCatalogEntry({
-        ...command,
-        endSeconds: 120,
-        registrationMode: "unknown",
-      }),
-    ).toEqual({
-      ok: false,
-      fields: { registrationMode: "unsupported" },
-    });
-    expect(
-      parseCreateCatalogEntry({
-        ...command,
-        startSeconds: -1,
-      }),
-    ).toEqual({
-      ok: false,
-      fields: { startSeconds: "invalid_segment" },
-    });
-    expect(
-      parseCreateCatalogEntry({
-        ...command,
-        endSeconds: 12.5,
-      }),
-    ).toEqual({
-      ok: false,
-      fields: { endSeconds: "invalid_segment" },
-    });
-    expect(
-      parseCreateCatalogEntry({
-        ...command,
-        song: { ...command.song, tags: ["K-POP", "k-pop"] },
-      }),
-    ).toMatchObject({ ok: false });
-    expect(
-      parseCreateCatalogEntry({
-        ...command,
-        participants: [
-          {
-            subject: { kind: "member", memberUid: 1 },
-            participantRole: "other",
-            creditOrder: 0,
-          },
-        ],
-      }),
-    ).toMatchObject({ ok: false });
-
-    expect(
-      parseCreateCatalogEntry({
-        ...command,
-        participants: [command.participants[0], command.participants[0]],
-      }),
-    ).toMatchObject({ ok: false });
-    expect(
-      parseCreateCatalogEntry({
-        ...command,
         song: {
-          ...command.song,
-          originalArtists: [
-            command.song.originalArtists[0],
-            { ...command.song.originalArtists[0], isPrimary: false },
-          ],
+            kind: "create",
+            title: "새 곡",
+            isOtwOriginal: false,
+            originalReleaseDate: null,
+            originalReleasePrecision: "unknown",
+            tags: ["K-POP", "보컬로이드"],
+            aliases: [],
+            originalArtists: [
+                {
+                    subject: {
+                        kind: "new_external",
+                        clientKey: "artist-chip",
+                        displayName: "원곡 가수",
+                        entityKind: "person",
+                    },
+                    creditOrder: 0,
+                    isPrimary: true,
+                },
+            ],
         },
-      }),
-    ).toMatchObject({ ok: false });
-  });
-
-  it("accepts a complete MVP song and rejects missing original artists", () => {
+        participants: [
+            {
+                subject: { kind: "member", memberUid: 1 },
+                participantRole: "vocal",
+                creditOrder: 0,
+            },
+        ],
+        channel: {
+            kind: "recognized_member",
+            memberUid: 1,
+            channelRole: "member_music",
+        },
+        relationType: "cover",
+        releaseType: "official_video",
+        participationType: "solo",
+        performanceTags: ["어쿠스틱", "2026 버전"],
+        publicationTarget: "published",
+    });
+    it("accepts bounded preflight segments", () => {
+        expect(parseCatalogEntryPreflight({
+            youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+            startSeconds: 0,
+            endSeconds: 180,
+        })).toMatchObject({ ok: true, value: { endSeconds: 180 } });
+    });
+    it("rejects a preflight end at its start", () => {
+        expect(parseCatalogEntryPreflight({
+            youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+            startSeconds: 20,
+            endSeconds: 20,
+        })).toEqual({ ok: false, fields: { endSeconds: "invalid_segment" } });
+    });
+    it("rejects a negative preflight start", () => {
+        expect(parseCatalogEntryPreflight({
+            youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+            startSeconds: -1,
+        })).toEqual({ ok: false, fields: { startSeconds: "invalid_segment" } });
+    });
+    it("rejects a fractional preflight start", () => {
+        expect(parseCatalogEntryPreflight({
+            youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+            startSeconds: 0.5,
+        })).toEqual({ ok: false, fields: { startSeconds: "invalid_segment" } });
+    });
+    it("parses the integrated catalog command and its independent tag lists", () => {
+        const command = createCatalogCommand();
+        expect(parseCreateCatalogEntry(command)).toMatchObject({
+            ok: true,
+            value: {
+                registrationMode: "standard",
+                song: { kind: "create", tags: ["K-POP", "보컬로이드"] },
+                participants: [{ subject: { kind: "member", memberUid: 1 } }],
+                performanceTags: ["어쿠스틱", "2026 버전"],
+            },
+        });
+    });
+    it("rejects an official-video singing clip", () => {
+        const command = createCatalogCommand();
+        expect(parseCreateCatalogEntry({ ...command, relationType: "singing_clip" })).toMatchObject({ ok: false });
+    });
+    it("derives an original song from the video without trusting a supplied title", () => {
+        const command = createCatalogCommand();
+        const fromVideo = parseCreateCatalogEntry({
+            ...command,
+            song: { kind: "from_video", title: "client-supplied title" },
+            relationType: "original",
+        });
+        expect(fromVideo).toMatchObject({
+            ok: true,
+            value: { song: { kind: "from_video" } },
+        });
+        if (fromVideo.ok) {
+            expect(fromVideo.value.song).toEqual({ kind: "from_video" });
+        }
+    });
+    it("rejects deriving a cover song from its cover video", () => {
+        const command = createCatalogCommand();
+        expect(parseCreateCatalogEntry({
+            ...command,
+            song: { kind: "from_video" },
+            relationType: "cover",
+        })).toMatchObject({ ok: false });
+    });
+    it("accepts a bounded medley segment as a draft", () => {
+        const command = createCatalogCommand();
+        expect(parseCreateCatalogEntry({
+            ...command,
+            endSeconds: 120,
+            registrationMode: "medley_segment",
+            publicationTarget: "draft",
+        })).toMatchObject({
+            ok: true,
+            value: {
+                endSeconds: 120,
+                registrationMode: "medley_segment",
+                relationType: "cover",
+                publicationTarget: "draft",
+            },
+        });
+    });
+    it("requires draft publication for a medley segment", () => {
+        const command = createCatalogCommand();
+        expect(parseCreateCatalogEntry({
+            ...command,
+            endSeconds: 120,
+            registrationMode: "medley_segment",
+        })).toEqual({
+            ok: false,
+            fields: { publicationTarget: "draft_required" },
+        });
+    });
+    it("rejects an unknown registration mode", () => {
+        const command = createCatalogCommand();
+        expect(parseCreateCatalogEntry({
+            ...command,
+            endSeconds: 120,
+            registrationMode: "unknown",
+        })).toEqual({
+            ok: false,
+            fields: { registrationMode: "unsupported" },
+        });
+    });
+    it("rejects a negative catalog segment start", () => {
+        const command = createCatalogCommand();
+        expect(parseCreateCatalogEntry({
+            ...command,
+            startSeconds: -1,
+        })).toEqual({
+            ok: false,
+            fields: { startSeconds: "invalid_segment" },
+        });
+    });
+    it("rejects a fractional catalog segment end", () => {
+        const command = createCatalogCommand();
+        expect(parseCreateCatalogEntry({
+            ...command,
+            endSeconds: 12.5,
+        })).toEqual({
+            ok: false,
+            fields: { endSeconds: "invalid_segment" },
+        });
+    });
+    it("rejects duplicate normalized song tags", () => {
+        const command = createCatalogCommand();
+        expect(parseCreateCatalogEntry({
+            ...command,
+            song: { ...command.song, tags: ["K-POP", "k-pop"] },
+        })).toMatchObject({ ok: false });
+    });
+    it("rejects an unsupported participant role", () => {
+        const command = createCatalogCommand();
+        expect(parseCreateCatalogEntry({
+            ...command,
+            participants: [
+                {
+                    subject: { kind: "member", memberUid: 1 },
+                    participantRole: "other",
+                    creditOrder: 0,
+                },
+            ],
+        })).toMatchObject({ ok: false });
+    });
+    it("rejects duplicate participants", () => {
+        const command = createCatalogCommand();
+        expect(parseCreateCatalogEntry({
+            ...command,
+            participants: [command.participants[0], command.participants[0]],
+        })).toMatchObject({ ok: false });
+    });
+    it("rejects duplicate original artists", () => {
+        const command = createCatalogCommand();
+        expect(parseCreateCatalogEntry({
+            ...command,
+            song: {
+                ...command.song,
+                originalArtists: [
+                    command.song.originalArtists[0],
+                    { ...command.song.originalArtists[0], isPrimary: false },
+                ],
+            },
+        })).toMatchObject({ ok: false });
+    });
+    it.each(["original", "cover", "singing_clip"])("normalizes broadcast relation %s to singing_clip", relationType => {
+        const command = createCatalogCommand();
+        expect(parseCreateCatalogEntry({ ...command, relationType, releaseType: "broadcast", publicationTarget: "draft" })).toMatchObject({ ok: true, value: { relationType: "singing_clip", releaseType: "broadcast" } });
+    });
+    it("accepts a complete MVP song and rejects missing original artists", () => {
     expect(
       parseCreateSong({
         slug: "song-slug",

@@ -74,16 +74,21 @@ it("stores RSS after normal Fx-only bootstrap without initializing official iden
 
 it("rss_success_does_not_repair_json_or_official_clock and resumes a terminal partial without scanning", async () => {
   let active = 0, peak = 0;
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
   const provider = vi.mocked(fetch).getMockImplementation()!;
   vi.mocked(fetch).mockImplementation(async (...args) => {
     active++; peak = Math.max(peak, active);
-    try { await new Promise(resolve => setTimeout(resolve, 5)); return await provider(...args); }
+    try { await pending; return await provider(...args); }
     finally { active--; }
   });
   const first = await createItem();
   const clocks = async () => ({ official: await db.prepare("SELECT last_seen_post_id,sync_pagination_token,last_completed_at,regular_completed_at FROM x_post_sources").first(), json: await db.prepare("SELECT cursor,consecutive_failures,consecutive_successes,fallback_active,last_completed_at FROM x_fx_sources").first() });
   const before = await clocks();
-  const result = await runItem(first, state());
+  const running = runItem(first, state());
+  try { await vi.waitFor(() => expect(active).toBe(1)); }
+  finally { release(); }
+  const result = await running;
   expect(result.stats).toMatchObject({ freeApiCalls: 5, postsStored: 5, pending: 1 });
   expect(await clocks()).toEqual(before);
   await first.repo.completeItem(first.item, { status: "partial", result });

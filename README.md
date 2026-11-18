@@ -52,7 +52,8 @@ with `NODE_VERSION=24.20.0`; the deployed Worker still runs on workerd.
 `pnpm preflight` runs the unit and Worker integration suites once through
 `pnpm test`, without coverage instrumentation. `pnpm test:coverage` is an
 optional diagnostic report, with no percentage gate.
-`pnpm test` uses the combined unit/Worker project list;
+`pnpm test` uses the combined unit/Worker project list and `pnpm test:node`
+for agent synchronization and the maintenance Worker;
 `pnpm test:unit` and `pnpm test:worker-integration` run an individual project.
 See [Testing](docs/testing.md) for focused commands, isolation rules, and coverage scope.
 

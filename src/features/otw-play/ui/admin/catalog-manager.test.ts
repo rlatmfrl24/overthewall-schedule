@@ -1,3159 +1,850 @@
-import { createAdminCatalogFixture, createReviewItemFixture } from "../../test/catalog-fixtures";
-const confirmationMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
-vi.mock("@/shared/lib/confirmation", () => ({ useConfirmation: () => confirmationMock }));
 // @vitest-environment jsdom
+import { fetchCatalogMock, reviewRowsMock, updateSongMock, updatePerformanceMock, deleteSongMock, deletePerformanceMock, publishPerformanceMock, toastMock, catalog, linkedPerformance, selectOption, openSecondaryAction, openOperationsTab, openBulkPublication, renderCatalogManager, createTestQueryClient, createQueryWrapper } from "./catalog-manager.test-support";
 import { createElement, useState } from "react";
 import { ConsoleSearchContext, type ConsoleSearch } from "@/shared/lib/admin-console-search";
-import { UnsavedChangesContext } from "@/shared/lib/unsaved-changes";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  within,
-  waitFor,
-} from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createQueryWrapper, createTestQueryClient } from "@/test/query-client";
+import { act, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryKeys } from "@/shared/query/query-keys";
 import { ApiError } from "@/shared/api/client";
 import { OtwPlayCatalogManager } from "./catalog-manager";
-
-const fetchCatalogMock = vi.hoisted(() => vi.fn());
-const reviewRowsMock = vi.hoisted(() => vi.fn());
-const fetchImportJobMock = vi.hoisted(() => vi.fn(async () => null as unknown));
-const fetchProposalsMock = vi.hoisted(() => vi.fn());
-const fetchSourceHealthMock = vi.hoisted(() => vi.fn());
-const fetchChannelMonitorsMock = vi.hoisted(() => vi.fn());
-const recheckSourceMock = vi.hoisted(() => vi.fn());
-const updateEntityMock = vi.hoisted(() => vi.fn());
-const deleteEntityMock = vi.hoisted(() => vi.fn());
-const createChannelMock = vi.hoisted(() => vi.fn());
-const lookupChannelMock = vi.hoisted(() => vi.fn());
-const updateChannelMock = vi.hoisted(() => vi.fn());
-const deleteChannelMock = vi.hoisted(() => vi.fn());
-const updateSongMock = vi.hoisted(() => vi.fn());
-const updatePerformanceMock = vi.hoisted(() => vi.fn());
-const preflightEntryMock = vi.hoisted(() => vi.fn());
-const createEntryMock = vi.hoisted(() => vi.fn());
-const deleteSongMock = vi.hoisted(() => vi.fn());
-const deletePerformanceMock = vi.hoisted(() => vi.fn());
-const publishPerformanceMock = vi.hoisted(() => vi.fn());
-const fetchMembersMock = vi.hoisted(() => vi.fn());
-const rejectProposalMock = vi.hoisted(() => vi.fn());
-const approveProposalMock = vi.hoisted(() => vi.fn());
-const toastMock = vi.hoisted(() => vi.fn());
-
-vi.mock("../../api/ai-review", () => ({
-  latestAiReview: vi.fn(async () => ({ data: null })),
-  getAiReview: vi.fn(),
-  startAiReview: vi.fn(),
-}));
-vi.mock("../../api/work-queue",()=>({workQueueQueryKey:["otw-play-work-queues"],fetchWorkQueues:async()=>({data:{queues:[],activeBatch:null,deferred:[],deferredCursor:null}}),fetchWorkBatch:vi.fn()}));
-
-vi.mock("../../api/admin", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../api/admin")>();
-  return {
-    ...actual,
-    fetchOtwPlayReviewItems: reviewRowsMock,
-    fetchOtwPlayImportJobs: async () => ({ data: [], nextCursor: null }),
-    fetchOtwPlayImportJob: fetchImportJobMock,
-    fetchOtwPlayIngestionBudget: async () => ({ status: "available" }),
-    fetchOtwPlayAdminCatalog: fetchCatalogMock,
-    fetchOtwPlayAdminProposals: fetchProposalsMock,
-    fetchOtwPlayAdminSourceHealth: fetchSourceHealthMock,
-    fetchOtwPlayChannelMonitors: fetchChannelMonitorsMock,
-    recheckOtwPlaySource: recheckSourceMock,
-    updateOtwPlayEntity: updateEntityMock,
-    deleteOtwPlayEntity: deleteEntityMock,
-    createOtwPlayChannel: createChannelMock,
-    lookupOtwPlayChannel: lookupChannelMock,
-    updateOtwPlayChannel: updateChannelMock,
-    deleteOtwPlayChannel: deleteChannelMock,
-    updateOtwPlaySong: updateSongMock,
-    updateOtwPlayPerformance: updatePerformanceMock,
-    preflightOtwPlayCatalogEntry: preflightEntryMock,
-    createOtwPlayCatalogEntry: createEntryMock,
-    deleteOtwPlaySong: deleteSongMock,
-    deleteOtwPlayPerformance: deletePerformanceMock,
-    publishOtwPlayPerformance: publishPerformanceMock,
-    rejectOtwPlayProposal: rejectProposalMock,
-    approveOtwPlayProposal: approveProposalMock,
-  };
-});
-
-vi.mock("@/shared/ui/toast", () => ({
-  useToast: () => ({ toast: toastMock }),
-}));
-
-vi.mock("@/features/members", () => ({
-  fetchActiveMembers: fetchMembersMock,
-}));
-
-const catalog = createAdminCatalogFixture();
-const linkedPerformance = {
-  id: "performance", songId: "song", relationType: "cover" as const, releaseType: "official_video" as const,
-  participationType: "solo" as const, publicationStatus: "published" as const, qualityStatus: "ok" as const,
-  releasedAt: null, internalNote: null, version: 1, participants: [], sources: [],
-};
-
-const selectOption = async (label: string, option: string | RegExp) => {
-  fireEvent.click(await screen.findByRole("combobox", { name: label }));
-  fireEvent.click(await screen.findByRole("option", { name: option }));
-};
-
-const proposal = {
-  id: "proposal-1",
-  submittedByUserId: "member-1",
-  historicalProvenance: null,
-  historicalReview: false,
-  submittedUrl: "https://youtu.be/dQw4w9WgXcQ",
-  youtubeVideoId: "dQw4w9WgXcQ",
-  segmentStartSeconds: 0,
-  submittedTitle: "검수할 공식 커버",
-  suggestedSongId: null,
-  tags: ["J-POP"],
-  submittedNote: "제출 메모",
-  status: "pending_review" as const,
-  version: 2,
-  reviewedByUserId: null,
-  reviewedAt: null,
-  reviewResultCode: null,
-  reviewNote: null,
-  approvedPerformanceId: null,
-  createdAt: 1_788_000_000_000,
-  participants: [
-    {
-      creditOrder: 0,
-      resolvedEntityId: null,
-      submittedMemberUid: null,
-      submittedNameSnapshot: "참여자",
-      participantRole: "vocal" as const,
-    },
-  ],
-  originalArtists: [
-    {
-      creditOrder: 0,
-      resolvedEntityId: null,
-      submittedMemberUid: null,
-      submittedNameSnapshot: "원곡 가수",
-    },
-  ],
-};
-
-const openSecondaryAction = async (name: string, trigger?: HTMLElement) => {
-  fireEvent.keyDown(trigger ?? await screen.findByRole("button", { name: `${name} 메뉴` }), { key: "Enter" });
-  return screen.findByRole("menuitem", { name });
-};
-
-async function openOperationsTab(name: "채널" | "인물·그룹") {
-  fireEvent.click(await screen.findByRole("tab", { name: "운영" }));
-  const operations = screen.getByRole("tablist", { name: "Play 운영 영역" });
-  fireEvent.click(within(operations).getByRole("tab", { name }));
-}
-
-const openBulkPublication = async () => {
-  fireEvent.click(await openSecondaryAction("미게시 곡 모두 게시", await screen.findByRole("button", { name: "게시 옵션" })));
-};
-
-const renderCatalogManager = () =>
-  render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
-
-const openVideoRegistration = async () => {
-  renderCatalogManager();
-  fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
-  fireEvent.change(screen.getByLabelText("YouTube URL"), {
-    target: { value: "https://youtu.be/dQw4w9WgXcQ" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-};
-
-describe("OtwPlayCatalogManager", () => {
-  it("protects actual proposal edits and clears protection when values are restored", async () => {
-    const protectedInput = () => {
-      const event = new Event("beforeunload", { cancelable: true });
-      window.dispatchEvent(event);
-      return event.defaultPrevented;
-    };
-    renderCatalogManager();
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    const title = await screen.findByLabelText("곡명");
-    expect(protectedInput()).toBe(false);
-    await screen.findByText(/영상·채널 확인 완료/);
-    fireEvent.click(screen.getByRole("checkbox"));
-    expect(protectedInput()).toBe(false);
-    fireEvent.change(title, { target: { value: "실제 변경" } });
-    expect(protectedInput()).toBe(true);
-    fireEvent.change(title, { target: { value: proposal.submittedTitle } });
-    expect(protectedInput()).toBe(false);
-    await selectOption("참여자 가창 역할", "코러스");
-    expect(protectedInput()).toBe(true);
-    await selectOption("참여자 가창 역할", "메인 보컬");
-    expect(protectedInput()).toBe(false);
-    const reason = screen.getByLabelText(`${proposal.submittedTitle} 거절 코드`);
-    fireEvent.change(reason, { target: { value: "invalid" } });
-    expect(protectedInput()).toBe(true);
-    fireEvent.change(reason, { target: { value: "" } });
-    expect(protectedInput()).toBe(false);
-  });
-  beforeEach(() => {
-    vi.clearAllMocks();
-    fetchCatalogMock.mockReset();
-    fetchProposalsMock.mockReset();
-    createEntryMock.mockReset();
-    preflightEntryMock.mockReset();
-    confirmationMock.mockResolvedValue(true);
-    reviewRowsMock.mockReset();
-    reviewRowsMock.mockResolvedValue({ items: [createReviewItemFixture()], nextCursor: null });
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: vi.fn(),
+describe("OtwPlayCatalogManager catalog", () => {
+    it("hides songs without performances from every catalog scope, counts and category filters", async () => {
+        const songs = ["공식곡", "클립곡", "가창없는곡"].map((title, index) => ({
+            id: `song-${index}`, title, isOtwOriginal: false, archivedAt: null, version: 1,
+            tags: [index === 2 ? "ORPHAN" : "POP"], aliases: [], originalArtists: [],
+        }));
+        fetchCatalogMock.mockResolvedValue({ ...catalog, songs, performances: [
+                { ...linkedPerformance, id: "official", songId: songs[0]!.id, publicationStatus: "draft" },
+                { ...linkedPerformance, id: "broadcast", songId: songs[1]!.id, relationType: "singing_clip", releaseType: "broadcast", publicationStatus: "withdrawn" },
+            ] });
+        renderCatalogManager();
+        await screen.findByText("1곡 중 1곡 · 1곡 표시");
+        expect(screen.getByText("곡 2 · 가창 2")).toBeTruthy();
+        expect(screen.getAllByText("공식곡")).toHaveLength(2);
+        expect(screen.queryByText("클립곡")).toBeNull();
+        expect(screen.queryByText("가창없는곡")).toBeNull();
+        await selectOption("카탈로그 영상 종류", "전체");
+        expect(await screen.findByText("2곡 중 2곡 · 2곡 표시")).toBeTruthy();
+        expect(screen.getAllByText("클립곡")).toHaveLength(2);
+        expect(screen.queryByText("가창없는곡")).toBeNull();
+        fireEvent.click(screen.getByRole("combobox", { name: "곡 분류" }));
+        expect(screen.queryByRole("option", { name: "ORPHAN" })).toBeNull();
+        fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
+        await selectOption("카탈로그 영상 종류", "노래 클립");
+        expect(screen.getByText("1곡 중 1곡 · 1곡 표시")).toBeTruthy();
+        expect(screen.queryByText("공식곡")).toBeNull();
+        expect(screen.queryByText("가창없는곡")).toBeNull();
+        fetchCatalogMock.mockResolvedValue({ ...catalog, songs: [songs[2]], performances: [] });
+        await waitFor(() => expect(screen.getByRole("button", { name: "상태 새로고침" })).toHaveProperty("disabled", false));
+        fireEvent.click(screen.getByRole("button", { name: "상태 새로고침" }));
+        await screen.findByText("0곡 중 0곡 · 0곡 표시");
+        expect(screen.getByText("곡 0 · 가창 0")).toBeTruthy();
+        expect(screen.getByText(/연결된 가창이 있는 곡이 없습니다/)).toBeTruthy();
+        await selectOption("카탈로그 영상 종류", "공식 곡");
+        expect(screen.queryByText("가창없는곡")).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "새 영상 등록" }));
+        fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
+        fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+        await screen.findByRole("region", { name: "등록 채널 상태" });
+        fireEvent.click(screen.getByRole("button", { name: /오리지널곡/ }));
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+        fireEvent.change(screen.getByLabelText("기존 곡 검색"), { target: { value: "가창없는곡" } });
+        expect(screen.getByRole("option", { name: /가창없는곡/ })).toBeTruthy();
     });
-    fetchCatalogMock.mockResolvedValue(catalog);
-    fetchProposalsMock.mockResolvedValue([proposal]);
-    fetchSourceHealthMock.mockReset();
-    fetchChannelMonitorsMock.mockReset();
-    fetchChannelMonitorsMock.mockResolvedValue([]);
-    recheckSourceMock.mockReset();
-    createChannelMock.mockReset();
-    lookupChannelMock.mockReset();
-    updateChannelMock.mockReset();
-    deleteChannelMock.mockReset();
-    createChannelMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
-    lookupChannelMock.mockResolvedValue({
-      externalChannelId: `UC${"F".repeat(22)}`,
-      displayName: "정리된 공식 채널",
-    });
-    updateChannelMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
-    publishPerformanceMock.mockReset();
-    publishPerformanceMock.mockResolvedValue({});
-    fetchSourceHealthMock.mockResolvedValue({
-      generatedAt: 1_777_000_000_000,
-      recentRecoveryWindowDays: 7,
-      listLimit: 50,
-      counts: { due: 1, unplayable: 1, recentlyRecovered: 0 },
-      due: [
-        {
-          source: {
-            id: "source-1",
-            provider: "youtube",
-            externalId: "dQw4w9WgXcQ",
-            channelId: "channel-1",
-            title: "Stored title",
-            thumbnailUrl: null,
-            durationSeconds: 180,
-            providerPublishedAt: null,
-            availabilityStatus: "unavailable",
-            lastCheckedAt: 1_776_000_000_000,
-            nextCheckAt: 1_776_100_000_000,
-            version: 3,
-          },
-          channel: {
-            id: "channel-1",
-            externalChannelId: `UC${"A".repeat(22)}`,
-            displayName: "공식 채널",
-          },
-          linkedPerformanceCount: 1,
-          links: [{
-            songId: "song-1",
-            songTitle: "상태 점검 곡",
-            performanceId: "performance-1",
-            publicationStatus: "published",
-          }],
-          lastEvent: {
-            type: "source.retry_scheduled",
-            at: 1_776_000_000_000,
-            retryCode: "timeout",
-          },
-          recoveredAt: null,
-        },
-      ],
-      unplayable: [],
-      recentlyRecovered: [],
-    });
-    recheckSourceMock.mockResolvedValue({
-      data: { id: "source-1" },
-      catalogRevision: 7,
-      check: {
-        status: "retry_scheduled",
-        currentAvailability: "unavailable",
-        retryCode: "timeout",
-        nextCheckAt: 1_776_200_000_000,
-      },
-    });
-    rejectProposalMock.mockResolvedValue({
-      data: { ...proposal, status: "rejected", version: 3 },
-      catalogRevision: 7,
-    });
-    approveProposalMock.mockResolvedValue({
-      data: {
-        ...proposal,
-        status: "approved",
-        version: 3,
-        approvedPerformanceId: "performance-approved",
-      },
-      catalogRevision: 8,
-    });
-    updateEntityMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
-    deleteEntityMock.mockReset();
-    deleteEntityMock.mockResolvedValue({
-      data: { id: "external-1" },
-      catalogRevision: 8,
-    });
-    updateSongMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
-    updatePerformanceMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
-    fetchMembersMock.mockResolvedValue([
-      {
-        uid: 1,
-        code: "member",
-        name: "현재 멤버",
-        oshi_mark: "🌙",
-        unit_name: "테스트 유닛",
-      },
-    ]);
-    preflightEntryMock.mockResolvedValue({
-      catalogRevision: 7,
-      video: {
-        videoId: "dQw4w9WgXcQ",
-        title: "확인된 영상",
-        thumbnailUrl: null,
-        durationSeconds: 180,
-        publishedAt: 1,
-        availabilityStatus: "playable",
-        channelId: `UC${"M".repeat(22)}`,
-        channelTitle: "현재 멤버 채널",
-      },
-      channel: {
-        state: "recognized_member",
-        catalogChannelId: null,
-        verificationStatus: null,
-        active: false,
-        channelRole: "member_main",
-        memberUid: 1,
-      },
-      duplicate: null,
-    });
-    createEntryMock.mockResolvedValue({ data: { createdEntities: [] }, catalogRevision: 8 });
-    deleteSongMock.mockResolvedValue({ data: { id: "song-draft" }, catalogRevision: 8 });
-    deletePerformanceMock.mockResolvedValue({ data: { id: "performance-draft" }, catalogRevision: 8 });
-  });
-
-  it("registers a clip directly without enabling collection and preserves unknown broadcast metadata", async () => {
-    preflightEntryMock.mockResolvedValue({ catalogRevision: 7,
-      video: { videoId: "BBBBBBBBBBB", title: "방송 클립 영상", durationSeconds: 180, publishedAt: 1, availabilityStatus: "playable", thumbnailUrl: null, channelId: `UC${"K".repeat(22)}`, channelTitle: "승인 클립 채널" },
-      channel: { state: "approved", catalogChannelId: "clip-channel", verificationStatus: "approved", active: true, channelRole: "approved_kirinuki", memberUid: null }, duplicate: null });
-    renderCatalogManager();
-    await selectOption("카탈로그 영상 종류", "노래 클립");
-    fireEvent.click(screen.getByRole("button", { name: "새 노래 클립 등록" }));
-    const dialog = screen.getByRole("dialog", { name: "노래 클립 직접 등록" });
-    fireEvent.change(within(dialog).getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/BBBBBBBBBBB" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "영상 확인" }));
-    await waitFor(() => expect(within(dialog).getByRole("button", { name: /다음/ })).toHaveProperty("disabled", false));
-    fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
-    expect(within(dialog).queryByRole("button", { name: /커버 가창|오리지널곡/ })).toBeNull();
-    fireEvent.change(within(dialog).getByLabelText("기존 곡 검색"), { target: { value: "새 클립 곡" } });
-    fireEvent.click(within(dialog).getByRole("option", { name: /새 곡 입력/ }));
-    fireEvent.change(within(dialog).getByLabelText("원곡 가수 검색"), { target: { value: "원곡 가수" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "외부 인물로 추가" }));
-    fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
-    fireEvent.change(within(dialog).getByLabelText("가창 참여자 검색"), { target: { value: "현재 멤버" } });
-    fireEvent.click(await within(dialog).findByRole("option", { name: /현재 멤버/ }));
-    expect(within(dialog).queryByLabelText("채널 소유·연결 주체 검색")).toBeNull();
-    fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
-    expect(within(dialog).queryByRole("button", { name: "게시" })).toBeNull();
-    fireEvent.click(within(dialog).getByRole("button", { name: "임시 저장" }));
-    await waitFor(() => expect(createEntryMock).toHaveBeenCalledWith(expect.objectContaining({ relationType: "singing_clip", releaseType: "broadcast", publicationTarget: "draft",
-      startSeconds: 0, endSeconds: 180, channel: { kind: "existing", channelId: "clip-channel" },
-      song: expect.objectContaining({ kind: "create", title: "새 클립 곡" }),
-      broadcast: { performedOn: null, dateEvidence: null, originalUrl: null, extent: null } }), expect.any(String)));
-    expect(publishPerformanceMock).not.toHaveBeenCalled();
-  });
-
-  it("hides songs without performances from every catalog scope, counts and category filters", async () => {
-    const songs = ["공식곡", "클립곡", "가창없는곡"].map((title, index) => ({
-      id: `song-${index}`, title, isOtwOriginal: false, archivedAt: null, version: 1,
-      tags: [index === 2 ? "ORPHAN" : "POP"], aliases: [], originalArtists: [],
-    }));
-    fetchCatalogMock.mockResolvedValue({ ...catalog, songs, performances: [
-      { ...linkedPerformance, id: "official", songId: songs[0]!.id, publicationStatus: "draft" },
-      { ...linkedPerformance, id: "broadcast", songId: songs[1]!.id, relationType: "singing_clip", releaseType: "broadcast", publicationStatus: "withdrawn" },
-    ] });
-    renderCatalogManager();
-    await screen.findByText("1곡 중 1곡 · 1곡 표시");
-    expect(screen.getByText("곡 2 · 가창 2")).toBeTruthy();
-    expect(screen.getAllByText("공식곡")).toHaveLength(2);
-    expect(screen.queryByText("클립곡")).toBeNull();
-    expect(screen.queryByText("가창없는곡")).toBeNull();
-    await selectOption("카탈로그 영상 종류", "전체");
-    expect(await screen.findByText("2곡 중 2곡 · 2곡 표시")).toBeTruthy();
-    expect(screen.getAllByText("클립곡")).toHaveLength(2);
-    expect(screen.queryByText("가창없는곡")).toBeNull();
-    fireEvent.click(screen.getByRole("combobox", { name: "곡 분류" }));
-    expect(screen.queryByRole("option", { name: "ORPHAN" })).toBeNull();
-    fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
-    await selectOption("카탈로그 영상 종류", "노래 클립");
-    expect(screen.getByText("1곡 중 1곡 · 1곡 표시")).toBeTruthy();
-    expect(screen.queryByText("공식곡")).toBeNull();
-    expect(screen.queryByText("가창없는곡")).toBeNull();
-    fetchCatalogMock.mockResolvedValue({ ...catalog, songs: [songs[2]], performances: [] });
-    await waitFor(()=>expect(screen.getByRole("button",{name:"상태 새로고침"})).toHaveProperty("disabled",false));
-    fireEvent.click(screen.getByRole("button", { name: "상태 새로고침" }));
-    await screen.findByText("0곡 중 0곡 · 0곡 표시");
-    expect(screen.getByText("곡 0 · 가창 0")).toBeTruthy();
-    expect(screen.getByText(/연결된 가창이 있는 곡이 없습니다/)).toBeTruthy();
-    await selectOption("카탈로그 영상 종류", "공식 곡");
-    expect(screen.queryByText("가창없는곡")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "새 영상 등록" }));
-    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    fireEvent.click(screen.getByRole("button", { name: /오리지널곡/ }));
-    fireEvent.click(screen.getByRole("button", { name: "다음" }));
-    fireEvent.change(screen.getByLabelText("기존 곡 검색"), { target: { value: "가창없는곡" } });
-    expect(screen.getByRole("option", { name: /가창없는곡/ })).toBeTruthy();
-  });
-
-  it("summarizes scoped states, labels expanded details and protects songs published in another scope", async () => {
-    const performance = {
-      id: "official-draft", songId: "shared-song", relationType: "cover", releaseType: "official_video",
-      participationType: "solo", publicationStatus: "draft", qualityStatus: "ok", releasedAt: null,
-      internalNote: null, version: 1, participants: [], sources: [],
-    };
-    fetchCatalogMock.mockResolvedValue({ ...catalog,
-      songs: [{ id: "shared-song", title: "공통 곡", isOtwOriginal: false, archivedAt: null, version: 1, tags: [], aliases: [], originalArtists: [] }],
-      performances: [performance, { ...performance, id: "broadcast-published", releaseType: "broadcast", publicationStatus: "published" }],
-    });
-    renderCatalogManager();
-    const songs = await screen.findByRole("table", { name: "곡 카탈로그" });
-    expect(within(songs).getByText("1개 가창")).toBeTruthy();
-    expect(within(songs).getByText("비공개 1")).toBeTruthy();
-    expect(within(songs).queryByText("게시됨 1")).toBeNull();
-    const deleteItem = await openSecondaryAction("곡 삭제", within(songs).getByRole("button", { name: "곡 작업 메뉴" }));
-    expect(deleteItem.getAttribute("aria-disabled")).toBe("true");
-    expect(document.getElementById(deleteItem.getAttribute("aria-describedby")!)?.textContent).toBe("다른 영상 종류를 포함해 게시 중인 가창이 있어 삭제할 수 없습니다.");
-    expect(screen.getByRole("menuitem", { name: "다른 가창 추가" })).toBeTruthy();
-    fireEvent.keyDown(deleteItem, { key: "Escape" });
-    const toggle = within(songs).getByRole("button", { name: "공통 곡 가창 펼치기" });
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    const details = screen.getByRole("row", { name: "공통 곡 가창 1" });
-    expect(within(songs).queryByRole("table")).toBeNull();
-    expect(within(songs).getByRole("columnheader", { name: "곡 / 가창" })).toBeTruthy();
-    expect(within(details).getByText("연결된 영상 없음")).toBeTruthy();
-    fireEvent.change(screen.getByRole("textbox", { name: "곡명·원곡 가수 검색" }), { target: { value: "없는 곡" } });
-    fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
-    expect(screen.getByText("1곡 중 1곡 · 1곡 표시")).toBeTruthy();
-  });
-
-  it("appends catalog rows on intersection, stops at the end and resets on search", async () => {
-    const observers: { notify: (visible: boolean) => void; disconnect: ReturnType<typeof vi.fn> }[] = [];
-    vi.stubGlobal("IntersectionObserver", class {
-      disconnect = vi.fn();
-      observe = vi.fn();
-      unobserve = vi.fn();
-      constructor(callback: IntersectionObserverCallback) {
-        observers.push({
-          notify: (visible) => callback(
-            [{ isIntersecting: visible } as IntersectionObserverEntry],
-            this as unknown as IntersectionObserver,
-          ),
-          disconnect: this.disconnect,
+    it("summarizes scoped states, labels expanded details and protects songs published in another scope", async () => {
+        const performance = {
+            id: "official-draft", songId: "shared-song", relationType: "cover", releaseType: "official_video",
+            participationType: "solo", publicationStatus: "draft", qualityStatus: "ok", releasedAt: null,
+            internalNote: null, version: 1, participants: [], sources: [],
+        };
+        fetchCatalogMock.mockResolvedValue({ ...catalog,
+            songs: [{ id: "shared-song", title: "공통 곡", isOtwOriginal: false, archivedAt: null, version: 1, tags: [], aliases: [], originalArtists: [] }],
+            performances: [performance, { ...performance, id: "broadcast-published", releaseType: "broadcast", publicationStatus: "published" }],
         });
-      }
+        renderCatalogManager();
+        const songs = await screen.findByRole("table", { name: "곡 카탈로그" });
+        expect(within(songs).getByText("1개 가창")).toBeTruthy();
+        expect(within(songs).getByText("비공개 1")).toBeTruthy();
+        expect(within(songs).queryByText("게시됨 1")).toBeNull();
+        const deleteItem = await openSecondaryAction("곡 삭제", within(songs).getByRole("button", { name: "곡 작업 메뉴" }));
+        expect(deleteItem.getAttribute("aria-disabled")).toBe("true");
+        expect(document.getElementById(deleteItem.getAttribute("aria-describedby")!)?.textContent).toBe("다른 영상 종류를 포함해 게시 중인 가창이 있어 삭제할 수 없습니다.");
+        expect(screen.getByRole("menuitem", { name: "다른 가창 추가" })).toBeTruthy();
+        fireEvent.keyDown(deleteItem, { key: "Escape" });
+        const toggle = within(songs).getByRole("button", { name: "공통 곡 가창 펼치기" });
+        expect(toggle.getAttribute("aria-expanded")).toBe("false");
+        fireEvent.click(toggle);
+        expect(toggle.getAttribute("aria-expanded")).toBe("true");
+        const details = screen.getByRole("row", { name: "공통 곡 가창 1" });
+        expect(within(songs).queryByRole("table")).toBeNull();
+        expect(within(songs).getByRole("columnheader", { name: "곡 / 가창" })).toBeTruthy();
+        expect(within(details).getByText("연결된 영상 없음")).toBeTruthy();
+        fireEvent.change(screen.getByRole("textbox", { name: "곡명·원곡 가수 검색" }), { target: { value: "없는 곡" } });
+        fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
+        expect(screen.getByText("1곡 중 1곡 · 1곡 표시")).toBeTruthy();
     });
-    try {
-      const songs = Array.from({ length: 60 }, (_, index) => ({
-        id: `song-${index}`, title: `Song ${index}`, isOtwOriginal: false,
-        archivedAt: null, version: 0, tags: [], aliases: [], originalArtists: [],
-      }));
-      fetchCatalogMock.mockResolvedValue({ ...catalog, songs, performances: songs.map(song => ({ ...linkedPerformance, id: `performance-${song.id}`, songId: song.id })) });
-      renderCatalogManager();
-      await screen.findByText("60곡 중 60곡 · 25곡 표시");
-      expect(screen.queryByRole("button", { name: "다음" })).toBeNull();
-      const first = observers.at(-1)!;
-      act(() => first.notify(false));
-      expect(screen.getByText("60곡 중 60곡 · 25곡 표시")).toBeTruthy();
-      act(() => { first.notify(true); first.notify(true); });
-      expect(screen.getByText("60곡 중 60곡 · 50곡 표시")).toBeTruthy();
-      expect(screen.getAllByText("Song 0")).toHaveLength(2);
-      expect(screen.getAllByText("Song 49")).toHaveLength(2);
-      expect(first.disconnect).toHaveBeenCalled();
-      const last = observers.at(-1)!;
-      act(() => last.notify(true));
-      expect(screen.getByText("60곡 중 60곡 · 60곡 표시")).toBeTruthy();
-      expect(screen.getByText("모든 곡을 표시했습니다.")).toBeTruthy();
-      expect(screen.queryByRole("button", { name: "곡 더 보기" })).toBeNull();
-      fireEvent.change(screen.getByRole("textbox", { name: "곡명·원곡 가수 검색" }), { target: { value: "Song" } });
-      expect(screen.getByText("60곡 중 60곡 · 25곡 표시")).toBeTruthy();
-      act(() => last.notify(true));
-      expect(screen.getByText("60곡 중 60곡 · 25곡 표시")).toBeTruthy();
-      expect(fetchCatalogMock).toHaveBeenCalledOnce();
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  }, 15_000);
-
-  it("keeps all active categories across appended batches, category changes and empty searches", async () => {
-    const songs = Array.from({length: 26}, (_, index) => ({
-      id: `song-${index}`, title: `Song ${index}`, isOtwOriginal: false,
-      archivedAt: null, version: 0, tags: [index < 25 ? "POP" : "J-POP"], aliases: [], originalArtists: [],
-    }));
-    fetchCatalogMock.mockResolvedValue({...catalog, songs: [...songs, {...songs[0], id: "archived", archivedAt: 1, tags: ["ARCHIVED"]}], performances: [...songs, {id: "archived"}].map(song => ({ ...linkedPerformance, id: `performance-${song.id}`, songId: song.id }))});
-    renderCatalogManager();
-    const category = await screen.findByRole("combobox", {name: "곡 분류"});
-    const options = async () => {
-      fireEvent.keyDown(category, { key: "ArrowDown" });
-      const list = await screen.findByRole("listbox");
-      const labels = within(list).getAllByRole("option").map((option) => option.textContent);
-      fireEvent.keyDown(list, { key: "Escape" });
-      return labels;
-    };
-    const selectCategory = async (name: string) => {
-      fireEvent.keyDown(category, { key: "ArrowDown" });
-      fireEvent.click(await screen.findByRole("option", { name }));
-    };
-    expect(await options()).toEqual(["모든 분류", "J-POP", "POP"]);
-    fireEvent.click(screen.getByRole("button", {name: "곡 더 보기"}));
-    expect(await options()).toEqual(["모든 분류", "J-POP", "POP"]);
-    await selectCategory("POP");
-    expect(await options()).toContain("J-POP");
-    await selectCategory("J-POP");
-    expect(screen.getByText("26곡 중 1곡 · 1곡 표시")).toBeTruthy();
-    fireEvent.change(screen.getByRole("textbox", {name: "곡명·원곡 가수 검색"}), {target: {value: "no matching song"}});
-    expect(screen.getByText(/조건에 맞는 곡이 없습니다/)).toBeTruthy();
-    expect(await options()).toEqual(["모든 분류", "J-POP", "POP"]);
-    expect(category.textContent).toBe("J-POP");
-    await selectCategory("모든 분류");
-    expect(category.textContent).toBe("모든 분류");
-  });
-
-  it("loads source health only after section entry and distinguishes retryable outages", async () => {
-    renderCatalogManager();
-    await screen.findByText("OTW Play 카탈로그");
-    expect(fetchSourceHealthMock).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("tab", { name: "운영" }));
-    expect(await screen.findByRole("heading", { name: "소스 상태" })).toBeTruthy();
-    expect(fetchSourceHealthMock).toHaveBeenCalledOnce();
-    expect(screen.getAllByText("외부 API 재시도 대기 (timeout)").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("상태 점검 곡").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: /YouTube/ })[0]?.getAttribute("href"))
-      .toBe("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-
-    fireEvent.click(screen.getAllByRole("button", { name: "수동 재검사" })[0]!);
-    await waitFor(() => expect(recheckSourceMock).toHaveBeenCalledWith(
-      "source-1",
-      {
-        expectedVersion: 3,
-        youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        channelId: "channel-1",
-      },
-    ));
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
-      variant: "info",
-      description: "외부 API 재시도 대기 상태로 저장했습니다 (timeout).",
-    }));
-    expect(fetchCatalogMock).toHaveBeenCalledOnce();
-    await waitFor(() => expect(fetchSourceHealthMock.mock.calls.length).toBeGreaterThan(1));
-  });
-
-  it("keeps source health reachable when the catalog fails and excludes retired operations controls", async () => {
-    fetchCatalogMock.mockRejectedValueOnce(new Error("catalog unavailable"));
-    renderCatalogManager();
-    expect((await screen.findByRole("alert")).textContent).toContain("관리자 카탈로그를 불러오지 못했습니다");
-    fireEvent.click(screen.getByRole("tab", { name: "운영" }));
-    expect(await screen.findByRole("heading", { name: "소스 상태" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "일괄 재검사" })).toBeTruthy();
-    for (const title of ["공개 설정", "최근 24시간 관측", "Play 자동화 운영", "회원 곡 제안"]) {
-      expect(screen.queryByRole("heading", { name: title })).toBeNull();
-    }
-  });
-
-  it("opens proposals only from explicit selection in the unified review inbox", async () => {
-    renderCatalogManager();
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    expect(screen.queryByRole("tab", { name: "사용자 곡 요청" })).toBeNull();
-    expect(fetchProposalsMock).not.toHaveBeenCalled();
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    expect(await screen.findByTitle("검수할 공식 커버 검수 영상")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("곡명"), { target: { value: "보존할 제목" } });
-    fireEvent.click(screen.getByRole("button", { name: "검수 목록으로" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    expect((await screen.findByLabelText("곡명") as HTMLInputElement).value).toBe("보존할 제목");
-  });
-
-  it("switches between pending and completed proposal cards without opening a detail automatically", async () => {
-    reviewRowsMock.mockImplementation(async (filters) => ({
-      items: [createReviewItemFixture(filters.status === "completed"
-        ? { status: "rejected", title: "처리된 제안" }
-        : { title: "대기 중인 제안" })],
-      nextCursor: null,
-    }));
-    renderCatalogManager();
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    expect(await screen.findByRole("heading", { name: "대기 중인 제안" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "검수 대기", pressed: true })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "처리 완료" }));
-    expect(await screen.findByRole("heading", { name: "처리된 제안" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "처리 내역" })).toBeTruthy();
-    expect(screen.getByText("거절됨")).toBeTruthy();
-    expect(fetchProposalsMock).not.toHaveBeenCalled();
-  });
-
-  it("opens a completed legacy proposal as read-only history", async () => {
-    fetchProposalsMock.mockImplementation((status: string) => Promise.resolve(status ? [] : [{ ...proposal, status: "rejected", reviewResultCode: "reviewed_rejection", reviewedAt: 1_777_000_000_000 }]));
-    renderCatalogManager();
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    expect(await screen.findByText("처리 상태: 거절됨")).toBeTruthy();
-    expect(screen.getByText("처리 사유: reviewed_rejection")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "확인 후 승인·게시" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "제안 거절" })).toBeNull();
-  });
-
-  it("retains a draft when another administrator completes the proposal", async () => {
-    const client = createTestQueryClient();
-    render(createElement(QueryClientProvider, { client }, createElement(OtwPlayCatalogManager)));
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    fireEvent.change(await screen.findByLabelText("곡명"), { target: { value: "충돌 후에도 보존할 입력" } });
-    fetchProposalsMock.mockImplementation((status: string) => Promise.resolve(status ? [] : [{ ...proposal, status: "rejected", version: 3 }]));
-    await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.otwPlay.adminProposals("pending_review") }); });
-    await screen.findByText(/다른 관리자가 이 제안을 변경했습니다/);
-    expect(screen.getByLabelText("곡명")).toHaveProperty("value", "충돌 후에도 보존할 입력");
-    expect(screen.getByRole("button", { name: "확인 후 승인·게시" })).toHaveProperty("disabled", true);
-    expect(screen.getByRole("button", { name: "제안 거절" })).toHaveProperty("disabled", true);
-    client.clear();
-  });
-
-  it("renders a proposal query failure instead of an empty review queue and retries", async () => {
-    fetchProposalsMock
-      .mockRejectedValueOnce(new Error("proposal unavailable"))
-      .mockResolvedValueOnce([proposal]);
-    renderCatalogManager();
-
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    expect(await screen.findByText(/제안 목록을 불러오지 못했습니다\. 빈 목록으로 간주하지 않습니다/)).toBeTruthy();
-    expect(screen.queryByText("대기 중인 제안이 없습니다.")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
-    expect((await screen.findAllByText("검수할 공식 커버")).length).toBeGreaterThan(0);
-    expect(screen.getByRole("heading", { name: "검수할 공식 커버" })).toBeTruthy();
-    expect(fetchProposalsMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("reports and refreshes a stale manual source write", async () => {
-    recheckSourceMock.mockRejectedValueOnce(
-      new ApiError("Source changed before recheck", 409, {
-        code: "PLAY_ADMIN_STALE_WRITE",
-      }),
-    );
-    renderCatalogManager();
-    await screen.findByText("OTW Play 카탈로그");
-    fireEvent.click(screen.getByRole("tab", { name: "운영" }));
-    await screen.findByRole("heading", { name: "소스 상태" });
-    fireEvent.click(screen.getAllByRole("button", { name: "수동 재검사" })[0]!);
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
-      variant: "error",
-      description: "다른 점검이 먼저 반영되었습니다. 최신 상태를 다시 불러왔습니다.",
-    }));
-    await waitFor(() => expect(fetchSourceHealthMock.mock.calls.length).toBeGreaterThan(1));
-  });
-
-  afterEach(() => {
-    cleanup();
-    vi.clearAllMocks();
-  });
-
-  it("requires metadata and singing-credit confirmation before approving a proposal", async () => {
-    const confirm = confirmationMock.mockResolvedValue(true);
-    renderCatalogManager();
-
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    const player = await screen.findByTitle("검수할 공식 커버 검수 영상");
-    expect(player.getAttribute("src")).toBe(
-      "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
-    );
-    const approveButton = screen.getByRole("button", {
-      name: "확인 후 승인·게시",
-    }) as HTMLButtonElement;
-    expect(approveButton.disabled).toBe(true);
-    expect(within(screen.getByLabelText("선택한 장르(분류)")).getByText("J-POP")).toBeTruthy();
-
-    await waitFor(() => expect(preflightEntryMock).toHaveBeenCalledWith({
-      youtubeUrl: proposal.submittedUrl,
-      startSeconds: 0,
-    }));
-    fireEvent.change(screen.getByLabelText("곡명"), {
-      target: { value: "관리자가 정정한 곡명" },
+    it("appends catalog rows on intersection, stops at the end and resets on search", async () => {
+        const observers: {
+            notify: (visible: boolean) => void;
+            disconnect: ReturnType<typeof vi.fn>;
+        }[] = [];
+        vi.stubGlobal("IntersectionObserver", class {
+            disconnect = vi.fn();
+            observe = vi.fn();
+            unobserve = vi.fn();
+            constructor(callback: IntersectionObserverCallback) {
+                observers.push({
+                    notify: (visible) => callback([{ isIntersecting: visible } as IntersectionObserverEntry], this as unknown as IntersectionObserver),
+                    disconnect: this.disconnect,
+                });
+            }
+        });
+        try {
+            const songs = Array.from({ length: 60 }, (_, index) => ({
+                id: `song-${index}`, title: `Song ${index}`, isOtwOriginal: false,
+                archivedAt: null, version: 0, tags: [], aliases: [], originalArtists: [],
+            }));
+            fetchCatalogMock.mockResolvedValue({ ...catalog, songs, performances: songs.map(song => ({ ...linkedPerformance, id: `performance-${song.id}`, songId: song.id })) });
+            renderCatalogManager();
+            await screen.findByText("60곡 중 60곡 · 25곡 표시");
+            expect(screen.queryByRole("button", { name: "다음" })).toBeNull();
+            const first = observers.at(-1)!;
+            act(() => first.notify(false));
+            expect(screen.getByText("60곡 중 60곡 · 25곡 표시")).toBeTruthy();
+            act(() => { first.notify(true); first.notify(true); });
+            expect(screen.getByText("60곡 중 60곡 · 50곡 표시")).toBeTruthy();
+            expect(screen.getAllByText("Song 0")).toHaveLength(2);
+            expect(screen.getAllByText("Song 49")).toHaveLength(2);
+            expect(first.disconnect).toHaveBeenCalled();
+            const last = observers.at(-1)!;
+            act(() => last.notify(true));
+            expect(screen.getByText("60곡 중 60곡 · 60곡 표시")).toBeTruthy();
+            expect(screen.getByText("모든 곡을 표시했습니다.")).toBeTruthy();
+            expect(screen.queryByRole("button", { name: "곡 더 보기" })).toBeNull();
+            fireEvent.change(screen.getByRole("textbox", { name: "곡명·원곡 가수 검색" }), { target: { value: "Song" } });
+            expect(screen.getByText("60곡 중 60곡 · 25곡 표시")).toBeTruthy();
+            act(() => last.notify(true));
+            expect(screen.getByText("60곡 중 60곡 · 25곡 표시")).toBeTruthy();
+            expect(fetchCatalogMock).toHaveBeenCalledOnce();
+        }
+        finally {
+            vi.unstubAllGlobals();
+        }
+    }, 15000);
+    it("keeps all active categories across appended batches, category changes and empty searches", async () => {
+        const songs = Array.from({ length: 26 }, (_, index) => ({
+            id: `song-${index}`, title: `Song ${index}`, isOtwOriginal: false,
+            archivedAt: null, version: 0, tags: [index < 25 ? "POP" : "J-POP"], aliases: [], originalArtists: [],
+        }));
+        fetchCatalogMock.mockResolvedValue({ ...catalog, songs: [...songs, { ...songs[0], id: "archived", archivedAt: 1, tags: ["ARCHIVED"] }], performances: [...songs, { id: "archived" }].map(song => ({ ...linkedPerformance, id: `performance-${song.id}`, songId: song.id })) });
+        renderCatalogManager();
+        const category = await screen.findByRole("combobox", { name: "곡 분류" });
+        const options = async () => {
+            fireEvent.keyDown(category, { key: "ArrowDown" });
+            const list = await screen.findByRole("listbox");
+            const labels = within(list).getAllByRole("option").map((option) => option.textContent);
+            fireEvent.keyDown(list, { key: "Escape" });
+            return labels;
+        };
+        const selectCategory = async (name: string) => {
+            fireEvent.keyDown(category, { key: "ArrowDown" });
+            fireEvent.click(await screen.findByRole("option", { name }));
+        };
+        expect(await options()).toEqual(["모든 분류", "J-POP", "POP"]);
+        fireEvent.click(screen.getByRole("button", { name: "곡 더 보기" }));
+        expect(await options()).toEqual(["모든 분류", "J-POP", "POP"]);
+        await selectCategory("POP");
+        expect(await options()).toContain("J-POP");
+        await selectCategory("J-POP");
+        expect(screen.getByText("26곡 중 1곡 · 1곡 표시")).toBeTruthy();
+        fireEvent.change(screen.getByRole("textbox", { name: "곡명·원곡 가수 검색" }), { target: { value: "no matching song" } });
+        expect(screen.getByText(/조건에 맞는 곡이 없습니다/)).toBeTruthy();
+        expect(await options()).toEqual(["모든 분류", "J-POP", "POP"]);
+        expect(category.textContent).toBe("J-POP");
+        await selectCategory("모든 분류");
+        expect(category.textContent).toBe("모든 분류");
     });
-    fireEvent.click(screen.getByRole("button", { name: "K-POP" }));
-    const songTagInput = screen.getByLabelText("장르(분류)");
-    fireEvent.change(songTagInput, { target: { value: "K POP" } });
-    fireEvent.keyDown(songTagInput, { key: "Enter" });
-    expect(
-      within(screen.getByLabelText("선택한 장르(분류)")).getAllByText("K-POP"),
-    ).toHaveLength(1);
-    expect(screen.queryByText("K POP")).toBeNull();
-    fireEvent.click(screen.getByLabelText("참여자 가창 역할"));
-    fireEvent.click(await screen.findByRole("option", { name: "피처링 보컬" }));
-    fireEvent.click(screen.getByLabelText("승인할 공개 형태"));
-    fireEvent.click(await screen.findByRole("option", { name: "공식 MV" }));
-    fireEvent.click(screen.getByLabelText("승인할 참여 형태"));
-    fireEvent.click(await screen.findByRole("option", { name: "유닛" }));
-    fireEvent.click(screen.getByRole("checkbox"));
-    expect(approveButton.disabled).toBe(false);
-    fireEvent.click(approveButton);
-
-    await waitFor(() =>
-      expect(approveProposalMock).toHaveBeenCalledWith(
-        "proposal-1",
-        expect.objectContaining({
-          expectedVersion: 2,
-          expectedCatalogRevision: 7,
-          singingCreditConfirmed: true,
-          publish: true,
-          releaseType: "official_mv",
-          participationType: "unit",
-          song: expect.objectContaining({
-            kind: "create",
-            title: "관리자가 정정한 곡명",
-            tags: ["J-POP", "K-POP"],
-          }),
-          participants: [
-            expect.objectContaining({ participantRole: "featured_vocal" }),
-          ],
-        }),
-       expect.any(String),),
-    );
-    expect(confirm).not.toHaveBeenCalled();
-    confirm.mockRestore();
-  });
-
-  it("automatically checks a proposal and publishes without a second confirmation dialog", async () => {
-    confirmationMock.mockResolvedValue(false);
-    renderCatalogManager();
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    await screen.findByText(/영상·채널 확인 완료/);
-    const approve = screen.getByRole("button", { name: "확인 후 승인·게시" });
-    expect(approve).toHaveProperty("disabled", true);
-    fireEvent.click(screen.getByRole("checkbox"));
-    expect(approve).toHaveProperty("disabled", false);
-    fireEvent.click(approve);
-    await waitFor(() => expect(approveProposalMock).toHaveBeenCalledWith("proposal-1", expect.objectContaining({
-      expectedVersion: 2, expectedCatalogRevision: 7, singingCreditConfirmed: true, publish: true,
-    }), expect.any(String)));
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({ variant: "success", description: "제안 승인 작업을 완료했습니다." }));
-  });
-
-  it("preserves the proposal and reports the server reason and request ID when approval fails", async () => {
-    approveProposalMock.mockRejectedValueOnce(new ApiError(
-      "영상의 채널이 승인된 활성 채널인지 확인해 주세요.", 422,
-      { code: "PLAY_ADMIN_VALIDATION_FAILED", requestId: "approval-request-1" },
-    ));
-    renderCatalogManager();
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    await screen.findByText(/영상·채널 확인 완료/);
-    fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "확인 후 승인·게시" }));
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
-      variant: "error",
-      description: "제안 승인에 실패했습니다. 영상의 채널이 승인된 활성 채널인지 확인해 주세요. (PLAY_ADMIN_VALIDATION_FAILED) · 요청 ID: approval-request-1",
-    })));
-    expect(screen.getByLabelText("곡명")).toHaveProperty("value", proposal.submittedTitle);
-    expect(screen.getByRole("button", { name: "확인 후 승인·게시" })).toHaveProperty("disabled", false);
-  });
-
-  it("shows verification failures and blocks approval during a fresh verification", async () => {
-    renderCatalogManager();
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    const verify = await screen.findByRole("button", { name: "영상·채널 다시 확인" });
-    const approve = screen.getByRole("button", { name: "확인 후 승인·게시" });
-    await screen.findByText(/영상·채널 확인 완료/);
-    fireEvent.click(screen.getByRole("checkbox"));
-    expect(approve).toHaveProperty("disabled", false);
-
-    let rejectVerification!: (error: Error) => void;
-    preflightEntryMock.mockImplementationOnce(() => new Promise((_, reject) => { rejectVerification = reject; }));
-    fireEvent.click(verify);
-    expect(approve).toHaveProperty("disabled", true);
-    expect(screen.getByText("영상·채널을 확인하고 있습니다.")).toBeTruthy();
-    await act(async () => rejectVerification(new Error("YouTube 응답을 확인할 수 없습니다.")));
-    expect(screen.getByRole("alert").textContent).toContain("YouTube 응답을 확인할 수 없습니다.");
-    expect(approve).toHaveProperty("disabled", true);
-    fireEvent.click(verify);
-    await waitFor(() => expect(approve).toHaveProperty("disabled", false));
-    expect(screen.queryByText(/영상·채널 확인 실패:/)).toBeNull();
-    expect(approveProposalMock).not.toHaveBeenCalled();
-  });
-
-  it("requires an explicit channel owner and preserves new group identities", async () => {
-    const confirm = confirmationMock.mockResolvedValue(true);
-    preflightEntryMock.mockResolvedValueOnce({
-      catalogRevision: 7,
-      video: {
-        videoId: "dQw4w9WgXcQ",
-        title: "확인된 영상",
-        thumbnailUrl: null,
-        durationSeconds: 180,
-        publishedAt: 1,
-        availabilityStatus: "playable",
-        channelId: `UC${"U".repeat(22)}`,
-        channelTitle: "미등록 프로젝트 채널",
-      },
-      channel: {
-        state: "unknown",
-        catalogChannelId: null,
-        verificationStatus: null,
-        active: false,
-        channelRole: null,
-        memberUid: null,
-      },
-      duplicate: null,
-    });
-    renderCatalogManager();
-
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    await screen.findByText("미등록 채널");
-    const approveButton = screen.getByRole("button", { name: "확인 후 승인·게시" }) as HTMLButtonElement;
-    fireEvent.click(screen.getByRole("checkbox"));
-    expect(approveButton.disabled).toBe(true);
-
-    fireEvent.click(screen.getByRole("button", { name: "소유자 추가" }));
-    fireEvent.click(screen.getByLabelText("1번째 채널 소유 종류"));
-    fireEvent.click(await screen.findByRole("option", { name: "그룹" }));
-    fireEvent.change(screen.getByLabelText("1번째 채널 소유 이름"), {
-      target: { value: "프로젝트 팀" },
-    });
-    fireEvent.click(screen.getByLabelText("1번째 참여자 종류"));
-    fireEvent.click(await screen.findByRole("option", { name: "그룹" }));
-    fireEvent.click(screen.getByRole("checkbox"));
-    expect(approveButton.disabled).toBe(false);
-    fireEvent.click(approveButton);
-
-    await waitFor(() => expect(approveProposalMock).toHaveBeenCalledTimes(1));
-    expect(approveProposalMock).toHaveBeenCalledWith(
-      "proposal-1",
-      expect.objectContaining({
-        channel: {
-          kind: "confirm",
-          channelRole: "project_official",
-          owners: [
-            expect.objectContaining({
-              kind: "new_external",
-              displayName: "프로젝트 팀",
-              entityKind: "group",
-            }),
-          ],
-        },
-        participants: [
-          expect.objectContaining({
-            subject: expect.objectContaining({
-              kind: "new_external",
-              entityKind: "group",
-            }),
-          }),
-        ],
-      }),
-     expect.any(String),);
-    confirm.mockRestore();
-  });
-
-  it("discards a late preflight response after leaving a proposal", async () => {
-    let resolvePreflight!: (value: Awaited<ReturnType<typeof preflightEntryMock>>) => void;
-    preflightEntryMock.mockReturnValueOnce(new Promise((resolve) => {
-      resolvePreflight = resolve;
-    }));
-    fetchProposalsMock.mockResolvedValueOnce([
-      proposal,
-      { ...proposal, id: "proposal-2", submittedTitle: "두 번째 제안" },
-    ]);
-    renderCatalogManager();
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    await waitFor(() => expect(preflightEntryMock).toHaveBeenCalledOnce());
-    fireEvent.click(screen.getByRole("button", { name: "검수 목록으로" }));
-    await act(async () => resolvePreflight({
-      catalogRevision: 7,
-      video: {
-        videoId: "dQw4w9WgXcQ", title: "늦은 응답", thumbnailUrl: null,
-        durationSeconds: 180, publishedAt: 1, availabilityStatus: "playable",
-        channelId: `UC${"L".repeat(22)}`, channelTitle: "늦은 채널",
-      },
-      channel: {
-        state: "unknown", catalogChannelId: null, verificationStatus: null,
-        active: false, channelRole: null, memberUid: null,
-      },
-      duplicate: null,
-    }));
-    expect(screen.getByRole("region", { name: "사용자 제안 목록" })).toBeTruthy();
-    expect(screen.queryByText("미등록 채널")).toBeNull();
-  });
-
-  it("keeps a selected channel owner stable when an earlier participant is removed", async () => {
-    const confirm = confirmationMock.mockResolvedValue(true);
-    fetchProposalsMock.mockResolvedValueOnce([{
-      ...proposal,
-      participants: [
-        { ...proposal.participants[0], creditOrder: 0, submittedNameSnapshot: "보컬 A" },
-        { ...proposal.participants[0], creditOrder: 1, submittedNameSnapshot: "보컬 B" },
-      ],
-    }]);
-    preflightEntryMock.mockResolvedValueOnce({
-      catalogRevision: 7,
-      video: {
-        videoId: "dQw4w9WgXcQ", title: "확인된 영상", thumbnailUrl: null,
-        durationSeconds: 180, publishedAt: 1, availabilityStatus: "playable",
-        channelId: `UC${"S".repeat(22)}`, channelTitle: "미등록 채널",
-      },
-      channel: {
-        state: "unknown", catalogChannelId: null, verificationStatus: null,
-        active: false, channelRole: null, memberUid: null,
-      },
-      duplicate: null,
-    });
-    renderCatalogManager();
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    await screen.findByText("미등록 채널");
-    fireEvent.click(screen.getByRole("button", { name: "소유자 추가" }));
-    fireEvent.click(screen.getByLabelText("1번째 채널 소유 identity"));
-    fireEvent.click(await screen.findByRole("option", { name: "가창자 · 보컬 B" }));
-    fireEvent.click(screen.getByRole("button", { name: "1번째 참여자 삭제" }));
-    fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "확인 후 승인·게시" }));
-    await waitFor(() => expect(approveProposalMock).toHaveBeenCalledWith(
-      "proposal-1",
-      expect.objectContaining({
-        channel: expect.objectContaining({
-          owners: [expect.objectContaining({ displayName: "보컬 B" })],
-        }),
-      }),
-     expect.any(String),));
-    confirm.mockRestore();
-  });
-
-  it("omits archived songs and identities from approval selectors", async () => {
-    fetchCatalogMock.mockResolvedValue({
-      ...catalog,
-      songs: [
-        {
-          id: "song-active", slug: "song-active", title: "활성 곡",
-          normalizedTitle: "활성 곡", isOtwOriginal: false,
-          originalReleaseDate: null, originalReleasePrecision: "unknown",
-          archivedAt: null, version: 0, tags: [], aliases: [], originalArtists: [],
-        },
-        {
-          id: "song-archived", slug: "song-archived", title: "보관 곡",
-          normalizedTitle: "보관 곡", isOtwOriginal: false,
-          originalReleaseDate: null, originalReleasePrecision: "unknown",
-          archivedAt: 1, version: 0, tags: [], aliases: [], originalArtists: [],
-        },
-      ],
-      entities: [
-        {
-          id: "entity-active", memberUid: null, displayName: "활성 인물",
-          normalizedName: "활성 인물", slug: "entity-active", entityKind: "person",
-          archivedAt: null, version: 0,
-        },
-        {
-          id: "entity-archived", memberUid: null, displayName: "보관 인물",
-          normalizedName: "보관 인물", slug: "entity-archived", entityKind: "person",
-          archivedAt: 1, version: 0,
-        },
-      ],
-    });
-    renderCatalogManager();
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    fireEvent.click(await screen.findByLabelText("승인할 곡 선택"));
-    expect(await screen.findByRole("option", { name: "활성 곡" })).toBeTruthy();
-    expect(screen.queryByRole("option", { name: "보관 곡" })).toBeNull();
-    fireEvent.keyDown(document, { key: "Escape" });
-    fireEvent.click(screen.getByLabelText("1번째 원곡 가수 identity"));
-    expect(await screen.findByRole("option", { name: "활성 인물" })).toBeTruthy();
-    expect(screen.queryByRole("option", { name: "보관 인물" })).toBeNull();
-  });
-
-  it("preserves an unresolved submitted member UID during approval", async () => {
-    const confirm = confirmationMock.mockResolvedValue(true);
-    fetchProposalsMock.mockResolvedValueOnce([{
-      ...proposal,
-      participants: [{
-        ...proposal.participants[0],
-        submittedMemberUid: 1,
-        resolvedEntityId: null,
-      }],
-    }]);
-    renderCatalogManager();
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    await waitFor(() => expect(preflightEntryMock).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "확인 후 승인·게시" }));
-    await waitFor(() => expect(approveProposalMock).toHaveBeenCalledWith(
-      "proposal-1",
-      expect.objectContaining({
-        participants: [expect.objectContaining({
-          subject: { kind: "member", memberUid: 1 },
-        })],
-      }),
-     expect.any(String),));
-    confirm.mockRestore();
-  });
-
-  it.each([false,true])("rejects with an internal reason and then refetches authoritative state (accepted=%s)", async accepted => {
-    if(accepted) rejectProposalMock.mockRejectedValueOnce(new ApiError("동시 변경이 발생했습니다. 최신 상태를 확인한 뒤 다시 저장해 주세요.",409,{code:"CONTENT_CONFLICT"}));
-    renderCatalogManager();
-
-    fireEvent.click(await screen.findByRole("tab", { name: "검수" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "검수 열기" }))[0]!);
-    const rejectButton = await screen.findByRole("button", { name: "제안 거절" });
-    expect((rejectButton as HTMLButtonElement).disabled).toBe(true);
-
-    fireEvent.change(screen.getByLabelText("검수할 공식 커버 거절 코드"), {
-      target: { value: "duplicate" },
-    });
-    fireEvent.click(rejectButton);
-
-    if(accepted) {
-      await waitFor(()=>expect(toastMock).toHaveBeenCalledWith({variant:"error",description:expect.stringContaining("동시 변경")}));
-      expect(screen.getByLabelText("검수할 공식 커버 거절 코드")).toHaveProperty("value","duplicate");
-      const original=rejectProposalMock.mock.calls.at(-1)!;
-      const attempts=rejectProposalMock.mock.calls.length;
-      fireEvent.click(screen.getByRole("button",{name:"제안 거절"}));
-      await waitFor(()=>expect(rejectProposalMock).toHaveBeenCalledTimes(attempts+1));expect(rejectProposalMock.mock.calls.at(-1)).toEqual(original);
-    }
-
-    await waitFor(() =>
-      expect(rejectProposalMock).toHaveBeenCalledWith("proposal-1", {
-        expectedVersion: 2,
-        resultCode: "duplicate",
-      },expect.any(String)),
-    );
-    await waitFor(() => {
-      expect(fetchCatalogMock.mock.calls.length).toBeGreaterThan(1);
-      expect(fetchProposalsMock.mock.calls.length).toBeGreaterThan(1);
-    });
-    expect(toastMock).toHaveBeenCalledWith({
-      variant: "success",
-      description: "제안 거절 작업을 완료했습니다.",
-    });
-  });
-
-  it.each([false,true,"duplicate"] as const)("keeps external identity edits in operations after a failed command (accepted=%s)", async accepted => {
-    fetchCatalogMock.mockResolvedValue({
-      ...catalog,
-      entities: [
-        {
-          id: "external-1",
-          memberUid: null,
-          entityKind: "person",
-          displayName: "외부 인물",
-          normalizedName: "외부 인물",
-          slug: "external-person-a1b2c3d4",
-          version: 2,
-          archivedAt: null,
-        },
-      ],
-    });
-    updateEntityMock.mockRejectedValueOnce(accepted === "duplicate" ? new ApiError("이미 등록된 가수입니다. 기존 가수를 선택해 주세요.",422,{code:"PLAY_ADMIN_VALIDATION_FAILED"}) : accepted?new ApiError("동시 변경이 발생했습니다. 최신 상태를 확인한 뒤 다시 저장해 주세요.",409,{code:"CONTENT_CONFLICT"}):new Error("write failed"));
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-    renderCatalogManager();
-
-    await openOperationsTab("인물·그룹");
-    await screen.findByRole("region", { name: "외부 인물·그룹" });
-    expect(screen.getByRole("heading", { name: "외부 인물·그룹" })).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "채널 감시" })).toBeNull();
-    expect(screen.queryByLabelText("수집 대상 채널 ID")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "외부 인물 수정" }));
-    const nameInput = screen.getByLabelText(
-      "외부 identity 표시명",
-    ) as HTMLInputElement;
-    fireEvent.change(nameInput, { target: { value: "입력 보존" } });
-    expect(screen.queryByLabelText(/slug/i)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "수정 저장" }));
-
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(accepted === "duplicate" ? {variant:"error",description:"이미 등록된 가수입니다. 기존 가수를 선택해 주세요."} : accepted?{variant:"error",description:expect.stringContaining("동시 변경")}:{variant:"error",description:"외부 identity 수정 작업에 실패했습니다."}));
-    expect(nameInput.value).toBe("입력 보존");
-    if(accepted === true) {
-      const original=updateEntityMock.mock.calls[0];expect(original[1]).toMatch(/^[A-Za-z0-9_-]{16,100}$/);
-      updateEntityMock.mockResolvedValueOnce({});fireEvent.click(screen.getByRole("button",{name:"수정 저장"}));
-      await waitFor(()=>expect(updateEntityMock).toHaveBeenCalledTimes(2));expect(updateEntityMock.mock.calls[1]).toEqual(original);
-      await waitFor(()=>expect(screen.queryByLabelText("외부 identity 표시명")).toBeNull());
-    }
-    consoleError.mockRestore();
-  });
-
-  it("deletes only unreferenced external identities after irreversible confirmation", async () => {
-    fetchCatalogMock.mockResolvedValue({
-      ...catalog,
-      entities: [
-        {
-          id: "external-1",
-          memberUid: null,
-          entityKind: "person",
-          displayName: "삭제 가능한 외부 인물",
-          normalizedName: "삭제 가능한 외부 인물",
-          slug: "deletable-external",
-          version: 2,
-          archivedAt: null,
-        },
-        {
-          id: "external-linked",
-          memberUid: null,
-          entityKind: "group",
-          displayName: "연결된 외부 그룹",
-          normalizedName: "연결된 외부 그룹",
-          slug: "linked-external",
-          version: 4,
-          archivedAt: null,
-        },
-      ],
-      channels: [{
-        id: "channel-linked",
-        provider: "youtube",
-        externalChannelId: `UC${"L".repeat(22)}`,
-        displayName: "연결 채널",
-        channelRole: "approved_kirinuki",
-        verificationStatus: "approved",
-        active: true,
-        entityIds: ["external-linked"],
-        version: 1,
-      }],
-    });
-    renderCatalogManager();
-
-    await openOperationsTab("인물·그룹");
-    await screen.findByRole("region", { name: "외부 인물·그룹" });
-    const linkedDelete = screen.getByRole("button", {
-      name: "연결된 외부 그룹 삭제 메뉴",
-    }) as HTMLButtonElement;
-    expect(linkedDelete.disabled).toBe(true);
-    const linkedRow = linkedDelete.closest("tr");
-    expect(linkedRow).not.toBeNull();
-    expect(within(linkedRow!).getByText("연결 사용 중 · 삭제 불가")).toBeTruthy();
-    expect(linkedDelete.getAttribute("aria-describedby")).toBe(
-      "external-entity-delete-reason-external-linked",
-    );
-
-    fireEvent.click(await openSecondaryAction("삭제 가능한 외부 인물 삭제"));
-    expect(await screen.findByText("외부 주체를 삭제할까요?")).toBeTruthy();
-    expect(screen.getByText(/이 작업은 되돌릴 수 없으며/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "영구 삭제" }));
-
-    await waitFor(() => expect(deleteEntityMock).toHaveBeenCalledWith(
-      "external-1",
-      { expectedVersion: 2 },
-      expect.any(String),
-    ));
-    expect(toastMock).toHaveBeenCalledWith({
-      variant: "success",
-      description: "외부 identity 삭제 작업을 완료했습니다.",
-    });
-  });
-
-  it("explains how to resolve a server-discovered external identity reference", async () => {
-    fetchCatalogMock.mockResolvedValue({
-      ...catalog,
-      entities: [{
-        id: "external-1",
-        memberUid: null,
-        entityKind: "person",
-        displayName: "숨은 참조 인물",
-        normalizedName: "숨은 참조 인물",
-        slug: "hidden-reference",
-        version: 2,
-        archivedAt: null,
-      }],
-    });
-    deleteEntityMock.mockRejectedValueOnce(
-      new ApiError("Referenced entity", 422, {
-        code: "PLAY_ADMIN_VALIDATION_FAILED",
-        fields: { entity: "referenced" },
-      }),
-    );
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-    renderCatalogManager();
-
-    await openOperationsTab("인물·그룹");
-    await screen.findByRole("region", { name: "외부 인물·그룹" });
-    fireEvent.click(await openSecondaryAction("숨은 참조 인물 삭제"));
-    fireEvent.click(await screen.findByRole("button", { name: "영구 삭제" }));
-
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
-      variant: "error",
-      description: "곡·가창·승인 채널·제안 또는 저장된 후보 검수에 연결된 외부 주체는 삭제할 수 없습니다. 연결을 먼저 교정하거나 보관 처리해 주세요.",
-    }));
-    consoleError.mockRestore();
-  });
-
-  it("lists channels without filters in operations and registers a kirinuki channel from the card dialog", async () => {
-    const confirmDiscard = vi.fn(async () => false);
-    render(createElement(UnsavedChangesContext.Provider, { value: { register: vi.fn(), confirm: confirmDiscard } },
-      createElement(OtwPlayCatalogManager)), { wrapper: createQueryWrapper() });
-
-    expect(screen.queryByRole("tab", { name: "채널" })).toBeNull();
-    await openOperationsTab("채널");
-
-    expect(await screen.findByRole("heading", { name: "Play 채널" })).toBeTruthy();
-    expect(screen.queryByRole("textbox", { name: "Play 승인 채널 검색" })).toBeNull();
-    for (const name of ["채널 용도 필터", "채널 승인 필터", "채널 수집 필터"]) {
-      expect(screen.queryByRole("combobox", { name })).toBeNull();
-    }
-    expect(screen.queryByRole("dialog")).toBeNull();
-    const trigger = await screen.findByRole("button", { name: "채널 등록" });
-    fireEvent.click(trigger);
-    const dialog = await screen.findByRole("dialog", { name: "채널 등록" });
-    expect(screen.getByText(/검수 대기로 생성/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("combobox", { name: "채널 역할" }));
-    fireEvent.click(screen.getByRole("option", { name: "승인 키리누키" }));
-    const channelId = screen.getByLabelText("YouTube channel ID");
-    const displayName = screen.getByLabelText("채널 표시명");
-    const submit = within(dialog).getByRole("button", { name: "채널 등록" });
-    expect((submit as HTMLButtonElement).disabled).toBe(true);
-    expect((displayName as HTMLInputElement).readOnly).toBe(true);
-    expect(screen.queryByText("소유·연결 주체")).toBeNull();
-
-    fireEvent.change(channelId, { target: { value: `UC${"F".repeat(22)}` } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
-    await waitFor(() => expect(confirmDiscard).toHaveBeenCalledOnce());
-    expect(channelId).toHaveProperty("value", `UC${"F".repeat(22)}`);
-    fireEvent.click(screen.getByRole("button", { name: "채널 조회" }));
-    await waitFor(() => expect(lookupChannelMock).toHaveBeenCalledWith(
-      `UC${"F".repeat(22)}`,
-    ));
-    await waitFor(() => expect((displayName as HTMLInputElement).value).toBe(
-      "정리된 공식 채널",
-    ));
-    expect(screen.getByRole("combobox", { name: "채널 역할" }).textContent).toContain("승인 키리누키");
-    expect((submit as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(submit);
-    await waitFor(() => expect(createChannelMock).toHaveBeenCalledWith({
-      externalChannelId: `UC${"F".repeat(22)}`,
-      displayName: "정리된 공식 채널",
-      channelRole: "approved_kirinuki",
-      entityIds: [],
-    },expect.any(String)));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
-    expect(screen.getByText("등록된 채널")).toBeTruthy();
-  });
-
-  it.each([false,true])("approves a channel and preserves the same accepted editor retry (%s)", async accepted => {
-    if(accepted) updateChannelMock.mockRejectedValueOnce(new ApiError("동시 변경이 발생했습니다. 최신 상태를 확인한 뒤 다시 저장해 주세요.",409,{code:"CONTENT_CONFLICT"}));
-    const channelId = `UC${"K".repeat(22)}`;
-    fetchCatalogMock.mockResolvedValue({
-      ...catalog,
-      channels: [{
-        id: "channel-kirinuki",
-        provider: "youtube",
-        externalChannelId: channelId,
-        displayName: "동의 완료 키리누키",
-        channelRole: "approved_kirinuki",
-        verificationStatus: "pending",
-        active: false,
-        entityIds: [],
-        version: 2,
-      }],
-    });
-    renderCatalogManager();
-
-    await openOperationsTab("채널");
-    fireEvent.click(await screen.findByRole("button", { name: "동의 완료 키리누키 수정" }));
-    fireEvent.click(screen.getByLabelText("채널 검수 상태"));
-    fireEvent.click(await screen.findByRole("option", { name: "승인됨" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "이 채널 영상 사용 허용" }));
-    fireEvent.click(screen.getByRole("button", { name: "채널 수정 저장" }));
-
-    await waitFor(() => expect(updateChannelMock).toHaveBeenCalledWith({
-      id: "channel-kirinuki",
-      expectedVersion: 2,
-      externalChannelId: channelId,
-      displayName: "동의 완료 키리누키",
-      channelRole: "approved_kirinuki",
-      entityIds: [],
-      verificationStatus: "approved",
-      active: true,
-    },expect.any(String)));
-    if(accepted) {
-      await screen.findByText("채널을 저장하지 못했습니다. 입력은 유지되어 있으니 다시 시도하세요.");
-      const originalKey=updateChannelMock.mock.calls[0]![1];
-      fireEvent.click(screen.getByRole("button",{name:"채널 수정 저장"}));
-      await waitFor(()=>expect(updateChannelMock).toHaveBeenCalledTimes(2));
-      expect(updateChannelMock.mock.calls[1]![1]).toBe(originalKey);
-    }
-  });
-
-  it("corrects an existing channel subject link after explicit confirmation", async () => {
-    const channelId = `UC${"S".repeat(22)}`;
-    fetchCatalogMock.mockResolvedValue({
-      ...catalog,
-      entities: [
-        {
-          id: "external-wrong",
-          memberUid: null,
-          entityKind: "group",
-          displayName: "잘못 연결된 그룹",
-          normalizedName: "잘못 연결된 그룹",
-          slug: "wrong-group",
-          version: 1,
-          archivedAt: null,
-        },
-        {
-          id: "member-correct",
-          memberUid: 42,
-          entityKind: "person",
-          displayName: "올바른 멤버",
-          normalizedName: "올바른 멤버",
-          slug: "correct-member",
-          version: 2,
-          archivedAt: null,
-        },
-      ],
-      channels: [{
-        id: "channel-subject-correction",
-        provider: "youtube",
-        externalChannelId: channelId,
-        displayName: "연결 교정 채널",
-        channelRole: "member_main",
-        verificationStatus: "approved",
-        active: true,
-        entityIds: ["external-wrong"],
-        version: 5,
-      }],
-    });
-    renderCatalogManager();
-
-    await openOperationsTab("채널");
-    expect((await screen.findAllByText("잘못 연결된 그룹")).length).toBeGreaterThan(0);
-    expect(screen.queryByLabelText("연결 주체")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "연결 교정 채널 수정" }));
-
-    expect(screen.getByLabelText("연결 주체")).toBeTruthy();
-    const wrongSubject = screen.getByRole("checkbox", { name: "잘못 연결된 그룹 연결" });
-    const correctSubject = screen.getByRole("checkbox", { name: "올바른 멤버 연결" });
-    expect((wrongSubject as HTMLButtonElement).dataset.state).toBe("checked");
-    expect((correctSubject as HTMLButtonElement).dataset.state).toBe("unchecked");
-    fireEvent.click(wrongSubject);
-    fireEvent.click(correctSubject);
-    fireEvent.click(screen.getByRole("button", { name: "채널 수정 저장" }));
-
-    expect(await screen.findByText("채널 연결 주체를 변경할까요?")).toBeTruthy();
-    expect(updateChannelMock).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "연결 변경 저장" }));
-
-    await waitFor(() => expect(updateChannelMock).toHaveBeenCalledWith({
-      id: "channel-subject-correction",
-      expectedVersion: 5,
-      externalChannelId: channelId,
-      displayName: "연결 교정 채널",
-      channelRole: "member_main",
-      entityIds: ["member-correct"],
-      verificationStatus: "approved",
-      active: true,
-    },expect.any(String)));
-  });
-
-  it.each([false,true])("edits original artists as reusable chips and preserves an accepted retry (%s)", async acceptedRetry => {
-    if(acceptedRetry) updateSongMock.mockRejectedValueOnce(new ApiError("동시 변경이 발생했습니다. 최신 상태를 확인한 뒤 다시 저장해 주세요.",409,{code:"CONTENT_CONFLICT"}));
-    fetchCatalogMock.mockResolvedValue({
-      ...catalog,
-      performances: [{ ...linkedPerformance, songId: "song-edit" }],
-      songs: [
-        {
-          id: "song-edit",
-          slug: "song-edit",
-          title: "수정 전 곡",
-          normalizedTitle: "수정 전 곡",
-          isOtwOriginal: false,
-          originalReleaseDate: "2020-05-03",
-          originalReleasePrecision: "day",
-          version: 3,
-          archivedAt: null,
-          aliases: [],
-          originalArtists: [
-            {
-              entityId: "artist-existing",
-              displayName: "기존 원곡 가수",
-              creditOrder: 0,
-              isPrimary: true,
-            },
-          ],
-        },
-      ],
-      entities: [
-        {
-          id: "artist-existing",
-          memberUid: null,
-          entityKind: "person",
-          displayName: "기존 원곡 가수",
-          normalizedName: "기존 원곡 가수",
-          slug: "existing-artist",
-          version: 0,
-          archivedAt: null,
-        },
-      ],
-    });
-    renderCatalogManager();
-
-    await screen.findAllByText("수정 전 곡");
-    fireEvent.click(screen.getAllByRole("button", { name: "곡 정보 수정" })[0]!);
-    const dialog = screen.getByRole("dialog", { name: "곡 정보 수정" });
-    expect(within(dialog).queryByLabelText("원곡 공개일")).toBeNull();
-    expect(within(dialog).getByLabelText("원곡 가수 검색")).toBeTruthy();
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "기존 원곡 가수 제거" }));
-    fireEvent.change(within(dialog).getByLabelText("원곡 가수 검색"), {
-      target: { value: "새 원곡 가수" },
-    });
-    fireEvent.click(within(dialog).getByRole("button", { name: "외부 인물로 추가" }));
-    fireEvent.change(within(dialog).getByLabelText("곡명"), {
-      target: { value: "수정한 곡" },
-    });
-    fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
-
-    await waitFor(() => expect(updateSongMock).toHaveBeenCalledTimes(1));
-    expect(updateSongMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "song-edit",
-        expectedVersion: 3,
-        title: "수정한 곡",
-        originalReleaseDate: "2020-05-03",
-        originalReleasePrecision: "day",
-        originalArtists: [
-          {
-            subject: expect.objectContaining({
-              kind: "new_external",
-              displayName: "새 원곡 가수",
-              entityKind: "person",
-            }),
-            creditOrder: 0,
-            isPrimary: true,
-          },
-        ],
-      }),
-      expect.stringMatching(/^[A-Za-z0-9_-]{16,100}$/),
-    );
-    if(acceptedRetry) {
-      await waitFor(()=>expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({variant:"error",description:expect.stringContaining("동시 변경")})));
-      expect(within(dialog).getByLabelText("곡명")).toHaveProperty("value","수정한 곡");
-      expect(screen.getByRole("dialog",{name:"곡 정보 수정"})).toBeTruthy();
-      const first=updateSongMock.mock.calls[0];
-      fireEvent.click(within(dialog).getByRole("button",{name:"저장"}));
-      await waitFor(()=>expect(updateSongMock).toHaveBeenCalledTimes(2));
-      expect(updateSongMock.mock.calls[1]).toEqual(first);
-      await waitFor(()=>expect(screen.queryByRole("dialog",{name:"곡 정보 수정"})).toBeNull());
-    }
-  });
-
-  it("edits the linked song, participants, classifications, source, and notes in one performance form", async () => {
-    fetchCatalogMock.mockResolvedValue({
-      ...catalog,
-      songs: [
-        {
-          id: "song-source",
-          slug: "source-song",
-          title: "기존 연결 곡",
-          normalizedTitle: "기존 연결 곡",
-          isOtwOriginal: false,
-          originalReleaseDate: null,
-          originalReleasePrecision: "unknown",
-          version: 1,
-          archivedAt: null,
-          aliases: [],
-          originalArtists: [],
-        },
-        {
-          id: "song-target",
-          slug: "target-song",
-          title: "변경할 연결 곡",
-          normalizedTitle: "변경할 연결 곡",
-          isOtwOriginal: true,
-          originalReleaseDate: null,
-          originalReleasePrecision: "unknown",
-          version: 1,
-          archivedAt: null,
-          aliases: [],
-          originalArtists: [],
-        },
-      ],
-      entities: [
-        {
-          id: "external-old",
-          memberUid: null,
-          entityKind: "person",
-          displayName: "기존 외부 인물",
-          normalizedName: "기존 외부 인물",
-          slug: "external-old",
-          version: 0,
-          archivedAt: null,
-        },
-      ],
-      channels: [
-        {
-          id: "channel-approved",
-          provider: "youtube",
-          externalChannelId: `UC${"C".repeat(22)}`,
-          displayName: "승인 공식 채널",
-          channelRole: "member_main",
-          verificationStatus: "approved",
-          active: true,
-          entityIds: [],
-          version: 0,
-        },
-      ],
-      performances: [
-        {
-          id: "performance-edit",
-          songId: "song-source",
-          relationType: "cover",
-          releaseType: "official_video",
-          participationType: "solo",
-          publicationStatus: "draft",
-          qualityStatus: "ok",
-          releasedAt: null,
-          internalNote: "기존 메모",
-          version: 4,
-          participants: [
-            {
-              entityId: "external-old",
-              displayName: "기존 외부 인물",
-              participantRole: "vocal",
-              creditOrder: 0,
-              creditNameSnapshot: "기존 크레딧",
-            },
-          ],
-          sources: [
-            {
-              source: {
-                id: "source-old",
-                provider: "youtube",
-                externalId: "dQw4w9WgXcQ",
-                channelId: "channel-approved",
-                title: "기존 영상",
-                thumbnailUrl: null,
-                durationSeconds: 180,
-                providerPublishedAt: null,
-                availabilityStatus: "playable",
-                lastCheckedAt: null,
-                version: 0,
-              },
-              startSeconds: 0,
-              endSeconds: null,
-              sourceRole: "official",
-              priority: 0,
-              isPrimary: true,
-            },
-          ],
-        },
-      ],
-    });
-    renderCatalogManager();
-
-    await screen.findAllByText("기존 연결 곡");
-    fireEvent.click(
-      screen.getByRole("button", { name: "기존 연결 곡 가창 펼치기" }),
-    );
-    const performanceRow = within(screen.getByRole("table", { name: "곡 카탈로그" })).getAllByText("비공개")[0]!.closest("tr");
-    expect(performanceRow).toBeTruthy();
-    fireEvent.click(within(performanceRow!).getByRole("button", { name: "수정" }));
-
-    const dialog = screen.getByRole("dialog", { name: "가창 정보 수정" });
-    expect(within(dialog).getByLabelText("연결된 곡")).toBeTruthy();
-    expect(within(dialog).getByLabelText("곡 관계")).toBeTruthy();
-    expect(within(dialog).getByLabelText("공개 형태")).toBeTruthy();
-    expect(within(dialog).getByLabelText("참여 형태")).toBeTruthy();
-    expect(within(dialog).getByLabelText("데이터 품질")).toBeTruthy();
-    expect(within(dialog).getByLabelText("가창 공개일시")).toBeTruthy();
-    expect(within(dialog).getByLabelText("YouTube URL")).toBeTruthy();
-    expect(within(dialog).getByLabelText("source 1 채널")).toBeTruthy();
-    expect(within(dialog).getByLabelText("시작 위치(초)")).toBeTruthy();
-    expect(within(dialog).getByLabelText("종료 위치(초)")).toBeTruthy();
-    expect(within(dialog).getByLabelText("source 1 역할")).toBeTruthy();
-    expect(within(dialog).getByLabelText("내부 메모")).toBeTruthy();
-
-    fireEvent.click(
-      within(dialog).getByRole("button", { name: "기존 외부 인물 제거" }),
-    );
-    fireEvent.change(within(dialog).getByLabelText("가창 참여자 검색"), {
-      target: { value: "현재 멤버" },
-    });
-    fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
-    fireEvent.change(within(dialog).getByLabelText("현재 멤버 표시 크레딧"), {
-      target: { value: "수정한 멤버 크레딧" },
-    });
-    fireEvent.change(within(dialog).getByLabelText("YouTube URL"), {
-      target: { value: "https://youtu.be/ASRCBcCY_qE" },
-    });
-    fireEvent.change(within(dialog).getByLabelText("시작 위치(초)"), {
-      target: { value: "12" },
-    });
-    fireEvent.change(within(dialog).getByLabelText("종료 위치(초)"), {
-      target: { value: "170" },
-    });
-    fireEvent.change(within(dialog).getByLabelText("가창 공개일시"), {
-      target: { value: "2026-08-12T12:30" },
-    });
-    fireEvent.change(within(dialog).getByLabelText("내부 메모"), {
-      target: { value: "전체 정보 수정" },
-    });
-    const performanceTagInput = within(dialog).getByLabelText("커버 영상 라벨");
-    fireEvent.change(performanceTagInput, {
-      target: { value: "어쿠스틱" },
-    });
-    fireEvent.click(
-      within(
-        performanceTagInput.parentElement?.parentElement as HTMLElement,
-      ).getByRole("button", { name: "추가" }),
-    );
-
-    fireEvent.click(within(dialog).getByLabelText("연결된 곡"));
-    fireEvent.click(await screen.findByRole("option", { name: "변경할 연결 곡" }));
-    fireEvent.click(within(dialog).getByLabelText("곡 관계"));
-    fireEvent.click(await screen.findByRole("option", { name: "오리지널" }));
-    fireEvent.click(within(dialog).getByLabelText("공개 형태"));
-    fireEvent.click(await screen.findByRole("option", { name: "공식 MV" }));
-    fireEvent.click(within(dialog).getByLabelText("참여 형태"));
-    fireEvent.click(await screen.findByRole("option", { name: "듀엣" }));
-    fireEvent.click(within(dialog).getByLabelText("데이터 품질"));
-    fireEvent.click(await screen.findByRole("option", { name: "업데이트 필요" }));
-    fireEvent.click(within(dialog).getByLabelText("현재 멤버 역할"));
-    fireEvent.click(await screen.findByRole("option", { name: "피처링 보컬" }));
-    fireEvent.click(within(dialog).getByLabelText("source 1 역할"));
-    fireEvent.click(await screen.findByRole("option", { name: "대체 영상" }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "전체 정보 저장" }));
-
-    await waitFor(() => expect(updatePerformanceMock).toHaveBeenCalledTimes(1));
-    expect(updatePerformanceMock).toHaveBeenCalledWith({
-      id: "performance-edit",
-      expectedVersion: 4,
-      songId: "song-target",
-      relationType: "original",
-      releaseType: "official_mv",
-      participationType: "duet",
-      qualityStatus: "needs_update",
-      releasedAt: new Date("2026-08-12T12:30").getTime(),
-      internalNote: "전체 정보 수정",
-      tags: ["어쿠스틱"],
-      participants: [
-        {
-          subject: { kind: "member", memberUid: 1 },
-          participantRole: "featured_vocal",
-          creditOrder: 0,
-          creditNameSnapshot: "수정한 멤버 크레딧",
-        },
-      ],
-      sources: [{
-        youtubeUrl: "https://youtu.be/ASRCBcCY_qE",
-        channelId: "channel-approved",
-        startSeconds: 12,
-        endSeconds: 170,
-        sourceRole: "alternate",
-        priority: 0,
-        isPrimary: true,
-      }],
-    }, expect.any(String));
-  });
-
-  it("disables catalog writes while the public read model revision is stale", async () => {
-    fetchCatalogMock.mockResolvedValue({
-      ...catalog,
-      revision: 8,
-      readModelRevision: 7,
-    });
-    renderCatalogManager();
-
-    expect((await screen.findByRole("alert")).textContent).toContain(
-      "편집할 수 없습니다",
-    );
-    await openOperationsTab("채널");
-    expect(
-      (await screen.findByRole("button", { name: "채널 등록" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-  });
-
-  // Four confirmed deletions and publication guards run sequentially in this UI flow.
-  it("deletes draft and withdrawn test data while protecting currently published catalog", async () => {
-    fetchCatalogMock.mockResolvedValue({
-      ...catalog,
-      songs: [
-        {
-          id: "song-draft",
-          slug: "draft-song",
-          title: "임시 곡",
-          normalizedTitle: "임시 곡",
-          isOtwOriginal: false,
-          originalReleaseDate: null,
-          originalReleasePrecision: "unknown",
-          version: 2,
-          archivedAt: null,
-          aliases: [],
-          originalArtists: [],
-        },
-        {
-          id: "song-published",
-          slug: "published-song",
-          title: "게시 이력 곡",
-          normalizedTitle: "게시 이력 곡",
-          isOtwOriginal: false,
-          originalReleaseDate: null,
-          originalReleasePrecision: "unknown",
-          version: 1,
-          archivedAt: null,
-          aliases: [],
-          originalArtists: [],
-        },
-        {
-          id: "song-withdrawn",
-          slug: "withdrawn-song",
-          title: "철회 곡",
-          normalizedTitle: "철회 곡",
-          isOtwOriginal: false,
-          originalReleaseDate: null,
-          originalReleasePrecision: "unknown",
-          version: 5,
-          archivedAt: null,
-          aliases: [],
-          originalArtists: [],
-        },
-      ],
-      performances: [
-        {
-          id: "performance-draft",
-          songId: "song-draft",
-          relationType: "cover",
-          releaseType: "official_video",
-          participationType: "solo",
-          publicationStatus: "draft",
-          qualityStatus: "ok",
-          releasedAt: null,
-          internalNote: null,
-          version: 3,
-          participants: [],
-          sources: [],
-        },
-        {
-          id: "performance-published",
-          songId: "song-published",
-          relationType: "cover",
-          releaseType: "official_video",
-          participationType: "solo",
-          publicationStatus: "published",
-          qualityStatus: "ok",
-          releasedAt: null,
-          internalNote: null,
-          version: 4,
-          participants: [],
-          sources: [],
-        },
-        {
-          id: "performance-withdrawn",
-          songId: "song-withdrawn",
-          relationType: "cover",
-          releaseType: "official_video",
-          participationType: "solo",
-          publicationStatus: "withdrawn",
-          qualityStatus: "ok",
-          releasedAt: null,
-          internalNote: null,
-          version: 6,
-          participants: [],
-          sources: [],
-        },
-      ],
-    });
-    renderCatalogManager();
-
-    await screen.findAllByText("임시 곡");
-    for (const [title, disabled] of [["임시 곡", false], ["게시 이력 곡", true], ["철회 곡", false]] as const) {
-      const row = screen.getAllByText(title)[0]!.closest("tr")!;
-      const item = await openSecondaryAction("곡 삭제", within(row).getByRole("button", { name: "곡 작업 메뉴" }));
-      expect(item.getAttribute("aria-disabled") === "true").toBe(disabled);
-      fireEvent.keyDown(item, { key: "Escape" });
-    }
-
-    fireEvent.click(screen.getByRole("button", { name: "임시 곡 가창 펼치기" }));
-    fireEvent.click(await openSecondaryAction("삭제", screen.getAllByRole("button", { name: "가창 작업 메뉴" })[0]!));
-    expect(screen.getByText("임시 저장 가창을 삭제할까요?")).toBeTruthy();
-    fireEvent.click(screen.getAllByRole("button", { name: "삭제" }).at(-1)!);
-    await waitFor(() =>
-      expect(deletePerformanceMock).toHaveBeenCalledWith(
-        "performance-draft",
-        { expectedVersion: 3 },
-        expect.any(String),
-      ),
-    );
-
-    const draftSongRow = screen.getAllByText("임시 곡")[0]!.closest("tr")!;
-    fireEvent.click(await openSecondaryAction("곡 삭제", within(draftSongRow).getByRole("button", { name: "곡 작업 메뉴" })));
-    expect(screen.getByText("곡을 삭제할까요?")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "삭제" }));
-    await waitFor(() =>
-      expect(deleteSongMock).toHaveBeenCalledWith("song-draft", {
-        expectedVersion: 2,
-      },expect.any(String)),
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "철회 곡 가창 펼치기" }));
-    const withdrawnStatus = within(screen.getByRole("table")).getByText("철회됨");
-    const withdrawnRow = withdrawnStatus.closest("tr");
-    expect(withdrawnRow).toBeTruthy();
-    fireEvent.click(
-      await openSecondaryAction("삭제", within(withdrawnRow!).getByRole("button", { name: "가창 작업 메뉴" })),
-    );
-    expect(screen.getByText("철회된 가창을 삭제할까요?")).toBeTruthy();
-    fireEvent.click(screen.getAllByRole("button", { name: "삭제" }).at(-1)!);
-    await waitFor(() =>
-      expect(deletePerformanceMock).toHaveBeenCalledWith(
-        "performance-withdrawn",
-        { expectedVersion: 6 },
-        expect.any(String),
-      ),
-    );
-
-    const withdrawnSongTitle = screen.getAllByText("철회 곡")[0]!;
-    const withdrawnSongRow = withdrawnSongTitle.closest("tr");
-    expect(withdrawnSongRow).toBeTruthy();
-    fireEvent.click(
-      await openSecondaryAction("곡 삭제", within(withdrawnSongRow!).getByRole("button", { name: "곡 작업 메뉴" })),
-    );
-    expect(screen.getByText(/철회 1개 포함/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "삭제" }));
-    await waitFor(() =>
-      expect(deleteSongMock).toHaveBeenCalledWith("song-withdrawn", {
-        expectedVersion: 5,
-      },expect.any(String)),
-    );
-  }, 15_000);
-
-  it.each([false, true])("publishes every visible draft from one catalog action and preserves failed or accepted drafts (accepted=%s)", async accepted => {
-    fetchCatalogMock.mockResolvedValue({
-      ...catalog,
-      songs: [
-        {
-          id: "song-one",
-          slug: "song-one",
-          title: "첫 번째 곡",
-          normalizedTitle: "첫 번째 곡",
-          isOtwOriginal: false,
-          originalReleaseDate: null,
-          originalReleasePrecision: "unknown",
-          version: 1,
-          archivedAt: null,
-          aliases: [],
-          originalArtists: [],
-        },
-        {
-          id: "song-two",
-          slug: "song-two",
-          title: "두 번째 곡",
-          normalizedTitle: "두 번째 곡",
-          isOtwOriginal: false,
-          originalReleaseDate: null,
-          originalReleasePrecision: "unknown",
-          version: 1,
-          archivedAt: null,
-          aliases: [],
-          originalArtists: [],
-        },
-      ],
-      performances: [
-        {
-          id: "performance-draft-one",
-          songId: "song-one",
-          relationType: "cover",
-          releaseType: "official_video",
-          participationType: "solo",
-          publicationStatus: "draft",
-          qualityStatus: "ok",
-          releasedAt: null,
-          internalNote: null,
-          version: 3,
-          participants: [],
-          sources: [],
-        },
-        {
-          id: "performance-draft-two",
-          songId: "song-two",
-          relationType: "cover",
-          releaseType: "official_video",
-          participationType: "solo",
-          publicationStatus: "draft",
-          qualityStatus: "ok",
-          releasedAt: null,
-          internalNote: null,
-          version: 5,
-          participants: [],
-          sources: [],
-        },
-        {
-          id: "performance-withdrawn",
-          songId: "song-two",
-          relationType: "cover",
-          releaseType: "official_video",
-          participationType: "solo",
-          publicationStatus: "withdrawn",
-          qualityStatus: "ok",
-          releasedAt: null,
-          internalNote: null,
-          version: 7,
-          participants: [],
-          sources: [],
-        },
-      ],
-    });
-    let resolveFirstPublish: (() => void) | undefined;
-    publishPerformanceMock
-      .mockImplementationOnce(() => new Promise((resolve) => {
-        resolveFirstPublish = () => resolve({});
-      }))
-      .mockRejectedValueOnce(accepted ? new ApiError("동시 변경이 발생했습니다.", 409, { code: "CONTENT_CONFLICT" }) : new Error("channel approval changed"));
-    renderCatalogManager();
-
-    await openBulkPublication();
-    expect(screen.getByText("미게시 곡을 모두 게시할까요?")).toBeTruthy();
-    expect(screen.getByText(/실패 항목은 임시 저장 상태로 유지/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "2개 게시" }));
-
-    await waitFor(() => expect(publishPerformanceMock).toHaveBeenCalledTimes(1));
-    expect(publishPerformanceMock).toHaveBeenNthCalledWith(
-      1,
-      "performance-draft-one",
-      { expectedVersion: 3 },
-      expect.any(String),
-    );
-    expect(publishPerformanceMock).not.toHaveBeenCalledWith(
-      "performance-draft-two",
-      expect.anything(),
-    );
-    resolveFirstPublish?.();
-
-    await waitFor(() => expect(publishPerformanceMock).toHaveBeenCalledTimes(2));
-    expect(publishPerformanceMock).toHaveBeenNthCalledWith(
-      2,
-      "performance-draft-two",
-      { expectedVersion: 5 },
-      expect.any(String),
-    );
-    expect(publishPerformanceMock).not.toHaveBeenCalledWith(
-      "performance-withdrawn",
-      expect.anything(),
-    );
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
-      variant: "info",
-      description: accepted ? "1개 게시 완료 · 1개 게시 실패. 동시 변경이 발생했습니다." : "1개를 게시했고 1개는 검증 실패 또는 동시 변경으로 임시 저장 상태를 유지했습니다.",
-    }));
-    if (accepted) {
-      const originalKey = publishPerformanceMock.mock.calls[1]![2];
-      await openBulkPublication();
-      fireEvent.click(screen.getByRole("button", { name: "2개 게시" }));
-      await waitFor(() => expect(publishPerformanceMock).toHaveBeenCalledTimes(4));
-      expect(publishPerformanceMock.mock.calls[3]![2]).toBe(originalKey);
-    }
-  });
-
-  it("shows only workflow sections and suggests current members without a prerequisite identity screen", async () => {
-    renderCatalogManager();
-    await screen.findByRole("button", { name: "새 영상 등록" });
-    expect(screen.getByRole("tab", { name: "카탈로그" })).toBeTruthy();
-    expect(screen.queryByRole("tab", { name: "채널" })).toBeNull();
-    expect(screen.getByRole("tab", { name: "가져오기" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "채널 감시" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "곡" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "가창" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "채널" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "인물·그룹" })).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "새 영상 등록" }));
-    const registrationDialog = await screen.findByRole("dialog", {
-      name: "새 YouTube 영상 등록",
-    });
-    expect(registrationDialog.contains(document.activeElement)).toBe(true);
-    fireEvent.change(await screen.findByLabelText("YouTube URL"), {
-      target: { value: "https://youtu.be/dQw4w9WgXcQ" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    expect(screen.queryByText("기존 곡 연결")).toBeNull();
-    expect(screen.queryByText("새 곡 만들기")).toBeNull();
-    const coverNext = screen.getByRole("button", { name: /다음/ });
-    expect((coverNext as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("곡 제목"), {
-      target: { value: "정식 원곡 제목" },
-    });
-    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), {
-      target: { value: "원곡 가수" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /외부 인물로 추가/ }));
-    expect((coverNext as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    const participantSearch = screen.getByLabelText("가창 참여자 검색");
-    fireEvent.change(participantSearch, {
-      target: { value: "현재 멤버" },
-    });
-    await screen.findByRole("option", { name: /현재 멤버/ });
-    fireEvent.keyDown(participantSearch, { key: "Enter" });
-    expect(screen.getByText(/현재 멤버 🌙 · 테스트 유닛/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "현재 멤버 제거" }));
-    expect(screen.queryByText(/현재 멤버 🌙 · 테스트 유닛/)).toBeNull();
-    fireEvent.change(participantSearch, { target: { value: "현재 멤버" } });
-    fireEvent.keyDown(participantSearch, { key: "Enter" });
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.click(screen.getByRole("button", { name: "게시" }));
-    await screen.findByText("이 영상을 게시할까요?");
-    const publishButtons = screen.getAllByRole("button", { name: "게시" });
-    fireEvent.click(publishButtons[publishButtons.length - 1]!);
-    await waitFor(() =>
-      expect(createEntryMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          publicationTarget: "published",
-          participants: [
-            expect.objectContaining({
-              subject: { kind: "member", memberUid: 1 },
-            }),
-          ],
-          channel: {
-            kind: "recognized_member",
-            memberUid: 1,
-            channelRole: "member_main",
-          },
-          relationType: "cover",
-          song: {
-            kind: "create",
-            title: "정식 원곡 제목",
-            isOtwOriginal: false,
-            originalReleaseDate: null,
-            originalReleasePrecision: "unknown",
-            aliases: [],
-            originalArtists: [
-              {
-                subject: {
-                  kind: "new_external",
-                  clientKey: expect.any(String),
-                  displayName: "원곡 가수",
-                  entityKind: "person",
+    it.each([false, true])("edits original artists as reusable chips and preserves an accepted retry (%s)", async (acceptedRetry) => {
+        if (acceptedRetry)
+            updateSongMock.mockRejectedValueOnce(new ApiError("동시 변경이 발생했습니다. 최신 상태를 확인한 뒤 다시 저장해 주세요.", 409, { code: "CONTENT_CONFLICT" }));
+        fetchCatalogMock.mockResolvedValue({
+            ...catalog,
+            performances: [{ ...linkedPerformance, songId: "song-edit" }],
+            songs: [
+                {
+                    id: "song-edit",
+                    slug: "song-edit",
+                    title: "수정 전 곡",
+                    normalizedTitle: "수정 전 곡",
+                    isOtwOriginal: false,
+                    originalReleaseDate: "2020-05-03",
+                    originalReleasePrecision: "day",
+                    version: 3,
+                    archivedAt: null,
+                    aliases: [],
+                    originalArtists: [
+                        {
+                            entityId: "artist-existing",
+                            displayName: "기존 원곡 가수",
+                            creditOrder: 0,
+                            isPrimary: true,
+                        },
+                    ],
                 },
-                creditOrder: 0,
-                isPrimary: true,
-              },
             ],
-          },
-        }),
-       expect.any(String),),
-    );
-  });
-
-  it("connects an existing song in an ordinary cover and keeps optional performance details through review", async () => {
-    fetchCatalogMock.mockResolvedValue({ ...catalog, songs: [{
-      id: "existing-song", slug: "existing-song", title: "기존 곡", normalizedTitle: "기존 곡",
-      isOtwOriginal: false, originalReleaseDate: null, originalReleasePrecision: "unknown",
-      archivedAt: null, version: 0, tags: ["J-POP"], aliases: [{ alias: "Existing Song", locale: null, aliasKind: null }],
-      originalArtists: [{ entityId: "original-artist", displayName: "기존 원곡 가수", creditOrder: 0, isPrimary: true }],
-    }] });
-    await openVideoRegistration();
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", true);
-    fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.change(screen.getByLabelText("기존 곡 검색"), { target: { value: "Existing Song" } });
-    fireEvent.click(screen.getByRole("option", { name: /기존 곡/ }));
-    expect(screen.queryByLabelText("곡 제목")).toBeNull();
-    expect(screen.queryByLabelText("원곡 가수 검색")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.change(screen.getByLabelText("가창 참여자 검색"), { target: { value: "현재 멤버" } });
-    fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
-    await selectOption("현재 멤버 역할", "기타");
-    const optionalSummary = screen.getByText("가창 라벨·내부 메모 (선택)");
-    expect(optionalSummary.closest("details")?.hasAttribute("open")).toBe(false);
-    fireEvent.click(optionalSummary);
-    fireEvent.change(screen.getByLabelText("가창 라벨"), { target: { value: "라이브" } });
-    fireEvent.keyDown(screen.getByLabelText("가창 라벨"), { key: "Enter" });
-    fireEvent.change(screen.getByLabelText("내부 메모 (선택)"), { target: { value: "현장 라이브 버전" } });
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    expect(screen.getByText("라이브")).toBeTruthy();
-    expect(screen.getByText(/현장 라이브 버전/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "AI로 자동 채우기" })).toBeNull();
-    expect(screen.getByRole("button", { name: "임시 저장" })).toHaveProperty("disabled", false);
-    expect(screen.getByRole("button", { name: "게시" })).toHaveProperty("disabled", true);
-    fireEvent.click(screen.getByRole("button", { name: /이전/ }));
-    fireEvent.click(screen.getByText(/^가창 라벨·내부 메모 \(선택\)/));
-    expect(screen.getByLabelText("내부 메모 (선택)")).toHaveProperty("value", "현장 라이브 버전");
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
-    await waitFor(() => expect(createEntryMock).toHaveBeenCalledWith(expect.objectContaining({
-      song: { kind: "existing", songId: "existing-song" }, relationType: "cover",
-      performanceTags: ["라이브"], internalNote: "현장 라이브 버전", publicationTarget: "draft",
-      participants: [expect.objectContaining({ participantRole: "other" })],
-    }), expect.any(String)));
-  });
-
-  it("closes URL-only source inspection without confirmation and protects an actual registration draft", async () => {
-    const dirtyStates = new Map<string, boolean>();
-    const confirmDiscard = vi.fn(async () => false);
-    render(createElement(UnsavedChangesContext.Provider, { value: {
-      register: (id, dirty) => { dirtyStates.set(id, dirty); }, confirm: confirmDiscard,
-    } }, createElement(OtwPlayCatalogManager)), { wrapper: createQueryWrapper() });
-    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
-    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    expect([...dirtyStates.values()].some(Boolean)).toBe(false);
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Close|닫기/ }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(confirmDiscard).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "새 영상 등록" }));
-    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.change(screen.getByLabelText("곡 제목"), { target: { value: "보존할 곡 입력" } });
-    expect([...dirtyStates.values()].some(Boolean)).toBe(true);
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Close|닫기/ }));
-    await waitFor(() => expect(confirmDiscard).toHaveBeenCalledTimes(1));
-    expect(screen.getByLabelText("곡 제목")).toHaveProperty("value", "보존할 곡 입력");
-    expect(createEntryMock).not.toHaveBeenCalled();
-  });
-
-  it("ignores a late video preflight after closing source inspection and reopening registration", async () => {
-    const preflight = await preflightEntryMock();
-    preflightEntryMock.mockClear();
-    let completePreflight!: (value: typeof preflight) => void;
-    preflightEntryMock.mockImplementationOnce(() => new Promise<typeof preflight>(resolve => { completePreflight = resolve; }));
-    renderCatalogManager();
-    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
-    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    expect(preflightEntryMock).toHaveBeenCalledTimes(1);
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Close|닫기/ }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "새 영상 등록" }));
-    expect(screen.getByLabelText("YouTube URL")).toHaveProperty("value", "");
-    expect(screen.getByLabelText("YouTube URL")).toHaveProperty("disabled", false);
-
-    await act(async () => completePreflight(preflight));
-    expect(screen.queryByRole("region", { name: "등록 채널 상태" })).toBeNull();
-    expect(screen.queryByText("확인된 영상")).toBeNull();
-    expect(screen.getByLabelText("YouTube URL")).toHaveProperty("value", "");
-    expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", true);
-    expect(createEntryMock).not.toHaveBeenCalled();
-
-    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
-    expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", false);
-    expect(preflightEntryMock).toHaveBeenCalledTimes(2);
-  });
-
-  it.each(["checkbox", "video kind"])(
-    "restores editable new-song fields when leaving medley through %s",
-    async (transition) => {
-      renderCatalogManager();
-      fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
-      const dialog = screen.getByRole("dialog", { name: "새 YouTube 영상 등록" });
-      fireEvent.change(within(dialog).getByLabelText("YouTube URL"), {
-        target: { value: "https://youtu.be/dQw4w9WgXcQ" },
-      });
-      fireEvent.click(within(dialog).getByRole("button", { name: "영상 확인" }));
-      await within(dialog).findByRole("region", { name: "등록 채널 상태" });
-      fireEvent.click(await within(dialog).findByRole("button", { name: /공식 커버곡/ }));
-      fireEvent.click(within(dialog).getByRole("checkbox", { name: "메들리의 한 곡 구간" }));
-      fireEvent.click(within(dialog).getByRole("button", { name: "영상 확인" }));
-      await waitFor(() => expect(within(dialog).getByRole("button", { name: /다음/ })).toHaveProperty("disabled", false));
-      fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
-      fireEvent.change(within(dialog).getByLabelText("기존 곡 검색"), {
-        target: { value: "새 커버 원곡" },
-      });
-      fireEvent.click(within(dialog).getByRole("option", { name: /새 곡 입력/ }));
-      fireEvent.click(within(dialog).getByRole("button", { name: /이전/ }));
-      if (transition === "checkbox") {
-        fireEvent.click(within(dialog).getByRole("checkbox", { name: "메들리의 한 곡 구간" }));
-      } else {
-        fireEvent.click(within(dialog).getByRole("button", { name: /오리지널곡/ }));
-        fireEvent.click(within(dialog).getByRole("button", { name: /공식 커버곡/ }));
-      }
-      fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
-
-      expect(within(dialog).getByLabelText("곡 제목")).toHaveProperty("value", "새 커버 원곡");
-      const next = within(dialog).getByRole("button", { name: /다음/ });
-      expect(next).toHaveProperty("disabled", true);
-      fireEvent.change(within(dialog).getByLabelText("원곡 가수 검색"), {
-        target: { value: "새 원곡 가수" },
-      });
-      fireEvent.click(within(dialog).getByRole("button", { name: /외부 인물로 추가/ }));
-      expect(next).toHaveProperty("disabled", false);
-      fireEvent.click(next);
-      fireEvent.change(within(dialog).getByLabelText("가창 참여자 검색"), {
-        target: { value: "현재 멤버" },
-      });
-      fireEvent.click(await within(dialog).findByRole("option", { name: /현재 멤버/ }));
-      fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
-      fireEvent.click(within(dialog).getByRole("button", { name: "임시 저장" }));
-      await waitFor(() => expect(createEntryMock).toHaveBeenCalledWith(expect.objectContaining({
-        registrationMode: "standard",
-        song: expect.objectContaining({
-          kind: "create", title: "새 커버 원곡",
-          originalArtists: [expect.objectContaining({
-            subject: expect.objectContaining({ kind: "new_external", displayName: "새 원곡 가수" }),
-          })],
-        }),
-      }), expect.any(String)));
-    },
-  );
-
-  it("reuses persisted external participants and channel owners in the next medley command", async () => {
-    const existingSong = {
-      id: "existing-song", slug: "existing-song", title: "기존 곡", normalizedTitle: "기존 곡",
-      isOtwOriginal: false, originalReleaseDate: null, originalReleasePrecision: "unknown",
-      archivedAt: null, version: 0, tags: [], aliases: [], originalArtists: [],
-    };
-    const persistedGuest = {
-      id: "persisted-guest", memberUid: null, displayName: "메들리 외부 가창자",
-      normalizedName: "메들리 외부 가창자", entityKind: "person", slug: "medley-guest",
-      archivedAt: null, version: 0,
-    };
-    const preflight = await preflightEntryMock();
-    preflightEntryMock.mockClear();
-    preflightEntryMock.mockResolvedValue({
-      ...preflight,
-      channel: { ...preflight.channel, state: "unknown", memberUid: null },
-    });
-    fetchCatalogMock.mockResolvedValue({ ...catalog, songs: [existingSong] });
-    createEntryMock.mockImplementationOnce(async () => {
-      fetchCatalogMock.mockResolvedValue({
-        ...catalog, revision: 8, songs: [existingSong], entities: [persistedGuest],
-      });
-      return { data: { createdEntities: [persistedGuest] }, catalogRevision: 8 };
-    });
-    renderCatalogManager();
-    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
-    const dialog = screen.getByRole("dialog", { name: "새 YouTube 영상 등록" });
-    fireEvent.change(within(dialog).getByLabelText("YouTube URL"), {
-      target: { value: "https://youtu.be/dQw4w9WgXcQ" },
-    });
-    fireEvent.click(within(dialog).getByRole("checkbox", { name: "구간 선택" }));
-    fireEvent.change(within(dialog).getByLabelText("종료 위치(초)"), { target: { value: "90" } });
-    const confirmVideo = async (first = false) => {
-      fireEvent.click(within(dialog).getByRole("button", { name: "영상 확인" }));
-      await within(dialog).findByRole("region", { name: "등록 채널 상태" });
-      if (first) {
-        fireEvent.click(within(dialog).getByRole("button", { name: /공식 커버곡/ }));
-        fireEvent.click(within(dialog).getByRole("checkbox", { name: "메들리의 한 곡 구간" }));
-        fireEvent.change(within(dialog).getByLabelText("채널 소유·연결 주체 검색"), {
-          target: { value: "메들리 외부 가창자" },
+            entities: [
+                {
+                    id: "artist-existing",
+                    memberUid: null,
+                    entityKind: "person",
+                    displayName: "기존 원곡 가수",
+                    normalizedName: "기존 원곡 가수",
+                    slug: "existing-artist",
+                    version: 0,
+                    archivedAt: null,
+                },
+            ],
         });
-        fireEvent.click(within(dialog).getByRole("button", { name: /외부 인물로 추가/ }));
-      }
-      await waitFor(() => expect(within(dialog).getByRole("button", { name: /다음/ })).toHaveProperty("disabled", false));
-      fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
-    };
-    await confirmVideo(true);
-    const selectSong = () => {
-      fireEvent.change(within(dialog).getByLabelText("기존 곡 검색"), { target: { value: "기존 곡" } });
-      fireEvent.click(within(dialog).getByRole("option", { name: /기존 곡/ }));
-      fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
-    };
-    selectSong();
-    fireEvent.change(within(dialog).getByLabelText("가창 참여자 검색"), {
-      target: { value: "메들리 외부 가창자" },
+        renderCatalogManager();
+        await screen.findAllByText("수정 전 곡");
+        fireEvent.click(screen.getAllByRole("button", { name: "곡 정보 수정" })[0]!);
+        const dialog = screen.getByRole("dialog", { name: "곡 정보 수정" });
+        expect(within(dialog).queryByLabelText("원곡 공개일")).toBeNull();
+        expect(within(dialog).getByLabelText("원곡 가수 검색")).toBeTruthy();
+        fireEvent.click(within(dialog).getByRole("button", { name: "기존 원곡 가수 제거" }));
+        fireEvent.change(within(dialog).getByLabelText("원곡 가수 검색"), {
+            target: { value: "새 원곡 가수" },
+        });
+        fireEvent.click(within(dialog).getByRole("button", { name: "외부 인물로 추가" }));
+        fireEvent.change(within(dialog).getByLabelText("곡명"), {
+            target: { value: "수정한 곡" },
+        });
+        fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
+        await waitFor(() => expect(updateSongMock).toHaveBeenCalledTimes(1));
+        expect(updateSongMock).toHaveBeenCalledWith(expect.objectContaining({
+            id: "song-edit",
+            expectedVersion: 3,
+            title: "수정한 곡",
+            originalReleaseDate: "2020-05-03",
+            originalReleasePrecision: "day",
+            originalArtists: [
+                {
+                    subject: expect.objectContaining({
+                        kind: "new_external",
+                        displayName: "새 원곡 가수",
+                        entityKind: "person",
+                    }),
+                    creditOrder: 0,
+                    isPrimary: true,
+                },
+            ],
+        }), expect.stringMatching(/^[A-Za-z0-9_-]{16,100}$/));
+        if (acceptedRetry) {
+            await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ variant: "error", description: expect.stringContaining("동시 변경") })));
+            expect(within(dialog).getByLabelText("곡명")).toHaveProperty("value", "수정한 곡");
+            expect(screen.getByRole("dialog", { name: "곡 정보 수정" })).toBeTruthy();
+            const first = updateSongMock.mock.calls[0];
+            fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
+            await waitFor(() => expect(updateSongMock).toHaveBeenCalledTimes(2));
+            expect(updateSongMock.mock.calls[1]).toEqual(first);
+            await waitFor(() => expect(screen.queryByRole("dialog", { name: "곡 정보 수정" })).toBeNull());
+        }
     });
-    fireEvent.click(within(dialog).getByRole("option", { name: /메들리 외부 가창자/ }));
-    fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "임시 저장" }));
-    await within(dialog).findByText("메들리 커버 구간을 임시 저장했습니다.");
-    expect(createEntryMock.mock.calls[0]?.[0].participants[0].subject.kind).toBe("new_external");
-    fireEvent.click(within(dialog).getByRole("button", { name: "같은 영상의 다음 커버 추가" }));
-    await confirmVideo();
-    selectSong();
-    fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "임시 저장" }));
-    await waitFor(() => expect(createEntryMock).toHaveBeenCalledTimes(2));
-    const secondRequest = createEntryMock.mock.calls[1]?.[0];
-    expect(secondRequest.participants[0].subject).toEqual({
-      kind: "entity", entityId: "persisted-guest",
+    it("edits the linked song, participants, classifications, source, and notes in one performance form", async () => {
+        fetchCatalogMock.mockResolvedValue({
+            ...catalog,
+            songs: [
+                {
+                    id: "song-source",
+                    slug: "source-song",
+                    title: "기존 연결 곡",
+                    normalizedTitle: "기존 연결 곡",
+                    isOtwOriginal: false,
+                    originalReleaseDate: null,
+                    originalReleasePrecision: "unknown",
+                    version: 1,
+                    archivedAt: null,
+                    aliases: [],
+                    originalArtists: [],
+                },
+                {
+                    id: "song-target",
+                    slug: "target-song",
+                    title: "변경할 연결 곡",
+                    normalizedTitle: "변경할 연결 곡",
+                    isOtwOriginal: true,
+                    originalReleaseDate: null,
+                    originalReleasePrecision: "unknown",
+                    version: 1,
+                    archivedAt: null,
+                    aliases: [],
+                    originalArtists: [],
+                },
+            ],
+            entities: [
+                {
+                    id: "external-old",
+                    memberUid: null,
+                    entityKind: "person",
+                    displayName: "기존 외부 인물",
+                    normalizedName: "기존 외부 인물",
+                    slug: "external-old",
+                    version: 0,
+                    archivedAt: null,
+                },
+            ],
+            channels: [
+                {
+                    id: "channel-approved",
+                    provider: "youtube",
+                    externalChannelId: `UC${"C".repeat(22)}`,
+                    displayName: "승인 공식 채널",
+                    channelRole: "member_main",
+                    verificationStatus: "approved",
+                    active: true,
+                    entityIds: [],
+                    version: 0,
+                },
+            ],
+            performances: [
+                {
+                    id: "performance-edit",
+                    songId: "song-source",
+                    relationType: "cover",
+                    releaseType: "official_video",
+                    participationType: "solo",
+                    publicationStatus: "draft",
+                    qualityStatus: "ok",
+                    releasedAt: null,
+                    internalNote: "기존 메모",
+                    version: 4,
+                    participants: [
+                        {
+                            entityId: "external-old",
+                            displayName: "기존 외부 인물",
+                            participantRole: "vocal",
+                            creditOrder: 0,
+                            creditNameSnapshot: "기존 크레딧",
+                        },
+                    ],
+                    sources: [
+                        {
+                            source: {
+                                id: "source-old",
+                                provider: "youtube",
+                                externalId: "dQw4w9WgXcQ",
+                                channelId: "channel-approved",
+                                title: "기존 영상",
+                                thumbnailUrl: null,
+                                durationSeconds: 180,
+                                providerPublishedAt: null,
+                                availabilityStatus: "playable",
+                                lastCheckedAt: null,
+                                version: 0,
+                            },
+                            startSeconds: 0,
+                            endSeconds: null,
+                            sourceRole: "official",
+                            priority: 0,
+                            isPrimary: true,
+                        },
+                    ],
+                },
+            ],
+        });
+        renderCatalogManager();
+        await screen.findAllByText("기존 연결 곡");
+        fireEvent.click(screen.getByRole("button", { name: "기존 연결 곡 가창 펼치기" }));
+        const performanceRow = within(screen.getByRole("table", { name: "곡 카탈로그" })).getAllByText("비공개")[0]!.closest("tr");
+        expect(performanceRow).toBeTruthy();
+        fireEvent.click(within(performanceRow!).getByRole("button", { name: "수정" }));
+        const dialog = screen.getByRole("dialog", { name: "가창 정보 수정" });
+        expect(within(dialog).getByLabelText("연결된 곡")).toBeTruthy();
+        expect(within(dialog).getByLabelText("곡 관계")).toBeTruthy();
+        expect(within(dialog).getByLabelText("공개 형태")).toBeTruthy();
+        expect(within(dialog).getByLabelText("참여 형태")).toBeTruthy();
+        expect(within(dialog).getByLabelText("데이터 품질")).toBeTruthy();
+        expect(within(dialog).getByLabelText("가창 공개일시")).toBeTruthy();
+        expect(within(dialog).getByLabelText("YouTube URL")).toBeTruthy();
+        expect(within(dialog).getByLabelText("source 1 채널")).toBeTruthy();
+        expect(within(dialog).getByLabelText("시작 위치(초)")).toBeTruthy();
+        expect(within(dialog).getByLabelText("종료 위치(초)")).toBeTruthy();
+        expect(within(dialog).getByLabelText("source 1 역할")).toBeTruthy();
+        expect(within(dialog).getByLabelText("내부 메모")).toBeTruthy();
+        fireEvent.click(within(dialog).getByRole("button", { name: "기존 외부 인물 제거" }));
+        fireEvent.change(within(dialog).getByLabelText("가창 참여자 검색"), {
+            target: { value: "현재 멤버" },
+        });
+        fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
+        fireEvent.change(within(dialog).getByLabelText("현재 멤버 표시 크레딧"), {
+            target: { value: "수정한 멤버 크레딧" },
+        });
+        fireEvent.change(within(dialog).getByLabelText("YouTube URL"), {
+            target: { value: "https://youtu.be/ASRCBcCY_qE" },
+        });
+        fireEvent.change(within(dialog).getByLabelText("시작 위치(초)"), {
+            target: { value: "12" },
+        });
+        fireEvent.change(within(dialog).getByLabelText("종료 위치(초)"), {
+            target: { value: "170" },
+        });
+        fireEvent.change(within(dialog).getByLabelText("가창 공개일시"), {
+            target: { value: "2026-08-12T12:30" },
+        });
+        fireEvent.change(within(dialog).getByLabelText("내부 메모"), {
+            target: { value: "전체 정보 수정" },
+        });
+        const performanceTagInput = within(dialog).getByLabelText("커버 영상 라벨");
+        fireEvent.change(performanceTagInput, {
+            target: { value: "어쿠스틱" },
+        });
+        fireEvent.click(within(performanceTagInput.parentElement?.parentElement as HTMLElement).getByRole("button", { name: "추가" }));
+        fireEvent.click(within(dialog).getByLabelText("연결된 곡"));
+        fireEvent.click(await screen.findByRole("option", { name: "변경할 연결 곡" }));
+        fireEvent.click(within(dialog).getByLabelText("곡 관계"));
+        fireEvent.click(await screen.findByRole("option", { name: "오리지널" }));
+        fireEvent.click(within(dialog).getByLabelText("공개 형태"));
+        fireEvent.click(await screen.findByRole("option", { name: "공식 MV" }));
+        fireEvent.click(within(dialog).getByLabelText("참여 형태"));
+        fireEvent.click(await screen.findByRole("option", { name: "듀엣" }));
+        fireEvent.click(within(dialog).getByLabelText("데이터 품질"));
+        fireEvent.click(await screen.findByRole("option", { name: "업데이트 필요" }));
+        fireEvent.click(within(dialog).getByLabelText("현재 멤버 역할"));
+        fireEvent.click(await screen.findByRole("option", { name: "피처링 보컬" }));
+        fireEvent.click(within(dialog).getByLabelText("source 1 역할"));
+        fireEvent.click(await screen.findByRole("option", { name: "대체 영상" }));
+        fireEvent.click(within(dialog).getByRole("button", { name: "전체 정보 저장" }));
+        await waitFor(() => expect(updatePerformanceMock).toHaveBeenCalledTimes(1));
+        expect(updatePerformanceMock).toHaveBeenCalledWith({
+            id: "performance-edit",
+            expectedVersion: 4,
+            songId: "song-target",
+            relationType: "original",
+            releaseType: "official_mv",
+            participationType: "duet",
+            qualityStatus: "needs_update",
+            releasedAt: new Date("2026-08-12T12:30").getTime(),
+            internalNote: "전체 정보 수정",
+            tags: ["어쿠스틱"],
+            participants: [
+                {
+                    subject: { kind: "member", memberUid: 1 },
+                    participantRole: "featured_vocal",
+                    creditOrder: 0,
+                    creditNameSnapshot: "수정한 멤버 크레딧",
+                },
+            ],
+            sources: [{
+                    youtubeUrl: "https://youtu.be/ASRCBcCY_qE",
+                    channelId: "channel-approved",
+                    startSeconds: 12,
+                    endSeconds: 170,
+                    sourceRole: "alternate",
+                    priority: 0,
+                    isPrimary: true,
+                }],
+        }, expect.any(String));
     });
-    expect(secondRequest.channel.owners).toEqual([{ kind: "entity", entityId: "persisted-guest" }]);
-    expect(secondRequest.startSeconds).toBe(90);
-    expect(secondRequest.publicationTarget).toBe("draft");
-  });
-
-  it("registers a medley track as a draft cover and prepares the next segment", async () => {
-    fetchCatalogMock.mockResolvedValue({
-      ...catalog,
-      songs: [
-        {
-          id: "song-medley",
-          slug: "song-medley",
-          title: "메들리 기존 곡",
-          normalizedTitle: "메들리 기존 곡",
-          isOtwOriginal: false,
-          originalReleaseDate: null,
-          originalReleasePrecision: "unknown",
-          archivedAt: null,
-          version: 0,
-          tags: [],
-          aliases: [{ alias: "Medley Song", locale: null, aliasKind: null }],
-          originalArtists: [],
-        },
-      ],
+    it("disables catalog writes while the public read model revision is stale", async () => {
+        fetchCatalogMock.mockResolvedValue({
+            ...catalog,
+            revision: 8,
+            readModelRevision: 7,
+        });
+        renderCatalogManager();
+        expect((await screen.findByRole("alert")).textContent).toContain("편집할 수 없습니다");
+        await openOperationsTab("채널");
+        expect((await screen.findByRole("button", { name: "채널 등록" }) as HTMLButtonElement)
+            .disabled).toBe(true);
     });
-    renderCatalogManager();
-
-    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
-    const dialog = screen.getByRole("dialog", { name: "새 YouTube 영상 등록" });
-    expect(within(dialog).queryByLabelText("시작 위치(초)")).toBeNull();
-    expect(within(dialog).queryByLabelText("종료 위치(초)")).toBeNull();
-    fireEvent.click(within(dialog).getByRole("checkbox", { name: "구간 선택" }));
-    expect(within(dialog).getByLabelText("시작 위치(초)")).toBeTruthy();
-    expect(within(dialog).getByLabelText("종료 위치(초)")).toBeTruthy();
-    fireEvent.change(within(dialog).getByLabelText("YouTube URL"), {
-      target: { value: "https://youtu.be/dQw4w9WgXcQ" },
+    it("deletes draft and withdrawn test data while protecting currently published catalog", async () => {
+        fetchCatalogMock.mockResolvedValue({
+            ...catalog,
+            songs: [
+                {
+                    id: "song-draft",
+                    slug: "draft-song",
+                    title: "임시 곡",
+                    normalizedTitle: "임시 곡",
+                    isOtwOriginal: false,
+                    originalReleaseDate: null,
+                    originalReleasePrecision: "unknown",
+                    version: 2,
+                    archivedAt: null,
+                    aliases: [],
+                    originalArtists: [],
+                },
+                {
+                    id: "song-published",
+                    slug: "published-song",
+                    title: "게시 이력 곡",
+                    normalizedTitle: "게시 이력 곡",
+                    isOtwOriginal: false,
+                    originalReleaseDate: null,
+                    originalReleasePrecision: "unknown",
+                    version: 1,
+                    archivedAt: null,
+                    aliases: [],
+                    originalArtists: [],
+                },
+                {
+                    id: "song-withdrawn",
+                    slug: "withdrawn-song",
+                    title: "철회 곡",
+                    normalizedTitle: "철회 곡",
+                    isOtwOriginal: false,
+                    originalReleaseDate: null,
+                    originalReleasePrecision: "unknown",
+                    version: 5,
+                    archivedAt: null,
+                    aliases: [],
+                    originalArtists: [],
+                },
+            ],
+            performances: [
+                {
+                    id: "performance-draft",
+                    songId: "song-draft",
+                    relationType: "cover",
+                    releaseType: "official_video",
+                    participationType: "solo",
+                    publicationStatus: "draft",
+                    qualityStatus: "ok",
+                    releasedAt: null,
+                    internalNote: null,
+                    version: 3,
+                    participants: [],
+                    sources: [],
+                },
+                {
+                    id: "performance-published",
+                    songId: "song-published",
+                    relationType: "cover",
+                    releaseType: "official_video",
+                    participationType: "solo",
+                    publicationStatus: "published",
+                    qualityStatus: "ok",
+                    releasedAt: null,
+                    internalNote: null,
+                    version: 4,
+                    participants: [],
+                    sources: [],
+                },
+                {
+                    id: "performance-withdrawn",
+                    songId: "song-withdrawn",
+                    relationType: "cover",
+                    releaseType: "official_video",
+                    participationType: "solo",
+                    publicationStatus: "withdrawn",
+                    qualityStatus: "ok",
+                    releasedAt: null,
+                    internalNote: null,
+                    version: 6,
+                    participants: [],
+                    sources: [],
+                },
+            ],
+        });
+        renderCatalogManager();
+        await screen.findAllByText("임시 곡");
+        for (const [title, disabled] of [["임시 곡", false], ["게시 이력 곡", true], ["철회 곡", false]] as const) {
+            const row = screen.getAllByText(title)[0]!.closest("tr")!;
+            const item = await openSecondaryAction("곡 삭제", within(row).getByRole("button", { name: "곡 작업 메뉴" }));
+            expect(item.getAttribute("aria-disabled") === "true").toBe(disabled);
+            fireEvent.keyDown(item, { key: "Escape" });
+        }
+        fireEvent.click(screen.getByRole("button", { name: "임시 곡 가창 펼치기" }));
+        fireEvent.click(await openSecondaryAction("삭제", screen.getAllByRole("button", { name: "가창 작업 메뉴" })[0]!));
+        expect(screen.getByText("임시 저장 가창을 삭제할까요?")).toBeTruthy();
+        fireEvent.click(screen.getAllByRole("button", { name: "삭제" }).at(-1)!);
+        await waitFor(() => expect(deletePerformanceMock).toHaveBeenCalledWith("performance-draft", { expectedVersion: 3 }, expect.any(String)));
+        const draftSongRow = screen.getAllByText("임시 곡")[0]!.closest("tr")!;
+        fireEvent.click(await openSecondaryAction("곡 삭제", within(draftSongRow).getByRole("button", { name: "곡 작업 메뉴" })));
+        expect(screen.getByText("곡을 삭제할까요?")).toBeTruthy();
+        fireEvent.click(screen.getByRole("button", { name: "삭제" }));
+        await waitFor(() => expect(deleteSongMock).toHaveBeenCalledWith("song-draft", {
+            expectedVersion: 2,
+        }, expect.any(String)));
+        fireEvent.click(screen.getByRole("button", { name: "철회 곡 가창 펼치기" }));
+        const withdrawnStatus = within(screen.getByRole("table")).getByText("철회됨");
+        const withdrawnRow = withdrawnStatus.closest("tr");
+        expect(withdrawnRow).toBeTruthy();
+        fireEvent.click(await openSecondaryAction("삭제", within(withdrawnRow!).getByRole("button", { name: "가창 작업 메뉴" })));
+        expect(screen.getByText("철회된 가창을 삭제할까요?")).toBeTruthy();
+        fireEvent.click(screen.getAllByRole("button", { name: "삭제" }).at(-1)!);
+        await waitFor(() => expect(deletePerformanceMock).toHaveBeenCalledWith("performance-withdrawn", { expectedVersion: 6 }, expect.any(String)));
+        const withdrawnSongTitle = screen.getAllByText("철회 곡")[0]!;
+        const withdrawnSongRow = withdrawnSongTitle.closest("tr");
+        expect(withdrawnSongRow).toBeTruthy();
+        fireEvent.click(await openSecondaryAction("곡 삭제", within(withdrawnSongRow!).getByRole("button", { name: "곡 작업 메뉴" })));
+        expect(screen.getByText(/철회 1개 포함/)).toBeTruthy();
+        fireEvent.click(screen.getByRole("button", { name: "삭제" }));
+        await waitFor(() => expect(deleteSongMock).toHaveBeenCalledWith("song-withdrawn", {
+            expectedVersion: 5,
+        }, expect.any(String)));
+    }, 15000);
+    it.each([false, true])("publishes every visible draft from one catalog action and preserves failed or accepted drafts (accepted=%s)", async (accepted) => {
+        fetchCatalogMock.mockResolvedValue({
+            ...catalog,
+            songs: [
+                {
+                    id: "song-one",
+                    slug: "song-one",
+                    title: "첫 번째 곡",
+                    normalizedTitle: "첫 번째 곡",
+                    isOtwOriginal: false,
+                    originalReleaseDate: null,
+                    originalReleasePrecision: "unknown",
+                    version: 1,
+                    archivedAt: null,
+                    aliases: [],
+                    originalArtists: [],
+                },
+                {
+                    id: "song-two",
+                    slug: "song-two",
+                    title: "두 번째 곡",
+                    normalizedTitle: "두 번째 곡",
+                    isOtwOriginal: false,
+                    originalReleaseDate: null,
+                    originalReleasePrecision: "unknown",
+                    version: 1,
+                    archivedAt: null,
+                    aliases: [],
+                    originalArtists: [],
+                },
+            ],
+            performances: [
+                {
+                    id: "performance-draft-one",
+                    songId: "song-one",
+                    relationType: "cover",
+                    releaseType: "official_video",
+                    participationType: "solo",
+                    publicationStatus: "draft",
+                    qualityStatus: "ok",
+                    releasedAt: null,
+                    internalNote: null,
+                    version: 3,
+                    participants: [],
+                    sources: [],
+                },
+                {
+                    id: "performance-draft-two",
+                    songId: "song-two",
+                    relationType: "cover",
+                    releaseType: "official_video",
+                    participationType: "solo",
+                    publicationStatus: "draft",
+                    qualityStatus: "ok",
+                    releasedAt: null,
+                    internalNote: null,
+                    version: 5,
+                    participants: [],
+                    sources: [],
+                },
+                {
+                    id: "performance-withdrawn",
+                    songId: "song-two",
+                    relationType: "cover",
+                    releaseType: "official_video",
+                    participationType: "solo",
+                    publicationStatus: "withdrawn",
+                    qualityStatus: "ok",
+                    releasedAt: null,
+                    internalNote: null,
+                    version: 7,
+                    participants: [],
+                    sources: [],
+                },
+            ],
+        });
+        let resolveFirstPublish: (() => void) | undefined;
+        publishPerformanceMock
+            .mockImplementationOnce(() => new Promise((resolve) => {
+            resolveFirstPublish = () => resolve({});
+        }))
+            .mockRejectedValueOnce(accepted ? new ApiError("동시 변경이 발생했습니다.", 409, { code: "CONTENT_CONFLICT" }) : new Error("channel approval changed"));
+        renderCatalogManager();
+        await openBulkPublication();
+        expect(screen.getByText("미게시 곡을 모두 게시할까요?")).toBeTruthy();
+        expect(screen.getByText(/실패 항목은 임시 저장 상태로 유지/)).toBeTruthy();
+        fireEvent.click(screen.getByRole("button", { name: "2개 게시" }));
+        await waitFor(() => expect(publishPerformanceMock).toHaveBeenCalledTimes(1));
+        expect(publishPerformanceMock).toHaveBeenNthCalledWith(1, "performance-draft-one", { expectedVersion: 3 }, expect.any(String));
+        expect(publishPerformanceMock).not.toHaveBeenCalledWith("performance-draft-two", expect.anything());
+        resolveFirstPublish?.();
+        await waitFor(() => expect(publishPerformanceMock).toHaveBeenCalledTimes(2));
+        expect(publishPerformanceMock).toHaveBeenNthCalledWith(2, "performance-draft-two", { expectedVersion: 5 }, expect.any(String));
+        expect(publishPerformanceMock).not.toHaveBeenCalledWith("performance-withdrawn", expect.anything());
+        await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
+            variant: "info",
+            description: accepted ? "1개 게시 완료 · 1개 게시 실패. 동시 변경이 발생했습니다." : "1개를 게시했고 1개는 검증 실패 또는 동시 변경으로 임시 저장 상태를 유지했습니다.",
+        }));
+        if (accepted) {
+            const originalKey = publishPerformanceMock.mock.calls[1]![2];
+            await openBulkPublication();
+            fireEvent.click(screen.getByRole("button", { name: "2개 게시" }));
+            await waitFor(() => expect(publishPerformanceMock).toHaveBeenCalledTimes(4));
+            expect(publishPerformanceMock.mock.calls[3]![2]).toBe(originalKey);
+        }
     });
-    fireEvent.change(within(dialog).getByLabelText("시작 위치(초)"), {
-      target: { value: "10" },
+    it("maps legacy clip links to the catalog and automatic links to the import list", async () => {
+        function LegacyPanel({ tab }: {
+            tab: string;
+        }) {
+            const [search, setSearch] = useState<ConsoleSearch>({ tab });
+            return createElement(ConsoleSearchContext.Provider, { value: [search, patch => setSearch(previous => ({ ...previous, ...patch }))] }, createElement<NonNullable<Parameters<typeof OtwPlayCatalogManager>[0]>>(OtwPlayCatalogManager, { activeSection: tab === "clips" ? "catalog" : "automatic-review" }));
+        }
+        const view = render(createElement(LegacyPanel, { tab: "clips" }), { wrapper: createQueryWrapper() });
+        expect(await screen.findByRole("button", { name: "새 노래 클립 등록" })).toBeTruthy();
+        expect(screen.getByLabelText("카탈로그 영상 종류").textContent).toBe("노래 클립");
+        view.unmount();
+        render(createElement(LegacyPanel, { tab: "automatic-review" }), { wrapper: createQueryWrapper() });
+        expect(await screen.findByRole("heading", { name: "플레이리스트 가져오기" })).toBeTruthy();
+        expect(screen.queryByLabelText("검수 출처")).toBeNull();
+        expect(reviewRowsMock).not.toHaveBeenCalled();
     });
-    fireEvent.change(within(dialog).getByLabelText("종료 위치(초)"), {
-      target: { value: "90" },
+    it("keeps page order across revisions without loading the full catalog", async () => {
+        const pageCatalog = { ...catalog, revision: 7, readModelRevision: 7, songs: [{ id: "page-one", title: "First server page", archivedAt: null, originalArtists: [], aliases: [], tags: [], version: 0, isOtwOriginal: false }], performances: [{ ...linkedPerformance, songId: "page-one" }] };
+        fetchCatalogMock.mockImplementation(async (query) => query?.cursor ? { ...pageCatalog, revision: 8, readModelRevision: 8, paged: true, nextCursor: null, songs: [{ ...pageCatalog.songs[0], id: 'page-two', title: 'Second server page' }], performances: [{ ...catalog.performances[0], id: 'page-two-performance', songId: 'page-two' }] } : { ...pageCatalog, paged: true, nextCursor: 'next-server-page' });
+        render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
+        await screen.findAllByText("First server page");
+        expect(fetchCatalogMock).toHaveBeenCalledWith(expect.objectContaining({ limit: 25, scope: 'official', cursor: null }));
+        fireEvent.click(screen.getByRole('button', { name: '곡 더 보기' }));
+        await screen.findAllByText('Second server page');
+        expect(screen.getAllByText('First server page')[0].compareDocumentPosition(screen.getAllByText('Second server page')[0])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+        expect(fetchCatalogMock).toHaveBeenCalledWith(expect.objectContaining({ cursor: 'next-server-page', limit: 25 }));
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: "영상 확인" }));
-    await waitFor(() =>
-      expect(preflightEntryMock).toHaveBeenCalledWith({
-        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
-        startSeconds: 10,
-        endSeconds: 90,
-      }),
-    );
-    fireEvent.click(within(dialog).getByRole("button", { name: /공식 커버곡/ }));
-    fireEvent.click(within(dialog).getByRole("checkbox", { name: "메들리의 한 곡 구간" }));
-    fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
-    fireEvent.change(within(dialog).getByLabelText("기존 곡 검색"), {
-      target: { value: "Medley Song" },
+    it("shows matching video states and publishes only the checked private performance", async () => {
+        const song = { id: "selected-song", slug: "selected-song", title: "선택 게시 확인곡", originalArtists: [], tags: [], aliases: [], archivedAt: null, version: 0, isOtwOriginal: false };
+        const draft = { ...linkedPerformance, id: "draft-selected", songId: song.id, publicationStatus: "draft" as const, version: 4 };
+        const otherDraft = { ...draft, id: "draft-unselected" };
+        const published = { ...linkedPerformance, id: "already-published", songId: song.id };
+        fetchCatalogMock.mockResolvedValue({ ...catalog, songs: [song], performances: [draft, otherDraft, published] });
+        renderCatalogManager();
+        const filters = await screen.findByRole("group", { name: "게시 상태" });
+        fireEvent.click(within(filters).getByRole("button", { name: "비공개" }));
+        const table = screen.getByRole("table", { name: "곡 카탈로그" });
+        const selections = within(table).getAllByRole("checkbox", { name: "선택 게시 확인곡 게시 선택" });
+        expect(selections).toHaveLength(2);
+        expect(within(table).queryByText("게시됨")).toBeNull();
+        fireEvent.click(selections[0]!);
+        expect(screen.getByText("영상 1개 선택")).toBeTruthy();
+        fireEvent.click(screen.getByRole("button", { name: "선택 항목 게시" }));
+        expect(publishPerformanceMock).not.toHaveBeenCalled();
+        const dialog = await screen.findByRole("alertdialog", { name: "선택한 영상을 게시할까요?" });
+        fireEvent.click(within(dialog).getByRole("button", { name: "1개 게시" }));
+        await waitFor(() => expect(publishPerformanceMock).toHaveBeenCalledExactlyOnceWith(draft.id, { expectedVersion: 4 }, expect.any(String)));
+        fireEvent.click(within(filters).getByRole("button", { name: "게시됨" }));
+        expect(within(table).queryByRole("checkbox")).toBeNull();
     });
-    fireEvent.click(
-      await within(dialog).findByRole("option", { name: /메들리 기존 곡/ }),
-    );
-    fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
-    fireEvent.change(within(dialog).getByLabelText("가창 참여자 검색"), {
-      target: { value: "현재 멤버" },
+    it("publishes all draft targets after explicitly reading beyond the server page", async () => {
+        const song = { id: 'bulk-song', slug: 'bulk-song', title: 'Bulk song', normalizedTitle: 'bulk song', originalArtists: [], tags: [], aliases: [], archivedAt: null, version: 0, isOtwOriginal: false };
+        const draft = { ...linkedPerformance, id: 'bulk-one', songId: song.id, publicationStatus: 'draft' as const };
+        const other = { ...draft, id: 'bulk-two' };
+        fetchCatalogMock.mockImplementation(async (query) => query ? { ...catalog, paged: true, nextCursor: null, songs: [song], performances: [draft] } : { ...catalog, songs: [song], performances: [draft, other] });
+        renderCatalogManager();
+        await openBulkPublication();
+        const dialog = await screen.findByRole('alertdialog');
+        fireEvent.click(within(dialog).getByRole('button', { name: '2개 게시' }));
+        await waitFor(() => expect(publishPerformanceMock).toHaveBeenCalledTimes(2));
+        expect(publishPerformanceMock.mock.calls.map(call => call[0])).toEqual(['bulk-one', 'bulk-two']);
+        expect(fetchCatalogMock).toHaveBeenCalledWith();
     });
-    fireEvent.click(
-      await within(dialog).findByRole("option", { name: /현재 멤버/ }),
-    );
-    fireEvent.click(within(dialog).getByText("가창 라벨·내부 메모 (선택)"));
-    expect(within(dialog).getByRole("button", { name: "메들리 수록" })).toBeTruthy();
-    expect(within(dialog).queryByLabelText("선택한 가창 라벨")).toBeNull();
-    fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
-    expect(within(dialog).getByText("메들리 구간")).toBeTruthy();
-    expect(within(dialog).queryByRole("button", { name: "게시" })).toBeNull();
-    fireEvent.click(within(dialog).getByRole("button", { name: "임시 저장" }));
-
-    await waitFor(() =>
-      expect(createEntryMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          registrationMode: "medley_segment",
-          relationType: "cover",
-          startSeconds: 10,
-          endSeconds: 90,
-          song: { kind: "existing", songId: "song-medley" },
-          publicationTarget: "draft",
-        }),
-       expect.any(String),),
-    );
-    const savedRequest = createEntryMock.mock.calls.at(-1)?.[0];
-    expect(savedRequest).not.toHaveProperty("performanceTags");
-    expect(await within(dialog).findByText("메들리 커버 구간을 임시 저장했습니다.")).toBeTruthy();
-
-    fireEvent.click(
-      within(dialog).getByRole("button", { name: "같은 영상의 다음 커버 추가" }),
-    );
-    expect(within(dialog).getByLabelText("시작 위치(초)")).toHaveProperty("value", "90");
-    expect(within(dialog).getByLabelText("종료 위치(초)")).toHaveProperty("value", "180");
-    expect(within(dialog).getByLabelText("YouTube URL")).toHaveProperty(
-      "value",
-      "https://youtu.be/dQw4w9WgXcQ",
-    );
-    fireEvent.click(within(dialog).getByRole("button", { name: "영상 확인" }));
-    await waitFor(() =>
-      expect(preflightEntryMock).toHaveBeenLastCalledWith({
-        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
-        startSeconds: 90,
-        endSeconds: 180,
-      }),
-    );
-  });
-
-  it("reuses a new external identity across integrated registration fields", async () => {
-    renderCatalogManager();
-
-    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
-    fireEvent.change(screen.getByLabelText("YouTube URL"), {
-      target: { value: "https://youtu.be/dQw4w9WgXcQ" },
+    it("selects an off-page existing participant while editing a performance", async () => {
+        const song = { id: 'edit-page-song', slug: 'edit-page-song', title: 'Edit page song', originalArtists: [], tags: [], aliases: [], archivedAt: null, version: 0, isOtwOriginal: false };
+        const performance = { ...linkedPerformance, id: 'edit-page-performance', songId: song.id, publicationStatus: 'draft' as const, sources: [{ source: { id: 'edit-source', provider: 'youtube' as const, externalId: 'dQw4w9WgXcQ', channelId: 'edit-channel', title: null, thumbnailUrl: null, durationSeconds: 180, providerPublishedAt: null, availabilityStatus: 'playable' as const, lastCheckedAt: null, version: 0 }, startSeconds: 0, endSeconds: null, sourceRole: 'official' as const, priority: 0, isPrimary: true }] };
+        const external = { id: 'off-page-vocal', memberUid: null, entityKind: 'person' as const, displayName: 'Off page vocalist', normalizedName: 'off page vocalist', slug: 'off-page-vocal', archivedAt: null, version: 0 };
+        fetchCatalogMock.mockImplementation(async (query) => query?.lookup === 'entities' ? { ...catalog, entities: [external] } : { ...catalog, paged: true, nextCursor: null, songs: [song], performances: [performance] });
+        renderCatalogManager();
+        fireEvent.click(await screen.findByRole('button', { name: 'Edit page song 가창 펼치기' }));
+        const row = within(screen.getByRole("table", { name: "곡 카탈로그" })).getAllByText("비공개")[0]!.closest('tr')!;
+        fireEvent.click(within(row).getByRole('button', { name: '수정' }));
+        const dialog = screen.getByRole('dialog', { name: '가창 정보 수정' });
+        fireEvent.change(within(dialog).getByLabelText('가창 참여자 검색'), { target: { value: 'Off page vocalist' } });
+        fireEvent.click(await within(dialog).findByRole('option', { name: /Off page vocalist/ }));
+        fireEvent.click(within(dialog).getByRole('button', { name: '전체 정보 저장' }));
+        await waitFor(() => expect(updatePerformanceMock).toHaveBeenCalledWith(expect.objectContaining({ id: performance.id, participants: [expect.objectContaining({ subject: { kind: 'entity', entityId: external.id } })] }), expect.any(String)));
     });
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.change(screen.getByLabelText("곡 제목"), {
-      target: { value: "중복 방지 원곡" },
+    it("shows a retryable error when full publication preparation fails", async () => {
+        fetchCatalogMock.mockImplementation(async (query) => {
+            if (!query)
+                throw new Error("catalog unavailable");
+            return { ...catalog, paged: true, nextCursor: null };
+        });
+        renderCatalogManager();
+        await openBulkPublication();
+        expect((await screen.findByRole("alert")).textContent).toContain("전체 게시 대상을 불러오지 못했습니다");
+        expect(screen.queryByRole("alertdialog")).toBeNull();
+        expect(publishPerformanceMock).not.toHaveBeenCalled();
+        fetchCatalogMock.mockResolvedValue(catalog);
+        await openBulkPublication();
+        expect(await screen.findByText("현재 영상 종류에 게시할 수 있는 비공개 영상이 없습니다.")).toBeTruthy();
+        expect(screen.queryByRole("alertdialog")).toBeNull();
+        expect(publishPerformanceMock).not.toHaveBeenCalled();
     });
-    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), {
-      target: { value: "DECO*27" },
+    it("keeps global publication reachable from an empty filtered server page", async () => {
+        const song = { id: 'hidden-draft-song', slug: 'hidden-draft-song', title: 'Off page draft', originalArtists: [], tags: [], aliases: [], archivedAt: null, version: 0, isOtwOriginal: false };
+        const draft = { ...linkedPerformance, id: 'off-page-draft', songId: song.id, publicationStatus: 'draft' as const };
+        fetchCatalogMock.mockImplementation(async (query) => query ? { ...catalog, paged: true, nextCursor: null } : { ...catalog, songs: [song], performances: [draft] });
+        render(createElement(ConsoleSearchContext.Provider, { value: [{ q: 'no matching song' }, vi.fn()] }, createElement(OtwPlayCatalogManager)), { wrapper: createQueryWrapper() });
+        await screen.findByRole('search', { name: '카탈로그 필터' });
+        await waitFor(() => expect(fetchCatalogMock).toHaveBeenCalledWith(expect.objectContaining({ q: 'no matching song' })));
+        expect(screen.getByText('조건에 맞는 곡이 없습니다. 검색어를 바꾸거나 필터를 초기화해 주세요.')).toBeTruthy();
+        await openBulkPublication();
+        const dialog = await screen.findByRole('alertdialog');
+        fireEvent.click(within(dialog).getByRole('button', { name: '1개 게시' }));
+        await waitFor(() => expect(publishPerformanceMock).toHaveBeenCalledWith(draft.id, expect.anything(), expect.any(String)));
     });
-    fireEvent.click(screen.getByRole("button", { name: /외부 인물로 추가/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-
-    fireEvent.change(screen.getByLabelText("가창 참여자 검색"), {
-      target: { value: "DECO*27" },
+    it("reports a failed off-page selection and retries it without hiding the catalog", async () => {
+        const visible = { id: "visible", slug: "visible", title: "Visible review song", normalizedTitle: "visible review song", originalArtists: [], tags: [], aliases: [], archivedAt: null, version: 0, isOtwOriginal: false };
+        const selected = { ...visible, id: "off-page", slug: "off-page", title: "Selected review song" };
+        let failed = true;
+        fetchCatalogMock.mockImplementation(async (query) => {
+            if (query?.songId && failed)
+                throw new ApiError("selection unavailable", 503, { code: "PLAY_ADMIN_INTERNAL_ERROR" });
+            const song = query?.songId ? selected : visible;
+            return { ...catalog, paged: true, nextCursor: null, songs: [song], performances: [{ ...linkedPerformance, id: "p-" + song.id, songId: song.id }] };
+        });
+        const client = createTestQueryClient();
+        render(createElement(QueryClientProvider, { client }, createElement(ConsoleSearchContext.Provider, { value: [{ selected: selected.id }, vi.fn()] }, createElement(OtwPlayCatalogManager))));
+        await screen.findAllByText(visible.title);
+        expect((await screen.findByRole("alert")).textContent).toContain("선택한 곡을 불러오지 못했습니다");
+        expect(screen.queryAllByText(visible.title).length).toBeGreaterThan(0);
+        failed = false;
+        fireEvent.click(screen.getByRole("button", { name: "선택한 곡 다시 불러오기" }));
+        await screen.findAllByText(selected.title);
+        await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+        client.clear();
     });
-    expect(screen.getByText("동일한 이름의 주체가 이미 있습니다. 위 후보를 선택하세요."))
-      .toBeTruthy();
-    expect(screen.queryByRole("button", { name: /외부 인물로 추가/ })).toBeNull();
-    fireEvent.click(screen.getByRole("option", { name: /DECO\*27/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
-
-    await waitFor(() => expect(createEntryMock).toHaveBeenCalledTimes(1));
-    const request = createEntryMock.mock.calls[0]?.[0];
-    expect(request.song.kind).toBe("create");
-    expect(request.song.originalArtists[0]?.subject.kind).toBe("new_external");
-    expect(request.participants[0]?.subject).toEqual(
-      request.song.originalArtists[0]?.subject,
-    );
-  });
-
-  it("requires selecting an exact saved external identity instead of creating a duplicate", async () => {
-    fetchCatalogMock.mockResolvedValue({
-      ...catalog,
-      entities: [{
-        id: "entity-deco-27",
-        memberUid: null,
-        entityKind: "person",
-        displayName: "DECO*27",
-        normalizedName: "deco*27",
-        slug: "deco-27",
-        version: 0,
-        archivedAt: null,
-      }],
+    it("keeps current page references when an older off-page selection fails to refresh", async () => {
+        const visible = { id: "visible", slug: "visible", title: "Visible review song", normalizedTitle: "visible review song", originalArtists: [], tags: [], aliases: [], archivedAt: null, version: 0, isOtwOriginal: false };
+        const offPage = { ...visible, id: "off-page", slug: "off-page", title: "Off page review song" };
+        const current = { id: "shared-artist", entityKind: "person" as const, memberUid: null, displayName: "Current artist", normalizedName: "current artist", slug: "shared-artist", version: 3, archivedAt: null };
+        const old = { ...current, displayName: "Old artist", normalizedName: "old artist", version: 1 };
+        const page = { ...catalog, revision: 9, readModelRevision: 9, paged: true as const, nextCursor: null, songs: [visible], performances: [{ ...linkedPerformance, songId: visible.id }], entities: [current] };
+        const selected = { ...page, revision: 7, readModelRevision: 7, songs: [offPage], performances: [{ ...linkedPerformance, id: "off-page-performance", songId: offPage.id }], entities: [old] };
+        fetchCatalogMock.mockImplementation(async (query) => {
+            if (query?.songId)
+                throw new ApiError("selection unavailable", 503, { code: "PLAY_ADMIN_INTERNAL_ERROR" });
+            if (query?.lookup)
+                return { ...catalog, paged: true, nextCursor: null };
+            return page;
+        });
+        const client = createTestQueryClient();
+        const key = [...queryKeys.otwPlay.adminCatalog(), "selected", offPage.id, "official", undefined, undefined, undefined];
+        client.setQueryData(key, selected);
+        render(createElement(QueryClientProvider, { client }, createElement(ConsoleSearchContext.Provider, { value: [{ selected: offPage.id }, vi.fn()] }, createElement(OtwPlayCatalogManager))));
+        await screen.findAllByText(visible.title);
+        await waitFor(() => expect(client.getQueryState(key)?.status).toBe("error"));
+        fireEvent.click(screen.getAllByRole("button", { name: "곡 정보 수정" })[0]);
+        const dialog = await screen.findByRole("dialog", { name: "곡 정보 수정" });
+        fireEvent.change(within(dialog).getByLabelText("원곡 가수 검색"), { target: { value: "artist" } });
+        expect(within(dialog).queryByRole("option", { name: /Current artist/ })).not.toBeNull();
+        expect(within(dialog).queryByRole("option", { name: /Old artist/ })).toBeNull();
+        client.clear();
     });
-    renderCatalogManager();
-
-    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
-    fireEvent.change(screen.getByLabelText("YouTube URL"), {
-      target: { value: "https://youtu.be/dQw4w9WgXcQ" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), {
-      target: { value: "  deco*27  " },
-    });
-
-    expect(await screen.findByRole("option", { name: /DECO\*27/ })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /외부 인물로 추가/ })).toBeNull();
-    expect(screen.getByText("동일한 이름의 주체가 이미 있습니다. 위 후보를 선택하세요."))
-      .toBeTruthy();
-  });
-
-  it("ignores a registration return URL without an in-memory draft", async () => {
-    render(createElement(ConsoleSearchContext.Provider, { value: [{ tab: "operations", view: "channel-edit", from: "play-registration", channel: `UC${"Z".repeat(22)}` }, vi.fn()] },
-      createElement<NonNullable<Parameters<typeof OtwPlayCatalogManager>[0]>>(OtwPlayCatalogManager, { activeSection: "operations" })), { wrapper: createQueryWrapper() });
-    await screen.findByRole("button", { name: "채널 등록" });
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.queryByLabelText("YouTube channel ID")).toBeNull();
-    expect(screen.queryByRole("button", { name: "작성 중인 곡으로 돌아가기" })).toBeNull();
-    expect(lookupChannelMock).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { kind: "official", failure: "none" }, { kind: "broadcast", failure: "none" },
-    { kind: "broadcast", failure: "approval" }, { kind: "broadcast", failure: "duplicate" },
-    { kind: "broadcast", failure: "version" }, { kind: "broadcast", failure: "recheck" },
-  ] as const)("registers and restores $kind with $failure failure handling", async ({ kind, failure }) => {
-    const channel = { id: "new-channel", externalChannelId: `UC${"N".repeat(22)}`, displayName: "신규 채널", provider: "youtube", channelRole: kind === "broadcast" ? "approved_kirinuki" : "project_official", verificationStatus: "pending", active: false, entityIds: [], version: 0 };
-    const preflight = { catalogRevision: 7, video: { videoId: "dQw4w9WgXcQ", title: "영상 제목", durationSeconds: 180, publishedAt: 1, availabilityStatus: "playable", thumbnailUrl: null, channelId: channel.externalChannelId, channelTitle: channel.displayName }, channel: { state: "unknown", catalogChannelId: null, verificationStatus: null, active: false, channelRole: null, memberUid: null }, duplicate: null };
-    preflightEntryMock.mockResolvedValue(preflight);
-    lookupChannelMock.mockResolvedValue({ externalChannelId: channel.externalChannelId, displayName: channel.displayName });
-    createChannelMock.mockImplementationOnce(async () => {
-      fetchCatalogMock.mockResolvedValue({ ...catalog, channels: [channel] });
-      if (failure === "duplicate") throw new Error("Channel already exists");
-      return { data: channel };
-    });
-    if (failure === "approval") updateChannelMock.mockRejectedValueOnce(new Error("Approval failed"));
-    if (failure === "version") updateChannelMock.mockImplementationOnce(async () => {
-      fetchCatalogMock.mockResolvedValue({ ...catalog, channels: [{ ...channel, channelRole: "member_music", version: 2 }] });
-      throw new Error("Version conflict");
-    });
-    updateChannelMock.mockImplementationOnce(async input => {
-      fetchCatalogMock.mockResolvedValue({ ...catalog, channels: [{ ...channel, ...input, version: 1 }] });
-      preflightEntryMock.mockResolvedValue({ ...preflight, channel: { ...preflight.channel, state: "approved", catalogChannelId: channel.id, verificationStatus: "approved", active: true, channelRole: channel.channelRole } });
-      return {};
-    });
-    function RegistrationPage() {
-      const [search, setSearch] = useState<ConsoleSearch>({ tab: "catalog", kind, q: "보존할 검색" });
-      return createElement(ConsoleSearchContext.Provider, { value: [search, patch => setSearch(current => ({ ...current, ...patch }))] }, createElement<NonNullable<Parameters<typeof OtwPlayCatalogManager>[0]>>(OtwPlayCatalogManager, { activeSection: search.tab === "operations" ? "operations" : "catalog" }));
-    }
-    render(createElement(RegistrationPage), { wrapper: createQueryWrapper() });
-    fireEvent.click(await screen.findByRole("button", { name: kind === "broadcast" ? "새 노래 클립 등록" : "새 영상 등록" }));
-    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByRole("button", { name: "이 채널 등록하기" });
-    if (kind === "official") fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
-    fireEvent.click(screen.getByRole("button", { name: "이 채널 등록하기" }));
-    expect(await screen.findByLabelText("YouTube channel ID")).toHaveProperty("value", channel.externalChannelId);
-    await waitFor(() => expect(screen.getByLabelText("채널 표시명")).toHaveProperty("value", channel.displayName));
-    expect(screen.getByRole("dialog", { name: "채널 등록" })).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "Play 채널" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "채널 등록" }));
-    await screen.findByRole("button", { name: "채널 수정 저장" });
-    expect(createChannelMock).toHaveBeenCalledWith(expect.objectContaining({ channelRole: channel.channelRole, externalChannelId: channel.externalChannelId }),expect.any(String));
-    expect(updateChannelMock).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("combobox", { name: "채널 검수 상태" }));
-    fireEvent.click(await screen.findByRole("option", { name: "승인됨" }));
-    fireEvent.click(screen.getByLabelText("이 채널 영상 사용 허용"));
-    fireEvent.click(screen.getByRole("button", { name: "채널 수정 저장" }));
-    if (failure === "approval") {
-      await screen.findByText("채널을 저장하지 못했습니다. 입력은 유지되어 있으니 다시 시도하세요.");
-      expect(screen.getByLabelText("이 채널 영상 사용 허용").getAttribute("data-state")).toBe("checked");
-      fireEvent.click(screen.getByRole("button", { name: "채널 수정 저장" }));
-    }
-    if (failure === "version") {
-      await screen.findByText("다른 작업에서 저장된 최신 채널을 불러왔습니다. 승인 상태와 용도를 확인한 뒤 다시 저장하세요.");
-      expect(screen.getByRole("combobox", { name: "채널 역할" }).textContent).toContain("멤버 노래 채널");
-      expect(updateChannelMock).toHaveBeenCalledTimes(1);
-      fireEvent.click(screen.getByRole("combobox", { name: "채널 역할" }));
-      fireEvent.click(await screen.findByRole("option", { name: "승인 키리누키" }));
-      fireEvent.click(screen.getByRole("combobox", { name: "채널 검수 상태" }));
-      fireEvent.click(await screen.findByRole("option", { name: "승인됨" }));
-      fireEvent.click(screen.getByLabelText("이 채널 영상 사용 허용"));
-      fireEvent.click(screen.getByRole("button", { name: "채널 수정 저장" }));
-    }
-    if (failure === "recheck") {
-      await screen.findByRole("button", { name: "설정 완료 · 곡 등록으로 돌아가기" });
-      preflightEntryMock.mockRejectedValueOnce(new Error("Readback failed"));
-    }
-    fireEvent.click(await screen.findByRole("button", { name: "설정 완료 · 곡 등록으로 돌아가기" }));
-    if (failure === "recheck") {
-      await screen.findByRole("button", { name: "채널 상태 다시 확인" });
-      expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", true);
-      expect(screen.getByLabelText("YouTube URL")).toHaveProperty("value", "https://youtu.be/dQw4w9WgXcQ");
-      fireEvent.click(screen.getByRole("button", { name: "채널 상태 다시 확인" }));
-    }
-    await screen.findByText("채널 확인 완료 · 계속 입력하세요.");
-    expect(screen.getByLabelText("YouTube URL")).toHaveProperty("value", "https://youtu.be/dQw4w9WgXcQ");
-    expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", false);
-    expect(preflightEntryMock).toHaveBeenCalledTimes(failure === "recheck" ? 3 : 2);
-    expect(createChannelMock).toHaveBeenCalledTimes(1);
-    expect(createEntryMock).not.toHaveBeenCalled();
-  });
-
-  it("opens the selected channel dialog in operations and returns to the same review draft after saving", async () => {
-    const channel = { id: "channel-1", externalChannelId: `UC${"A".repeat(22)}`, displayName: "검수 채널", provider: "youtube", channelRole: "approved_kirinuki", verificationStatus: "approved", active: true, entityIds: [], version: 3 };
-    fetchCatalogMock.mockResolvedValue({ ...catalog, channels: [channel] });
-    reviewRowsMock.mockResolvedValue({ items: [{ id: "youtube:BBBBBBBBBBB", kind: "candidate", candidateKind: "singing_clip", sources: ["playlist"], title: "검수할 노래", version: 1, status: "needs_input", createdAt: 1, channelId: channel.externalChannelId,
-      candidate: { candidateId: "youtube:BBBBBBBBBBB", candidateVersion: 1, videoId: "BBBBBBBBBBB", title: "검수할 노래", channelTitle: channel.displayName, thumbnailUrl: null, durationSeconds: 180, publishedAt: 1, availabilityStatus: "playable", status: "needs_input", classification: "eligible", exclusionReason: null, catalogChannelId: channel.id, reviewInput: null, linkedPerformanceId: null, discoveredAt: 1, monitorGeneration: 0, retentionExpiresAt: 9999999999999 },
-    }], nextCursor: null });
-    fetchImportJobMock.mockResolvedValueOnce({ id: "job-1", workBatchId: "legacy-batch", canResumeLegacyReview: true, status: "completed", candidateKind: "singing_clip", playlistTitle: "검수할 플레이리스트", requestedItemCount: 1, counts: { discovered: 1 }, createdAt: 1 });
-    function ReviewChannelPage() {
-      const [search, setSearch] = useState<ConsoleSearch>({ tab: "import", view: "review", selected: "youtube:BBBBBBBBBBB", category: "job-1", source: "playlist" });
-      return createElement(ConsoleSearchContext.Provider, { value: [search, patch => setSearch(current => ({ ...current, ...patch }))] },
-        createElement<NonNullable<Parameters<typeof OtwPlayCatalogManager>[0]>>(OtwPlayCatalogManager, { activeSection: search.tab === "operations" ? "operations" : "import" }));
-    }
-    render(createElement(ReviewChannelPage), { wrapper: createQueryWrapper() });
-    fireEvent.change(await screen.findByLabelText("시작 위치(초)"), { target: { value: "42" } });
-    fireEvent.click(screen.getByRole("button", { name: "채널 승인·수집 설정" }));
-    expect(await screen.findByLabelText("YouTube channel ID")).toHaveProperty("value", channel.externalChannelId);
-    expect(screen.getByRole("dialog", { name: "검수 채널 수정" })).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "Play 채널" })).toBeNull();
-    lookupChannelMock.mockResolvedValueOnce({ externalChannelId: channel.externalChannelId, displayName: "수정한 채널" });
-    fireEvent.click(screen.getByRole("button", { name: "채널 조회" }));
-    await waitFor(() => expect(screen.getByLabelText("채널 표시명")).toHaveProperty("value", "수정한 채널"));
-    updateChannelMock.mockImplementationOnce(async () => { fetchCatalogMock.mockResolvedValue({ ...catalog, channels: [{ ...channel, displayName: "수정한 채널", version: 4 }] }); return {}; });
-    fireEvent.click(screen.getByRole("button", { name: "채널 수정 저장" }));
-    await waitFor(() => expect(updateChannelMock).toHaveBeenCalledWith(expect.objectContaining({ id: channel.id, expectedVersion: 3, displayName: "수정한 채널" }),expect.any(String)));
-    await screen.findByText("version 4");
-    fireEvent.click(screen.getByRole("button", { name: "작성 중인 검수로 돌아가기" }));
-    const review = await screen.findByRole("region", { name: "노래 클립 검수 화면" });
-    expect(within(review).getByLabelText("시작 위치(초)")).toHaveProperty("value", "42");
-    fireEvent.click(within(review).getByRole("button", { name: "검수 목록으로" }));
-    expect(screen.getByRole("heading", { name: "검수할 플레이리스트" })).toBeTruthy();
-    expect(screen.queryByLabelText("검수 출처")).toBeNull();
-  });
-
-  it("opens a linked proposal in the review tab and returns to its exact import item", async () => {
-    const row = { ...createReviewItemFixture(), id: "linked-candidate", kind: "candidate", title: "연결된 가져오기 영상", status: "needs_input", pendingProposalId: proposal.id };
-    fetchImportJobMock.mockResolvedValueOnce({ id: "job-1", status: "completed", playlistTitle: "가져온 목록", counts: { discovered: 1 }, requestedItemCount: 1 });
-    reviewRowsMock.mockResolvedValue({ items: [row], nextCursor: null });
-    function LinkedReview() {
-      const [search, setSearch] = useState<ConsoleSearch>({ tab: "import", category: "job-1" });
-      return createElement(ConsoleSearchContext.Provider, { value: [search, patch => setSearch(current => ({ ...current, ...patch }))] },
-        createElement<NonNullable<Parameters<typeof OtwPlayCatalogManager>[0]>>(OtwPlayCatalogManager, { activeSection: search.tab === "review" ? "review" : "import" }));
-    }
-    render(createElement(LinkedReview), { wrapper: createQueryWrapper() });
-    fireEvent.click(await screen.findByRole("button", { name: "연결된 제안 검수" }));
-    expect(screen.getByRole("heading", { name: "검수", level: 1 })).toBeTruthy();
-    fireEvent.click(await screen.findByRole("button", { name: "가져오기 항목으로" }));
-    expect(await screen.findByText("연결된 가져오기 영상 · 정보 입력 필요")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "가져온 목록" })).toBeTruthy();
-  });
-
-  it("maps legacy clip links to the catalog and automatic links to the import list", async () => {
-    function LegacyPanel({ tab }: { tab: string }) {
-      const [search, setSearch] = useState<ConsoleSearch>({ tab });
-      return createElement(ConsoleSearchContext.Provider, { value: [search, patch => setSearch(previous => ({ ...previous, ...patch }))] }, createElement<NonNullable<Parameters<typeof OtwPlayCatalogManager>[0]>>(OtwPlayCatalogManager, { activeSection: tab === "clips" ? "catalog" : "automatic-review" }));
-    }
-    const view = render(createElement(LegacyPanel, { tab: "clips" }), { wrapper: createQueryWrapper() });
-    expect(await screen.findByRole("button", { name: "새 노래 클립 등록" })).toBeTruthy();
-    expect(screen.getByLabelText("카탈로그 영상 종류").textContent).toBe("노래 클립");
-    view.unmount();
-    render(createElement(LegacyPanel, { tab: "automatic-review" }), { wrapper: createQueryWrapper() });
-    expect(await screen.findByRole("heading", { name: "플레이리스트 가져오기" })).toBeTruthy();
-    expect(screen.queryByLabelText("검수 출처")).toBeNull();
-    expect(reviewRowsMock).not.toHaveBeenCalled();
-  });
-
-  it("deletes a channel directly from its row after confirmation and refreshes the list", async () => {
-    const channel = { id: "delete-channel", provider: "youtube", externalChannelId: `UC${"D".repeat(22)}`, displayName: "삭제 대상", channelRole: "approved_kirinuki", verificationStatus: "pending", active: false, entityIds: [], version: 3 };
-    fetchCatalogMock.mockResolvedValue({ ...catalog, channels: [channel] });
-    deleteChannelMock.mockImplementation(async () => { fetchCatalogMock.mockResolvedValue(catalog); return { data: { id: channel.id }, catalogRevision: 8 }; });
-    renderCatalogManager();
-    await openOperationsTab("채널");
-    fireEvent.click(await openSecondaryAction("삭제 대상 채널 삭제"));
-    await waitFor(() => expect(deleteChannelMock).toHaveBeenCalledWith(channel.id, { expectedVersion: 3 },expect.any(String)));
-    expect(confirmationMock).toHaveBeenCalledWith(expect.objectContaining({ title: "삭제 대상 채널을 삭제할까요?" }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: "삭제 대상 채널 삭제 메뉴" })).toBeNull());
-  });
-
-  it("keeps the channel when row deletion is cancelled", async () => {
-    fetchCatalogMock.mockResolvedValue({ ...catalog, channels: [{ id: "keep-channel", externalChannelId: `UC${"D".repeat(22)}`, displayName: "유지 대상", channelRole: "approved_kirinuki", verificationStatus: "pending", active: false, entityIds: [], version: 0 }] });
-    confirmationMock.mockResolvedValueOnce(false);
-    renderCatalogManager();
-    await openOperationsTab("채널");
-    fireEvent.click(await openSecondaryAction("유지 대상 채널 삭제"));
-    await waitFor(() => expect(confirmationMock).toHaveBeenCalled());
-    expect(deleteChannelMock).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "유지 대상 채널 삭제 메뉴" })).toBeTruthy();
-  });
-
-  it("shows source health, channels, and people in separate operations tabs", async () => {
-    renderCatalogManager();
-    fireEvent.click(await screen.findByRole("tab", { name: "가져오기" }));
-    expect(await screen.findByRole("region", { name: "가져오기 작업 목록" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "링크 확인" })).toBeTruthy();
-    expect(screen.queryByRole("combobox",{name:"검수 출처"})).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "운영" }));
-    const operations = screen.getByRole("tablist", { name: "Play 운영 영역" });
-    expect(within(operations).getByRole("tab", { name: "소스 상태", selected: true })).toBeTruthy();
-    expect(await screen.findByRole("heading", { name: "소스 상태" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Play 채널" })).toBeNull();
-    fireEvent.click(within(operations).getByRole("tab", { name: "채널" }));
-    expect(await screen.findByRole("heading", { name: "Play 채널" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "소스 상태" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "외부 인물·그룹" })).toBeNull();
-    fireEvent.click(within(operations).getByRole("tab", { name: "인물·그룹" }));
-    expect(await screen.findByRole("heading", { name: "외부 인물·그룹" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Play 채널" })).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "카탈로그" }));
-    expect(screen.queryByRole("button", { name: "인물·그룹" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "외부 인물·그룹" })).toBeNull();
-  });
-
-  it("shows the actionable preflight API error and request id", async () => {
-    preflightEntryMock.mockRejectedValueOnce(
-      new ApiError("YouTube metadata is temporarily unavailable", 503, {
-        code: "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE",
-        fields: { youtube: "YouTube metadata request returned 403" },
-        requestId: "request-preflight-1",
-      }),
-    );
-    renderCatalogManager();
-
-    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
-    fireEvent.change(screen.getByLabelText("YouTube URL"), {
-      target: {
-        value:
-          "https://www.youtube.com/watch?v=ASRCBcCY_qE&list=RDASRCBcCY_qE&start_radio=1",
-      },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-
-    expect((await screen.findByRole("alert")).textContent).toContain(
-      "YouTube metadata request returned 403",
-    );
-    expect(screen.getByRole("alert").textContent).toContain(
-      "request-preflight-1",
-    );
-  });
-
-  it("defaults an original song to the video title and uses participants when original artists are empty", async () => {
-    await openVideoRegistration();
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    expect(screen.queryByLabelText("시작 위치(초)")).toBeNull();
-    expect(screen.queryByLabelText("종료 위치(초)")).toBeNull();
-    expect(screen.getByText("영상 길이 · 180초")).toBeTruthy();
-    fireEvent.click(screen.getByRole("checkbox", { name: "구간 선택" }));
-    fireEvent.change(screen.getByLabelText("시작 위치(초)"), {
-      target: { value: "10" },
-    });
-    fireEvent.change(screen.getByLabelText("종료 위치(초)"), {
-      target: { value: "90" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    fireEvent.click(screen.getByRole("checkbox", { name: "구간 선택" }));
-    expect(screen.queryByLabelText("시작 위치(초)")).toBeNull();
-    expect(screen.queryByLabelText("종료 위치(초)")).toBeNull();
-    expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", true);
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    expect(preflightEntryMock).toHaveBeenLastCalledWith({
-      youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
-      startSeconds: 0,
-      endSeconds: null,
-    });
-    fireEvent.click(screen.getByRole("button", { name: /오리지널곡/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    expect(screen.getByLabelText("곡 제목")).toHaveProperty("value", "확인된 영상");
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.change(screen.getByLabelText("가창 참여자 검색"), {
-      target: { value: "현재 멤버" },
-    });
-    fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
-
-    await waitFor(() =>
-      expect(createEntryMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          relationType: "original",
-          song: expect.objectContaining({
-            kind: "create",
-            title: "확인된 영상",
-            isOtwOriginal: true,
-            originalArtists: [{ subject: { kind: "member", memberUid: 1 }, creditOrder: 0, isPrimary: true }],
-          }),
-          startSeconds: 0,
-          endSeconds: 180,
-        }),
-       expect.any(String),),
-    );
-  });
-
-  it("edits an original song manually and preserves its title and artists across registration steps", async () => {
-    await openVideoRegistration();
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    fireEvent.click(screen.getByRole("button", { name: /오리지널곡/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.change(screen.getByLabelText("곡 제목"), { target: { value: "" } });
-    expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", true);
-    fireEvent.change(screen.getByLabelText("곡 제목"), { target: { value: "직접 입력한 곡" } });
-    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), { target: { value: "원곡 가수" } });
-    fireEvent.click(screen.getByRole("button", { name: /외부 인물로 추가/ }));
-    fireEvent.click(screen.getByRole("button", { name: /이전/ }));
-    fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
-    fireEvent.click(screen.getByRole("button", { name: /오리지널곡/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    expect(screen.getByLabelText("곡 제목")).toHaveProperty("value", "직접 입력한 곡");
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.change(screen.getByLabelText("가창 참여자 검색"), { target: { value: "현재 멤버" } });
-    fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
-    fireEvent.click(screen.getByRole("button", { name: /이전/ }));
-    fireEvent.change(screen.getByLabelText("곡 제목"), { target: { value: "수정한 곡명" } });
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    expect(screen.getByText("수정한 곡명")).toBeTruthy();
-    expect(screen.getByText("원곡 가수 · 원곡 가수")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
-    await waitFor(() => expect(createEntryMock).toHaveBeenCalledWith(expect.objectContaining({
-      relationType: "original",
-      song: expect.objectContaining({
-        kind: "create", title: "수정한 곡명", isOtwOriginal: true,
-        originalArtists: [expect.objectContaining({
-          subject: expect.objectContaining({ kind: "new_external", displayName: "원곡 가수" }),
-          creditOrder: 0, isPrimary: true,
-        })],
-      }),
-      participants: [expect.objectContaining({ subject: { kind: "member", memberUid: 1 } })],
-    }), expect.any(String)));
-  });
-
-  it("requires clip channel approval when switching to karaoke without losing the video", async () => {
-    await openVideoRegistration();
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    fireEvent.click(screen.getByRole("button", { name: /노래방송/ }));
-
-    expect(
-      screen.getByRole("alert"),
-    ).toBeTruthy();
-    expect(
-      (screen.getByRole("button", { name: /다음/ }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    expect(createEntryMock).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("YouTube URL")).toHaveProperty("value", "https://youtu.be/dQw4w9WgXcQ");
-    expect(screen.getByText("확인된 영상")).toBeTruthy();
-  });
-
-  it("registers karaoke from the main catalog and continues with the next song segment", async () => {
-    const dirtyStates = new Map<string, boolean>();
-    const confirmDiscard = vi.fn();
-    preflightEntryMock.mockResolvedValue({ catalogRevision: 7,
-      video: { videoId: "dQw4w9WgXcQ", title: "방송 노래 모음", durationSeconds: 180, publishedAt: 1, availabilityStatus: "playable", thumbnailUrl: null, channelId: `UC${"K".repeat(22)}`, channelTitle: "승인 클립 채널" },
-      channel: { state: "approved", catalogChannelId: "clip-channel", verificationStatus: "approved", active: true, channelRole: "approved_kirinuki", memberUid: null }, duplicate: null });
-    render(createElement(UnsavedChangesContext.Provider, { value: {
-      register: (id, dirty) => { dirtyStates.set(id, dirty); }, confirm: confirmDiscard,
-    } }, createElement(OtwPlayCatalogManager)), { wrapper: createQueryWrapper() });
-    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
-    fireEvent.change(screen.getByLabelText("YouTube URL"), { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    fireEvent.click(await screen.findByRole("button", { name: /노래방송/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "다음" })).toHaveProperty("disabled", false));
-    fireEvent.click(screen.getByRole("checkbox", { name: "구간 선택" }));
-    fireEvent.change(screen.getByLabelText("시작 위치(초)"), { target: { value: "10" } });
-    fireEvent.change(screen.getByLabelText("종료 위치(초)"), { target: { value: "90" } });
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "다음" })).toHaveProperty("disabled", false));
-    fireEvent.click(screen.getByRole("button", { name: "다음" }));
-    expect(screen.queryByText(/지원하지 않습니다/)).toBeNull();
-    fireEvent.change(screen.getByLabelText("기존 곡 검색"), { target: { value: "방송 첫 곡" } });
-    fireEvent.click(screen.getByRole("option", { name: /새 곡 입력/ }));
-    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), { target: { value: "원곡 가수" } });
-    fireEvent.click(screen.getByRole("button", { name: "외부 인물로 추가" }));
-    fireEvent.click(screen.getByRole("button", { name: "다음" }));
-    fireEvent.change(screen.getByLabelText("가창 참여자 검색"), { target: { value: "현재 멤버" } });
-    fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
-    fireEvent.change(screen.getByLabelText("방송일 (선택)"), { target: { value: "2026-09-15" } });
-    fireEvent.keyDown(screen.getByLabelText("가창 범위"), { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("option", { name: "일부 가창" }));
-    fireEvent.click(screen.getByRole("button", { name: "다음" }));
-    expect(screen.getByText("방송 첫 곡")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "게시" })).toBeNull();
-    createEntryMock.mockRejectedValueOnce(new Error("저장 재시도"));
-    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
-    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "저장 재시도");
-    expect(screen.getByText("방송 첫 곡")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
-    await screen.findByText("노래방송 가창 구간을 임시 저장했습니다.");
-    expect([...dirtyStates.values()].some(Boolean)).toBe(false);
-    expect(screen.getByLabelText("카탈로그 영상 종류").textContent).toBe("공식 곡");
-    expect(createEntryMock).toHaveBeenLastCalledWith(expect.objectContaining({
-      registrationMode: "standard", relationType: "singing_clip", releaseType: "broadcast", publicationTarget: "draft",
-      startSeconds: 10, endSeconds: 90, channel: { kind: "existing", channelId: "clip-channel" },
-      song: expect.objectContaining({ kind: "create", title: "방송 첫 곡", isOtwOriginal: false }),
-      broadcast: { performedOn: "2026-09-15", dateEvidence: null, originalUrl: null, extent: "partial" },
-    }), expect.any(String));
-    fireEvent.click(screen.getByRole("button", { name: "같은 영상의 다음 곡 추가" }));
-    expect([...dirtyStates.values()].some(Boolean)).toBe(true);
-    expect(screen.getByLabelText("시작 위치(초)")).toHaveProperty("value", "90");
-    expect(screen.getByLabelText("종료 위치(초)")).toHaveProperty("value", "180");
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "다음" })).toHaveProperty("disabled", false));
-    expect(screen.getByRole("button", { name: /노래방송/ }).getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "다음" }));
-    fireEvent.change(screen.getByLabelText("기존 곡 검색"), { target: { value: "방송 다음 곡" } });
-    fireEvent.click(screen.getByRole("option", { name: /새 곡 입력/ }));
-    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), { target: { value: "다음 원곡 가수" } });
-    fireEvent.click(screen.getByRole("button", { name: "외부 인물로 추가" }));
-    fireEvent.click(screen.getByRole("button", { name: "다음" }));
-    expect(screen.getByLabelText("방송일 (선택)")).toHaveProperty("value", "2026-09-15");
-    expect(screen.getByLabelText("가창 범위").textContent).toBe("확인 필요 — 게시 전 선택");
-    expect(screen.getByLabelText("현재 멤버 역할")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "다음" }));
-    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
-    await screen.findByText("노래방송 가창 구간을 임시 저장했습니다.");
-    expect(createEntryMock).toHaveBeenLastCalledWith(expect.objectContaining({
-      registrationMode: "standard", relationType: "singing_clip", releaseType: "broadcast", startSeconds: 90, endSeconds: 180,
-      song: expect.objectContaining({ title: "방송 다음 곡" }),
-      broadcast: expect.objectContaining({ extent: null }),
-    }), expect.any(String));
-    expect(screen.getByRole("button", { name: "같은 영상의 다음 곡 추가" })).toHaveProperty("disabled", true);
-    fireEvent.click(screen.getByRole("button", { name: "완료" }));
-    await waitFor(() => expect(screen.getByLabelText("카탈로그 영상 종류").textContent).toBe("노래 클립"));
-    expect(confirmDiscard).not.toHaveBeenCalled();
-  });
-
-  it("requires an explicit owner before saving an unknown channel", async () => {
-    preflightEntryMock.mockResolvedValueOnce({
-      catalogRevision: 7,
-      video: {
-        videoId: "dQw4w9WgXcQ",
-        title: "미등록 채널 영상",
-        thumbnailUrl: null,
-        durationSeconds: 180,
-        publishedAt: 1,
-        availabilityStatus: "playable",
-        channelId: `UC${"U".repeat(22)}`,
-        channelTitle: "미등록 채널",
-      },
-      channel: {
-        state: "unknown",
-        catalogChannelId: null,
-        verificationStatus: null,
-        active: false,
-        channelRole: null,
-        memberUid: null,
-      },
-      duplicate: null,
-    });
-    renderCatalogManager();
-
-    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
-    fireEvent.change(screen.getByLabelText("YouTube URL"), {
-      target: { value: "https://youtu.be/dQw4w9WgXcQ" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
-    const nextButton = screen.getByRole("button", { name: /다음/ });
-    expect(nextButton).toHaveProperty("disabled", true);
-    fireEvent.change(screen.getByLabelText("채널 소유·연결 주체 검색"), {
-      target: { value: "현재 멤버" },
-    });
-    fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
-    expect(nextButton).toHaveProperty("disabled", false);
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.change(screen.getByLabelText("곡 제목"), {
-      target: { value: "미등록 채널 원곡" },
-    });
-    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), {
-      target: { value: "미등록 채널 원곡 가수" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /외부 인물로 추가/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.change(screen.getByLabelText("가창 참여자 검색"), {
-      target: { value: "현재 멤버" },
-    });
-    fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
-
-    expect(screen.queryByLabelText("채널 소유·연결 주체 검색")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
-
-    await waitFor(() =>
-      expect(createEntryMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          publicationTarget: "draft",
-          channel: expect.objectContaining({
-            kind: "pending",
-            owners: [{ kind: "member", memberUid: 1 }],
-          }),
-        }),
-       expect.any(String),),
-    );
-  });
-
-  it.each([false, true])("keeps registration input and handles a stale preflight: %s", async (stale) => {
-    createEntryMock.mockRejectedValueOnce(new ApiError("저장 중 동시 변경이 발생했습니다.",409,{code:stale?"PLAY_ADMIN_STALE_WRITE":"CONTENT_CONFLICT"}));
-    await openVideoRegistration();
-    await screen.findByRole("region", { name: "등록 채널 상태" });
-    fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.change(screen.getByLabelText("곡 제목"), {
-      target: { value: "실패 후 보존 원곡" },
-    });
-    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), {
-      target: { value: "입력 보존 가수" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /외부 인물로 추가/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.change(screen.getByLabelText("가창 참여자 검색"), {
-      target: { value: "현재 멤버" },
-    });
-    fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
-    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
-
-    expect((await screen.findByRole("alert")).textContent).toContain(stale ? "영상과 채널을 다시 확인" : "저장 중 동시 변경이 발생했습니다.");
-    expect(screen.getByRole("dialog", { name: "새 YouTube 영상 등록" })).toBeTruthy();
-    expect(screen.getAllByText(/현재 멤버/).length).toBeGreaterThan(0);
-    expect(screen.getByText("실패 후 보존 원곡")).toBeTruthy();
-    expect(screen.getByText(/입력 보존 가수/)).toBeTruthy();
-    const requestId=createEntryMock.mock.calls[0][1];expect(requestId).toEqual(expect.any(String));
-    if (stale) {
-      expect((screen.getByRole("button", { name: "임시 저장" }) as HTMLButtonElement).disabled).toBe(true);
-      const prepared = await preflightEntryMock.mock.results[0].value;
-      preflightEntryMock.mockResolvedValue({ ...prepared, catalogRevision: 8 });
-      fireEvent.click(screen.getByRole("button", { name: "영상 다시 확인" }));
-      await waitFor(() => expect(preflightEntryMock).toHaveBeenCalledTimes(2));
-      await screen.findByRole("region", { name: "등록 채널 상태" });
-      for (let i = 0; i < 3; i++) {
-        await waitFor(() => expect((screen.getByRole("button", { name: /다음/ }) as HTMLButtonElement).disabled).toBe(false));
-        fireEvent.click(screen.getByRole("button", { name: /다음/ }));
-      }
-    }
-    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
-    await waitFor(()=>expect(createEntryMock).toHaveBeenCalledTimes(2));
-    if (stale) {
-      expect(createEntryMock.mock.calls[1][1]).not.toBe(requestId);
-      expect(createEntryMock.mock.calls[1][0]).toMatchObject({ expectedCatalogRevision: 8,
-        song: { title: "실패 후 보존 원곡" } });
-    } else expect(createEntryMock.mock.calls[1][1]).toBe(requestId);
-    await waitFor(()=>expect(screen.queryByRole("dialog",{name:"새 YouTube 영상 등록"})).toBeNull());
-  });
-
-it("keeps page order across revisions without loading the full catalog",async()=>{
-  const pageCatalog={...catalog,revision:7,readModelRevision:7,songs:[{id:"page-one",title:"First server page",archivedAt:null,originalArtists:[],aliases:[],tags:[],version:0,isOtwOriginal:false}],performances:[{...linkedPerformance,songId:"page-one"}]};
-  fetchCatalogMock.mockImplementation(async(query)=>query?.cursor?{...pageCatalog,revision:8,readModelRevision:8,paged:true,nextCursor:null,songs:[{...pageCatalog.songs[0],id:'page-two',title:'Second server page'}],performances:[{...catalog.performances[0],id:'page-two-performance',songId:'page-two'}]}:{...pageCatalog,paged:true,nextCursor:'next-server-page'});
-  render(createElement(OtwPlayCatalogManager),{wrapper:createQueryWrapper()});
-  await screen.findAllByText("First server page");
-  expect(fetchCatalogMock).toHaveBeenCalledWith(expect.objectContaining({limit:25,scope:'official',cursor:null}));
-  fireEvent.click(screen.getByRole('button',{name:'곡 더 보기'}));
-  await screen.findAllByText('Second server page');
-  expect(screen.getAllByText('First server page')[0].compareDocumentPosition(screen.getAllByText('Second server page')[0])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-  expect(fetchCatalogMock).toHaveBeenCalledWith(expect.objectContaining({cursor:'next-server-page',limit:25}));
-});
-
-it("shows matching video states and publishes only the checked private performance", async () => {
-  const song = { id: "selected-song", slug: "selected-song", title: "선택 게시 확인곡", originalArtists: [], tags: [], aliases: [], archivedAt: null, version: 0, isOtwOriginal: false };
-  const draft = { ...linkedPerformance, id: "draft-selected", songId: song.id, publicationStatus: "draft" as const, version: 4 };
-  const otherDraft = { ...draft, id: "draft-unselected" };
-  const published = { ...linkedPerformance, id: "already-published", songId: song.id };
-  fetchCatalogMock.mockResolvedValue({ ...catalog, songs: [song], performances: [draft, otherDraft, published] });
-  renderCatalogManager();
-  const filters = await screen.findByRole("group", { name: "게시 상태" });
-  fireEvent.click(within(filters).getByRole("button", { name: "비공개" }));
-  const table = screen.getByRole("table", { name: "곡 카탈로그" });
-  const selections = within(table).getAllByRole("checkbox", { name: "선택 게시 확인곡 게시 선택" });
-  expect(selections).toHaveLength(2);
-  expect(within(table).queryByText("게시됨")).toBeNull();
-  fireEvent.click(selections[0]!);
-  expect(screen.getByText("영상 1개 선택")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "선택 항목 게시" }));
-  expect(publishPerformanceMock).not.toHaveBeenCalled();
-  const dialog = await screen.findByRole("alertdialog", { name: "선택한 영상을 게시할까요?" });
-  fireEvent.click(within(dialog).getByRole("button", { name: "1개 게시" }));
-  await waitFor(() => expect(publishPerformanceMock).toHaveBeenCalledExactlyOnceWith(draft.id, { expectedVersion: 4 }, expect.any(String)));
-  fireEvent.click(within(filters).getByRole("button", { name: "게시됨" }));
-  expect(within(table).queryByRole("checkbox")).toBeNull();
-});
-
-it("publishes all draft targets after explicitly reading beyond the server page",async()=>{
-  const song={id:'bulk-song',slug:'bulk-song',title:'Bulk song',normalizedTitle:'bulk song',originalArtists:[],tags:[],aliases:[],archivedAt:null,version:0,isOtwOriginal:false};
-  const draft={...linkedPerformance,id:'bulk-one',songId:song.id,publicationStatus:'draft' as const};
-  const other={...draft,id:'bulk-two'};
-  fetchCatalogMock.mockImplementation(async query=>query?{...catalog,paged:true,nextCursor:null,songs:[song],performances:[draft]}:{...catalog,songs:[song],performances:[draft,other]});
-  renderCatalogManager();
-  await openBulkPublication();
-  const dialog=await screen.findByRole('alertdialog');
-  fireEvent.click(within(dialog).getByRole('button',{name:'2개 게시'}));
-  await waitFor(()=>expect(publishPerformanceMock).toHaveBeenCalledTimes(2));
-  expect(publishPerformanceMock.mock.calls.map(call=>call[0])).toEqual(['bulk-one','bulk-two']);
-  expect(fetchCatalogMock).toHaveBeenCalledWith();
-});
-
-it("selects an off-page existing participant while editing a performance",async()=>{
-  const song={id:'edit-page-song',slug:'edit-page-song',title:'Edit page song',originalArtists:[],tags:[],aliases:[],archivedAt:null,version:0,isOtwOriginal:false};
-  const performance={...linkedPerformance,id:'edit-page-performance',songId:song.id,publicationStatus:'draft' as const,sources:[{source:{id:'edit-source',provider:'youtube' as const,externalId:'dQw4w9WgXcQ',channelId:'edit-channel',title:null,thumbnailUrl:null,durationSeconds:180,providerPublishedAt:null,availabilityStatus:'playable' as const,lastCheckedAt:null,version:0},startSeconds:0,endSeconds:null,sourceRole:'official' as const,priority:0,isPrimary:true}]};
-  const external={id:'off-page-vocal',memberUid:null,entityKind:'person' as const,displayName:'Off page vocalist',normalizedName:'off page vocalist',slug:'off-page-vocal',archivedAt:null,version:0};
-  fetchCatalogMock.mockImplementation(async query=>query?.lookup==='entities'?{...catalog,entities:[external]}:{...catalog,paged:true,nextCursor:null,songs:[song],performances:[performance]});
-  renderCatalogManager();
-  fireEvent.click(await screen.findByRole('button',{name:'Edit page song 가창 펼치기'}));
-  const row=within(screen.getByRole("table", { name: "곡 카탈로그" })).getAllByText("비공개")[0]!.closest('tr')!;
-  fireEvent.click(within(row).getByRole('button',{name:'수정'}));
-  const dialog=screen.getByRole('dialog',{name:'가창 정보 수정'});
-  fireEvent.change(within(dialog).getByLabelText('가창 참여자 검색'),{target:{value:'Off page vocalist'}});
-  fireEvent.click(await within(dialog).findByRole('option',{name:/Off page vocalist/}));
-  fireEvent.click(within(dialog).getByRole('button',{name:'전체 정보 저장'}));
-  await waitFor(()=>expect(updatePerformanceMock).toHaveBeenCalledWith(expect.objectContaining({id:performance.id,participants:[expect.objectContaining({subject:{kind:'entity',entityId:external.id}})]}),expect.any(String)));
-});
-
-it("shows a retryable error when full publication preparation fails", async () => {
-  fetchCatalogMock.mockImplementation(async query => {
-    if (!query) throw new Error("catalog unavailable");
-    return { ...catalog, paged: true, nextCursor: null };
-  });
-  renderCatalogManager();
-  await openBulkPublication();
-  expect((await screen.findByRole("alert")).textContent).toContain("전체 게시 대상을 불러오지 못했습니다");
-  expect(screen.queryByRole("alertdialog")).toBeNull();
-  expect(publishPerformanceMock).not.toHaveBeenCalled();
-  fetchCatalogMock.mockResolvedValue(catalog);
-  await openBulkPublication();
-  expect(await screen.findByText("현재 영상 종류에 게시할 수 있는 비공개 영상이 없습니다.")).toBeTruthy();
-  expect(screen.queryByRole("alertdialog")).toBeNull();
-  expect(publishPerformanceMock).not.toHaveBeenCalled();
-});
-
-it("keeps global publication reachable from an empty filtered server page",async()=>{
-  const song={id:'hidden-draft-song',slug:'hidden-draft-song',title:'Off page draft',originalArtists:[],tags:[],aliases:[],archivedAt:null,version:0,isOtwOriginal:false};
-  const draft={...linkedPerformance,id:'off-page-draft',songId:song.id,publicationStatus:'draft' as const};
-  fetchCatalogMock.mockImplementation(async query=>query?{...catalog,paged:true,nextCursor:null}:{...catalog,songs:[song],performances:[draft]});
-  render(createElement(ConsoleSearchContext.Provider,{value:[{q:'no matching song'},vi.fn()]},createElement(OtwPlayCatalogManager)),{wrapper:createQueryWrapper()});
-  await screen.findByRole('search',{name:'카탈로그 필터'});
-  await waitFor(()=>expect(fetchCatalogMock).toHaveBeenCalledWith(expect.objectContaining({q:'no matching song'})));
-  expect(screen.getByText('조건에 맞는 곡이 없습니다. 검색어를 바꾸거나 필터를 초기화해 주세요.')).toBeTruthy();
-  await openBulkPublication();
-  const dialog=await screen.findByRole('alertdialog');
-  fireEvent.click(within(dialog).getByRole('button',{name:'1개 게시'}));
-  await waitFor(()=>expect(publishPerformanceMock).toHaveBeenCalledWith(draft.id,expect.anything(),expect.any(String)));
-});
-
-it("reports a failed off-page selection and retries it without hiding the catalog", async () => {
-  const visible = {id:"visible",slug:"visible",title:"Visible review song",normalizedTitle:"visible review song",originalArtists:[],tags:[],aliases:[],archivedAt:null,version:0,isOtwOriginal:false};
-  const selected = {...visible,id:"off-page",slug:"off-page",title:"Selected review song"};
-  let failed = true;
-  fetchCatalogMock.mockImplementation(async query => {
-    if (query?.songId && failed) throw new ApiError("selection unavailable",503,{code:"PLAY_ADMIN_INTERNAL_ERROR"});
-    const song = query?.songId ? selected : visible;
-    return {...catalog,paged:true,nextCursor:null,songs:[song],performances:[{...linkedPerformance,id:"p-"+song.id,songId:song.id}]};
-  });
-  const client = createTestQueryClient();
-  render(createElement(QueryClientProvider,{client},createElement(ConsoleSearchContext.Provider,{value:[{selected:selected.id},vi.fn()]},createElement(OtwPlayCatalogManager))));
-  await screen.findAllByText(visible.title);
-  expect((await screen.findByRole("alert")).textContent).toContain("선택한 곡을 불러오지 못했습니다");
-  expect(screen.queryAllByText(visible.title).length).toBeGreaterThan(0);
-  failed = false;
-  fireEvent.click(screen.getByRole("button",{name:"선택한 곡 다시 불러오기"}));
-  await screen.findAllByText(selected.title);
-  await waitFor(()=>expect(screen.queryByRole("alert")).toBeNull());
-  client.clear();
-});
-
-it("keeps current page references when an older off-page selection fails to refresh", async () => {
-  const visible = {id:"visible",slug:"visible",title:"Visible review song",normalizedTitle:"visible review song",originalArtists:[],tags:[],aliases:[],archivedAt:null,version:0,isOtwOriginal:false};
-  const offPage = {...visible,id:"off-page",slug:"off-page",title:"Off page review song"};
-  const current = {id:"shared-artist",entityKind:"person" as const,memberUid:null,displayName:"Current artist",normalizedName:"current artist",slug:"shared-artist",version:3,archivedAt:null};
-  const old = {...current,displayName:"Old artist",normalizedName:"old artist",version:1};
-  const page = {...catalog,revision:9,readModelRevision:9,paged:true as const,nextCursor:null,songs:[visible],performances:[{...linkedPerformance,songId:visible.id}],entities:[current]};
-  const selected = {...page,revision:7,readModelRevision:7,songs:[offPage],performances:[{...linkedPerformance,id:"off-page-performance",songId:offPage.id}],entities:[old]};
-  fetchCatalogMock.mockImplementation(async query => {
-    if(query?.songId) throw new ApiError("selection unavailable",503,{code:"PLAY_ADMIN_INTERNAL_ERROR"});
-    if(query?.lookup) return {...catalog,paged:true,nextCursor:null};
-    return page;
-  });
-  const client = createTestQueryClient();
-  const key = [...queryKeys.otwPlay.adminCatalog(),"selected",offPage.id,"official",undefined,undefined,undefined];
-  client.setQueryData(key,selected);
-  render(createElement(QueryClientProvider,{client},createElement(ConsoleSearchContext.Provider,{value:[{selected:offPage.id},vi.fn()]},createElement(OtwPlayCatalogManager))));
-  await screen.findAllByText(visible.title);
-  await waitFor(()=>expect(client.getQueryState(key)?.status).toBe("error"));
-  fireEvent.click(screen.getAllByRole("button",{name:"곡 정보 수정"})[0]);
-  const dialog = await screen.findByRole("dialog",{name:"곡 정보 수정"});
-  fireEvent.change(within(dialog).getByLabelText("원곡 가수 검색"),{target:{value:"artist"}});
-  expect(within(dialog).queryByRole("option",{name:/Current artist/})).not.toBeNull();
-  expect(within(dialog).queryByRole("option",{name:/Old artist/})).toBeNull();
-  client.clear();
-});
-
 });

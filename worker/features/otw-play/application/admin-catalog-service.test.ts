@@ -301,9 +301,9 @@ describe("AdminCatalogService", () => {
     });
   });
 
-  it("coordinates successful admin lifecycle commands and audit mirrors", async () => {
-    const result = { data: { id: "resource-1" }, catalogRevision: 2 };
-    const repository = {
+  function createLifecycleFixture() {
+const result = { data: { id: "resource-1" }, catalogRevision: 2 };
+const repository = {
       createEntity: vi.fn(async () => result),
       updateEntity: vi.fn(async () => result),
       deleteEntity: vi.fn(async () => result),
@@ -316,9 +316,9 @@ describe("AdminCatalogService", () => {
       updateChannel: vi.fn(async () => result),
       deleteChannel: vi.fn(async () => result),
     } as unknown as AdminCatalogRepository;
-    const audit = { record: vi.fn(async () => undefined) };
-    let sequence = 0;
-    const service = new AdminCatalogService(
+const audit = { record: vi.fn(async () => undefined) };
+let sequence = 0;
+const service = new AdminCatalogService(
       repository,
       {
         readChannel: vi.fn(async (channelId) => ({
@@ -332,7 +332,7 @@ describe("AdminCatalogService", () => {
       false,
       () => 123,
     );
-    const song = {
+const song = {
       slug: "song",
       title: "Song",
       isOtwOriginal: false,
@@ -343,14 +343,18 @@ describe("AdminCatalogService", () => {
         { entityId: "artist", creditOrder: 0, isPrimary: true },
       ],
     };
-    const channel = {
+const channel = {
       externalChannelId: `UC${"A".repeat(22)}`,
       displayName: "Client claim",
       channelRole: "member_music" as const,
       entityIds: [],
     };
+return { result, repository, audit, service, song, channel };
+}
 
-    await service.createEntity(
+it("coordinates createEntity with its audit mirror", async () => {
+const { repository, audit, service } = createLifecycleFixture();
+await service.createEntity(
       {
         entityKind: "person",
         displayName: "Singer",
@@ -358,7 +362,14 @@ describe("AdminCatalogService", () => {
       },
       actor,
     );
-    await service.updateEntity(
+expect(repository.createEntity).toHaveBeenCalledOnce();
+expect(audit.record).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({eventType:"otw_play.entity.created",actor}));
+
+});
+
+it("coordinates updateEntity with its audit mirror", async () => {
+const { repository, audit, service } = createLifecycleFixture();
+await service.updateEntity(
       {
         entityKind: "person",
         displayName: "Singer",
@@ -369,9 +380,37 @@ describe("AdminCatalogService", () => {
       },
       actor,
     );
-    await service.deleteEntity("external-1", { expectedVersion: 0 }, actor);
-    await service.createSong(song, actor);
-    await service.updateSong(
+expect(repository.updateEntity).toHaveBeenCalledOnce();
+expect(audit.record).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({eventType:"otw_play.entity.updated",actor}));
+
+});
+
+it("coordinates deleteEntity with its audit mirror", async () => {
+const { repository, audit, service } = createLifecycleFixture();
+await service.deleteEntity("external-1", { expectedVersion: 0 }, actor);
+expect(repository.deleteEntity).toHaveBeenCalledOnce();
+expect(repository.deleteEntity).toHaveBeenCalledWith(
+      "external-1",
+      0,
+      actor,
+      expect.any(String),
+      123,
+    );
+expect(audit.record).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({eventType:"otw_play.entity.deleted",actor}));
+
+});
+
+it("coordinates createSong with its audit mirror", async () => {
+const { repository, audit, service, song } = createLifecycleFixture();
+await service.createSong(song, actor);
+expect(repository.createSong).toHaveBeenCalledOnce();
+expect(audit.record).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({eventType:"otw_play.song.created",actor}));
+
+});
+
+it("coordinates updateSong with its audit mirror", async () => {
+const { repository, audit, service, song } = createLifecycleFixture();
+await service.updateSong(
       {
         ...song,
         id: "song-1",
@@ -386,20 +425,75 @@ describe("AdminCatalogService", () => {
       },
       actor,
     );
-    await service.deletePerformance(
+expect(repository.updateSong).toHaveBeenCalledOnce();
+expect(audit.record).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({eventType:"otw_play.song.updated",actor}));
+
+});
+
+it("coordinates deletePerformance with its audit mirror", async () => {
+const { repository, audit, service } = createLifecycleFixture();
+await service.deletePerformance(
       "performance-draft",
       { expectedVersion: 0 },
       actor,
     );
-    await service.deleteSong("song-draft", { expectedVersion: 0 }, actor);
-    await service.transitionPerformance(
+expect(repository.deletePerformance).toHaveBeenCalledOnce();
+expect(repository.deletePerformance).toHaveBeenCalledWith(
+      "performance-draft",
+      0,
+      actor,
+      expect.any(String),
+      123,
+    );
+expect(audit.record).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({eventType:"otw_play.performance.deleted",actor}));
+
+});
+
+it("coordinates deleteSong with its audit mirror", async () => {
+const { repository, audit, service } = createLifecycleFixture();
+await service.deleteSong("song-draft", { expectedVersion: 0 }, actor);
+expect(repository.deleteSong).toHaveBeenCalledOnce();
+expect(repository.deleteSong).toHaveBeenCalledWith(
+      "song-draft",
+      0,
+      actor,
+      expect.any(String),
+      123,
+    );
+expect(audit.record).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({eventType:"otw_play.song.deleted",actor}));
+
+});
+
+it("coordinates transitionPerformance with its audit mirror", async () => {
+const { repository, audit, service } = createLifecycleFixture();
+await service.transitionPerformance(
       "performance-1",
       { expectedVersion: 0 },
       "published",
       actor,
     );
-    await service.createChannel(channel, actor);
-    await service.updateChannel(
+expect(repository.transitionPerformance).toHaveBeenCalledOnce();
+expect(audit.record).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({eventType:"otw_play.performance.published",actor}));
+
+});
+
+it("coordinates createChannel with its audit mirror", async () => {
+const { repository, audit, service, channel } = createLifecycleFixture();
+await service.createChannel(channel, actor);
+expect(repository.createChannel).toHaveBeenCalledOnce();
+expect(repository.createChannel).toHaveBeenCalledWith(
+      expect.objectContaining({ displayName: "Verified Channel" }),
+      actor,
+      expect.any(Object),
+      123,
+    );
+expect(audit.record).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({eventType:"otw_play.channel.created",actor}));
+
+});
+
+it("coordinates updateChannel with its audit mirror", async () => {
+const { repository, audit, service, channel } = createLifecycleFixture();
+await service.updateChannel(
       {
         ...channel,
         id: "channel-1",
@@ -409,43 +503,23 @@ describe("AdminCatalogService", () => {
       },
       actor,
     );
-    await service.deleteChannel("channel-1", { expectedVersion: 1 }, actor);
+expect(repository.updateChannel).toHaveBeenCalledOnce();
+expect(repository.updateChannel).toHaveBeenCalledWith(
+      expect.objectContaining({ displayName: "Verified Channel" }),
+      actor,
+      expect.any(String),
+      123,
+    );
+expect(audit.record).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({eventType:"otw_play.channel.updated",actor}));
 
-    expect(repository.createChannel).toHaveBeenCalledWith(
-      expect.objectContaining({ displayName: "Verified Channel" }),
-      actor,
-      expect.any(Object),
-      123,
-    );
-    expect(repository.updateChannel).toHaveBeenCalledWith(
-      expect.objectContaining({ displayName: "Verified Channel" }),
-      actor,
-      expect.any(String),
-      123,
-    );
-    expect(repository.deletePerformance).toHaveBeenCalledWith(
-      "performance-draft",
-      0,
-      actor,
-      expect.any(String),
-      123,
-    );
-    expect(repository.deleteEntity).toHaveBeenCalledWith(
-      "external-1",
-      0,
-      actor,
-      expect.any(String),
-      123,
-    );
-    expect(repository.deleteSong).toHaveBeenCalledWith(
-      "song-draft",
-      0,
-      actor,
-      expect.any(String),
-      123,
-    );
-    expect(audit.record).toHaveBeenCalledTimes(10);
-  });
+});
+
+it("coordinates deleteChannel", async () => {
+const { repository, service } = createLifecycleFixture();
+await service.deleteChannel("channel-1", { expectedVersion: 1 }, actor);
+expect(repository.deleteChannel).toHaveBeenCalledOnce();
+
+});
 
   it("does not persist a video whose authoritative YouTube channel differs", async () => {
     const createPerformance = vi.fn();
@@ -920,8 +994,8 @@ describe("AdminCatalogService", () => {
     expect(repository.approveProposal).not.toHaveBeenCalled();
   });
 
-  it("validates every proposal approval boundary before the atomic repository command", async () => {
-    const input = {
+  function createApprovalFixture() {
+const input = {
       expectedVersion: 0,
       expectedCatalogRevision: 1,
       song: { kind: "existing" as const, songId: "song-1" },
@@ -939,21 +1013,21 @@ describe("AdminCatalogService", () => {
       singingCreditConfirmed: true as const,
       publish: true as const,
     };
-    const proposal = {
+const proposal = {
       id: "proposal-1",
       version: 0,
       status: "pending_review" as OtwPlayProposalStatus,
       approvedPerformanceId: null as string | null,
       youtubeVideoId: "dQw4w9WgXcQ",
     };
-    const channel = {
+const channel = {
       id: "channel-1",
       externalChannelId: `UC${"A".repeat(22)}`,
       verificationStatus: "approved" as OtwPlayChannelVerificationStatus,
       active: true,
       channelRole: "member_music" as const,
     };
-    const video: OtwPlayYouTubeVideoMetadata = {
+const video: OtwPlayYouTubeVideoMetadata = {
       videoId: proposal.youtubeVideoId,
       channelId: channel.externalChannelId,
       channelTitle: "Official",
@@ -963,17 +1037,17 @@ describe("AdminCatalogService", () => {
       publishedAt: null,
       availabilityStatus: "playable",
     };
-    const readProposals = vi.fn(async () => [proposal]);
-    const readCatalog = vi.fn(async () => ({ revision: 1, channels: [channel] }));
-    const approveProposal = vi.fn(async () => ({
+const readProposals = vi.fn(async () => [proposal]);
+const readCatalog = vi.fn(async () => ({ revision: 1, channels: [channel] }));
+const approveProposal = vi.fn(async () => ({
       data: { approvedPerformanceId: "performance-1" },
       catalogRevision: 2,
     }));
-    const readVideo = vi.fn<
+const readVideo = vi.fn<
       (videoId: string) => Promise<OtwPlayYouTubeVideoMetadata | null>
     >(async () => video);
-    const audit = { record: vi.fn(async () => undefined) };
-    const service = new AdminCatalogService(
+const audit = { record: vi.fn(async () => undefined) };
+const service = new AdminCatalogService(
       {
         readProposals,
         readCatalog,
@@ -986,79 +1060,121 @@ describe("AdminCatalogService", () => {
       true,
       () => 123,
     );
+return { input, proposal, channel, video, readProposals, readCatalog, approveProposal, readVideo, audit, service };
+}
 
-    readProposals.mockResolvedValueOnce([]);
-    await expect(
+it("rejects a missing approval proposal", async () => {
+const { input, readProposals, approveProposal, audit, service } = createApprovalFixture();
+readProposals.mockResolvedValueOnce([]);
+await expect(
       service.approveProposal("proposal-1", input, actor),
     ).rejects.toMatchObject({ code: "not_found" });
+expect(approveProposal).not.toHaveBeenCalled();
+expect(audit.record).not.toHaveBeenCalled();
+});
 
-    readProposals.mockResolvedValue([{ ...proposal, version: 1 }]);
-    await expect(
+it("rejects a stale proposal version before writing", async () => {
+const { input, proposal, readProposals, approveProposal, audit, service } = createApprovalFixture();
+readProposals.mockResolvedValue([{ ...proposal, version: 1 }]);
+await expect(
       service.approveProposal("proposal-1", input, actor),
     ).rejects.toMatchObject({ code: "stale_write" });
+expect(approveProposal).not.toHaveBeenCalled();
+expect(audit.record).not.toHaveBeenCalled();
+});
 
-    readProposals.mockResolvedValue([proposal]);
-    readCatalog.mockResolvedValueOnce({ revision: 1, channels: [] });
-    await expect(
+it("rejects approval without the verified channel", async () => {
+const { input, readCatalog, approveProposal, audit, service } = createApprovalFixture();
+readCatalog.mockResolvedValueOnce({ revision: 1, channels: [] });
+await expect(
       service.approveProposal("proposal-1", input, actor),
     ).rejects.toMatchObject({ code: "validation_failed" });
+expect(approveProposal).not.toHaveBeenCalled();
+expect(audit.record).not.toHaveBeenCalled();
+});
 
-    readCatalog.mockResolvedValueOnce({
+it("rejects approval while the channel is pending", async () => {
+const { input, channel, readCatalog, approveProposal, audit, service } = createApprovalFixture();
+readCatalog.mockResolvedValueOnce({
       revision: 1,
       channels: [{ ...channel, verificationStatus: "pending" }],
     });
-    await expect(
+await expect(
       service.approveProposal("proposal-1", input, actor),
     ).rejects.toMatchObject({ code: "validation_failed" });
+expect(approveProposal).not.toHaveBeenCalled();
+expect(audit.record).not.toHaveBeenCalled();
+});
 
-    readCatalog.mockResolvedValueOnce({
+it("rejects approval through an inactive channel", async () => {
+const { input, channel, readCatalog, approveProposal, audit, service } = createApprovalFixture();
+readCatalog.mockResolvedValueOnce({
       revision: 1,
       channels: [{ ...channel, active: false }],
     });
-    await expect(
+await expect(
       service.approveProposal("proposal-1", input, actor),
     ).rejects.toMatchObject({ code: "validation_failed" });
+expect(approveProposal).not.toHaveBeenCalled();
+expect(audit.record).not.toHaveBeenCalled();
+});
 
-    readVideo.mockResolvedValueOnce(null);
-    await expect(
+it("rejects approval when video metadata is unavailable", async () => {
+const { input, approveProposal, readVideo, audit, service } = createApprovalFixture();
+readVideo.mockResolvedValueOnce(null);
+await expect(
       service.approveProposal("proposal-1", input, actor),
     ).rejects.toMatchObject({ code: "validation_failed" });
+expect(approveProposal).not.toHaveBeenCalled();
+expect(audit.record).not.toHaveBeenCalled();
+});
 
-    readVideo.mockResolvedValueOnce({ ...video, videoId: "aaaaaaaaaaa" });
-    await expect(
+it("rejects mismatched video metadata during approval", async () => {
+const { input, video, approveProposal, readVideo, audit, service } = createApprovalFixture();
+readVideo.mockResolvedValueOnce({ ...video, videoId: "aaaaaaaaaaa" });
+await expect(
       service.approveProposal("proposal-1", input, actor),
     ).rejects.toMatchObject({ code: "validation_failed" });
+expect(approveProposal).not.toHaveBeenCalled();
+expect(audit.record).not.toHaveBeenCalled();
+});
 
-    readVideo.mockResolvedValueOnce({ ...video, channelId: "wrong-channel" });
-    await expect(
+it("rejects mismatched channel metadata during approval", async () => {
+const { input, video, approveProposal, readVideo, audit, service } = createApprovalFixture();
+readVideo.mockResolvedValueOnce({ ...video, channelId: "wrong-channel" });
+await expect(
       service.approveProposal("proposal-1", input, actor),
     ).rejects.toMatchObject({ code: "validation_failed" });
+expect(approveProposal).not.toHaveBeenCalled();
+expect(audit.record).not.toHaveBeenCalled();
+});
 
-    await expect(
+it("approves once and reuses the completed result on replay", async () => {
+const { input, proposal, readProposals, approveProposal, audit, service } = createApprovalFixture();
+await expect(
       service.approveProposal("proposal-1", input, actor),
     ).resolves.toMatchObject({ catalogRevision: 2 });
-    expect(approveProposal).toHaveBeenCalledOnce();
-    expect(audit.record).toHaveBeenCalledWith(
+expect(approveProposal).toHaveBeenCalledOnce();
+expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: "otw_play.proposal.approved",
         detail: { performanceId: "performance-1" },
       }),
     );
-
-    readProposals.mockResolvedValue([{
+readProposals.mockResolvedValue([{
       ...proposal,
       status: "approved",
       version: 1,
       approvedPerformanceId: "performance-1",
     }]);
-    await expect(
+await expect(
       service.approveProposal("proposal-1", input, actor),
     ).resolves.toMatchObject({
       data: { status: "approved", approvedPerformanceId: "performance-1" },
       catalogRevision: 2,
     });
-    expect(approveProposal).toHaveBeenCalledOnce();
-  });
+expect(approveProposal).toHaveBeenCalledOnce();
+});
 
   it("delegates proposal rejection", async () => {
     const rejectProposal = vi.fn(async () => ({

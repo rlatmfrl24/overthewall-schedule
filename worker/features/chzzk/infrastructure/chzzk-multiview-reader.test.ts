@@ -63,13 +63,18 @@ describe("existing public CHZZK channel reader for personal channels", () => {
   });
   it("limits live upstream concurrency to four", async () => {
     let active = 0, peak = 0;
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
     vi.stubGlobal("fetch", async (url: RequestInfo | URL) => {
       active++; peak = Math.max(peak, active);
-      await new Promise(resolve => setTimeout(resolve, 1)); active--;
+      await pending; active--;
       const channelId = String(url).split("/channels/")[1]!.split("/")[0]!;
       return Response.json({ code: 200, content: live(channelId) });
     });
-    expect(await reader.readLiveStatuses(Array.from({ length: 9 }, (_, i) => i.toString(16).padStart(32, "0")))).toHaveLength(9);
+    const reading = reader.readLiveStatuses(Array.from({ length: 9 }, (_, i) => i.toString(16).padStart(32, "0")));
+    try { await vi.waitFor(() => expect(active).toBe(4)); }
+    finally { release(); }
+    expect(await reading).toHaveLength(9);
     expect(peak).toBe(4);
   });
   it("evicts live cache entries beyond 512 without changing its sixty-second TTL", async () => {
